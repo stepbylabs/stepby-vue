@@ -1,0 +1,9 @@
+dist
+node_modules
+public
+*.min.js
+*.min.css
+src/types/api/generated
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
