@@ -98,7 +98,7 @@
                 <Collection style="width: 1em; height: 1em; vertical-align: middle" />
                 <span class="align-middle">{{ t('cache.list.title') }}</span>
                 <el-button
-                  v-hasPermi="['monitor:cache:query']"
+                  v-hasPermi="['monitor:cache:list']"
                   class="float-right py-[3px]"
                   link
                   type="primary"
@@ -161,7 +161,7 @@
                 <Transition name="fade">
                   <el-button
                     v-if="nowCacheName"
-                    v-hasPermi="['monitor:cache:query']"
+                    v-hasPermi="['monitor:cache:list']"
                     class="float-right py-[3px]"
                     link
                     type="primary"

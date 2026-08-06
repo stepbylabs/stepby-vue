@@ -60,7 +60,18 @@ function triggerReloginDialog(): Promise<void> {
 /** U19 优化：将一个 401 请求加入等待队列，返回挂起 Promise */
 function enqueue401Request(): Promise<void> {
   return new Promise((resolve, reject) => {
-    pending401Queue.push({ resolve, reject })
+    const item = { resolve, reject }
+    pending401Queue.push(item)
+    // P1 修复：队列挂起超时兜底（60s）。若"重新登录"对话框弹出后用户既不确认也不取消
+    // （或切换标签页导致对话框未处理），排队的请求将永久 pending，页面 loading 卡死。
+    // 超时后自动将本请求移出队列并 reject，释放调用方。
+    setTimeout(() => {
+      const idx = pending401Queue.indexOf(item)
+      if (idx >= 0) {
+        pending401Queue.splice(idx, 1)
+        reject(new Error(t('common.sessionExpired')))
+      }
+    }, 60 * 1000)
   })
 }
 
@@ -237,6 +248,12 @@ service.interceptors.response.use(
     } else if (code === 601) {
       ElMessage({ message: msg, type: 'warning' })
       return Promise.reject(new Error(msg))
+    } else if (code === 1003) {
+      // P0-4：TOTP 多因子登录（需要验证码 / 验证码错误 / 尝试过多）
+      // 不弹通用错误提示，reject 携带业务码的 Error 供 login.vue 进入/停留在 TOTP 输入步骤
+      const err = new Error(msg) as Error & { code?: number }
+      err.code = 1003
+      return Promise.reject(err)
     } else if (code !== 200) {
       ElNotification.error({ title: msg })
       // P1 修复: Promise.reject 用 Error 而非字符串

@@ -51,7 +51,6 @@ router.beforeEach(async (to, _from) => {
       try {
         // 拉取user_info信息
         await useUserStore().getInfo()
-        isRelogin.show = false
         // 根据roles权限生成可访问的路由
         const accessRoutes = await usePermissionStore().generateRoutes()
         accessRoutes.forEach((route: AppRouteRecord) => {
@@ -89,15 +88,26 @@ router.beforeEach(async (to, _from) => {
           doneProgress()
           return { path: '/403' }
         }
-        // 500 服务器错误：不登出，便于用户刷新重试
-        if (httpStatus === 500) {
+        // 500/502/503 服务器错误：不登出，便于用户刷新重试
+        if (httpStatus === 500 || httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
           doneProgress()
           return { path: '/500' }
         }
-        // 其他错误（如 401 token 过期）：保持原有登出 + 跳转首页逻辑
-        await useUserStore().logOut()
-        ElMessage.error(errMsg || t('common.routeLoadFailed'))
-        return { path: '/' }
+        // P1 修复：仅鉴权类错误（401 / token 失效）才强制登出；
+        // 其他异常（如后端瞬时故障、前端权限树解析错误）保留登录态，避免把已登录用户踢下线
+        if (httpStatus === 401) {
+          await useUserStore().logOut()
+          ElMessage.error(errMsg || t('common.routeLoadFailed'))
+          return { path: '/' }
+        }
+        // 其余未知错误：保留登录态，跳 500 错误页
+        if (import.meta.env.DEV) console.error('[permission] route load error:', err)
+        doneProgress()
+        return { path: '/500' }
+      } finally {
+        // P1 修复：无论成功/失败都复位 isRelogin.show，
+        // 否则残留 true 会导致 request.ts 中后续所有 401 不再触发"重新登录"对话框
+        isRelogin.show = false
       }
     }
     return true

@@ -31,7 +31,7 @@
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="1.5">
-        <el-button type="primary" plain icon="Plus" @click="openSelectUser" v-hasPermi="['system:role:add']">
+        <el-button type="primary" plain icon="Plus" @click="openSelectUser" v-hasPermi="['system:role:edit']">
           {{ t('common.add') }}
         </el-button>
       </el-col>
@@ -42,7 +42,7 @@
           icon="CircleClose"
           :disabled="multiple"
           @click="cancelAuthUserAll"
-          v-hasPermi="['system:role:remove']"
+          v-hasPermi="['system:role:edit']"
         >
           {{ t('role.authUser.batchCancel') }}
         </el-button>
@@ -84,7 +84,7 @@
             type="primary"
             icon="CircleClose"
             @click="cancelAuthUser(scope.row)"
-            v-hasPermi="['system:role:remove']"
+            v-hasPermi="['system:role:edit']"
           >
             {{ t('role.authUser.cancel') }}
           </el-button>

@@ -176,6 +176,7 @@
             <el-table-column :label="t('user.column.status')" align="center" key="status" v-if="columns.status.visible">
               <template #default="scope">
                 <el-switch
+                  v-hasPermi="['system:user:edit']"
                   v-model="scope.row.status"
                   active-value="0"
                   inactive-value="1"

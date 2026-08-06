@@ -4,6 +4,16 @@
  */
 import useUserStore from '@/store/modules/user'
 
+// P1 修复：缓存元素原始 display 值，恢复时还原（与 v-hasPermi 一致）
+const originalDisplay = new WeakMap<HTMLElement, string>()
+
+function getOriginalDisplay(el: HTMLElement): string {
+  if (!originalDisplay.has(el)) {
+    originalDisplay.set(el, window.getComputedStyle(el).display || '')
+  }
+  return originalDisplay.get(el) as string
+}
+
 function checkRole(el: HTMLElement, binding: DirectiveBinding) {
   const { value } = binding
   const super_admin = 'admin'
@@ -28,7 +38,8 @@ function checkRole(el: HTMLElement, binding: DirectiveBinding) {
 
   // P0 修复：使用 display:none 隐藏而非物理移除（removeChild 不可逆），
   // 与 v-hasPermi 保持一致；角色变化时可通过 updated 钩子恢复
-  el.style.display = hasRole ? '' : 'none'
+  // P1：恢复时还原原始 display 值
+  el.style.display = hasRole ? getOriginalDisplay(el) : 'none'
 }
 
 export default {

@@ -294,7 +294,13 @@ function handleKeyDown(event: KeyboardEvent): void {
 }
 
 function isActive(r: View | Record<string, never>): boolean {
-  return (r as View).path === route.path
+  // P1 修复：同路径不同 query 的标签也要正确高亮（比较 fullPath 而非仅 path），
+  // 与 AppMain 的 keep-alive key 语义保持一致
+  const view = r as View
+  if (view.fullPath) {
+    return view.fullPath === route.fullPath
+  }
+  return view.path === route.path
 }
 
 function tagActiveStyle(tag: View): Record<string, string> {

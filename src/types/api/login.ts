@@ -51,4 +51,6 @@ export interface LoginForm {
   rememberMe?: boolean | string
   code: string
   uuid: string
+  /** TOTP 动态验证码（P0-4：已启用多因子的用户登录时必填） */
+  totpCode?: string
 }

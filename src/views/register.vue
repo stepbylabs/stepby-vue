@@ -32,7 +32,7 @@
       </el-form-item>
       <el-form-item prop="password" :rules="registerPwdValidator">
         <el-input
-          v-model.trim="registerForm.password"
+          v-model="registerForm.password"
           type="password"
           size="large"
           auto-complete="off"
@@ -112,7 +112,7 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getCodeImg, register } from '@/api/login'
 import defaultSettings from '@/settings'
 import { usePasswordRule } from '@/utils/passwordRule'
@@ -141,7 +141,8 @@ const registerForm = ref<RegisterForm>({
 
 const equalToPassword = (rule: Record<string, unknown>, value: string, callback: (error?: Error) => void): void => {
   if (registerForm.value.password !== value) {
-    callback(new Error(t('common.tip')))
+    // P1 修复：使用明确的"两次密码不一致"文案（原为通用"提示"）
+    callback(new Error(t('register.passwordMismatch')))
   } else {
     callback()
   }
@@ -152,9 +153,10 @@ const registerRules = computed(() => ({
     { required: true, trigger: 'blur', message: t('common.form.inputPlaceholder') + t('register.username') },
     { min: 2, max: 20, message: t('common.tip'), trigger: 'blur' }
   ],
+  password: registerPwdValidator.value,
   confirmPassword: [
     { required: true, trigger: 'blur', message: t('common.form.inputPlaceholder') + t('register.confirmPassword') },
-    { required: true, validator: equalToPassword, trigger: 'blur' }
+    { validator: equalToPassword, trigger: 'blur' }
   ],
   // 验证码关闭时（captchaEnabled=false）code 输入框 v-if 隐藏，规则也应为空避免校验失败
   code: captchaEnabled.value
@@ -168,6 +170,8 @@ function handleRegister(): void {
       loading.value = true
       register(registerForm.value)
         .then(() => {
+          // P1 修复：成功路径先复位 loading，再弹窗跳转（避免弹窗/跳转失败时按钮永久 loading）
+          loading.value = false
           const username = registerForm.value.username
           ElMessageBox.alert(t('register.successTitle', { username: username }), t('common.tip'), {
             type: 'success'
@@ -201,6 +205,12 @@ function getCode(): void {
       if (captchaEnabled.value && res.img) {
         codeUrl.value = 'data:image/gif;base64,' + res.img
         registerForm.value.uuid = res.uuid
+      } else if (captchaEnabled.value) {
+        // P1 修复：后端声明启用验证码但图片为空时，不再静默关闭验证码（会绕过防爆破）
+        captchaEnabled.value = true
+        codeUrl.value = ''
+        registerForm.value.uuid = ''
+        ElMessage.warning(t('login.captchaLoadFailed'))
       } else {
         captchaEnabled.value = false
         codeUrl.value = ''

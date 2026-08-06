@@ -234,7 +234,9 @@ export default {
     signIn: 'Sign in now',
     registerDisabled: 'Registration is disabled. Please contact the administrator if needed.',
     logout: 'Logout and re-login',
-    clickRefreshCaptcha: 'Click to refresh captcha'
+    clickRefreshCaptcha: 'Click to refresh captcha',
+    totpCode: 'TOTP code (6 digits)',
+    captchaLoadFailed: 'Failed to load captcha, please click to retry'
   },
   register: {
     title: 'Register',
@@ -244,6 +246,7 @@ export default {
     code: 'Captcha',
     submit: 'Register',
     clickRefreshCaptcha: 'Click to refresh captcha',
+    passwordMismatch: 'The two passwords do not match',
     successTitle: 'Congratulations, your account {username} has been registered successfully!',
     successMessage: 'Please login with the new account'
   },

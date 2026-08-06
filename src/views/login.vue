@@ -21,7 +21,7 @@
       </el-form-item>
       <el-form-item prop="password">
         <el-input
-          v-model.trim="loginForm.password"
+          v-model="loginForm.password"
           :type="passwordVisible ? 'text' : 'password'"
           size="large"
           auto-complete="off"
@@ -77,6 +77,21 @@
           </div>
         </el-form-item>
       </Transition>
+      <Transition name="expand-fade">
+        <el-form-item prop="totpCode" v-if="totpRequired">
+          <el-input
+            v-model="loginForm.totpCode"
+            size="large"
+            auto-complete="off"
+            :placeholder="t('login.totpCode')"
+            :aria-label="t('login.totpCode')"
+            :maxlength="6"
+            @keyup.enter="handleLogin"
+          >
+            <template #prefix><svg-icon icon-class="validCode" class="el-input__icon input-icon" /></template>
+          </el-input>
+        </el-form-item>
+      </Transition>
       <el-checkbox v-model="loginForm.rememberMe" class="mb-[25px]">{{ t('login.remember') }}</el-checkbox>
       <el-form-item class="w-full">
         <el-button :loading="loading" size="large" type="primary" class="w-full" @click.prevent="handleLogin">
@@ -103,6 +118,7 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
+import { ElMessage } from 'element-plus'
 import { getCodeImg } from '@/api/login'
 import { isSafeRedirect } from '@/utils/redirect'
 import Cookies from 'js-cookie'
@@ -123,7 +139,8 @@ const loginForm = ref<LoginForm>({
   password: import.meta.env.DEV ? import.meta.env.VITE_DEV_PWD || '' : '',
   rememberMe: false,
   code: '',
-  uuid: ''
+  uuid: '',
+  totpCode: ''
 })
 
 const loginRules = computed(() => ({
@@ -131,6 +148,10 @@ const loginRules = computed(() => ({
   password: [{ required: true, trigger: 'blur', message: t('common.form.inputPlaceholder') + t('login.password') }],
   code: captchaEnabled.value
     ? [{ required: true, trigger: 'change', message: t('common.form.inputPlaceholder') + t('login.code') }]
+    : [],
+  // P0-4：TOTP 输入步骤中必填 6 位动态码
+  totpCode: totpRequired.value
+    ? [{ required: true, trigger: 'change', message: t('common.form.inputPlaceholder') + t('login.totpCode') }]
     : []
 }))
 
@@ -144,6 +165,8 @@ const codeLoading = ref(false)
 const captchaEnabled = ref(true)
 // 注册开关
 const register = ref(false)
+// P0-4：是否进入 TOTP 多因子验证步骤（后端返回业务码 1003 时置为 true）
+const totpRequired = ref(false)
 const redirect = ref<string | undefined>(undefined)
 
 watch(
@@ -171,6 +194,8 @@ function handleLogin(): void {
       userStore
         .login(loginForm.value)
         .then(() => {
+          // P1 修复：成功路径也重置 loading，避免 router.push 被守卫拒绝/重复导航失败时按钮永久 loading
+          loading.value = false
           const query = route.query
           const otherQueryParams = Object.keys(query).reduce((acc: LocationQueryRaw, cur) => {
             if (cur !== 'redirect') {
@@ -182,8 +207,13 @@ function handleLogin(): void {
           const target = isSafeRedirect(redirect.value) ? (redirect.value as string) : '/'
           router.push({ path: target, query: otherQueryParams }).catch(() => {})
         })
-        .catch(() => {
+        .catch((err: Error & { code?: number }) => {
           loading.value = false
+          // P0-4：TOTP 多因子登录——进入/停留在 TOTP 输入步骤（密码已通过，仅缺动态码）
+          if (err?.code === 1003) {
+            totpRequired.value = true
+            return
+          }
           // 重新获取验证码
           if (captchaEnabled.value) {
             getCode()
@@ -194,6 +224,8 @@ function handleLogin(): void {
 }
 
 function getCode(): void {
+  // P1 修复：防重复点击（快速点击验证码会并发请求，导致 uuid 与图片错配）
+  if (codeLoading.value) return
   // P2 修复: 添加 .catch 处理验证码接口故障，避免未处理的 Promise rejection
   codeLoading.value = true
   getCodeImg()
@@ -206,9 +238,15 @@ function getCode(): void {
       if (captchaEnabled.value && res.img) {
         codeUrl.value = 'data:image/gif;base64,' + res.img
         loginForm.value.uuid = res.uuid
+      } else if (captchaEnabled.value) {
+        // P1 修复：后端声明启用验证码但图片为空时，不再静默关闭验证码（会绕过防爆破），
+        // 而是保留开启状态并提示用户重试刷新。
+        captchaEnabled.value = true
+        codeUrl.value = ''
+        loginForm.value.uuid = ''
+        ElMessage.warning(t('login.captchaLoadFailed'))
       } else {
-        // 后端返回 captchaEnabled=true 但 img 为空，或 captchaEnabled=false 时
-        // 关闭验证码显示，避免渲染破损图片
+        // 后端明确关闭验证码
         captchaEnabled.value = false
         codeUrl.value = ''
         loginForm.value.uuid = ''

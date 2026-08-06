@@ -74,9 +74,11 @@ export function usePasswordRule() {
     ]
   })
   // 注册页面密码校验
+  // P1 修复：注册强制"字母 + 数字"（chrtype 3），避免 6 位纯数字/纯字母弱密码直接注册；
+  // 此前固定用 rules['0']（仅禁非法字符），与登录后 setPwdChrType 的强策略不一致。
   const registerPwdValidator = computed(() => {
     const rules = getPwdRules()
-    const rule = rules['0']
+    const rule = rules['3']
     return [
       { required: true, message: i18n.global.t('passwordRule.pleaseEnter'), trigger: 'blur' },
       { min: 6, max: 20, message: i18n.global.t('passwordRule.userLengthRange'), trigger: 'blur' },

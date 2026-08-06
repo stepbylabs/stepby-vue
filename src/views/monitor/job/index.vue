@@ -69,7 +69,7 @@
         </el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="info" plain icon="Operation" @click="handleJobLog()" v-hasPermi="['monitor:job:query']">
+        <el-button type="info" plain icon="Operation" @click="handleJobLog()" v-hasPermi="['monitor:job:list']">
           {{ t('job.btn.log') }}
         </el-button>
       </el-col>
@@ -101,6 +101,7 @@
       <el-table-column :label="t('job.column.status')" align="center">
         <template #default="scope">
           <el-switch
+            v-hasPermi="['monitor:job:changeStatus']"
             v-model="scope.row.status"
             active-value="0"
             inactive-value="1"
@@ -152,7 +153,7 @@
               icon="Operation"
               :aria-label="t('job.jobLog')"
               @click="handleJobLog(scope.row)"
-              v-hasPermi="['monitor:job:query']"
+              v-hasPermi="['monitor:job:list']"
             ></el-button>
           </el-tooltip>
         </template>

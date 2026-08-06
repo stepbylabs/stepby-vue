@@ -234,7 +234,9 @@ export default {
     signIn: '立即登录',
     registerDisabled: '系统未开放注册，如有需要请联系管理员',
     logout: '退出重新登录',
-    clickRefreshCaptcha: '点击刷新验证码'
+    clickRefreshCaptcha: '点击刷新验证码',
+    totpCode: '动态验证码（6 位）',
+    captchaLoadFailed: '验证码加载失败，请点击重试'
   },
   register: {
     title: '注册',
@@ -244,6 +246,7 @@ export default {
     code: '验证码',
     submit: '注 册',
     clickRefreshCaptcha: '点击刷新验证码',
+    passwordMismatch: '两次输入的密码不一致',
     successTitle: '恭喜你，您的账号 {username} 注册成功！',
     successMessage: '请使用新账号登录系统'
   },

@@ -103,6 +103,7 @@
         <el-table-column :label="t('role.column.status')" align="center" width="100">
           <template #default="scope">
             <el-switch
+              v-hasPermi="['system:role:edit']"
               v-model="scope.row.status"
               active-value="0"
               inactive-value="1"

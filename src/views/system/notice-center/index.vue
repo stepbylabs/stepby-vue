@@ -81,7 +81,7 @@
               <svg-icon icon-class="search" />
             </template>
           </el-input>
-          <el-button v-hasPermi="['system:notice:center:query']" @click="handleQuery">
+          <el-button v-hasPermi="['system:notice:center:query', 'system:notice:list']" @click="handleQuery">
             <svg-icon icon-class="search" />
             {{ t('common.search') }}
           </el-button>
@@ -172,7 +172,7 @@
               {{ t('noticeCenter.markRead') }}
             </el-button>
             <el-button
-              v-hasPermi="['system:notice:center:query']"
+              v-hasPermi="['system:notice:center:query', 'system:notice:list']"
               type="info"
               link
               size="small"

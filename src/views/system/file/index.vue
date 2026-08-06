@@ -9,7 +9,7 @@
           :accept="acceptTypes"
           multiple
         >
-          <el-button v-hasPermi="['system:file:upload']" type="primary" icon="Upload">
+          <el-button v-hasPermi="['system:file:add']" type="primary" icon="Upload">
             {{ t('file.btn.upload') }}
           </el-button>
         </el-upload>
@@ -55,7 +55,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button v-hasPermi="['system:file:query']" type="primary" icon="Search" @click="loadList">
+          <el-button v-hasPermi="['system:file:list']" type="primary" icon="Search" @click="loadList">
             {{ t('common.search') }}
           </el-button>
           <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>

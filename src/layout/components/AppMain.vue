@@ -4,7 +4,9 @@
       <ErrorBoundary v-if="!route.meta.link">
         <transition name="fade-transform" mode="out-in">
           <keep-alive :include="tagsViewStore.cachedViews" :max="20">
-            <component :is="Component" :key="route.path" />
+            <!-- P1 修复：key 用 fullPath（含 query），使同一路径不同参数（详情页带参跳转）重建组件，
+                 避免 keep-alive 缓存导致显示旧数据；与 TagsView isActive 的 fullPath 语义一致 -->
+            <component :is="Component" :key="route.fullPath" />
           </keep-alive>
         </transition>
       </ErrorBoundary>

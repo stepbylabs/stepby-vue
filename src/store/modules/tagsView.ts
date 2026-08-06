@@ -247,7 +247,10 @@ const useTagsViewStore = defineStore('tags-view', {
         }
         if (item.meta?.link) {
           const fi = this.iframeViews.findIndex((v: View) => viewKey(v) === viewKey(item))
-          this.iframeViews.splice(fi, 1)
+          // P1 修复：findIndex 未命中时 fi=-1，splice(-1,1) 会误删数组最后一个元素
+          if (fi >= 0) {
+            this.iframeViews.splice(fi, 1)
+          }
         }
         return false
       })
@@ -277,7 +280,10 @@ const useTagsViewStore = defineStore('tags-view', {
         }
         if (item.meta?.link) {
           const fi = this.iframeViews.findIndex((v: View) => viewKey(v) === viewKey(item))
-          this.iframeViews.splice(fi, 1)
+          // P1 修复：findIndex 未命中时 fi=-1，splice(-1,1) 会误删数组最后一个元素
+          if (fi >= 0) {
+            this.iframeViews.splice(fi, 1)
+          }
         }
         return false
       })

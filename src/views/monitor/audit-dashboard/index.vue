@@ -82,7 +82,7 @@
                   icon="Download"
                   :loading="exporting"
                   @click="handleExportPdf"
-                  v-hasPermi="['monitor:audit:query']"
+                  v-hasPermi="['monitor:audit:list']"
                 >
                   {{ t('auditDashboard.btn.exportPdf') }}
                 </el-button>

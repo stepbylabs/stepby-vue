@@ -126,7 +126,7 @@
               type="primary"
               icon="View"
               @click="handleView(scope.row)"
-              v-hasPermi="['monitor:job:query']"
+              v-hasPermi="['monitor:job:list']"
             >
               {{ t('common.detail') }}
             </el-button>
