@@ -1,5 +1,7 @@
+import type { PageDomain } from '../common'
+
 /** 在线用户分页查询参数 */
-export interface OnlineQueryParams {
+export interface OnlineQueryParams extends PageDomain {
   /** 登录地址 */
   ipaddr?: string;
   /** 用户名称 */

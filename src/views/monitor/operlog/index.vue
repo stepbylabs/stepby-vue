@@ -232,10 +232,12 @@ import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
 import { list, delOperlog, cleanOperlog } from '@/api/monitor/operlog'
+import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/yebot'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useCrudTable } from '@/composables/useCrudTable'
 import type { SysOperLog, OperlogQueryParams } from '@/types/api/monitor/operlog'
 
 const { t, te } = useI18n()
@@ -255,16 +257,10 @@ const queryRef = useTemplateRef('queryRef')
 const operlogRef = useTemplateRef('operlogRef')
 const { sys_oper_type, sys_common_status } = useDict('sys_oper_type', 'sys_common_status')
 
-const operlogList = shallowRef<SysOperLog[]>([])
 const detailVisible = ref<boolean>(false)
 const detailRow = ref<SysOperLog>({})
-const loading = ref<boolean>(true)
-const showSearch = ref<boolean>(true)
-const ids = ref<number[]>([])
 const cleanLoading = ref(false)
 const printLoading = ref(false)
-const multiple = ref<boolean>(true)
-const total = ref<number>(0)
 const dateRange = ref<string[]>([])
 const defaultSort = ref({ prop: 'operTime', order: 'descending' })
 
@@ -281,7 +277,8 @@ const data = reactive({
   } as OperlogQueryParams
 })
 
-const { queryParams } = toRefs(data)
+const { queryParams, form } = toRefs(data)
+const formRef = ref<FormInstance | null>(null)
 
 // P1-3：支持从 audit-dashboard 通过 query 跳转过来预筛选业务类型
 const route = useRoute()
@@ -296,41 +293,43 @@ function applyRouteQuery() {
 }
 applyRouteQuery()
 
-/** 查询登录日志 */
-function getList() {
-  loading.value = true
-  list(addDateRange(queryParams.value, dateRange.value))
-    .then((response) => {
-      operlogList.value = response.rows
-      total.value = response.total
-    })
-    .catch((e) => {
-      if (import.meta.env.DEV) console.error(e)
-      modal.msgError(t('common.requestFailed'))
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
+const {
+  dataList: operlogList,
+  loading,
+  showSearch,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleSelectionChange,
+  handleDelete
+} = useCrudTable<SysOperLog, OperlogQueryParams>({
+  listApi: (params) =>
+    list(addDateRange(params as Record<string, unknown>, dateRange.value) as OperlogQueryParams),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: (ids) => delOperlog(ids as unknown as number | number[]),
+  idField: 'operId',
+  defaultForm: () => ({}) as SysOperLog,
+  titleKey: 'operlog.title',
+  deleteTipKey: 'operlog.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef,
+  queryRef
+})
 
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作 */
+/** 重置按钮操作（审计 2.5 修复：重置后必须刷新列表）
+ * 清除日期范围、重置排序参数并重新触发查询；与原始行为一致（重置后重新应用默认排序）。
+ */
 function resetQuery() {
   dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
-  queryParams.value.pageNum = 1
+  handleQuery()
   operlogRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
-}
-
-/** 多选框选中数据 */
-function handleSelectionChange(selection: SysOperLog[]) {
-  ids.value = selection.map((item) => item.operId!)
-  multiple.value = !selection.length
 }
 
 /** 排序触发事件 */
@@ -350,21 +349,6 @@ function handleSortChange(column: { prop: string | null; order: string | null })
 function handleDetail(row: SysOperLog) {
   detailRow.value = row
   detailVisible.value = true
-}
-
-/** 删除按钮操作 */
-function handleDelete(row?: SysOperLog) {
-  const operIds = row?.operId || ids.value
-  modal
-    .confirm(t('operlog.tip.confirmDelete', { ids: operIds }))
-    .then(function () {
-      return delOperlog(operIds)
-    })
-    .then(() => {
-      getList()
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch(() => {})
 }
 
 /** 清空按钮操作 */

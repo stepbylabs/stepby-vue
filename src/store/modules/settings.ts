@@ -194,9 +194,31 @@ const useSettingsStore = defineStore('settings', {
         // 联合 key 的索引赋值在 TS 中目标类型会被推断为 never，故先桥接到
         // Record<keyof SettingsState, unknown> 再赋值（value 为 unknown，类型安全，无需 as any）。
         ;(this as SettingsState as Record<keyof SettingsState, unknown>)[k] = value
+        // P2 修复：主题/侧栏主题变更时实时应用主题样式（修复此前快捷键改主题"换色不全"）
+        if (k === 'theme' || k === 'sideTheme') {
+          handleThemeStyle(this.theme)
+        }
+        // P2 修复：写回 localStorage，保证刷新后不丢失（与 Settings 抽屉 saveSetting 行为一致）
+        this.persistLayoutSetting()
       } else {
         if (import.meta.env.DEV) console.warn('[settings] Unknown setting key:', key)
       }
+    },
+    // 持久化布局设置到 localStorage（与 Settings 抽屉 saveSetting 共用结构，避免重复实现）
+    persistLayoutSetting() {
+      const layoutSetting = {
+        tagsView: this.tagsView,
+        tagsIcon: this.tagsIcon,
+        tagsViewStyle: this.tagsViewStyle,
+        tagsViewPersist: this.tagsViewPersist,
+        fixedHeader: this.fixedHeader,
+        sidebarLogo: this.sidebarLogo,
+        dynamicTitle: this.dynamicTitle,
+        footerVisible: this.footerVisible,
+        sideTheme: this.sideTheme,
+        theme: this.theme
+      }
+      cache.local.set('layout-setting', JSON.stringify(layoutSetting))
     },
     // 设置网页标题
     setTitle(title: string) {

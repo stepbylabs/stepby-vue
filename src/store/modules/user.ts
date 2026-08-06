@@ -44,6 +44,9 @@ const useUserStore = defineStore('user', {
       setToken(res.token)
       this.token = res.token
       useLockStore().unlockScreen()
+      // P2 修复: 登录成功后立即初始化 WebSocket 通知连接。main.ts 挂载时的 init() 因无 token 早退，
+      // 必须在此 token 已写入后再触发，否则不刷新页面则实时通知/铃铛角标不生效。
+      useNotificationStore().init()
       // P2 修复: 不再 try/catch 吞错。request.ts 拦截器已统一弹错误提示，
       // 此处让错误向上抛出，使 login.vue 的 .catch() 能正确触发（重置 loading、刷新验证码）
     },

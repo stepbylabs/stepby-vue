@@ -2,31 +2,66 @@
   <div>
     <el-tabs type="border-card">
       <el-tab-pane :label="t('crontab.tabs.second')" v-if="shouldHide('second')">
-        <CrontabSecond @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronsecond" />
+        <CronField
+          :config="secondConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.min')" v-if="shouldHide('min')">
-        <CrontabMin @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronmin" />
+        <CronField
+          :config="minConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.hour')" v-if="shouldHide('hour')">
-        <CrontabHour @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronhour" />
+        <CronField
+          :config="hourConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.day')" v-if="shouldHide('day')">
-        <CrontabDay @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronday" />
+        <CronField
+          :config="dayConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.month')" v-if="shouldHide('month')">
-        <CrontabMonth @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronmonth" />
+        <CronField
+          :config="monthConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.week')" v-if="shouldHide('week')">
-        <CrontabWeek @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronweek" />
+        <CronField
+          :config="weekConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
 
       <el-tab-pane :label="t('crontab.tabs.year')" v-if="shouldHide('year')">
-        <CrontabYear @update="updateCrontabValue" :check="checkNumber" :cron="crontabValueObj" ref="cronyear" />
+        <CronField
+          :config="yearConfig"
+          :check="checkNumber"
+          :cron="crontabValueObj"
+          @update="updateCrontabValue"
+        />
       </el-tab-pane>
     </el-tabs>
 
@@ -111,14 +146,212 @@
 import type { PropType } from 'vue'
 import type { CronValue, CronFieldName } from '@/types/cron'
 import { checkNumber, parseCronExpression, stringifyCronValue, DEFAULT_CRON_VALUE } from '@/composables/useCron'
-import CrontabSecond from './second.vue'
-import CrontabMin from './min.vue'
-import CrontabHour from './hour.vue'
-import CrontabDay from './day.vue'
-import CrontabMonth from './month.vue'
-import CrontabWeek from './week.vue'
-import CrontabYear from './year.vue'
 import CrontabResult from './result.vue'
+import CronField from './CronField.vue'
+import type { CronFieldConfig } from '@/types/cron'
+
+const fullYear = Number(new Date().getFullYear())
+const maxFullYear = fullYear + 10
+
+// 各 Cron 字段的通用配置（替代原 7 个逐字重复的子组件，逻辑见 CronField.vue）
+const secondConfig: CronFieldConfig = {
+  field: 'second',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardSecond',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    cycleUnit: 'crontab.radio.cycleUnitSecond',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartSecond',
+    avgExecute: 'crontab.radio.avgExecuteSecond',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'range',
+  optionCount: 60,
+  optionValueOffset: -1,
+  multipleLimit: 10,
+  cycleMin: 0,
+  cycleMax1: 58,
+  cycleMax2: 59,
+  avgMax1: 58,
+  defaultRadio: 1,
+  checkCopyDefault: 0,
+  init: { cycle01: 0, cycle02: 1, average01: 0, average02: 1, weekday: 2, workday: 0 },
+  allowAverage: true
+}
+
+const minConfig: CronFieldConfig = {
+  field: 'min',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardMin',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    cycleUnit: 'crontab.radio.cycleUnitMin',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartMin',
+    avgExecute: 'crontab.radio.avgExecuteMin',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'range',
+  optionCount: 60,
+  optionValueOffset: -1,
+  multipleLimit: 10,
+  cycleMin: 0,
+  cycleMax1: 58,
+  cycleMax2: 59,
+  avgMax1: 58,
+  defaultRadio: 1,
+  checkCopyDefault: 0,
+  init: { cycle01: 0, cycle02: 1, average01: 0, average02: 1, weekday: 2, workday: 0 },
+  allowAverage: true
+}
+
+const hourConfig: CronFieldConfig = {
+  field: 'hour',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardHour',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    cycleUnit: 'crontab.radio.cycleUnitHour',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartHour',
+    avgExecute: 'crontab.radio.avgExecuteHour',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'range',
+  optionCount: 24,
+  optionValueOffset: -1,
+  multipleLimit: 10,
+  cycleMin: 0,
+  cycleMax1: 22,
+  cycleMax2: 23,
+  avgMax1: 22,
+  defaultRadio: 1,
+  checkCopyDefault: 0,
+  init: { cycle01: 0, cycle02: 1, average01: 0, average02: 1, weekday: 2, workday: 0 },
+  allowAverage: true,
+  emitSiblingZeroOnParse: true
+}
+
+const dayConfig: CronFieldConfig = {
+  field: 'day',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardDay',
+    unspecified: 'crontab.radio.unspecified',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    cycleUnit: 'crontab.radio.cycleUnitDay',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartDay',
+    avgExecute: 'crontab.radio.avgExecuteDay',
+    monthlyPrefix: 'crontab.radio.monthlyPrefix',
+    nearestWorkday: 'crontab.radio.nearestWorkday',
+    lastDayOfMonth: 'crontab.radio.lastDayOfMonth',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'range',
+  optionCount: 31,
+  optionValueOffset: 0,
+  multipleLimit: 10,
+  cycleMin: 1,
+  cycleMax1: 30,
+  cycleMax2: 31,
+  avgMax1: 30,
+  defaultRadio: 1,
+  checkCopyDefault: 1,
+  init: { cycle01: 1, cycle02: 2, average01: 1, average02: 1, weekday: 2, workday: 1 },
+  allowUnspecified: true,
+  allowAverage: true,
+  allowWorkday: true,
+  allowLastDay: true,
+  siblingField: 'week'
+}
+
+const monthConfig: CronFieldConfig = {
+  field: 'month',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardMonth',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    cycleUnit: 'crontab.radio.cycleUnitMonth',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartMonth',
+    avgExecute: 'crontab.radio.avgExecuteMonth',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'list',
+  namedList: 'month',
+  multipleLimit: 8,
+  cycleMin: 1,
+  cycleMax1: 11,
+  cycleMax2: 12,
+  avgMax1: 11,
+  defaultRadio: 1,
+  checkCopyDefault: 1,
+  init: { cycle01: 1, cycle02: 2, average01: 1, average02: 1, weekday: 2, workday: 1 },
+  allowAverage: true
+}
+
+const weekConfig: CronFieldConfig = {
+  field: 'week',
+  i18n: {
+    wildcard: 'crontab.radio.wildcardWeek',
+    unspecified: 'crontab.radio.unspecified',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    nthWeekPrefix: 'crontab.radio.nthWeekPrefix',
+    nthWeekSuffix: 'crontab.radio.nthWeekSuffix',
+    lastWeekOfMonth: 'crontab.radio.lastWeekOfMonth',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'list',
+  namedList: 'week',
+  multipleLimit: 6,
+  cycleMin: 1,
+  cycleMax1: 6,
+  cycleMax2: 7,
+  avgMax1: 4,
+  defaultRadio: 2,
+  checkCopyDefault: 2,
+  init: { cycle01: 2, cycle02: 3, average01: 1, average02: 2, weekday: 2, workday: 1 },
+  allowUnspecified: true,
+  allowNthWeek: true,
+  allowLastWeek: true,
+  cycleUseSelect: true,
+  avgSecondUseSelect: true,
+  averageUseHash: true,
+  averageSecondMaxFixed: true,
+  siblingField: 'day'
+}
+
+const yearConfig: CronFieldConfig = {
+  field: 'year',
+  i18n: {
+    // 注意：原 year.vue 中 radio1（空值）文案为 wildcardYear，radio2（"*"）文案为 everyYear
+    empty: 'crontab.radio.wildcardYear',
+    wildcard: 'crontab.radio.everyYear',
+    cycleFrom: 'crontab.radio.cycleFrom',
+    rangeFrom: 'crontab.radio.rangeFrom',
+    avgStart: 'crontab.radio.avgStartYear',
+    avgExecute: 'crontab.radio.avgExecuteYear',
+    specify: 'crontab.radio.specify',
+    multiPlaceholder: 'crontab.multiSelectPlaceholder'
+  },
+  optionMode: 'range',
+  optionCount: maxFullYear - fullYear + 1,
+  optionValueOffset: fullYear - 1,
+  multipleLimit: 8,
+  cycleMin: fullYear,
+  cycleMax1: maxFullYear - 1,
+  cycleMax2: maxFullYear,
+  avgMax1: maxFullYear - 1,
+  defaultRadio: 10,
+  checkCopyDefault: fullYear,
+  init: { cycle01: fullYear, cycle02: fullYear + 1, average01: fullYear, average02: 1, weekday: 2, workday: fullYear },
+  allowEmpty: true,
+  allowAverage: true
+}
 const emit = defineEmits(['hide', 'fill'])
 const { t } = useI18n()
 const props = defineProps({

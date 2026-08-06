@@ -141,9 +141,11 @@
 
 <script setup lang="ts" name="Online">
 import { forceLogout, list as initData } from '@/api/monitor/online'
+import type { FormInstance } from 'element-plus'
 import type { SysUserOnline, OnlineQueryParams } from '@/types/api/monitor/online'
 import modal from '@/plugins/modal'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useCrudTable } from '@/composables/useCrudTable'
 import MySessionPanel from './MySessionPanel.vue'
 import useUserStore from '@/store/modules/user'
 
@@ -151,10 +153,12 @@ const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
 const userStore = useUserStore()
 
-const onlineList = shallowRef<SysUserOnline[]>([])
-const total = ref<number>(0)
+// 前端切片分页：在线用户列表通常数据量小，全量拉取后前端分页即可，避免每页请求
 const pageNum = ref<number>(1)
 const pageSize = ref<number>(10)
+
+const form = ref<SysUserOnline>({} as SysUserOnline)
+const formRef = ref<FormInstance | null>(null)
 
 const queryParams = ref<OnlineQueryParams>({
   ipaddr: undefined,
@@ -171,38 +175,45 @@ const hasSessionPerm = computed(() => {
   return perms.includes('*:*:*') || perms.includes('monitor:session:list')
 })
 
-// loading 仅作用于 admin tab（el-table 在 admin tab pane 内），无 admin 权限时不会渲染
-const loading = ref<boolean>(hasOnlinePerm.value)
-
 // 默认激活 tab：有管理员权限则显示 admin，否则显示 user
 const activeTab = ref<'admin' | 'user'>(hasOnlinePerm.value ? 'admin' : 'user')
 
-/** 查询在线用户列表 */
-function getList() {
-  loading.value = true
-  initData(queryParams.value)
-    .then((response) => {
-      onlineList.value = response.rows
-      total.value = response.total
-    })
-    .catch((err) => {
-      modal.msgError(err.message)
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
+// 复用 useCrudTable：列表数据 / loading / total / 选中态 / 查询 / 重置 等样板逻辑
+const {
+  dataList: onlineList,
+  loading,
+  total,
+  getList,
+  handleQuery: baseHandleQuery,
+  resetQuery: baseResetQuery
+} = useCrudTable<SysUserOnline, OnlineQueryParams>({
+  // 在线用户列表为全量返回，仅透传过滤字段（不向后端传分页参数，由前端切片分页）
+  listApi: (params) => initData({ ipaddr: params.ipaddr, userName: params.userName }),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: () => Promise.resolve({}),
+  idField: 'tokenId',
+  defaultForm: () => ({}) as SysUserOnline,
+  titleKey: 'online.title',
+  deleteTipKey: 'online.tip.confirmForceLogout',
+  queryParams,
+  form,
+  formRef,
+  queryRef: queryRefRef
+})
 
-/** 搜索按钮操作 */
+/** 搜索按钮操作（前端分页：重置到第 1 页并重新拉取全量数据） */
 function handleQuery() {
   pageNum.value = 1
-  getList()
+  baseHandleQuery()
 }
 
-/** 重置按钮操作 */
+/** 重置按钮操作（审计 2.5 修复：重置后必须刷新列表） */
 function resetQuery() {
   queryRefRef.value?.resetFields()
-  handleQuery()
+  pageNum.value = 1
+  baseResetQuery()
 }
 
 /** 强退按钮操作 */

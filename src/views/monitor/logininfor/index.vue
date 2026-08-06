@@ -116,7 +116,7 @@
             v-loading="loading"
             :data="logininforList"
             :row-key="(row: SysLogininfor) => row.infoId"
-            @selection-change="handleSelectionChange"
+            @selection-change="onSelectionChange"
             :default-sort="defaultSort"
             @sort-change="handleSortChange"
           >
@@ -193,10 +193,12 @@
 <script setup lang="ts" name="Logininfor">
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { list, delLogininfor, cleanLogininfor, unlockLogininfor } from '@/api/monitor/logininfor'
+import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/yebot'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useExport } from '@/composables/useExport'
+import { useCrudTable } from '@/composables/useCrudTable'
 import type { SysLogininfor, LogininforQueryParams } from '@/types/api/monitor/logininfor'
 import MyLoginPanel from './MyLoginPanel.vue'
 import useUserStore from '@/store/modules/user'
@@ -207,14 +209,7 @@ const logininforRef = useTemplateRef('logininforRef')
 const userStore = useUserStore()
 const { sys_common_status } = useDict('sys_common_status')
 
-const logininforList = shallowRef<SysLogininfor[]>([])
-const loading = ref<boolean>(true)
-const showSearch = ref<boolean>(true)
-const ids = ref<number[]>([])
-const single = ref<boolean>(true)
-const multiple = ref<boolean>(true)
 const selectName = ref<string[]>([])
-const total = ref<number>(0)
 const dateRange = ref<string[]>([])
 const defaultSort = ref({ prop: 'loginTime', order: 'descending' })
 
@@ -229,6 +224,9 @@ const queryParams = ref<LogininforQueryParams>({
   isAsc: undefined
 })
 
+const form = ref<SysLogininfor>({} as SysLogininfor)
+const formRef = ref<FormInstance | null>(null)
+
 // 权限判断
 const hasLogininforPerm = computed(() => {
   const perms = userStore.permissions || []
@@ -242,42 +240,50 @@ const hasMyLoginPerm = computed(() => {
 // 默认激活 tab
 const activeTab = ref<'admin' | 'user'>(hasLogininforPerm.value ? 'admin' : 'user')
 
-/** 查询登录日志列表 */
-function getList() {
-  loading.value = true
-  list(addDateRange(queryParams.value, dateRange.value))
-    .then((response) => {
-      logininforList.value = response.rows
-      total.value = response.total
-    })
-    .catch((e) => {
-      if (import.meta.env.DEV) console.error(e)
-      modal.msgError(t('common.requestFailed'))
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
+const {
+  dataList: logininforList,
+  loading,
+  showSearch,
+  ids,
+  single,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleSelectionChange,
+  handleDelete
+} = useCrudTable<SysLogininfor, LogininforQueryParams>({
+  listApi: (params) =>
+    list(addDateRange(params as Record<string, unknown>, dateRange.value) as LogininforQueryParams),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: (ids) => delLogininfor(ids as unknown as number | number[]),
+  idField: 'infoId',
+  defaultForm: () => ({}) as SysLogininfor,
+  titleKey: 'logininfor.title',
+  deleteTipKey: 'logininfor.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef,
+  queryRef
+})
 
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作 */
+/** 重置按钮操作（审计 2.5 修复：重置后必须刷新列表）
+ * 清除日期范围、重置排序参数并重新触发查询；与原始行为一致（重置后重新应用默认排序）。
+ */
 function resetQuery() {
   dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
-  queryParams.value.pageNum = 1
+  handleQuery()
   logininforRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
-/** 多选框选中数据 */
-function handleSelectionChange(selection: SysLogininfor[]) {
-  ids.value = selection.map((item) => item.infoId!)
-  multiple.value = !selection.length
-  single.value = selection.length != 1
+/** 多选框选中数据（在基类基础上记录用户名用于解锁） */
+function onSelectionChange(selection: SysLogininfor[]) {
+  handleSelectionChange(selection)
   selectName.value = selection.map((item) => item.userName!)
 }
 
@@ -286,21 +292,6 @@ function handleSortChange(column: { prop: string | null; order: string | null })
   queryParams.value.orderByColumn = column.prop
   queryParams.value.isAsc = column.order
   getList()
-}
-
-/** 删除按钮操作 */
-function handleDelete(row?: SysLogininfor) {
-  const infoIds = row?.infoId || ids.value
-  modal
-    .confirm(t('logininfor.tip.confirmDelete', { ids: infoIds }))
-    .then(function () {
-      return delLogininfor(infoIds)
-    })
-    .then(() => {
-      getList()
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch(() => {})
 }
 
 /** 清空按钮操作 */
