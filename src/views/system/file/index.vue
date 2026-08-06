@@ -172,34 +172,23 @@ const queryParams = reactive({
 })
 
 const extOptions = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'txt']
-// accept 属性：用于 el-upload 文件选择器类型过滤（与 extOptions 保持一致）
-const acceptTypes = extOptions
-// F-12：MIME 类型白名单，与 extOptions 扩展名一一对应，用于 beforeUpload 中对 file.type 精确匹配
-const acceptTypeArr = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/zip',
-  'text/plain'
-]
-  .map((ext) => {
-    if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return `image/${ext}`
-    if (ext === 'pdf') return 'application/pdf'
-    if (ext === 'doc') return 'application/msword'
-    if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    if (ext === 'xls') return 'application/vnd.ms-excel'
-    if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    if (ext === 'zip') return 'application/zip'
-    if (ext === 'txt') return 'text/plain'
-    return ''
-  })
-  .filter(Boolean)
-  .join(',')
+// accept 属性：el-upload 需要逗号分隔字符串（扩展名或 MIME 类型）
+const acceptTypes = extOptions.join(',')
+// 扩展名 → MIME 类型映射，用于 beforeUpload 对 file.type 精确匹配（避免子串误判）
+const extToMime: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  zip: 'application/zip',
+  txt: 'text/plain'
+}
+const acceptMimeSet = new Set(Object.values(extToMime))
 
 function isImage(ext: string): boolean {
   return ['jpg', 'jpeg', 'png', 'gif'].includes(ext.toLowerCase())
@@ -254,10 +243,13 @@ function beforeUpload(file: File): boolean {
     modal.msgError(t('file.tip.unsupportedType'))
     return false
   }
-  // MIME 类型校验（浏览器能识别时校验）：使用 MIME 白名单数组精确匹配，避免子串误判
-  if (file.type && !acceptTypeArr.includes(file.type)) {
-    modal.msgError(t('file.tip.unsupportedType'))
-    return false
+  // MIME 类型校验（浏览器能识别时校验）：扩展名 → MIME 映射精确匹配，剥离 charset 参数避免误判
+  if (file.type) {
+    const baseType = file.type.split(';')[0].trim().toLowerCase()
+    if (!acceptMimeSet.has(baseType)) {
+      modal.msgError(t('file.tip.unsupportedType'))
+      return false
+    }
   }
   return true
 }

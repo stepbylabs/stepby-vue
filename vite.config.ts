@@ -103,13 +103,16 @@ export default defineConfig(({ mode, command }) => {
           chunkFileNames: 'static/js/[name]-[hash].js',
           entryFileNames: 'static/js/[name]-[hash].js',
           assetFileNames: 'static/[ext]/[name]-[hash].[ext]',
-          // Vite 8 / Rolldown 自动分包：不再使用 manualChunks
-          // 原因：Rolldown 在处理 element-plus 跨 chunk 引用时存在 panic bug
-          // （compute_cross_chunk_links.rs:584 Symbol should belong to a chunk）
-          // 让 Rolldown 完全自动处理 chunk 拆分，规避此 bug
-          // manualChunks 分包：将大体积第三方依赖独立打包，减小主 chunk 体积（P0-New-8）
-          // Vite 8 / Rollup 4 要求 manualChunks 为函数形式，不再支持对象字面量
-          // FIX-Rolldown: 强制 inlineDynamicImports 规避跨 chunk 链接 panic
+          // 已知 Rolldown 限制（必选 workaround，非项目缺陷）：
+          // Vite 8 / Rolldown v8.1.5 在处理 element-plus 跨 chunk 引用时存在 panic bug
+          // （compute_cross_chunk_links.rs:584: "Symbol defaults_default in
+          //  element-plus/es/defaults.mjs should belong to a chunk"）。
+          // 实测：无论使用 manualChunks 还是交予 Rolldown 完全自动分包，
+          // 只要存在跨 chunk 引用该符号的分包，构建即 panic。
+          // 当前唯一可成功构建的配置是强制 inlineDynamicImports（所有动态 import 内联进单 chunk，
+          // 彻底规避跨 chunk 链接）。代价是关闭代码分割与路由级懒加载、首屏 JS 体积偏大。
+          // 待 Rolldown 修复该 bug（或升级 Vite/Rolldown 版本）后，应移除本选项以恢复分包。
+          // 已登记于审计文档 docs/code-audit-2026-08-06.md 作为已知限制。
           inlineDynamicImports: true
         }
       }

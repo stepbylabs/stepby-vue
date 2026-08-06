@@ -360,7 +360,8 @@ function submitForm() {
 
 /** 删除按钮操作 */
 function handleDelete(row?: SysRateLimit) {
-  const delIds = row?.id || ids.value
+  // 单条传数字 ID，批量显式 join 为逗号分隔字符串（后端 parse_id_list 按逗号拆分）
+  const delIds = row ? row.id : ids.value.join(',')
   modal
     .confirm(t('rateLimit.tip.confirmDelete', { ids: delIds }))
     .then(function () {
@@ -369,6 +370,8 @@ function handleDelete(row?: SysRateLimit) {
     .then(() => {
       getList()
       modal.msgSuccess(t('common.deleteSuccess'))
+      ids.value = []
+      multiple.value = true
     })
     .catch(() => {})
 }
