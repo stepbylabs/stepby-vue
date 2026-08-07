@@ -45,9 +45,35 @@ try {
 }
 
 // 用户偏好设置（独立存储 key，便于扩展）
+// P2 修复：JSON.parse 后做字段白名单过滤，只保留 UserPrefs 已知字段，
+// 防止 localStorage 被注入未知键污染 store 状态（如原型污染/无效字段）。
+const USER_PREFS_KEYS: (keyof UserPrefs)[] = [
+  'defaultPageSize',
+  'defaultSortOrder',
+  'autoRefreshInterval',
+  'followSystemDark',
+  'tableDensity',
+  'timezone',
+  'customHotkeys',
+  'watermarkEnabled',
+  'sessionTimeout'
+]
+
+function sanitizeUserPrefs(raw: unknown): Partial<UserPrefs> {
+  if (typeof raw !== 'object' || raw === null) return {}
+  const record = raw as Record<string, unknown>
+  const result: Partial<UserPrefs> = {}
+  for (const key of USER_PREFS_KEYS) {
+    if (key in record) {
+      ;(result as Record<string, unknown>)[key] = record[key]
+    }
+  }
+  return result
+}
+
 let userPrefs: Partial<UserPrefs> = {}
 try {
-  userPrefs = JSON.parse(localStorage.getItem('user-prefs') || '{}') || {}
+  userPrefs = sanitizeUserPrefs(JSON.parse(localStorage.getItem('user-prefs') || '{}'))
 } catch {
   userPrefs = {}
 }

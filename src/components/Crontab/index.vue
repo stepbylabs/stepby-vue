@@ -413,6 +413,24 @@ onMounted(() => {
   expressionRef.value = props.expression
   hideComponentRef.value = props.hideComponent
 })
+
+// P2 修复：props 响应式。原实现仅在 onMounted 一次性赋值，父组件
+// 动态修改 expression/hideComponent 时组件不更新（如弹窗复用时传入新表达式）。
+watch(
+  () => props.expression,
+  (val: string) => {
+    if (val !== expressionRef.value) {
+      expressionRef.value = val
+    }
+  }
+)
+watch(
+  () => props.hideComponent,
+  (val: CronFieldName[]) => {
+    hideComponentRef.value = val
+  },
+  { deep: true }
+)
 </script>
 
 <style lang="scss" scoped>

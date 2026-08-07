@@ -23,7 +23,7 @@ function easeInOutQuad(t: number, b: number, c: number, d: number): number {
 }
 
 /**
- * Because it's so fucking difficult to detect the scrolling element, just move them all
+ * 滚动元素检测在不同浏览器实现中不一致，直接同时滚动 html/body 以保证兼容
  * @param amount
  */
 function move(amount: number): void {
