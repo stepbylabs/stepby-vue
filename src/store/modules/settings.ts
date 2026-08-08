@@ -3,6 +3,12 @@ import { useDark, useToggle } from '@vueuse/core'
 import { useDynamicTitle } from '@/utils/dynamicTitle'
 import { handleThemeStyle } from '@/utils/theme'
 import cache from '@/plugins/cache'
+import {
+  DEFAULT_USER_PREFS,
+  USER_PREFS_KEYS,
+  sanitizeUserPrefs,
+  type UserPrefs
+} from '@/utils/userPrefs'
 
 const isDark = useDark()
 const toggleDark = useToggle(isDark)
@@ -45,58 +51,15 @@ try {
 }
 
 // 用户偏好设置（独立存储 key，便于扩展）
-// P2 修复：JSON.parse 后做字段白名单过滤，只保留 UserPrefs 已知字段，
-// 防止 localStorage 被注入未知键污染 store 状态（如原型污染/无效字段）。
-const USER_PREFS_KEYS: (keyof UserPrefs)[] = [
-  'defaultPageSize',
-  'defaultSortOrder',
-  'autoRefreshInterval',
-  'followSystemDark',
-  'tableDensity',
-  'timezone',
-  'customHotkeys',
-  'watermarkEnabled',
-  'sessionTimeout'
-]
-
-function sanitizeUserPrefs(raw: unknown): Partial<UserPrefs> {
-  if (typeof raw !== 'object' || raw === null) return {}
-  const record = raw as Record<string, unknown>
-  const result: Partial<UserPrefs> = {}
-  for (const key of USER_PREFS_KEYS) {
-    if (key in record) {
-      ;(result as Record<string, unknown>)[key] = record[key]
-    }
-  }
-  return result
-}
+// sanitizeUserPrefs / USER_PREFS_KEYS / UserPrefs / DEFAULT_USER_PREFS 已抽离至 @/utils/userPrefs
+// （P2 修复：JSON.parse 后做字段白名单过滤，只保留 UserPrefs 已知字段，
+//  防止 localStorage 被注入未知键污染 store 状态）。
 
 let userPrefs: Partial<UserPrefs> = {}
 try {
   userPrefs = sanitizeUserPrefs(JSON.parse(localStorage.getItem('user-prefs') || '{}'))
 } catch {
   userPrefs = {}
-}
-
-interface UserPrefs {
-  /** 默认每页条数 */
-  defaultPageSize: number
-  /** 默认排序字段（asc/desc） */
-  defaultSortOrder: 'asc' | 'desc'
-  /** 列表自动刷新间隔（秒），0 表示禁用 */
-  autoRefreshInterval: number
-  /** 是否跟随系统暗色模式 */
-  followSystemDark: boolean
-  /** 表格密度 */
-  tableDensity: 'comfortable' | 'default' | 'compact'
-  /** 时区 */
-  timezone: string
-  /** 自定义快捷键映射 */
-  customHotkeys: Record<string, string>
-  /** TierS-4: 是否启用水印（全局叠加用户名+时间水印，防截图泄露） */
-  watermarkEnabled: boolean
-  /** TierB-2: 会话超时阈值（分钟），0 表示禁用，默认 30 分钟 */
-  sessionTimeout: number
 }
 
 interface SettingsState {
@@ -116,18 +79,6 @@ interface SettingsState {
   footerContent: string
   /** 用户偏好设置 */
   userPrefs: UserPrefs
-}
-
-const DEFAULT_USER_PREFS: UserPrefs = {
-  defaultPageSize: 10,
-  defaultSortOrder: 'desc',
-  autoRefreshInterval: 0,
-  followSystemDark: false,
-  tableDensity: 'default',
-  timezone: 'Asia/Shanghai',
-  customHotkeys: {},
-  watermarkEnabled: false,
-  sessionTimeout: 30
 }
 
 /** 默认快捷键映射 */

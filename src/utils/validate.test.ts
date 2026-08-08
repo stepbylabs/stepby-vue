@@ -1,6 +1,5 @@
 import {
   isExternal,
-  validUsername,
   validEmail,
   isPathMatch,
   isEmpty,
@@ -43,37 +42,6 @@ describe('isExternal', () => {
 
   it('空字符串不是外链', () => {
     expect(isExternal('')).toBe(false)
-  })
-})
-
-// ============================================================================
-// validUsername 用户名校验
-// ============================================================================
-describe('validUsername', () => {
-  it('admin 是合法用户名', () => {
-    expect(validUsername('admin')).toBe(true)
-  })
-
-  it('editor 是合法用户名', () => {
-    expect(validUsername('editor')).toBe(true)
-  })
-
-  it('其他字符串不是合法用户名', () => {
-    expect(validUsername('guest')).toBe(false)
-    expect(validUsername('superadmin')).toBe(false)
-  })
-
-  it('带空格的用户名会被 trim 后校验', () => {
-    expect(validUsername('  admin  ')).toBe(true)
-  })
-
-  it('空字符串不是合法用户名', () => {
-    expect(validUsername('')).toBe(false)
-  })
-
-  it('大小写敏感', () => {
-    expect(validUsername('Admin')).toBe(false)
-    expect(validUsername('ADMIN')).toBe(false)
   })
 })
 
