@@ -5,7 +5,6 @@ import { handleThemeStyle } from '@/utils/theme'
 import cache from '@/plugins/cache'
 import {
   DEFAULT_USER_PREFS,
-  USER_PREFS_KEYS,
   sanitizeUserPrefs,
   type UserPrefs
 } from '@/utils/userPrefs'

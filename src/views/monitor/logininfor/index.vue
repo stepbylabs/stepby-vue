@@ -244,7 +244,6 @@ const {
   dataList: logininforList,
   loading,
   showSearch,
-  ids,
   single,
   multiple,
   total,

@@ -1863,6 +1863,7 @@ export default {
       post: 'Post Management',
       config: 'Parameter Settings',
       notice: 'Notice',
+      backup: 'Backup Management',
       job: 'Scheduled Tasks',
       operlog: 'Operation Log',
       logininfor: 'Login Log',

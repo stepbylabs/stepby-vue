@@ -251,7 +251,8 @@ function formatModuleTitle(title: string | undefined): string {
   // 剥离 "module." 前缀（后端存储格式），得到模块短名
   const moduleKey = title.startsWith('module.') ? title.slice('module.'.length) : title
   const key = `operlog.module.${moduleKey}`
-  return te(key) ? t(key) : title
+  // 缺翻译时回退为剥离 "module." 前缀的短名（如 "backup"），避免界面露出裸 "module.backup"
+  return te(key) ? t(key) : moduleKey
 }
 const queryRef = useTemplateRef('queryRef')
 const operlogRef = useTemplateRef('operlogRef')

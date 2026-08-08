@@ -74,8 +74,9 @@
 import { getNotice } from '@/api/system/notice'
 import type { SysNotice } from '@/types/api/system/notice'
 import { sanitizeHtml } from '@/utils/index'
-import { safeT } from '@/utils/safeI18n'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const visible = ref<boolean>(false)
 const loading = ref<boolean>(false)
 const detail: Ref<SysNotice | null> = ref<SysNotice | null>(null)

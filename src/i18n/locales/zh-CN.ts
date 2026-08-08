@@ -1854,6 +1854,7 @@ export default {
       post: '岗位管理',
       config: '参数设置',
       notice: '通知公告',
+      backup: '备份管理',
       job: '定时任务',
       operlog: '操作日志',
       logininfor: '登录日志',
