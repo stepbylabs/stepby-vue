@@ -1774,6 +1774,36 @@ export default {
     version: 'Version v',
     uptimeFormat: '{days}d {hours}h {minutes}m {secs}s'
   },
+  logTail: {
+    title: 'Real-time Logs',
+    subtitle: 'View application logs online, supporting level/keyword filtering and auto-refresh',
+    file: 'Log File',
+    selectFile: 'Please select a log file',
+    level: 'Log Level',
+    keyword: 'Keyword',
+    lineCount: 'Lines',
+    filter: 'Filter',
+    refresh: 'Refresh',
+    autoRefresh: 'Auto Refresh',
+    empty: 'No log content',
+    noFile: 'Please select a log file above first',
+    total: '{total} entries',
+    fileSize: 'Size',
+    modified: 'Modified',
+    lines: {
+      '500': '500',
+      '1000': '1000',
+      '2000': '2000',
+      all: 'All'
+    },
+    levels: {
+      all: 'All Levels',
+      debug: 'DEBUG+',
+      info: 'INFO+',
+      warn: 'WARN+',
+      error: 'ERROR+'
+    }
+  },
   operlog: {
     title: 'Operation Log',
     detail: {

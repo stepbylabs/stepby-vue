@@ -1767,6 +1767,36 @@ export default {
     version: '版本 v',
     uptimeFormat: '{days}天 {hours}时 {minutes}分 {secs}秒'
   },
+  logTail: {
+    title: '实时日志',
+    subtitle: '在线查看应用日志，支持级别/关键字过滤与自动刷新',
+    file: '日志文件',
+    selectFile: '请选择日志文件',
+    level: '日志级别',
+    keyword: '关键字',
+    lineCount: '显示行数',
+    filter: '过滤',
+    refresh: '刷新',
+    autoRefresh: '自动刷新',
+    empty: '暂无日志内容',
+    noFile: '请先在上方选择日志文件',
+    total: '共 {total} 条',
+    fileSize: '大小',
+    modified: '修改时间',
+    lines: {
+      '500': '500',
+      '1000': '1000',
+      '2000': '2000',
+      all: '全部'
+    },
+    levels: {
+      all: '全部级别',
+      debug: 'DEBUG+',
+      info: 'INFO+',
+      warn: 'WARN+',
+      error: 'ERROR+'
+    }
+  },
   operlog: {
     title: '操作日志',
     detail: {

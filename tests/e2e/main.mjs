@@ -44,6 +44,7 @@
  *   41. 第五批次 性能优化验证（echarts 按需导入/Bundle 可视化/Vite 构建配置/图片懒加载）
  *   45. 侧边栏/主题优化验证（theme-auto + CSS 变量统一 + 深色模式可见性 + i18n 完整性）
  *   46. WebSocket 实时通知连接验证（页面全链路 + Node 直连后端，429 回归防线）
+ *   47. 实时系统日志查看模块（/monitor/logtail + API：文件列表/尾部读取/非法名防护/401/页面渲染）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -9395,6 +9396,103 @@ async function testFeature46(page) {
   )
 }
 
+async function testFeature47(page) {
+  log('\n--- 功能 47：实时系统日志查看模块验证（/monitor/logtail + API）---')
+
+  // ---------- 47-1 实时日志 API 鉴权登录 ----------
+  const { token } = await apiLogin()
+  if (!token) {
+    record(47, '实时日志 API 鉴权', false, 'apiLogin 未获取到 token')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+
+  // ---------- 47-2 列出日志文件 ----------
+  let filesOk = false
+  let filesDetail = '未请求'
+  let rowsArr = []
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/log/files`, { headers: authHeaders })
+    const body = await resp.json()
+    filesOk = resp.status === 200 && body?.code === 200 && Array.isArray(body?.data?.rows)
+    filesDetail = `status=${resp.status}, rows=${body?.data?.rows?.length ?? 0}`
+    rowsArr = body?.data?.rows || []
+    if (filesOk && rowsArr.length) {
+      filesOk = filesOk && typeof rowsArr[0].fileName === 'string' && rowsArr[0].fileSize >= 0
+    }
+    record(47, '列出日志文件 /monitor/log/files', filesOk, filesDetail)
+  } catch (err) {
+    record(47, '列出日志文件 /monitor/log/files', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 47-3 读取日志尾部 ----------
+  let tailOk = false
+  let tailDetail = '未请求'
+  const fileName = rowsArr[0]?.fileName || `app.log.${new Date().toISOString().slice(0, 10)}`
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/log/tail?file_name=${encodeURIComponent(fileName)}`, {
+      headers: authHeaders
+    })
+    const body = await resp.json()
+    tailOk = resp.status === 200 && body?.code === 200 && Array.isArray(body?.data?.rows)
+    tailDetail = `status=${resp.status}, file=${fileName}, total=${body?.data?.total ?? 0}, rows=${body?.data?.rows?.length ?? 0}`
+    if (tailOk && body?.data?.rows?.length) {
+      const row0 = body.data.rows[0]
+      tailOk = tailOk && typeof row0.level === 'string' && typeof row0.text === 'string'
+    }
+    record(47, '读取日志尾部 /monitor/log/tail', tailOk, tailDetail)
+  } catch (err) {
+    record(47, '读取日志尾部 /monitor/log/tail', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 47-4 非法日志文件名防护（路径穿越被拒绝） ----------
+  let invalidOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/log/tail?file_name=${encodeURIComponent('../etc/passwd')}`, {
+      headers: authHeaders
+    })
+    invalidOk = resp.status === 400
+    record(47, '非法日志文件名防护（../ 拒绝）', invalidOk, `status=${resp.status}`)
+  } catch (err) {
+    record(47, '非法日志文件名防护（../ 拒绝）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 47-5 无 token 拒绝 ----------
+  let unauthOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/log/files`)
+    unauthOk = resp.status === 401
+    record(47, '实时日志接口无 token 被拒（401）', unauthOk, `status=${resp.status}`)
+  } catch (err) {
+    record(47, '实时日志接口无 token 被拒（401）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 47-6 前端页面渲染 ----------
+  let pageOk = false
+  let pageDetail = '未请求'
+  try {
+    await page
+      .goto(`${CONFIG.frontendUrl}/monitor/logtail`, { waitUntil: 'networkidle', timeout: 15000 })
+      .catch(() => {})
+    await sleep(2500)
+    await skipTour(page)
+    const hasTitle = await page
+      .locator('.log-tail')
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false)
+    pageOk = hasTitle
+    pageDetail = hasTitle ? '页面渲染成功' : '页面未渲染到 .log-tail 容器'
+    record(47, '实时日志前端页面渲染', pageOk, pageDetail)
+  } catch (err) {
+    record(47, '实时日志前端页面渲染', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 47-7 综合验证 ----------
+  const passedCount = [filesOk, tailOk, invalidOk, unauthOk, pageOk].filter(Boolean).length
+  record(47, '实时日志模块综合验证', passedCount === 5, `${passedCount}/5 项检查通过`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -9406,7 +9504,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（46 个功能）')
+  log('yebot 端到端主测试脚本（47 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -9497,7 +9595,8 @@ async function main() {
       { id: 43, fn: testFeature43 },
       { id: 44, fn: testFeature44 },
       { id: 45, fn: testFeature45 },
-      { id: 46, fn: testFeature46 }
+      { id: 46, fn: testFeature46 },
+      { id: 47, fn: testFeature47 }
     ]
 
     for (const f of features) {
