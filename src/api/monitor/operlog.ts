@@ -33,3 +33,12 @@ export function getComplianceReport(days: number): Promise<AjaxResult<unknown>> 
     method: 'get'
   })
 }
+
+// 查询异常操作告警状态
+export function getAlarmStatus(params?: Record<string, unknown>): Promise<AjaxResult<unknown>> {
+  return request({
+    url: '/monitor/operlog/alarm-status',
+    method: 'get',
+    params
+  })
+}

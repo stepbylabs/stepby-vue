@@ -99,6 +99,11 @@
               {{ t('common.export') }}
             </el-button>
           </el-col>
+          <el-col :span="1.5">
+            <el-button type="info" plain icon="Upload" @click="handleImport" v-hasPermi="['system:user:import']">
+              {{ t('common.import') }}
+            </el-button>
+          </el-col>
           <right-toolbar
             v-model:showSearch="showSearch"
             @queryTable="getList"
@@ -431,6 +436,17 @@
         {{ t('common.export') }}
       </el-button>
     </batch-actions>
+
+    <!-- 批量导入用户对话框（下载模板 + 上传 xlsx + 校验错误回显） -->
+    <excel-import-dialog
+      ref="importDialogRef"
+      :title="t('user.import.title')"
+      action="/system/user/importData"
+      template-action="/system/user/importTemplate"
+      template-file-name="user_import_template"
+      :update-support-label="t('user.import.updateSupport')"
+      @success="handleImportSuccess"
+    />
   </div>
 </template>
 
@@ -438,6 +454,7 @@
 import TreePanel from '@/components/TreePanel/index.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import BatchActions from '@/components/BatchActions/index.vue'
+import ExcelImportDialog from '@/components/ExcelImportDialog/index.vue'
 import UserViewDrawer from './view.vue'
 import { usePasswordRule } from '@/utils/passwordRule'
 import {
@@ -466,6 +483,7 @@ const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
 const deptTreeRefRef = useTemplateRef('deptTreeRef')
 const userViewRefRef = useTemplateRef('userViewRef')
+const importDialogRef = useTemplateRef('importDialogRef')
 const userRefRef = useTemplateRef('userRef')
 const userTableRef = useTemplateRef('userTableRef')
 const { pwdValidator, pwdPromptValidator } = usePasswordRule()
@@ -650,6 +668,16 @@ function handleExport() {
     },
     `user_${new Date().getTime()}.xlsx`
   )
+}
+
+/** 打开批量导入对话框 */
+function handleImport() {
+  importDialogRef.value?.open()
+}
+
+/** 导入成功后刷新列表 */
+function handleImportSuccess() {
+  getList()
 }
 
 /** 用户状态修改  */

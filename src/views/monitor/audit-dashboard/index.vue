@@ -190,11 +190,117 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 模块统计 + 异常告警 -->
+    <el-row :gutter="16" class="chart-row">
+      <el-col v-motion="fadeInUp" :xs="24" :lg="12">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header flex items-center justify-between font-medium">
+              <span class="flex items-center gap-1.5">
+                <el-icon><Collection /></el-icon>
+                {{ t('auditDashboard.chart.topModules') }}
+              </span>
+            </div>
+          </template>
+          <div
+            ref="topModulesChartRef"
+            class="chart-box w-full h-80"
+            v-loading="loading"
+            :element-loading-text="t('common.loading')"
+          ></div>
+          <Transition name="fade">
+            <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
+              <el-icon><WarningFilled /></el-icon>
+              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
+            </div>
+          </Transition>
+        </el-card>
+      </el-col>
+      <el-col v-motion="fadeInUp" :xs="24" :lg="12">
+        <el-card shadow="hover" class="alarm-card" :class="{ 'alarm-triggered': alarmData?.alertTriggered }">
+          <template #header>
+            <div class="card-header flex items-center justify-between font-medium">
+              <span class="flex items-center gap-1.5">
+                <el-icon><Bell /></el-icon>
+                {{ t('auditDashboard.alarm.title') }}
+              </span>
+              <el-tooltip :content="alarmThresholdTip" placement="top">
+                <el-icon class="text-text-secondary cursor-help"><InfoFilled /></el-icon>
+              </el-tooltip>
+            </div>
+          </template>
+          <div v-loading="alarmLoading" :element-loading-text="t('common.loading')">
+            <el-alert
+              v-if="alarmData"
+              :type="alarmData.alertTriggered ? 'error' : 'success'"
+              :title="alarmData.alertTriggered ? t('auditDashboard.alarm.triggered') : t('auditDashboard.alarm.normal')"
+              :closable="false"
+              show-icon
+              class="mb-4"
+            />
+            <div v-if="alarmData" class="alarm-metrics grid grid-cols-3 gap-3 mb-4">
+              <div class="alarm-metric flex flex-col items-center">
+                <span class="metric-value text-xl font-semibold">{{ alarmData.totalInWindow }}</span>
+                <span class="metric-label text-xs text-text-secondary mt-1">
+                  {{ t('auditDashboard.alarm.totalInWindow') }}
+                </span>
+              </div>
+              <div class="alarm-metric flex flex-col items-center">
+                <span class="metric-value text-xl font-semibold" :class="{ 'text-red': alarmData.failInWindow > 0 }">
+                  {{ alarmData.failInWindow }}
+                </span>
+                <span class="metric-label text-xs text-text-secondary mt-1">
+                  {{ t('auditDashboard.alarm.failInWindow') }}
+                </span>
+              </div>
+              <div class="alarm-metric flex flex-col items-center">
+                <span class="metric-value text-xl font-semibold" :class="{ 'text-red': alarmData.failRateAlarm }">
+                  {{ alarmData.failRate.toFixed(2) }}%
+                </span>
+                <span class="metric-label text-xs text-text-secondary mt-1">
+                  {{ t('auditDashboard.alarm.failRate') }}
+                </span>
+              </div>
+            </div>
+            <div v-if="alarmData && !alarmData.alertTriggered" class="alarm-empty text-center py-6">
+              <el-icon class="text-4xl text-text-secondary"><CircleCheck /></el-icon>
+            </div>
+            <template v-if="alarmData && alarmData.alertTriggered">
+              <div v-if="alarmData.operatorBursts && alarmData.operatorBursts.length" class="mb-3">
+                <div class="alarm-subtitle flex items-center gap-1.5 text-sm font-medium mb-2">
+                  <el-icon><User /></el-icon>
+                  {{ t('auditDashboard.alarm.burstOperators') }}
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <el-tag v-for="item in alarmData.operatorBursts" :key="item.name" type="danger" effect="dark">
+                    {{ item.name }} · {{ t('auditDashboard.alarm.times', { count: item.count }) }}
+                  </el-tag>
+                </div>
+              </div>
+              <div v-if="alarmData.moduleBursts && alarmData.moduleBursts.length">
+                <div class="alarm-subtitle flex items-center gap-1.5 text-sm font-medium mb-2">
+                  <el-icon><Collection /></el-icon>
+                  {{ t('auditDashboard.alarm.burstModules') }}
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <el-tag v-for="item in alarmData.moduleBursts" :key="item.name" type="warning" effect="dark">
+                    {{ item.name }} · {{ t('auditDashboard.alarm.times', { count: item.count }) }}
+                  </el-tag>
+                </div>
+              </div>
+            </template>
+            <el-empty v-if="!alarmData && !alarmLoading" :description="t('common.noData')" :image-size="60" />
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts" name="AuditDashboard">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { type ECharts, type ECElementEvent } from '@/utils/echarts'
 import { useChart, readCssVar } from '@/composables/useChart'
 import { useMotionPresets } from '@/composables/useMotion'
@@ -210,11 +316,13 @@ import {
   Histogram,
   Warning,
   WarningFilled,
-  InfoFilled
+  InfoFilled,
+  Collection,
+  Bell
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { exportElementToPdf } from '@/utils/pdf'
-import { getComplianceReport } from '@/api/monitor/operlog'
+import { getComplianceReport, getAlarmStatus } from '@/api/monitor/operlog'
 import { escapeHtml } from '@/utils'
 import { selectDictLabel } from '@/utils/yebot'
 
@@ -242,22 +350,53 @@ const stats = ref({
 const trendChartRef = ref<HTMLElement | null>(null)
 const pieChartRef = ref<HTMLElement | null>(null)
 const topUsersChartRef = ref<HTMLElement | null>(null)
+const topModulesChartRef = ref<HTMLElement | null>(null)
 const failTrendChartRef = ref<HTMLElement | null>(null)
 
 let trendChart: ECharts | null = null
 let pieChart: ECharts | null = null
 let topUsersChart: ECharts | null = null
+let topModulesChart: ECharts | null = null
 let failTrendChart: ECharts | null = null
 
 // 主题切换时复用最近一次数据重新渲染（避免重新请求接口）
 let lastDaily: Array<{ date: string; success: number; fail: number }> = []
 let lastPieData: Array<{ name: string; value: number }> = []
 let lastTopUsersData: Array<{ userName: string; count: number }> = []
+let lastTopModulesData: Array<{ moduleName: string; count: number }> = []
+
+// 异常操作告警状态
+interface AlarmItem {
+  name: string
+  count: number
+}
+interface AlarmStatus {
+  config: { windowMinutes: number; failThreshold: number; failRateThreshold: number }
+  totalInWindow: number
+  failInWindow: number
+  failRate: number
+  failRateAlarm: boolean
+  operatorBursts: AlarmItem[]
+  moduleBursts: AlarmItem[]
+  alertTriggered: boolean
+}
+const alarmData = ref<AlarmStatus | null>(null)
+const alarmLoading = ref(false)
+const alarmThresholdTip = computed(() => {
+  const cfg = alarmData.value?.config
+  if (!cfg) return ''
+  return t('auditDashboard.alarm.thresholdSet', {
+    window: cfg.windowMinutes,
+    count: cfg.failThreshold,
+    rate: cfg.failRateThreshold
+  })
+})
 
 interface StatsVo {
   summary: { total: number; success: number; fail: number }
   businessTypes: Array<{ businessType: number; count: number }>
   topOperators: Array<{ operName: string; count: number }>
+  topModules: Array<{ moduleName: string; count: number }>
   daily: Array<{ date: string; success: number; fail: number }>
 }
 
@@ -269,6 +408,7 @@ interface ComplianceReport {
   summary: { total: number; success: number; fail: number }
   businessTypes: Array<{ businessType: number; count: number }>
   topOperators: Array<{ operName: string; count: number }>
+  topModules: Array<{ moduleName: string; count: number }>
   anomalies: Array<{
     operTime: string
     title: string
@@ -292,6 +432,7 @@ async function loadStats() {
     const summary = vo.summary || { total: 0, success: 0, fail: 0 }
     const businessTypes = vo.businessTypes || []
     const topOperators = vo.topOperators || []
+    const topModules = vo.topModules || []
     const daily = vo.daily || []
     // P1-3：缓存 businessTypes 供饼图点击回调反查 code
     lastBusinessTypes.value = businessTypes
@@ -306,12 +447,14 @@ async function loadStats() {
     lastDaily = daily
     lastPieData = businessTypes.map((b) => ({ name: formatBusinessType(b.businessType), value: b.count }))
     lastTopUsersData = topOperators.map((u) => ({ userName: u.operName, count: u.count }))
+    lastTopModulesData = topModules.map((m) => ({ moduleName: m.moduleName, count: m.count }))
     await nextTick()
-    // 四个图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
+    // 图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
     await Promise.all([
       renderTrendChart(lastDaily),
       renderPieChart(lastPieData),
       renderTopUsersChart(lastTopUsersData),
+      renderTopModulesChart(lastTopModulesData),
       renderFailTrendChart(lastDaily)
     ])
   } catch (e) {
@@ -320,6 +463,19 @@ async function loadStats() {
     chartError.value = true
   } finally {
     loading.value = false
+  }
+}
+
+/** 加载异常操作告警状态 */
+async function loadAlarm() {
+  alarmLoading.value = true
+  try {
+    const res = (await getAlarmStatus()) as { data?: AlarmStatus }
+    alarmData.value = res?.data ?? null
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('Failed to load alarm status:', e)
+  } finally {
+    alarmLoading.value = false
   }
 }
 
@@ -423,6 +579,40 @@ async function renderTopUsersChart(data: Array<{ userName: string; count: number
   )
 }
 
+// 模块名可能较长，超出容器时截断显示，避免拥挤
+function truncateName(name: string, max = 18): string {
+  return name.length > max ? `${name.slice(0, max)}...` : name
+}
+
+async function renderTopModulesChart(data: Array<{ moduleName: string; count: number }>) {
+  const chart = await getChart(topModulesChartRef.value)
+  if (!chart) return
+  topModulesChart = chart
+  const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
+  chart.setOption(
+    withDark(chart, {
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+      xAxis: { type: 'value', minInterval: 1 },
+      yAxis: {
+        type: 'category',
+        data: sorted.map((d) => truncateName(d.moduleName)).reverse(),
+        axisLabel: { overflow: 'truncate', width: 110 }
+      },
+      series: [
+        {
+          name: t('auditDashboard.report.operCount'),
+          type: 'bar',
+          data: sorted.map((d) => d.count).reverse(),
+          itemStyle: { color: readCssVar('--el-color-success', '#67c23a') },
+          label: { show: true, position: 'right' }
+        }
+      ]
+    }),
+    true
+  )
+}
+
 async function renderFailTrendChart(data: Array<{ date: string; success: number; fail: number }>) {
   const chart = await getChart(failTrendChartRef.value)
   if (!chart) return
@@ -446,7 +636,7 @@ async function renderFailTrendChart(data: Array<{ date: string; success: number;
   )
 }
 
-// U18 优化：防抖 150ms，避免高频 resize 卡顿（4 个图表同时 resize 开销大）
+// U18 优化：防抖 150ms，避免高频 resize 卡顿（多个图表同时 resize 开销大）
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 function handleResize() {
   if (resizeTimer) clearTimeout(resizeTimer)
@@ -454,6 +644,7 @@ function handleResize() {
     trendChart?.resize()
     pieChart?.resize()
     topUsersChart?.resize()
+    topModulesChart?.resize()
     failTrendChart?.resize()
   }, 150)
 }
@@ -576,6 +767,26 @@ function buildReportDom(report: ComplianceReport): HTMLElement {
       </tbody>
     </table>
 
+    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.sectionTopModules')}</h2>
+    <table style="width:100%;border-collapse:collapse;margin:10px 0;">
+      <thead>
+        <tr>
+          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.module')}</th>
+          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.operCount')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(report.topModules || [])
+          .map(
+            (m: { moduleName: string; count: number }) => `<tr>
+          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(m.moduleName)}</td>
+          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(m.count)}</td>
+        </tr>`
+          )
+          .join('')}
+      </tbody>
+    </table>
+
     <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.sectionAnomalies', { count: (report.anomalies || []).length })}</h2>
     <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px;">
       <thead>
@@ -653,6 +864,7 @@ watch(
       renderTrendChart(lastDaily),
       renderPieChart(lastPieData),
       renderTopUsersChart(lastTopUsersData),
+      renderTopModulesChart(lastTopModulesData),
       renderFailTrendChart(lastDaily)
     ])
   }
@@ -661,6 +873,7 @@ watch(
 onMounted(async () => {
   await nextTick()
   await loadStats()
+  await loadAlarm()
   window.addEventListener('resize', handleResize)
 })
 
@@ -709,6 +922,21 @@ onBeforeUnmount(() => {
 
   .el-icon {
     font-size: 18px;
+  }
+}
+
+/* 异常告警卡片：触发时为边框/顶部描边高亮 */
+.alarm-card {
+  :deep(.el-card__body) {
+    min-height: 380px;
+  }
+}
+
+.alarm-triggered {
+  border-color: var(--el-color-danger);
+
+  :deep(.el-card__header) {
+    border-bottom-color: var(--el-color-danger);
   }
 }
 </style>

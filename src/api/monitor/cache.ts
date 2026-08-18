@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import type { SysCache, AjaxResult } from '@/types'
+import type { SysCache, HotKey, CachePrefixStat, AjaxResult } from '@/types'
 
 // 查询缓存详细
 export function getCache(): Promise<AjaxResult<unknown>> {
@@ -13,6 +13,22 @@ export function getCache(): Promise<AjaxResult<unknown>> {
 export function listCacheName(): Promise<AjaxResult<SysCache[]>> {
   return request({
     url: '/monitor/cache/getNames',
+    method: 'get'
+  })
+}
+
+// 查询热 key（大内存键）提示
+export function getHotKeys(): Promise<AjaxResult<HotKey[]>> {
+  return request({
+    url: '/monitor/cache/hotKeys',
+    method: 'get'
+  })
+}
+
+// 查询缓存前缀内存统计
+export function getPrefixStats(): Promise<AjaxResult<CachePrefixStat[]>> {
+  return request({
+    url: '/monitor/cache/prefixStats',
     method: 'get'
   })
 }

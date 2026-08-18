@@ -19,6 +19,7 @@ export * from './system/notice'
 export * from './system/rateLimit'
 export * from './system/backup'
 export * from './system/task'
+export * from './system/msg'
 
 // monitor 模块
 export * from './monitor/cache'

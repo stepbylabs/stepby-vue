@@ -18,6 +18,7 @@
       :on-change="handleFileChange"
       :on-remove="handleFileRemove"
       :on-success="handleSuccess"
+      :on-error="handleError"
       :auto-upload="false"
       drag
     >
@@ -44,6 +45,27 @@
         </div>
       </template>
     </el-upload>
+    <template v-if="result">
+      <el-alert
+        class="mt-3"
+        :type="errorList.length ? 'warning' : 'success'"
+        :title="resultMessage"
+        :closable="false"
+        show-icon
+      />
+      <el-table
+        v-if="errorList.length"
+        :data="errorList"
+        size="small"
+        max-height="260"
+        border
+        class="mt-3"
+        :header-cell-style="{ background: '#f5f7fa' }"
+      >
+        <el-table-column :label="t('excelImport.column.rowNum')" prop="rowNum" align="center" width="100" />
+        <el-table-column :label="t('excelImport.column.error')" prop="error" min-width="240" show-overflow-tooltip />
+      </el-table>
+    </template>
     <template #footer>
       <div class="dialog-footer">
         <el-button type="primary" :loading="isUploading" @click="handleSubmit">
@@ -63,6 +85,12 @@ import { getToken } from '@/utils/auth'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 
+// 后端导入结果（AjaxResult.data）：成功数 + 校验失败明细
+interface ImportResultData {
+  success: number
+  errorList: { rowNum: number; error: string }[]
+}
+
 const { t } = useI18n()
 
 const props = defineProps({
@@ -74,7 +102,7 @@ const props = defineProps({
   // 对话框宽度
   width: {
     type: String,
-    default: '400px'
+    default: '480px'
   },
   // 上传接口地址（必传）
   action: {
@@ -109,6 +137,14 @@ const visible = ref<boolean>(false)
 const selectedFile = ref<UploadFile | null>(null)
 const isUploading = ref<boolean>(false)
 const updateSupport = ref<boolean>(false)
+const errorList = ref<{ rowNum: number; error: string }[]>([])
+const successCount = ref<number>(0)
+const result = computed(() => successCount.value > 0 || errorList.value.length > 0)
+const resultMessage = computed(() =>
+  errorList.value.length
+    ? t('excelImport.successCount', { success: successCount.value, error: errorList.value.length })
+    : t('excelImport.allSuccess')
+)
 const headers = computed(() => ({ Authorization: 'Bearer ' + getToken() }))
 
 const uploadUrl = computed(() => {
@@ -121,6 +157,8 @@ const templateUrl = computed(() => !!props.templateAction)
 function open(): void {
   updateSupport.value = false
   isUploading.value = false
+  successCount.value = 0
+  errorList.value = []
   visible.value = true
   nextTick(() => {
     selectedFile.value = null
@@ -132,6 +170,8 @@ function open(): void {
 function handleClose(): void {
   isUploading.value = false
   selectedFile.value = null
+  successCount.value = 0
+  errorList.value = []
   uploadRef.value?.clearFiles()
 }
 
@@ -148,21 +188,40 @@ function handleProgress(): void {
 /** 文件选择处理 */
 const handleFileChange = (file: UploadFile): void => {
   selectedFile.value = file
+  // 重新选择文件时清空上一次的导入结果
+  successCount.value = 0
+  errorList.value = []
 }
 
 /** 文件删除处理 */
 const handleFileRemove = (_file: UploadFile) => {
   selectedFile.value = null
+  successCount.value = 0
+  errorList.value = []
 }
 
-// 上传成功
-function handleSuccess(response: AjaxResult) {
-  visible.value = false
+/**
+ * 上传成功：解析后端 AjaxResult，提取成功数 + 校验失败明细。
+ * - 存在失败行时保留对话框并回显错误表，供用户修正后重试
+ * - 全部成功时给出提示并触发 success 事件（父组件刷新数据）
+ */
+function handleSuccess(response: AjaxResult & { data?: ImportResultData }) {
   isUploading.value = false
-  selectedFile.value = null
-  uploadRef.value?.clearFiles()
-  ElMessageBox.alert(response.msg, t('excelImport.importResult'))
-  emit('success')
+  const data = response?.data
+  successCount.value = data?.success ?? 0
+  errorList.value = data?.errorList ?? []
+  if (errorList.value.length === 0) {
+    const msg = response?.msg || t('excelImport.allSuccess') + '（' + successCount.value + '）'
+    visible.value = false
+    ElMessageBox.alert(msg, t('excelImport.importResult'))
+    emit('success')
+  }
+}
+
+// 上传失败（HTTP 非 2xx）
+function handleError(_err: Error, _file: UploadFile) {
+  isUploading.value = false
+  modal.msgError(t('common.failed'))
 }
 
 // 提交上传

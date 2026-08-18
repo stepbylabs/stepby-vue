@@ -178,6 +178,10 @@ export default {
     dict: '字典管理',
     config: '参数设置',
     notice: '公告管理',
+    msg: '消息管理',
+    msgChannel: '消息渠道',
+    msgTemplate: '消息模板',
+    msgLog: '发送记录',
     log: '日志管理',
     operlog: '操作日志',
     logininfor: '登录日志',
@@ -913,6 +917,25 @@ export default {
       confirmPasswordRequired: '确认密码不能为空',
       passwordNotMatch: '两次输入的密码不一致'
     },
+    import: {
+      title: '导入用户',
+      tip: '请先在下方下载模板，按模板格式填写数据后上传 xlsx 文件（仅支持 .xlsx）。逐行校验，错误行不会中断整批导入，结果在下方回显。',
+      downloadTemplate: '下载导入模板',
+      uploadTip: '点击或将文件拖拽到此处上传，仅支持 .xlsx 格式',
+      uploadSuccess: '文件上传成功',
+      uploadEmptyFile: '不能上传空文件',
+      notXlsx: '仅支持 .xlsx 格式文件',
+      updateSupport: '若登录名称已存在则更新该用户资料',
+      importBtn: '开始导入',
+      importing: '导入中...',
+      successCount: '成功导入 {n} 个用户',
+      errorTotal: '共 {n} 行校验失败',
+      noError: '所有数据均校验通过',
+      column: {
+        rowNum: '错误行号',
+        error: '错误原因'
+      }
+    },
     authRole: {
       title: '角色信息'
     },
@@ -1155,8 +1178,21 @@ export default {
       trendRange: '操作趋势（最近 {days} 天）',
       businessDist: '业务类型分布',
       topUsers: 'Top 10 活跃用户',
+      topModules: 'Top 10 活跃模块',
       failTrend: '异常操作时序',
       failCount: '失败次数'
+    },
+    alarm: {
+      title: '异常操作告警',
+      normal: '运行正常，暂无异常告警',
+      triggered: '检测到异常操作，请关注',
+      totalInWindow: '窗口内操作',
+      failInWindow: '窗口内失败',
+      failRate: '失败率',
+      burstOperators: '高频失败操作人',
+      burstModules: '高频失败模块',
+      times: '{count} 次',
+      thresholdSet: '判定阈值（{window} 分钟内失败超过 {count} 次，或失败率超过 {rate}%）'
     },
     btn: {
       exportPdf: '导出合规报告',
@@ -1395,6 +1431,144 @@ export default {
     validate: {
       noticeTitleRequired: '公告标题不能为空',
       noticeTypeRequired: '公告类型不能为空'
+    }
+  },
+  msg: {
+    title: '消息管理',
+    channel: {
+      title: '消息渠道',
+      type: {
+        email: '邮件',
+        sms: '短信',
+        site: '站内'
+      },
+      search: {
+        channelName: '渠道名称',
+        phChannelName: '请输入渠道名称',
+        phStatus: '状态'
+      },
+      column: {
+        channelName: '渠道名称',
+        channelCode: '渠道编码',
+        channelType: '渠道类型',
+        remark: '备注'
+      },
+      form: {
+        channelName: '渠道名称',
+        channelType: '渠道类型',
+        status: '状态',
+        statusNormal: '正常',
+        statusDisabled: '停用',
+        configJson: '渠道配置',
+        phConfigJson:
+          '{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }',
+        phConfigGeneric: '请输入该渠道类型对应的配置 JSON',
+        configSecretTip:
+          '提示：包含 smtp_password / password 等敏感字段时，后端会以 ****** 脱敏保存，修改时可留空表示不更改。',
+        remark: '备注',
+        phRemark: '请输入备注'
+      },
+      btn: {
+        test: '测试'
+      },
+      test: {
+        title: '渠道连通性测试',
+        tip: '点击「开始测试」将使用该渠道配置进行连通性测试，请确保配置正确。',
+        start: '开始测试'
+      },
+      testSuccess: '渠道测试通过',
+      tip: {
+        confirmDelete: '是否确认删除渠道编号为"{ids}"的数据项？'
+      },
+      validate: {
+        channelNameRequired: '渠道名称不能为空',
+        channelTypeRequired: '渠道类型不能为空'
+      }
+    },
+    template: {
+      title: '消息模板',
+      search: {
+        templateName: '模板名称',
+        phTemplateName: '请输入模板名称',
+        templateCode: '模板编码',
+        phTemplateCode: '请输入模板编码',
+        phStatus: '状态'
+      },
+      column: {
+        templateName: '模板名称',
+        templateCode: '模板编码',
+        channelCode: '渠道编码',
+        templateSubject: '模板主题'
+      },
+      form: {
+        templateName: '模板名称',
+        templateCode: '模板编码',
+        channelCode: '渠道编码',
+        status: '状态',
+        statusNormal: '正常',
+        statusDisabled: '停用',
+        templateSubject: '模板主题',
+        phTemplateSubject: '请输入模板主题',
+        templateContent: '模板内容',
+        phTemplateContent: '请输入模板内容',
+        remark: '备注',
+        phRemark: '请输入备注'
+      },
+      var: {
+        label: '变量占位',
+        hint: '支持 {{变量名}} 占位，发送时替换为实际值，点击插入：',
+        previewSubject: '主题预览',
+        previewContent: '内容预览',
+        sampleName: '张三',
+        sampleContent: '这是变量替换后的示例内容'
+      },
+      tip: {
+        confirmDelete: '是否确认删除模板编号为"{ids}"的数据项？'
+      },
+      validate: {
+        templateNameRequired: '模板名称不能为空',
+        templateCodeRequired: '模板编码不能为空',
+        templateSubjectRequired: '模板主题不能为空',
+        templateContentRequired: '模板内容不能为空'
+      }
+    },
+    log: {
+      title: '发送记录',
+      search: {
+        toAddr: '收件地址',
+        phToAddr: '请输入收件地址',
+        templateCode: '模板编码',
+        phTemplateCode: '模板编码',
+        channelCode: '渠道编码',
+        phChannelCode: '渠道编码',
+        phStatus: '状态'
+      },
+      column: {
+        templateCode: '模板编码',
+        channelCode: '渠道编码',
+        toAddr: '收件地址',
+        subject: '主题',
+        status: '状态',
+        retry: '重试次数',
+        lastError: '最后错误',
+        sendTime: '发送时间'
+      },
+      btn: {
+        clean: '清空',
+        retry: '重试'
+      },
+      status: {
+        success: '成功',
+        fail: '失败',
+        pending: '待重试'
+      },
+      tip: {
+        confirmDelete: '是否确认删除发送记录编号为"{ids}"的数据项？',
+        confirmClean: '是否确认清空全部发送记录？此操作不可恢复！',
+        confirmRetry: '是否确认重试发送记录"{logId}"？'
+      },
+      cleanSuccess: '发送记录已清空',
+      retrySuccess: '重试成功'
     }
   },
   task: {
@@ -1702,6 +1876,32 @@ export default {
       memoryConsume: '内存消耗',
       peak: '峰值',
       command: '命令'
+    },
+    prefix: {
+      title: '前缀内存统计',
+      refresh: '刷新统计',
+      column: {
+        cacheName: '缓存前缀',
+        keyCount: '键数量',
+        memory: '内存占用'
+      },
+      empty: '暂无前缀统计'
+    },
+    hot: {
+      title: '热 Key 提示',
+      refresh: '刷新热 Key',
+      column: {
+        key: 'Key',
+        type: '类型',
+        memory: '内存',
+        hotspot: '状态'
+      },
+      hotspot: '热点',
+      tip: {
+        selectKeyFirst: '请选择热 Key',
+        confirmClearKey: '热 Key 属于业务缓存。是否确认清理 "{key}"？清理后该键数据将被删除。',
+        clearKeySuccess: '清理热 Key [{key}] 成功'
+      }
     },
     tip: {
       loading: '正在加载缓存监控数据，请稍候！',
@@ -2213,14 +2413,22 @@ export default {
   excelImport: {
     dragText: '将文件拖到此处，或',
     clickUpload: '点击上传',
-    tip: '仅允许导入xls、xlsx格式文件。',
+    tip: '仅允许导入 xls、xlsx 格式文件。',
     downloadTemplate: '下载模板',
     confirm: '确 定',
     cancel: '取 消',
     title: '数据导入',
     updateSupportLabel: '是否更新已经存在的数据',
     importResult: '导入结果',
-    fileTypeError: '请选择后缀为 "xls"或"xlsx"的文件。'
+    fileTypeError: '请选择后缀为 "xls"或"xlsx"的文件。',
+    successCount: '成功导入 {success} 个，校验失败 {error} 行',
+    allSuccess: '全部导入成功',
+    errorTitle: '校验失败明细',
+    noError: '所有数据均校验通过',
+    column: {
+      rowNum: '行号',
+      error: '错误原因'
+    }
   },
   exportDialog: {
     title: '选择导出字段',

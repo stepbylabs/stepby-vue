@@ -178,6 +178,10 @@ export default {
     dict: 'Dictionaries',
     config: 'Config',
     notice: 'Announcements',
+    msg: 'Message Management',
+    msgChannel: 'Message Channels',
+    msgTemplate: 'Message Templates',
+    msgLog: 'Send Logs',
     log: 'Log Management',
     operlog: 'Operation Log',
     logininfor: 'Login Log',
@@ -917,6 +921,25 @@ export default {
       confirmPasswordRequired: 'Confirm password is required',
       passwordNotMatch: 'The two passwords do not match'
     },
+    import: {
+      title: 'Import Users',
+      tip: 'Download the template first, fill in the data following its format, then upload an .xlsx file (only .xlsx is supported). Rows are validated one by one; a failing row does not abort the whole import, and errors are echoed below.',
+      downloadTemplate: 'Download Import Template',
+      uploadTip: 'Click or drag a file here to upload. Only .xlsx is supported',
+      uploadSuccess: 'File uploaded successfully',
+      uploadEmptyFile: 'Cannot upload an empty file',
+      notXlsx: 'Only .xlsx files are supported',
+      updateSupport: 'Update the user profile if the login name already exists',
+      importBtn: 'Start Import',
+      importing: 'Importing...',
+      successCount: 'Successfully imported {n} users',
+      errorTotal: '{n} rows failed validation',
+      noError: 'All data passed validation',
+      column: {
+        rowNum: 'Row Number',
+        error: 'Error Reason'
+      }
+    },
     authRole: {
       title: 'Role Information'
     },
@@ -1159,8 +1182,21 @@ export default {
       trendRange: 'Operation Trend (last {days} days)',
       businessDist: 'Business Type',
       topUsers: 'Top 10 Active Users',
+      topModules: 'Top 10 Active Modules',
       failTrend: 'Anomaly Trend',
       failCount: 'Fail Count'
+    },
+    alarm: {
+      title: 'Abnormal Alarm',
+      normal: 'Healthy, no abnormal alarm',
+      triggered: 'Abnormal operations detected, please review',
+      totalInWindow: 'Ops in window',
+      failInWindow: 'Fails in window',
+      failRate: 'Fail rate',
+      burstOperators: 'High-fail operators',
+      burstModules: 'High-fail modules',
+      times: '{count} times',
+      thresholdSet: 'Threshold ({window}min, fail>{count}, or rate>{rate}%)'
     },
     btn: {
       exportPdf: 'Export Report',
@@ -1400,6 +1436,144 @@ export default {
     validate: {
       noticeTitleRequired: 'Notice title is required',
       noticeTypeRequired: 'Notice type is required'
+    }
+  },
+  msg: {
+    title: 'Message Management',
+    channel: {
+      title: 'Message Channels',
+      type: {
+        email: 'Email',
+        sms: 'SMS',
+        site: 'Site'
+      },
+      search: {
+        channelName: 'Channel Name',
+        phChannelName: 'Enter channel name',
+        phStatus: 'Status'
+      },
+      column: {
+        channelName: 'Channel Name',
+        channelCode: 'Channel Code',
+        channelType: 'Channel Type',
+        remark: 'Remark'
+      },
+      form: {
+        channelName: 'Channel Name',
+        channelType: 'Channel Type',
+        status: 'Status',
+        statusNormal: 'Normal',
+        statusDisabled: 'Disabled',
+        configJson: 'Channel Config',
+        phConfigJson:
+          '{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }',
+        phConfigGeneric: 'Enter the config JSON for this channel type',
+        configSecretTip:
+          'Tip: sensitive fields such as smtp_password / password are masked as ******. Leave blank when editing to keep unchanged.',
+        remark: 'Remark',
+        phRemark: 'Enter remark'
+      },
+      btn: {
+        test: 'Test'
+      },
+      test: {
+        title: 'Channel Connectivity Test',
+        tip: 'Click "Start Test" to run a connectivity test with this channel config. Make sure the config is correct.',
+        start: 'Start Test'
+      },
+      testSuccess: 'Channel test passed',
+      tip: {
+        confirmDelete: 'Are you sure to delete the channel with ID "{ids}"?'
+      },
+      validate: {
+        channelNameRequired: 'Channel name is required',
+        channelTypeRequired: 'Channel type is required'
+      }
+    },
+    template: {
+      title: 'Message Templates',
+      search: {
+        templateName: 'Template Name',
+        phTemplateName: 'Enter template name',
+        templateCode: 'Template Code',
+        phTemplateCode: 'Enter template code',
+        phStatus: 'Status'
+      },
+      column: {
+        templateName: 'Template Name',
+        templateCode: 'Template Code',
+        channelCode: 'Channel Code',
+        templateSubject: 'Template Subject'
+      },
+      form: {
+        templateName: 'Template Name',
+        templateCode: 'Template Code',
+        channelCode: 'Channel Code',
+        status: 'Status',
+        statusNormal: 'Normal',
+        statusDisabled: 'Disabled',
+        templateSubject: 'Template Subject',
+        phTemplateSubject: 'Enter template subject',
+        templateContent: 'Template Content',
+        phTemplateContent: 'Enter template content',
+        remark: 'Remark',
+        phRemark: 'Enter remark'
+      },
+      var: {
+        label: 'Variable Placeholder',
+        hint: 'Supports {{variable}} placeholders, replaced with actual values when sending. Click to insert:',
+        previewSubject: 'Subject Preview',
+        previewContent: 'Content Preview',
+        sampleName: 'John',
+        sampleContent: 'Sample content after variable substitution'
+      },
+      tip: {
+        confirmDelete: 'Are you sure to delete the template with ID "{ids}"?'
+      },
+      validate: {
+        templateNameRequired: 'Template name is required',
+        templateCodeRequired: 'Template code is required',
+        templateSubjectRequired: 'Template subject is required',
+        templateContentRequired: 'Template content is required'
+      }
+    },
+    log: {
+      title: 'Send Logs',
+      search: {
+        toAddr: 'Recipient',
+        phToAddr: 'Enter recipient',
+        templateCode: 'Template Code',
+        phTemplateCode: 'Template Code',
+        channelCode: 'Channel Code',
+        phChannelCode: 'Channel Code',
+        phStatus: 'Status'
+      },
+      column: {
+        templateCode: 'Template Code',
+        channelCode: 'Channel Code',
+        toAddr: 'Recipient',
+        subject: 'Subject',
+        status: 'Status',
+        retry: 'Retry Count',
+        lastError: 'Last Error',
+        sendTime: 'Send Time'
+      },
+      btn: {
+        clean: 'Clean',
+        retry: 'Retry'
+      },
+      status: {
+        success: 'Success',
+        fail: 'Failed',
+        pending: 'Pending Retry'
+      },
+      tip: {
+        confirmDelete: 'Are you sure to delete the send log with ID "{ids}"?',
+        confirmClean: 'Are you sure you want to clear all send logs? This action cannot be undone!',
+        confirmRetry: 'Are you sure you want to retry send log "{logId}"?'
+      },
+      cleanSuccess: 'Send logs cleared',
+      retrySuccess: 'Retry succeeded'
     }
   },
   task: {
@@ -1709,6 +1883,32 @@ export default {
       memoryConsume: 'Memory Consumption',
       peak: 'Peak',
       command: 'Command'
+    },
+    prefix: {
+      title: 'Prefix Memory Stats',
+      refresh: 'Refresh Stats',
+      column: {
+        cacheName: 'Cache Prefix',
+        keyCount: 'Key Count',
+        memory: 'Memory'
+      },
+      empty: 'No prefix stats'
+    },
+    hot: {
+      title: 'Hot Key Alerts',
+      refresh: 'Refresh Hot Keys',
+      column: {
+        key: 'Key',
+        type: 'Type',
+        memory: 'Memory',
+        hotspot: 'Status'
+      },
+      hotspot: 'Hotspot',
+      tip: {
+        selectKeyFirst: 'Please select a hot key',
+        confirmClearKey: 'Hot keys belong to business cache. Are you sure to clear "{key}"? The data will be deleted.',
+        clearKeySuccess: 'Hot key [{key}] cleared successfully'
+      }
     },
     tip: {
       loading: 'Loading cache monitor data, please wait...',
@@ -2230,7 +2430,15 @@ export default {
     title: 'Data Import',
     updateSupportLabel: 'Whether to update existing data',
     importResult: 'Import Result',
-    fileTypeError: 'Please select a file with "xls" or "xlsx" extension.'
+    fileTypeError: 'Please select a file with "xls" or "xlsx" extension.',
+    successCount: '{success} imported, {error} failed validation',
+    allSuccess: 'All data imported successfully',
+    errorTitle: 'Validation errors',
+    noError: 'All data passed validation',
+    column: {
+      rowNum: 'Row',
+      error: 'Error'
+    }
   },
   exportDialog: {
     title: 'Select Export Fields',
