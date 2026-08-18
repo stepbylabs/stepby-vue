@@ -56,5 +56,8 @@
     "test:i18n": "node main.mjs --feature=12 && node main.mjs --feature=16",
     "deep:test": "node deep-e2e.mjs",
     "deep:headless": "node deep-e2e.mjs --headless"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1"
   }
 }

@@ -65,8 +65,12 @@
     >
       <el-table-column prop="menuName" :label="t('menuModule.column.name')" show-overflow-tooltip width="240">
         <template #default="scope">
-          <svg-icon :icon-class="scope.row.icon" />
-          <span class="ml5">{{ translateTitle({ title: scope.row.menuName, i18nKey: scope.row.i18nKey }) }}</span>
+          <span class="inline-flex items-center gap-1">
+            <svg-icon v-if="scope.row.icon" :icon-class="scope.row.icon" />
+            <span class="truncate">
+              {{ translateTitle({ title: scope.row.menuName, i18nKey: scope.row.i18nKey }) }}
+            </span>
+          </span>
         </template>
       </el-table-column>
       <el-table-column prop="menuName" :label="t('common.column.type')" show-overflow-tooltip width="100">

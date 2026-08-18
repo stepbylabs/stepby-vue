@@ -1,14 +1,9 @@
 <template>
-  <div class="sidebar-logo-container" :class="{ collapse: collapse }">
-    <router-link
-      class="sidebar-logo-link h-full w-full flex items-center"
-      :class="collapse ? 'justify-center' : 'justify-start pl-3'"
-      to="/"
-      :aria-label="title"
-    >
+  <div class="sidebar-logo-container" :class="{ 'is-collapsed': collapse }">
+    <router-link class="sidebar-logo-link" :class="collapse ? 'is-collapse' : ''" to="/" :aria-label="title">
       <img v-if="logo" :src="logo" class="sidebar-logo w-8 h-8 shrink-0" :class="collapse ? '' : 'mr-3'" :alt="title" />
       <Transition name="fade" mode="out-in">
-        <h1 v-if="!collapse || !logo" key="title" class="sidebar-title">{{ title }}</h1>
+        <h1 v-if="!collapse" key="title" class="sidebar-title">{{ title }}</h1>
       </Transition>
     </router-link>
   </div>
@@ -47,16 +42,28 @@ const getLogoTextColor = computed(() => {
   background: v-bind(getLogoBackground);
   overflow: hidden;
 
-  &.collapse {
+  &.is-collapsed {
     .sidebar-logo-link {
       padding-left: 0;
     }
   }
 
   .sidebar-logo-link {
+    display: flex !important;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding-left: 12px;
     transition: padding 0.2s ease;
 
+    /* 折叠时水平居中且去掉左内边距 */
+    &.is-collapse {
+      justify-content: center;
+      padding-left: 0;
+    }
+
     .sidebar-logo {
+      flex-shrink: 0;
       vertical-align: middle;
       transition:
         margin 0.2s ease,
@@ -65,6 +72,8 @@ const getLogoTextColor = computed(() => {
 
     .sidebar-title {
       margin: 0;
+      min-width: 0;
+      flex-shrink: 1;
       color: v-bind(getLogoTextColor);
       font-weight: 600;
       font-size: 15px;

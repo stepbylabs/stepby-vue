@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /**
  * 检查所有菜单的 i18nKey 是否在语言包中存在，
  * 用于诊断语言切换时部分菜单标题未翻译的问题。
@@ -13,7 +12,7 @@ import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const BACKEND = process.env.BACKEND_URL || BASE_URL
-const UI_DIR = path.resolve(__dirname, '../yebot-ui')
+const UI_DIR = path.resolve(__dirname, '../..')
 
 async function main() {
   // 登录
@@ -60,6 +59,22 @@ async function main() {
   const zhContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/zh-CN.ts'), 'utf-8')
   const enContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/en-US.ts'), 'utf-8')
 
+  // 提取语言包中 `menu: { ... }` 块源码（含注释），key 为嵌套对象属性名（如 `workbench:`）
+  function extractMenuBlock(content) {
+    const match = content.match(/menu:\s*\{([\s\S]*?)\n\s*\}/)
+    return match ? match[1] : ''
+  }
+  const zhMenuBlock = extractMenuBlock(zhContent)
+  const enMenuBlock = extractMenuBlock(enContent)
+
+  // 语言包内是否存在该 i18nKey 的翻译（i18nKey 形如 `menu.workbench`，取其末段 `workbench` 作为属性名）
+  function keyExistsInBlock(block, i18nKey) {
+    const prop = i18nKey.includes('.') ? i18nKey.split('.').pop() : i18nKey
+    // 匹配 `workbench:` / `workbench':` / `workbench":` 的顶层属性，避免误匹配嵌套或注释
+    const re = new RegExp(`(^|\\n)\\s*['"\`]?${escapeReg(prop)}['"\`]?\\s*:`, 'm')
+    return re.test(block)
+  }
+
   console.log(`========== 菜单 i18n 检查（共 ${all.length} 项）==========`)
   const missing = []
   const noKey = []
@@ -69,18 +84,14 @@ async function main() {
       noKey.push(m)
       console.log(`⚠️  NO_KEY  ${m.path.padEnd(40)} title="${m.title}"`)
     } else {
-      // 在语言包源码中检查 key 是否存在（粗略匹配 `key':` 或 `key':`）
-      const keyPattern = new RegExp(`['"\`]${escapeReg(m.i18nKey)}['"\`]\\s*:`)
-      const inZh = keyPattern.test(zhContent)
-      const inEn = keyPattern.test(enContent)
+      const inZh = keyExistsInBlock(zhMenuBlock, m.i18nKey)
+      const inEn = keyExistsInBlock(enMenuBlock, m.i18nKey)
       if (inZh && inEn) {
         ok.push(m)
         console.log(`✅ OK     ${m.path.padEnd(40)} i18nKey="${m.i18nKey}"`)
       } else {
         missing.push({ ...m, inZh, inEn })
-        console.log(
-          `❌ MISS   ${m.path.padEnd(40)} i18nKey="${m.i18nKey}" zh=${inZh} en=${inEn}`
-        )
+        console.log(`❌ MISS   ${m.path.padEnd(40)} i18nKey="${m.i18nKey}" zh=${inZh} en=${inEn}`)
       }
     }
   }
@@ -105,7 +116,7 @@ function escapeReg(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('运行错误:', err.message)
   process.exit(1)
 })

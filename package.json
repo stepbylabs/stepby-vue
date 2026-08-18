@@ -37,6 +37,7 @@
     "@vueuse/motion": "^3.0.3",
     "axios": "1.18.1",
     "crypto-js": "^4.2.0",
+    "dayjs": "^1.11.21",
     "dompurify": "^3.4.12",
     "echarts": "6.1.0",
     "element-plus": "2.14.3",
@@ -52,6 +53,8 @@
     "nprogress": "0.2.0",
     "pinia": "4.0.2",
     "prismjs": "^1.30.0",
+    "quill": "^2.0.3",
+    "sortablejs": "^1.15.6",
     "vue": "3.5.40",
     "vue-cropper": "1.1.4",
     "vue-i18n": "^10.0.8",
@@ -64,6 +67,7 @@
     "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.3",
     "@types/crypto-js": "^4.2.2",
+    "@types/node": "^26.2.0",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "4.1.10",
     "@vitest/ui": "^4.1.10",
@@ -102,5 +106,6 @@
     "*.{css,scss,json,md}": [
       "prettier --write"
     ]
-  }
+  },
+  "packageManager": "pnpm@11.15.1+sha512.81350b07e53c9538a02f1f2303b4290fa2d7be04e56e2a970c4cc4b417dc761de196edabd49d55c7dc9580db81007c44143e4e3d7e462b3000d23c255122d065"
 }

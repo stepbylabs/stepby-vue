@@ -186,18 +186,27 @@
               </div>
             </div>
           </template>
-          <div
-            v-motion="fadeInUp"
-            ref="loginChartRef"
-            class="chart-box w-full h-[280px]"
-            v-loading="chartLoading.login"
-            :element-loading-text="t('common.loading')"
-          ></div>
-          <Transition name="fade">
-            <div v-if="chartError.login" class="chart-error py-4 text-center">
-              <el-empty :image-size="60" :description="t('dashboard.loginTrendLoadFail')" />
-            </div>
-          </Transition>
+          <div>
+            <div
+              v-motion="fadeInUp"
+              ref="loginChartRef"
+              v-show="hasLoginData && !chartError.login"
+              class="chart-box w-full h-[280px]"
+              v-loading="chartLoading.login"
+              :element-loading-text="t('common.loading')"
+            ></div>
+            <el-empty
+              v-if="!chartLoading.login && !chartError.login && !hasLoginData"
+              class="chart-empty"
+              :image-size="60"
+              :description="t('common.noData')"
+            />
+            <Transition name="fade">
+              <div v-if="chartError.login" class="chart-error py-4 text-center">
+                <el-empty :image-size="60" :description="t('dashboard.loginTrendLoadFail')" />
+              </div>
+            </Transition>
+          </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="8">
@@ -222,18 +231,27 @@
               </el-tooltip>
             </div>
           </template>
-          <div
-            v-motion="fadeInUp"
-            ref="operPieRef"
-            class="chart-box w-full h-[280px]"
-            v-loading="chartLoading.oper"
-            :element-loading-text="t('common.loading')"
-          ></div>
-          <Transition name="fade">
-            <div v-if="chartError.oper" class="chart-error py-4 text-center">
-              <el-empty :image-size="60" :description="t('dashboard.operDistLoadFail')" />
-            </div>
-          </Transition>
+          <div>
+            <div
+              v-motion="fadeInUp"
+              ref="operPieRef"
+              v-show="hasOperData && !chartError.oper"
+              class="chart-box w-full h-[280px]"
+              v-loading="chartLoading.oper"
+              :element-loading-text="t('common.loading')"
+            ></div>
+            <el-empty
+              v-if="!chartLoading.oper && !chartError.oper && !hasOperData"
+              class="chart-empty"
+              :image-size="60"
+              :description="t('common.noData')"
+            />
+            <Transition name="fade">
+              <div v-if="chartError.oper" class="chart-error py-4 text-center">
+                <el-empty :image-size="60" :description="t('dashboard.operDistLoadFail')" />
+              </div>
+            </Transition>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -261,18 +279,27 @@
               </el-tooltip>
             </div>
           </template>
-          <div
-            v-motion="fadeInUp"
-            ref="userTrendRef"
-            class="chart-box w-full h-[280px]"
-            v-loading="chartLoading.userTrend"
-            :element-loading-text="t('common.loading')"
-          ></div>
-          <Transition name="fade">
-            <div v-if="chartError.userTrend" class="chart-error py-4 text-center">
-              <el-empty :image-size="60" :description="t('dashboard.userTrendLoadFail')" />
-            </div>
-          </Transition>
+          <div>
+            <div
+              v-motion="fadeInUp"
+              ref="userTrendRef"
+              v-show="hasUserTrendData && !chartError.userTrend"
+              class="chart-box w-full h-[280px]"
+              v-loading="chartLoading.userTrend"
+              :element-loading-text="t('common.loading')"
+            ></div>
+            <el-empty
+              v-if="!chartLoading.userTrend && !chartError.userTrend && !hasUserTrendData"
+              class="chart-empty"
+              :image-size="60"
+              :description="t('common.noData')"
+            />
+            <Transition name="fade">
+              <div v-if="chartError.userTrend" class="chart-error py-4 text-center">
+                <el-empty :image-size="60" :description="t('dashboard.userTrendLoadFail')" />
+              </div>
+            </Transition>
+          </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :lg="12">
@@ -431,7 +458,7 @@ const allQuickEntries: QuickEntry[] = [
     permission: 'system:notice:list'
   },
   {
-    path: '/monitor/backup',
+    path: '/tool/backup',
     titleKey: 'dashboard.quickEntry.backup',
     descKey: 'dashboard.quickEntry.backupDesc',
     icon: markRaw(Files),
@@ -439,7 +466,7 @@ const allQuickEntries: QuickEntry[] = [
     permission: 'system:backup:list'
   },
   {
-    path: '/system/log/operlog',
+    path: '/monitor/operlog',
     titleKey: 'dashboard.quickEntry.operLog',
     descKey: 'dashboard.quickEntry.operLogDesc',
     icon: markRaw(Document),
@@ -503,6 +530,11 @@ const loginChartRef = ref<HTMLElement | null>(null)
 const operPieRef = ref<HTMLElement | null>(null)
 const userTrendRef = ref<HTMLElement | null>(null)
 const loginChartType = ref<'success' | 'fail' | 'all'>('all')
+
+// 各图表是否有数据：用于在无数据时显示空态占位，避免渲染成空白大框
+const hasLoginData = ref(false)
+const hasOperData = ref(false)
+const hasUserTrendData = ref(false)
 
 const recentOperLogs = ref<RecentOperLog[]>([])
 
@@ -610,6 +642,7 @@ async function loadOperPie() {
       other: d.other || 0
     }
     lastTypeCount = typeCount
+    hasOperData.value = Object.values(typeCount).some((v) => v > 0)
     await nextTick()
     await renderOperPie(typeCount)
   } catch (e) {
@@ -748,7 +781,7 @@ function handleResize() {
 }
 
 function goToOperLog() {
-  router.push('/system/log/operlog')
+  router.push('/monitor/operlog')
 }
 
 /** TierS-6: 下载图表为 PNG 图片 */
@@ -843,6 +876,12 @@ onBeforeUnmount(() => {
 }
 
 /* U20 优化：图表加载错误状态样式（暗色模式兼容） */
+.chart-empty {
+  height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .chart-error {
   color: var(--el-text-color-secondary, #909399);
   background: var(--el-fill-color-light, #f5f7fa);

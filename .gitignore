@@ -32,3 +32,6 @@ components.d.ts
 # 本地 agent 工作目录与临时提交信息（不应入库）
 .workbuddy/
 commit_msg.txt
+
+# Playwright 浏览器缓存目录（不应入库）
+tests/e2e/.browsers/

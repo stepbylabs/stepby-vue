@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /**
  * 查询后端 /getRouters 接口并打印所有注册的菜单路径，
  * 用于诊断前端路由 404 问题（如 /monitor/operlog、/monitor/logininfor）。
@@ -75,7 +74,7 @@ async function main() {
     '/monitor/online',
     '/monitor/audit-dashboard',
     '/monitor/cache',
-    '/monitor/server',
+    '/monitor/health',
     '/monitor/ip-location',
     '/system/user',
     '/system/role',
@@ -84,18 +83,20 @@ async function main() {
     '/system/dict',
     '/system/config',
     '/system/notice',
-    '/system/backup',
-    '/system/task',
-    '/system/rateLimit'
+    '/system/notice-center',
+    '/system/rateLimit',
+    '/tool/backup',
+    '/tool/task',
+    '/dashboard/index'
   ]
   console.log(`\n========== 关键路径检查 ==========`)
   for (const p of critical) {
-    const found = all.find(r => r.path === p || r.path.endsWith(p))
+    const found = all.find((r) => r.path === p || r.path.endsWith(p))
     console.log(`${found ? '✅' : '❌'} ${p}`)
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('运行错误:', err.message)
   process.exit(1)
 })

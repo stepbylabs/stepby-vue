@@ -287,10 +287,10 @@ function handleDelete(row?: SysTask) {
 }
 
 /** P2-1: 备份类型任务跳转到备份管理页面
- *  路由为 /monitor/backup（菜单 parent_id=2 系统监控目录，详见 m20260805_000001_fix_backup_task_ratelimit_menu_parent 迁移）
+ *  路由为 /tool/backup（菜单 parent_id=3 系统工具目录）
  */
 function handleViewBackups() {
-  router.push('/monitor/backup')
+  router.push('/tool/backup')
 }
 
 getList()

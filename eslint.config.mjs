@@ -150,6 +150,23 @@ export default [
     }
   },
 
+  // E2E 测试脚本专用规则：测试工具场景下的合法模式
+  // - no-console：脚本需打印进度/结果，使用 console 是合理的
+  // - no-empty allowEmptyCatch：catch(//) 忽略预期异常（控件未出现等）用于重试
+  // - no-constant-condition checkLoops:false：允许 while(true)/do-while 轮询等待
+  {
+    files: ['tests/e2e/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      'no-constant-condition': ['error', { checkLoops: false }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }
+      ]
+    }
+  },
+
   // Prettier 兼容层（必须放在最后）：关闭所有与 Prettier 冲突的格式化规则
   prettierConfig
 ]

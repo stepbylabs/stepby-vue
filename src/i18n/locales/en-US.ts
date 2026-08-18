@@ -177,7 +177,7 @@ export default {
     post: 'Positions',
     dict: 'Dictionaries',
     config: 'Config',
-    notice: 'Notices',
+    notice: 'Announcements',
     log: 'Log Management',
     operlog: 'Operation Log',
     logininfor: 'Login Log',
@@ -192,17 +192,17 @@ export default {
     file: 'File Manager',
     rateLimit: 'Rate Limit',
     backup: 'Backup',
-    task: 'Task Progress',
+    task: 'Background Tasks',
     auditDashboard: 'Audit Dashboard',
     ipLocation: 'IP Location',
     myLogin: 'My Logins',
     about: 'About',
-    noticeCenter: 'Notice Center',
+    noticeCenter: 'My Notifications',
     mySession: 'Sessions',
     workbench: 'Workbench',
     workbenchIndex: 'Workbench Home',
     shortcuts: 'Shortcuts',
-    help: 'Help',
+    help: 'Usage Help',
     helpCenter: 'Help Center',
     changelog: 'Changelog',
     dashboard: 'Dashboard',
@@ -565,7 +565,7 @@ export default {
     noResult: 'No matching update records found'
   },
   noticeCenter: {
-    title: 'Notice Center',
+    title: 'My Notifications',
     unread: 'Unread',
     unreadTip: 'Notices not yet read',
     total: 'Total',
@@ -1353,7 +1353,7 @@ export default {
     }
   },
   notice: {
-    title: 'Notices',
+    title: 'Announcements',
     search: {
       title: 'Notice Title',
       phTitle: 'Enter notice title',
@@ -1403,7 +1403,7 @@ export default {
     }
   },
   task: {
-    title: 'Task Progress Center',
+    title: 'Background Tasks Center',
     search: {
       taskType: 'Task Type',
       phTaskType: 'Task type',
@@ -1862,7 +1862,7 @@ export default {
       dept: 'Dept Management',
       post: 'Post Management',
       config: 'Parameter Settings',
-      notice: 'Notice',
+      notice: 'Announcements',
       backup: 'Backup Management',
       job: 'Scheduled Tasks',
       operlog: 'Operation Log',
@@ -2860,7 +2860,7 @@ export default {
     settingLayoutSize: 'Setting layout size, please wait...'
   },
   taskProgress: {
-    title: 'Task Progress',
+    title: 'Background Tasks',
     clearCompleted: 'Clear Completed',
     statusWaiting: 'Waiting',
     statusRunning: 'Running',

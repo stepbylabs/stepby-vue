@@ -8,9 +8,9 @@ const BASE = process.env.TEST_BASE || 'http://localhost:4173'
 const SHOT_DIR = 'D:/桌面/yebot/screenshots/browser-test'
 mkdirSync(SHOT_DIR, { recursive: true })
 
-const consoleErrors = []   // { page, text }
-const pageErrors = []      // { page, text }
-const failedRequests = []  // { page, url, status }
+const consoleErrors = [] // { page, text }
+const pageErrors = [] // { page, text }
+const failedRequests = [] // { page, url, status }
 
 const browser = await chromium.launch({ headless: true })
 try {
@@ -54,32 +54,36 @@ try {
       await page.waitForTimeout(500)
     }
     // 兜底：直接移除遮罩
-    await page.evaluate(() => {
-      document.querySelectorAll('.yebot-tour-mask, [class*="tour-mask"], [class*="tour-popover"]').forEach((el) => el.remove())
-    }).catch(() => {})
+    await page
+      .evaluate(() => {
+        document
+          .querySelectorAll('.yebot-tour-mask, [class*="tour-mask"], [class*="tour-popover"]')
+          .forEach((el) => el.remove())
+      })
+      .catch(() => {})
   }
   await dismissTour()
 
   // ===== 2. 逐页巡检 =====
   const routes = [
-    ['system/dashboard', '数据看板'],
+    ['dashboard/index', '数据看板'],
     ['system/user', '用户管理'],
     ['system/role', '角色管理'],
     ['system/menu', '菜单管理'],
     ['system/dept', '部门管理'],
     ['system/dict', '字典管理'],
     ['system/config', '参数设置'],
-    ['system/notice', '通知公告'],
-    ['system/log/operlog', '操作日志'],
+    ['system/notice', '公告管理'],
+    ['monitor/operlog', '操作日志'],
     ['monitor/logininfor', '登录日志'],
-    ['system/notice-center', '通知中心'],
+    ['system/notice-center', '我的通知'],
     ['system/file', '文件管理'],
     ['monitor/online', '在线用户'],
     ['monitor/job', '定时任务'],
     ['monitor/health', '服务监控'],
     ['monitor/cache', '缓存监控'],
     ['tool/gen', '代码生成'],
-    ['user/profile', '个人中心'],
+    ['user/profile', '个人中心']
   ]
   let i = 20
   for (const [route, name] of routes) {
@@ -106,7 +110,9 @@ try {
         return (host.innerText || '').trim().length < 50
       })
       await shot(`${i}-${route.replace(/\//g, '_')}`)
-      console.log(`PAGE ${name} (${route}): ${empty ? 'EMPTY!' : 'ok'}${rawKeys.length ? ' RAW-I18N:' + JSON.stringify(rawKeys) : ''}`)
+      console.log(
+        `PAGE ${name} (${route}): ${empty ? 'EMPTY!' : 'ok'}${rawKeys.length ? ' RAW-I18N:' + JSON.stringify(rawKeys) : ''}`
+      )
     } catch (e) {
       console.log(`PAGE ${name} (${route}): FAIL ${String(e).slice(0, 120)}`)
     }
@@ -153,9 +159,13 @@ try {
       await shot('51-english')
       console.log('I18N switch to EN:', hasEnglish ? 'ok' : 'SUSPECT (still Chinese?)')
       // 切回中文
-      await langTrigger.click(); await page.waitForTimeout(400)
+      await langTrigger.click()
+      await page.waitForTimeout(400)
       const zh = page.getByText(/简体中文/).first()
-      if (await zh.count()) { await zh.click(); await page.waitForTimeout(600) }
+      if (await zh.count()) {
+        await zh.click()
+        await page.waitForTimeout(600)
+      }
     } else {
       console.log('I18N: English option not found after opening dropdown')
     }
@@ -167,15 +177,21 @@ try {
   currentTag = 'command-palette'
   await page.keyboard.press('Control+k')
   await page.waitForTimeout(600)
-  const paletteVisible = await page.locator('.command-palette, [class*="command"], .el-dialog:visible').first().isVisible().catch(() => false)
+  const paletteVisible = await page
+    .locator('.command-palette, [class*="command"], .el-dialog:visible')
+    .first()
+    .isVisible()
+    .catch(() => false)
   await shot('52-command-palette')
   console.log('COMMAND PALETTE (Ctrl+K):', paletteVisible ? 'ok' : 'NOT VISIBLE')
   await page.keyboard.press('Escape')
 
   // ===== 6. 标签页动效（多开页签 + 关闭）=====
   currentTag = 'tags-view'
-  await page.goto(BASE + '/system/user', { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(800)
-  await page.goto(BASE + '/system/role', { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(800)
+  await page.goto(BASE + '/system/user', { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(800)
+  await page.goto(BASE + '/system/role', { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(800)
   const tagCount = await page.locator('.tags-view-item, [class*="tags"] a, [class*="tag-item"]').count()
   await shot('53-tags-view')
   console.log('TAGS VIEW: tag elements =', tagCount)
