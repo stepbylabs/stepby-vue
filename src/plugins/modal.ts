@@ -1,5 +1,6 @@
 import { ElMessage, ElMessageBox, ElNotification, ElLoading } from 'element-plus'
 import i18n from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 
 // P1 修复: 使用栈结构管理多个 loading 实例，避免并发调用时第二次覆盖第一次的引用
 // 导致第一次的 loading 永远无法关闭（loadingInstance 单例并发泄漏问题）
@@ -13,6 +14,13 @@ type MessageContent = Parameters<typeof ElMessage>[0]
 const t = i18n.global.t
 const tipTitle = () => t('common.tip')
 
+// 将 ElMessage / ElNotification 的内容参数归一化为展示字符串，供 errorHub 记录
+function toString(content: MessageContent): string {
+  if (typeof content === 'string') return content
+  const message = (content as { message?: string } | null)?.message
+  return typeof message === 'string' ? message : ''
+}
+
 export default {
   // 消息提示
   msg(content: MessageContent) {
@@ -22,17 +30,17 @@ export default {
   msgInfo(content: MessageContent) {
     ElMessage.info(content)
   },
-  // 错误消息
+  // 错误消息（统一经 errorHub 聚合弹窗并写入问题监控，避免一屏一串）
   msgError(content: MessageContent) {
-    ElMessage.error(content)
+    errorHub.report('error', 'other', toString(content))
   },
   // 成功消息
   msgSuccess(content: MessageContent) {
     ElMessage.success(content)
   },
-  // 警告消息
+  // 警告消息（统一经 errorHub 聚合弹窗并写入问题监控）
   msgWarning(content: MessageContent) {
-    ElMessage.warning(content)
+    errorHub.report('warning', 'other', toString(content))
   },
   // 弹出提示
   alert(content: string) {
@@ -54,17 +62,17 @@ export default {
   notify(content: Parameters<typeof ElNotification>[0]) {
     ElNotification.info(content)
   },
-  // 错误通知
+  // 错误通知（统一经 errorHub 聚合弹窗并写入问题监控）
   notifyError(content: Parameters<typeof ElNotification>[0]) {
-    ElNotification.error(content)
+    errorHub.report('error', 'other', typeof content === 'string' ? content : content?.message || '')
   },
   // 成功通知
   notifySuccess(content: Parameters<typeof ElNotification>[0]) {
     ElNotification.success(content)
   },
-  // 警告通知
+  // 警告通知（统一经 errorHub 聚合弹窗并写入问题监控）
   notifyWarning(content: Parameters<typeof ElNotification>[0]) {
-    ElNotification.warning(content)
+    errorHub.report('warning', 'other', typeof content === 'string' ? content : content?.message || '')
   },
   // 确认窗体
   confirm(content: string) {

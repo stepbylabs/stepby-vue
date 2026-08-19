@@ -135,6 +135,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { ALLOWED_METHODS, executeHttpDebug, type HttpDebugHeader, type HttpDebugResult } from '@/api/tool/httpDebug'
+import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 
@@ -170,11 +171,11 @@ function formatSize(bytes: number): string {
 async function send(): Promise<void> {
   const url = form.url.trim()
   if (!url) {
-    ElMessage.warning(t('httpDebug.urlRequired'))
+    errorHub.report('warning', 'other', t('httpDebug.urlRequired'))
     return
   }
   if (!/^https?:\/\//i.test(url)) {
-    ElMessage.warning(t('httpDebug.urlSchemeInvalid'))
+    errorHub.report('warning', 'other', t('httpDebug.urlSchemeInvalid'))
     return
   }
   loading.value = true
@@ -211,7 +212,7 @@ async function copyResponse(): Promise<void> {
     await navigator.clipboard.writeText(payload)
     ElMessage.success(t('httpDebug.copied'))
   } catch {
-    ElMessage.error(t('httpDebug.copyFail'))
+    errorHub.report('error', 'other', t('httpDebug.copyFail'))
   }
 }
 </script>

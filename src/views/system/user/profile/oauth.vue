@@ -66,6 +66,7 @@
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listMyBindings, listEnabledProviders, getAuthorizeUrl, unbindOauth } from '@/api/oauth'
 import type { MyOauthBinding, EnabledOauthProvider } from '@/types/api/oauth'
+import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 const loading = ref(true)
@@ -116,10 +117,10 @@ function handleBind(p: EnabledOauthProvider): void {
         // 携带 redirect 返回到个人中心绑定页
         window.location.href = res.authorizeUrl
       } else {
-        ElMessage.error(t('oauth.error.authorizeFailed'))
+        errorHub.report('error', 'other', t('oauth.error.authorizeFailed'))
       }
     })
-    .catch(() => ElMessage.error(t('oauth.error.authorizeFailed')))
+    .catch(() => errorHub.report('error', 'other', t('oauth.error.authorizeFailed')))
     .finally(() => {
       binding.value = ''
     })

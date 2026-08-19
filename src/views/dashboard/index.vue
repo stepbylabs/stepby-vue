@@ -364,6 +364,7 @@ import { useRouter } from 'vue-router'
 import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
 import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useMotionPresets } from '@/composables/useMotion'
 import request from '@/utils/request'
@@ -788,7 +789,7 @@ function goToOperLog() {
 function downloadChart(name: 'login' | 'oper' | 'userTrend'): void {
   const chart = name === 'login' ? loginChart : name === 'oper' ? operPieChart : userTrendChart
   if (!chart) {
-    ElMessage.warning(t('common.chartNotReady'))
+    errorHub.report('warning', 'other', t('common.chartNotReady'))
     return
   }
   try {
@@ -810,7 +811,7 @@ function downloadChart(name: 'login' | 'oper' | 'userTrend'): void {
     ElMessage.success(t('common.chartDownloaded'))
   } catch (e) {
     if (import.meta.env.DEV) console.error('Chart download failed:', e)
-    ElMessage.error(t('common.chartDownloadFail'))
+    errorHub.report('error', 'other', t('common.chartDownloadFail'))
   }
 }
 

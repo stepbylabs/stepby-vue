@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -115,7 +115,7 @@ function selectNone() {
 
 function handleConfirm() {
   if (exportRange.value === 'selected' && selectedFields.value.length === 0) {
-    ElMessage.warning(t('exportDialog.pleaseSelectField'))
+    errorHub.report('warning', 'other', t('exportDialog.pleaseSelectField'))
     return
   }
   exporting.value = true

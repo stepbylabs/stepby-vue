@@ -5,6 +5,7 @@ import ParentView from '@/components/ParentView/index.vue'
 import InnerLink from '@/layout/components/InnerLink/index.vue'
 import useUserStore from '@/store/modules/user'
 import i18n from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 import type { AppRouteRecord } from '@/types'
 import type { RouteRecordRaw } from 'vue-router'
 
@@ -216,8 +217,8 @@ export const loadView = (view: string): (() => Promise<unknown>) => {
     if (import.meta.env.DEV) console.warn(`[loadView] Component not found: ${view}, fallback to 404 page`)
     // U12 优化：用户可见提示，避免用户无感知 404
     import('element-plus')
-      .then(({ ElMessage }) => {
-        ElMessage.warning(i18n.global.t('menu.componentNotFound', { view }))
+      .then(() => {
+        errorHub.report('warning', 'other', i18n.global.t('menu.componentNotFound', { view }))
       })
       .catch(() => {})
     res = () => import('@/views/error/404.vue')

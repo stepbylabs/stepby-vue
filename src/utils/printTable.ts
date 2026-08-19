@@ -25,6 +25,7 @@
  */
 import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 
 export interface PrintColumn {
   label: string
@@ -52,7 +53,7 @@ export function printTable(options: PrintTableOptions): void {
   const { title, columns, data, autoPrint = true } = options
 
   if (!data || data.length === 0) {
-    ElMessage.warning(i18n.global.t('printTable.noData'))
+    errorHub.report('warning', 'other', i18n.global.t('printTable.noData'))
     return
   }
 
@@ -174,7 +175,7 @@ export function printTable(options: PrintTableOptions): void {
   // 在新窗口中打开
   const printWindow = window.open('', '_blank', 'width=1024,height=768')
   if (!printWindow) {
-    ElMessage.error(i18n.global.t('printTable.printFail'))
+    errorHub.report('error', 'other', i18n.global.t('printTable.printFail'))
     return
   }
 

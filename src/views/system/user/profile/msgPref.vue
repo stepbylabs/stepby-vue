@@ -79,6 +79,7 @@ import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getMessagePref, updateMessagePref } from '@/api/system/pref'
 import type { MessagePrefForm } from '@/types'
+import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 const formRef = ref()
@@ -116,7 +117,7 @@ function load(): void {
 
 function handleSave(): void {
   if (form.dndEnabled === '1' && (!form.dndStart || !form.dndEnd)) {
-    ElMessage.warning(t('profile.pref.timeRequired'))
+    errorHub.report('warning', 'other', t('profile.pref.timeRequired'))
     return
   }
   saving.value = true
@@ -125,7 +126,7 @@ function handleSave(): void {
       ElMessage.success(t('profile.pref.saveSuccess'))
       load()
     })
-    .catch(() => ElMessage.error(t('profile.pref.saveError')))
+    .catch(() => errorHub.report('error', 'other', t('profile.pref.saveError')))
     .finally(() => {
       saving.value = false
     })

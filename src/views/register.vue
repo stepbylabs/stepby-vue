@@ -112,7 +112,8 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import { getCodeImg, register } from '@/api/login'
 import defaultSettings from '@/settings'
 import { usePasswordRule } from '@/utils/passwordRule'
@@ -210,7 +211,7 @@ function getCode(): void {
         captchaEnabled.value = true
         codeUrl.value = ''
         registerForm.value.uuid = ''
-        ElMessage.warning(t('login.captchaLoadFailed'))
+        errorHub.report('warning', 'other', t('login.captchaLoadFailed'))
       } else {
         captchaEnabled.value = false
         codeUrl.value = ''

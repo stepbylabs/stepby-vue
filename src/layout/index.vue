@@ -60,7 +60,7 @@ import { safeT } from '@/utils/safeI18n'
 import { wsService, type WsMessage } from '@/utils/websocket'
 import Tour from '@/components/Tour/index.vue'
 import type { TourStep } from '@/components/Tour/index.vue'
-import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import cache from '@/plugins/cache'
 import useDictStore from '@/store/modules/dict'
 
@@ -190,7 +190,7 @@ onBeforeUnmount(() => {
 /** 处理强制下线：弹出提示并退出登录 */
 async function handleForceLogout(_msg: WsMessage) {
   try {
-    ElMessage.error(safeT('layout.forceLogoutMessage'))
+    errorHub.report('error', 'other', safeT('layout.forceLogoutMessage'))
   } catch {
     // ignore
   }

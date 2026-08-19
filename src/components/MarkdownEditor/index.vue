@@ -18,6 +18,7 @@ import useSettingsStore from '@/store/modules/settings'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import i18n, { getLanguage } from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 
 interface Props {
   modelValue?: string
@@ -97,7 +98,7 @@ async function onUploadImg(files: File[], callback: (urls: string[]) => void): P
   }
   // P1 修复: 上传失败时给用户明确反馈
   if (failCount > 0) {
-    ElMessage.error(i18n.global.t('editor.uploadFail', { n: failCount }))
+    errorHub.report('error', 'other', i18n.global.t('editor.uploadFail', { n: failCount }))
   }
   if (urls.length > 0) {
     ElMessage.success(i18n.global.t('editor.uploadSuccess', { n: urls.length }))

@@ -161,6 +161,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Check } from '@element-plus/icons-vue'
 import logo from '@/assets/logo/logo.svg'
+import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 
@@ -277,7 +278,7 @@ async function copyInfo(): Promise<void> {
     await navigator.clipboard.writeText(JSON.stringify(info, null, 2))
     ElMessage.success(t('about.copySuccess'))
   } catch {
-    ElMessage.warning(t('about.copyFail'))
+    errorHub.report('warning', 'other', t('about.copyFail'))
   }
 }
 </script>

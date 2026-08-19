@@ -1,5 +1,5 @@
 import router from './router'
-import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import { startProgress, doneProgress } from '@/utils/progress'
 import 'nprogress/nprogress.css'
 import { getToken } from '@/utils/auth'
@@ -97,7 +97,7 @@ router.beforeEach(async (to, _from) => {
         // 其他异常（如后端瞬时故障、前端权限树解析错误）保留登录态，避免把已登录用户踢下线
         if (httpStatus === 401) {
           await useUserStore().logOut()
-          ElMessage.error(errMsg || t('common.routeLoadFailed'))
+          errorHub.report('error', 'other', errMsg || t('common.routeLoadFailed'))
           return { path: '/' }
         }
         // 其余未知错误：保留登录态，跳 500 错误页

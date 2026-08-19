@@ -138,6 +138,7 @@
 <script setup lang="ts">
 const { t } = useI18n()
 import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import { getCodeImg } from '@/api/login'
 import { listEnabledProviders, getAuthorizeUrl, bindOauth } from '@/api/oauth'
 import { takePendingHandoff } from '@/utils/oauth'
@@ -231,11 +232,11 @@ function handleOauthLogin(providerCode: string): void {
       if (res.authorizeUrl) {
         window.location.href = res.authorizeUrl
       } else {
-        ElMessage.error(t('oauth.error.authorizeFailed'))
+        errorHub.report('error', 'other', t('oauth.error.authorizeFailed'))
       }
     })
     .catch(() => {
-      ElMessage.error(t('oauth.error.authorizeFailed'))
+      errorHub.report('error', 'other', t('oauth.error.authorizeFailed'))
     })
     .finally(() => {
       oauthLoading.value = ''
@@ -328,7 +329,7 @@ function getCode(): void {
         captchaEnabled.value = true
         codeUrl.value = ''
         loginForm.value.uuid = ''
-        ElMessage.warning(t('login.captchaLoadFailed'))
+        errorHub.report('warning', 'other', t('login.captchaLoadFailed'))
       } else {
         // 后端明确关闭验证码
         captchaEnabled.value = false

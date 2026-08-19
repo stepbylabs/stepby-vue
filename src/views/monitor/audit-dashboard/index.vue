@@ -306,6 +306,7 @@ import { useChart, readCssVar } from '@/composables/useChart'
 import { useMotionPresets } from '@/composables/useMotion'
 import useSettingsStore from '@/store/modules/settings'
 import { ElMessage } from 'element-plus'
+import { errorHub } from '@/utils/errorHub'
 import {
   Document,
   CircleCheck,
@@ -829,7 +830,7 @@ async function handleExportPdf() {
     const res = await getComplianceReport(days.value)
     const report = (res?.data ?? res) as ComplianceReport | undefined
     if (!report) {
-      ElMessage.warning(t('auditDashboard.report.noData'))
+      errorHub.report('warning', 'other', t('auditDashboard.report.noData'))
       return
     }
 
@@ -846,7 +847,7 @@ async function handleExportPdf() {
     }
   } catch (e) {
     if (import.meta.env.DEV) console.error('Export PDF failed:', e)
-    ElMessage.error(t('auditDashboard.report.exportFail'))
+    errorHub.report('error', 'other', t('auditDashboard.report.exportFail'))
   } finally {
     exporting.value = false
   }

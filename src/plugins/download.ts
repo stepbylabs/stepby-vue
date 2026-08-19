@@ -1,10 +1,11 @@
 import axios, { type AxiosResponse } from 'axios'
-import { ElLoading, ElMessage } from 'element-plus'
+import { ElLoading } from 'element-plus'
 import { saveAs, type FileSaverOptions } from 'file-saver'
 import i18n from '@/i18n'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
 import { blobValidate } from '@/utils/yebot'
+import { errorHub } from '@/utils/errorHub'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API
 
@@ -36,7 +37,7 @@ export default {
       })
       .catch((r: unknown) => {
         if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
-        ElMessage.error(i18n.global.t('common.downloadError'))
+        errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
         downloadLoadingInstance.close()
       })
   },
@@ -67,7 +68,7 @@ export default {
       })
       .catch((r: unknown) => {
         if (import.meta.env.DEV) console.error('[download resource]', (r as { message?: string })?.message || r)
-        ElMessage.error(i18n.global.t('common.downloadError'))
+        errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
         downloadLoadingInstance.close()
       })
   },
@@ -97,7 +98,7 @@ export default {
       })
       .catch((r: unknown) => {
         if (import.meta.env.DEV) console.error('[download zip]', (r as { message?: string })?.message || r)
-        ElMessage.error(i18n.global.t('common.downloadError'))
+        errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
         downloadLoadingInstance.close()
       })
   },
@@ -109,10 +110,10 @@ export default {
     try {
       const rspObj = JSON.parse(resText)
       const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
-      ElMessage.error(errMsg)
+      errorHub.report('error', 'download', errMsg)
     } catch (e) {
       if (import.meta.env.DEV) console.error('[download] Failed to parse error response:', e)
-      ElMessage.error(i18n.global.t('common.downloadError'))
+      errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
     }
   }
 }

@@ -90,6 +90,7 @@ import { ElMessage } from 'element-plus'
 import { Key, Search, Compass, Setting, Monitor } from '@element-plus/icons-vue'
 import useSettingsStore, { DEFAULT_HOTKEYS } from '@/store/modules/settings'
 import { formatHotkey } from '@/composables/useGlobalHotkeys'
+import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -101,7 +102,7 @@ async function copyShortcut(keys: string): Promise<void> {
     await navigator.clipboard.writeText(keys)
     ElMessage.success(t('shortcuts.copySuccess'))
   } catch {
-    ElMessage.warning(t('shortcuts.copyFail'))
+    errorHub.report('warning', 'other', t('shortcuts.copyFail'))
   }
 }
 
