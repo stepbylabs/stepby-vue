@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（46 个 feature / 366 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（47 个 feature / 372 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -21,7 +21,7 @@ EMBEDDED_FRONTEND=true cargo run
 ```
 
 - 该模式会让后端用 `ServeDir` 提供 `frontend-dist/`（见 `src/embedded_assets.rs`）。
-- 其余 44 个 feature 走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
+- 其余 feature（除 F24 外）走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
 - **必须先把前端 build 产物同步进 `axum-backend/frontend-dist/`**：
   ```bash
   # frontend-dist 已被 .gitignore 的 /frontend-dist 忽略，不会进仓库
@@ -53,9 +53,9 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 46 个 feature（约 8 分钟）。
-- 单跑某 feature：`node main.mjs --headless --feature 46`（按实现支持与否而定）。
-- 通过判据（已验证基线）：`总计 366 通过 366 失败 0`，日志无 `❌`。
+- 不带 `--feature` = 跑全部 47 个 feature（约 8 分钟）。
+- 单跑某 feature：`node main.mjs --headless --feature 47`（按实现支持与否而定）。
+- 通过判据（已验证基线）：`总计 372 通过 372 失败 0`，日志无 `❌`。
 
 ### 3.1 Playwright 浏览器安装位置
 
@@ -106,5 +106,5 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 224 passed）。
+- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 362 passed）、`cargo clippy`（0 项目警告）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。

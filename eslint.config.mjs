@@ -154,16 +154,16 @@ export default [
   // - no-console：脚本需打印进度/结果，使用 console 是合理的
   // - no-empty allowEmptyCatch：catch(//) 忽略预期异常（控件未出现等）用于重试
   // - no-constant-condition checkLoops:false：允许 while(true)/do-while 轮询等待
+  // - @typescript-eslint/no-unused-vars = off：运行脚本含大量"声明后等待/断言用"的辅助
+  //   与调试变量（如点击返回值、临时 token、page 参数等），维护价值低且逐处加 `_` 会
+  //   降低可读性；同时该规则为 warn 时会把注意力从真实问题引开，故对测试脚本整体关闭。
   {
     files: ['tests/e2e/**/*.mjs'],
     rules: {
       'no-console': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'no-constant-condition': ['error', { checkLoops: false }],
-      '@typescript-eslint/no-unused-vars': [
-        'warn',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }
-      ]
+      '@typescript-eslint/no-unused-vars': 'off'
     }
   },
 

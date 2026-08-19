@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证（共 32 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证（共 47 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -9,7 +9,7 @@
  *   5. 数据导出字段选择（/monitor/operlog 导出按钮 → ExportDialog）
  *   6. 任务进度中心（/system/task）
  *   7. 邮件通知系统（/system/notice 新增对话框 → 邮件通知 checkbox）
- *   8. API 限流可视化（/system/rateLimit 页面 + CRUD）
+ *   8. API 限流可视化（/monitor/rateLimit 页面 + CRUD）
  *   9. 数据字典国际化（dict_data 英文标签列 + 表单输入框）
  *  10. 审计追踪（oper_log.oper_before 字段 + capture_before_snapshot）
  *  11. 审计合规报告 PDF 导出（audit-dashboard 导出按钮）
@@ -34,6 +34,7 @@
  *  30. 限流可视化查询参数（routePattern 模糊/精确过滤 + enabled 布尔过滤 + 详情接口 + 401 鉴权）
  *  31. 备份恢复权限 system:backup:edit（ry 实际 API 调用验证 list/query/download/restore/add + 不存在 ID 避免数据破坏）
  *   32. 审计大屏权限 monitor:audit:list（stats/compliance-report 响应结构 + days 边界 + ry 权限 + 401 + 前端 i18n 资源加载）
+ *   33. 未覆盖前端路由页面（/401 /403 /500 /network-error /privacy /lock /404 兜底 SPA fallback）
  *   34. 低成本高价值功能（我的登录历史 + 关于系统 + Dashboard 快捷入口 + 菜单注册 + 权限过滤 + 点击跳转）
  *   35. 低成本高价值功能 V2（通知中心 + 会话管理 + 主题切换三态选择器 + i18n 完整化）
  *   36. 低成本高价值功能 V3（个人工作台 + 快捷键中心 + 帮助中心 + i18n 完整化）
@@ -732,7 +733,7 @@ async function testFeature7(page) {
 
 async function testFeature8(page) {
   log('=== 功能 8：API 限流可视化 ===')
-  await page.goto(`${CONFIG.frontendUrl}/system/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat8_rate_limit_list')
@@ -1162,7 +1163,7 @@ async function testFeature12(page) {
   log('=== 功能 12：i18n 完整化 ===')
 
   // 步骤 1：访问限流配置页面（中文模式基线）
-  await page.goto(`${CONFIG.frontendUrl}/system/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat12_rate_limit_zh')
@@ -1219,7 +1220,7 @@ async function testFeature12(page) {
   }
 
   // 重新访问限流配置页面（英文模式）
-  await page.goto(`${CONFIG.frontendUrl}/system/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat12_rate_limit_en')
@@ -1365,7 +1366,7 @@ async function testFeature14(page) {
   record(14, '角色管理页面权限隔离', !hasRoleAddBtn, `新增按钮隐藏=${!hasRoleAddBtn}`)
 
   // 步骤 3：访问限流配置页面（ry 用户通常无权限）
-  await page.goto(`${CONFIG.frontendUrl}/system/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_ratelimit_page')
@@ -1494,7 +1495,7 @@ async function testFeature16(page) {
     { name: 'dict', url: '/system/dict' },
     { name: 'config', url: '/system/config' },
     { name: 'notice', url: '/system/notice' },
-    { name: 'rateLimit', url: '/system/rateLimit' },
+    { name: 'rateLimit', url: '/monitor/rateLimit' },
     { name: 'operlog', url: '/monitor/operlog' },
     { name: 'logininfor', url: '/monitor/logininfor' },
     { name: 'online', url: '/monitor/online' },
