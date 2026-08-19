@@ -16,7 +16,7 @@ import type { AxiosError } from 'axios'
 
 const t = i18n.global.t
 
-const whiteList = ['/login', '/register', '/privacy', '/403', '/500', '/network-error']
+const whiteList = ['/login', '/register', '/oauth-login', '/privacy', '/403', '/500', '/network-error']
 
 const isWhiteList = (path: string): boolean => {
   return whiteList.some((pattern: string) => isPathMatch(pattern, path))

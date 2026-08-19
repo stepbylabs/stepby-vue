@@ -72,6 +72,7 @@ export default {
     addSuccess: 'Added successfully',
     editSuccess: 'Updated successfully',
     deleteSuccess: 'Deleted successfully',
+    operationSuccess: 'Operation successful',
     importSuccess: 'Imported successfully',
     exportSuccess: 'Exported successfully',
     copySuccess: 'Copied successfully',
@@ -240,7 +241,12 @@ export default {
     logout: 'Logout and re-login',
     clickRefreshCaptcha: 'Click to refresh captcha',
     totpCode: 'TOTP code (6 digits)',
-    captchaLoadFailed: 'Failed to load captcha, please click to retry'
+    captchaLoadFailed: 'Failed to load captcha, please click to retry',
+    oauthDivider: 'or login with a third-party account',
+    oauthTitle: 'Third-party login',
+    oauthBindRequired:
+      'This third-party account has not been linked to a system account. Please log in with username/password first.',
+    oauthGoLogin: 'Go to login'
   },
   register: {
     title: 'Register',
@@ -253,6 +259,173 @@ export default {
     passwordMismatch: 'The two passwords do not match',
     successTitle: 'Congratulations, your account {username} has been registered successfully!',
     successMessage: 'Please login with the new account'
+  },
+  oauth: {
+    title: 'Third-party login',
+    directory: 'Single Sign-On',
+    provider: 'Login Config',
+    providerList: 'Login Provider Management',
+    add: 'Add Provider',
+    edit: 'Edit Provider',
+    delete: 'Delete Provider',
+    toggle: 'Toggle Provider',
+    bindings: 'My Third-party Bindings',
+    bindManagement: 'Binding Management',
+    providerName: 'Provider Name',
+    providerCode: 'Provider Code',
+    providerType: 'Provider Type',
+    clientId: 'Client ID',
+    clientSecret: 'Client Secret',
+    authorizeUrl: 'Authorize Endpoint',
+    tokenUrl: 'Token Endpoint',
+    userInfoUrl: 'User Info Endpoint',
+    scope: 'Scope',
+    redirectUri: 'Redirect URI',
+    redirectUriPlaceholder: 'Leave blank to auto-generate callback from request Host',
+    scopePlaceholder: 'e.g. read:user user:email, space-separated',
+    autoCreateUser: 'Auto-create account on first login',
+    enabled: 'Enabled',
+    displayOrder: 'Display Order',
+    remark: 'Remark',
+    createTime: 'Create Time',
+    status: {
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+      enabledTip: 'Disabled providers are not shown on the login page.'
+    },
+    type: {
+      github: 'GitHub',
+      gitee: 'Gitee',
+      wecom: 'WeCom',
+      oidc: 'Generic OIDC'
+    },
+    search: {
+      providerName: 'Provider Name',
+      providerCode: 'Provider Code',
+      providerType: 'Provider Type',
+      enabled: 'Status'
+    },
+    column: {
+      operation: 'Operation',
+      nickname: 'Third-party Nickname',
+      email: 'Third-party Email',
+      providerUserId: 'Third-party User ID',
+      lastLoginTime: 'Last Login'
+    },
+    action: {
+      bind: 'Bind',
+      unbind: 'Unbind',
+      edit: 'Edit',
+      delete: 'Delete',
+      add: 'Add',
+      refresh: 'Refresh'
+    },
+    tip: {
+      secretMasked: 'Secret is masked; leave blank to keep unchanged',
+      secretRequired: 'Client Secret is required when adding',
+      codeRequired: 'Provider code is required',
+      nameRequired: 'Provider name is required',
+      typeRequired: 'Please select a provider type',
+      empty: 'No third-party bindings yet',
+      myBindings: 'Manage the third-party identities bound to your account',
+      bindSuccess: 'Bound successfully',
+      unbindSuccess: 'Unbound successfully',
+      unbindConfirm: 'Are you sure you want to unbind this third-party login?',
+      unbindSelfLast:
+        'This is your only third-party login binding. After unbinding you will not be able to log in via third-party. Continue?',
+      pendingHandoff: 'A pending third-party identity was detected and has been bound for you.'
+    },
+    error: {
+      loadFailed: 'Failed to load login provider list',
+      authorizeFailed: 'Failed to generate authorization link, please retry',
+      callbackError: 'Third-party login failed: {msg}',
+      noProvider: 'Third-party login is not available yet'
+    }
+  },
+  httpDebug: {
+    title: 'Online HTTP Debugger',
+    ssrfTag: 'Server-side proxy · SSRF protected',
+    urlPlaceholder: 'Enter target URL (http/https), e.g. https://httpbin.org/get',
+    send: 'Send',
+    headers: 'Request Headers',
+    key: 'Header Name',
+    value: 'Header Value',
+    keyPlaceholder: 'e.g. Authorization',
+    valuePlaceholder: 'e.g. Bearer eyJ...',
+    action: 'Action',
+    addHeader: 'Add Header',
+    body: 'Request Body',
+    bodyPlaceholder: 'Enter request body (ignored for GET/HEAD/OPTIONS)',
+    bodyHint: 'GET/HEAD/OPTIONS request body is ignored by the server',
+    response: 'Response',
+    copy: 'Copy Response',
+    copied: 'Copied to clipboard',
+    copyFail: 'Copy failed',
+    redirects: 'Followed {n} redirects',
+    emptyBody: 'Empty response body',
+    transportError: 'Request transport failed: {detail}',
+    urlRequired: 'Please enter a target URL',
+    urlSchemeInvalid: 'Only http/https schemes are allowed'
+  },
+  observability: {
+    title: 'Observability',
+    loading: 'Loading',
+    refresh: 'Refresh',
+    refreshSuccess: 'Refreshed',
+    clearSuccess: 'Cleared',
+    search: 'Search',
+    reset: 'Reset',
+    empty: 'No data',
+    tab: {
+      slow: 'Slow Requests',
+      error: 'Error Aggregation'
+    },
+    stat: {
+      slowCount: 'Slow Requests',
+      avgMs: 'Avg Duration',
+      maxMs: 'Max Duration',
+      over1s: 'Over 1s',
+      thresholdMs: 'Threshold (ms)',
+      errorTotal: 'Error Total',
+      uptime: 'Uptime',
+      usedMemory: 'Used Memory',
+      connectedClients: 'Clients',
+      hitRate: 'Hit Rate'
+    },
+    slow: {
+      clear: 'Clear Slow Requests',
+      ms: 'ms',
+      topTitle: 'Top Slow Endpoints',
+      confirmClear: 'Clear all slow request records？',
+      column: {
+        method: 'Method',
+        path: 'Path',
+        status: 'Status',
+        duration: 'Duration',
+        at: 'Time',
+        count: 'Count',
+        avg: 'Avg Duration',
+        max: 'Max Duration'
+      }
+    },
+    error: {
+      clear: 'Clear Error Logs',
+      confirmClear: 'Clear all error logs？',
+      searchModule: 'Module',
+      phModule: 'Enter module',
+      level: 'Level',
+      phLevel: 'Select level',
+      byModuleTitle: 'By Module',
+      byLevelTitle: 'By Level',
+      column: {
+        at: 'Time',
+        level: 'Level',
+        module: 'Module',
+        requestId: 'Request ID',
+        path: 'Path',
+        message: 'Message'
+      }
+    }
   },
   lock: {
     title: 'System Locked',
@@ -2166,6 +2339,113 @@ export default {
       noRole: 'No Role'
     }
   },
+  report: {
+    title: 'Report Definition',
+    search: {
+      reportName: 'Report Name',
+      phReportName: 'Enter report name',
+      phReportType: 'Report Type',
+      phStatus: 'Status'
+    },
+    column: {
+      reportCode: 'Report Code',
+      reportName: 'Report Name',
+      reportType: 'Report Type',
+      createBy: 'Created By',
+      createTime: 'Create Time'
+    },
+    btn: {
+      subscription: 'Subscription',
+      preview: 'Preview'
+    },
+    form: {
+      reportCode: 'Report Code',
+      phReportCode: 'Enter report code',
+      reportName: 'Report Name',
+      phReportName: 'Enter report name',
+      reportType: 'Report Type',
+      config: 'Report Config',
+      phConfig: 'Enter report config JSON, e.g. {"days":7}',
+      configTip: 'Note: custom type passes this JSON through as-is; login_stats supports config days.',
+      status: 'Status',
+      remark: 'Remark',
+      phRemark: 'Enter remark'
+    },
+    type: {
+      login_stats: 'Login Stats',
+      user_stats: 'User Stats',
+      msg_stats: 'Message Stats',
+      custom: 'Custom'
+    },
+    validate: {
+      reportCodeRequired: 'Report code is required',
+      reportNameRequired: 'Report name is required',
+      reportTypeRequired: 'Report type is required',
+      configRequired: 'Report config is required'
+    },
+    tip: {
+      confirmDelete: 'Are you sure to delete report #{ids}?',
+      confirmChange: 'Are you sure to set report "{name}" {text}?'
+    },
+    preview: {
+      title: 'Report Preview',
+      generatedAt: 'Generated At',
+      data: 'Snapshot Data',
+      summary: 'Summary'
+    },
+    sub: {
+      title: 'Report Subscription',
+      target: 'Subscriptions of report "{name}"',
+      search: {
+        subName: 'Subscription Name',
+        phSubName: 'Enter subscription name',
+        phStatus: 'Status'
+      },
+      column: {
+        subName: 'Subscription Name',
+        reportId: 'Report ID',
+        cron: 'Schedule (cron)',
+        channels: 'Channels',
+        receivers: 'Receivers',
+        status: 'Status',
+        lastRunTime: 'Last Run'
+      },
+      channel: {
+        email: 'Email',
+        site: 'Site Message'
+      },
+      btn: {
+        run: 'Push Now'
+      },
+      form: {
+        subName: 'Subscription Name',
+        phSubName: 'Enter subscription name',
+        report: 'Report',
+        cron: 'Schedule (cron)',
+        phCron: 'e.g. 0 0 9 * * * (6 fields, with seconds)',
+        cronTip: 'Six-field cron (sec min hour day month weekday), e.g. daily push at 09:00: 0 0 9 * * *.',
+        channels: 'Channels',
+        receiveEmail: 'Receiver Emails',
+        phReceiveEmail: 'Separate multiple emails with comma',
+        receiveUserIds: 'Target User IDs',
+        phReceiveUserIds: 'Separate multiple user IDs with comma',
+        status: 'Status',
+        lastRunTime: 'Last Run'
+      },
+      validate: {
+        subNameRequired: 'Subscription name is required',
+        reportRequired: 'Please select a report',
+        cronRequired: 'Cron expression is required',
+        channelRequired: 'Please select at least one channel'
+      },
+      tip: {
+        confirmDelete: 'Delete subscription "{name}"?',
+        confirmDeleteBatch: 'Are you sure to delete subscription #{ids}?',
+        confirmRun: 'Push subscription "{name}" now?',
+        runSuccess: 'Push triggered'
+      }
+    }
+  },
   profile: {
     title: 'Profile',
     basicInfo: 'Basic Info',
@@ -2222,6 +2502,24 @@ export default {
       zoomOut: 'Zoom Out',
       rotateLeft: 'Rotate Left',
       rotateRight: 'Rotate Right'
+    },
+    msgPref: 'Message Preferences / Do Not Disturb',
+    pref: {
+      title: 'Message Preferences / Do Not Disturb',
+      tip: 'Choose which notifications to receive and your quiet hours. Changes take effect immediately.',
+      notifyLabel: 'Notification Types',
+      email: 'Receive announcement emails',
+      sysmsg: 'Receive in-app messages',
+      announce: 'Receive notice announcements',
+      dndTitle: 'Quiet Hours',
+      dnd: 'Enable Do Not Disturb',
+      dndStart: 'Start Time',
+      dndEnd: 'End Time',
+      dndTip: 'New message pushes are blocked during quiet hours. Can span midnight (e.g. 22:00 → 06:00).',
+      timeRequired: 'Please set start and end time when quiet hours are enabled',
+      save: 'Save',
+      saveSuccess: 'Saved successfully',
+      saveError: 'Save failed'
     }
   },
   ipLocation: {

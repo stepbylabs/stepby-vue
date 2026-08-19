@@ -106,6 +106,25 @@
           </div>
         </Transition>
       </el-form-item>
+      <!-- P0 OAuth：第三方登录入口 -->
+      <template v-if="oauthProviders.length > 0">
+        <el-divider class="oauth-divider">
+          <span class="oauth-divider-text">{{ t('login.oauthDivider') }}</span>
+        </el-divider>
+        <div class="oauth-buttons flex justify-center gap-[16px] pb-[10px]">
+          <el-tooltip v-for="p in oauthProviders" :key="p.providerCode" :content="p.providerName" placement="top">
+            <el-button
+              circle
+              size="large"
+              :aria-label="t('login.oauthTitle') + '-' + p.providerName"
+              :loading="oauthLoading === p.providerCode"
+              @click="handleOauthLogin(p.providerCode)"
+            >
+              <svg-icon :icon-class="oauthIcon(p.providerType)" class="oauth-icon" />
+            </el-button>
+          </el-tooltip>
+        </div>
+      </template>
     </el-form>
     <!--  底部  -->
     <div
@@ -120,12 +139,15 @@
 const { t } = useI18n()
 import { ElMessage } from 'element-plus'
 import { getCodeImg } from '@/api/login'
+import { listEnabledProviders, getAuthorizeUrl, bindOauth } from '@/api/oauth'
+import { takePendingHandoff } from '@/utils/oauth'
 import { isSafeRedirect } from '@/utils/redirect'
 import Cookies from 'js-cookie'
 import useUserStore from '@/store/modules/user'
 import defaultSettings from '@/settings'
 import type { LoginForm } from '@/types/api/login'
 import type { RouteLocationNormalized, LocationQueryRaw } from 'vue-router'
+import type { EnabledOauthProvider } from '@/types/api/oauth'
 
 const title = import.meta.env.VITE_APP_TITLE
 const footerContent = defaultSettings.footerContent
@@ -169,6 +191,57 @@ const register = ref(false)
 const totpRequired = ref(false)
 const redirect = ref<string | undefined>(undefined)
 
+// P0 OAuth：登录页第三方登录提供商列表 + 跳转 loading
+const oauthProviders = ref<EnabledOauthProvider[]>([])
+const oauthLoading = ref('')
+
+// 第三方类型 → 图标名（svg 位于 src/assets/icons/svg）
+function oauthIcon(providerType: string): string {
+  switch (providerType) {
+    case 'github':
+      return 'github'
+    case 'gitee':
+      return 'gitee'
+    case 'wecom':
+      return 'wecom'
+    default:
+      return 'user'
+  }
+}
+
+// 加载登录页启用的第三方提供商（静默失败：无第三方登录也不影响常规登录）
+function loadOauthProviders(): void {
+  listEnabledProviders()
+    .then((res) => {
+      if (res.data && Array.isArray(res.data)) {
+        oauthProviders.value = res.data
+      }
+    })
+    .catch(() => {
+      oauthProviders.value = []
+    })
+}
+
+// 点击第三方图标：生成授权 URL 后跳转第三方
+function handleOauthLogin(providerCode: string): void {
+  if (oauthLoading.value) return
+  oauthLoading.value = providerCode
+  getAuthorizeUrl(providerCode)
+    .then((res) => {
+      if (res.authorizeUrl) {
+        window.location.href = res.authorizeUrl
+      } else {
+        ElMessage.error(t('oauth.error.authorizeFailed'))
+      }
+    })
+    .catch(() => {
+      ElMessage.error(t('oauth.error.authorizeFailed'))
+    })
+    .finally(() => {
+      oauthLoading.value = ''
+    })
+}
+
 watch(
   route,
   (newRoute: RouteLocationNormalized) => {
@@ -196,6 +269,17 @@ function handleLogin(): void {
         .then(() => {
           // P1 修复：成功路径也重置 loading，避免 router.push 被守卫拒绝/重复导航失败时按钮永久 loading
           loading.value = false
+          // P0 OAuth：密码登录成功后，若存在待绑定的第三方身份（授权回调归档的 handoff），自动完成绑定
+          const pendingHandoff = takePendingHandoff()
+          if (pendingHandoff) {
+            bindOauth(pendingHandoff)
+              .then(() => {
+                ElMessage.success(t('oauth.tip.pendingHandoff'))
+              })
+              .catch(() => {
+                // 绑定失败不阻塞登录，稍后可到个人中心「OAuth 绑定」页手动处理
+              })
+          }
           const query = route.query
           const otherQueryParams = Object.keys(query).reduce((acc: LocationQueryRaw, cur) => {
             if (cur !== 'redirect') {
@@ -274,6 +358,8 @@ function getCookie(): void {
 
 getCookie()
 getCode()
+// P0 OAuth：加载登录页第三方登录提供商
+loadOauthProviders()
 </script>
 
 <style lang="scss" scoped>
@@ -306,6 +392,18 @@ getCode()
   font-size: 13px;
   text-align: center;
   color: var(--el-text-color-placeholder);
+}
+.oauth-icon {
+  font-size: 20px;
+  color: var(--el-text-color-regular);
+}
+.oauth-divider {
+  margin: 8px 0 6px;
+}
+.oauth-divider-text {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .el-login-footer {
   font-family: Arial;

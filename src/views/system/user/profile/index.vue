@@ -66,6 +66,12 @@
             <el-tab-pane :label="t('profile.mfaSetting')" name="totp">
               <totp />
             </el-tab-pane>
+            <el-tab-pane :label="t('oauth.bindings')" name="oauth">
+              <oauth />
+            </el-tab-pane>
+            <el-tab-pane :label="t('profile.msgPref')" name="pref">
+              <msg-pref />
+            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
@@ -78,6 +84,8 @@ import userAvatar from './userAvatar.vue'
 import userInfo from './userInfo.vue'
 import resetPwd from './resetPwd.vue'
 import totp from './totp.vue'
+import oauth from './oauth.vue'
+import msgPref from './msgPref.vue'
 import { getUserProfile } from '@/api/system/user'
 import type { SysUser } from '@/types/api/system/user'
 

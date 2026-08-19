@@ -72,6 +72,7 @@ export default {
     addSuccess: '新增成功',
     editSuccess: '修改成功',
     deleteSuccess: '删除成功',
+    operationSuccess: '操作成功',
     importSuccess: '导入成功',
     exportSuccess: '导出成功',
     copySuccess: '复制成功',
@@ -240,7 +241,11 @@ export default {
     logout: '退出重新登录',
     clickRefreshCaptcha: '点击刷新验证码',
     totpCode: '动态验证码（6 位）',
-    captchaLoadFailed: '验证码加载失败，请点击重试'
+    captchaLoadFailed: '验证码加载失败，请点击重试',
+    oauthDivider: '或使用第三方账号登录',
+    oauthTitle: '第三方登录',
+    oauthBindRequired: '该第三方账号尚未绑定本系统账号，请先使用账号密码登录后绑定。',
+    oauthGoLogin: '前往登录'
   },
   register: {
     title: '注册',
@@ -253,6 +258,172 @@ export default {
     passwordMismatch: '两次输入的密码不一致',
     successTitle: '恭喜你，您的账号 {username} 注册成功！',
     successMessage: '请使用新账号登录系统'
+  },
+  oauth: {
+    title: '第三方登录',
+    directory: '单点登录',
+    provider: '登录配置',
+    providerList: '登录提供商管理',
+    add: '新增提供商',
+    edit: '编辑提供商',
+    delete: '删除提供商',
+    toggle: '启停提供商',
+    bindings: '我的第三方账号绑定',
+    bindManagement: '绑定管理',
+    providerName: '提供商名称',
+    providerCode: '提供商编码',
+    providerType: '提供商类型',
+    clientId: 'Client ID',
+    clientSecret: 'Client Secret',
+    authorizeUrl: '授权端点',
+    tokenUrl: '令牌端点',
+    userInfoUrl: '用户信息端点',
+    scope: '授权范围 (scope)',
+    redirectUri: '回调地址',
+    redirectUriPlaceholder: '留空时后端按请求 Host 自动生成回调地址',
+    scopePlaceholder: '如 read:user user:email，多个 scope 用空格分隔',
+    autoCreateUser: '首次登录自动创建账号',
+    enabled: '是否启用',
+    displayOrder: '显示顺序',
+    remark: '备注',
+    createTime: '创建时间',
+    status: {
+      enabled: '启用',
+      disabled: '停用',
+      enabledTip: '停用后登录页不再展示该提供商。'
+    },
+    type: {
+      github: 'GitHub',
+      gitee: 'Gitee',
+      wecom: '企业微信',
+      oidc: '通用 OIDC'
+    },
+    search: {
+      providerName: '提供商名称',
+      providerCode: '提供商编码',
+      providerType: '提供商类型',
+      enabled: '状态'
+    },
+    column: {
+      operation: '操作',
+      nickname: '第三方昵称',
+      email: '第三方邮箱',
+      providerUserId: '第三方用户 ID',
+      lastLoginTime: '最近登录时间'
+    },
+    action: {
+      bind: '绑定',
+      unbind: '解绑',
+      edit: '编辑',
+      delete: '删除',
+      add: '新增',
+      refresh: '刷新'
+    },
+    tip: {
+      secretMasked: 'Secret 已脱敏，留空表示不修改',
+      secretRequired: '新增时请输入 Client Secret',
+      codeRequired: '请输入提供商编码',
+      nameRequired: '请输入提供商名称',
+      typeRequired: '请选择提供商类型',
+      empty: '暂无第三方绑定',
+      myBindings: '管理当前账号已绑定的第三方身份',
+      bindSuccess: '绑定成功',
+      unbindSuccess: '解绑成功',
+      unbindConfirm: '确认解绑该第三方登录绑定？',
+      unbindSelfLast: '这是您唯一的第三方登录绑定，解绑后无法通过第三方登录，确定继续？',
+      pendingHandoff: '检测到待绑定的第三方身份，已为您完成绑定。'
+    },
+    error: {
+      loadFailed: '加载登录提供商列表失败',
+      authorizeFailed: '生成授权链接失败，请稍后重试',
+      callbackError: '第三方登录失败：{msg}',
+      noProvider: '暂未开放第三方登录'
+    }
+  },
+  httpDebug: {
+    title: '在线 HTTP 调试器',
+    ssrfTag: '服务端转发 · SSRF 防护',
+    urlPlaceholder: '请输入目标 URL（http/https），如 https://httpbin.org/get',
+    send: '发送请求',
+    headers: '请求头',
+    key: '请求头名称',
+    value: '请求头值',
+    keyPlaceholder: '如 Authorization',
+    valuePlaceholder: '如 Bearer eyJ...',
+    action: '操作',
+    addHeader: '添加请求头',
+    body: '请求体',
+    bodyPlaceholder: '请输入请求体（GET/HEAD/OPTIONS 将忽略请求体）',
+    bodyHint: '当前方法为 GET/HEAD/OPTIONS，服务端将忽略请求体',
+    response: '响应结果',
+    copy: '复制响应',
+    copied: '已复制到剪贴板',
+    copyFail: '复制失败',
+    redirects: '跟随重定向 {n} 次',
+    emptyBody: '响应体为空',
+    transportError: '请求传输失败：{detail}',
+    urlRequired: '请输入目标 URL',
+    urlSchemeInvalid: '仅支持 http/https 协议'
+  },
+  observability: {
+    title: '运行监控',
+    loading: '加载中',
+    refresh: '刷新',
+    refreshSuccess: '刷新成功',
+    clearSuccess: '清空成功',
+    search: '搜索',
+    reset: '重置',
+    empty: '暂无数据',
+    tab: {
+      slow: '慢请求',
+      error: '错误聚合'
+    },
+    stat: {
+      slowCount: '慢请求数',
+      avgMs: '平均耗时',
+      maxMs: '最大耗时',
+      over1s: '超 1s 请求',
+      thresholdMs: '阈值 (ms)',
+      errorTotal: '错误总数',
+      uptime: '运行时长',
+      usedMemory: '已用内存',
+      connectedClients: '连接客户端',
+      hitRate: '键命中率'
+    },
+    slow: {
+      clear: '清空慢请求',
+      ms: 'ms',
+      topTitle: 'Top 慢接口',
+      confirmClear: '确认清空所有慢请求记录？',
+      column: {
+        method: '方法',
+        path: '路径',
+        status: '状态',
+        duration: '耗时',
+        at: '时间',
+        count: '次数',
+        avg: '平均耗时',
+        max: '最大耗时'
+      }
+    },
+    error: {
+      clear: '清空错误日志',
+      confirmClear: '确认清空所有错误日志？',
+      searchModule: '模块',
+      phModule: '请输入模块',
+      level: '级别',
+      phLevel: '请选择级别',
+      byModuleTitle: '按模块聚合',
+      byLevelTitle: '按级别聚合',
+      column: {
+        at: '时间',
+        level: '级别',
+        module: '模块',
+        requestId: '请求 ID',
+        path: '路径',
+        message: '错误信息'
+      }
+    }
   },
   lock: {
     title: '系统已锁定',
@@ -2157,6 +2328,113 @@ export default {
       noRole: '无角色'
     }
   },
+  report: {
+    title: '报表定义',
+    search: {
+      reportName: '报表名称',
+      phReportName: '请输入报表名称',
+      phReportType: '报表类型',
+      phStatus: '状态'
+    },
+    column: {
+      reportCode: '报表编码',
+      reportName: '报表名称',
+      reportType: '报表类型',
+      createBy: '创建者',
+      createTime: '创建时间'
+    },
+    btn: {
+      subscription: '订阅',
+      preview: '预览'
+    },
+    form: {
+      reportCode: '报表编码',
+      phReportCode: '请输入报表编码',
+      reportName: '报表名称',
+      phReportName: '请输入报表名称',
+      reportType: '报表类型',
+      config: '报表配置',
+      phConfig: '请输入报表配置 JSON，如 {"days":7}',
+      configTip: '提示：custom 类型将原样透传该 JSON；login_stats 可配置 days 天数。',
+      status: '状态',
+      remark: '备注',
+      phRemark: '请输入备注'
+    },
+    type: {
+      login_stats: '登录统计',
+      user_stats: '用户统计',
+      msg_stats: '消息统计',
+      custom: '自定义'
+    },
+    validate: {
+      reportCodeRequired: '报表编码不能为空',
+      reportNameRequired: '报表名称不能为空',
+      reportTypeRequired: '报表类型不能为空',
+      configRequired: '报表配置不能为空'
+    },
+    tip: {
+      confirmDelete: '是否确认删除报表编号为"{ids}"的数据项？',
+      confirmChange: '是否确认将报表「{name}」{text}？'
+    },
+    preview: {
+      title: '报表预览',
+      generatedAt: '生成时间',
+      data: '快照数据',
+      summary: '统计摘要'
+    },
+    sub: {
+      title: '报表订阅',
+      target: '报表「{name}」的订阅',
+      search: {
+        subName: '订阅名称',
+        phSubName: '请输入订阅名称',
+        phStatus: '状态'
+      },
+      column: {
+        subName: '订阅名称',
+        reportId: '报表ID',
+        cron: '周期 (cron)',
+        channels: '推送渠道',
+        receivers: '接收人',
+        status: '状态',
+        lastRunTime: '上次执行'
+      },
+      channel: {
+        email: '邮件',
+        site: '站内信'
+      },
+      btn: {
+        run: '立即推送'
+      },
+      form: {
+        subName: '订阅名称',
+        phSubName: '请输入订阅名称',
+        report: '关联报表',
+        cron: '周期 (cron)',
+        phCron: '如 0 0 9 * * *（6 字段，含秒）',
+        cronTip: '六字段 cron 表达式（秒 分 时 日 月 周），例如每天 09:00 推送：0 0 9 * * *。',
+        channels: '推送渠道',
+        receiveEmail: '收件邮箱',
+        phReceiveEmail: '多个邮箱用英文逗号分隔',
+        receiveUserIds: '目标用户ID',
+        phReceiveUserIds: '多个用户ID用英文逗号分隔',
+        status: '状态',
+        lastRunTime: '上次执行'
+      },
+      validate: {
+        subNameRequired: '订阅名称不能为空',
+        reportRequired: '请选择关联报表',
+        cronRequired: '请填写 cron 表达式',
+        channelRequired: '请至少选择一种推送渠道'
+      },
+      tip: {
+        confirmDelete: '是否确认删除订阅「{name}」？',
+        confirmDeleteBatch: '是否确认删除订阅编号为"{ids}"的数据项？',
+        confirmRun: '是否立即推送订阅「{name}」？',
+        runSuccess: '已触发推送'
+      }
+    }
+  },
   profile: {
     title: '个人中心',
     basicInfo: '基本资料',
@@ -2213,6 +2491,24 @@ export default {
       zoomOut: '缩小',
       rotateLeft: '向左旋转',
       rotateRight: '向右旋转'
+    },
+    msgPref: '消息偏好 / 免打扰',
+    pref: {
+      title: '消息偏好 / 免打扰',
+      tip: '设置您希望接收的通知类型与免打扰时段，保存后即时生效。',
+      notifyLabel: '通知类型',
+      email: '接收公告邮件',
+      sysmsg: '接收站内信通知',
+      announce: '接收通知公告',
+      dndTitle: '免打扰时段',
+      dnd: '开启免打扰',
+      dndStart: '开始时间',
+      dndEnd: '结束时间',
+      dndTip: '在免打扰时段内将屏蔽以上类型的新消息推送，可跨天（如 22:00 → 06:00）。',
+      timeRequired: '开启免打扰后请设置开始与结束时间',
+      save: '保存',
+      saveSuccess: '保存成功',
+      saveError: '保存失败'
     }
   },
   ipLocation: {

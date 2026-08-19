@@ -51,6 +51,13 @@ export const constantRoutes = [
     meta: { title: 'route.register', i18nKey: 'route.register' }
   },
   {
+    // P0 OAuth：第三方登录回调落地页（/oauth2/callback 302 到此处，读取 token/handoff/error）
+    path: '/oauth-login',
+    component: () => import('@/views/oauthlogin.vue'),
+    hidden: true,
+    meta: { title: 'route.oauthLogin', i18nKey: 'route.oauthLogin' }
+  },
+  {
     // ROUNDS61-100 #6 / R10-SEC-005：隐私政策页面（独立页面，无需鉴权，未登录也可访问）
     path: '/privacy',
     component: () => import('@/views/legal/privacy.vue'),
