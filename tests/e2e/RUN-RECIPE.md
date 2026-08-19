@@ -22,21 +22,33 @@ EMBEDDED_FRONTEND=true cargo run
 
 - 该模式会让后端用 `ServeDir` 提供 `frontend-dist/`（见 `src/embedded_assets.rs`）。
 - 其余 feature（除 F24 外）走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
-- **必须先把前端 build 产物同步进 `axum-backend/frontend-dist/`**：
+- **必须先把「嵌入式构建产物」同步进 `axum-backend/frontend-dist/`**：
   ```bash
   # frontend-dist 已被 .gitignore 的 /frontend-dist 忽略，不会进仓库
+  # ⚠️ 必须用 EMBEDDED 模式构建再拷贝（见下方两构建顺序），不能用 prod 构建：
+  #    嵌入式前端 baseURL=''（同源），prod 前端 baseURL=/prod-api（跨源代理）。
   cp -r yebot-ui/dist/. axum-backend/frontend-dist/
   ```
-  ⚠️ 每次 `yebot-ui` 重新 `vite build` 后都要重新同步，否则 embedded 后端服务的仍是旧产物。
+  ⚠️ 每次重新构建前都要按第 2 节顺序同步 embedded 产物，否则 embedded 后端服务的仍是旧产物。
 
 ## 2. 前端：prod preview（:4173）
 
-**必须用 prod build（不能用 dev 5173）**——source-check 断言依赖 `dist/static/js/index-*.js`
-与 `main-*.js` 这类带 hash 的生产包，dev server 没有这些文件会直接判失败。
+> **关键**：`dist/` 只能保留一个构建产物，而 :4173 preview 与 :8080 embedded 需要**不同模式**，
+> 因此必须按固定**顺序**执行两次构建，避免把错误模式产物交给对方（实测 bug 教训）：
+>
+> 1. `build:embedded`（`vite build --mode embedded`，baseURL='' 同源）→ **立即**拷入 frontend-dist。
+> 2. `build:prod`（`vite build --mode production`，baseURL=/prod-api）→ 留在 dist 供 :4173 preview。
+>
+> 若搞反（把 embedded 产物留在 dist），:4173 上的登录会因 baseURL='' 请求 `:4173/getRouters`
+> 命中 SPA fallback 返回 HTML、JSON 解析失败 → 登录后跳 `/500`，所有 UI 页面测试 401 假失败。
 
 ```bash
 cd yebot-ui
-NODE_OPTIONS="" sh node_modules/.bin/vite build            # 出 dist
+# 第 1 步：embedded 构建 → 拷入 frontend-dist（供 :8080 内嵌后端）
+NODE_OPTIONS="" sh node_modules/.bin/vite build --mode embedded
+cp -r dist/. ../axum-backend/frontend-dist/
+# 第 2 步：prod 构建 → 留 dist（供 :4173 preview）
+NODE_OPTIONS="" sh node_modules/.bin/vite build --mode production
 NODE_OPTIONS="" sh node_modules/.bin/vite preview --port 4173
 ```
 

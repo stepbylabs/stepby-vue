@@ -92,7 +92,9 @@ onMounted(() => {
 }
 
 /* sub-menu item */
-.topbar-menu.el-menu--horizontal > :deep(.el-sub-menu) :deep(.el-submenu__title) {
+/* Vue scoped 编译器只转换选择器中的第一个 :deep()，再出现的 :deep() 会以字面量形式残留在产物中，
+   而 :deep 并非标准 CSS 伪类，浏览器会丢弃整条规则。故合并为单个 :deep(.a .b)，语义等价且规则生效。 */
+.topbar-menu.el-menu--horizontal > :deep(.el-sub-menu .el-submenu__title) {
   float: left;
   line-height: 50px !important;
   color: var(--el-text-color-primary) !important;
@@ -103,7 +105,7 @@ onMounted(() => {
 }
 
 /* topbar more arrow */
-.topbar-menu :deep(.el-sub-menu) :deep(.el-sub-menu__icon-arrow) {
+.topbar-menu :deep(.el-sub-menu .el-sub-menu__icon-arrow) {
   position: static;
   margin-left: 8px;
   margin-top: 0px;

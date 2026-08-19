@@ -89,13 +89,17 @@ export default defineConfig(({ mode, command }) => {
       // 性能优化：目标设为 es2020，使用现代 JS 特性（可选链、空值合并、async/await 原生支持），
       // 避免降级到 es5 生成大量 polyfill 和 helper 代码
       target: 'es2020',
-      // 生产构建启用 CSS 压缩（esbuild，R6-DEP-17）
-      // 注：lightningcss 压缩率与 esbuild 相近但构建时间 2.5x，故保留 esbuild
+      // 生产构建启用 CSS 压缩。本仓库（pnpm）未安装 esbuild 包，Vite 8（Rolldown）下
+      // cssMinify: true 即使用已安装的 lightningcss 压缩（此为当前唯一可用 minifier，
+      // 显式 'esbuild' 会因缺少依赖而构建失败）。lightningcss 对 CSS Modules 的 `:export`
+      // 与 Vue scoped 的 `:deep()` 会输出无意义的伪类告警，属其严格解析所致、不影响产物正确性。
       cssMinify: true,
       // 小于 4KB 的静态资源内联为 base64，减少 HTTP 请求（R6-DEP-16）
       assetsInlineLimit: 4096,
-      // chunk 体积警告阈值调整为 1500KB，提前发现过大 chunk（R6-DEP-19）
-      chunkSizeWarningLimit: 1500,
+      // chunk 体积警告阈值。由于上述 Rolldown 限制被迫使用 codeSplitting:false（单 chunk），
+      // 入口 chunk 稳定在 ~9.5MB，1500KB 阈值必然触发且无法消解，故与单 chunk 实况对齐调高，
+      // 保留对新引入的超大产物（超出当前基线）的告警能力。（R6-DEP-19）
+      chunkSizeWarningLimit: 10000,
       rollupOptions: {
         // 性能优化：开启模块级别 tree shaking，移除未使用的导出
         treeshake: true,
@@ -109,11 +113,12 @@ export default defineConfig(({ mode, command }) => {
           //  element-plus/es/defaults.mjs should belong to a chunk"）。
           // 实测：无论使用 manualChunks 还是交予 Rolldown 完全自动分包，
           // 只要存在跨 chunk 引用该符号的分包，构建即 panic。
-          // 当前唯一可成功构建的配置是强制 inlineDynamicImports（所有动态 import 内联进单 chunk，
-          // 彻底规避跨 chunk 链接）。代价是关闭代码分割与路由级懒加载、首屏 JS 体积偏大。
+          // 当前唯一可成功构建的配置是关闭代码分割（把动态 import 全内联进单 chunk，
+          // 彻底规避跨 chunk 链接）。代价是缺省路由级懒加载、首屏 JS 体积偏大。
+          // 旧选项 inlineDynamicImports 在 Vite 8 已废弃，改用等价的 codeSplitting: false。
           // 待 Rolldown 修复该 bug（或升级 Vite/Rolldown 版本）后，应移除本选项以恢复分包。
           // 已登记于审计文档 docs/code-audit-2026-08-06.md 作为已知限制。
-          inlineDynamicImports: true
+          codeSplitting: false
         }
       }
     },

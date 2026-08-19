@@ -6829,7 +6829,7 @@ async function testFeature37(page) {
  *
  * 验证项：
  * - TierS-1: 动态标题（settings.ts + dynamicTitle.ts 已实现，源码检查）
- * - TierS-2: 更新日志页面（/tool/changelog 路由可访问 + 页面元素渲染）
+ * - TierS-2: 更新日志页面（/help-center/changelog 路由可访问 + 页面元素渲染）
  * - TierS-3: 表格密度（userPrefs.tableDensity + CSS class 应用到 html）
  * - TierS-4: 水印启用（userPrefs.watermarkEnabled + layout v-watermark 指令）
  * - TierS-5: 主题色预设（ThemeEditor + Settings 双入口，源码检查）
@@ -6872,7 +6872,7 @@ async function testFeature38(page) {
 
   // ---------- 2. TierS-2 更新日志页面 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/changelog`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/help-center/changelog`, { waitUntil: 'networkidle' })
     await sleep(2500)
 
     // 验证页面元素存在
@@ -6886,6 +6886,8 @@ async function testFeature38(page) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
+    // 真实路由不应落到 404 页
+    const is404 = await page.evaluate(() => !!document.querySelector('.wscn-http404-container')).catch(() => false)
 
     // 源码检查作为兜底（页面可能因权限渲染失败）
     const sourceCheck = await page.evaluate(async () => {
@@ -6896,23 +6898,22 @@ async function testFeature38(page) {
             const r = await fetch(s.src)
             const text = await r.text()
             return {
-              hasChangelogRoute: text.includes('/tool/changelog'),
               hasChangelogComponent: text.includes('tool/changelog/index') || text.includes('Changelog')
             }
           }
         }
-        return { hasChangelogRoute: false }
+        return { hasChangelogComponent: false }
       } catch (e) {
-        return { hasChangelogRoute: false, error: e.message }
+        return { hasChangelogComponent: false, error: e.message }
       }
     })
 
-    const passed = hasTimeline || sourceCheck.hasChangelogRoute
+    const passed = (hasTimeline && !is404) || sourceCheck.hasChangelogComponent
     record(
       38,
       'TierS-2 更新日志页面',
       passed,
-      `timeline=${hasTimeline}, route=${sourceCheck.hasChangelogRoute}, search=${hasSearchInput}`
+      `timeline=${hasTimeline}, is404=${is404}, search=${hasSearchInput}, comp=${sourceCheck.hasChangelogComponent}`
     )
   } catch (err) {
     record(38, 'TierS-2 更新日志页面', false, `异常: ${err.message.slice(0, 80)}`)

@@ -38,33 +38,6 @@ $--color-warning: #e6a23c;
 $--color-danger: #f56c6c;
 $--color-info: #909399;
 
-:export {
-  menuText: $menuText;
-  menuActiveText: $menuActiveText;
-  menuBg: $menuBg;
-  menuHover: $menuHover;
-  menuLightBg: $menuLightBg;
-  menuLightHover: $menuLightHover;
-  menuLightText: $menuLightText;
-  menuLightActiveText: $menuLightActiveText;
-  sideBarWidth: $sideBarWidth;
-  // 导出基础颜色
-  blue: $blue;
-  lightBlue: $light-blue;
-  red: $red;
-  pink: $pink;
-  green: $green;
-  tiffany: $tiffany;
-  yellow: $yellow;
-  panGreen: $panGreen;
-  // 导出组件颜色
-  colorPrimary: $--color-primary;
-  colorSuccess: $--color-success;
-  colorWarning: $--color-warning;
-  colorDanger: $--color-danger;
-  colorInfo: $--color-info;
-}
-
 // CSS变量定义
 :root {
   /* 亮色模式变量（theme-auto 默认 → 浅色侧边栏） */

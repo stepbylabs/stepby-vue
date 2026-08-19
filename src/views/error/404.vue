@@ -23,15 +23,33 @@
         >
           {{ t('error.e404.backHome') }}
         </router-link>
+        <div class="bullshit__countdown text-[13px] leading-[21px] text-text-secondary opacity-0 mt-3 clear-left">
+          {{ t('error.e404.autoBack', { seconds: countdown }) }}
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useRouter } from 'vue-router'
 const { t } = useI18n()
+const router = useRouter()
 const message = computed(() => {
   return t('error.e404.notFound')
+})
+
+// 落到 404 后自动倒计时跳回首页，避免浏览器"卡"在错误地址上无法退出
+const AUTO_BACK_SECONDS = 5
+const countdown = ref(AUTO_BACK_SECONDS)
+onMounted(() => {
+  const timer = window.setInterval(() => {
+    countdown.value -= 1
+    if (countdown.value <= 0) {
+      window.clearInterval(timer)
+      router.replace('/index')
+    }
+  }, 1000)
 })
 </script>
 
@@ -169,6 +187,12 @@ const message = computed(() => {
       animation-delay: 0.3s;
       animation-fill-mode: forwards;
     }
+    &__countdown {
+      animation-name: slideUp;
+      animation-duration: 0.5s;
+      animation-delay: 0.35s;
+      animation-fill-mode: forwards;
+    }
     @keyframes slideUp {
       0% {
         transform: translateY(60px);
@@ -186,7 +210,8 @@ const message = computed(() => {
       .bullshit__oops,
       .bullshit__headline,
       .bullshit__info,
-      .bullshit__return-home {
+      .bullshit__return-home,
+      .bullshit__countdown {
         opacity: 1 !important;
         animation: none !important;
         transform: none !important;

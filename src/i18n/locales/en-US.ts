@@ -471,7 +471,8 @@ export default {
       message:
         'Sorry, the page you are looking for does not exist. Try checking the URL for errors, then press the refresh button in your browser or try to find something else in our application.',
       notFound: 'Page not found!',
-      backHome: 'Back to Home'
+      backHome: 'Back to Home',
+      autoBack: 'Returning to home in {seconds} second(s)'
     },
     e500: {
       title: '500',
