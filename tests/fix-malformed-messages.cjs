@@ -2,7 +2,15 @@
 const fs = require('fs')
 const path = require('path')
 
-const files = ['src/i18n/locales/zh-CN.ts', 'src/i18n/locales/en-US.ts']
+// i18n 已按模块拆分（zh-CN/、en-US/ 目录），此处遍历全部模块文件，
+// 避免模块结构调整后漏改。
+const LOCALE_DIRS = ['src/i18n/locales/zh-CN', 'src/i18n/locales/en-US']
+const files = LOCALE_DIRS.flatMap((dir) =>
+  fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.ts') && f !== 'index.ts')
+    .map((f) => path.join(dir, f))
+)
 
 // Targeted per-key replacements: only touch lines whose key token matches,
 // so we never alter the valid linked-literal string help.contact.emailDesc (`{'@'}`).

@@ -138,40 +138,29 @@
     </span>
 
     <!-- 右键上下文菜单 -->
-    <Transition name="fade-slide">
-      <ul v-show="visible" :style="{ left: left + 'px', top: top + 'px' }" class="contextmenu" role="menu">
-        <li role="menuitem" tabindex="-1" @click="refreshSelectedTag(selectedTag)">
-          <refresh-right style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.refreshPage') }}
-        </li>
-        <li v-if="!isAffix(selectedTag)" role="menuitem" tabindex="-1" @click="closeSelectedTag(selectedTag)">
-          <close style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.closeCurrent') }}
-        </li>
-        <li role="menuitem" tabindex="-1" @click="closeOthersTags">
-          <circle-close style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.closeOthers') }}
-        </li>
-        <li v-if="!isFirstView()" role="menuitem" tabindex="-1" @click="closeLeftTags">
-          <back style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.closeLeft') }}
-        </li>
-        <li v-if="!isLastView()" role="menuitem" tabindex="-1" @click="closeRightTags">
-          <right style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.closeRight') }}
-        </li>
-        <li role="menuitem" tabindex="-1" @click="closeAllTags(selectedTag)">
-          <circle-close style="width: 1em; height: 1em" />
-          {{ safeT('layout.tagsView.closeAll') }}
-        </li>
-      </ul>
-    </Transition>
+    <ContextMenu
+      :visible="visible"
+      :left="left"
+      :top="top"
+      :selected-tag="selectedTag"
+      :is-affix-fn="isAffix"
+      :is-first-fn="isFirstView"
+      :is-last-fn="isLastView"
+      @refresh="refreshSelectedTag(selectedTag)"
+      @close="closeSelectedTag(selectedTag)"
+      @close-others="closeOthersTags"
+      @close-left="closeLeftTags"
+      @close-right="closeRightTags"
+      @close-all="closeAllTags(selectedTag)"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { View } from '@/store/modules/tagsView'
 import ScrollPane from './ScrollPane.vue'
+import ContextMenu from './ContextMenu.vue'
+import useTagsViewDrag from './useTagsViewDrag'
 import { getNormalPath } from '@/utils/yebot'
 import useTagsViewStore from '@/store/modules/tagsView'
 import useSettingsStore from '@/store/modules/settings'
@@ -193,10 +182,6 @@ const canScrollRight = ref<boolean>(false)
 const isFullscreen = ref<boolean>(false)
 const savedSidebarHide = ref<boolean>(false)
 
-// 拖拽排序状态
-const draggingIdx = ref<number>(-1)
-const dragOverIdx = ref<number>(-1)
-
 const route = useRoute()
 const router = useRouter()
 const { translateTitle } = useMenuTitle()
@@ -209,48 +194,11 @@ const tagsIcon = computed(() => useSettingsStore().tagsIcon)
 const tagsViewPersist = computed(() => useSettingsStore().tagsViewPersist)
 const tagsViewStyle = computed(() => useSettingsStore().tagsViewStyle)
 
-// 拖拽事件处理
-function onDragStart(e: DragEvent, idx: number) {
-  if (isAffix(visitedViews.value[idx])) {
-    e.preventDefault()
-    return
-  }
-  draggingIdx.value = idx
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', String(idx))
-  }
-}
-
-function onDragOver(e: DragEvent, idx: number) {
-  if (draggingIdx.value === -1) return
-  if (isAffix(visitedViews.value[idx])) return
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  dragOverIdx.value = idx
-}
-
-function onDragLeave(idx: number) {
-  if (dragOverIdx.value === idx) dragOverIdx.value = -1
-}
-
-function onDrop(targetIdx: number) {
-  if (draggingIdx.value === -1 || draggingIdx.value === targetIdx) {
-    onDragEnd()
-    return
-  }
-  if (isAffix(visitedViews.value[targetIdx])) {
-    onDragEnd()
-    return
-  }
-  // 调用 store 排序
-  tagsViewStore.sortViews(draggingIdx.value, targetIdx)
-  onDragEnd()
-}
-
-function onDragEnd() {
-  draggingIdx.value = -1
-  dragOverIdx.value = -1
-}
+// 拖拽排序（affix 标签禁止拖拽，逻辑封装于 useTagsViewDrag）
+const { draggingIdx, dragOverIdx, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd } = useTagsViewDrag({
+  isAffix,
+  visitedViews
+})
 
 // 下拉菜单针对当前激活的 tag
 const selectedDropdownTag = computed(() => visitedViews.value.find((v: View) => isActive(v)) || ({} as View))
@@ -709,32 +657,6 @@ $tags-bar-height: 34px;
 
   .tags-refresh-btn {
     width: 60px;
-  }
-
-  .contextmenu {
-    margin: 0;
-    background: var(--el-bg-color-overlay, #fff);
-    z-index: 3000;
-    position: fixed;
-    list-style-type: none;
-    padding: 5px 0;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--tags-item-text, #333);
-    box-shadow: 2px 2px 3px 0 rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--el-border-color-light, #e4e7ed);
-
-    li {
-      margin: 0;
-      padding: 7px 16px;
-      cursor: pointer;
-      transition: background-color 0.15s ease;
-
-      &:hover {
-        background: var(--tags-item-hover, #eee);
-      }
-    }
   }
 
   &.tags-view-container--chrome {

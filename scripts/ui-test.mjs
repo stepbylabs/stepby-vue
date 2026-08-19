@@ -154,13 +154,13 @@ async function checkSourceFiles(baseUrl) {
   const results = []
   const files = [
     {
-      path: '/src/i18n/locales/zh-CN.ts',
-      name: 'i18n 中文语言包',
+      path: '/src/i18n/locales/zh-CN/common.ts',
+      name: 'i18n 中文语言包（模块化 common 模块）',
       expectContent: ['sideAuto', 'autoThemeStyle', 'autoThemePreview']
     },
     {
-      path: '/src/i18n/locales/en-US.ts',
-      name: 'i18n 英文语言包',
+      path: '/src/i18n/locales/en-US/common.ts',
+      name: 'i18n 英文语言包（模块化 common 模块）',
       expectContent: ['sideAuto', 'autoThemeStyle', 'autoThemePreview']
     },
     {
@@ -213,13 +213,13 @@ async function checkThemeAutoCleanup(baseUrl) {
   // 验证已清理的旧值不再存在
   const cleanupChecks = [
     {
-      path: '/src/i18n/locales/zh-CN.ts',
+      path: '/src/i18n/locales/zh-CN/common.ts',
       name: '中文语言包已清理 sideDarkMode',
       // sideDarkMode 应该不再存在
       expectNotContent: ['sideDarkMode:']
     },
     {
-      path: '/src/i18n/locales/en-US.ts',
+      path: '/src/i18n/locales/en-US/common.ts',
       name: '英文语言包已清理 sideDarkMode',
       expectNotContent: ['sideDarkMode:']
     },

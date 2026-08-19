@@ -2,158 +2,11 @@
   <div class="app-container p-4" v-loading="loading">
     <!-- 顶部统计卡片 -->
     <el-row :gutter="16" class="mb-4">
-      <el-col v-motion="staggerChildren(0)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card class="stat-card mb-3 stat-users" shadow="hover">
-          <div class="stat-content flex items-center gap-[14px]">
-            <div
-              class="stat-icon w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl text-white shrink-0"
-            >
-              <el-icon><User /></el-icon>
-            </div>
-            <div class="stat-info flex-1 min-w-0">
-              <div class="stat-value text-2xl font-semibold text-text-primary leading-[1.2]">
-                {{ stats.totalUsers }}
-              </div>
-              <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.totalUsers') }}</div>
-              <div
-                class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
-                :class="stats.newUsers > 0 ? 'up' : ''"
-              >
-                <el-icon v-if="stats.newUsers > 0"><Top /></el-icon>
-                {{ t('dashboard.weekNew') }} {{ stats.newUsers }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(1)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card class="stat-card mb-3 stat-roles" shadow="hover">
-          <div class="stat-content flex items-center gap-[14px]">
-            <div
-              class="stat-icon w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl text-white shrink-0"
-            >
-              <el-icon><UserFilled /></el-icon>
-            </div>
-            <div class="stat-info flex-1 min-w-0">
-              <div class="stat-value text-2xl font-semibold text-text-primary leading-[1.2]">
-                {{ stats.totalRoles }}
-              </div>
-              <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.activeRoles') }}</div>
-              <div class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5">
-                {{ stats.activeRoles }} {{ t('dashboard.activeRolesSuffix') }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(2)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card class="stat-card mb-3 stat-logins" shadow="hover">
-          <div class="stat-content flex items-center gap-[14px]">
-            <div
-              class="stat-icon w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl text-white shrink-0"
-            >
-              <el-icon><Monitor /></el-icon>
-            </div>
-            <div class="stat-info flex-1 min-w-0">
-              <div class="stat-value text-2xl font-semibold text-text-primary leading-[1.2]">
-                {{ stats.todayLogins }}
-              </div>
-              <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.todayLogin') }}</div>
-              <div
-                class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
-                :class="stats.loginFail > 0 ? 'down' : ''"
-              >
-                {{ t('dashboard.buttonFail') }} {{ stats.loginFail }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(3)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card class="stat-card mb-3 stat-online" shadow="hover">
-          <div class="stat-content flex items-center gap-[14px]">
-            <div
-              class="stat-icon w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl text-white shrink-0"
-            >
-              <el-icon><Connection /></el-icon>
-            </div>
-            <div class="stat-info flex-1 min-w-0">
-              <div class="stat-value text-2xl font-semibold text-text-primary leading-[1.2]">
-                {{ stats.onlineCount }}
-              </div>
-              <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.onlineUsers') }}</div>
-              <div class="stat-trend up text-[11px] text-text-secondary mt-1 flex items-center gap-0.5">
-                {{ t('dashboard.realtime') }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(4)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card class="stat-card mb-3 stat-anomaly" shadow="hover">
-          <div class="stat-content flex items-center gap-[14px]">
-            <div
-              class="stat-icon w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl text-white shrink-0"
-            >
-              <el-icon><Warning /></el-icon>
-            </div>
-            <div class="stat-info flex-1 min-w-0">
-              <div class="stat-value text-2xl font-semibold text-text-primary leading-[1.2]">
-                {{ stats.todayAnomalyIps }}
-              </div>
-              <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.todayAnomaly') }}</div>
-              <div
-                class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
-                :class="stats.todayAnomalyIps > 0 ? 'down' : ''"
-              >
-                {{ t('dashboard.failIpCount') }}
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
+      <stat-cards :stats="stats" />
     </el-row>
 
     <!-- 快捷入口 -->
-    <el-row :gutter="16" class="mb-4">
-      <el-col :span="24">
-        <el-card shadow="hover" class="rounded-lg">
-          <template #header>
-            <div class="card-header flex items-center justify-between font-medium">
-              <span>
-                <el-icon><Promotion /></el-icon>
-                {{ t('dashboard.quickEntry.title') }}
-              </span>
-              <el-tooltip :content="t('dashboard.quickEntry.tip')" placement="top">
-                <el-icon class="header-tip-icon text-text-secondary cursor-help text-base"><QuestionFilled /></el-icon>
-              </el-tooltip>
-            </div>
-          </template>
-          <div class="quick-entry-grid grid gap-3">
-            <div
-              v-for="entry in quickEntries"
-              :key="entry.path"
-              class="quick-entry-item flex items-center gap-3 p-3 px-[14px] rounded-lg cursor-pointer border border-transparent"
-              :class="{ disabled: entry.disabled }"
-              @click="handleQuickEntry(entry)"
-            >
-              <div
-                class="entry-icon w-10 h-10 rounded-lg flex items-center justify-center text-xl text-white shrink-0"
-                :style="{ background: entry.bgColor }"
-              >
-                <el-icon><component :is="entry.icon" /></el-icon>
-              </div>
-              <div class="entry-text flex-1 min-w-0">
-                <div class="entry-title text-sm font-semibold text-text-primary leading-[1.2]">
-                  {{ t(entry.titleKey) }}
-                </div>
-                <div class="entry-desc text-[11px] text-text-secondary mt-1 truncate">{{ t(entry.descKey) }}</div>
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <quick-entry-panel />
 
     <!-- 图表区 -->
     <el-row :gutter="16" class="mb-4">
@@ -335,42 +188,20 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
-import { ref, onMounted, onBeforeUnmount, watch, markRaw, nextTick } from 'vue'
-import type { Component } from 'vue'
-import { type ECharts } from '@/utils/echarts'
-import { useChart } from '@/composables/useChart'
-import {
-  User,
-  UserFilled,
-  Monitor,
-  Connection,
-  Top,
-  TrendCharts,
-  PieChart,
-  Histogram,
-  List,
-  Warning,
-  Promotion,
-  QuestionFilled,
-  Document,
-  Bell,
-  Files,
-  Setting,
-  Guide,
-  InfoFilled,
-  Download
-} from '@element-plus/icons-vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { TrendCharts, PieChart, Histogram, List, Download } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import useUserStore from '@/store/modules/user'
 import useSettingsStore from '@/store/modules/settings'
-import { ElMessage } from 'element-plus'
-import { errorHub } from '@/utils/errorHub'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useMotionPresets } from '@/composables/useMotion'
+import { useChart, readCssVar } from '@/composables/useChart'
 import request from '@/utils/request'
+import StatCards from './StatCards.vue'
+import QuickEntryPanel from './QuickEntryPanel.vue'
+import { useDashboardCharts } from './useDashboardCharts'
 
-// P0 动效：统计卡片错峰入场 + 图表容器淡入
-const { fadeInUp, staggerChildren } = useMotionPresets()
+// P0 动效：图表容器淡入
+const { fadeInUp } = useMotionPresets()
 
 // P3-3：为 dashboard 接口响应定义具体类型，替换 :any
 interface RecentOperLog {
@@ -399,122 +230,37 @@ interface LoginTrendItem {
   fail: number
 }
 
-// U18 优化：ECharts resize 防抖，避免高频 resize 卡顿
-let resizeTimer: ReturnType<typeof setTimeout> | null = null
-// U20 优化：图表加载/错误状态，提升用户感知
-const chartLoading = ref({ login: false, oper: false, userTrend: false })
-const chartError = ref({ login: false, oper: false, userTrend: false })
-
 // 统一图表管理：复用实例 + 暗色模式适配
 const { getChart, withDark } = useChart()
 
-// 读取 CSS 变量值供 ECharts 等 JS 场景使用（带 fallback 兜底）
-function getCssVar(name: string, fallback: string): string {
-  if (typeof window === 'undefined') return fallback
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return value || fallback
-}
+// 图表渲染逻辑（登录趋势/操作类型分布/用户创建趋势）抽离至 composable
+const {
+  loginChartRef,
+  operPieRef,
+  userTrendRef,
+  loginChartType,
+  hasLoginData,
+  hasOperData,
+  hasUserTrendData,
+  chartLoading,
+  chartError,
+  lastTypeCount,
+  lastUserTrend,
+  setLoginData,
+  renderLoginChart,
+  renderOperPie,
+  renderUserTrendChart,
+  downloadChart,
+  handleResize,
+  // 图表实例（非响应式捕获值，仅用于模板 :disabled 绑定，保持原有始终禁用行为）
+  loginChart,
+  operPieChart,
+  userTrendChart
+} = useDashboardCharts({ getChart, withDark, readCssVar })
 
 const router = useRouter()
-const userStore = useUserStore()
 const settingsStore = useSettingsStore()
 const loading = ref(false)
-
-// 快捷入口配置（根据权限动态过滤）
-interface QuickEntry {
-  path: string
-  titleKey: string
-  descKey: string
-  icon: Component
-  // M2: bgColor 为图标背景渐变色，属于设计变体（非语义色）。
-  // 暗色模式下鲜艳渐变色仍然合适，故保留 inline style 不做暗色模式适配。
-  bgColor: string
-  permission?: string
-  disabled?: boolean
-}
-
-const allQuickEntries: QuickEntry[] = [
-  {
-    path: '/system/user',
-    titleKey: 'dashboard.quickEntry.userManage',
-    descKey: 'dashboard.quickEntry.userManageDesc',
-    icon: markRaw(User),
-    bgColor: 'linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3))',
-    permission: 'system:user:list'
-  },
-  {
-    path: '/system/role',
-    titleKey: 'dashboard.quickEntry.roleManage',
-    descKey: 'dashboard.quickEntry.roleManageDesc',
-    icon: markRaw(UserFilled),
-    bgColor: 'linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3))',
-    permission: 'system:role:list'
-  },
-  {
-    path: '/system/notice',
-    titleKey: 'dashboard.quickEntry.notice',
-    descKey: 'dashboard.quickEntry.noticeDesc',
-    icon: markRaw(Bell),
-    bgColor: 'linear-gradient(135deg, var(--el-color-warning), var(--el-color-warning-light-3))',
-    permission: 'system:notice:list'
-  },
-  {
-    path: '/tool/backup',
-    titleKey: 'dashboard.quickEntry.backup',
-    descKey: 'dashboard.quickEntry.backupDesc',
-    icon: markRaw(Files),
-    bgColor: 'linear-gradient(135deg, var(--el-color-danger), var(--el-color-danger-light-3))',
-    permission: 'system:backup:list'
-  },
-  {
-    path: '/monitor/operlog',
-    titleKey: 'dashboard.quickEntry.operLog',
-    descKey: 'dashboard.quickEntry.operLogDesc',
-    icon: markRaw(Document),
-    bgColor: 'linear-gradient(135deg, var(--el-color-info), var(--el-color-info-light-3))',
-    permission: 'monitor:operlog:list'
-  },
-  {
-    path: '/monitor/logininfor',
-    titleKey: 'dashboard.quickEntry.myLogin',
-    descKey: 'dashboard.quickEntry.myLoginDesc',
-    icon: markRaw(Guide),
-    bgColor: 'linear-gradient(135deg, var(--el-color-info), var(--el-color-info-light-5))'
-  },
-  {
-    path: '/system/config',
-    titleKey: 'dashboard.quickEntry.config',
-    descKey: 'dashboard.quickEntry.configDesc',
-    icon: markRaw(Setting),
-    bgColor: 'linear-gradient(135deg, var(--el-color-info), var(--el-color-info-light-3))',
-    permission: 'system:config:list'
-  },
-  {
-    path: '/help-center/about',
-    titleKey: 'dashboard.quickEntry.about',
-    descKey: 'dashboard.quickEntry.aboutDesc',
-    icon: markRaw(InfoFilled),
-    bgColor: 'linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-5))'
-  }
-]
-
-const quickEntries = ref<QuickEntry[]>([])
-
-function hasPermission(perm?: string): boolean {
-  if (!perm) return true
-  // 超管拥有所有权限
-  if (userStore.roles?.includes('admin')) return true
-  return (userStore.permissions || []).includes(perm) || (userStore.permissions || []).includes('*:*:*')
-}
-
-function loadQuickEntries() {
-  quickEntries.value = allQuickEntries.filter((e) => hasPermission(e.permission))
-}
-
-function handleQuickEntry(entry: QuickEntry) {
-  if (entry.disabled) return
-  router.push(entry.path)
-}
 
 const stats = ref({
   totalUsers: 0,
@@ -527,28 +273,7 @@ const stats = ref({
   todayAnomalyIps: 0
 })
 
-const loginChartRef = ref<HTMLElement | null>(null)
-const operPieRef = ref<HTMLElement | null>(null)
-const userTrendRef = ref<HTMLElement | null>(null)
-const loginChartType = ref<'success' | 'fail' | 'all'>('all')
-
-// 各图表是否有数据：用于在无数据时显示空态占位，避免渲染成空白大框
-const hasLoginData = ref(false)
-const hasOperData = ref(false)
-const hasUserTrendData = ref(false)
-
 const recentOperLogs = ref<RecentOperLog[]>([])
-
-// L8: loginData 用 let 模块变量（非 ref）是有意为之 - 数据加载后通过 renderLoginChart 直接消费，
-// 不需要响应式驱动视图更新（图表通过 setOption 显式更新），避免无谓的响应式开销。
-let loginChart: ECharts | null = null
-let operPieChart: ECharts | null = null
-let userTrendChart: ECharts | null = null
-
-let loginData: Array<{ date: string; success: number; fail: number }> = []
-// 主题切换时复用最近一次数据重新渲染（避免重新请求接口）
-let lastTypeCount: Record<string, number> = {}
-let lastUserTrend: { dates: string[]; counts: number[] } = { dates: [], counts: [] }
 
 async function loadStats() {
   loading.value = true
@@ -586,7 +311,7 @@ async function loadLoginTrend() {
       method: 'get',
       params: { days: 14 }
     })
-    loginData = (res.data || []) as Array<{ date: string; success: number; fail: number }>
+    setLoginData(res.data || [])
     await nextTick()
     await renderLoginChart()
   } catch (e) {
@@ -612,7 +337,7 @@ async function loadUserTrend() {
     const trend: Array<{ date: string; count: number }> = data.createTrend || []
     const trendDates = trend.map((t) => t.date)
     const trendCounts = trend.map((t) => t.count)
-    lastUserTrend = { dates: trendDates, counts: trendCounts }
+    lastUserTrend.value = { dates: trendDates, counts: trendCounts }
     await nextTick()
     await renderUserTrendChart(trendDates, trendCounts)
   } catch (e) {
@@ -642,7 +367,7 @@ async function loadOperPie() {
       delete: d.delete || 0,
       other: d.other || 0
     }
-    lastTypeCount = typeCount
+    lastTypeCount.value = typeCount
     hasOperData.value = Object.values(typeCount).some((v) => v > 0)
     await nextTick()
     await renderOperPie(typeCount)
@@ -654,110 +379,6 @@ async function loadOperPie() {
   }
 }
 
-async function renderLoginChart() {
-  if (!loginChartRef.value || loginData.length === 0) return
-  loginChart = await getChart(loginChartRef.value)
-  if (!loginChart) return
-  const dates = loginData.map((d) => d.date)
-  const success = loginData.map((d) => d.success)
-  const fail = loginData.map((d) => d.fail)
-  const series: Array<{ name: string } & Record<string, unknown>> = []
-  if (loginChartType.value === 'success' || loginChartType.value === 'all') {
-    series.push({
-      name: t('dashboard.buttonSuccess'),
-      type: 'line',
-      smooth: true,
-      data: success,
-      areaStyle: {},
-      itemStyle: { color: getCssVar('--el-color-success', '#67c23a') }
-    })
-  }
-  if (loginChartType.value === 'fail' || loginChartType.value === 'all') {
-    series.push({
-      name: t('dashboard.buttonFail'),
-      type: 'line',
-      smooth: true,
-      data: fail,
-      areaStyle: {},
-      itemStyle: { color: getCssVar('--el-color-danger', '#f56c6c') }
-    })
-  }
-  loginChart.setOption(
-    withDark(loginChart, {
-      tooltip: { trigger: 'axis' },
-      legend: { data: series.map((s) => s.name), right: 10 },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'category', boundaryGap: false, data: dates },
-      yAxis: { type: 'value', minInterval: 1 },
-      series
-    }),
-    true
-  )
-}
-
-async function renderOperPie(typeCount: Record<string, number>) {
-  if (!operPieRef.value) return
-  operPieChart = await getChart(operPieRef.value)
-  if (!operPieChart) return
-  const keyMap: Record<string, string> = {
-    insert: t('common.add'),
-    update: t('common.edit'),
-    delete: t('common.delete'),
-    other: t('common.other')
-  }
-  const data = Object.entries(typeCount)
-    .filter(([_, v]) => v > 0)
-    .map(([name, value]) => ({ name: keyMap[name] || name, value }))
-  operPieChart.setOption(
-    withDark(operPieChart, {
-      tooltip: { trigger: 'item', formatter: '{a}<br/>{b}: {c} ({d}%)' },
-      legend: { orient: 'vertical', left: 'left' },
-      series: [
-        {
-          name: t('dashboard.operTypeDist'),
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: false,
-          label: { show: true, formatter: '{b}: {c}' },
-          data,
-          color: [
-            getCssVar('--el-color-primary', '#409eff'),
-            getCssVar('--el-color-warning', '#e6a23c'),
-            getCssVar('--el-color-danger', '#f56c6c'),
-            getCssVar('--el-color-info', '#909399')
-          ]
-        }
-      ]
-    }),
-    true
-  )
-}
-
-async function renderUserTrendChart(dates: string[], counts: number[]) {
-  if (!userTrendRef.value) return
-  userTrendChart = await getChart(userTrendRef.value)
-  if (!userTrendChart) return
-  userTrendChart.setOption(
-    withDark(userTrendChart, {
-      tooltip: { trigger: 'axis' },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'category', data: dates, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', minInterval: 1 },
-      series: [
-        {
-          name: t('common.add'),
-          type: 'bar',
-          data: counts,
-          itemStyle: { color: getCssVar('--el-color-primary', '#409eff') }
-        }
-      ]
-    }),
-    true
-  )
-}
-
-watch(loginChartType, () => renderLoginChart())
-
 // 主题切换时复用最近一次数据重新渲染所有图表（不重新请求接口）
 watch(
   () => settingsStore.isDark,
@@ -765,58 +386,17 @@ watch(
     await nextTick()
     await Promise.all([
       renderLoginChart(),
-      renderOperPie(lastTypeCount),
-      renderUserTrendChart(lastUserTrend.dates, lastUserTrend.counts)
+      renderOperPie(lastTypeCount.value),
+      renderUserTrendChart(lastUserTrend.value.dates, lastUserTrend.value.counts)
     ])
   }
 )
-
-function handleResize() {
-  // U18 优化：防抖 150ms，避免高频 resize 卡顿
-  if (resizeTimer) clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    loginChart?.resize()
-    operPieChart?.resize()
-    userTrendChart?.resize()
-  }, 150)
-}
 
 function goToOperLog() {
   router.push('/monitor/operlog')
 }
 
-/** TierS-6: 下载图表为 PNG 图片 */
-function downloadChart(name: 'login' | 'oper' | 'userTrend'): void {
-  const chart = name === 'login' ? loginChart : name === 'oper' ? operPieChart : userTrendChart
-  if (!chart) {
-    errorHub.report('warning', 'other', t('common.chartNotReady'))
-    return
-  }
-  try {
-    // 暗色模式下导出白底图片，避免透明背景导致看不清
-    const isDark = document.documentElement.classList.contains('dark')
-    const url = chart.getDataURL({
-      type: 'png',
-      pixelRatio: 2,
-      backgroundColor: isDark ? getCssVar('--el-bg-color', '#141414') : getCssVar('--el-bg-color-page', '#ffffff')
-    })
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `chart-${name}-${Date.now()}.png`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    // L3: 清理 href，释放 data URL 引用避免内存泄漏
-    a.href = ''
-    ElMessage.success(t('common.chartDownloaded'))
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('Chart download failed:', e)
-    errorHub.report('error', 'other', t('common.chartDownloadFail'))
-  }
-}
-
 onMounted(async () => {
-  loadQuickEntries()
   await loadStats()
   await Promise.all([loadLoginTrend(), loadUserTrend(), loadOperPie()])
   window.addEventListener('resize', handleResize)
@@ -831,51 +411,13 @@ useAutoRefresh(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
   // 图表实例由 useChart 的 onBeforeUnmount 自动清理
+  // resize 定时器由 useDashboardCharts 的 onBeforeUnmount 清理
   // M7: useAutoRefresh 内部通过 onBeforeUnmount 自清理定时器，无需在此手动停止
 })
 </script>
 
 <style lang="scss" scoped>
-.stat-card {
-  :deep(.el-card__body) {
-    padding: 16px;
-  }
-}
-
-.stat-users .stat-icon {
-  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
-}
-.stat-roles .stat-icon {
-  background: linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3));
-}
-.stat-logins .stat-icon {
-  background: linear-gradient(135deg, var(--el-color-warning), var(--el-color-warning-light-3));
-}
-.stat-online .stat-icon {
-  background: linear-gradient(135deg, var(--el-color-danger), var(--el-color-danger-light-3));
-}
-.stat-anomaly .stat-icon {
-  background: linear-gradient(135deg, var(--el-color-info), var(--el-color-info-light-3));
-}
-
-.stat-trend {
-  &.up {
-    color: var(--el-color-success, #67c23a);
-  }
-  &.down {
-    color: var(--el-color-danger, #f56c6c);
-  }
-}
-
-.quick-entry-grid {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-}
-
 /* U20 优化：图表加载错误状态样式（暗色模式兼容） */
 .chart-empty {
   height: 280px;
@@ -887,25 +429,5 @@ onBeforeUnmount(() => {
   color: var(--el-text-color-secondary, #909399);
   background: var(--el-fill-color-light, #f5f7fa);
   border-radius: 4px;
-}
-
-.quick-entry-item {
-  background: var(--el-fill-color-light, #f5f7fa);
-  transition: all 0.25s ease;
-
-  &:hover {
-    background: var(--el-fill-color, #ebeef5);
-    transform: translateY(-2px);
-    border-color: var(--el-color-primary-light-7, #d9ecff);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-
-  &.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    &:hover {
-      transform: none;
-    }
-  }
 }
 </style>

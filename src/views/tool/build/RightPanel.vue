@@ -591,58 +591,7 @@
         </Transition>
         <!-- 表单属性 -->
         <Transition name="fade-slide">
-          <el-form v-if="currentTab === 'form'" label-width="90px" label-position="top">
-            <el-form-item :label="t('build.rightPanel.label.formRef')">
-              <el-input v-model="formConf.formRef" :placeholder="t('build.rightPanel.ph.formRef')" :maxlength="50" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formModel')">
-              <el-input v-model="formConf.formModel" :placeholder="t('build.rightPanel.ph.formModel')" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formRules')">
-              <el-input v-model="formConf.formRules" :placeholder="t('build.rightPanel.ph.formRules')" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formSize')">
-              <el-radio-group v-model="formConf.size">
-                <el-radio-button value="large">
-                  {{ t('build.rightPanel.radio.sizeLarge') }}
-                </el-radio-button>
-                <el-radio-button value="default">
-                  {{ t('build.rightPanel.radio.sizeDefault') }}
-                </el-radio-button>
-                <el-radio-button value="small">
-                  {{ t('build.rightPanel.radio.sizeSmall') }}
-                </el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.labelPosition')">
-              <el-radio-group v-model="formConf.labelPosition">
-                <el-radio-button value="left">
-                  {{ t('build.rightPanel.radio.labelLeft') }}
-                </el-radio-button>
-                <el-radio-button value="right">
-                  {{ t('build.rightPanel.radio.labelRight') }}
-                </el-radio-button>
-                <el-radio-button value="top">
-                  {{ t('build.rightPanel.radio.labelTop') }}
-                </el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formLabelWidth')">
-              <el-input-number v-model="formConf.labelWidth" :placeholder="t('build.rightPanel.ph.formLabelWidth')" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formGutter')">
-              <el-input-number v-model="formConf.gutter" :min="0" :placeholder="t('build.rightPanel.ph.formGutter')" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formDisabled')">
-              <el-switch v-model="formConf.disabled" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formBtns')">
-              <el-switch v-model="formConf.formBtns" />
-            </el-form-item>
-            <el-form-item :label="t('build.rightPanel.label.formUnFocusedBorder')">
-              <el-switch v-model="formConf.unFocusedComponentBorder" />
-            </el-form-item>
-          </el-form>
+          <form-props-panel v-if="currentTab === 'form'" :form-conf="formConf" />
         </Transition>
       </el-scrollbar>
     </div>
@@ -659,20 +608,21 @@ import draggable from 'vuedraggable'
 import { isNumberStr } from '@/utils/index'
 import IconsDialog from './IconsDialog.vue'
 import TreeNodeDialog from './TreeNodeDialog.vue'
+import FormPropsPanel from './FormPropsPanel.vue'
+import {
+  createDateTimeFormat,
+  createDateTypeOptions,
+  createDateRangeTypeOptions,
+  createColorFormatOptions,
+  createJustifyOptions,
+  createTagList
+} from './rightPanelOptions'
 import { inputComponents, selectComponents } from '@/utils/generator/config'
+import { useTreeNode } from './useTreeNode'
 
 const { t } = useI18n()
 const idGlobal = defineModel<number>('idGlobal', { default: 100 })
-const dateTimeFormat: Record<string, string> = {
-  date: 'YYYY-MM-DD',
-  week: t('build.rightPanel.weekFormat'),
-  month: 'YYYY-MM',
-  year: 'YYYY',
-  datetime: 'YYYY-MM-DD HH:mm:ss',
-  daterange: 'YYYY-MM-DD',
-  monthrange: 'YYYY-MM',
-  datetimerange: 'YYYY-MM-DD HH:mm:ss'
-}
+const dateTimeFormat = createDateTimeFormat((key) => t(key))
 const props = defineProps<{
   showField: boolean
   activeData: any
@@ -681,90 +631,12 @@ const props = defineProps<{
 
 const data = reactive({
   currentTab: 'field',
-  currentNode: null,
-  dialogVisible: false,
   iconsVisible: false,
   currentIconModel: null,
-  dateTypeOptions: [
-    {
-      label: t('build.rightPanel.dateType.date'),
-      value: 'date'
-    },
-    {
-      label: t('build.rightPanel.dateType.week'),
-      value: 'week'
-    },
-    {
-      label: t('build.rightPanel.dateType.month'),
-      value: 'month'
-    },
-    {
-      label: t('build.rightPanel.dateType.year'),
-      value: 'year'
-    },
-    {
-      label: t('build.rightPanel.dateType.datetime'),
-      value: 'datetime'
-    }
-  ],
-  dateRangeTypeOptions: [
-    {
-      label: t('build.rightPanel.dateType.daterange'),
-      value: 'daterange'
-    },
-    {
-      label: t('build.rightPanel.dateType.monthrange'),
-      value: 'monthrange'
-    },
-    {
-      label: t('build.rightPanel.dateType.datetimerange'),
-      value: 'datetimerange'
-    }
-  ],
-  colorFormatOptions: [
-    {
-      label: 'hex',
-      value: 'hex'
-    },
-    {
-      label: 'rgb',
-      value: 'rgb'
-    },
-    {
-      label: 'rgba',
-      value: 'rgba'
-    },
-    {
-      label: 'hsv',
-      value: 'hsv'
-    },
-    {
-      label: 'hsl',
-      value: 'hsl'
-    }
-  ],
-  justifyOptions: [
-    {
-      label: 'start',
-      value: 'start'
-    },
-    {
-      label: 'end',
-      value: 'end'
-    },
-    {
-      label: 'center',
-      value: 'center'
-    },
-    {
-      label: 'space-around',
-      value: 'space-around'
-    },
-    {
-      label: 'space-between',
-      value: 'space-between'
-    }
-  ],
+  dateTypeOptions: createDateTypeOptions((key) => t(key)),
+  dateRangeTypeOptions: createDateRangeTypeOptions((key) => t(key)),
+  colorFormatOptions: createColorFormatOptions(),
+  justifyOptions: createJustifyOptions(),
   layoutTreeProps: {
     label(data: any, _node: any) {
       return data.componentName || `${data.label}: ${data.vModel}`
@@ -774,8 +646,6 @@ const data = reactive({
 
 const {
   currentTab,
-  currentNode,
-  dialogVisible,
   iconsVisible,
   currentIconModel,
   dateTypeOptions,
@@ -784,6 +654,9 @@ const {
   justifyOptions,
   layoutTreeProps
 } = toRefs(data)
+
+// 树节点编辑逻辑（节点对话框状态与增删操作；append/remove 仅在使用树内 renderContent 的闭包中使用）
+const { currentNode, dialogVisible, renderContent, addNode } = useTreeNode(idGlobal)
 
 const documentLink = computed<string>(
   () => props.activeData.document || 'https://element-plus.org/zh-CN/guide/installation'
@@ -799,16 +672,7 @@ const dateOptions = computed(() => {
   return []
 })
 
-const tagList = ref([
-  {
-    label: t('build.rightPanel.tagGroup.input'),
-    options: inputComponents
-  },
-  {
-    label: t('build.rightPanel.tagGroup.select'),
-    options: selectComponents
-  }
-])
+const tagList = ref(createTagList((key) => t(key)))
 
 const emit = defineEmits(['tag-change'])
 
@@ -835,64 +699,6 @@ function addTreeItem(): void {
   idGlobal.value++
   dialogVisible.value = true
   currentNode.value = props.activeData.options
-}
-
-function renderContent(h: any, { node, data }: any): any {
-  return h(
-    'div',
-    {
-      class: 'custom-tree-node'
-    },
-    [
-      h('span', node.label),
-      h(
-        'span',
-        {
-          class: 'node-operation'
-        },
-        [
-          h(resolveComponent('el-link'), {
-            type: 'primary',
-            icon: 'Plus',
-            underline: false,
-            onClick: () => {
-              append(data)
-            }
-          }),
-          h(resolveComponent('el-link'), {
-            type: 'danger',
-            icon: 'Delete',
-            underline: false,
-            style: 'margin-left: 5px;',
-            onClick: () => {
-              remove(node, data)
-            }
-          })
-        ]
-      )
-    ]
-  )
-}
-function append(data: any): void {
-  if (!data.children) {
-    data.children = []
-  }
-  dialogVisible.value = true
-  currentNode.value = data.children
-}
-function remove(node: any, data: any): void {
-  const { parent } = node
-  const children = parent.data.children || parent.data
-  const index = children.findIndex((d: any) => d.id === data.id)
-  children.splice(index, 1)
-}
-function addNode(data: any): void {
-  if (currentNode.value) {
-    currentNode.value.push(data)
-  } else {
-    // P2 修复: currentNode 为空时不再静默丢弃数据，给出提示
-    if (import.meta.env.DEV) console.warn('[build/addNode] currentNode is null, data not added:', data)
-  }
 }
 
 function setOptionValue(item: { value: any }, val: string): void {

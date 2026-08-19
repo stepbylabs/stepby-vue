@@ -124,6 +124,13 @@ export function genCode(tableName: string): Promise<AjaxResult> {
   })
 }
 
+// 批量生成代码（构造 ZIP 下载地址，配合 download 插件使用）
+// 对应后端路由 GET /tool/gen/batchGenCode?tables=name1,name2
+export function batchGenCode(tableNames: string[]): string {
+  const tables = tableNames.filter((n) => n && n.trim()).join(',')
+  return `/tool/gen/batchGenCode?tables=${encodeURIComponent(tables)}`
+}
+
 // 同步数据库（POST：写操作须用 POST，避免 CSRF 风险）
 export function synchDb(tableName: string): Promise<AjaxResult> {
   return request({

@@ -2,62 +2,7 @@
   <div class="app-container audit-dashboard p-4">
     <!-- 顶部统计卡片 -->
     <el-row :gutter="16" class="stat-row mb-4">
-      <el-col v-motion="staggerChildren(0)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card shadow="hover" class="stat-card stat-total mb-3 transition-all duration-200 hover:-translate-y-1">
-          <div class="stat-content flex items-center gap-3.5">
-            <div class="stat-icon w-12 h-12 flex items-center justify-center text-2xl">
-              <el-icon><Document /></el-icon>
-            </div>
-            <div class="stat-info">
-              <div class="stat-value text-2xl font-semibold leading-tight text-text-primary">{{ stats.totalOps }}</div>
-              <div class="stat-label text-text-secondary mt-1">{{ t('auditDashboard.stat.totalOps') }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(1)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card shadow="hover" class="stat-card stat-success mb-3 transition-all duration-200 hover:-translate-y-1">
-          <div class="stat-content flex items-center gap-3.5">
-            <div class="stat-icon w-12 h-12 flex items-center justify-center text-2xl">
-              <el-icon><CircleCheck /></el-icon>
-            </div>
-            <div class="stat-info">
-              <div class="stat-value text-2xl font-semibold leading-tight text-text-primary">
-                {{ stats.successOps }}
-              </div>
-              <div class="stat-label text-text-secondary mt-1">{{ t('auditDashboard.stat.successOps') }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(2)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card shadow="hover" class="stat-card stat-fail mb-3 transition-all duration-200 hover:-translate-y-1">
-          <div class="stat-content flex items-center gap-3.5">
-            <div class="stat-icon w-12 h-12 flex items-center justify-center text-2xl">
-              <el-icon><CircleClose /></el-icon>
-            </div>
-            <div class="stat-info">
-              <div class="stat-value text-2xl font-semibold leading-tight text-text-primary">{{ stats.failOps }}</div>
-              <div class="stat-label text-text-secondary mt-1">{{ t('auditDashboard.stat.failOps') }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col v-motion="staggerChildren(3)" :xs="12" :sm="12" :md="6" :lg="6">
-        <el-card shadow="hover" class="stat-card stat-active mb-3 transition-all duration-200 hover:-translate-y-1">
-          <div class="stat-content flex items-center gap-3.5">
-            <div class="stat-icon w-12 h-12 flex items-center justify-center text-2xl">
-              <el-icon><User /></el-icon>
-            </div>
-            <div class="stat-info">
-              <div class="stat-value text-2xl font-semibold leading-tight text-text-primary">
-                {{ stats.activeUsers }}
-              </div>
-              <div class="stat-label text-text-secondary mt-1">{{ t('auditDashboard.stat.activeUsers') }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
+      <stat-cards :stats="stats" />
     </el-row>
 
     <!-- 图表区 -->
@@ -219,81 +164,7 @@
         </el-card>
       </el-col>
       <el-col v-motion="fadeInUp" :xs="24" :lg="12">
-        <el-card shadow="hover" class="alarm-card" :class="{ 'alarm-triggered': alarmData?.alertTriggered }">
-          <template #header>
-            <div class="card-header flex items-center justify-between font-medium">
-              <span class="flex items-center gap-1.5">
-                <el-icon><Bell /></el-icon>
-                {{ t('auditDashboard.alarm.title') }}
-              </span>
-              <el-tooltip :content="alarmThresholdTip" placement="top">
-                <el-icon class="text-text-secondary cursor-help"><InfoFilled /></el-icon>
-              </el-tooltip>
-            </div>
-          </template>
-          <div v-loading="alarmLoading" :element-loading-text="t('common.loading')">
-            <el-alert
-              v-if="alarmData"
-              :type="alarmData.alertTriggered ? 'error' : 'success'"
-              :title="alarmData.alertTriggered ? t('auditDashboard.alarm.triggered') : t('auditDashboard.alarm.normal')"
-              :closable="false"
-              show-icon
-              class="mb-4"
-            />
-            <div v-if="alarmData" class="alarm-metrics grid grid-cols-3 gap-3 mb-4">
-              <div class="alarm-metric flex flex-col items-center">
-                <span class="metric-value text-xl font-semibold">{{ alarmData.totalInWindow }}</span>
-                <span class="metric-label text-xs text-text-secondary mt-1">
-                  {{ t('auditDashboard.alarm.totalInWindow') }}
-                </span>
-              </div>
-              <div class="alarm-metric flex flex-col items-center">
-                <span class="metric-value text-xl font-semibold" :class="{ 'text-red': alarmData.failInWindow > 0 }">
-                  {{ alarmData.failInWindow }}
-                </span>
-                <span class="metric-label text-xs text-text-secondary mt-1">
-                  {{ t('auditDashboard.alarm.failInWindow') }}
-                </span>
-              </div>
-              <div class="alarm-metric flex flex-col items-center">
-                <span class="metric-value text-xl font-semibold" :class="{ 'text-red': alarmData.failRateAlarm }">
-                  {{ alarmData.failRate.toFixed(2) }}%
-                </span>
-                <span class="metric-label text-xs text-text-secondary mt-1">
-                  {{ t('auditDashboard.alarm.failRate') }}
-                </span>
-              </div>
-            </div>
-            <div v-if="alarmData && !alarmData.alertTriggered" class="alarm-empty text-center py-6">
-              <el-icon class="text-4xl text-text-secondary"><CircleCheck /></el-icon>
-            </div>
-            <template v-if="alarmData && alarmData.alertTriggered">
-              <div v-if="alarmData.operatorBursts && alarmData.operatorBursts.length" class="mb-3">
-                <div class="alarm-subtitle flex items-center gap-1.5 text-sm font-medium mb-2">
-                  <el-icon><User /></el-icon>
-                  {{ t('auditDashboard.alarm.burstOperators') }}
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <el-tag v-for="item in alarmData.operatorBursts" :key="item.name" type="danger" effect="dark">
-                    {{ item.name }} · {{ t('auditDashboard.alarm.times', { count: item.count }) }}
-                  </el-tag>
-                </div>
-              </div>
-              <div v-if="alarmData.moduleBursts && alarmData.moduleBursts.length">
-                <div class="alarm-subtitle flex items-center gap-1.5 text-sm font-medium mb-2">
-                  <el-icon><Collection /></el-icon>
-                  {{ t('auditDashboard.alarm.burstModules') }}
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <el-tag v-for="item in alarmData.moduleBursts" :key="item.name" type="warning" effect="dark">
-                    {{ item.name }} · {{ t('auditDashboard.alarm.times', { count: item.count }) }}
-                  </el-tag>
-                </div>
-              </div>
-            </template>
-            <el-empty v-if="!alarmData && !alarmLoading" :description="t('common.noData')" :image-size="60" />
-          </div>
-        </el-card>
+        <alarm-panel :alarm-data="alarmData" :alarm-loading="alarmLoading" :alarm-threshold-tip="alarmThresholdTip" />
       </el-col>
     </el-row>
   </div>
@@ -301,37 +172,29 @@
 
 <script setup lang="ts" name="AuditDashboard">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { type ECharts, type ECElementEvent } from '@/utils/echarts'
 import { useChart, readCssVar } from '@/composables/useChart'
 import { useMotionPresets } from '@/composables/useMotion'
 import useSettingsStore from '@/store/modules/settings'
-import { ElMessage } from 'element-plus'
-import { errorHub } from '@/utils/errorHub'
 import {
-  Document,
-  CircleCheck,
-  CircleClose,
-  User,
   TrendCharts,
   PieChart,
   Histogram,
   Warning,
   WarningFilled,
   InfoFilled,
-  Collection,
-  Bell
+  Collection
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
-import { exportElementToPdf } from '@/utils/pdf'
-import { getComplianceReport, getAlarmStatus } from '@/api/monitor/operlog'
-import { escapeHtml } from '@/utils'
-import { selectDictLabel } from '@/utils/yebot'
+import { getAlarmStatus } from '@/api/monitor/operlog'
+import StatCards from './StatCards.vue'
+import AlarmPanel from './AlarmPanel.vue'
+import { useAuditCharts, type PieClickParams } from './useAuditCharts'
+import { useComplianceReport } from './useComplianceReport'
 
 const { t } = useI18n()
 const { getChart, withDark } = useChart()
 const settingsStore = useSettingsStore()
-const { fadeInUp, staggerChildren } = useMotionPresets()
-const router = useRouter()
+const { fadeInUp } = useMotionPresets()
 // P1-3：业务类型字典单一来源，与 operlog 共用 sys_oper_type
 const { sys_oper_type } = useDict('sys_oper_type')
 
@@ -339,7 +202,6 @@ const days = ref(14)
 const loading = ref(false)
 // U20 优化：图表加载错误状态
 const chartError = ref(false)
-const exporting = ref(false)
 
 const stats = ref({
   totalOps: 0,
@@ -348,23 +210,42 @@ const stats = ref({
   activeUsers: 0
 })
 
-const trendChartRef = ref<HTMLElement | null>(null)
-const pieChartRef = ref<HTMLElement | null>(null)
-const topUsersChartRef = ref<HTMLElement | null>(null)
-const topModulesChartRef = ref<HTMLElement | null>(null)
-const failTrendChartRef = ref<HTMLElement | null>(null)
+// 饼图扇区点击回调（依赖 lastBusinessTypes，由 useComplianceReport 创建后注入，避免循环依赖）
+const onPieClick = ref<((params: PieClickParams) => void) | null>(null)
 
-let trendChart: ECharts | null = null
-let pieChart: ECharts | null = null
-let topUsersChart: ECharts | null = null
-let topModulesChart: ECharts | null = null
-let failTrendChart: ECharts | null = null
+const {
+  trendChartRef,
+  pieChartRef,
+  topUsersChartRef,
+  topModulesChartRef,
+  failTrendChartRef,
+  lastDaily,
+  lastPieData,
+  lastTopUsersData,
+  lastTopModulesData,
+  formatBusinessType,
+  renderTrendChart,
+  renderPieChart,
+  renderTopUsersChart,
+  renderTopModulesChart,
+  renderFailTrendChart,
+  handleResize,
+  clearResizeTimer
+} = useAuditCharts({
+  getChart,
+  withDark,
+  readCssVar,
+  sysOperType: sys_oper_type,
+  onPieClick
+})
 
-// 主题切换时复用最近一次数据重新渲染（避免重新请求接口）
-let lastDaily: Array<{ date: string; success: number; fail: number }> = []
-let lastPieData: Array<{ name: string; value: number }> = []
-let lastTopUsersData: Array<{ userName: string; count: number }> = []
-let lastTopModulesData: Array<{ moduleName: string; count: number }> = []
+const { exporting, lastBusinessTypes, handleExportPdf, handlePieChartClick } = useComplianceReport({
+  days,
+  formatBusinessType
+})
+
+// 注入饼图点击回调（其依赖 useComplianceReport 内部的 lastBusinessTypes）
+onPieClick.value = handlePieChartClick
 
 // 异常操作告警状态
 interface AlarmItem {
@@ -401,24 +282,6 @@ interface StatsVo {
   daily: Array<{ date: string; success: number; fail: number }>
 }
 
-/** 合规报告数据结构（导出 PDF 用） */
-interface ComplianceReport {
-  periodFrom: string
-  periodTo: string
-  generatedAt: string
-  summary: { total: number; success: number; fail: number }
-  businessTypes: Array<{ businessType: number; count: number }>
-  topOperators: Array<{ operName: string; count: number }>
-  topModules: Array<{ moduleName: string; count: number }>
-  anomalies: Array<{
-    operTime: string
-    title: string
-    operName: string
-    operIp: string
-    errorMsg?: string
-  }>
-}
-
 async function loadStats() {
   loading.value = true
   // U20 优化：图表加载错误状态
@@ -445,18 +308,18 @@ async function loadStats() {
       activeUsers: topOperators.length
     }
     // 缓存最近一次数据，主题切换时复用避免重新请求接口
-    lastDaily = daily
-    lastPieData = businessTypes.map((b) => ({ name: formatBusinessType(b.businessType), value: b.count }))
-    lastTopUsersData = topOperators.map((u) => ({ userName: u.operName, count: u.count }))
-    lastTopModulesData = topModules.map((m) => ({ moduleName: m.moduleName, count: m.count }))
+    lastDaily.value = daily
+    lastPieData.value = businessTypes.map((b) => ({ name: formatBusinessType(b.businessType), value: b.count }))
+    lastTopUsersData.value = topOperators.map((u) => ({ userName: u.operName, count: u.count }))
+    lastTopModulesData.value = topModules.map((m) => ({ moduleName: m.moduleName, count: m.count }))
     await nextTick()
     // 图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
     await Promise.all([
-      renderTrendChart(lastDaily),
-      renderPieChart(lastPieData),
-      renderTopUsersChart(lastTopUsersData),
-      renderTopModulesChart(lastTopModulesData),
-      renderFailTrendChart(lastDaily)
+      renderTrendChart(lastDaily.value),
+      renderPieChart(lastPieData.value),
+      renderTopUsersChart(lastTopUsersData.value),
+      renderTopModulesChart(lastTopModulesData.value),
+      renderFailTrendChart(lastDaily.value)
     ])
   } catch (e) {
     if (import.meta.env.DEV) console.error('Failed to load audit dashboard data:', e)
@@ -480,379 +343,6 @@ async function loadAlarm() {
   }
 }
 
-async function renderTrendChart(data: Array<{ date: string; success: number; fail: number }>) {
-  const chart = await getChart(trendChartRef.value)
-  if (!chart) return
-  trendChart = chart
-  const dates = data.map((d) => d.date)
-  const success = data.map((d) => d.success)
-  const fail = data.map((d) => d.fail)
-  chart.setOption(
-    withDark(chart, {
-      tooltip: { trigger: 'axis' },
-      legend: { data: [t('common.successStatus'), t('common.fail')], right: 10 },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'category', boundaryGap: false, data: dates },
-      yAxis: { type: 'value', minInterval: 1 },
-      series: [
-        {
-          name: t('common.successStatus'),
-          type: 'line',
-          smooth: true,
-          data: success,
-          areaStyle: {},
-          itemStyle: { color: readCssVar('--el-color-success', '#67c23a') }
-        },
-        {
-          name: t('common.fail'),
-          type: 'line',
-          smooth: true,
-          data: fail,
-          areaStyle: {},
-          itemStyle: { color: readCssVar('--el-color-danger', '#f56c6c') }
-        }
-      ]
-    }),
-    true
-  )
-}
-
-async function renderPieChart(data: Array<{ name: string; value: number }>) {
-  const chart = await getChart(pieChartRef.value)
-  if (!chart) return
-  pieChart = chart
-  // P1-3：饼图点击扇区跳转 operlog（仅对真实业务类型数据生效，空数据占位不跳转）
-  chart.off('click')
-  chart.on('click', (params: ECElementEvent) => {
-    if (params.name === t('common.noData')) return
-    handlePieChartClick({ name: params.name })
-  })
-  const palette = [
-    readCssVar('--el-color-primary', '#409eff'),
-    readCssVar('--el-color-warning', '#e6a23c'),
-    readCssVar('--el-color-danger', '#f56c6c'),
-    readCssVar('--el-color-info', '#909399'),
-    readCssVar('--el-color-success', '#67c23a'),
-    readCssVar('--el-color-primary-light-3', '#9c64ff'),
-    readCssVar('--el-color-danger-light-3', '#ff7e7e')
-  ]
-  chart.setOption(
-    withDark(chart, {
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { orient: 'vertical', left: 'left' },
-      series: [
-        {
-          name: t('auditDashboard.report.businessType'),
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: false,
-          label: { show: true, formatter: '{b}: {c}' },
-          data: data.length > 0 ? data : [{ name: t('common.noData'), value: 1 }],
-          color: palette
-        }
-      ]
-    }),
-    true
-  )
-}
-
-async function renderTopUsersChart(data: Array<{ userName: string; count: number }>) {
-  const chart = await getChart(topUsersChartRef.value)
-  if (!chart) return
-  topUsersChart = chart
-  const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
-  chart.setOption(
-    withDark(chart, {
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'value', minInterval: 1 },
-      yAxis: { type: 'category', data: sorted.map((d) => d.userName).reverse() },
-      series: [
-        {
-          name: t('auditDashboard.report.operCount'),
-          type: 'bar',
-          data: sorted.map((d) => d.count).reverse(),
-          itemStyle: { color: readCssVar('--el-color-primary', '#409eff') }
-        }
-      ]
-    }),
-    true
-  )
-}
-
-// 模块名可能较长，超出容器时截断显示，避免拥挤
-function truncateName(name: string, max = 18): string {
-  return name.length > max ? `${name.slice(0, max)}...` : name
-}
-
-async function renderTopModulesChart(data: Array<{ moduleName: string; count: number }>) {
-  const chart = await getChart(topModulesChartRef.value)
-  if (!chart) return
-  topModulesChart = chart
-  const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 10)
-  chart.setOption(
-    withDark(chart, {
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'value', minInterval: 1 },
-      yAxis: {
-        type: 'category',
-        data: sorted.map((d) => truncateName(d.moduleName)).reverse(),
-        axisLabel: { overflow: 'truncate', width: 110 }
-      },
-      series: [
-        {
-          name: t('auditDashboard.report.operCount'),
-          type: 'bar',
-          data: sorted.map((d) => d.count).reverse(),
-          itemStyle: { color: readCssVar('--el-color-success', '#67c23a') },
-          label: { show: true, position: 'right' }
-        }
-      ]
-    }),
-    true
-  )
-}
-
-async function renderFailTrendChart(data: Array<{ date: string; success: number; fail: number }>) {
-  const chart = await getChart(failTrendChartRef.value)
-  if (!chart) return
-  failTrendChart = chart
-  chart.setOption(
-    withDark(chart, {
-      tooltip: { trigger: 'axis' },
-      grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-      xAxis: { type: 'category', data: data.map((d) => d.date) },
-      yAxis: { type: 'value', minInterval: 1 },
-      series: [
-        {
-          name: t('auditDashboard.chart.failCount'),
-          type: 'bar',
-          data: data.map((d) => d.fail),
-          itemStyle: { color: readCssVar('--el-color-danger', '#f56c6c') }
-        }
-      ]
-    }),
-    true
-  )
-}
-
-// U18 优化：防抖 150ms，避免高频 resize 卡顿（多个图表同时 resize 开销大）
-let resizeTimer: ReturnType<typeof setTimeout> | null = null
-function handleResize() {
-  if (resizeTimer) clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    trendChart?.resize()
-    pieChart?.resize()
-    topUsersChart?.resize()
-    topModulesChart?.resize()
-    failTrendChart?.resize()
-  }, 150)
-}
-
-// ==================== 审计合规报告 PDF 导出 ====================
-
-/**
- * 业务类型 code → 中文名称映射
- * P1-3：统一使用 sys_oper_type 字典作为单一来源，与 operlog 页面共用，
- *      避免双份映射漂移；字典未加载时回退到原 i18n key
- */
-function formatBusinessType(code: number): string {
-  const dictLabel = selectDictLabel(sys_oper_type.value, code)
-  if (dictLabel && dictLabel !== '' + code) return dictLabel
-  // 字典未加载时的回退（保持原有 i18n 行为）
-  const map: Record<number, string> = {
-    0: t('auditDashboard.businessType.other'),
-    1: t('auditDashboard.businessType.insert'),
-    2: t('auditDashboard.businessType.update'),
-    3: t('auditDashboard.businessType.delete'),
-    4: t('auditDashboard.businessType.grant'),
-    5: t('auditDashboard.businessType.export'),
-    6: t('auditDashboard.businessType.import'),
-    7: t('auditDashboard.businessType.forceLogout'),
-    8: t('auditDashboard.businessType.genCode'),
-    9: t('auditDashboard.businessType.clean')
-  }
-  return map[code] || t('auditDashboard.report.unknownBusinessType', { type: code })
-}
-
-// 缓存最近一次 businessTypes，供饼图点击回调反查 code
-const lastBusinessTypes = ref<Array<{ businessType: number; count: number }>>([])
-
-/** P1-3：点击饼图业务类型扇区 → 跳转 operlog 并按该业务类型筛选 */
-function handlePieChartClick(params: { name?: string; data?: { businessType?: number } }): void {
-  // businessTypes 数据已通过 renderPieChart 传入，但 ECharts 回调不携带原始 code
-  // 因此从 name 反查最近一次 businessTypes 数据
-  const bt = lastBusinessTypes.value.find(
-    (b: { businessType: number; count: number }) => formatBusinessType(b.businessType) === params.name
-  )
-  if (!bt) return
-  router.push({
-    path: '/monitor/operlog',
-    query: { businessType: String(bt.businessType) }
-  })
-}
-
-/** 转义字符串，避免注入到 innerHTML 时破坏布局 */
-// P3-1：escapeHtml 已统一到 @/utils/index.ts，本地实现已删除（含单引号转义，行为与 changelog 一致）
-
-/** 构建临时报告 DOM（脱离文档流，导出后移除） */
-function buildReportDom(report: ComplianceReport): HTMLElement {
-  const container = document.createElement('div')
-  container.style.cssText =
-    'position:fixed;left:-9999px;top:0;width:794px;padding:30px;background:#fff;font-family:"Microsoft YaHei",sans-serif;'
-
-  const successRate =
-    report.summary.total > 0 ? ((report.summary.success / report.summary.total) * 100).toFixed(2) : '0.00'
-
-  container.innerHTML = `
-    <h1 style="text-align:center;font-size:24px;margin-bottom:8px;">${t('auditDashboard.report.title')}</h1>
-    <div style="text-align:center;color:#666;margin-bottom:20px;">
-      ${t('auditDashboard.report.period')}：${escapeHtml(report.periodFrom)} ${t('auditDashboard.report.periodConnector')} ${escapeHtml(report.periodTo)}<br/>
-      ${t('auditDashboard.report.generatedAt')}：${escapeHtml(report.generatedAt)}
-    </div>
-
-    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.sectionOverview')}</h2>
-    <table style="width:100%;border-collapse:collapse;margin:10px 0;">
-      <tr>
-        <td style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.totalOps')}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(report.summary.total)}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.successOps')}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(report.summary.success)}</td>
-      </tr>
-      <tr>
-        <td style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.failOps')}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(report.summary.fail)}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.successRate')}</td>
-        <td style="border:1px solid #ddd;padding:8px;">${successRate}%</td>
-      </tr>
-    </table>
-
-    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.section2')}</h2>
-    <table style="width:100%;border-collapse:collapse;margin:10px 0;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.businessType')}</th>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.operCount')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(report.businessTypes || [])
-          .map(
-            (bt: { businessType: number; count: number }) => `<tr>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(formatBusinessType(bt.businessType))}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(bt.count)}</td>
-        </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table>
-
-    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.section3')}</h2>
-    <table style="width:100%;border-collapse:collapse;margin:10px 0;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.username')}</th>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.operCount')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(report.topOperators || [])
-          .map(
-            (op: { operName: string; count: number }) => `<tr>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(op.operName)}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(op.count)}</td>
-        </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table>
-
-    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.sectionTopModules')}</h2>
-    <table style="width:100%;border-collapse:collapse;margin:10px 0;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.module')}</th>
-          <th style="border:1px solid #ddd;padding:8px;">${t('auditDashboard.report.operCount')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(report.topModules || [])
-          .map(
-            (m: { moduleName: string; count: number }) => `<tr>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(m.moduleName)}</td>
-          <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(m.count)}</td>
-        </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table>
-
-    <h2 style="font-size:18px;border-bottom:2px solid #409eff;padding-bottom:4px;">${t('auditDashboard.report.sectionAnomalies', { count: (report.anomalies || []).length })}</h2>
-    <table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:12px;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #ddd;padding:6px;">${t('auditDashboard.report.time')}</th>
-          <th style="border:1px solid #ddd;padding:6px;">${t('auditDashboard.report.module')}</th>
-          <th style="border:1px solid #ddd;padding:6px;">${t('auditDashboard.report.operator')}</th>
-          <th style="border:1px solid #ddd;padding:6px;">${t('auditDashboard.report.ip')}</th>
-          <th style="border:1px solid #ddd;padding:6px;">${t('auditDashboard.report.errorMsg')}</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(report.anomalies || [])
-          .map(
-            (a: { operTime: string; title: string; operName: string; operIp: string; errorMsg?: string }) => `<tr>
-          <td style="border:1px solid #ddd;padding:6px;">${escapeHtml(a.operTime)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">${escapeHtml(a.title)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">${escapeHtml(a.operName)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">${escapeHtml(a.operIp)}</td>
-          <td style="border:1px solid #ddd;padding:6px;">${escapeHtml(a.errorMsg || '')}</td>
-        </tr>`
-          )
-          .join('')}
-      </tbody>
-    </table>
-
-    <div style="margin-top:40px;text-align:center;color:#999;font-size:12px;">
-      ${t('auditDashboard.report.footerDisclaimer')}
-    </div>
-  `
-
-  document.body.appendChild(container)
-  return container
-}
-
-/** 导出审计合规报告 PDF */
-async function handleExportPdf() {
-  exporting.value = true
-  try {
-    const res = await getComplianceReport(days.value)
-    const report = (res?.data ?? res) as ComplianceReport | undefined
-    if (!report) {
-      errorHub.report('warning', 'other', t('auditDashboard.report.noData'))
-      return
-    }
-
-    const reportEl = buildReportDom(report)
-    try {
-      const filename = `${t('auditDashboard.report.title')}_${new Date().toISOString().slice(0, 10)}`
-      await exportElementToPdf(reportEl, filename, {
-        orientation: 'portrait',
-        format: 'a4'
-      })
-      ElMessage.success(t('auditDashboard.report.exportSuccess'))
-    } finally {
-      reportEl.remove()
-    }
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('Export PDF failed:', e)
-    errorHub.report('error', 'other', t('auditDashboard.report.exportFail'))
-  } finally {
-    exporting.value = false
-  }
-}
-
 watch(days, () => loadStats())
 
 // 主题切换时复用最近一次数据重新渲染所有图表（不重新请求接口）
@@ -860,13 +350,13 @@ watch(
   () => settingsStore.isDark,
   async () => {
     await nextTick()
-    if (lastDaily.length === 0 && lastPieData.length === 0 && lastTopUsersData.length === 0) return
+    if (lastDaily.value.length === 0 && lastPieData.value.length === 0 && lastTopUsersData.value.length === 0) return
     await Promise.all([
-      renderTrendChart(lastDaily),
-      renderPieChart(lastPieData),
-      renderTopUsersChart(lastTopUsersData),
-      renderTopModulesChart(lastTopModulesData),
-      renderFailTrendChart(lastDaily)
+      renderTrendChart(lastDaily.value),
+      renderPieChart(lastPieData.value),
+      renderTopUsersChart(lastTopUsersData.value),
+      renderTopModulesChart(lastTopModulesData.value),
+      renderFailTrendChart(lastDaily.value)
     ])
   }
 )
@@ -881,63 +371,17 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   // 图表实例由 useChart 的 onBeforeUnmount 自动清理，无需手动 dispose
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
+  clearResizeTimer()
 })
 </script>
 
 <style lang="scss" scoped>
-.stat-card {
-  :deep(.el-card__body) {
-    padding: 16px;
-  }
-}
-
-.stat-icon {
-  border-radius: 10px;
-  color: var(--el-color-white);
-}
-
-.stat-total .stat-icon {
-  background: linear-gradient(135deg, #409eff, #66b1ff);
-}
-.stat-success .stat-icon {
-  background: linear-gradient(135deg, #67c23a, #85ce61);
-}
-.stat-fail .stat-icon {
-  background: linear-gradient(135deg, #f56c6c, #f89898);
-}
-.stat-active .stat-icon {
-  background: linear-gradient(135deg, #e6a23c, #ebb563);
-}
-
-.stat-label {
-  font-size: 13px;
-}
-
 /* U20 优化：图表加载错误状态样式 */
 .chart-error {
   color: var(--el-color-danger);
 
   .el-icon {
     font-size: 18px;
-  }
-}
-
-/* 异常告警卡片：触发时为边框/顶部描边高亮 */
-.alarm-card {
-  :deep(.el-card__body) {
-    min-height: 380px;
-  }
-}
-
-.alarm-triggered {
-  border-color: var(--el-color-danger);
-
-  :deep(.el-card__header) {
-    border-bottom-color: var(--el-color-danger);
   }
 }
 </style>

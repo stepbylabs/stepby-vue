@@ -272,143 +272,17 @@
       </div>
     </div>
     <!-- 添加或修改用户配置对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
-      <el-form :model="form" :rules="rules" ref="userRef" label-width="80px">
-        <el-row>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.nickName')" prop="nickName">
-              <el-input v-model="form.nickName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.dept')" prop="deptId">
-              <el-tree-select
-                v-model="form.deptId"
-                :data="enabledDeptOptions"
-                :props="{ value: 'id', label: 'label', children: 'children' }"
-                value-key="id"
-                :placeholder="t('common.form.selectPlaceholder')"
-                clearable
-                check-strictly
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.phone')" prop="phonenumber">
-              <el-input
-                v-model.trim="form.phonenumber"
-                :placeholder="t('common.form.inputPlaceholder')"
-                maxlength="11"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.email')" prop="email">
-              <el-input v-model.trim="form.email" :placeholder="t('common.form.inputPlaceholder')" maxlength="50" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="12">
-            <Transition name="expand-fade">
-              <el-form-item v-if="form.userId == undefined" :label="t('user.form.username')" prop="userName">
-                <el-input v-model="form.userName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" />
-              </el-form-item>
-            </Transition>
-          </el-col>
-          <el-col :span="12">
-            <Transition name="expand-fade">
-              <el-form-item
-                v-if="form.userId == undefined"
-                :label="t('user.form.password')"
-                prop="password"
-                :rules="pwdValidator"
-              >
-                <el-input
-                  v-model.trim="form.password"
-                  :placeholder="t('user.form.phPassword')"
-                  type="password"
-                  maxlength="20"
-                  show-password
-                />
-              </el-form-item>
-            </Transition>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.sex')">
-              <el-select v-model="form.sex" :placeholder="t('common.form.selectPlaceholder')">
-                <el-option
-                  v-for="dict in sys_user_sex"
-                  :key="dict.value"
-                  :label="dict.label"
-                  :value="dict.value"
-                ></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.status')">
-              <el-radio-group v-model="form.status">
-                <el-radio v-for="dict in sys_normal_disable" :key="dict.value" :value="dict.value">
-                  {{ dict.label }}
-                </el-radio>
-              </el-radio-group>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.post')">
-              <el-select v-model="form.postIds" multiple :placeholder="t('common.form.selectPlaceholder')">
-                <el-option
-                  v-for="item in postOptions"
-                  :key="item.postId"
-                  :label="item.postName"
-                  :value="item.postId"
-                  :disabled="item.status == 1"
-                ></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="t('user.form.role')">
-              <el-select v-model="form.roleIds" multiple :placeholder="t('common.form.selectPlaceholder')">
-                <el-option
-                  v-for="item in roleOptions"
-                  :key="item.roleId"
-                  :label="item.roleName"
-                  :value="item.roleId"
-                  :disabled="item.status == 1"
-                ></el-option>
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="24">
-            <el-form-item :label="t('user.form.remark')">
-              <el-input
-                v-model="form.remark"
-                type="textarea"
-                :placeholder="t('common.form.inputPlaceholder')"
-                :maxlength="500"
-                show-word-limit
-              ></el-input>
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button type="primary" :loading="submitLoading" @click="submitForm">{{ t('common.confirm') }}</el-button>
-          <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <user-form-dialog
+      v-model:open="open"
+      :title="title"
+      :dept-options="deptOptions"
+      :enabled-dept-options="enabledDeptOptions"
+      :post-options="postOptions"
+      :role-options="roleOptions"
+      :edit-user="editUser"
+      :init-password="initPassword"
+      @submit-success="getList"
+    />
 
     <!-- 用户详情抽屉 -->
     <user-view-drawer ref="userViewRef" />
@@ -456,17 +330,9 @@ import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import BatchActions from '@/components/BatchActions/index.vue'
 import ExcelImportDialog from '@/components/ExcelImportDialog/index.vue'
 import UserViewDrawer from './view.vue'
+import UserFormDialog from './UserFormDialog.vue'
 import { usePasswordRule } from '@/utils/passwordRule'
-import {
-  changeUserStatus,
-  listUser,
-  resetUserPwd,
-  delUser,
-  getUser,
-  updateUser,
-  addUser,
-  deptTreeSelect
-} from '@/api/system/user'
+import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, deptTreeSelect } from '@/api/system/user'
 import type { SysUser, UserQueryParams } from '@/types/api/system/user'
 import type { SysRole } from '@/types/api/system/role'
 import type { SysPost } from '@/types/api/system/post'
@@ -484,15 +350,14 @@ const queryRefRef = useTemplateRef('queryRef')
 const deptTreeRefRef = useTemplateRef('deptTreeRef')
 const userViewRefRef = useTemplateRef('userViewRef')
 const importDialogRef = useTemplateRef('importDialogRef')
-const userRefRef = useTemplateRef('userRef')
 const userTableRef = useTemplateRef('userTableRef')
-const { pwdValidator, pwdPromptValidator } = usePasswordRule()
-const { sys_normal_disable, sys_user_sex } = useDict('sys_normal_disable', 'sys_user_sex')
+const { pwdPromptValidator } = usePasswordRule()
+// 搜索区状态筛选使用；对话框内的状态/性别字典已迁入 UserFormDialog
+const { sys_normal_disable } = useDict('sys_normal_disable')
 
 const userList = ref<SysUser[]>([])
 const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
-const submitLoading = ref<boolean>(false)
 const showSearch = ref<boolean>(true)
 const ids = ref<number[]>([])
 const single = ref<boolean>(true)
@@ -505,6 +370,8 @@ const enabledDeptOptions = ref<TreeSelect[] | undefined>(undefined)
 const initPassword = ref<string | undefined>(undefined)
 const postOptions = ref<SysPost[]>([])
 const roleOptions = ref<SysRole[]>([])
+// 编辑场景回填用户数据（含 postIds/roleIds），新增场景为 undefined
+const editUser = ref<SysUser | undefined>(undefined)
 // 列显隐信息
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
 // 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
@@ -520,7 +387,6 @@ const columns = ref<Record<string, TableShowColumns>>({
 })
 
 const data = reactive({
-  form: {} as SysUser,
   queryParams: {
     pageNum: 1,
     pageSize: 10,
@@ -531,18 +397,7 @@ const data = reactive({
   } as UserQueryParams
 })
 
-// M1: rules 改为 computed 以响应语言切换；el-form 通过 :rules 绑定读取最新值，validate 仍可正常工作
-const rules = computed(() => ({
-  userName: [
-    { required: true, message: t('user.validate.userNameRequired'), trigger: 'blur' },
-    { min: 2, max: 20, message: t('user.validate.userNameLength'), trigger: 'blur' }
-  ],
-  nickName: [{ required: true, message: t('user.validate.nickNameRequired'), trigger: 'blur' }],
-  email: [{ type: 'email', message: t('user.validate.emailFormat'), trigger: ['blur', 'change'] }],
-  phonenumber: [{ pattern: /^1[3|4|5|6|7|8|9][0-9]\d{8}$/, message: t('user.validate.phoneFormat'), trigger: 'blur' }]
-}))
-
-const { queryParams, form } = toRefs(data)
+const { queryParams } = toRefs(data)
 
 // TierA-4: 是否有查询条件（用于空状态 CTA 切换文案）
 const hasQueryFilter = computed(() => {
@@ -747,102 +602,38 @@ function handleViewData(row: SysUser) {
   userViewRefRef.value?.open(row.userId)
 }
 
-/** 重置操作表单 */
-function reset() {
-  form.value = {
-    userId: undefined,
-    deptId: undefined,
-    userName: undefined,
-    nickName: undefined,
-    password: undefined,
-    phonenumber: undefined,
-    email: undefined,
-    sex: undefined,
-    status: '0',
-    remark: undefined,
-    postIds: [],
-    roleIds: []
-  }
-  userRefRef.value?.resetFields()
-}
-
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  reset()
-}
-
 /** 新增按钮操作 */
 function handleAdd() {
-  reset()
+  editUser.value = undefined
+  title.value = t('common.add')
   getUser()
     .then((response) => {
       postOptions.value = response.posts
       roleOptions.value = response.roles
       open.value = true
-      title.value = t('common.add')
-      form.value.password = initPassword.value
     })
     .catch(() => {})
 }
 
 /** 修改按钮操作 */
 function handleUpdate(row?: SysUser) {
-  reset()
   const userId = row?.userId || ids.value[0]
+  title.value = t('common.edit')
   getUser(userId)
     .then((response) => {
-      form.value = response.data!
       postOptions.value = response.posts
       roleOptions.value = response.roles
-      form.value.postIds = response.postIds
-      form.value.roleIds = response.roleIds
+      editUser.value = {
+        ...(response.data || {}),
+        postIds: response.postIds,
+        roleIds: response.roleIds
+      }
       open.value = true
-      title.value = t('common.edit')
-      form.value.password = ''
     })
     // M4: 加载用户信息失败由 request 拦截器提示，此处记录日志
     .catch((e) => {
       if (import.meta.env.DEV) console.error('Failed to load user info:', e)
     })
-}
-
-/** 提交按钮 */
-function submitForm() {
-  userRefRef.value?.validate((valid: boolean) => {
-    if (valid) {
-      submitLoading.value = true
-      if (form.value.userId != undefined) {
-        updateUser(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.editSuccess'))
-            open.value = false
-            getList()
-          })
-          // M4: 更新失败由 request 拦截器提示，此处记录日志
-          .catch((e) => {
-            if (import.meta.env.DEV) console.error('Failed to update user:', e)
-          })
-          .finally(() => {
-            submitLoading.value = false
-          })
-      } else {
-        addUser(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.addSuccess'))
-            open.value = false
-            getList()
-          })
-          // M4: 新增失败由 request 拦截器提示，此处记录日志
-          .catch((e) => {
-            if (import.meta.env.DEV) console.error('Failed to add user:', e)
-          })
-          .finally(() => {
-            submitLoading.value = false
-          })
-      }
-    }
-  })
 }
 
 onMounted(() => {

@@ -55,9 +55,9 @@ async function main() {
   }
   const all = flat(routers)
 
-  // 读取语言包源文件
-  const zhContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/zh-CN.ts'), 'utf-8')
-  const enContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/en-US.ts'), 'utf-8')
+  // 读取语言包源文件（模块化后 menu 块位于 system 模块）
+  const zhContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/zh-CN/system.ts'), 'utf-8')
+  const enContent = fs.readFileSync(path.join(UI_DIR, 'src/i18n/locales/en-US/system.ts'), 'utf-8')
 
   // 提取语言包中 `menu: { ... }` 块源码（含注释），key 为嵌套对象属性名（如 `workbench:`）
   function extractMenuBlock(content) {

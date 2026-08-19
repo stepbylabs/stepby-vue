@@ -9194,7 +9194,7 @@ async function testFeature45(page) {
     // 通过 fs 直接读取 i18n 源文件验证键存在（不依赖 dev 模式 fetch）
     const projectRoot = path.resolve(__dirname, '..', '..')
     const uiRoot = projectRoot
-    const zhCnPath = path.join(uiRoot, 'src/i18n/locales/zh-CN.ts')
+    const zhCnPath = path.join(uiRoot, 'src/i18n/locales/zh-CN/common.ts')
     const text = fs.readFileSync(zhCnPath, 'utf-8')
     const i18nCheck = {
       hasSideAuto: text.includes('sideAuto'),

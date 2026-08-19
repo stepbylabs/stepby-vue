@@ -70,10 +70,9 @@
   </div>
 </template>
 
-<script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// EditableCell 是动态编辑组件，modelValue/activeValue/options.value 等可接受任意类型，
-// 由调用方决定具体类型；泛型化会破坏调用方简洁性，按设计模式豁免
+<script setup lang="ts" generic="TValue">
+// EditableCell 是可复用行内编辑组件，通过泛型 TValue 由调用方决定值类型，
+// 避免内部使用 any 导致类型信息丢失；value/activeValue 等默认宽松约束为 unknown。
 import { ref, computed, watch, nextTick } from 'vue'
 import { Edit } from '@element-plus/icons-vue'
 import modal from '@/plugins/modal'
@@ -82,12 +81,12 @@ const { t } = useI18n()
 
 interface Option {
   label: string
-  value: any
+  value: unknown
 }
 
 const props = withDefaults(
   defineProps<{
-    modelValue: any
+    modelValue: TValue
     type?: 'text' | 'number' | 'select' | 'date' | 'switch'
     readonly?: boolean
     options?: Option[]
@@ -95,35 +94,35 @@ const props = withDefaults(
     min?: number
     max?: number
     step?: number
-    activeValue?: any
-    inactiveValue?: any
+    activeValue?: TValue
+    inactiveValue?: TValue
     /** 显示值格式化函数 */
-    formatter?: (val: any) => string
-    /** 提交前校验函数，返回 false 则不提交 */
-    validate?: (val: any) => string | true
+    formatter?: (val: TValue) => string
+    /** 提交前校验函数，返回 string(错误信息) 或 true(通过) */
+    validate?: (val: TValue) => string | true
   }>(),
   {
     type: 'text',
     readonly: false,
     options: () => [],
     filterable: false,
-    activeValue: true,
-    inactiveValue: false
+    activeValue: true as TValue,
+    inactiveValue: false as TValue
   }
 )
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', v: any): void
-  (e: 'commit', newVal: any, oldVal: any): void
+  (e: 'update:modelValue', v: TValue): void
+  (e: 'commit', newVal: TValue, oldVal: TValue): void
 }>()
 
 const editing = ref(false)
-const localValue = ref<any>(props.modelValue)
-const inputRef = ref<any>(null)
+const localValue = ref<TValue>(props.modelValue)
+const inputRef = ref<{ focus?: () => void } | null>(null)
 
 watch(
   () => props.modelValue,
-  (v: any) => {
+  (v: TValue) => {
     if (!editing.value) localValue.value = v
   }
 )

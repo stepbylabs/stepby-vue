@@ -230,7 +230,7 @@
 
 <script setup lang="ts" name="Gen">
 const { t } = useI18n()
-import { listTable, previewTable, delTable, genCode, synchDb } from '@/api/tool/gen'
+import { listTable, previewTable, delTable, genCode, batchGenCode, synchDb } from '@/api/tool/gen'
 import importTable from './importTable.vue'
 import createTable from './createTable.vue'
 // CodeEditor 内部依赖 monaco-editor（~2MB+），仅在预览代码时使用，懒加载以减小主包体积
@@ -311,8 +311,8 @@ function handleQuery() {
 
 /** 生成代码操作 */
 function handleGenTable(row?: GenTable) {
-  const tbNames: string = row?.tableName || tableNames.value.join(',')
-  if (!tbNames || tbNames === '') {
+  const names = row?.tableName ? [row.tableName] : tableNames.value
+  if (!names.length) {
     modal.msgError(t('gen.msg.selectToGen'))
     return
   }
@@ -323,8 +323,8 @@ function handleGenTable(row?: GenTable) {
       })
       .catch(() => {})
   } else {
-    const zipName = tbNames + '.zip'
-    downloadPlugin.zip('/tool/gen/batchGenCode?tables=' + encodeURIComponent(tbNames), zipName)
+    const tbNames = names.join(',')
+    downloadPlugin.zip(batchGenCode(names), `${tbNames}.zip`)
   }
 }
 
