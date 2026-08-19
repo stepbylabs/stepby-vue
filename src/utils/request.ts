@@ -4,7 +4,7 @@ import axios, {
   type InternalAxiosRequestConfig,
   type AxiosRequestConfig
 } from 'axios'
-import { ElNotification, ElMessageBox, ElMessage, ElLoading } from 'element-plus'
+import { ElMessageBox, ElMessage, ElLoading } from 'element-plus'
 import i18n, { getLanguage } from '@/i18n'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
@@ -14,6 +14,7 @@ import { saveAs } from 'file-saver'
 import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import { startProgress, doneProgress } from '@/utils/progress'
+import { errorHub } from '@/utils/errorHub'
 
 const t = i18n.global.t
 
@@ -232,21 +233,21 @@ service.interceptors.response.use(
       return Promise.reject(new Error(t('common.sessionExpired')))
     } else if (code === 400) {
       // API-005：请求参数错误，使用 warning 提示用户检查输入
-      ElMessage({ message: msg, type: 'warning' })
+      errorHub.report('warning', 'api', msg)
       return Promise.reject(new Error(msg))
     } else if (code === 403) {
       // API-006：权限不足，使用 warning 提示
-      ElMessage({ message: msg, type: 'warning' })
+      errorHub.report('warning', 'api', msg)
       return Promise.reject(new Error(msg))
     } else if (code === 500) {
-      ElMessage({ message: msg, type: 'error' })
+      errorHub.report('error', 'api', msg)
       return Promise.reject(new Error(msg))
     } else if (code === 503) {
       // API-007：服务不可用（如 Redis 故障 fail-closed），使用 error 提示稍后重试
-      ElMessage({ message: msg, type: 'error', duration: 5 * 1000 })
+      errorHub.report('error', 'api', msg)
       return Promise.reject(new Error(msg))
     } else if (code === 601) {
-      ElMessage({ message: msg, type: 'warning' })
+      errorHub.report('warning', 'api', msg)
       return Promise.reject(new Error(msg))
     } else if (code === 1003) {
       // P0-4：TOTP 多因子登录（需要验证码 / 验证码错误 / 尝试过多）
@@ -255,7 +256,7 @@ service.interceptors.response.use(
       err.code = 1003
       return Promise.reject(err)
     } else if (code !== 200) {
-      ElNotification.error({ title: msg })
+      errorHub.report('error', 'api', msg)
       // P1 修复: Promise.reject 用 Error 而非字符串
       return Promise.reject(new Error(msg))
     } else {
@@ -316,20 +317,20 @@ service.interceptors.response.use(
     // API-005~007：HTTP 层错误码差异化提示
     if (httpStatus === 400) {
       // 显示后端返回的具体错误信息（如"验证码错误"），而非固定的"请求参数错误"
-      ElMessage({ message: backendMsg || t('common.requestParamError'), type: 'warning', duration: 5 * 1000 })
+      errorHub.report('warning', 'api', backendMsg || t('common.requestParamError'))
       return Promise.reject(error)
     }
     if (httpStatus === 403) {
-      ElMessage({ message: backendMsg || t('common.noPermission'), type: 'warning', duration: 5 * 1000 })
+      errorHub.report('warning', 'api', backendMsg || t('common.noPermission'))
       return Promise.reject(error)
     }
     if (httpStatus === 429) {
       // 登录频率限制（IP/用户失败次数超限），显示具体提示
-      ElMessage({ message: backendMsg || t('common.tooManyRequests'), type: 'warning', duration: 5 * 1000 })
+      errorHub.report('warning', 'api', backendMsg || t('common.tooManyRequests'))
       return Promise.reject(error)
     }
     if (httpStatus === 503) {
-      ElMessage({ message: backendMsg || t('common.serviceUnavailable'), type: 'error', duration: 5 * 1000 })
+      errorHub.report('error', 'api', backendMsg || t('common.serviceUnavailable'))
       return Promise.reject(error)
     }
     let { message } = error
@@ -346,6 +347,7 @@ service.interceptors.response.use(
     const canRetry =
       (message === t('common.backendConnectionError') || message === t('common.requestTimeout')) && method === 'get'
     if (canRetry && error.config) {
+      // 可重试的网络错误保留单条交互提示（含重试按钮），其余并入聚合弹窗
       ElMessage({
         message: t('common.retryHint', { message }),
         type: 'error',
@@ -356,7 +358,8 @@ service.interceptors.response.use(
         }
       })
     } else {
-      ElMessage({ message: message, type: 'error', duration: 5 * 1000 })
+      // 统一走聚合弹窗，避免同页面并发失败时弹出"一大串"提示
+      errorHub.report('error', 'api', message)
     }
     return Promise.reject(error)
   }
@@ -394,17 +397,17 @@ export function download(url: string, params: Record<string, unknown>, filename:
           const resText = await data.text()
           const rspObj = JSON.parse(resText)
           const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
-          ElMessage.error(errMsg)
+          errorHub.report('error', 'download', errMsg)
         } catch (e) {
           console.error('[download] Failed to parse error response:', e)
-          ElMessage.error(t('common.downloadError'))
+          errorHub.report('error', 'download', t('common.downloadError'))
         }
       }
       loadingInstance.close()
     })
     .catch((r: unknown) => {
       if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
-      ElMessage.error(t('common.downloadError'))
+      errorHub.report('error', 'download', t('common.downloadError'))
       loadingInstance.close()
     })
 }

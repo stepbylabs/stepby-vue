@@ -483,6 +483,30 @@ export default {
       retry: '重试',
       backHome: '返回首页',
       ariaLabel: '网络错误页面，当前路径 {path}'
+    },
+    monitor: {
+      title: '问题监控',
+      empty: '暂无错误或警告',
+      clear: '清空',
+      ariaWithCount: '有 {count} 个错误或警告',
+      ariaNoIssue: '暂无错误或警告',
+      multi: ' (×{count})',
+      aggregated: '发现 {total} 个问题：{errors} 个错误，{warnings} 个警告',
+      source: '来源：{source}',
+      levels: {
+        error: '错误',
+        warning: '警告',
+        info: '提示'
+      },
+      sources: {
+        api: '接口',
+        download: '下载',
+        vue: 'Vue',
+        global: '全局',
+        unhandledrejection: '未处理Promise',
+        resource: '资源加载',
+        other: '其他'
+      }
     }
   },
   layout: {

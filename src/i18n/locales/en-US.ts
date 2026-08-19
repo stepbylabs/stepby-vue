@@ -486,6 +486,30 @@ export default {
       retry: 'Retry',
       backHome: 'Back to Home',
       ariaLabel: 'Network error page, current path {path}'
+    },
+    monitor: {
+      title: 'Issue Monitor',
+      empty: 'No errors or warnings',
+      clear: 'Clear',
+      ariaWithCount: '{count} errors or warnings',
+      ariaNoIssue: 'No errors or warnings',
+      multi: ' (×{count})',
+      aggregated: 'Found {total} issue(s): {errors} error(s), {warnings} warning(s)',
+      source: 'Source: {source}',
+      levels: {
+        error: 'Error',
+        warning: 'Warning',
+        info: 'Info'
+      },
+      sources: {
+        api: 'API',
+        download: 'Download',
+        vue: 'Vue',
+        global: 'Global',
+        unhandledrejection: 'Unhandled Promise',
+        resource: 'Resource',
+        other: 'Other'
+      }
     }
   },
   layout: {

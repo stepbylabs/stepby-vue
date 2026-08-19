@@ -106,6 +106,11 @@
           <header-notice id="header-notice" class="right-menu-item hover-effect" />
         </el-tooltip>
 
+        <!-- 问题监控（错误/警告聚合角标，紧邻通知便于统一查看） -->
+        <el-tooltip :content="safeT('error.monitor.title')" effect="dark" placement="bottom">
+          <error-monitor id="error-monitor" class="right-menu-item hover-effect" />
+        </el-tooltip>
+
         <!-- 外部链接（次要功能，靠近右侧） -->
         <el-tooltip :content="safeT('layout.navbar.sourceCode')" effect="dark" placement="bottom">
           <yebot-git id="yebot-git" class="right-menu-item hover-effect" />
@@ -214,6 +219,7 @@ import { goLogin } from '@/utils/navigation'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import HeaderNotice from './HeaderNotice/index.vue'
+import ErrorMonitor from './ErrorMonitor/index.vue'
 import { safeT } from '@/utils/safeI18n'
 
 const route = useRoute()

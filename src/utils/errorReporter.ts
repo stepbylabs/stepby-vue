@@ -20,6 +20,8 @@
  *   }
  */
 
+import { errorHub } from '@/utils/errorHub'
+
 type ErrorTransport = (err: unknown, context?: Record<string, unknown>) => void
 
 class ErrorReporter {
@@ -43,6 +45,17 @@ class ErrorReporter {
     const tag = context?.type ?? 'Error'
     console.error(`[${tag}]`, err, context ?? {})
     this.transport?.(err, context)
+    // 写入前端错误监控中心（仅记录，不额外弹窗，避免与页面已有提示重复打扰；
+    // 汇总展示由导航栏"问题监控"角标/抽屉承载）
+    errorHub.record(
+      (context?.level as 'info' | 'warning' | 'error') ?? 'error',
+      (context?.source as 'vue' | 'global' | 'unhandledrejection' | 'resource' | 'other') ?? 'global',
+      typeof context?.message === 'string'
+        ? context.message
+        : err instanceof Error
+          ? err.message
+          : String(err ?? 'Unknown error')
+    )
   }
 }
 
