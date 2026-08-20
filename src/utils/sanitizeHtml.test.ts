@@ -65,6 +65,14 @@ describe('sanitizeForPrint', () => {
     expect(out).toContain('z')
   })
 
+  it('应保留嵌套后代元素中的良性属性（内层 on* 过滤 false 分支）', () => {
+    const el = fromHTML('<div><span data-idx="1" class="x">y</span></div>')
+    const out = sanitizeForPrint(el)
+    expect(out).toContain('data-idx="1"')
+    expect(out).toContain('class="x"')
+    expect(out).toContain('y')
+  })
+
   it('综合：富文本中的脚本与事件属性应被清除，文本与结构保留', () => {
     const el = fromHTML(
       '<article><h1>Title</h1><p onclick="steal()">para<script>exfil()</script></p><ul><li>item</li></ul></article>'

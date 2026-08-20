@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+// 共享的 ElMessage mock 引用：既提供给 element-plus 模块 mock，也可在测试内断言
+const { ElMessage } = vi.hoisted(() => ({ ElMessage: vi.fn() }))
+
 // 避免真实加载 element-plus 与整个 i18n（pinia/stores 等重依赖），否则 fork worker 初始化超时
-vi.mock('element-plus', () => ({ ElMessage: vi.fn() }))
+vi.mock('element-plus', () => ({ ElMessage }))
 vi.mock('@/i18n', () => ({
   default: { global: { t: (key: string, _params?: Record<string, unknown>) => key } }
 }))
@@ -25,6 +28,7 @@ const calls: ToastCall[] = []
 describe('errorHub', () => {
   beforeEach(() => {
     calls.length = 0
+    ElMessage.mockClear()
     errorHub.clear()
     errorHub.setToastHandler((level, source, count, message) => {
       calls.push({ level, source, count, message })
@@ -133,6 +137,47 @@ describe('errorHub', () => {
 
       errorHub.clear()
       expect(errorHub.issues).toHaveLength(0)
+    })
+  })
+
+  describe('clear 清理挂起的 flush 定时器', () => {
+    it('report 调度了 flush 定时器后立即 clear，不触发弹窗', async () => {
+      errorHub.report('error', 'api', '待清理错误')
+      // flush 定时器已调度但未触发
+      errorHub.clear()
+      expect(errorHub.issues).toHaveLength(0)
+
+      await flush()
+      expect(calls).toHaveLength(0)
+    })
+  })
+
+  describe('MAX_ISSUES 上限截断', () => {
+    it('超过 200 条时仅保留最新 200 条', () => {
+      for (let i = 0; i < 205; i++) {
+        errorHub.record('error', 'api', `错误-${i}`)
+      }
+      expect(errorHub.issues).toHaveLength(200)
+    })
+  })
+
+  describe('默认 ElMessage 弹窗路径', () => {
+    it('未注入 toastHandler 时走 ElMessage 渲染', async () => {
+      errorHub.setToastHandler(null)
+      errorHub.report('error', 'api', '默认弹窗')
+      await flush()
+
+      expect(ElMessage).toHaveBeenCalledWith(expect.objectContaining({ message: '默认弹窗', type: 'error' }))
+    })
+
+    it('warning 级别走 ElMessage 且 duration 为 5000', async () => {
+      errorHub.setToastHandler(null)
+      errorHub.report('warning', 'api', '警告弹窗')
+      await flush()
+
+      expect(ElMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '警告弹窗', type: 'warning', duration: 5000 })
+      )
     })
   })
 })

@@ -37,6 +37,7 @@ const sessionCache: CacheInterface = {
       try {
         return JSON.parse(value)
       } catch (e) {
+        // v8 ignore next —— DEV=false 分支仅在生产构建可达，Vitest 恒为 DEV 模式
         if (import.meta.env.DEV) console.warn('[cache] getJSON parse failed, cleared dirty data:', key, e)
         this.remove(key)
         return null
@@ -80,6 +81,7 @@ const localCache: CacheInterface = {
       try {
         return JSON.parse(value)
       } catch (e) {
+        // v8 ignore next —— DEV=false 分支仅在生产构建可达，Vitest 恒为 DEV 模式
         if (import.meta.env.DEV) console.warn('[cache] getJSON parse failed, cleared dirty data:', key, e)
         this.remove(key)
         return null

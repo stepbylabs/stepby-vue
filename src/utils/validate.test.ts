@@ -9,8 +9,47 @@ import {
   validUpperCase,
   validAlphabets,
   isString,
-  isArray
+  isArray,
+  verifyImageMagicBytes
 } from '@/utils/validate'
+import { afterEach, vi } from 'vitest'
+
+/** 构造内存 File：bytes 为文件内容，name 用于扩展名白名单判断 */
+function makeFile(bytes: number[], name: string): File {
+  return new File([new Uint8Array(bytes)], name, { type: 'application/octet-stream' })
+}
+
+/** 用可解析 File 内容的 MockFileReader 替换全局 FileReader（jsdom 默认不读取内容） */
+function stubFileReader(): void {
+  class MockFileReader {
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    result: ArrayBuffer | null = null
+    readAsArrayBuffer(blob: Blob): void {
+      blob
+        .arrayBuffer()
+        .then((buf) => {
+          this.result = buf
+          this.onload?.()
+        })
+        .catch(() => this.onerror?.())
+    }
+  }
+  vi.stubGlobal('FileReader', MockFileReader)
+}
+
+/** 用拒绝读取的 MockFileReader 覆盖，模拟文件读取失败（onerror 分支） */
+function stubFileReaderError(): void {
+  class ErrorFileReader {
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    result: ArrayBuffer | null = null
+    readAsArrayBuffer(): void {
+      this.onerror?.()
+    }
+  }
+  vi.stubGlobal('FileReader', ErrorFileReader)
+}
 
 // ============================================================================
 // isExternal 外链判断
@@ -309,5 +348,85 @@ describe('isArray', () => {
 
   it('null 不是数组', () => {
     expect(isArray(null)).toBe(false)
+  })
+
+  it('Array.isArray 缺失时回退到 toString 判定', () => {
+    const original = Array.isArray
+    ;(Array as unknown as { isArray?: unknown }).isArray = undefined
+    try {
+      expect(isArray([1, 2])).toBe(true)
+      expect(isArray('abc')).toBe(false)
+    } finally {
+      ;(Array as unknown as { isArray: typeof original }).isArray = original
+    }
+  })
+})
+
+// ============================================================================
+// verifyImageMagicBytes 图片 magic bytes 校验（FE-002）
+// ============================================================================
+describe('verifyImageMagicBytes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('PNG magic bytes 通过校验', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d], 'a.png')
+    expect(await verifyImageMagicBytes(file)).toBe(true)
+  })
+
+  it('JPEG magic bytes（FF D8 FF）通过校验', async () => {
+    stubFileReader()
+    const file = makeFile([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46], 'a.jpg')
+    expect(await verifyImageMagicBytes(file)).toBe(true)
+  })
+
+  it('GIF magic bytes（GIF8）通过校验', async () => {
+    stubFileReader()
+    const file = makeFile([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00], 'a.gif')
+    expect(await verifyImageMagicBytes(file)).toBe(true)
+  })
+
+  it('扩展名匹配但 magic bytes 不匹配返回 false', async () => {
+    stubFileReader()
+    const file = makeFile([0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 'fake.png')
+    expect(await verifyImageMagicBytes(file)).toBe(false)
+  })
+
+  it('扩展名不在白名单直接返回 false（不读文件头）', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a.txt')
+    expect(await verifyImageMagicBytes(file)).toBe(false)
+  })
+
+  it('allowedTypes 白名单之外的合法图片类型返回 false', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a.png')
+    expect(await verifyImageMagicBytes(file, ['jpeg'])).toBe(false)
+  })
+
+  it('文件内容不足 8 字节时仍按已有字节判定', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a], 'short.png')
+    expect(await verifyImageMagicBytes(file)).toBe(false)
+  })
+
+  it('文件读取失败（FileReader onerror）时返回 false', async () => {
+    stubFileReaderError()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a.png')
+    expect(await verifyImageMagicBytes(file)).toBe(false)
+  })
+
+  it('文件名以点结尾时扩展名取空串并判非法', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'photo.')
+    expect(await verifyImageMagicBytes(file)).toBe(false)
+  })
+
+  it('allowedTypes 含未知类型（不在 magic 表）时返回 false', async () => {
+    stubFileReader()
+    const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a.png')
+    expect(await verifyImageMagicBytes(file, ['bmp'])).toBe(false)
   })
 })

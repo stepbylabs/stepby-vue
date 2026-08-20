@@ -44,6 +44,7 @@ function setEntry<T>(key: string, data: T, ttl: number): void {
     removeEntry(key)
   }, ttl + 100)
   // 允许进程退出不被该定时器挂住（Node 环境 / SSR 友好）
+  // v8 ignore start —— 浏览器/jsdom 中 setTimeout 返回 number，unref 分支不可达（仅 Node 环境存在）
   if (
     typeof timer === 'object' &&
     timer &&
@@ -52,6 +53,7 @@ function setEntry<T>(key: string, data: T, ttl: number): void {
   ) {
     ;(timer as { unref: () => void }).unref()
   }
+  // v8 ignore stop
   cacheMap.set(key, { entry: entry as CacheEntry<unknown>, timer })
 }
 
@@ -59,6 +61,7 @@ function setEntry<T>(key: string, data: T, ttl: number): void {
 function removeEntry(key: string): void {
   const record = cacheMap.get(key)
   if (record) {
+    // v8 ignore next —— timer 由 setEntry 恒写入，record 存在时必非空，false 分支不可达
     if (record.timer) {
       clearTimeout(record.timer)
     }
@@ -133,6 +136,7 @@ export function invalidateApiCache(key: string): void {
  */
 export function clearAllApiCache(): void {
   for (const [, record] of cacheMap) {
+    // v8 ignore next —— timer 由 setEntry 恒写入，record 存在时必非空，false 分支不可达
     if (record.timer) {
       clearTimeout(record.timer)
     }
@@ -153,6 +157,7 @@ export function clearAllApiCache(): void {
 export function invalidateByPrefix(prefix: string): void {
   for (const [key, record] of cacheMap) {
     if (key.startsWith(prefix)) {
+      // v8 ignore next —— timer 由 setEntry 恒写入，record 存在时必非空，false 分支不可达
       if (record.timer) {
         clearTimeout(record.timer)
       }

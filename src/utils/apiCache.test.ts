@@ -5,6 +5,7 @@ import {
   invalidateApiCache,
   clearAllApiCache,
   refreshCachedApi,
+  invalidateByPrefix,
   DEFAULT_API_CACHE_TTL
 } from '@/utils/apiCache'
 
@@ -119,6 +120,32 @@ describe('apiCache', () => {
       vi.advanceTimersByTime(2)
       await cached()
       expect(mockFn).toHaveBeenCalledTimes(2)
+    })
+
+    it('TTL 定时器自动过期回调会清理缓存条目（setEntry 内部 removeEntry）', async () => {
+      let count = 0
+      const mockFn = vi.fn().mockImplementation(() => Promise.resolve(`v-${++count}`))
+      const ttl = 1000
+      const cached = cachedApi('test:timerExpire', mockFn, ttl)
+
+      await cached()
+      expect(mockFn).toHaveBeenCalledTimes(1)
+
+      // 推进超过 ttl + 100，触发 setTimeout 自动清理回调
+      vi.advanceTimersByTime(ttl + 200)
+      await cached()
+      expect(mockFn).toHaveBeenCalledTimes(2)
+    })
+
+    it('真实定时器（jsdom 返回数字句柄）时跳过 unref 分支', async () => {
+      // 默认 beforeEach 启用了 fake timers（其 setTimeout 返回带 unref 的对象）；
+      // 切换到真实定时器后 jsdom 的 setTimeout 返回数字，覆盖 unref 守卫的 false 分支。
+      vi.useRealTimers()
+      const mockFn = vi.fn().mockResolvedValue('ok')
+      const cached = cachedApi('test:realTimer', mockFn, 60_000)
+      const result = await cached()
+      expect(result).toBe('ok')
+      expect(mockFn).toHaveBeenCalledTimes(1)
     })
 
     // --------------------------------------------------------------------------
@@ -246,6 +273,47 @@ describe('apiCache', () => {
 
       expect(mockA).toHaveBeenCalledTimes(2)
       expect(mockB).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // ==========================================================================
+  // invalidateByPrefix 按前缀批量失效
+  // ==========================================================================
+  describe('invalidateByPrefix', () => {
+    it('按前缀批量失效，命中前缀的 key 重新请求，其他 key 仍命中缓存', async () => {
+      let countA = 0
+      let countB = 0
+      let countC = 0
+      const mockA = vi.fn().mockImplementation(() => Promise.resolve(`a-${++countA}`))
+      const mockB = vi.fn().mockImplementation(() => Promise.resolve(`b-${++countB}`))
+      const mockC = vi.fn().mockImplementation(() => Promise.resolve(`c-${++countC}`))
+      const cachedA = cachedApi('pre:a', mockA)
+      const cachedB = cachedApi('pre:b', mockB)
+      const cachedC = cachedApi('other:c', mockC)
+
+      await cachedA()
+      await cachedB()
+      await cachedC()
+      expect(mockA).toHaveBeenCalledTimes(1)
+      expect(mockB).toHaveBeenCalledTimes(1)
+      expect(mockC).toHaveBeenCalledTimes(1)
+
+      invalidateByPrefix('pre:')
+
+      await cachedA()
+      await cachedB()
+      await cachedC()
+
+      // 命中前缀的两个 key 被失效后重新请求
+      expect(mockA).toHaveBeenCalledTimes(2)
+      expect(mockB).toHaveBeenCalledTimes(2)
+      // 未命中前缀的 key 仍命中缓存
+      expect(mockC).toHaveBeenCalledTimes(1)
+    })
+
+    it('对不存在的前缀调用不抛错', async () => {
+      await cachedApi('pre:noop', vi.fn().mockResolvedValue('x'))()
+      expect(() => invalidateByPrefix('never-used-prefix:')).not.toThrow()
     })
   })
 

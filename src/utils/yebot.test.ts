@@ -1,423 +1,270 @@
-import { parseTime, tzOffsetLabel, addDateRange, selectDictLabel, selectDictLabels, handleTree } from '@/utils/yebot'
+import { sprintf, parseStrEmpty, mergeRecursive, tansParams, getNormalPath, blobValidate } from '@/utils/yebot'
 
 // ============================================================================
-// parseTime 时间格式化
+// 说明
 // ============================================================================
-describe('parseTime', () => {
-  describe('异常输入', () => {
-    it('无参数时返回 null', () => {
-      // @ts-expect-error 测试无参数调用的边界情况
-      expect(parseTime()).toBeNull()
-    })
+// 本文件聚焦 yebot.ts 中此前未被测试覆盖的工具函数：
+//   sprintf / parseStrEmpty / mergeRecursive / tansParams / getNormalPath / blobValidate
+// 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 yebot.time.test.ts；
+// 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 yebot.dictTree.test.ts。
 
-    it('null 返回 null', () => {
-      expect(parseTime(null)).toBeNull()
-    })
-
-    it('undefined 返回 null', () => {
-      expect(parseTime(undefined)).toBeNull()
-    })
-
-    it('空字符串返回 null', () => {
-      expect(parseTime('')).toBeNull()
-    })
-
-    it('0（falsy）返回 null', () => {
-      expect(parseTime(0)).toBeNull()
-    })
+// ============================================================================
+// sprintf 字符串格式化（%s 占位符）
+// ============================================================================
+describe('sprintf', () => {
+  it('无参数调用返回原字符串', () => {
+    expect(sprintf('hello')).toBe('hello')
   })
 
-  describe('Date 对象', () => {
-    it('使用默认格式格式化 Date 对象', () => {
-      const date = new Date(2024, 0, 1, 12, 30, 45)
-      expect(parseTime(date)).toBe('2024-01-01 12:30:45')
-    })
-
-    it('自定义 {y}-{m}-{d} 格式', () => {
-      const date = new Date(2024, 5, 15, 8, 0, 0)
-      expect(parseTime(date, '{y}-{m}-{d}')).toBe('2024-06-15')
-    })
-
-    it('自定义 {y}年{m}月{d}日 格式', () => {
-      const date = new Date(2024, 5, 15)
-      expect(parseTime(date, '{y}年{m}月{d}日')).toBe('2024年06月15日')
-    })
-
-    it('星期几 {a} - 周一返回 一', () => {
-      // 2024-01-01 是周一
-      const date = new Date(2024, 0, 1)
-      expect(parseTime(date, '{a}')).toBe('一')
-    })
-
-    it('星期几 {a} - 周日返回 日', () => {
-      // 2024-01-07 是周日
-      const date = new Date(2024, 0, 7)
-      expect(parseTime(date, '{a}')).toBe('日')
-    })
-
-    it('个位数月份和日期补零', () => {
-      const date = new Date(2024, 0, 5, 3, 2, 1)
-      expect(parseTime(date, '{y}-{m}-{d} {h}:{i}:{s}')).toBe('2024-01-05 03:02:01')
-    })
+  it('单个 %s 被替换为参数', () => {
+    expect(sprintf('hello %s', 'world')).toBe('hello world')
   })
 
-  describe('时间戳', () => {
-    it('13 位毫秒时间戳', () => {
-      const date = new Date(2024, 0, 1, 12, 30, 45)
-      const ts = date.getTime()
-      expect(parseTime(ts)).toBe('2024-01-01 12:30:45')
-    })
-
-    it('10 位秒级时间戳会被乘以 1000', () => {
-      const date = new Date(2024, 0, 1, 12, 30, 45)
-      const ts = Math.floor(date.getTime() / 1000)
-      // 10 位时间戳应被转换为毫秒
-      expect(parseTime(ts)).toBe('2024-01-01 12:30:45')
-    })
-
-    it('字符串型数字时间戳会被 parseInt', () => {
-      const date = new Date(2024, 0, 1, 12, 30, 45)
-      const tsStr = String(Math.floor(date.getTime() / 1000))
-      // 字符串型 10 位数字会被 parseInt 后乘以 1000
-      expect(parseTime(tsStr)).toBe('2024-01-01 12:30:45')
-    })
+  it('多个 %s 按顺序替换', () => {
+    expect(sprintf('%s-%s-%s', 'a', 'b', 'c')).toBe('a-b-c')
   })
 
-  describe('日期字符串', () => {
-    it('解析标准日期时间字符串', () => {
-      // '2024-01-01 12:30:45' 会被转换为 '2024/01/01 12:30:45' 再解析（本地时区）
-      expect(parseTime('2024-01-01 12:30:45')).toBe('2024-01-01 12:30:45')
-    })
+  it('数字参数被转为字符串', () => {
+    expect(sprintf('num=%s', 42)).toBe('num=42')
+  })
 
-    it('解析仅日期字符串', () => {
-      expect(parseTime('2024-06-15', '{y}-{m}-{d}')).toBe('2024-06-15')
-    })
+  it('布尔参数被转为字符串', () => {
+    expect(sprintf('bool=%s', true)).toBe('bool=true')
+  })
+
+  it('对象参数调用 String() 转换', () => {
+    expect(sprintf('obj=%s', { a: 1 })).toBe('obj=[object Object]')
+  })
+
+  it('缺少参数时返回空字符串（flag 置 false）', () => {
+    expect(sprintf('%s %s', 'only')).toBe('')
+  })
+
+  it('第一个参数即对应第一个 %s（rest 参数从 0 开始）', () => {
+    expect(sprintf('%s', 'a', 'b')).toBe('a')
+  })
+
+  it('多参数中多余参数被忽略', () => {
+    expect(sprintf('%s', 'a', 'b', 'c')).toBe('a')
+  })
+
+  it('undefined 参数导致返回空字符串', () => {
+    expect(sprintf('%s', undefined)).toBe('')
+  })
+
+  it('null 参数被转换为字符串 "null"', () => {
+    expect(sprintf('%s', null)).toBe('null')
   })
 })
 
 // ============================================================================
-// parseTime 时区后缀 (tz)
-// 注意：断言均使用与时区无关的正则，保证全球任意时区贡献者跑测试均通过。
+// parseStrEmpty 转换字符串（undefined/null 等转为空串）
 // ============================================================================
-describe('parseTime tz 时区后缀', () => {
-  it('tz=true 且含时间格式时追加 GMT 偏移后缀', () => {
-    const date = new Date(2024, 0, 1, 12, 30, 45)
-    const out = parseTime(date, '{y}-{m}-{d} {h}:{i}:{s}', true)
-    expect(out).toMatch(/^2024-01-01 12:30:45 GMT[+-]\d/)
+describe('parseStrEmpty', () => {
+  it('undefined 返回空字符串', () => {
+    expect(parseStrEmpty(undefined)).toBe('')
   })
 
-  it('tz=true 默认格式（含时间）追加后缀', () => {
-    const date = new Date(2024, 0, 1, 12, 30, 45)
-    const out = parseTime(date, undefined, true)
-    expect(out).toMatch(/^2024-01-01 12:30:45 GMT[+-]\d/)
+  it('null 返回空字符串', () => {
+    expect(parseStrEmpty(null)).toBe('')
   })
 
-  it('tz=true 但仅日期格式时不追加后缀', () => {
-    const date = new Date(2024, 5, 15)
-    expect(parseTime(date, '{y}-{m}-{d}', true)).toBe('2024-06-15')
+  it('字符串 "undefined" 返回空字符串', () => {
+    expect(parseStrEmpty('undefined')).toBe('')
   })
 
-  it('默认 tz=false 不追加后缀（向后兼容，既有断言不受影响）', () => {
-    const date = new Date(2024, 0, 1, 12, 30, 45)
-    expect(parseTime(date)).toBe('2024-01-01 12:30:45')
-    expect(parseTime(date, '{y}-{m}-{d}')).toBe('2024-01-01')
+  it('字符串 "null" 返回空字符串', () => {
+    expect(parseStrEmpty('null')).toBe('')
   })
 
-  it('后端 UTC（T 串）经本地化后后缀与浏览器时区一致', () => {
-    // 2024-01-01T04:30:45Z 在 GMT+8 下本地为 12:30:45，后缀 GMT+8
-    const out = parseTime('2024-01-01T04:30:45Z', '{y}-{m}-{d} {h}:{i}:{s}', true)
-    expect(out).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT[+-]\d/)
+  it('空字符串返回空字符串', () => {
+    expect(parseStrEmpty('')).toBe('')
+  })
+
+  it('falsy 数值 0 返回空字符串', () => {
+    expect(parseStrEmpty(0)).toBe('')
+  })
+
+  it('正常字符串原样返回', () => {
+    expect(parseStrEmpty('hello')).toBe('hello')
+  })
+
+  it('数字转为字符串', () => {
+    expect(parseStrEmpty(123)).toBe('123')
+  })
+
+  it('对象转为字符串', () => {
+    expect(parseStrEmpty({ a: 1 })).toBe('[object Object]')
   })
 })
 
 // ============================================================================
-// tzOffsetLabel 时区偏移标签
+// mergeRecursive 数据合并（深合并）
 // ============================================================================
-describe('tzOffsetLabel', () => {
-  it('返回以 GMT 开头、含符号与数字的标签（与时区无关）', () => {
-    expect(tzOffsetLabel()).toMatch(/^GMT[+-]\d/)
+describe('mergeRecursive', () => {
+  it('普通字段直接覆盖', () => {
+    const source = { a: 1, b: 2 }
+    const target = { b: 3 }
+    expect(mergeRecursive(source, target)).toEqual({ a: 1, b: 3 })
   })
 
-  it('半小时偏移时区格式为 GMT+5:30', () => {
-    // 用固定偏移的日期无法直接跨时区断言具体值，仅校验格式合法性
-    const d = new Date('2024-01-01T00:00:00Z')
-    expect(tzOffsetLabel(d)).toMatch(/^GMT[+-](\d|\d:\d{2})$/)
+  it('嵌套对象递归合并', () => {
+    const source = { a: { x: 1, y: 2 } }
+    const target = { a: { y: 9, z: 3 } }
+    expect(mergeRecursive(source, target)).toEqual({ a: { x: 1, y: 9, z: 3 } })
+  })
+
+  it('source 缺少嵌套对象时用空对象承接', () => {
+    const source = {}
+    const target = { a: { b: 1 } }
+    expect(mergeRecursive(source, target)).toEqual({ a: { b: 1 } })
+  })
+
+  it('目标字段为数组时直接覆盖（非深合并）', () => {
+    const source = { list: [1, 2] }
+    const target = { list: [3] }
+    expect(mergeRecursive(source, target)).toEqual({ list: [3] })
+  })
+
+  it('目标字段为 null 时直接覆盖', () => {
+    const source = { a: 1 }
+    const target = { a: null }
+    expect(mergeRecursive(source, target)).toEqual({ a: null })
+  })
+
+  it('返回原 source 对象（引用一致）', () => {
+    const source = { a: 1 }
+    const target = { b: 2 }
+    expect(mergeRecursive(source, target)).toBe(source)
+  })
+
+  it('多层级深层合并', () => {
+    const source = { a: { b: { c: 1, keep: 'x' } } }
+    const target = { a: { b: { c: 2, extra: true } } }
+    expect(mergeRecursive(source, target)).toEqual({ a: { b: { c: 2, keep: 'x', extra: true } } })
+  })
+
+  it('读取目标属性抛异常时走 catch 兜底分支', () => {
+    // 构造首次属性访问抛异常的 Proxy，触发 try 内异常 → catch 分支再次读取成功赋值
+    let calls = 0
+    const target = new Proxy(
+      { a: 1 },
+      {
+        get(t, prop, r) {
+          calls++
+          if (calls === 1) {
+            throw new Error('first access throws')
+          }
+          return Reflect.get(t, prop, r)
+        }
+      }
+    )
+    const source: Record<string, unknown> = {}
+    mergeRecursive(source, target as Record<string, unknown>)
+    expect(source.a).toBe(1)
   })
 })
 
 // ============================================================================
-// addDateRange 日期范围参数处理
+// tansParams 参数处理（序列化查询串）
 // ============================================================================
-describe('addDateRange', () => {
-  it('正常日期范围 - 默认 beginTime/endTime', () => {
-    const params: Record<string, unknown> = { pageNum: 1, pageSize: 10 }
-    const dateRange = ['2024-01-01', '2024-12-31']
-    const result = addDateRange(params, dateRange)
-    expect(result).toBe(params)
-    expect(result.params.beginTime).toBe('2024-01-01')
-    expect(result.params.endTime).toBe('2024-12-31')
-    // 原有字段保留
-    expect(result.pageNum).toBe(1)
-    expect(result.pageSize).toBe(10)
+describe('tansParams', () => {
+  it('空对象返回空字符串', () => {
+    expect(tansParams({})).toBe('')
   })
 
-  it('空日期范围数组 - beginTime/endTime 为 undefined', () => {
-    const params: Record<string, unknown> = { pageNum: 1 }
-    const result = addDateRange(params, [])
-    expect(result.params.beginTime).toBeUndefined()
-    expect(result.params.endTime).toBeUndefined()
+  it('简单键值对序列化并以 & 结尾', () => {
+    expect(tansParams({ name: '张三' })).toBe('name=%E5%BC%A0%E4%B8%89&')
   })
 
-  it('dateRange 为 undefined - 当作空数组处理', () => {
-    const params: Record<string, unknown> = { pageNum: 1 }
-    const result = addDateRange(params, undefined as unknown as string[])
-    expect(result.params.beginTime).toBeUndefined()
-    expect(result.params.endTime).toBeUndefined()
+  it('多个键值对按顺序拼接', () => {
+    expect(tansParams({ a: '1', b: '2' })).toBe('a=1&b=2&')
   })
 
-  it('使用 propName 自定义字段名', () => {
-    const params: Record<string, unknown> = { pageNum: 1 }
-    const dateRange = ['2024-01-01', '2024-12-31']
-    const result = addDateRange(params, dateRange, 'Date')
-    expect(result.params.beginDate).toBe('2024-01-01')
-    expect(result.params.endDate).toBe('2024-12-31')
-    // 不应设置默认的 beginTime/endTime
-    expect(result.params.beginTime).toBeUndefined()
-    expect(result.params.endTime).toBeUndefined()
+  it('null / undefined / 空字符串值被跳过', () => {
+    expect(tansParams({ a: null, b: undefined, c: '', d: 'keep' })).toBe('d=keep&')
   })
 
-  it('params 已有 params 对象 - 保留原有内容并追加', () => {
-    const params: Record<string, unknown> = {
-      pageNum: 1,
-      params: { keyword: 'test' }
-    }
-    const dateRange = ['2024-01-01', '2024-12-31']
-    const result = addDateRange(params, dateRange)
-    expect(result.params.keyword).toBe('test')
-    expect(result.params.beginTime).toBe('2024-01-01')
-    expect(result.params.endTime).toBe('2024-12-31')
+  it('对象值展开为 [key]=value 形式', () => {
+    expect(tansParams({ filter: { status: '1', type: '2' } })).toBe('filter%5Bstatus%5D=1&filter%5Btype%5D=2&')
   })
 
-  it('params.params 为数组 - 重置为空对象', () => {
-    const params: Record<string, unknown> = {
-      pageNum: 1,
-      params: ['a', 'b']
-    }
-    const dateRange = ['2024-01-01', '2024-12-31']
-    const result = addDateRange(params, dateRange)
-    expect(Array.isArray(result.params)).toBe(false)
-    expect(result.params.beginTime).toBe('2024-01-01')
-    expect(result.params.endTime).toBe('2024-12-31')
+  it('对象值中空字段被跳过', () => {
+    expect(tansParams({ filter: { a: '', b: 'x' } })).toBe('filter%5Bb%5D=x&')
   })
 
-  it('params.params 为 null - 重置为空对象', () => {
-    const params: Record<string, unknown> = {
-      pageNum: 1,
-      params: null
-    }
-    const dateRange = ['2024-01-01', '2024-12-31']
-    const result = addDateRange(params, dateRange)
-    expect(result.params).toEqual({
-      beginTime: '2024-01-01',
-      endTime: '2024-12-31'
-    })
+  it('特殊字符被 encodeURIComponent 编码', () => {
+    expect(tansParams({ q: 'a&b=c' })).toBe('q=a%26b%3Dc&')
   })
 
-  it('返回的是同一对象（引用一致）', () => {
-    const params: Record<string, unknown> = { pageNum: 1 }
-    const result = addDateRange(params, ['2024-01-01', '2024-12-31'])
-    expect(result).toBe(params)
+  it('数字值被转字符串', () => {
+    expect(tansParams({ num: 42 })).toBe('num=42&')
+  })
+
+  it('布尔值被转字符串', () => {
+    expect(tansParams({ flag: true })).toBe('flag=true&')
   })
 })
 
 // ============================================================================
-// selectDictLabel 字典标签选择
+// getNormalPath 返回项目路径（去重斜杠、去尾部斜杠）
 // ============================================================================
-describe('selectDictLabel', () => {
-  const datas = {
-    0: { value: '1', label: '男' },
-    1: { value: '2', label: '女' }
-  }
-
-  it('匹配到 value 返回对应 label', () => {
-    expect(selectDictLabel(datas, '1')).toBe('男')
-    expect(selectDictLabel(datas, '2')).toBe('女')
+describe('getNormalPath', () => {
+  it('空字符串原样返回', () => {
+    expect(getNormalPath('')).toBe('')
   })
 
-  it('数字 value 通过类型转换匹配', () => {
-    // '' + 1 = '1'，使用 == 宽松比较
-    expect(selectDictLabel(datas, 1)).toBe('男')
-    expect(selectDictLabel(datas, 2)).toBe('女')
+  it('字符串 "undefined" 原样返回', () => {
+    expect(getNormalPath('undefined')).toBe('undefined')
   })
 
-  it('未匹配到 value 返回 value 本身', () => {
-    expect(selectDictLabel(datas, '3')).toBe('3')
+  it('普通路径原样返回', () => {
+    expect(getNormalPath('/system/user')).toBe('/system/user')
   })
 
-  it('value 为 undefined 返回空字符串', () => {
-    expect(selectDictLabel(datas, undefined)).toBe('')
+  it('首部双斜杠被替换为单斜杠', () => {
+    expect(getNormalPath('//system/user')).toBe('/system/user')
   })
 
-  it('value 为 0 未匹配时返回 "0"', () => {
-    expect(selectDictLabel(datas, 0)).toBe('0')
+  it('去除尾部斜杠', () => {
+    expect(getNormalPath('/system/user/')).toBe('/system/user')
+  })
+
+  it('路径中部双斜杠仅首个被替换（实现行为）', () => {
+    // String.replace('//', '/') 只替换第一个匹配
+    expect(getNormalPath('/system//user')).toBe('/system/user')
+  })
+
+  it('根路径 / 去除尾斜杠后为空串', () => {
+    expect(getNormalPath('/')).toBe('')
+  })
+
+  it('单层双斜杠路径归一化', () => {
+    expect(getNormalPath('//dashboard')).toBe('/dashboard')
   })
 })
 
 // ============================================================================
-// selectDictLabels 字典标签多选
+// blobValidate 验证是否为 blob 格式
 // ============================================================================
-describe('selectDictLabels', () => {
-  const datas = {
-    0: { value: '1', label: 'A' },
-    1: { value: '2', label: 'B' },
-    2: { value: '3', label: 'C' }
-  }
-
-  it('单个值匹配', () => {
-    expect(selectDictLabels(datas, '1')).toBe('A')
+describe('blobValidate', () => {
+  it('application/json 类型返回 false', () => {
+    const blob = new Blob(['{}'], { type: 'application/json' })
+    expect(blobValidate(blob)).toBe(false)
   })
 
-  it('多个值用默认逗号分隔', () => {
-    expect(selectDictLabels(datas, '1,2')).toBe('A,B')
+  it('application/json;charset=utf-8 类型返回 false', () => {
+    const blob = new Blob(['{}'], { type: 'application/json;charset=utf-8' })
+    expect(blobValidate(blob)).toBe(false)
   })
 
-  it('数组值会被 join 后处理', () => {
-    expect(selectDictLabels(datas, ['1', '2'])).toBe('A,B')
+  it('其他 blob 类型返回 true', () => {
+    const blob = new Blob(['xlsx-data'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    expect(blobValidate(blob)).toBe(true)
   })
 
-  it('自定义分隔符', () => {
-    expect(selectDictLabels(datas, '1-2', '-')).toBe('A-B')
-  })
-
-  it('部分匹配部分不匹配', () => {
-    // 3 匹配 'C'，4 不匹配返回 '4'
-    expect(selectDictLabels(datas, '3,4')).toBe('C,4')
-  })
-
-  it('全部不匹配返回原值', () => {
-    expect(selectDictLabels(datas, '5,6')).toBe('5,6')
-  })
-
-  it('value 为 undefined 返回空字符串', () => {
-    expect(selectDictLabels(datas, undefined)).toBe('')
-  })
-
-  it('value 为空字符串返回空字符串', () => {
-    expect(selectDictLabels(datas, '')).toBe('')
-  })
-
-  it('空数组返回空字符串', () => {
-    expect(selectDictLabels(datas, [])).toBe('')
-  })
-
-  it('所有值匹配', () => {
-    expect(selectDictLabels(datas, '1,2,3')).toBe('A,B,C')
-  })
-})
-
-// ============================================================================
-// handleTree 树结构构建
-// ============================================================================
-describe('handleTree', () => {
-  it('空数组返回空数组', () => {
-    expect(handleTree([])).toEqual([])
-  })
-
-  it('单根节点（无父节点）', () => {
-    const data: Record<string, unknown>[] = [{ id: 1, parentId: 0, name: 'root' }]
-    const result = handleTree(data)
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe(1)
-    expect(result[0].children).toEqual([])
-  })
-
-  it('父子两层结构', () => {
-    const data: Record<string, unknown>[] = [
-      { id: 1, parentId: 0, name: 'root' },
-      { id: 2, parentId: 1, name: 'child1' },
-      { id: 3, parentId: 1, name: 'child2' }
-    ]
-    const result = handleTree(data)
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe(1)
-    expect(result[0].children as unknown[]).toHaveLength(2)
-    expect(((result[0].children as unknown[])[0] as { id: number }).id).toBe(2)
-    expect(((result[0].children as unknown[])[1] as { id: number }).id).toBe(3)
-  })
-
-  it('多层级（三层）树结构', () => {
-    const data: Record<string, unknown>[] = [
-      { id: 1, parentId: 0, name: 'L1' },
-      { id: 2, parentId: 1, name: 'L2' },
-      { id: 3, parentId: 2, name: 'L3' }
-    ]
-    const result = handleTree(data)
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe(1)
-    expect(((result[0].children as unknown[])[0] as { id: number }).id).toBe(2)
-    expect((((result[0].children as unknown[])[0] as { children: unknown[] }).children[0] as { id: number }).id).toBe(3)
-  })
-
-  it('多个根节点', () => {
-    const data: Record<string, unknown>[] = [
-      { id: 1, parentId: 0, name: 'root1' },
-      { id: 2, parentId: 0, name: 'root2' }
-    ]
-    const result = handleTree(data)
-    expect(result).toHaveLength(2)
-    expect(result[0].id).toBe(1)
-    expect(result[1].id).toBe(2)
-  })
-
-  it('parentId 指向不存在的节点 - 成为根节点', () => {
-    const data: Record<string, unknown>[] = [{ id: 1, parentId: 99, name: 'orphan' }]
-    const result = handleTree(data)
-    // parentId 99 不在 map 中，所以该节点成为根节点
-    expect(result).toHaveLength(1)
-    expect(result[0].id).toBe(1)
-  })
-
-  it('自定义字段名 id/parentId/children', () => {
-    const data: Record<string, unknown>[] = [
-      { uid: 'a', pid: '', name: 'root' },
-      { uid: 'b', pid: 'a', name: 'child' }
-    ]
-    const result = handleTree(data, 'uid', 'pid', 'nodes')
-    expect(result).toHaveLength(1)
-    expect(result[0].uid).toBe('a')
-    expect(result[0].nodes as unknown[]).toHaveLength(1)
-    expect(((result[0].nodes as unknown[])[0] as { uid: string }).uid).toBe('b')
-  })
-
-  it('节点已有 children 字段时保留并追加', () => {
-    const data: Record<string, unknown>[] = [
-      { id: 1, parentId: 0, name: 'root', children: [{ id: 99, name: 'preset' }] },
-      { id: 2, parentId: 1, name: 'child' }
-    ]
-    const result = handleTree(data)
-    expect(result[0].children as unknown[]).toHaveLength(2)
-    // 预设的子节点保留
-    expect(((result[0].children as unknown[])[0] as { id: number }).id).toBe(99)
-    // 新增的子节点追加
-    expect(((result[0].children as unknown[])[1] as { id: number }).id).toBe(2)
-  })
-
-  describe('循环引用防护', () => {
-    it('自引用节点（parentId === id）不崩溃', () => {
-      const data = [{ id: 1, parentId: 1, name: 'self' }]
-      // 不应抛出异常，节点不会成为根节点
-      const result = handleTree(data)
-      expect(result).toEqual([])
-    })
-
-    it('互相引用（A→B→A）不崩溃', () => {
-      const data = [
-        { id: 'A', parentId: 'B', name: 'a' },
-        { id: 'B', parentId: 'A', name: 'b' }
-      ]
-      // 两个节点互为父节点，都不会成为根节点
-      const result = handleTree(data)
-      expect(result).toEqual([])
-    })
+  it('text/plain 类型返回 true', () => {
+    const blob = new Blob(['hello'], { type: 'text/plain' })
+    expect(blobValidate(blob)).toBe(true)
   })
 })

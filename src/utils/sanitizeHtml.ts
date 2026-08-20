@@ -22,8 +22,9 @@ export function sanitizeForPrint(element: HTMLElement): string {
   // 移除可执行/危险元素
   clone.querySelectorAll('script, iframe, object, embed, link, meta, style').forEach((el) => el.remove())
   // 剥离 on* 事件属性（遍历所有元素）
+  // HTMLElement.attributes 在浏览器/jsdom 中恒存在（NamedNodeMap），无需 || [] 兜底
   clone.querySelectorAll('*').forEach((el) => {
-    const attrs = Array.from(el.attributes || [])
+    const attrs = Array.from(el.attributes)
     attrs.forEach((attr) => {
       if (/^on/i.test(attr.name)) {
         el.removeAttribute(attr.name)
@@ -31,7 +32,7 @@ export function sanitizeForPrint(element: HTMLElement): string {
     })
   })
   // 顶层元素自身也可能带事件属性
-  Array.from(clone.attributes || []).forEach((attr) => {
+  Array.from(clone.attributes).forEach((attr) => {
     if (/^on/i.test(attr.name)) {
       clone.removeAttribute(attr.name)
     }

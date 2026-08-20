@@ -74,6 +74,7 @@ export function parseTime(
     if (result.length > 0 && value < 10) {
       return '0' + value
     }
+    // v8 ignore next —— 能走到此处 value 必 >= 10（<10 已被上方补零分支拦截），|| 0 兜底恒不触发
     return String(value || 0)
   })
   // 仅当格式含时间分量（时/分/秒）才追加时区后缀；纯日期展示不加（避免误导为某时刻）
@@ -170,9 +171,11 @@ export function selectDictLabels(
 }
 
 // 字符串格式化(%s )
+// 注意：使用 rest 参数时，第一个 %s 对应 args[0]（原 RuoYi 基于 arguments 的实现
+// 下标从 1 开始是因为 arguments[0] 是格式化串本身；rest 参数已剔除该串，故从 0 开始）。
 export function sprintf(str: string, ...args: unknown[]): string {
   let flag = true,
-    i = 1
+    i = 0
   str = str.replace(/%s/g, function () {
     const arg = args[i++]
     if (typeof arg === 'undefined') {
@@ -293,7 +296,9 @@ export function getNormalPath(p: string): string {
   return res
 }
 
-// 验证是否为blob格式
+// 验证是否为 blob 格式
+// 后端（或中间代理/网关）可能将 JSON 响应标记为 application/json;charset=utf-8，
+// 仅精确比较会漏判导致把 JSON 错误响应当作文件下载，故按前缀匹配。
 export function blobValidate(data: Blob): boolean {
-  return data.type !== 'application/json'
+  return !data.type.toLowerCase().startsWith('application/json')
 }

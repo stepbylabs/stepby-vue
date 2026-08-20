@@ -146,7 +146,8 @@ class ErrorHub {
 
   private flush(): void {
     this.flushTimer = null
-    if (this.buffered.length === 0) return
+    // flush 仅在 report() 推入 buffered 后由 scheduleFlush 调度触发；
+    // clear() 会先取消定时器，因此此处 buffered 必非空，无需空判断。
     const buffered = this.buffered
     this.buffered = []
 

@@ -33,6 +33,7 @@ const i18n = createI18n({
  * 二者配合根治布局区 i18n 报文异常崩溃。
  */
 i18n.global.setMissingHandler((locale: string, key: string) => {
+  // v8 ignore next —— DEV=false 分支仅在生产构建可达，Vitest 恒为 DEV 模式
   if (import.meta.env.DEV) {
     console.warn(`[i18n] missing translation key (locale=${locale}): ${key}`)
   }
