@@ -934,6 +934,129 @@ export default {
       }
     }
   },
+  webHook: {
+    title: 'WebHook Configuration',
+    search: {
+      hookName: 'Hook Name',
+      phHookName: 'Enter hook name',
+      eventTypes: 'Event Types',
+      phEventTypes: 'Select event types',
+      status: 'Status',
+      phStatus: 'Status'
+    },
+    column: {
+      id: 'Hook ID',
+      hookName: 'Hook Name',
+      eventTypes: 'Event Types',
+      targetUrl: 'Target URL',
+      contentType: 'Content Type',
+      timeoutSecs: 'Timeout (s)',
+      createBy: 'Created By',
+      createTime: 'Create Time'
+    },
+    form: {
+      hookName: 'Hook Name',
+      phHookName: 'Enter hook name',
+      eventTypes: 'Event Types',
+      phEventTypes: 'Select event types',
+      eventTypesTip: 'Leave empty to subscribe to all events',
+      targetUrl: 'Target URL',
+      phTargetUrl: 'Enter outbound target URL, e.g. https://example.com/hook',
+      secret: 'Signing Secret',
+      phSecret: 'Enter signing secret',
+      secretTip: 'Leave empty on edit to keep unchanged; optional on add',
+      contentType: 'Content Type',
+      timeoutSecs: 'Timeout (seconds)',
+      timeoutSecsUnit: 'seconds',
+      status: 'Status',
+      remark: 'Remark',
+      phRemark: 'Enter remark'
+    },
+    btn: {
+      log: 'Logs',
+      test: 'Test Push',
+      export: 'Export'
+    },
+    tip: {
+      confirmDelete: 'Are you sure to delete webhook #{ids}?',
+      confirmChange: 'Are you sure to set webhook "{name}" {text}?',
+      testTitle: 'Test Push',
+      testSuccess: 'Push succeeded',
+      testFail: 'Push failed'
+    },
+    validate: {
+      hookNameRequired: 'Hook name is required',
+      targetUrlRequired: 'Target URL is required',
+      targetUrlFormat: 'Target URL must start with http(s)://'
+    },
+    eventType: {
+      all: 'All',
+      login_success: 'Login Success',
+      login_failure: 'Login Failure'
+    },
+    test: {
+      eventType: 'Event Type',
+      phEventType: 'Select event type to simulate',
+      payload: 'Event Payload',
+      phPayload: 'Optional, leave empty to use default payload',
+      result: 'Push Result',
+      ok: 'Success',
+      fail: 'Failed',
+      statusCode: 'Status Code',
+      response: 'Response',
+      error: 'Error',
+      costMs: 'Cost (ms)',
+      send: 'Start Test'
+    },
+    status: {
+      all: 'All',
+      success: 'Success',
+      fail: 'Failed'
+    },
+    log: {
+      title: 'Push Records',
+      search: {
+        eventType: 'Event Type',
+        phEventType: 'Enter event type',
+        status: 'Status',
+        phStatus: 'Status'
+      },
+      column: {
+        id: 'Record ID',
+        hookName: 'Hook Name',
+        eventType: 'Event Type',
+        targetUrl: 'Target URL',
+        statusCode: 'Status Code',
+        costMs: 'Cost (ms)',
+        status: 'Status',
+        createTime: 'Create Time'
+      },
+      btn: {
+        clean: 'Clean',
+        retry: 'Retry',
+        delete: 'Delete',
+        export: 'Export',
+        view: 'View'
+      },
+      tip: {
+        confirmDelete: 'Are you sure to delete push record #{ids}?',
+        confirmClean: 'Are you sure to clean all push records? This cannot be undone!',
+        confirmRetry: 'Are you sure to retry push record #{ids}?'
+      },
+      detail: {
+        title: 'Push Record Detail',
+        payload: 'Event Payload',
+        response: 'Response',
+        errorMsg: 'Error Message'
+      },
+      status: {
+        success: 'Success',
+        fail: 'Failed'
+      },
+      cleanSuccess: 'Push records cleaned',
+      retrySuccess: 'Retry succeeded'
+    }
+  },
   profile: {
     title: 'Profile',
     basicInfo: 'Basic Info',

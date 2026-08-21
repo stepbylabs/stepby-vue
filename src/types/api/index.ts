@@ -24,6 +24,7 @@ export * from './system/backup'
 export * from './system/task'
 export * from './system/msg'
 export * from './system/report'
+export * from './system/webHook'
 export * from './system/pref'
 
 // monitor 模块

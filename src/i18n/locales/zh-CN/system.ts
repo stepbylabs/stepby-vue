@@ -931,6 +931,129 @@ export default {
       }
     }
   },
+  webHook: {
+    title: '回调配置',
+    search: {
+      hookName: '回调名称',
+      phHookName: '请输入回调名称',
+      eventTypes: '事件类型',
+      phEventTypes: '请选择事件类型',
+      status: '状态',
+      phStatus: '状态'
+    },
+    column: {
+      id: '回调编号',
+      hookName: '回调名称',
+      eventTypes: '事件类型',
+      targetUrl: '目标 URL',
+      contentType: '内容类型',
+      timeoutSecs: '超时(秒)',
+      createBy: '创建者',
+      createTime: '创建时间'
+    },
+    form: {
+      hookName: '回调名称',
+      phHookName: '请输入回调名称',
+      eventTypes: '事件类型',
+      phEventTypes: '请选择事件类型',
+      eventTypesTip: '留空表示订阅全部事件',
+      targetUrl: '目标 URL',
+      phTargetUrl: '请输入出站目标 URL，如 https://example.com/hook',
+      secret: '签名密钥',
+      phSecret: '请输入签名密钥',
+      secretTip: '编辑时留空表示不改变；新增时可选',
+      contentType: '请求体格式',
+      timeoutSecs: '超时秒数',
+      timeoutSecsUnit: '秒',
+      status: '状态',
+      remark: '备注',
+      phRemark: '请输入备注'
+    },
+    btn: {
+      log: '日志',
+      test: '测试推送',
+      export: '导出'
+    },
+    tip: {
+      confirmDelete: '是否确认删除回调编号为"{ids}"的数据项？',
+      confirmChange: '是否将该回调"{name}"{text}？',
+      testTitle: '测试推送',
+      testSuccess: '推送成功',
+      testFail: '推送失败'
+    },
+    validate: {
+      hookNameRequired: '回调名称不能为空',
+      targetUrlRequired: '目标 URL 不能为空',
+      targetUrlFormat: '目标 URL 必须以 http(s):// 开头'
+    },
+    eventType: {
+      all: '全部',
+      login_success: '登录成功',
+      login_failure: '登录失败'
+    },
+    test: {
+      eventType: '事件类型',
+      phEventType: '请选择要模拟的事件类型',
+      payload: '事件载荷',
+      phPayload: '可选，留空使用默认载荷',
+      result: '推送结果',
+      ok: '成功',
+      fail: '失败',
+      statusCode: '状态码',
+      response: '响应体',
+      error: '错误信息',
+      costMs: '耗时(ms)',
+      send: '开始测试'
+    },
+    status: {
+      all: '全部',
+      success: '成功',
+      fail: '失败'
+    },
+    log: {
+      title: '推送记录',
+      search: {
+        eventType: '事件类型',
+        phEventType: '请输入事件类型',
+        status: '状态',
+        phStatus: '状态'
+      },
+      column: {
+        id: '记录ID',
+        hookName: '回调名称',
+        eventType: '事件类型',
+        targetUrl: '目标 URL',
+        statusCode: '状态码',
+        costMs: '耗时(ms)',
+        status: '状态',
+        createTime: '创建时间'
+      },
+      btn: {
+        clean: '清空',
+        retry: '重试',
+        delete: '删除',
+        export: '导出',
+        view: '查看'
+      },
+      tip: {
+        confirmDelete: '是否确认删除推送记录编号为"{ids}"的数据项？',
+        confirmClean: '是否确认清空全部推送记录？此操作不可恢复！',
+        confirmRetry: '是否确认重试推送记录编号为"{ids}"？'
+      },
+      detail: {
+        title: '推送记录详情',
+        payload: '事件载荷',
+        response: '响应体',
+        errorMsg: '错误信息'
+      },
+      status: {
+        success: '成功',
+        fail: '失败'
+      },
+      cleanSuccess: '推送记录已清空',
+      retrySuccess: '重试成功'
+    }
+  },
   profile: {
     title: '个人中心',
     basicInfo: '基本资料',
