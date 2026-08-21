@@ -223,6 +223,23 @@ export const dynamicRoutes = [
         meta: { title: 'route.editGenConfig', i18nKey: 'route.editGenConfig', activeMenu: '/tool/gen' }
       }
     ]
+  },
+  {
+    // P3-16：服务器监控页（独立实时图表页面）。
+    // 该路由为前端隐藏动态路由（不注册到侧边栏），仅按权限 monitor:health:list 开放，
+    // 复用健康检查页面同源 API（GET /monitor/server，服务监控菜单已并入健康检查 P0-1，无独立 sys_menu）。
+    path: '/monitor/server',
+    component: Layout,
+    hidden: true,
+    permissions: ['monitor:health:list'],
+    children: [
+      {
+        path: '',
+        component: () => import('@/views/monitor/server/index.vue'),
+        name: 'ServerMonitor',
+        meta: { title: 'route.monitorServer', i18nKey: 'route.monitorServer' }
+      }
+    ]
   }
 ]
 

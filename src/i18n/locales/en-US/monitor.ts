@@ -289,7 +289,50 @@ export default {
       notConnected: 'Redis not connected, please check cache service status'
     }
   },
-  // server module merged into health (P0-1), i18n keys migrated to health.column
+  // server module merged into health (P0-1), i18n keys migrated to health.column;
+  // the server namespace below is dedicated to the P3-16 standalone server monitor page (realtime charts)
+  server: {
+    title: 'Server Monitor',
+    btn: {
+      refresh: 'Refresh'
+    },
+    stat: {
+      cpuUsage: 'CPU Usage',
+      memUsage: 'Memory Usage',
+      cpuNum: 'Cores',
+      runTime: 'Uptime',
+      startTime: 'Started At',
+      runtime: 'Runtime'
+    },
+    chart: {
+      title: 'Resource Usage Trend',
+      autoRefresh: 'Auto Refresh',
+      lastUpdate: 'Last Updated:',
+      cpu: 'CPU Usage',
+      mem: 'Memory Usage'
+    },
+    diskInfo: 'Disk Partitions',
+    runtimeInfo: 'Server & Runtime Info',
+    column: {
+      dirName: 'Drive Path',
+      sysTypeName: 'File System',
+      total: 'Total (G)',
+      used: 'Used (G)',
+      free: 'Free (G)',
+      usage: 'Usage',
+      computerName: 'Server Name',
+      computerIp: 'Server IP',
+      osName: 'OS',
+      osArch: 'Architecture',
+      runtimeName: 'Runtime Name',
+      version: 'Runtime Version',
+      startTime: 'Start Time',
+      runTime: 'Uptime',
+      userDir: 'Project Path',
+      home: 'Home Path',
+      inputArgs: 'Input Args'
+    }
+  },
   health: {
     title: 'System Health Status',
     btn: {

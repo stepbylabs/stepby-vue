@@ -485,6 +485,11 @@ export default {
       phTableComment: 'Enter table comment',
       tipSelectTable: 'Please select tables to import'
     },
+    preview: {
+      file: 'File',
+      empty: 'No generated code',
+      loadFailed: 'Failed to load preview code'
+    },
     msg: {
       selectToGen: 'Please select data to generate',
       genCustomSuccess: 'Successfully generated to custom path: {path}',

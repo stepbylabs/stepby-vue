@@ -484,6 +484,11 @@ export default {
       phTableComment: '请输入表描述',
       tipSelectTable: '请选择要导入的表'
     },
+    preview: {
+      file: '文件',
+      empty: '暂无生成的代码',
+      loadFailed: '加载预览代码失败'
+    },
     msg: {
       selectToGen: '请选择要生成的数据',
       genCustomSuccess: '成功生成到自定义路径：{path}',

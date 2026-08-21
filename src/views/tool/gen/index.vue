@@ -193,36 +193,8 @@
       v-model:limit="queryParams.pageSize"
       @pagination="getList"
     />
-    <!-- 预览界面 -->
-    <el-dialog
-      :title="preview.title"
-      v-model="preview.open"
-      width="80%"
-      top="5vh"
-      append-to-body
-      destroy-on-close
-      class="scrollbar"
-    >
-      <el-tabs v-model="preview.activeName" class="preview-tabs">
-        <el-tab-pane
-          v-for="(value, key) in preview.data"
-          :label="String(key).substring(String(key).lastIndexOf('/') + 1, String(key).indexOf('.vm'))"
-          :name="String(key).substring(String(key).lastIndexOf('/') + 1, String(key).indexOf('.vm'))"
-          :key="String(key)"
-        >
-          <el-link
-            underline="never"
-            icon="DocumentCopy"
-            v-copyText="value"
-            v-copyText:callback="copyTextSuccess"
-            class="float-right"
-          >
-            &nbsp;{{ t('common.copy') }}
-          </el-link>
-          <code-editor :model-value="value" :language="detectLanguage(String(key))" read-only height="60vh" />
-        </el-tab-pane>
-      </el-tabs>
-    </el-dialog>
+    <!-- 代码预览（Prism 语法高亮） -->
+    <gen-preview ref="previewRef" />
     <import-table ref="importRef" @ok="handleQuery" />
     <create-table ref="createRef" @ok="handleQuery" />
   </div>
@@ -230,11 +202,10 @@
 
 <script setup lang="ts" name="Gen">
 const { t } = useI18n()
-import { listTable, previewTable, delTable, genCode, batchGenCode, synchDb } from '@/api/tool/gen'
+import { listTable, delTable, genCode, batchGenCode, synchDb } from '@/api/tool/gen'
 import importTable from './importTable.vue'
 import createTable from './createTable.vue'
-// CodeEditor 内部依赖 monaco-editor（~2MB+），仅在预览代码时使用，懒加载以减小主包体积
-const CodeEditor = defineAsyncComponent(() => import('@/components/CodeEditor/index.vue'))
+import GenPreview from './preview.vue'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import downloadPlugin from '@/plugins/download'
@@ -246,6 +217,7 @@ const queryRef = useTemplateRef('queryRef')
 const genRef = useTemplateRef('genRef')
 const importRef = useTemplateRef('importRef')
 const createRef = useTemplateRef('createRef')
+const previewRef = useTemplateRef('previewRef')
 
 const tableList = ref<GenTable[]>([])
 const loading = ref<boolean>(true)
@@ -267,16 +239,10 @@ const data = reactive({
     tableComment: undefined,
     orderByColumn: defaultSort.value.prop,
     isAsc: defaultSort.value.order
-  } as GenQueryParams,
-  preview: {
-    open: false,
-    title: t('gen.msg.previewTitle'),
-    data: {},
-    activeName: 'domain.java'
-  }
+  } as GenQueryParams
 })
 
-const { queryParams, preview } = toRefs(data)
+const { queryParams } = toRefs(data)
 
 onActivated(() => {
   const time = route.query.t
@@ -361,36 +327,9 @@ function resetQuery() {
   genRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
-/** 预览按钮 */
+/** 预览按钮：打开代码预览弹窗（Prism 高亮） */
 function handlePreview(row: GenTable) {
-  previewTable(row.tableId!)
-    .then((response) => {
-      preview.value.data = response.data
-      preview.value.open = true
-      preview.value.activeName = 'domain.java'
-    })
-    .catch(() => {})
-}
-
-/** 根据模板文件路径推断 Monaco 语言标识 */
-function detectLanguage(key: string): string {
-  const lower = key.toLowerCase()
-  if (lower.endsWith('.java.vm')) return 'java'
-  if (lower.endsWith('.xml.vm')) return 'xml'
-  if (lower.endsWith('.html.vm')) return 'html'
-  if (lower.endsWith('.js.vm')) return 'javascript'
-  if (lower.endsWith('.ts.vm')) return 'typescript'
-  if (lower.endsWith('.vue.vm')) return 'html'
-  if (lower.endsWith('.sql.vm')) return 'sql'
-  if (lower.endsWith('.py.vm')) return 'python'
-  if (lower.endsWith('.go.vm')) return 'go'
-  if (lower.endsWith('.rs.vm')) return 'rust'
-  return 'plaintext'
-}
-
-/** 复制代码成功 */
-function copyTextSuccess() {
-  modal.msgSuccess(t('common.copySuccess'))
+  previewRef.value?.openPreview(row.tableId!)
 }
 
 // 多选框选中数据
@@ -433,9 +372,3 @@ function handleDelete(row?: GenTable) {
 
 getList()
 </script>
-
-<style lang="scss" scoped>
-:deep(.preview-tabs .el-tabs__content) {
-  transition: opacity 0.2s ease;
-}
-</style>

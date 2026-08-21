@@ -289,7 +289,50 @@ export default {
       notConnected: 'Redis 未连接，请检查缓存服务状态'
     }
   },
-  // server 模块已合并到 health（P0-1），i18n 键已迁移到 health.column
+  // server 模块已合并到 health（P0-1），i18n 键已迁移到 health.column；
+  // 下方 server 命名空间为 P3-16 独立服务器监控页（实时图表）专用
+  server: {
+    title: '服务器监控',
+    btn: {
+      refresh: '刷新'
+    },
+    stat: {
+      cpuUsage: 'CPU 使用率',
+      memUsage: '内存使用率',
+      cpuNum: '核心数',
+      runTime: '运行时长',
+      startTime: '启动时间',
+      runtime: '运行时'
+    },
+    chart: {
+      title: '资源使用率趋势',
+      autoRefresh: '自动刷新',
+      lastUpdate: '最后更新：',
+      cpu: 'CPU 使用率',
+      mem: '内存使用率'
+    },
+    diskInfo: '磁盘分区',
+    runtimeInfo: '服务器与运行时信息',
+    column: {
+      dirName: '盘符路径',
+      sysTypeName: '文件系统',
+      total: '总容量(G)',
+      used: '已用(G)',
+      free: '可用(G)',
+      usage: '使用率',
+      computerName: '服务器名称',
+      computerIp: '服务器IP',
+      osName: '操作系统',
+      osArch: '系统架构',
+      runtimeName: '运行时名称',
+      version: '运行时版本',
+      startTime: '启动时间',
+      runTime: '运行时长',
+      userDir: '项目路径',
+      home: '安装路径',
+      inputArgs: '运行参数'
+    }
+  },
   health: {
     title: '系统健康状态',
     btn: {

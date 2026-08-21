@@ -19,6 +19,7 @@ export default {
     assignUser: '分配用户',
     dictData: '字典数据',
     jobLog: '调度日志',
-    editGenConfig: '修改生成配置'
+    editGenConfig: '修改生成配置',
+    monitorServer: '服务器监控'
   }
 }

@@ -19,6 +19,7 @@ export default {
     assignUser: 'Assign Users',
     dictData: 'Dict Data',
     jobLog: 'Job Log',
-    editGenConfig: 'Edit Gen Config'
+    editGenConfig: 'Edit Gen Config',
+    monitorServer: 'Server Monitor'
   }
 }
