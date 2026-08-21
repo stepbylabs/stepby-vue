@@ -9,7 +9,7 @@
           :accept="acceptTypes"
           multiple
         >
-          <el-button v-hasPermi="['system:file:add']" type="primary" icon="Upload">
+          <el-button v-hasPermi="['system:file:upload']" type="primary" icon="Upload">
             {{ t('file.btn.upload') }}
           </el-button>
         </el-upload>

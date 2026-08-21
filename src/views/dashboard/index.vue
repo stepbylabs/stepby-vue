@@ -1,8 +1,26 @@
 <template>
-  <div class="app-container p-4" v-loading="loading">
-    <!-- 顶部统计卡片 -->
+  <div class="app-container p-4">
+    <!-- 顶部统计卡片（P1-5 骨架屏：加载期展示统计卡片占位，替换整页 v-loading 转圈） -->
     <el-row :gutter="16" class="mb-4">
-      <stat-cards :stats="stats" />
+      <template v-if="loading">
+        <el-col v-for="n in 4" :key="n" :xs="12" :sm="12" :md="6" :lg="6">
+          <div class="stat-card mb-3 stat-skeleton">
+            <el-skeleton animated>
+              <template #template>
+                <div class="stat-skeleton__content flex items-center gap-[14px]">
+                  <el-skeleton-item variant="circle" class="!w-12 !h-12 shrink-0" />
+                  <div class="flex-1 min-w-0 space-y-1">
+                    <el-skeleton-item variant="h3" style="width: 55%" />
+                    <el-skeleton-item variant="text" style="width: 80%" />
+                    <el-skeleton-item variant="text" style="width: 65%" />
+                  </div>
+                </div>
+              </template>
+            </el-skeleton>
+          </div>
+        </el-col>
+      </template>
+      <stat-cards v-else :stats="stats" />
     </el-row>
 
     <!-- 快捷入口 -->
@@ -166,7 +184,9 @@
               <el-button link type="primary" @click="goToOperLog">{{ t('common.viewAll') }}</el-button>
             </div>
           </template>
-          <el-table :data="recentOperLogs" size="small" :show-header="true" style="width: 100%">
+          <!-- P1-5 骨架屏：最近操作日志在加载期用骨骼表格占位 -->
+          <SkeletonTable v-if="loading" :columns="4" :rows="6" />
+          <el-table v-else :data="recentOperLogs" size="small" :show-header="true" style="width: 100%">
             <el-table-column prop="title" :label="t('common.tip')" min-width="120" show-overflow-tooltip />
             <el-table-column prop="operName" :label="t('common.column.operator')" width="100" />
             <el-table-column :label="t('common.column.status')" width="70" align="center">
@@ -197,6 +217,7 @@ import { useMotionPresets } from '@/composables/useMotion'
 import { useChart, readCssVar } from '@/composables/useChart'
 import request from '@/utils/request'
 import StatCards from './StatCards.vue'
+import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import QuickEntryPanel from './QuickEntryPanel.vue'
 import { useDashboardCharts } from './useDashboardCharts'
 
@@ -418,6 +439,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss" scoped>
+/* P1-5 骨架屏：统计卡片占位样式，与 StatCards 视觉一致 */
+.stat-skeleton {
+  background-color: var(--el-card-bg-color, #fff);
+  border: 1px solid var(--el-card-border-color, var(--el-border-color-lighter));
+  border-radius: var(--el-card-border-radius, 4px);
+  box-shadow: var(--el-box-shadow-light);
+  padding: 16px;
+  box-sizing: border-box;
+  transition: var(--el-transition-duration, 0.3s);
+}
+.stat-skeleton__content {
+  height: 48px;
+}
 /* U20 优化：图表加载错误状态样式（暗色模式兼容） */
 .chart-empty {
   height: 280px;

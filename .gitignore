@@ -33,5 +33,11 @@ components.d.ts
 .workbuddy/
 commit_msg.txt
 
+# 沙箱隔离的本地 pnpm store/cache（避免与全局 store 冲突；不应入库）
+.pnpm-store/
+.pnpm-store-local/
+.pnpm-local-store/
+.pnpm-cache-local/
+
 # Playwright 浏览器缓存目录（不应入库）
 tests/e2e/.browsers/

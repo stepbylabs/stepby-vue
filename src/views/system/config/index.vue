@@ -91,8 +91,9 @@
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
+    <SkeletonTable v-if="loading" :columns="6" :rows="8" />
     <el-table
-      v-loading="loading"
+      v-else
       :data="dataList"
       :row-key="(row: SysConfig) => row.configId"
       @selection-change="handleSelectionChange"
@@ -234,6 +235,7 @@ import {
 import { useCrudTable } from '@/composables/useCrudTable'
 import { addDateRange } from '@/utils/yebot'
 import modal from '@/plugins/modal'
+import SkeletonTable from '@/components/SkeletonTable/index.vue'
 
 const configRefRef = useTemplateRef('configRef')
 const queryRefRef = useTemplateRef('queryRef')
