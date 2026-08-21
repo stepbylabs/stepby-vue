@@ -26,7 +26,7 @@
     "noEmit": true,
 
     // 类型声明相关配置
-    "types": ["node", "vite/client", "element-plus/global", "vitest/globals"]
+    "types": ["node", "vite/client", "element-plus/global", "vitest/globals", "vite-plugin-pwa/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "vite/**/*.ts", "auto-imports.d.ts", "components.d.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.js"]

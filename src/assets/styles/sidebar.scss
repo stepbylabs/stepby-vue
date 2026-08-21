@@ -1,9 +1,10 @@
 @use './variables.module.scss' as vars;
+@use './transition.scss' as trans;
 
 #app {
   .main-container {
     min-height: 100%;
-    transition: margin-left 0.28s;
+    transition: margin-left trans.$transition-duration trans.$transition-easing;
     margin-left: vars.$base-sidebar-width;
     position: relative;
   }
@@ -13,7 +14,7 @@
   }
 
   .sidebar-container {
-    transition: width 0.28s;
+    transition: width trans.$transition-duration trans.$transition-easing;
     width: vars.$base-sidebar-width !important;
     height: 100%;
     position: fixed;
@@ -272,14 +273,14 @@
     }
 
     .sidebar-container {
-      transition: transform 0.28s;
+      transition: transform trans.$transition-duration trans.$transition-easing;
       width: vars.$base-sidebar-width !important;
     }
 
     &.hideSidebar {
       .sidebar-container {
         pointer-events: none;
-        transition-duration: 0.3s;
+        transition-duration: trans.$transition-duration;
         transform: translate3d(-(vars.$base-sidebar-width), 0, 0);
       }
     }

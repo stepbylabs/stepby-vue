@@ -5,6 +5,11 @@
 $ease-enter: ease-out;
 $ease-leave: ease-in;
 
+/* U1 过渡体系统一：路由切换（.fade-transform）与侧边栏展开/收起共用同一组时长/缓动，
+   消除两套过渡体系在缓动/时长上的不一致（参考值 0.28s / ease-out）。 */
+$transition-duration: 0.28s;
+$transition-easing: ease-out;
+
 /* fade */
 .fade-enter-active,
 .fade-leave-active {
@@ -92,7 +97,7 @@ $ease-leave: ease-in;
 .fade-transform--move,
 .fade-transform-leave-active,
 .fade-transform-enter-active {
-  transition: all 0.28s $ease-enter;
+  transition: all $transition-duration $transition-easing;
 }
 
 .fade-transform-enter-from {

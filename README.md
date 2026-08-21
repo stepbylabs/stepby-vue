@@ -13,6 +13,7 @@ Yebot 管理系统前端，基于 Vue 3 + Element Plus + TypeScript + Pinia + Vi
 - [Vite](https://cn.vitejs.dev) - 构建工具
 - [Tailwind CSS 4](https://tailwindcss.com) - 原子化 CSS 框架（默认样式实现）
 - [Vue I18n](https://vue-i18n.intlify.dev/) - 国际化（中文 / 英文）
+- [PWA](https://developer.mozilla.org/docs/Web/Progressive_web_apps) - 离线可用、可"安装为桌面应用/添加到主屏"（`vite-plugin-pwa`）
 
 ## 开发命令
 
