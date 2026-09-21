@@ -169,7 +169,7 @@ const totalFail = ref(0)
 // TierS-4: 水印改由 layout/index.vue 全局控制（userPrefs.watermarkEnabled）
 
 let chartInstance: ECharts | null = null
-const { getChart, withDark } = useChart()
+const { getChart, withDark, resize } = useChart()
 const settingsStore = useSettingsStore()
 // 主题切换时复用最近一次数据重新渲染（避免重新请求接口）
 let lastLoginStatsData: Array<{ date: string; success: number; fail: number }> = []
@@ -257,21 +257,14 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  // 图表实例由 useChart 的 onBeforeUnmount 自动清理
+  // 图表实例与 resize 防抖定时器均由 useChart 的 onBeforeUnmount 统一清理
   window.removeEventListener('resize', handleResize)
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
 })
 
-// U18 优化：防抖 150ms，避免高频 resize 卡顿
-let resizeTimer: ReturnType<typeof setTimeout> | null = null
+// U18 优化：resize 防抖（150ms）与实例复用统一交由 useChart().resize() 处理，
+// 与 dashboard / audit-dashboard / cache 保持一致，避免各页面重复实现防抖与定时器清理。
 function handleResize(): void {
-  if (resizeTimer) clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    chartInstance?.resize()
-  }, 150)
+  resize()
 }
 </script>
 

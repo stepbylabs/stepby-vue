@@ -383,7 +383,7 @@ import useSettingsStore from '@/store/modules/settings'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
-const { getChart, withDark } = useChart()
+const { getChart, withDark, resize } = useChart()
 const settingsStore = useSettingsStore()
 
 // ====== Tab 切换 ======
@@ -404,20 +404,16 @@ const usedmemory = useTemplateRef<HTMLDivElement>('usedmemory')
 let commandstatsInstance: ECharts | null = null
 let usedmemoryInstance: ECharts | null = null
 
-let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let initResizeTimer: ReturnType<typeof setTimeout> | null = null
+// resize 防抖（150ms）与实例复用统一交由 useChart().resize() 处理，
+// 与 index / dashboard / audit-dashboard 保持一致，避免各页面重复实现防抖与定时器清理。
 const handleResize = () => {
-  if (resizeTimer) clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    commandstatsInstance?.resize()
-    usedmemoryInstance?.resize()
-  }, 150)
+  resize()
 }
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible') {
-    commandstatsInstance?.resize()
-    usedmemoryInstance?.resize()
+    resize()
   }
 }
 
@@ -775,10 +771,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   commandstatsInstance = null
   usedmemoryInstance = null
-  if (resizeTimer) {
-    clearTimeout(resizeTimer)
-    resizeTimer = null
-  }
+  // resize 防抖定时器由 useChart 的 onBeforeUnmount 统一清理
   if (initResizeTimer) {
     clearTimeout(initResizeTimer)
     initResizeTimer = null

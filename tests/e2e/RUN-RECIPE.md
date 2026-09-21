@@ -9,6 +9,7 @@
 - **Redis 必须在线**：`docker compose up -d redis`（或 `yebot-redis` 容器 healthy）。
   axum-backend 启动硬依赖 redis，否则接口 500。
 - **两个仓库源码就绪**：`yebot-ui`（前端）与 `axum-backend`（Rust 后端）。
+- **存量 `data/yebot.db` 可能落后于迁移**：`AppInitializer` 启动**刻意不跑** `Migrator::up`（避免对已有 seed 的存量库重跑导致主键冲突），故新增模块（如 WebHook）的建表/菜单不会自动落到早于该迁移的本地产物库。症状：后端日志每次 `login_success` 刷 `WARN ... no such table: sys_web_hook`、`/system/webHook/*` 页面 404。处置（本地 gitignore 产物，安全）：用 `migration/src/m20260820_000002_web_hook_module.rs` 的 SQLite DDL 幂等补 `CREATE TABLE IF NOT EXISTS` + 菜单/权限 `INSERT OR IGNORE`。全新库经完整 `Migrator::up` 不受影响。
 
 ## 1. 后端：embedded 模式（:8080）
 
@@ -69,6 +70,26 @@ node main.mjs --headless
 - 单跑某 feature：`node main.mjs --headless --feature 47`（按实现支持与否而定）。
 - 通过判据（已验证基线）：`总计 372 通过 372 失败 0`，日志无 `❌`。
 
+### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
+
+`main.mjs` 是断言式功能回归；`collect-warnings.mjs` 是**广度巡检**：登录后逐页采集 8 类运行时信号，用于发现
+断言未覆盖的新告警/错误。二者互补，每轮循环都应各跑一次。
+
+```bash
+cd yebot-ui/tests/e2e
+PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:4173 \
+YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
+# 期望（已验证基线）：末行 "有信号的路由数: 0/49"
+```
+
+- **8 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
+  `response` status≥400（剔除 favicon/预期 401 良性项）、`el-message`/`el-notification` Toast、
+  `el-message-box`/`el-dialog` 弹窗、真实 404（`.wscn-http404-container` 类名，避免正文含 "404" 误报）、
+  以及后端 `/tmp/yebot-backend.log` 的 ERROR/WARN/panic（人工关联）。
+- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 49 个可达页面。
+  新增页面若被手写猜错会命中 404 兜底页 → 假信号；务必 `SELECT ... FROM sys_menu` 核对（如 `/system/msg/*`、
+  `/help-center/*`、`/system/webHook/*`）。第 8 步记录了“每轮核查是否遗漏采集面”的实践。
+
 ### 3.1 Playwright 浏览器安装位置
 
 - 默认浏览器目录在 `%LOCALAPPDATA%\ms-playwright`，但若 TRAE 沙箱拦截其 `__dirlock` 写入，
@@ -118,6 +139,6 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 363 passed，含外置模板渲染测试）、`cargo clippy`（0 项目警告）。
+- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 676 passed，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
 - CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `yebot-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。

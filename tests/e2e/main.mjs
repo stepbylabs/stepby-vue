@@ -8113,7 +8113,9 @@ async function testFeature41(page) {
     const hasEchartsRenderers = moduleContent.includes('echarts/renderers')
     const hasEchartsUse = moduleContent.includes('echarts.use(')
 
-    // 检查 4 个使用 echarts 的页面是否改用 @/utils/echarts
+    // 检查 4 个使用 echarts 的页面是否统一走「按需导入」路径：
+    // 直接 import @/utils/echarts，或经 @/composables/useChart（其内部 import @/utils/echarts）。
+    // 二者等价——useChart 是集中式注册封装，页面复用即共享同一份按需 chunk。
     const echartsConsumers = [
       'src/views/index.vue',
       'src/views/dashboard/index.vue',
@@ -8126,7 +8128,7 @@ async function testFeature41(page) {
       const fullPath = path.join(uiRoot, relPath)
       if (!fs.existsSync(fullPath)) continue
       const content = fs.readFileSync(fullPath, 'utf-8')
-      if (content.includes('@/utils/echarts')) {
+      if (content.includes('@/utils/echarts') || content.includes('composables/useChart')) {
         migratedCount++
       }
       if (content.includes("from 'echarts'") || content.includes('from "echarts"')) {
@@ -8134,19 +8136,25 @@ async function testFeature41(page) {
       }
     }
 
+    // useChart 必须经 @/utils/echarts 引入（集中式按需注册），否则页面委托即失效
+    const useChartPath = path.join(uiRoot, 'src/composables/useChart.ts')
+    const useChartRoutesThroughUtils =
+      fs.existsSync(useChartPath) && fs.readFileSync(useChartPath, 'utf-8').includes('@/utils/echarts')
+
     const passed =
       echartsModuleExists &&
       hasEchartsCore &&
       hasEchartsCharts &&
       hasEchartsRenderers &&
       hasEchartsUse &&
+      useChartRoutesThroughUtils &&
       migratedCount === 4 &&
       stillUsingFullEcharts === 0
     record(
       41,
       'Perf-1 echarts 按需导入（统一模块 + 4 页面迁移）',
       passed,
-      `module=${echartsModuleExists}, core=${hasEchartsCore}, charts=${hasEchartsCharts}, renderers=${hasEchartsRenderers}, use=${hasEchartsUse}, migrated=${migratedCount}/4, fullEcharts=${stillUsingFullEcharts}`
+      `module=${echartsModuleExists}, core=${hasEchartsCore}, charts=${hasEchartsCharts}, renderers=${hasEchartsRenderers}, use=${hasEchartsUse}, useChartRoutes=${useChartRoutesThroughUtils}, migrated=${migratedCount}/4, fullEcharts=${stillUsingFullEcharts}`
     )
   } catch (err) {
     record(41, 'Perf-1 echarts 按需导入（统一模块 + 4 页面迁移）', false, `异常: ${err.message.slice(0, 80)}`)
@@ -8473,37 +8481,55 @@ async function testFeature42(page) {
 
   // ---------- 7. U18 ECharts resize 防抖验证（4 页面） ----------
   try {
+    // U18：resize 防抖(150ms) + 卸载清理。真实实现集中于图表 composable
+    // （useChart / useDashboardCharts / useAuditCharts），页面负责绑定/解绑 window resize。
+    // 校验两层：(a) 每个 composable 有 resizeTimer + 150ms + clearTimeout(resizeTimer)；
+    //          (b) 每个页面 addEventListener('resize') 且 onBeforeUnmount removeEventListener('resize')（无监听泄漏）。
     const echartsConsumers = [
       'src/views/dashboard/index.vue',
       'src/views/index.vue',
       'src/views/monitor/audit-dashboard/index.vue',
       'src/views/monitor/cache/index.vue'
     ]
-    let debouncedCount = 0
-    let cleanedCount = 0
-    const details = []
+    const chartComposables = [
+      'src/composables/useChart.ts',
+      'src/views/dashboard/useDashboardCharts.ts',
+      'src/views/monitor/audit-dashboard/useAuditCharts.ts'
+    ]
+    let composablesOk = 0
+    const compDetails = []
+    for (const relPath of chartComposables) {
+      const fullPath = path.join(uiRoot, relPath)
+      if (!fs.existsSync(fullPath)) {
+        compDetails.push(`${relPath.split('/').pop()}=missing`)
+        continue
+      }
+      const c = fs.readFileSync(fullPath, 'utf-8')
+      const debounced = /resizeTimer\s*[:=]/.test(c) && /,\s*150\s*\)/.test(c) && /setTimeout\(/.test(c)
+      const cleaned = /clearTimeout\(resizeTimer\)/.test(c)
+      if (debounced && cleaned) composablesOk++
+      compDetails.push(`${relPath.split('/').pop()}=${debounced ? 'debounce' : 'no'}/${cleaned ? 'clean' : 'no'}`)
+    }
+
+    const pagesOk = []
     for (const relPath of echartsConsumers) {
       const fullPath = path.join(uiRoot, relPath)
       if (!fs.existsSync(fullPath)) {
-        details.push(`${relPath}=missing`)
+        pagesOk.push(false)
         continue
       }
-      const content = fs.readFileSync(fullPath, 'utf-8')
-      // resizeTimer 变量 + 150ms 防抖（setTimeout 第一个参数是箭头函数含括号，匹配 ", 150)"）
-      const hasResizeTimer =
-        /resizeTimer\s*[:=]/.test(content) && /,\s*150\s*\)/.test(content) && /setTimeout\(/.test(content)
-      const hasCleanup = /clearTimeout\(resizeTimer\)/.test(content)
-      if (hasResizeTimer) debouncedCount++
-      if (hasCleanup) cleanedCount++
-      details.push(`${relPath.split('/').pop()}=${hasResizeTimer ? 'debounce' : 'no'}/${hasCleanup ? 'clean' : 'no'}`)
+      const c = fs.readFileSync(fullPath, 'utf-8')
+      const bound = /addEventListener\(\s*['"]resize['"]/.test(c)
+      const unbound = /removeEventListener\(\s*['"]resize['"]/.test(c)
+      pagesOk.push(bound && unbound)
     }
 
-    const passed = debouncedCount === 4 && cleanedCount === 4
+    const passed = composablesOk === 3 && pagesOk.every(Boolean)
     record(
       42,
-      'U18 ECharts resize 防抖 150ms（4 页面 + onBeforeUnmount 清理）',
+      'U18 ECharts resize 防抖 150ms（composable 防抖+清理 & 页面绑定/解绑）',
       passed,
-      `debounce=${debouncedCount}/4, clean=${cleanedCount}/4, ${details.join(', ')}`
+      `composables=${composablesOk}/3 [${compDetails.join(', ')}], pagesBound=${pagesOk.filter(Boolean).length}/4`
     )
   } catch (err) {
     record(
