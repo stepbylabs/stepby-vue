@@ -111,11 +111,14 @@ export function parseAverage(value: string): [number, number] {
  * 注意：调用方需先排除通配符/不指定/周期/步长等情况，否则单字符如 "*" 会被解析为 [NaN]。
  */
 export function parseList(value: string): number[] {
-  // L2: filter NaN，避免无效输入（如空字符串、非数字字符）产生 NaN 数组
+  // L2: 先剔除空/空白 token 再 Number，避免 Number('')===0 让空字符串被误当作有效值 0。
+  // 之后再 filter NaN，保证无效输入（非数字字符）不会产生 NaN 元素。
   return [
     ...new Set(
       value
         .split(',')
+        .map((token) => token.trim())
+        .filter((token) => token !== '')
         .map(Number)
         .filter((n) => !isNaN(n))
     )

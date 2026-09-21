@@ -1,0 +1,249 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+
+// ---- Mock collaborators so only the user store's own logic runs ----
+const { api, auth, cacheSessionSet, setPwdChrType, clearAllApiCache, elConfirm, routerPush, i18nT, collaborators } =
+  vi.hoisted(() => {
+    const lockStore = { unlockScreen: vi.fn() }
+    const notifStore = { init: vi.fn(), disconnect: vi.fn(), clearAll: vi.fn() }
+    const permissionStore = { resetRoutes: vi.fn() }
+    const dictStore = { cleanDict: vi.fn() }
+    const tagsViewStore = { delAllViews: vi.fn() }
+    const noticeStore = { clearAll: vi.fn() }
+    return {
+      api: {
+        login: vi.fn(),
+        logout: vi.fn(),
+        getInfo: vi.fn()
+      },
+      auth: { getToken: vi.fn(), setToken: vi.fn(), removeToken: vi.fn() },
+      cacheSessionSet: vi.fn(),
+      setPwdChrType: vi.fn(),
+      clearAllApiCache: vi.fn(),
+      elConfirm: vi.fn(() => Promise.resolve()),
+      routerPush: vi.fn(),
+      i18nT: vi.fn((k: string) => k),
+      collaborators: { lockStore, notifStore, permissionStore, dictStore, tagsViewStore, noticeStore }
+    }
+  })
+
+vi.mock('@/api/login', () => api)
+vi.mock('@/utils/auth', () => auth)
+vi.mock('@/utils/passwordRule', () => ({ setPwdChrType }))
+vi.mock('@/utils/apiCache', () => ({ clearAllApiCache }))
+vi.mock('@/plugins/cache', () => ({ default: { session: { set: cacheSessionSet } } }))
+vi.mock('element-plus', () => ({ ElMessageBox: { confirm: elConfirm } }))
+vi.mock('@/router', () => ({ default: { push: routerPush } }))
+vi.mock('@/i18n', () => ({ default: { global: { t: i18nT } } }))
+vi.mock('@/assets/images/profile.jpg', () => ({ default: '/default-avatar.png' }))
+
+vi.mock('@/store/modules/lock', () => ({
+  default: () => collaborators.lockStore,
+  useLockStore: () => collaborators.lockStore
+}))
+vi.mock('@/store/modules/notification', () => ({
+  default: () => collaborators.notifStore,
+  useNotificationStore: () => collaborators.notifStore
+}))
+vi.mock('@/store/modules/permission', () => ({
+  default: () => collaborators.permissionStore,
+  usePermissionStore: () => collaborators.permissionStore
+}))
+vi.mock('@/store/modules/dict', () => ({
+  default: () => collaborators.dictStore,
+  useDictStore: () => collaborators.dictStore
+}))
+vi.mock('@/store/modules/tagsView', () => ({
+  default: () => collaborators.tagsViewStore,
+  useTagsViewStore: () => collaborators.tagsViewStore
+}))
+vi.mock('@/store/modules/notice', () => ({
+  default: () => collaborators.noticeStore,
+  useNoticeStore: () => collaborators.noticeStore
+}))
+
+import useUserStore from './user'
+
+function flush() {
+  return new Promise((r) => setTimeout(r, 0))
+}
+
+describe('store/modules/user', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    auth.getToken.mockReturnValue('')
+    api.login.mockReset()
+    api.logout.mockReset()
+    api.getInfo.mockReset()
+    auth.setToken.mockClear()
+    auth.removeToken.mockClear()
+    cacheSessionSet.mockClear()
+    setPwdChrType.mockClear()
+    clearAllApiCache.mockClear()
+    elConfirm.mockClear().mockImplementation(() => Promise.resolve())
+    routerPush.mockClear()
+    collaborators.lockStore.unlockScreen.mockClear()
+    collaborators.notifStore.init.mockClear()
+    collaborators.notifStore.disconnect.mockClear()
+    collaborators.notifStore.clearAll.mockClear()
+    collaborators.permissionStore.resetRoutes.mockClear()
+    collaborators.dictStore.cleanDict.mockClear()
+    collaborators.tagsViewStore.delAllViews.mockClear()
+    collaborators.noticeStore.clearAll.mockClear()
+    vi.stubEnv('VITE_APP_BASE_API', '/dev-api')
+  })
+
+  it('token state is seeded from getToken() at store creation', () => {
+    auth.getToken.mockReturnValue('seed-token')
+    const store = useUserStore()
+    expect(store.token).toBe('seed-token')
+  })
+
+  it('login trims username, dispatches api, persists token, unlocks screen and inits notifications', async () => {
+    api.login.mockResolvedValue({ token: 'abc123' })
+    const store = useUserStore()
+    await store.login({ username: '  admin  ', password: 'pw', code: '9', uuid: 'u1' })
+    expect(api.login).toHaveBeenCalledWith('admin', 'pw', '9', 'u1')
+    expect(auth.setToken).toHaveBeenCalledWith('abc123')
+    expect(store.token).toBe('abc123')
+    expect(collaborators.lockStore.unlockScreen).toHaveBeenCalled()
+    expect(collaborators.notifStore.init).toHaveBeenCalled()
+  })
+
+  it('login rejects upward when the api call fails (no silent swallow)', async () => {
+    api.login.mockRejectedValue(new Error('bad creds'))
+    const store = useUserStore()
+    await expect(store.login({ username: 'a', password: 'b', code: 'c', uuid: 'd' })).rejects.toThrow('bad creds')
+    expect(auth.setToken).not.toHaveBeenCalled()
+  })
+
+  it('getInfo stores non-empty roles + permissions and returns res', async () => {
+    api.getInfo.mockResolvedValue({
+      user: { userId: 7, userName: 'bob', nickName: 'Bobby', avatar: '' },
+      roles: ['admin'],
+      permissions: ['a:b'],
+      pwdChrtype: '2'
+    })
+    const store = useUserStore()
+    const res = await store.getInfo()
+    expect(res.permissions).toEqual(['a:b'])
+    expect(store.roles).toEqual(['admin'])
+    expect(store.permissions).toEqual(['a:b'])
+    expect(store.id).toBe(7)
+    expect(store.name).toBe('bob')
+    expect(store.nickName).toBe('Bobby')
+    // empty avatar -> local default asset
+    expect(store.avatar).toBe('/default-avatar.png')
+    expect(cacheSessionSet).toHaveBeenCalledWith('pwdChrtype', '2')
+    expect(setPwdChrType).toHaveBeenCalledWith('2')
+  })
+
+  it('getInfo falls back to ROLE_DEFAULT when roles empty (and skips permissions)', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: [], permissions: undefined })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.roles).toEqual(['ROLE_DEFAULT'])
+    expect(store.permissions).toEqual([])
+    expect(store.id).toBe('')
+    expect(store.name).toBe('')
+    // no pwdChrtype -> default '0'
+    expect(cacheSessionSet).toHaveBeenCalledWith('pwdChrtype', '0')
+    expect(setPwdChrType).toHaveBeenCalledWith('0')
+  })
+
+  it('getInfo keeps an absolute http avatar untouched', async () => {
+    api.getInfo.mockResolvedValue({
+      user: { avatar: 'https://cdn/x.png' },
+      roles: ['r']
+    })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.avatar).toBe('https://cdn/x.png')
+  })
+
+  it('getInfo does not double-prefix an avatar that already carries baseApi', async () => {
+    api.getInfo.mockResolvedValue({ user: { avatar: '/dev-api/uploads/pic.png' }, roles: ['r'] })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.avatar).toBe('/dev-api/uploads/pic.png')
+  })
+
+  it('getInfo prefixes a relative avatar with baseApi', async () => {
+    api.getInfo.mockResolvedValue({ user: { avatar: '/uploads/pic.png' }, roles: ['r'] })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.avatar).toBe('/dev-api/uploads/pic.png')
+  })
+
+  it('getInfo prompts for initial-password change and routes to reset on confirm', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], isDefaultModifyPwd: true })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(elConfirm).toHaveBeenCalled()
+    await flush()
+    expect(routerPush).toHaveBeenCalledWith({ name: 'Profile', params: { activeTab: 'resetPwd' } })
+  })
+
+  it('getInfo warns on expired password only when initial-password flag is false', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], isDefaultModifyPwd: false, isPasswordExpired: true })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(elConfirm).toHaveBeenCalledTimes(1)
+    await flush()
+    expect(routerPush).toHaveBeenCalledWith({ name: 'Profile', params: { activeTab: 'resetPwd' } })
+  })
+
+  it('getInfo shows no prompt when password is fine', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], isDefaultModifyPwd: false, isPasswordExpired: false })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(elConfirm).not.toHaveBeenCalled()
+  })
+
+  it('getInfo rejects upward when the api call fails', async () => {
+    api.getInfo.mockRejectedValue(new Error('401'))
+    const store = useUserStore()
+    await expect(store.getInfo()).rejects.toThrow('401')
+  })
+
+  it('logOut clears all session state even when the api succeeds', async () => {
+    api.logout.mockResolvedValue({})
+    const store = useUserStore()
+    Object.assign(store, {
+      token: 't',
+      roles: ['admin'],
+      permissions: ['p'],
+      id: 3,
+      name: 'n',
+      nickName: 'nn',
+      avatar: 'a'
+    })
+    await store.logOut()
+    expect(api.logout).toHaveBeenCalled()
+    expect(collaborators.notifStore.disconnect).toHaveBeenCalled()
+    expect(collaborators.notifStore.clearAll).toHaveBeenCalled()
+    expect(collaborators.noticeStore.clearAll).toHaveBeenCalled()
+    expect(collaborators.permissionStore.resetRoutes).toHaveBeenCalled()
+    expect(collaborators.dictStore.cleanDict).toHaveBeenCalled()
+    expect(clearAllApiCache).toHaveBeenCalled()
+    expect(collaborators.tagsViewStore.delAllViews).toHaveBeenCalled()
+    expect(auth.removeToken).toHaveBeenCalled()
+    expect(store.token).toBe('')
+    expect(store.roles).toEqual([])
+    expect(store.permissions).toEqual([])
+    expect(store.id).toBe('')
+    expect(store.name).toBe('')
+    expect(store.nickName).toBe('')
+    expect(store.avatar).toBe('')
+  })
+
+  it('logOut still cleans up when the logout api rejects', async () => {
+    api.logout.mockRejectedValue(new Error('network'))
+    const store = useUserStore()
+    store.token = 'keep'
+    await store.logOut()
+    expect(store.token).toBe('')
+    expect(auth.removeToken).toHaveBeenCalled()
+    expect(collaborators.permissionStore.resetRoutes).toHaveBeenCalled()
+  })
+})

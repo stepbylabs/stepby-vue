@@ -84,8 +84,10 @@ export function useSessionTimeout(): void {
       return
     }
 
-    // 接近超时，弹出警告（仅一次）
-    if (elapsed >= warningMs && !warningShown.value) {
+    // 接近超时，弹出警告（仅一次）。
+    // 当超时阈值 <= 警告提前量（60s）时 warningMs<=0，此时不做中途警告，直接到点登出，
+    // 避免极短超时下第一次检查（elapsed≈0）立即误弹警告框。
+    if (warningMs > 0 && elapsed >= warningMs && !warningShown.value) {
       handleWarning(timeoutMs - elapsed)
     }
   }

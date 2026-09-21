@@ -33,7 +33,9 @@ function getStorageKey(formKey: string): string {
 
 export function useFormDraft<T extends Record<string, unknown>>(formKey: string, formData: Ref<T> | T) {
   const storageKey = getStorageKey(formKey)
-  const draftMeta = ref<FormDraftMeta | null>(cache.local.getJSON(storageKey))
+  // 存储结构为 { meta, data }，构造时只取其中的 meta，保证 draftMeta/hasDraft/getDraftTime 语义正确
+  const stored = cache.local.getJSON(storageKey) as { meta?: FormDraftMeta } | null
+  const draftMeta = ref<FormDraftMeta | null>(stored?.meta ?? null)
   const hasDraft = computed(() => draftMeta.value !== null)
 
   /** 立即保存草稿 */
