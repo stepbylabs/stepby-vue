@@ -20,6 +20,7 @@ export default {
     dictData: 'Dict Data',
     jobLog: 'Job Log',
     editGenConfig: 'Edit Gen Config',
-    monitorServer: 'Server Monitor'
+    monitorServer: 'Server Monitor',
+    ssoConsent: 'SSO Consent'
   }
 }

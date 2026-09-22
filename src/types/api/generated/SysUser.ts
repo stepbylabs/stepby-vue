@@ -3,7 +3,7 @@
 /**
  * 注意：不 derive(Debug)，改用手动实现以脱敏 password 字段
  */
-export type Model = { userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
+export type SysUser = { userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
 /**
  * 手机号国家/地区代码（ISO 3166-1 alpha-2，如 CN/HK/US）。
  * 方案 D（G18）手机号多地区化：None 视为回退 CN。

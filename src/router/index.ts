@@ -58,6 +58,13 @@ export const constantRoutes = [
     meta: { title: 'route.oauthLogin', i18nKey: 'route.oauthLogin' }
   },
   {
+    // SSO / OIDC Provider：授权同意页（后端 authorize 判定需同意后 302 到此处；需登录态，非白名单）
+    path: '/sso-consent',
+    component: () => import('@/views/sso/consent.vue'),
+    hidden: true,
+    meta: { title: 'route.ssoConsent', i18nKey: 'route.ssoConsent' }
+  },
+  {
     // ROUNDS61-100 #6 / R10-SEC-005：隐私政策页面（独立页面，无需鉴权，未登录也可访问）
     path: '/privacy',
     component: () => import('@/views/legal/privacy.vue'),

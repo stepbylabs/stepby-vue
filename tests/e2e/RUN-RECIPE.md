@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（47 个 feature / 374 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（51 个功能 / 417 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -66,9 +66,9 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 47 个 feature（约 8 分钟）。
-- 单跑某 feature：`node main.mjs --headless --feature 47`（按实现支持与否而定）。
-- 通过判据（已验证基线）：`总计 374 通过 374 失败 0`，日志无 `❌`。
+- 不带 `--feature` = 跑全部 51 个功能（约 15 分钟）。
+- 单跑某功能：`node main.mjs --headless --feature=51`（注意是 `--feature=N` 等号形式）。
+- 通过判据（已验证基线）：`总计 417 通过 417 失败 0`，日志无 `❌`。
   （Tier-S #2 后功能 10 审计追踪新增 `oper_diff 字段级差异已写入` 与 `详情页渲染变更对比卡片` 两条断言。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
@@ -86,7 +86,7 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
 INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/52" + "交互动作覆盖：…（INTERACT 模式同样 0/52 稳定）
+# 期望（已验证基线）：末行 "有信号的路由数: 0/55" + "交互动作覆盖：…（INTERACT 模式同样 0/55 稳定）
 ```
 
 - **交互态三段扫描（`INTERACT=1`）**，逐页执行且**只开不提、不污染数据**：
@@ -97,8 +97,8 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   故 (c) 必须用 **`getByRole(button|link, { name: 可访问名正则 })`** 命中，靠 `hasText` 文本匹配会全程空转。
 - **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=..]`，末行汇总
   `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)`。这是**防“扫描器静默空转”的自检**
-  ——`0/52` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
-  只读 59 次、新增 18 页开 15（工具页内联表单无模态属良性）、行内编辑/查看 12 页开 12，全 0 信号。
+  ——`0/55` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
+  只读 66 次、新增 20 页开 18（工具页内联表单无模态属良性）、行内编辑/查看 12 页开 12，全 0 信号。
 
 - **11 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
   `response` status≥400（剔除 favicon/预期 401 良性项）、同源 JSON 的**业务错误码**（`code!=200/0`，
@@ -119,8 +119,9 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - **保存态数据失败如何捕获**：交互态采集器**刻意只开不提**（防污染数据），故“保存是否真的失败”由
   `main.mjs` 的真实 CRUD 用例（新增/编辑/删除 + 业务码断言）覆盖；采集器的**业务错误码**信号则被动捕获
   页面自身发起的请求失败。二者分工互补、不重复。
-- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 52 个可达页面
-  （43 个注册菜单叶子页 + `/index` + 7 个 `/user/profile/*` 隐藏页 + 1 个 `/monitor/server` 隐藏实时页）。ROUTES 必须与 `getRouters` 逐条对齐，
+- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 55 个可达页面
+  （注册菜单叶子页 + `/index` + `/user/profile/*` 隐藏页 + `/monitor/server` 隐藏实时页 + Tier-S/Tier-A 新增页如
+  `/system/oauth/client`(SSO)、`/monitor/pat`、`/monitor/observability`、`/monitor/frontendError` 等）。ROUTES 必须与 `getRouters` 逐条对齐，
   否则手写猜错会命中 404 兜底页 → 假信号。实测教训：`/monitor/operlog`→`/system/log/operlog`、
   `/tool/{backup,task}`→`/monitor/{backup,task}`、`/help-center/*`→`/tool/*`、
   工作台是 `/workbench/index`（非 `/dashboard/workbench`）、数据看板是 `/dashboard`（非 `/dashboard/index`）。
@@ -135,10 +136,10 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - 默认浏览器目录在 `%LOCALAPPDATA%\ms-playwright`，但若 TRAE 沙箱拦截其 `__dirlock` 写入，
   需将浏览器安装到工作区内并通过环境变量指定：
   ```bash
-  $env:PLAYWRIGHT_BROWSERS_PATH = "d:\桌面\yebot\.pw-browsers"
+  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\yebot\.pw-browsers"
   npx playwright install chromium
   # 运行时同样带上该环境变量（与上述命令一致），否则仍会去默认目录找 1234 版本而失败
-  $env:PLAYWRIGHT_BROWSERS_PATH = "d:\桌面\yebot\.pw-browsers"
+  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\yebot\.pw-browsers"
   node main.mjs --headless
   ```
 - `.pw-browsers` 已被根 `.gitignore` 忽略，不入仓库。
@@ -154,6 +155,13 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   2. 每用户最大并发连接上限 5 → 20（`axum-backend/src/handler/ws_handler.rs`）。
 - **回归防线**：功能 46 分别验证「页面内 WS 连接全链路」与「Node 直连后端 WS」均能成功建立
   （无 429）。若再次出现上述控制台错误，先检查 `docker exec yebot-redis redis-cli --scan --pattern "ws_conn:*"` 是否残留计数。
+
+### 3.3 SSO 同意页（`/sso-consent`）冷加载与 SW 兜底（功能 51 教训）
+
+- 后端 `authorize` 判定需用户同意后，用 302 把**浏览器**带到 `/sso-consent?clientId=…&scope=openid%20profile…`（应用私有 SPA 路由，camelCase 查询）。两处踩过的真实坑：
+  1. **查询空格编码**：回显查询的空格必须用 `%20` 而非表单编码的 `+`（后端 `urlencode_spa`）。Vue Router 不把 `+` 还原为空格，否则 `scope` 变 `openid+profile` → 不含 `openid` → 同意页判"授权请求无效"。后端有单测钉死。
+  2. **冷加载二次导航丢查询**：`/sso-consent` 非白名单、需登录态，冷加载时路由守卫会先 `getInfo`+注册动态路由再二次导航；守卫**必须**用 `{ path: to.path, query: to.query, hash: to.hash, replace: true }` 显式分离，不能 `{ path: to.fullPath }`（对象形式 `path` 不解析内嵌 query，会把 `?…` 丢弃）——此坑影响**所有**冷加载受保护路由，非仅 SSO。
+- **SW 兜底**：内嵌/生产构建注册的 Service Worker `navigateFallback` 会接管顶层导航。真实浏览器断言"后端 302 被跟随"须用**新 context**（无 SW）或 `context.request.get(url,{maxRedirects:0})` 读 `Location`，否则会命中 SW 兜底返回旧页而失真。
 
 ## 4. source-check 防混淆约定（重要）
 
@@ -179,6 +187,8 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 676 passed，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
+- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 714 passed，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --all-targets -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
+  - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
+- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 40 个类型）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
 - CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `yebot-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。

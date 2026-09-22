@@ -3,7 +3,7 @@
 /**
  * 注意：不 derive(Debug)，改用手动实现以脱敏 access_token/refresh_token 字段
  */
-export type Model = { oauthId: number, 
+export type SysOauthUser = { oauthId: number, 
 /**
  * 绑定的本地用户 ID
  */

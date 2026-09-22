@@ -59,8 +59,11 @@ router.beforeEach(async (to, _from) => {
           }
         })
         // 重新导航到目标路由，确保动态路由已注册
-        // 注意：在 Vue Router 5 中不能用 `return { ...to, replace: true }`，会丢失 fullPath 导致初始导航崩溃
-        return { path: to.fullPath, replace: true }
+        // 注意：在 Vue Router 5 中不能整对象展开 `to`（会丢失 fullPath 导致初始导航崩溃），
+        // 也不能把 to.fullPath 直接塞进 `path`——对象形式的 `path` 不解析内嵌 query/hash，
+        // 会把 ?a=b 当作 path 的一部分而丢弃查询参数。故显式分离 path/query/hash 重导航，
+        // 保证冷加载受保护路由（如 /sso-consent?clientId=…）的查询参数在二次导航后仍然保留。
+        return { path: to.path, query: to.query, hash: to.hash, replace: true }
       } catch (err) {
         // P2-34: R18-3.1/3.2/3.3 根据错误类型重定向到对应错误页（保留 401 等鉴权失败的登出逻辑）
         // U6 优化：优先使用 HTTP status 判断，字符串匹配作为兜底（更健壮）

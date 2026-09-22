@@ -21,10 +21,10 @@ export interface WebHookLogQueryParams extends PageDomain {
 }
 
 /** 回调配置（后端生成类型） */
-export type SysWebHook = import('@/types/api/generated/SysWebHook').Model
+export type SysWebHook = import('@/types/api/generated/SysWebHook').SysWebHook
 
 /** 推送记录（后端生成类型） */
-export type SysWebHookLog = import('@/types/api/generated/SysWebHookLog').Model
+export type SysWebHookLog = import('@/types/api/generated/SysWebHookLog').SysWebHookLog
 
 /** 手动测试推送结果 */
 export interface DeliveryResult {

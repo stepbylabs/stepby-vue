@@ -10113,6 +10113,500 @@ async function testFeature50(page) {
   }
 }
 
+// ==================== 功能 51：单点登录（OIDC Provider）端到端 ====================
+
+/**
+ * SSO / OIDC Provider 全链路回归。
+ *
+ * 覆盖两段真实链路（禁 mock、真实签发/校验）：
+ *  A. 应用私有 CRUD 面（Bearer + camelCase）：新增客户端（一次性明文 secret）→ 列表/详情不回泄
+ *     secret → 编辑 → 启停 → 删除。
+ *  B. OIDC 协议面（外部 RP 视角，snake_case + 会话 Cookie）：
+ *     发现文档 sso_enabled → authorize 302 需要同意 → 真实浏览器渲染同意页 →
+ *     POST /sso/consent 签发授权码 → /sso/token（PKCE S256）换 access/id token →
+ *     校验 id_token 声明（iss/aud/sub/nonce）→ /sso/userinfo（Bearer）sub 对齐 →
+ *     授权码重放被拒 + 错误 verifier 被拒。
+ *
+ * 每轮循环用自动生成的唯一 client_id，天然规避"已同意"缓存导致的非确定性。
+ */
+async function testFeature51(page) {
+  log('=== 功能 51：单点登录（OIDC Provider）端到端 ===')
+  const B = CONFIG.backendUrl
+  const redirectUri = `${B}/sso/e2e-callback` // 已登记的回调（测试仅解析 code，不实际访问）
+  let token = null
+  let auth = {}
+  let created = null // { ssoClientId, clientId, clientSecret }
+
+  const b64url = (buf) => Buffer.from(buf).toString('base64url')
+  const randB64url = (n) => b64url(crypto.randomBytes(n))
+  const challengeOf = (verifier) => crypto.createHash('sha256').update(verifier, 'ascii').digest('base64url')
+  const decodeJwt = (t) => {
+    try {
+      const p = t.split('.')[1]
+      return JSON.parse(Buffer.from(p, 'base64url').toString('utf8'))
+    } catch {
+      return null
+    }
+  }
+
+  // ---- 0. 发现文档：确认 SSO 已启用 ----
+  let issuer = B
+  try {
+    const disc = await fetch(`${B}/.well-known/openid-configuration`).then((r) => r.json())
+    issuer = disc.issuer || B
+    record(
+      51,
+      'OIDC 发现文档 sso_enabled=true',
+      disc.sso_enabled === true && !!disc.token_endpoint && disc.code_challenge_methods_supported?.includes('S256'),
+      `issuer=${issuer}, alg=${disc.id_token_signing_alg_values_supported?.join(',')}`
+    )
+  } catch (err) {
+    record(51, 'OIDC 发现文档 sso_enabled=true', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 1. 新增客户端（应用私有面，Bearer + camelCase） ----
+  try {
+    token = await getAdminToken(page)
+    auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    const stamp = Date.now()
+    const res = await fetch(`${B}/system/oauth/client`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        ssoClientId: 0,
+        clientName: `E2E-SSO-${stamp}`,
+        logoUri: '',
+        redirectUris: [redirectUri],
+        scopes: ['openid', 'profile'],
+        grantTypes: ['authorization_code'],
+        consentRequired: '1',
+        enabled: '1',
+        remark: 'e2e 自动化临时客户端'
+      })
+    }).then((r) => r.json())
+    const ok = (res?.code === 200 || res?.code === 0) && res?.data?.clientId && res?.data?.clientSecret
+    created = ok
+      ? {
+          ssoClientId: res.data.client.ssoClientId,
+          clientId: res.data.clientId,
+          clientSecret: res.data.clientSecret,
+          name: res.data.client.clientName
+        }
+      : null
+    record(
+      51,
+      '新增客户端返回一次性明文 secret',
+      !!created,
+      created
+        ? `clientId=${created.clientId.slice(0, 10)}…, secretLen=${created.clientSecret.length}`
+        : `resp=${JSON.stringify(res).slice(0, 120)}`
+    )
+  } catch (err) {
+    record(51, '新增客户端返回一次性明文 secret', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 2. 列表 + 详情均不得回泄 clientSecret ----
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const list = await fetch(`${B}/system/oauth/client/list?pageNum=1&pageSize=100`, { headers: auth }).then((r) =>
+      r.json()
+    )
+    const row = (list?.rows || []).find((r) => r.clientId === created.clientId)
+    const detail = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) =>
+      r.json()
+    )
+    const d = detail?.data
+    const leak = JSON.stringify(row || {}) + JSON.stringify(d || {})
+    const noSecret = !/clientSecret|client_secret|idTokenSecret|id_token_secret/i.test(leak)
+    record(
+      51,
+      '列表/详情命中且绝不回泄密钥',
+      !!row && !!d && d.clientId === created.clientId && noSecret,
+      `list命中=${!!row}, 详情=${!!d}, 无密钥字段=${noSecret}`
+    )
+  } catch (err) {
+    record(51, '列表/详情命中且绝不回泄密钥', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 3. 编辑 clientName ----
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const newName = `${created.name}-改`
+    const res = await fetch(`${B}/system/oauth/client`, {
+      method: 'PUT',
+      headers: auth,
+      body: JSON.stringify({
+        ssoClientId: created.ssoClientId,
+        clientId: created.clientId,
+        clientName: newName,
+        logoUri: '',
+        redirectUris: [redirectUri],
+        scopes: ['openid', 'profile'],
+        grantTypes: ['authorization_code'],
+        consentRequired: '1',
+        enabled: '1',
+        remark: 'e2e 编辑后'
+      })
+    }).then((r) => r.json())
+    const detail = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) =>
+      r.json()
+    )
+    const applied = detail?.data?.clientName === newName
+    record(
+      51,
+      '编辑客户端名称生效',
+      (res?.code === 200 || res?.code === 0) && applied,
+      `现名=${detail?.data?.clientName}`
+    )
+  } catch (err) {
+    record(51, '编辑客户端名称生效', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 4. 启停切换 ----
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    await fetch(`${B}/system/oauth/client/${created.ssoClientId}/status?enabled=0`, { method: 'PUT', headers: auth })
+    const off = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) => r.json())
+    await fetch(`${B}/system/oauth/client/${created.ssoClientId}/status?enabled=1`, { method: 'PUT', headers: auth })
+    const on = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) => r.json())
+    record(
+      51,
+      '启停切换（enabled 0↔1）',
+      off?.data?.enabled === '0' && on?.data?.enabled === '1',
+      `off=${off?.data?.enabled}, on=${on?.data?.enabled}`
+    )
+  } catch (err) {
+    record(51, '启停切换（enabled 0↔1）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 5. authorize → 同意页：分两层真实校验 ----
+  //  (a) HTTP 协议层：用 maxRedirects:0 读取 302 的 Location，确认回跳 /sso-consent 且 scope 空格以 %20 编码
+  //      （后端曾把空格编成 `+`，Vue Router 不还原 → 同意页误判无效；此处锁死该回归）。
+  //  (b) 真实 SPA 层：在全新无 Service Worker 的上下文里用会话 Cookie 直接导航，验证同意页 Vue 组件真的渲染。
+  //      注：主 page 所在上下文已注册生产 SW，其 navigateFallback 会劫持 /sso/authorize 顶层导航，故 SPA 渲染检查另起上下文。
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const verifier = randB64url(32)
+    const challenge = challengeOf(verifier)
+    const qs = new URLSearchParams({
+      client_id: created.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid profile',
+      state: randB64url(8),
+      nonce: randB64url(8),
+      code_challenge: challenge,
+      code_challenge_method: 'S256'
+    })
+    const authorizeUrl = `${B}/sso/authorize?${qs.toString()}`
+
+    // (a) HTTP 层：读 Location
+    const r = await page
+      .context()
+      .request.get(authorizeUrl, { maxRedirects: 0, headers: { Cookie: `Admin-Token=${token}` } })
+    const loc = r.headers()['location'] || ''
+    const wireOk =
+      r.status() === 302 &&
+      loc.startsWith('/sso-consent') &&
+      loc.includes(`clientId=${created.clientId}`) &&
+      loc.includes('scope=openid%20profile')
+    record(
+      51,
+      'authorize 302→/sso-consent 且 scope 以 %20 编码',
+      wireOk,
+      `status=${r.status()}, location=${loc.slice(0, 110)}`
+    )
+
+    // (b) SPA 层：新上下文（无 SW）用真实浏览器渲染同意页
+    const SPA = page.context().browser()
+    const ctx2 = await SPA.newContext()
+    await ctx2.addCookies([{ name: 'Admin-Token', value: token, url: B }])
+    const p2 = await ctx2.newPage()
+    await p2.goto(authorizeUrl, { waitUntil: 'networkidle' })
+    await p2.waitForTimeout(1500)
+    const onConsent = p2.url().includes('/sso-consent')
+    const approveVisible = await p2
+      .locator(
+        'button:has-text("允许"), button:has-text("同意"), button:has-text("授权"), button:has-text("Allow"), button:has-text("Approve")'
+      )
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false)
+    const bodyHas = await p2.evaluate(() => document.body.innerText).catch(() => '')
+    const notInvalid = !bodyHas.includes('授权请求无效') && !bodyHas.includes('Invalid')
+    const named = bodyHas.includes(created.clientId) || /E2E-SSO/.test(bodyHas)
+    await ctx2.close()
+    record(
+      51,
+      '真实浏览器(SPA)渲染同意页并展示授权按钮',
+      onConsent && approveVisible && notInvalid && named,
+      `同意页=${onConsent}, 授权按钮=${approveVisible}, 非无效态=${notInvalid}, 含客户端=${named}`
+    )
+  } catch (err) {
+    record(51, 'authorize 302→/sso-consent 且 scope 以 %20 编码', false, `异常: ${err.message.slice(0, 80)}`)
+    record(51, '真实浏览器(SPA)渲染同意页并展示授权按钮', false, '前置失败')
+  }
+
+  // ---- 6. authorize 返回重定向（会话 Cookie，需要同意） ----
+  let apiVerifier = null
+  let apiChallenge = null
+  let apiState = null
+  let apiNonce = null
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    apiVerifier = randB64url(32)
+    apiChallenge = challengeOf(apiVerifier)
+    apiState = randB64url(8)
+    apiNonce = randB64url(8)
+    const qs = new URLSearchParams({
+      client_id: created.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid profile',
+      state: apiState,
+      nonce: apiNonce,
+      code_challenge: apiChallenge,
+      code_challenge_method: 'S256'
+    })
+    const res = await fetch(`${B}/sso/authorize?${qs.toString()}`, {
+      headers: { Cookie: `Admin-Token=${token}` },
+      redirect: 'manual'
+    })
+    const isRedirect = res.type === 'opaqueredirect' || res.status === 0 || (res.status >= 300 && res.status < 400)
+    record(51, 'authorize 携会话 Cookie 返回 302（待同意）', isRedirect, `type=${res.type}, status=${res.status}`)
+  } catch (err) {
+    record(51, 'authorize 携会话 Cookie 返回 302（待同意）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 7. authorize 协议错误回跳：response_type 非 code → 302 携带 error=unsupported_response_type ----
+  //   遵循 RFC 6749 §4.1.2.1：redirect_uri 已校验可信后，错误须 302 回跳给 RP（而非 400）。
+  //   用 maxRedirects:0 直接读 Location（避开 SPA/SW 干扰）。
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const qs = new URLSearchParams({
+      client_id: created.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'token',
+      scope: 'openid',
+      state: 'st-err'
+    })
+    const r = await page.context().request.get(`${B}/sso/authorize?${qs.toString()}`, {
+      maxRedirects: 0,
+      headers: { Cookie: `Admin-Token=${token}` }
+    })
+    const loc = r.headers()['location'] || ''
+    const ok =
+      r.status() === 302 &&
+      loc.includes('/sso/e2e-callback') &&
+      loc.includes('error=unsupported_response_type') &&
+      loc.includes('state=st-err')
+    record(
+      51,
+      'authorize 非法 response_type 按 RFC 302 回跳 error',
+      ok,
+      `status=${r.status()}, location=${loc.slice(0, 120)}`
+    )
+  } catch (err) {
+    record(51, 'authorize 非法 response_type 按 RFC 302 回跳 error', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 8. POST /sso/consent 批准 → 返回携带 code+state 的 redirect ----
+  let code = null
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const res = await fetch(`${B}/sso/consent`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        clientId: created.clientId,
+        redirectUri,
+        scope: 'openid profile',
+        state: apiState,
+        nonce: apiNonce,
+        codeChallenge: apiChallenge,
+        codeChallengeMethod: 'S256',
+        approved: true
+      })
+    }).then((r) => r.json())
+    const red = res?.data?.redirect
+    if (red) {
+      const u = new URL(red)
+      code = u.searchParams.get('code')
+      const st = u.searchParams.get('state')
+      record(
+        51,
+        'consent 批准签发授权码且 state 回带',
+        (res.code === 200 || res.code === 0) && !!code && st === apiState,
+        `code=${code ? code.slice(0, 10) + '…' : 'null'}, state匹配=${st === apiState}`
+      )
+    } else {
+      record(51, 'consent 批准签发授权码且 state 回带', false, `resp=${JSON.stringify(res).slice(0, 120)}`)
+    }
+  } catch (err) {
+    record(51, 'consent 批准签发授权码且 state 回带', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 9. /sso/token（PKCE）换 token + id_token 声明校验 ----
+  let accessToken = null
+  let idClaims = null
+  try {
+    if (!code) throw new Error('无授权码')
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: created.clientId,
+      client_secret: created.clientSecret,
+      code_verifier: apiVerifier
+    })
+    const res = await fetch(`${B}/sso/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString()
+    })
+    const data = await res.json()
+    accessToken = data.access_token || null
+    idClaims = data.id_token ? decodeJwt(data.id_token) : null
+    const okTok =
+      res.status === 200 && accessToken && data.token_type && data.id_token && typeof data.expires_in === 'number'
+    const claimsOk =
+      idClaims &&
+      idClaims.iss === issuer &&
+      (idClaims.aud === created.clientId || (Array.isArray(idClaims.aud) && idClaims.aud.includes(created.clientId))) &&
+      !!idClaims.sub &&
+      idClaims.nonce === apiNonce
+    record(
+      51,
+      'token 端点 PKCE 交换成功（access+id_token）',
+      !!okTok,
+      `token_type=${data.token_type}, scope=${data.scope}, exp=${data.expires_in}`
+    )
+    record(
+      51,
+      'id_token 声明 iss/aud/sub/nonce 正确',
+      !!claimsOk,
+      `iss=${idClaims?.iss}, aud=${idClaims?.aud}, sub=${idClaims?.sub}, nonce匹配=${idClaims?.nonce === apiNonce}`
+    )
+  } catch (err) {
+    record(51, 'token 端点 PKCE 交换成功（access+id_token）', false, `异常: ${err.message.slice(0, 80)}`)
+    record(51, 'id_token 声明 iss/aud/sub/nonce 正确', false, '前置失败')
+  }
+
+  // ---- 10. /sso/userinfo（Bearer）sub 与 id_token 对齐 ----
+  try {
+    if (!accessToken) throw new Error('无 access_token')
+    const res = await fetch(`${B}/sso/userinfo`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    const data = await res.json()
+    record(
+      51,
+      'userinfo 返回且 sub 与 id_token 一致',
+      res.status === 200 && data.sub === idClaims?.sub && !!data.preferred_username,
+      `status=${res.status}, sub=${data.sub}, user=${data.preferred_username}`
+    )
+  } catch (err) {
+    record(51, 'userinfo 返回且 sub 与 id_token 一致', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 11. 授权码一次性：重放同一 code → 拒绝 ----
+  try {
+    if (!code) throw new Error('无授权码')
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: created.clientId,
+      client_secret: created.clientSecret,
+      code_verifier: apiVerifier
+    })
+    const res = await fetch(`${B}/sso/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString()
+    })
+    record(51, '授权码重放被拒（一次性）', res.status === 400, `status=${res.status}`)
+  } catch (err) {
+    record(51, '授权码重放被拒（一次性）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 12. PKCE 校验：错误 verifier → 拒绝（新签一枚 code） ----
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const goodV = randB64url(32)
+    const badV = randB64url(32)
+    const st2 = randB64url(8)
+    const c = await fetch(`${B}/sso/consent`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        clientId: created.clientId,
+        redirectUri,
+        scope: 'openid profile',
+        state: st2,
+        nonce: randB64url(8),
+        codeChallenge: challengeOf(goodV),
+        codeChallengeMethod: 'S256',
+        approved: true
+      })
+    }).then((r) => r.json())
+    const code2 = c?.data?.redirect ? new URL(c.data.redirect).searchParams.get('code') : null
+    if (!code2) throw new Error('未取到第二枚授权码')
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code2,
+      redirect_uri: redirectUri,
+      client_id: created.clientId,
+      client_secret: created.clientSecret,
+      code_verifier: badV
+    })
+    const res = await fetch(`${B}/sso/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString()
+    })
+    record(51, 'PKCE：错误 code_verifier 被拒', res.status === 400, `status=${res.status}`)
+  } catch (err) {
+    record(51, 'PKCE：错误 code_verifier 被拒', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 13. 管理页真实浏览器渲染（表格 + 工具栏） ----
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'networkidle' })
+    await sleep(1000)
+    await skipTour(page)
+    const not404 = !(await is404Page(page))
+    const hasTable = (await page.locator('.el-table').count()) > 0
+    record(51, 'SSO 客户端管理页正常渲染', not404 && hasTable, `非404=${not404}, 表格=${hasTable}`)
+  } catch (err) {
+    record(51, 'SSO 客户端管理页正常渲染', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 14. 清理：删除测试客户端（无论前面成败都执行） ----
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
+      method: 'DELETE',
+      headers: auth
+    }).then((r) => r.json())
+    let gone = false
+    try {
+      const chk = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) =>
+        r.json()
+      )
+      gone = chk?.code !== 200 && chk?.code !== 0 && !chk?.data?.clientId
+    } catch {
+      gone = true
+    }
+    record(
+      51,
+      '清理：删除测试客户端且详情不再可见',
+      (del?.code === 200 || del?.code === 0) && gone,
+      `del=${del?.code}, 已消失=${gone}`
+    )
+  } catch (err) {
+    record(51, '清理：删除测试客户端且详情不再可见', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -10143,10 +10637,17 @@ async function main() {
   const page = await context.newPage()
 
   // 监听控制台错误
+  // 浏览器扩展（chrome-extension:// 等）注入的资源并非被测应用的一部分：内嵌 :8080 的
+  // CSP（default-src 'self'）会拦截扩展字体/脚本并打印 console error，这是测试 Chromium
+  // 环境噪声而非应用缺陷。与采集器 collect-warnings.mjs 的 EXT_NOISE_RE 保持一致地过滤，
+  // 避免把扩展噪声计入"浏览器控制台错误"而淹没真实的应用错误。
+  const EXT_NOISE_RE =
+    /chrome-extension:\/\/|moz-extension:\/\/|ms-browser-extension:\/\/|extensions\.[a-z]+\.chromium\.org|Loading the font '[^']*(chrome-extension|moz-extension)|Content Security Policy directive:[^\n]*(chrome-extension|moz-extension)/i
   const consoleErrors = []
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
-      consoleErrors.push(msg.text())
+      const text = msg.text()
+      if (!EXT_NOISE_RE.test(text)) consoleErrors.push(text)
     }
   })
 
@@ -10219,7 +10720,8 @@ async function main() {
       { id: 47, fn: testFeature47 },
       { id: 48, fn: testFeature48 },
       { id: 49, fn: testFeature49 },
-      { id: 50, fn: testFeature50 }
+      { id: 50, fn: testFeature50 },
+      { id: 51, fn: testFeature51 }
     ]
 
     for (const f of features) {

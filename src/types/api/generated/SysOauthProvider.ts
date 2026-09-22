@@ -3,7 +3,7 @@
 /**
  * 注意：不 derive(Debug)，改用手动实现以脱敏 client_secret 字段
  */
-export type Model = { providerId: number, 
+export type SysOauthProvider = { providerId: number, 
 /**
  * 提供商编码（github/gitee/wecom/oidc，唯一）
  */

@@ -6,7 +6,7 @@
  * `children` 是自引用递归字段，使用 `#[schema(no_recursion)]` 属性
  * 让 utoipa 生成 `$ref` 自引用，打破递归（utoipa 5.1.0+ 官方方案）。
  */
-export type Model = { menuId: number, menuName: string, parentId: number | null, orderNum: number | null, path: string | null, component: string | null, query: string | null, routeName: string | null, isFrame: string | null, isCache: string | null, menuType: string | null, visible: string | null, status: string | null, perms: string | null, 
+export type SysMenu = { menuId: number, menuName: string, parentId: number | null, orderNum: number | null, path: string | null, component: string | null, query: string | null, routeName: string | null, isFrame: string | null, isCache: string | null, menuType: string | null, visible: string | null, status: string | null, perms: string | null, 
 /**
  * i18n 翻译 key（可选），用于前端按当前 locale 翻译菜单标题。
  * 内置菜单由 migration 填充（如 "menu.user"）；自定义菜单留空，前端回退到 menu_name 原文。

@@ -49,6 +49,7 @@ const ROUTES = [
   '/system/msg/template',
   '/system/msg/log',
   '/system/oauth/provider',
+  '/system/oauth/client',
   '/system/report/index',
   '/system/report/sub',
   '/system/webHook/index',

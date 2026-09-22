@@ -116,6 +116,53 @@ export default {
       noProvider: '暂未开放第三方登录'
     }
   },
+  sso: {
+    title: 'SSO 客户端',
+    tip: '本系统作为 OIDC 授权服务器：在此注册第三方应用（Relying Party）并配置其回调地址、授权范围与授权类型。',
+    clientName: '客户端名称',
+    clientId: '客户端 ID',
+    clientSecret: '客户端密钥',
+    clientIdAuto: '留空则自动生成',
+    logoUri: 'Logo 地址',
+    redirectUris: '回调地址',
+    redirectUrisPh: '每行一个 https 回调地址',
+    scopes: '授权范围',
+    grantTypes: '授权类型',
+    grantTypesTip: 'authorization_code 为必填项，始终启用',
+    consentRequired: '需要同意',
+    enabled: '状态',
+    remark: '备注',
+    createTime: '创建时间',
+    deleteTip: '是否确认删除 SSO 客户端 "{ids}"？',
+    rule: {
+      nameRequired: '请输入客户端名称',
+      redirectRequired: '请至少填写一个回调地址',
+      scopeRequired: '请至少选择一个授权范围'
+    },
+    secret: {
+      title: '客户端密钥',
+      warning: '请立即复制并妥善保存客户端密钥，关闭后将无法再次查看',
+      done: '我已保存',
+      copied: '已复制{label}',
+      copyFailed: '复制失败，请手动选择后复制'
+    },
+    consent: {
+      title: '授权 "{client}"',
+      subtitle: '当前登录用户：{user}',
+      willAllow: '该应用将获得以下权限：',
+      approve: '授权',
+      deny: '拒绝',
+      invalidTitle: '授权请求无效',
+      invalidTip: '缺少必要的授权参数，请返回重试',
+      backHome: '返回首页',
+      noRedirect: '未获取到跳转地址，请返回重试',
+      scope: {
+        openid: '查看你的基本身份信息',
+        profile: '查看你的个人资料',
+        email: '查看你的邮箱地址'
+      }
+    }
+  },
   lock: {
     title: '系统已锁定',
     tip: '系统已锁定，请输入密码解锁',

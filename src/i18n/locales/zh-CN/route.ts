@@ -20,6 +20,7 @@ export default {
     dictData: '字典数据',
     jobLog: '调度日志',
     editGenConfig: '修改生成配置',
-    monitorServer: '服务器监控'
+    monitorServer: '服务器监控',
+    ssoConsent: 'SSO 授权同意'
   }
 }

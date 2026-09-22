@@ -118,6 +118,53 @@ export default {
       noProvider: 'Third-party login is not available yet'
     }
   },
+  sso: {
+    title: 'SSO Client',
+    tip: 'This system acts as an OIDC authorization server: register third-party applications (Relying Parties) here and configure their redirect URIs, scopes and grant types.',
+    clientName: 'Client Name',
+    clientId: 'Client ID',
+    clientSecret: 'Client Secret',
+    clientIdAuto: 'Leave blank to auto-generate',
+    logoUri: 'Logo URL',
+    redirectUris: 'Redirect URIs',
+    redirectUrisPh: 'One https redirect URI per line',
+    scopes: 'Scopes',
+    grantTypes: 'Grant Types',
+    grantTypesTip: 'authorization_code is required and always enabled',
+    consentRequired: 'Consent Required',
+    enabled: 'Status',
+    remark: 'Remark',
+    createTime: 'Created At',
+    deleteTip: 'Are you sure you want to delete SSO client "{ids}"?',
+    rule: {
+      nameRequired: 'Please enter the client name',
+      redirectRequired: 'Please enter at least one redirect URI',
+      scopeRequired: 'Please select at least one scope'
+    },
+    secret: {
+      title: 'Client Secret',
+      warning: 'Copy and store the client secret now. It cannot be viewed again after this dialog is closed.',
+      done: 'I have saved it',
+      copied: 'Copied {label}',
+      copyFailed: 'Copy failed, please select and copy manually'
+    },
+    consent: {
+      title: 'Authorize "{client}"',
+      subtitle: 'Current user: {user}',
+      willAllow: 'This application will be granted the following:',
+      approve: 'Authorize',
+      deny: 'Deny',
+      invalidTitle: 'Invalid authorization request',
+      invalidTip: 'Required authorization parameters are missing, please go back and retry',
+      backHome: 'Back to Home',
+      noRedirect: 'No redirect URL returned, please go back and retry',
+      scope: {
+        openid: 'View your basic identity information',
+        profile: 'View your profile',
+        email: 'View your email address'
+      }
+    }
+  },
   lock: {
     title: 'System Locked',
     tip: 'System is locked, please enter password to unlock',
