@@ -144,6 +144,7 @@
 import { Document } from '@element-plus/icons-vue'
 import type { UploadRequestOptions } from 'element-plus'
 import request from '@/utils/request'
+import download from '@/plugins/download'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -271,35 +272,16 @@ async function handleUpload(options: UploadRequestOptions): Promise<void> {
   }
 }
 
-/** 获取完整 URL（相对路径自动拼接 origin） */
+/** 获取完整 URL（相对路径自动拼接 origin，s3 后端返回的已是绝对 URL） */
 function getFullUrl(url: string): string {
   return new URL(url, window.location.origin).href
 }
 
 function handleDownload(row: FileInfo): void {
-  const target = getFullUrl(row.url)
-  // F-13：仅允许同源或相对路径，拦截外链直链下载（防止开放重定向/钓鱼）
-  let isExternal = false
-  try {
-    const parsed = new URL(target, window.location.origin)
-    if (parsed.hostname !== window.location.hostname) {
-      isExternal = true
-    }
-  } catch {
-    isExternal = true
-  }
-  if (isExternal) {
-    modal.msgWarning(t('file.tip.externalLinkBlocked'))
-    return
-  }
-  // 通过创建临时 a 标签下载
-  const link = document.createElement('a')
-  link.href = target
-  link.download = row.fileName
-  link.target = '_blank'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  // 统一走 /common/download 存储后端代理（local 读盘 / s3 下载对象），
+  // 服务端按 fileName 做路径穿越校验并从受控目录读取，两种后端行为一致；
+  // 不再直接跳转子资源 URL（既规避 s3 跨域直链被拦截导致下载失效，也杜绝信任外部 url）。
+  download.name(row.fileName, false)
 }
 
 function handleCopyUrl(row: FileInfo): void {

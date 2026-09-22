@@ -4333,6 +4333,46 @@ async function testFeature26(page) {
   }
   record(26, 'DELETE /system/file/delete', fileDeleteOk, `fileName=${fileUploadedName}`)
 
+  // ---------- 步骤 10.5：/common/download 正向回环（存储后端读路径 + delete 生效） ----------
+  // 覆盖此前仅测拒绝分支的缺口：证明 local 后端 save→read→delete 全链路跑通，
+  // 这也是前端文件页下载按钮改走的统一代理端点（多后端 local/s3 行为一致）。
+  let downloadRoundtripOk = false
+  let downloadRoundtripDetail = ''
+  try {
+    const content = `yebot-download-roundtrip-${uniq}`
+    const up = buildMultipart('file', `dl-${uniq}.txt`, new TextEncoder().encode(content), 'text/plain')
+    const upResp = await fetch(`${CONFIG.backendUrl}/common/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': up.contentType },
+      body: up.body
+    })
+    const upData = await upResp.json().catch(() => null)
+    const dlName = upData?.newFileName || ''
+    // 正向下载（不删除）：期望 200 + 内容一致 + download-filename 头
+    const dlResp = await fetch(
+      `${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(dlName)}&delete=false`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    )
+    const dlText = await dlResp.text().catch(() => '')
+    const dfn = dlResp.headers.get('download-filename') || ''
+    const getOk = dlResp.status === 200 && dlText === content && dfn.length > 0
+    // delete=true 下载后再取应 404（证明删除生效、读路径与删除均走存储后端）
+    await fetch(`${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(dlName)}&delete=true`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    const after = await fetch(
+      `${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(dlName)}&delete=false`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    )
+    const afterData = await after.json().catch(() => null)
+    const deleteApplied = after.status === 404 || afterData?.code === 404
+    downloadRoundtripOk = getOk && deleteApplied
+    downloadRoundtripDetail = `200回读一致=${getOk}, 删除后404=${deleteApplied}, name=${dlName}`
+  } catch (err) {
+    downloadRoundtripDetail = `异常: ${err.message.slice(0, 80)}`
+  }
+  record(26, '/common/download 正向回环（读+删除生效）', downloadRoundtripOk, downloadRoundtripDetail)
+
   // ---------- 步骤 11：综合判断 ----------
   const allChecks = [
     results.find((r) => r.feature === 26 && r.name === 'admin 登录获取 token')?.passed || false,
@@ -4345,7 +4385,8 @@ async function testFeature26(page) {
     results.find((r) => r.feature === 26 && r.name === 'resource 必须以 uploads/ 开头')?.passed || false,
     results.find((r) => r.feature === 26 && r.name === 'POST /system/file/upload 上传')?.passed || false,
     results.find((r) => r.feature === 26 && r.name === 'GET /system/file/list')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'DELETE /system/file/delete')?.passed || false
+    results.find((r) => r.feature === 26 && r.name === 'DELETE /system/file/delete')?.passed || false,
+    results.find((r) => r.feature === 26 && r.name === '/common/download 正向回环（读+删除生效）')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
