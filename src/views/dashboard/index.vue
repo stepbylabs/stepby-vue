@@ -414,7 +414,9 @@ watch(
 )
 
 function goToOperLog() {
-  router.push('/monitor/operlog')
+  // 操作日志菜单动态注册路径为 /system/log/operlog（组件 monitor/operlog/index），
+  // 旧值 /monitor/operlog 并非已注册路由，会命中 404 兜底页。
+  router.push('/system/log/operlog')
 }
 
 onMounted(async () => {

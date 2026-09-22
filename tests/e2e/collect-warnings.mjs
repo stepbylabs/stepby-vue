@@ -19,13 +19,17 @@ const USER = process.env.YEBOT_TEST_USER || 'admin'
 const PASS = process.env.YEBOT_TEST_PASS || 'admin123'
 
 // 覆盖 sys_menu 中已注册（status=0）的全部可达功能页面。
-// 路径按 RuoYi 规则组合：/父目录path/子path。动态菜单路径的唯一权威来源是 sys_menu，
-// 手写猜测会命中 404 兜底页造成误报（如 /message/* 实为 /system/msg/*，
-// changelog/about 在 /help-center 下，webHook/authRole/server 并非可直达的已注册菜单页）。
+// 路径权威来源是后端 getRouters 组合结果（/父目录path/子path），不是手写猜测。
+// 静态猜测会命中 404 兜底页造成误报：例如 operlog 实为 /system/log/operlog，
+// backup/task 在 /monitor 下，about/help/changelog/shortcuts 在 /tool 下，
+// workbench 实为 /workbench/index。/index 与 /user/profile/* 为"隐藏但可直达"页，保留。
 const ROUTES = [
+  // 首页（隐藏但可直达）
   '/index',
-  '/dashboard/index',
-  '/dashboard/workbench',
+  // 仪表盘 / 工作台
+  '/dashboard',
+  '/workbench/index',
+  // 系统管理
   '/system/user',
   '/system/role',
   '/system/dept',
@@ -36,6 +40,8 @@ const ROUTES = [
   '/system/notice',
   '/system/notice-center',
   '/system/file',
+  '/system/dashboard',
+  '/system/log/operlog',
   '/system/msg/channel',
   '/system/msg/template',
   '/system/msg/log',
@@ -44,27 +50,30 @@ const ROUTES = [
   '/system/report/sub',
   '/system/webHook/index',
   '/system/webHook/log',
+  // 系统监控
   '/monitor/online',
   '/monitor/job',
   '/monitor/cache',
   '/monitor/audit-dashboard',
   '/monitor/ip-location',
   '/monitor/health',
-  '/monitor/operlog',
   '/monitor/logininfor',
   '/monitor/logtail',
   '/monitor/observability',
   '/monitor/rateLimit',
+  '/monitor/backup',
+  '/monitor/task',
+  '/monitor/frontendError',
+  // 系统工具
   '/tool/build',
   '/tool/gen',
   '/tool/swagger',
   '/tool/http-debugger',
-  '/tool/backup',
-  '/tool/task',
-  '/help-center/shortcuts',
-  '/help-center/help',
-  '/help-center/changelog',
-  '/help-center/about',
+  '/tool/shortcuts',
+  '/tool/help',
+  '/tool/changelog',
+  '/tool/about',
+  // 个人中心（隐藏但可直达）
   '/user/profile/index',
   '/user/profile/msgPref',
   '/user/profile/oauth',

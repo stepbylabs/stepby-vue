@@ -102,7 +102,7 @@ const allQuickEntries: QuickEntry[] = [
     permission: 'system:notice:list'
   },
   {
-    path: '/tool/backup',
+    path: '/monitor/backup',
     titleKey: 'dashboard.quickEntry.backup',
     descKey: 'dashboard.quickEntry.backupDesc',
     icon: markRaw(Files),
@@ -110,7 +110,7 @@ const allQuickEntries: QuickEntry[] = [
     permission: 'system:backup:list'
   },
   {
-    path: '/monitor/operlog',
+    path: '/system/log/operlog',
     titleKey: 'dashboard.quickEntry.operLog',
     descKey: 'dashboard.quickEntry.operLogDesc',
     icon: markRaw(Document),
@@ -133,7 +133,7 @@ const allQuickEntries: QuickEntry[] = [
     permission: 'system:config:list'
   },
   {
-    path: '/help-center/about',
+    path: '/tool/about',
     titleKey: 'dashboard.quickEntry.about',
     descKey: 'dashboard.quickEntry.aboutDesc',
     icon: markRaw(InfoFilled),

@@ -123,7 +123,7 @@
                       </div>
                     </div>
                   </div>
-                  <el-button type="primary" text @click="goTo('/help-center/shortcuts')">
+                  <el-button type="primary" text @click="goTo('/tool/shortcuts')">
                     {{ t('help.sections.shortcuts.viewAll') }} →
                   </el-button>
                 </div>

@@ -220,7 +220,8 @@ export function useComplianceReport(options: UseComplianceReportOptions) {
     )
     if (!bt) return
     router.push({
-      path: '/monitor/operlog',
+      // 操作日志菜单动态注册路径为 /system/log/operlog（旧值 /monitor/operlog 非注册路由，命中 404）
+      path: '/system/log/operlog',
       query: { businessType: String(bt.businessType) }
     })
   }

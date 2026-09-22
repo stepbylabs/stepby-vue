@@ -103,10 +103,13 @@ directive(app)
 // 全局错误处理（P0-68）
 // 抽象为 errorReporter.report()，保留 console.error 输出，预留 Sentry 等上报服务接入点
 import { errorReporter } from '@/utils/errorReporter'
+import { setupFrontendErrorReporter } from '@/utils/frontendErrorReporter'
 
 app.config.errorHandler = (err: unknown, instance: { $options?: { name?: string } } | null, info: string) => {
   errorReporter.report(err, {
     type: 'Vue ErrorHandler',
+    source: 'vue',
+    level: 'error',
     component: instance?.$options?.name ?? 'Unknown',
     info
   })
@@ -121,6 +124,8 @@ window.addEventListener(
     if (event instanceof ErrorEvent) {
       errorReporter.report(event.error || event.message, {
         type: 'Global Error',
+        source: 'global',
+        level: 'error',
         filename: event.filename,
         lineno: event.lineno,
         colno: event.colno
@@ -138,6 +143,8 @@ window.addEventListener(
       }
       errorReporter.report(`Resource load failed: ${tagName} ${src || '(unknown)'}`, {
         type: 'Resource Error',
+        source: 'resource',
+        level: 'warning',
         tagName,
         src
       })
@@ -148,11 +155,16 @@ window.addEventListener(
 
 window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
   errorReporter.report(event.reason, {
-    type: 'Unhandled Rejection'
+    type: 'Unhandled Rejection',
+    source: 'unhandledrejection',
+    level: 'error'
   })
 })
 
 app.mount('#app')
+
+// Tier-S #1：接入前端异常与性能监控持久化上报（在挂载后启动，采集 Vue/全局/资源/拒绝错误 + Web Vitals）
+setupFrontendErrorReporter()
 
 // PWA 支持（P3-23）：注册 Service Worker（生产构建生效；开发模式为 no-op），
 // 支持"安装为桌面应用 / 添加到主屏"并开启离线缓存优先。

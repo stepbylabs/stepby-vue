@@ -287,10 +287,10 @@ function handleDelete(row?: SysTask) {
 }
 
 /** P2-1: 备份类型任务跳转到备份管理页面
- *  路由为 /tool/backup（菜单 parent_id=3 系统工具目录）
+ *  路由为 /monitor/backup（getRouters 动态注册，组件 system/backup/index）
  */
 function handleViewBackups() {
-  router.push('/tool/backup')
+  router.push('/monitor/backup')
 }
 
 getList()

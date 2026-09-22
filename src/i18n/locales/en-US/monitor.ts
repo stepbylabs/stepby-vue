@@ -624,5 +624,80 @@ export default {
   },
   desensitize: {
     maskedData: 'Masked data'
+  },
+  frontendError: {
+    title: 'Frontend Error Monitoring',
+    search: {
+      level: 'Level',
+      source: 'Source',
+      name: 'Name',
+      createTime: 'Occurred At',
+      phLevel: 'Select level',
+      phSource: 'Select source',
+      phName: 'Enter error or metric name'
+    },
+    column: {
+      id: 'ID',
+      level: 'Level',
+      source: 'Source',
+      name: 'Name',
+      message: 'Message',
+      pageUrl: 'Page',
+      value: 'Metric',
+      userName: 'Reported By',
+      createTime: 'Occurred At',
+      operation: 'Operation'
+    },
+    level: {
+      error: 'Error',
+      warning: 'Warning',
+      info: 'Info'
+    },
+    source: {
+      vue: 'Vue',
+      global: 'Global',
+      unhandledrejection: 'Rejection',
+      resource: 'Resource',
+      api: 'API',
+      download: 'Download',
+      vital: 'Web Vital',
+      other: 'Other'
+    },
+    btn: {
+      detail: 'Detail',
+      clean: 'Clean',
+      delete: 'Delete'
+    },
+    detail: {
+      title: 'Error Detail',
+      basicInfo: 'Basic Info',
+      level: 'Level',
+      source: 'Source',
+      name: 'Name',
+      message: 'Message',
+      stack: 'Stack',
+      pageUrl: 'Page URL',
+      userAgent: 'User Agent',
+      viewport: 'Viewport',
+      value: 'Metric Value',
+      userName: 'Reported By',
+      createTime: 'Occurred At',
+      vitalInfo: 'Web Vital',
+      copy: 'Copy',
+      noData: 'No data'
+    },
+    stats: {
+      title: 'Overview',
+      bySource: 'By Source',
+      daily: 'Daily Error Trend',
+      total: 'Total',
+      days: 'Last {days} days'
+    },
+    tip: {
+      confirmDelete: 'Confirm to delete the selected frontend error records?',
+      confirmClear: 'Confirm to clean frontend error records? All records beyond the retention period will be deleted.',
+      clearSuccess: 'Clean successful',
+      noSelection: 'Please select records to delete first'
+    }
   }
 }

@@ -621,5 +621,80 @@ export default {
   },
   desensitize: {
     maskedData: '已脱敏数据'
+  },
+  frontendError: {
+    title: '前端异常监控',
+    search: {
+      level: '级别',
+      source: '来源',
+      name: '名称',
+      createTime: '发生时间',
+      phLevel: '请选择级别',
+      phSource: '请选择来源',
+      phName: '请输入错误名或指标名'
+    },
+    column: {
+      id: '编号',
+      level: '级别',
+      source: '来源',
+      name: '名称',
+      message: '信息',
+      pageUrl: '页面',
+      value: '指标值',
+      userName: '上报用户',
+      createTime: '发生时间',
+      operation: '操作'
+    },
+    level: {
+      error: '错误',
+      warning: '警告',
+      info: '信息'
+    },
+    source: {
+      vue: 'Vue',
+      global: '全局',
+      unhandledrejection: 'Promise拒绝',
+      resource: '资源',
+      api: '接口',
+      download: '下载',
+      vital: '性能指标',
+      other: '其他'
+    },
+    btn: {
+      detail: '详情',
+      clean: '清空',
+      delete: '删除'
+    },
+    detail: {
+      title: '异常详情',
+      basicInfo: '基本信息',
+      level: '级别',
+      source: '来源',
+      name: '名称',
+      message: '信息',
+      stack: '堆栈',
+      pageUrl: '页面地址',
+      userAgent: '浏览器',
+      viewport: '视口',
+      value: '指标值',
+      userName: '上报用户',
+      createTime: '发生时间',
+      vitalInfo: '性能指标',
+      copy: '复制',
+      noData: '无数据'
+    },
+    stats: {
+      title: '概览统计',
+      bySource: '来源分布',
+      daily: '每日异常趋势',
+      total: '总计',
+      days: '近{days}天'
+    },
+    tip: {
+      confirmDelete: '确认删除选中的前端异常记录？',
+      confirmClear: '确认清空前端异常记录？将删除保留期之外的全部记录。',
+      clearSuccess: '清空成功',
+      noSelection: '请先选择要删除的记录'
+    }
   }
 }

@@ -345,9 +345,9 @@ const shortcuts = computed(() => {
     { path: '/user/profile', icon: User, label: t('workbench.shortcutProfile') },
     { path: '/system/notice-center', icon: Bell, label: t('workbench.shortcutNotice') },
     { path: '/monitor/logininfor', icon: Document, label: t('workbench.shortcutLogin') },
-    { path: '/help-center/shortcuts', icon: Grid, label: t('workbench.shortcutHotkey') },
-    { path: '/help-center/help', icon: Setting, label: t('workbench.shortcutHelp') },
-    { path: '/help-center/about', icon: Edit, label: t('workbench.shortcutAbout') },
+    { path: '/tool/shortcuts', icon: Grid, label: t('workbench.shortcutHotkey') },
+    { path: '/tool/help', icon: Setting, label: t('workbench.shortcutHelp') },
+    { path: '/tool/about', icon: Edit, label: t('workbench.shortcutAbout') },
     { path: '/lock', icon: Lock, label: t('workbench.shortcutLock') }
   ]
   return list

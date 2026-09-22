@@ -85,7 +85,7 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
 INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/49" + "交互动作覆盖：…（INTERACT 模式同样 0/49 稳定）
+# 期望（已验证基线）：末行 "有信号的路由数: 0/51" + "交互动作覆盖：…（INTERACT 模式同样 0/51 稳定）
 ```
 
 - **交互态三段扫描（`INTERACT=1`）**，逐页执行且**只开不提、不污染数据**：
@@ -96,7 +96,7 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   故 (c) 必须用 **`getByRole(button|link, { name: 可访问名正则 })`** 命中，靠 `hasText` 文本匹配会全程空转。
 - **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=..]`，末行汇总
   `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)`。这是**防“扫描器静默空转”的自检**
-  ——`0/49` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
+  ——`0/51` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
   只读 59 次、新增 18 页开 15（工具页内联表单无模态属良性）、行内编辑/查看 12 页开 12，全 0 信号。
 
 - **9 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
@@ -108,9 +108,13 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - **保存态数据失败如何捕获**：交互态采集器**刻意只开不提**（防污染数据），故“保存是否真的失败”由
   `main.mjs` 的真实 CRUD 用例（新增/编辑/删除 + 业务码断言）覆盖；采集器的**业务错误码**信号则被动捕获
   页面自身发起的请求失败。二者分工互补、不重复。
-- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 49 个可达页面。
-  新增页面若被手写猜错会命中 404 兜底页 → 假信号；务必 `SELECT ... FROM sys_menu` 核对（如 `/system/msg/*`、
-  `/help-center/*`、`/system/webHook/*`）。第 8 步记录了“每轮核查是否遗漏采集面”的实践。
+- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 51 个可达页面
+  （43 个注册菜单叶子页 + `/index` + 7 个 `/user/profile/*` 隐藏页）。ROUTES 必须与 `getRouters` 逐条对齐，
+  否则手写猜错会命中 404 兜底页 → 假信号。实测教训：`/monitor/operlog`→`/system/log/operlog`、
+  `/tool/{backup,task}`→`/monitor/{backup,task}`、`/help-center/*`→`/tool/*`、
+  工作台是 `/workbench/index`（非 `/dashboard/workbench`）、数据看板是 `/dashboard`（非 `/dashboard/index`）。
+  务必以 `curl :8080/getRouters`（递归展开 children 组合 full path + component）核对（如 `/system/msg/*`、
+  `/system/webHook/*`）。新增页面（如 `/monitor/frontendError`）必须同步加入 ROUTES，避免“遗漏采集面”。
 
 ### 3.1 Playwright 浏览器安装位置
 

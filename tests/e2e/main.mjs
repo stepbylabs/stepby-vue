@@ -388,7 +388,7 @@ async function testFeature2(page) {
 
 async function testFeature3(page) {
   log('=== 功能 3：数据备份恢复管理 ===')
-  await page.goto(`${CONFIG.frontendUrl}/tool/backup`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat3_backup_list')
@@ -429,7 +429,7 @@ async function testFeature3(page) {
     await screenshot(page, 'feat3_backup_created')
 
     // 重新加载列表以确保表格刷新
-    await page.goto(`${CONFIG.frontendUrl}/tool/backup`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
     await sleep(2500)
   }
 
@@ -571,8 +571,8 @@ async function testFeature4(page) {
 
 async function testFeature5(page) {
   log('=== 功能 5：数据导出字段选择 ===')
-  // operlog 菜单挂在"系统管理/日志管理"下，路径为 /monitor/operlog
-  await page.goto(`${CONFIG.frontendUrl}/monitor/operlog`, { waitUntil: 'networkidle' })
+  // operlog 菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog（API 仍为 /monitor/operlog）
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat5_operlog_list')
@@ -651,7 +651,7 @@ async function testFeature5(page) {
 
 async function testFeature6(page) {
   log('=== 功能 6：任务进度中心 ===')
-  await page.goto(`${CONFIG.frontendUrl}/tool/task`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat6_task_list')
@@ -1006,7 +1006,7 @@ async function testFeature10(page) {
   }
 
   // 步骤 2：验证操作日志页面可访问
-  await page.goto(`${CONFIG.frontendUrl}/monitor/operlog`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat10_operlog_list')
@@ -1318,62 +1318,56 @@ async function testFeature14(page) {
   }
   await sleep(2000)
 
-  // 步骤 1：访问用户管理页面（ry 用户通常无权限）
+  // ry（common 角色）在种子中被授予全部页面菜单与 :add 按钮权限，但**未授予** :remove
+  // （见 m20250711_000001_init 的 sys_role_menu 种子 + m20260721_000003 等新增菜单：
+  //  common 有 system:user:add 却无 system:user:remove / role:remove / rateLimit:remove）。
+  // 因此真实的按钮级权限隔离体现为：新增按钮可见（有 add），删除按钮被 v-hasPermi 移除（无 remove）。
+  // helper：返回页面上"新增/Add""删除/Delete"按钮的可见状态（v-hasPermi 无权限时移除 DOM 节点）
+  const visibleBtnState = () =>
+    page
+      .evaluate(() => {
+        const vis = (kw) =>
+          Array.from(document.querySelectorAll('button.el-button')).some(
+            (b) => (b.textContent || '').replace(/\s+/g, '').includes(kw) && b.offsetParent !== null
+          )
+        return {
+          add: vis('新增') || vis('添加') || vis('Add'),
+          del: vis('删除') || vis('Delete')
+        }
+      })
+      .catch(() => ({ add: false, del: false }))
+
+  // 步骤 1：用户管理页面（ry 有 system:user:add，无 system:user:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_user_page')
+  const userBtns = await visibleBtnState()
+  const userIsolated = userBtns.add && !userBtns.del
+  record(
+    14,
+    '用户管理页面权限隔离',
+    userIsolated,
+    `新增可见=${userBtns.add}, 删除隐藏=${!userBtns.del}（ry 有 add 无 remove）`
+  )
 
-  // 验证：ry 用户应该看到 403/404/无权限提示，或者表格数据为空/按钮被隐藏
-  const hasNoPermission = await page
-    .locator('text=403, text=没有权限, text=No Access, text=没有访问权限')
-    .first()
-    .isVisible({ timeout: 2000 })
-    .catch(() => false)
-  const has404 = await is404Page(page, { timeout: 1000 })
-
-  // 检查"新增"按钮是否被隐藏（v-hasPermi 指令会通过 display:none 隐藏无权限的按钮）
-  // 策略：查找工具栏中的新增按钮（type=primary），检查其 display 样式
-  const addBtnDebug = await page
-    .evaluate(() => {
-      const buttons = Array.from(document.querySelectorAll('button.el-button--primary'))
-      const addBtns = buttons.filter(
-        (b) => (b.textContent || '').includes('新增') || (b.textContent || '').includes('Add')
-      )
-      return addBtns.map((b) => ({
-        text: (b.textContent || '').trim(),
-        display: window.getComputedStyle(b).display,
-        visible: b.offsetParent !== null
-      }))
-    })
-    .catch(() => [])
-  log(`  [调试] 用户管理页面新增按钮: ${JSON.stringify(addBtnDebug)}`)
-
-  const hasAddBtn = addBtnDebug.some((b) => b.display !== 'none' && b.visible)
-
-  // 综合判断：被拒绝访问 OR 按钮被隐藏
-  const isIsolated = hasNoPermission || has404 || !hasAddBtn
-  record(14, '用户管理页面权限隔离', isIsolated, `403=${hasNoPermission}, 404=${has404}, 新增按钮隐藏=${!hasAddBtn}`)
-
-  // 步骤 2：访问角色管理页面
+  // 步骤 2：角色管理页面（ry 有 system:role:add，无 system:role:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_role_page')
+  const roleBtns = await visibleBtnState()
+  const roleIsolated = roleBtns.add && !roleBtns.del
+  record(14, '角色管理页面权限隔离', roleIsolated, `新增可见=${roleBtns.add}, 删除隐藏=${!roleBtns.del}`)
 
-  const roleAddBtn = page.locator('button:has-text("新增"), button:has-text("Add")').first()
-  const hasRoleAddBtn = await roleAddBtn.isVisible({ timeout: 1500 }).catch(() => false)
-  record(14, '角色管理页面权限隔离', !hasRoleAddBtn, `新增按钮隐藏=${!hasRoleAddBtn}`)
-
-  // 步骤 3：访问限流配置页面（ry 用户通常无权限）
+  // 步骤 3：限流配置页面（ry 有 system:rateLimit:add，无 system:rateLimit:remove）
   await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_ratelimit_page')
-
-  const rateLimitAddBtn = page.locator('button:has-text("新增"), button:has-text("Add")').first()
-  const hasRateLimitAddBtn = await rateLimitAddBtn.isVisible({ timeout: 1500 }).catch(() => false)
-  record(14, '限流配置页面权限隔离', !hasRateLimitAddBtn, `新增按钮隐藏=${!hasRateLimitAddBtn}`)
+  const rateLimitBtns = await visibleBtnState()
+  const rateLimitIsolated = rateLimitBtns.add && !rateLimitBtns.del
+  record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除隐藏=${!rateLimitBtns.del}`)
 
   // 步骤 4：访问审计大屏（ry 用户可能无权限）
   await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
@@ -1381,8 +1375,8 @@ async function testFeature14(page) {
   await skipTour(page)
   await screenshot(page, 'feat14_ry_audit_dashboard')
 
-  // 综合判断：至少有一个页面权限隔离生效
-  const isolationWorkingCount = [isIsolated, !hasRoleAddBtn, !hasRateLimitAddBtn].filter(Boolean).length
+  // 综合判断：按钮级"新增可见、删除隐藏"的页面数
+  const isolationWorkingCount = [userIsolated, roleIsolated, rateLimitIsolated].filter(Boolean).length
   record(14, '权限隔离综合验证', isolationWorkingCount >= 1, `生效页面数: ${isolationWorkingCount}/3`)
 
   // 步骤 5：注销 ry 用户，重新登录 admin（恢复测试环境）
@@ -1496,7 +1490,7 @@ async function testFeature16(page) {
     { name: 'config', url: '/system/config' },
     { name: 'notice', url: '/system/notice' },
     { name: 'rateLimit', url: '/monitor/rateLimit' },
-    { name: 'operlog', url: '/monitor/operlog' },
+    { name: 'operlog', url: '/system/log/operlog' },
     { name: 'logininfor', url: '/monitor/logininfor' },
     { name: 'online', url: '/monitor/online' },
     { name: 'job', url: '/monitor/job' },
@@ -1687,7 +1681,7 @@ async function testFeature17(page) {
   // m20260803_000001_restrict_backup_write_perms 收紧了 common 角色的备份写权限
   // ry 仅保留 system:backup:list / system:backup:query 只读权限，
   // system:backup:add / system:backup:edit / system:backup:remove 已全部移除
-  await page.goto(`${CONFIG.frontendUrl}/tool/backup`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat17_ry_backup_page')
@@ -5492,10 +5486,11 @@ async function testFeature33(page) {
   const r404 = await fetchHtml(`${CONFIG.frontendUrl}/nonexistent-test-page-12345`)
   record(33, '404 兜底（不存在的路径返回 SPA HTML）', r404.ok, r404.detail)
 
-  // ---------- 8. /dashboard/index 数据看板页（需登录后访问） ----------
-  // 注意：/dashboard 路由对应 workbench 工作台，/dashboard/index 才是数据看板（含快捷入口）
-  const rDashboard = await visitPageRendered(`${CONFIG.frontendUrl}/dashboard/index`, ['401', '未授权', 'Vue warn'])
-  record(33, '/dashboard/index 数据看板页渲染（登录后）', rDashboard.ok, rDashboard.detail)
+  // ---------- 8. /dashboard 数据看板页（需登录后访问） ----------
+  // 注意：菜单重组后 getRouters 实际路径——/dashboard=数据看板（含快捷入口，组件 dashboard/index），
+  //       /workbench/index=工作台首页。手写旧路径 /dashboard/index、/dashboard/workbench 均命中 404。
+  const rDashboard = await visitPageRendered(`${CONFIG.frontendUrl}/dashboard`, ['401', '未授权', 'Vue warn'])
+  record(33, '/dashboard 数据看板页渲染（登录后）', rDashboard.ok, rDashboard.detail)
 
   // ---------- 9. /user/profile 个人中心页（需登录后访问） ----------
   const rProfile = await visitPageRendered(`${CONFIG.frontendUrl}/user/profile`, ['401', '未授权', 'Vue warn'])
@@ -5633,7 +5628,7 @@ async function testFeature34(page) {
 
   // ---------- 5. 关于系统页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/help-center/about`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/about`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(2000)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasAboutContent =
@@ -5668,8 +5663,8 @@ async function testFeature34(page) {
 
   // ---------- 7. Dashboard 快捷入口渲染验证 ----------
   try {
-    // 注意：/dashboard 是工作台 workbench，/dashboard/index 才是包含快捷入口的数据看板
-    await page.goto(`${CONFIG.frontendUrl}/dashboard/index`, { waitUntil: 'networkidle', timeout: 15000 })
+    // 注意：菜单实际路径——/dashboard=数据看板（含快捷入口），/workbench/index=工作台
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(1500)
     // 检查快捷入口卡片是否存在
     const quickEntryExists = await page.evaluate(() => {
@@ -5706,7 +5701,7 @@ async function testFeature34(page) {
     if (aboutClicked) {
       await sleep(1500)
       const url = page.url()
-      const onAboutPage = url.includes('/help-center/about')
+      const onAboutPage = url.includes('/tool/about')
       record(34, '快捷入口点击跳转（关于系统）', onAboutPage, `点击后 URL: ${url.slice(-40)}`)
     } else {
       record(34, '快捷入口点击跳转（关于系统）', false, '未找到"关于系统"快捷入口元素')
@@ -5717,7 +5712,7 @@ async function testFeature34(page) {
 
   // ---------- 9. 快捷入口权限过滤验证（admin 应看到全部 8 个） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/dashboard/index`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(1500)
     const entryCount = await page.evaluate(() => {
       return document.querySelectorAll('.quick-entry-item').length
@@ -6137,8 +6132,8 @@ async function testFeature36(page) {
 
   // ---------- 4. 个人工作台页面渲染验证 ----------
   try {
-    // 经过菜单重组，工作台 URL 为 /dashboard/workbench（不再是 /workbench/index）
-    await page.goto(`${CONFIG.frontendUrl}/dashboard/workbench`, { waitUntil: 'networkidle', timeout: 15000 })
+    // 工作台菜单实际注册路径为 /workbench/index（旧猜测 /dashboard/workbench 命中 404）
+    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(1500)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     // 问候语 / 快捷入口 / 收藏 / 最近访问等任一关键文案
@@ -6185,7 +6180,7 @@ async function testFeature36(page) {
 
   // ---------- 6. 快捷键中心页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/help-center/shortcuts`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(1200)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasShortcutsContent =
@@ -6243,7 +6238,7 @@ async function testFeature36(page) {
 
   // ---------- 8. 帮助中心页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/help-center/help`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'networkidle', timeout: 15000 })
     await sleep(1200)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasHelpContent =
@@ -6286,18 +6281,21 @@ async function testFeature36(page) {
   // ---------- 10. i18n 翻译完整性验证 ----------
   try {
     // 访问三个页面，验证关键文案渲染
-    // 工作台 URL 经过菜单重组为 /dashboard/workbench（不再是 /workbench/index）
-    await page.goto(`${CONFIG.frontendUrl}/dashboard/workbench`, { waitUntil: 'networkidle' }).catch(() => {})
+    // 工作台实际注册路径为 /workbench/index（旧猜测 /dashboard/workbench 命中 404）
+    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'networkidle' }).catch(() => {})
     await sleep(800)
     const workbenchText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
       return {
-        hasGreeting: /早上好|深夜好|上午好|下午好|晚上好|Good morning|Good evening|Hello/.test(body),
+        hasGreeting:
+          /深夜好|早上好|上午好|中午好|下午好|晚上好|Good (Night|Morning|Forenoon|Noon|Afternoon|Evening)|Hello/i.test(
+            body
+          ),
         hasShortcut: body.includes('快捷入口') || body.includes('Quick Entry') || body.includes('Shortcuts')
       }
     })
 
-    await page.goto(`${CONFIG.frontendUrl}/help-center/shortcuts`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'networkidle' }).catch(() => {})
     await sleep(800)
     const shortcutsText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
@@ -6307,7 +6305,7 @@ async function testFeature36(page) {
       }
     })
 
-    await page.goto(`${CONFIG.frontendUrl}/help-center/help`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'networkidle' }).catch(() => {})
     await sleep(800)
     const helpText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
@@ -6348,7 +6346,7 @@ async function testFeature36(page) {
  * 验证第一批次 UX Bug 修复（U1/U3/U4/U6/U11/U12/U13/U17/U18/U20）
  *
  * 测试内容：
- * - U1: dashboard 跳转操作日志路由正确（/monitor/operlog，菜单实际注册路径）
+ * - U1: dashboard 跳转操作日志路由正确（/system/log/operlog，菜单实际注册路径）
  * - U3: request.ts 超时配置 30s
  * - U4: 网络错误重试按钮（mock 验证代码存在性）
  * - U6: 路由守卫网络错误/403/500 跳转判断（HTTP status 判断）
@@ -6362,10 +6360,10 @@ async function testFeature36(page) {
 async function testFeature37(page) {
   log('=== 功能 37：第一批次 UX Bug 修复验证 ===')
 
-  // ---------- 1. U1 路由修复：dashboard "查看全部" 跳转到 /monitor/operlog ----------
+  // ---------- 1. U1 路由修复：dashboard "查看全部" 跳转到 /system/log/operlog ----------
   try {
-    // 注意：/index 是首页（登录统计图表），/dashboard/index 才是包含"查看全部"按钮的数据看板
-    await page.goto(`${CONFIG.frontendUrl}/dashboard/index`, { waitUntil: 'networkidle' })
+    // 注意：/index 是首页（登录统计图表），/dashboard 才是包含"查看全部"按钮的数据看板
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' })
     await sleep(2500)
     await skipTour(page)
 
@@ -6379,11 +6377,11 @@ async function testFeature37(page) {
       await viewAllBtn.click().catch(() => {})
       await sleep(2000)
       const afterUrl = page.url()
-      // 验证跳转到 /monitor/operlog（菜单实际注册路径）
-      const correctRoute = afterUrl.includes('/monitor/operlog')
+      // 验证跳转到 /system/log/operlog（操作日志菜单实际注册路径）
+      const correctRoute = afterUrl.includes('/system/log/operlog')
       record(37, 'U1 dashboard 跳转操作日志路由', correctRoute, `跳转到: ${afterUrl.replace(CONFIG.frontendUrl, '')}`)
       // 返回 dashboard
-      await page.goto(`${CONFIG.frontendUrl}/dashboard/index`, { waitUntil: 'networkidle' }).catch(() => {})
+      await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' }).catch(() => {})
       await sleep(1000)
     } else {
       // 按钮可能未渲染（权限或网络问题），通过源码检查验证路由正确性
@@ -6395,7 +6393,7 @@ async function testFeature37(page) {
               const r = await fetch(s.src)
               const text = await r.text()
               return {
-                hasCorrectRoute: text.includes('/monitor/operlog')
+                hasCorrectRoute: text.includes('/system/log/operlog')
               }
             }
           }
@@ -6408,7 +6406,7 @@ async function testFeature37(page) {
         37,
         'U1 dashboard 跳转操作日志路由',
         sourceCheck?.hasCorrectRoute,
-        `按钮可见=${btnVisible}, 源码检查 /monitor/operlog=${sourceCheck?.hasCorrectRoute}`
+        `按钮可见=${btnVisible}, 源码检查 /system/log/operlog=${sourceCheck?.hasCorrectRoute}`
       )
     }
   } catch (err) {
@@ -6829,7 +6827,7 @@ async function testFeature37(page) {
  *
  * 验证项：
  * - TierS-1: 动态标题（settings.ts + dynamicTitle.ts 已实现，源码检查）
- * - TierS-2: 更新日志页面（/help-center/changelog 路由可访问 + 页面元素渲染）
+ * - TierS-2: 更新日志页面（/tool/changelog 路由可访问 + 页面元素渲染）
  * - TierS-3: 表格密度（userPrefs.tableDensity + CSS class 应用到 html）
  * - TierS-4: 水印启用（userPrefs.watermarkEnabled + layout v-watermark 指令）
  * - TierS-5: 主题色预设（ThemeEditor + Settings 双入口，源码检查）
@@ -6872,7 +6870,7 @@ async function testFeature38(page) {
 
   // ---------- 2. TierS-2 更新日志页面 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/help-center/changelog`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/tool/changelog`, { waitUntil: 'networkidle' })
     await sleep(2500)
 
     // 验证页面元素存在
@@ -8651,7 +8649,7 @@ async function testFeature43(page) {
   // 43-1 operlog title 列 te() 回退（前端 formatModuleTitle）
   let titleFmtOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/monitor/operlog`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
     await page.waitForTimeout(800)
     // 列表加载后，title 列单元格应渲染为文本（key 翻译或原文回退），不应出现裸 "module." 前缀
     // title 列为第 3 列（index=2，跳过 selection 和 operId），通过 .el-table__row td:nth-child(3) 定位
