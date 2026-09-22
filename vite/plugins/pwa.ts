@@ -43,7 +43,13 @@ export default function createPwaPlugin(): PluginOption {
       // 否则 embed 模式下前端"系统接口"页 iframe 请求 /swagger-ui/index.html 时，SW 会返回
       // 缓存的 SPA index.html（其响应带 X-Frame-Options: DENY），触发浏览器
       // "Refused to display ... in a frame" 拦截。这些路径必须由后端原样返回。
-      navigateFallbackDenylist: [/^\/swagger-ui/, /^\/v3\/api-docs/, /^\/actuator/],
+      // /sso/：OIDC Provider 后端协议端点（/sso/authorize、/sso/logout）。它们是浏览器顶层
+      // 导航（RP 跳转到 authorize），必须打到后端拿 302；若被兜底成 index.html，SPA 路由器
+      // 会命中 404 catch-all，导致已注册过 SW 的浏览器（autoUpdate 即 skipWaiting+clientsClaim）
+      // 永远无法完成 SSO 授权/登出链路。注意 /sso-consent 是 SPA 路由，不能被 /^\/sso\// 匹配。
+      // /oauth2/callback：第三方登录（OAuth 客户端）由提供商 302 回本后端的顶层导航，同理必须
+      // 打到后端换 token 再 302 到 SPA 路由 /oauth-login；/oauth2/ 其余是 API fetch，不受影响。
+      navigateFallbackDenylist: [/^\/sso\//, /^\/oauth2\/callback/, /^\/swagger-ui/, /^\/v3\/api-docs/, /^\/actuator/],
       runtimeCaching: [
         {
           // API：networkFirst（先网络、离线兜底旧缓存），仅 GET 幂等接口

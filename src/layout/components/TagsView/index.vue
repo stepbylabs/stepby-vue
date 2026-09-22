@@ -485,7 +485,9 @@ function toLastView(visitedViews: View[], view?: View): void {
     router.push(latestView.fullPath || latestView.path)
   } else {
     if (view && view.name === 'Dashboard') {
-      router.replace({ path: '/redirect' + view.fullPath })
+      // vue-router 5 对象形式 `path` 不解析内嵌 query（会静默丢弃 ?a=b），
+      // 必须显式分离 path/query 再走 /redirect 中转（与 permission.ts 守卫同一教训）
+      router.replace({ path: '/redirect' + view.path, query: view.query })
     } else {
       router.push('/')
     }

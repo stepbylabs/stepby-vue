@@ -121,7 +121,9 @@ router.beforeEach(async (to, _from) => {
       return true
     }
     doneProgress()
-    return `/login?redirect=${to.fullPath}` // 否则全部重定向到登录页
+    // redirect 必须整体 encodeURIComponent：to.fullPath 含 `?a=1&b=2` 时若不转义，
+    // `&b=2` 会被解析成 /login 自身的顶层 query，登录回跳后目标只剩 `?a=1` → 多参深链丢参。
+    return `/login?redirect=${encodeURIComponent(to.fullPath)}` // 否则全部重定向到登录页
   }
 })
 

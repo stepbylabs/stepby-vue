@@ -10347,6 +10347,128 @@ async function testFeature51(page) {
     record(51, '真实浏览器(SPA)渲染同意页并展示授权按钮', false, '前置失败')
   }
 
+  // ---- 5c. 登出态 RP 全链路（真实浏览器登录回跳，非 API 拼 Cookie）----
+  // 链路：新上下文无登录态 goto /sso/authorize → 后端 302 /login?redirect=<encode(authorize)> →
+  // 登录页真实填表提交 → login.vue 识别后端协议路由 location.href 整页回跳（若误走 router.push
+  // 会命中 SPA 404 catch-all）→ 后端持 Cookie 再 302 /sso-consent → 同意页真实渲染。
+  // 同时回归锁定：SW navigateFallbackDenylist 含 /sso/（登录页已注册 SW 时不得劫持该顶层导航）、
+  // redirect 查询全程不丢。
+  try {
+    if (!created) throw new Error('无已创建客户端')
+    const verifier = randB64url(32)
+    const challenge = challengeOf(verifier)
+    const qs = new URLSearchParams({
+      client_id: created.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid profile',
+      state: randB64url(8),
+      nonce: randB64url(8),
+      code_challenge: challenge,
+      code_challenge_method: 'S256'
+    })
+    const authorizeUrl = `${B}/sso/authorize?${qs.toString()}`
+
+    const BROWSER3 = page.context().browser()
+    const ctx3 = await BROWSER3.newContext() // 全新上下文：无 Admin-Token、无既有 SW 控制
+    const p3 = await ctx3.newPage()
+    await p3.goto(authorizeUrl, { waitUntil: 'networkidle' })
+    const landedLogin = p3.url().includes('/login')
+    const redirectKept = p3.url().includes('redirect=') && decodeURIComponent(p3.url()).includes('/sso/authorize')
+
+    // 真实填表（与 login() 助手同款选择器）
+    const userInput = p3
+      .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+      .first()
+    await userInput.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+    await userInput.fill(CONFIG.username)
+    const passInput = p3
+      .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
+      .first()
+    await passInput.fill(CONFIG.password)
+    const codeInput = p3.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
+    if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
+      await codeInput.fill('1234') // 后端测试环境关闭验证码校验
+    }
+    const loginBtn = p3
+      .locator(
+        'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"], .el-button--primary'
+      )
+      .first()
+    await loginBtn.click()
+
+    // 登录后应经 /sso/authorize 整页回跳落到同意页（location.href 若被 SW 劫持会停在 404/登录页）
+    await p3.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 20000 }).catch(() => {})
+    await p3.waitForTimeout(1500)
+    const onConsent3 = p3.url().includes('/sso-consent')
+    const approveVisible3 = await p3
+      .locator(
+        'button:has-text("允许"), button:has-text("同意"), button:has-text("授权"), button:has-text("Allow"), button:has-text("Approve")'
+      )
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false)
+    const bodyHas3 = await p3.evaluate(() => document.body.innerText).catch(() => '')
+    const notInvalid3 = !bodyHas3.includes('授权请求无效') && !bodyHas3.includes('Invalid')
+    await ctx3.close()
+    record(
+      51,
+      '登出态 RP 全链路：真实登录后端路由回跳并渲染同意页',
+      landedLogin && redirectKept && onConsent3 && approveVisible3 && notInvalid3,
+      `登录页=${landedLogin}, redirect未丢=${redirectKept}, 同意页=${onConsent3}, 授权按钮=${approveVisible3}, 非无效态=${notInvalid3}`
+    )
+  } catch (err) {
+    record(51, '登出态 RP 全链路：真实登录后端路由回跳并渲染同意页', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 5d. 多参深链登录回跳不丢参（permission.ts encodeURIComponent(to.fullPath) 回归）----
+  // 未登录直达带多个查询参数的受保护路由：守卫 302 到 /login 时 redirect 必须**整体编码**，
+  // 否则 `&deptId=…` 会漏成 /login 自身的顶层 query，登录后目标只剩第一个参数。
+  // 断言链：redirect 解码后完整含三参 → 真实登录 → 落回原路由且三个查询参数全部保留。
+  try {
+    const deepLink = '/system/user?pageNum=2&deptId=3&tab=staff'
+    const BROWSER4 = page.context().browser()
+    const ctx4 = await BROWSER4.newContext() // 无登录态、无 SW 控制
+    const p4 = await ctx4.newPage()
+    await p4.goto(`${B}${deepLink}`, { waitUntil: 'networkidle' })
+    const onLogin4 = p4.url().includes('/login')
+    // redirect 查询解码一次必须等于完整深链（含 & 分隔的三个参数）
+    const gotRedirect = await p4.evaluate(() => new URLSearchParams(location.search).get('redirect'))
+    const redirectIntact = gotRedirect === deepLink
+    const userInput = p4
+      .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+      .first()
+    await userInput.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+    await userInput.fill(CONFIG.username)
+    await p4
+      .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
+      .first()
+      .fill(CONFIG.password)
+    const codeInput4 = p4.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
+    if (await codeInput4.isVisible({ timeout: 500 }).catch(() => false)) {
+      await codeInput4.fill('1234')
+    }
+    await p4
+      .locator(
+        'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"], .el-button--primary'
+      )
+      .first()
+      .click()
+    await p4.waitForURL((u) => u.toString().includes('/system/user'), { timeout: 20000 }).catch(() => {})
+    await p4.waitForTimeout(1000)
+    const finalUrl = p4.url()
+    const paramsKept = finalUrl.includes('pageNum=2') && finalUrl.includes('deptId=3') && finalUrl.includes('tab=staff')
+    await ctx4.close()
+    record(
+      51,
+      '多参深链登录回跳全程保留查询参数',
+      onLogin4 && redirectIntact && paramsKept,
+      `登录页=${onLogin4}, redirect完整=${redirectIntact}, 三参保留=${paramsKept}`
+    )
+  } catch (err) {
+    record(51, '多参深链登录回跳全程保留查询参数', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
   // ---- 6. authorize 返回重定向（会话 Cookie，需要同意） ----
   let apiVerifier = null
   let apiChallenge = null

@@ -142,12 +142,12 @@ import { errorHub } from '@/utils/errorHub'
 import { getCodeImg } from '@/api/login'
 import { listEnabledProviders, getAuthorizeUrl, bindOauth } from '@/api/oauth'
 import { takePendingHandoff } from '@/utils/oauth'
-import { isSafeRedirect } from '@/utils/redirect'
+import { resolveLoginTarget } from '@/utils/redirect'
 import Cookies from 'js-cookie'
 import useUserStore from '@/store/modules/user'
 import defaultSettings from '@/settings'
 import type { LoginForm } from '@/types/api/login'
-import type { RouteLocationNormalized, LocationQueryRaw } from 'vue-router'
+import type { RouteLocationNormalized } from 'vue-router'
 import type { EnabledOauthProvider } from '@/types/api/oauth'
 
 const title = import.meta.env.VITE_APP_TITLE
@@ -281,16 +281,16 @@ function handleLogin(): void {
                 // 绑定失败不阻塞登录，稍后可到个人中心「OAuth 绑定」页手动处理
               })
           }
-          const query = route.query
-          const otherQueryParams = Object.keys(query).reduce((acc: LocationQueryRaw, cur) => {
-            if (cur !== 'redirect') {
-              acc[cur] = query[cur]
-            }
-            return acc
-          }, {} as LocationQueryRaw)
-          // F1 审计加固：校验用户可控的 redirect，防止开放重定向 / 协议相对路径
-          const target = isSafeRedirect(redirect.value) ? (redirect.value as string) : '/'
-          router.push({ path: target, query: otherQueryParams }).catch(() => {})
+          // F1 审计加固：校验用户可控的 redirect，防止开放重定向 / 协议相对路径；
+          // 后端协议路由（SSO authorize/logout）非 SPA 路由，必须整页跳转交给后端
+          // （判定逻辑与原因见 utils/redirect.ts resolveLoginTarget，已有单测钉死）。
+          const { kind, target } = resolveLoginTarget(redirect.value)
+          if (kind === 'backend') {
+            window.location.href = target
+            return
+          }
+          // SPA 路由：以字符串形式导航，保留 target 内嵌的 query/hash（对象 path 形式会丢查询）。
+          router.push(target).catch(() => {})
         })
         .catch((err: Error & { code?: number }) => {
           loading.value = false
