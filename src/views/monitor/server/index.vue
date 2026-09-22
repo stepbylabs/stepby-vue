@@ -36,9 +36,9 @@
                 </template>
               </el-progress>
               <div class="stat-info min-w-0 flex-1">
-                <div class="stat-label text-text-secondary">{{ t('monitor.server.stat.cpuUsage') }}</div>
+                <div class="stat-label text-text-secondary">{{ t('server.stat.cpuUsage') }}</div>
                 <div class="stat-desc mt-1 text-sm text-text-regular">
-                  {{ t('monitor.server.stat.cpuNum') }} {{ server?.cpu.cpuNum ?? '-' }}
+                  {{ t('server.stat.cpuNum') }} {{ server?.cpu.cpuNum ?? '-' }}
                 </div>
               </div>
             </div>
@@ -59,7 +59,7 @@
                 </template>
               </el-progress>
               <div class="stat-info min-w-0 flex-1">
-                <div class="stat-label text-text-secondary">{{ t('monitor.server.stat.memUsage') }}</div>
+                <div class="stat-label text-text-secondary">{{ t('server.stat.memUsage') }}</div>
                 <div class="stat-desc mt-1 text-sm text-text-regular">
                   {{ num(server?.mem.used) }} / {{ num(server?.mem.total) }} G
                 </div>
@@ -74,12 +74,12 @@
                 <el-icon><Timer /></el-icon>
               </div>
               <div class="stat-info min-w-0 flex-1">
-                <div class="stat-label text-text-secondary">{{ t('monitor.server.stat.runTime') }}</div>
+                <div class="stat-label text-text-secondary">{{ t('server.stat.runTime') }}</div>
                 <div class="stat-value text-xl font-semibold leading-tight text-text-primary break-all">
                   {{ server?.jvm.runTime || '-' }}
                 </div>
                 <div class="stat-desc mt-1 text-sm text-text-regular">
-                  {{ t('monitor.server.stat.startTime') }} {{ server?.jvm.startTime || '-' }}
+                  {{ t('server.stat.startTime') }} {{ server?.jvm.startTime || '-' }}
                 </div>
               </div>
             </div>
@@ -92,7 +92,7 @@
                 <el-icon><Cpu /></el-icon>
               </div>
               <div class="stat-info min-w-0 flex-1">
-                <div class="stat-label text-text-secondary">{{ t('monitor.server.stat.runtime') }}</div>
+                <div class="stat-label text-text-secondary">{{ t('server.stat.runtime') }}</div>
                 <div class="stat-value text-lg font-semibold leading-tight text-text-primary truncate">
                   {{ server?.jvm.name || '-' }}
                 </div>
@@ -114,19 +114,19 @@
             <div class="card-header flex items-center justify-between font-medium">
               <span>
                 <el-icon><TrendCharts /></el-icon>
-                {{ t('monitor.server.chart.title') }}
+                {{ t('server.chart.title') }}
               </span>
               <div class="card-header-actions flex items-center gap-3">
                 <el-switch
                   v-model="autoRefresh"
-                  :active-text="t('monitor.server.chart.autoRefresh')"
+                  :active-text="t('server.chart.autoRefresh')"
                   @change="toggleAutoRefresh"
                 />
                 <el-button type="primary" link icon="Refresh" :loading="loading" @click="loadServer(true)">
-                  {{ t('monitor.server.btn.refresh') }}
+                  {{ t('server.btn.refresh') }}
                 </el-button>
                 <span v-if="lastUpdate" class="last-update text-xs text-text-secondary">
-                  {{ t('monitor.server.chart.lastUpdate') }}{{ lastUpdate }}
+                  {{ t('server.chart.lastUpdate') }}{{ lastUpdate }}
                 </span>
               </div>
             </div>
@@ -149,22 +149,22 @@
           <template #header>
             <span>
               <el-icon><Coin /></el-icon>
-              {{ t('monitor.server.diskInfo') }}
+              {{ t('server.diskInfo') }}
             </span>
           </template>
           <el-table :data="diskList" stripe size="small">
-            <el-table-column prop="dirName" :label="t('monitor.server.column.dirName')" min-width="110" />
-            <el-table-column prop="sysTypeName" :label="t('monitor.server.column.sysTypeName')" min-width="90" />
-            <el-table-column :label="t('monitor.server.column.total')" width="90" align="right">
+            <el-table-column prop="dirName" :label="t('server.column.dirName')" min-width="110" />
+            <el-table-column prop="sysTypeName" :label="t('server.column.sysTypeName')" min-width="90" />
+            <el-table-column :label="t('server.column.total')" width="90" align="right">
               <template #default="{ row }">{{ num(row.total) }}</template>
             </el-table-column>
-            <el-table-column :label="t('monitor.server.column.used')" width="90" align="right">
+            <el-table-column :label="t('server.column.used')" width="90" align="right">
               <template #default="{ row }">{{ num(row.used) }}</template>
             </el-table-column>
-            <el-table-column :label="t('monitor.server.column.free')" width="90" align="right">
+            <el-table-column :label="t('server.column.free')" width="90" align="right">
               <template #default="{ row }">{{ num(row.free) }}</template>
             </el-table-column>
-            <el-table-column :label="t('monitor.server.column.usage')" min-width="150">
+            <el-table-column :label="t('server.column.usage')" min-width="150">
               <template #default="{ row }">
                 <el-progress
                   :percentage="progressPercent(Number(row.usage))"
@@ -181,41 +181,41 @@
           <template #header>
             <span>
               <el-icon><Monitor /></el-icon>
-              {{ t('monitor.server.runtimeInfo') }}
+              {{ t('server.runtimeInfo') }}
             </span>
           </template>
           <el-descriptions :column="2" border>
-            <el-descriptions-item :label="t('monitor.server.column.computerName')">
+            <el-descriptions-item :label="t('server.column.computerName')">
               {{ server?.sys.computerName || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.computerIp')">
+            <el-descriptions-item :label="t('server.column.computerIp')">
               {{ server?.sys.computerIp || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.osName')">
+            <el-descriptions-item :label="t('server.column.osName')">
               {{ server?.sys.osName || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.osArch')">
+            <el-descriptions-item :label="t('server.column.osArch')">
               {{ server?.sys.osArch || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.runtimeName')">
+            <el-descriptions-item :label="t('server.column.runtimeName')">
               {{ server?.jvm.name || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.version')">
+            <el-descriptions-item :label="t('server.column.version')">
               {{ server?.jvm.version || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.startTime')">
+            <el-descriptions-item :label="t('server.column.startTime')">
               {{ server?.jvm.startTime || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.runTime')">
+            <el-descriptions-item :label="t('server.column.runTime')">
               {{ server?.jvm.runTime || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.userDir')" :span="2">
+            <el-descriptions-item :label="t('server.column.userDir')" :span="2">
               {{ server?.sys.userDir || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.home')" :span="2">
+            <el-descriptions-item :label="t('server.column.home')" :span="2">
               {{ server?.jvm.home || '-' }}
             </el-descriptions-item>
-            <el-descriptions-item :label="t('monitor.server.column.inputArgs')" :span="2">
+            <el-descriptions-item :label="t('server.column.inputArgs')" :span="2">
               <span class="break-all">{{ server?.jvm.inputArgs || '-' }}</span>
             </el-descriptions-item>
           </el-descriptions>
@@ -319,7 +319,7 @@ async function renderChart(): Promise<void> {
   if (!chart) return
   const option: EChartsOption = {
     tooltip: { trigger: 'axis' },
-    legend: { data: [t('monitor.server.chart.cpu'), t('monitor.server.chart.mem')], right: 10 },
+    legend: { data: [t('server.chart.cpu'), t('server.chart.mem')], right: 10 },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: { type: 'category', boundaryGap: false, data: times.value },
     yAxis: {
@@ -331,7 +331,7 @@ async function renderChart(): Promise<void> {
     },
     series: [
       {
-        name: t('monitor.server.chart.cpu'),
+        name: t('server.chart.cpu'),
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -341,7 +341,7 @@ async function renderChart(): Promise<void> {
         itemStyle: { color: readCssVar('--el-color-primary', '#409eff') }
       },
       {
-        name: t('monitor.server.chart.mem'),
+        name: t('server.chart.mem'),
         type: 'line',
         smooth: true,
         showSymbol: false,

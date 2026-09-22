@@ -950,6 +950,7 @@ export default {
       targetUrl: 'Target URL',
       contentType: 'Content Type',
       timeoutSecs: 'Timeout (s)',
+      status: 'Status',
       createBy: 'Created By',
       createTime: 'Create Time'
     },

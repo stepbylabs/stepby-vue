@@ -1,14 +1,17 @@
 /**
- * 逐页采集运行时信号：console(warning/error)、未捕获异常(pageerror)、
- * 请求失败(requestfailed)、HTTP 4xx/5xx 响应(response)、element-plus toast、
- * 弹窗(MessageBox/Dialog)、真实 404 页面。
+ * 逐页采集运行时信号（11 类）：console(warning/error)、未捕获异常(pageerror)、
+ * 请求失败(requestfailed)、HTTP 4xx/5xx 响应(response)、JSON 业务错误码、
+ * element-plus toast、弹窗(MessageBox/Dialog)、真实 404 页面、后端日志（人工关联），
+ * 以及本轮新增的两类"静默渲染缺陷"：
+ *   #10 i18n 未翻译键泄漏（t() 词条缺失时回退渲染裸键，如 "monitor.fooBar"）、
+ *   #11 图片解码失败（<img> 拿到 200 却 naturalWidth=0，被 SPA fallback 顶成 HTML 等）。
  *
  * 用于分析"界面警告/错误"的根因，覆盖每一轮 E2E 循环中"可能有用的信息"。
  *
  * 运行：
  *   PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers \
  *   node collect-warnings.mjs
- * 环境变量覆盖：FRONTEND_URL / YEBOT_TEST_USER / YEBOT_TEST_PASS。
+ * 环境变量覆盖：FRONTEND_URL / YEBOT_TEST_USER / YEBOT_TEST_PASS / INTERACT=1。
  */
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
@@ -64,6 +67,7 @@ const ROUTES = [
   '/monitor/backup',
   '/monitor/task',
   '/monitor/frontendError',
+  '/monitor/server',
   // 系统工具
   '/tool/build',
   '/tool/gen',
@@ -82,6 +86,116 @@ const ROUTES = [
   '/user/profile/userAvatar',
   '/user/profile/userInfo'
 ]
+
+// —— 采集面 #10/#11（本轮新增，覆盖既有 9 类信号抓不到的"静默渲染缺陷"）——
+//
+// #10 i18n 未翻译键泄漏：当 t('ns.key') 因词条缺失而失败时，vue-i18n 会把原始键
+//     字符串（如 "monitor.frontendError"）当作文本回退渲染出来。这类缺陷不产生 console
+//     error / HTTP 错误 / Toast，是被现有信号完全遗漏的一类"看得见的坏"。判定依据是
+//     可见文本里出现"顶层命名空间.子键"形式的裸键 token。I18N_NS 取自 src/i18n/locales
+//     真实聚合出的顶层键全集（脚本生成，非猜测）。
+// #11 图片解码失败：<img> 拿到 200 但内容坏/被 SPA fallback 顶成 HTML 时 naturalWidth=0，
+//     这类"资源加载成功但渲染失败"HTTP 状态信号也抓不到。仅统计可见且已 complete 者。
+const I18N_NS = new Set(
+  (
+    'about,announcementBanner,auditDashboard,backup,batchActions,breadcrumb,build,' +
+    'changelog,commandPalette,common,config,cookieConsent,crontab,dashboard,dept,' +
+    'desensitize,dict,editableCell,editor,error,errorBoundary,errorCode,excelImport,' +
+    'exportDialog,file,fileUpload,frontendError,gen,hamburger,headerSearch,health,help,' +
+    'httpDebug,iconSelect,imageUpload,ipLocation,job,jobLog,langSelect,layout,legal,lock,' +
+    'logTail,login,logininfor,menu,menuModule,msg,myLogin,mySession,notice,noticeCenter,' +
+    'notification,oauth,observability,online,operlog,passwordRule,passwordStrength,pdf,post,' +
+    'printTable,profile,rateLimit,register,report,rightToolbar,role,route,server,session,' +
+    'shortcuts,sizeSelect,task,taskProgress,theme,themeEditor,time,tour,treePanel,user,' +
+    'userAuthRole,userPrefs,userView,webHook,workbench,yebot'
+  ).split(',')
+)
+// 点号串里若任一段是常见文件扩展名，视为真实内容（如 report.pdf / dashboard.xlsx）而非泄漏键。
+const DOTTED_EXTS = new Set([
+  'pdf',
+  'js',
+  'ts',
+  'tsx',
+  'jsx',
+  'vue',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'svg',
+  'json',
+  'xml',
+  'yml',
+  'yaml',
+  'sql',
+  'csv',
+  'xlsx',
+  'xls',
+  'txt',
+  'log',
+  'html',
+  'htm',
+  'css',
+  'scss',
+  'md',
+  'zip',
+  'tar',
+  'gz',
+  'rar',
+  'db',
+  'sqlite',
+  'mp4',
+  'webm',
+  'wav',
+  'mp3',
+  'ico',
+  'woff',
+  'woff2',
+  'ttf',
+  'bak'
+])
+// 末段是常见 TLD 时视为域名（如官网 "yebot.dev"），非 i18n 键。
+const DOTTED_TLDS = new Set([
+  'com',
+  'cn',
+  'net',
+  'org',
+  'io',
+  'dev',
+  'gov',
+  'edu',
+  'co',
+  'me',
+  'tv',
+  'app',
+  'top',
+  'xyz',
+  'info',
+  'biz',
+  'vip',
+  'club',
+  'site',
+  'online',
+  'store',
+  'tech',
+  'space',
+  'fun',
+  'icu',
+  'cc',
+  'life',
+  'link',
+  'live',
+  'news',
+  'shop',
+  'cloud',
+  'pro',
+  'academy'
+])
+// 少数页面按设计展示点号标识串（非 i18n 键，any-segment 启发式会误判），整页跳过 #10 扫描：
+//  - /system/config：参数管理列表把 configKey（如 yebot.captcha.enabled）当数据列展示；
+//  - /monitor/logtail：日志行含 Java/类路径等点号串；
+//  - /tool/gen：代码生成展示包名/字段（com.xxx.domain）。
+const I18N_LEAK_SKIP = new Set(['/system/config', '/monitor/logtail', '/tool/gen'])
 
 // 已知良性、无需告警的响应（favicon 缺失、登出/无 token 的 401、验证码等）
 function benignResponse(url, status) {
@@ -294,40 +408,78 @@ async function scanPage(page, route) {
   }
 
   const overlay = await page
-    .evaluate(() => {
-      const out = { toasts: [], dialogs: [] }
-      document.querySelectorAll('.el-message, .el-notification').forEach((el) => {
-        const t = el.textContent.trim()
-        if (!t) return
-        // 仅 error/warning 类提示计为异常信号；success/info（如"操作成功/刷新成功"）属正常反馈。
-        const isError =
-          el.classList.contains('el-message--error') ||
-          el.classList.contains('el-message--warning') ||
-          el.classList.contains('el-notification--error') ||
-          el.classList.contains('el-notification--warning') ||
-          /错误|失败|异常|error|fail/i.test(t)
-        const isBenign =
-          el.classList.contains('el-message--success') ||
-          el.classList.contains('el-message--info') ||
-          el.classList.contains('el-notification--success') ||
-          el.classList.contains('el-notification--info')
-        if (isError || !isBenign) out.toasts.push(t)
-      })
-      // MessageBox / 可见 Dialog 标题与正文（不改状态，仅读取已弹出的内容）
-      document.querySelectorAll('.el-message-box__message, .el-message-box__title').forEach((el) => {
-        const t = el.textContent.trim()
-        if (t) out.dialogs.push(`[msgbox] ${t}`)
-      })
-      document.querySelectorAll('.el-dialog').forEach((el) => {
-        const box = el.closest('.el-dialog__wrapper')
-        if (box && getComputedStyle(box).display === 'none') return
-        const title = el.querySelector('.el-dialog__title')
-        const t = (title ? title.textContent : el.textContent).trim()
-        if (t) out.dialogs.push(`[dialog] ${t.slice(0, 120)}`)
-      })
-      return out
-    })
-    .catch(() => ({ toasts: [], dialogs: [] }))
+    .evaluate(
+      ({ ns, exts, tlds, skipI18n }) => {
+        const out = { toasts: [], dialogs: [], i18nLeaks: [], brokenImages: [] }
+        const nsSet = new Set(ns)
+        const extSet = new Set(exts)
+        const tldSet = new Set(tlds)
+        document.querySelectorAll('.el-message, .el-notification').forEach((el) => {
+          const t = el.textContent.trim()
+          if (!t) return
+          // 仅 error/warning 类提示计为异常信号；success/info（如"操作成功/刷新成功"）属正常反馈。
+          const isError =
+            el.classList.contains('el-message--error') ||
+            el.classList.contains('el-message--warning') ||
+            el.classList.contains('el-notification--error') ||
+            el.classList.contains('el-notification--warning') ||
+            /错误|失败|异常|error|fail/i.test(t)
+          const isBenign =
+            el.classList.contains('el-message--success') ||
+            el.classList.contains('el-message--info') ||
+            el.classList.contains('el-notification--success') ||
+            el.classList.contains('el-notification--info')
+          if (isError || !isBenign) out.toasts.push(t)
+        })
+        // MessageBox / 可见 Dialog 标题与正文（不改状态，仅读取已弹出的内容）
+        document.querySelectorAll('.el-message-box__message, .el-message-box__title').forEach((el) => {
+          const t = el.textContent.trim()
+          if (t) out.dialogs.push(`[msgbox] ${t}`)
+        })
+        document.querySelectorAll('.el-dialog').forEach((el) => {
+          const box = el.closest('.el-dialog__wrapper')
+          if (box && getComputedStyle(box).display === 'none') return
+          const title = el.querySelector('.el-dialog__title')
+          const t = (title ? title.textContent : el.textContent).trim()
+          if (t) out.dialogs.push(`[dialog] ${t.slice(0, 120)}`)
+        })
+        // #10 i18n 泄漏：扫可见文本里"命名空间.子键"裸键（词条缺失时 vue-i18n 回退渲染键本身）。
+        if (!skipI18n) {
+          const text = document.body.innerText || ''
+          const re = /[a-zA-Z][a-zA-Z0-9]*(?:\.[a-zA-Z][a-zA-Z0-9]*)+/g
+          const seen = new Set()
+          let mm
+          while ((mm = re.exec(text))) {
+            const tok = mm[0]
+            // URL/路径上下文（前一个字符是 : / . 或紧跟在 www. 后）不计——它们是真实链接不是键。
+            const prev = text[mm.index - 1]
+            if (prev === ':' || prev === '/' || prev === '.') continue
+            const parts = tok.split('.')
+            // 任一段命中真实命名空间即视为疑似 i18n 键——这样能抓到"错误前缀"型泄漏
+            // （如页面写成 t('monitor.server.x') 而目录实为顶层 server.x），比只看首段更鲁棒。
+            if (!parts.some((p) => nsSet.has(p))) continue
+            if (parts.some((p) => extSet.has(p.toLowerCase()))) continue
+            if (tldSet.has(parts[parts.length - 1].toLowerCase())) continue
+            if (seen.has(tok)) continue
+            seen.add(tok)
+            out.i18nLeaks.push(tok)
+            if (out.i18nLeaks.length >= 30) break
+          }
+        }
+        // #11 图片解码失败：可见 <img> 已 complete 但 naturalWidth=0（200 却内容坏/被 fallback 顶成 HTML）。
+        document.querySelectorAll('img').forEach((img) => {
+          const src = img.currentSrc || img.src
+          if (!src || src.startsWith('data:')) return
+          const visible = img.offsetWidth > 0 || img.offsetHeight > 0 || img.getClientRects().length > 0
+          if (visible && img.complete && img.naturalWidth === 0) {
+            if (out.brokenImages.length < 15) out.brokenImages.push(src.slice(0, 120))
+          }
+        })
+        return out
+      },
+      { ns: [...I18N_NS], exts: [...DOTTED_EXTS], tlds: [...DOTTED_TLDS], skipI18n: I18N_LEAK_SKIP.has(route) }
+    )
+    .catch(() => ({ toasts: [], dialogs: [], i18nLeaks: [], brokenImages: [] }))
   // 用真实 404 页根元素类名判定，避免 changelog 等页面正文含 "404问题" 字样造成的误报
   const p404 = await page.evaluate(() => !!document.querySelector('.wscn-http404-container')).catch(() => false)
   page.removeListener('console', onConsole)
@@ -344,6 +496,8 @@ async function scanPage(page, route) {
     bizErrors: [...bizErr],
     toasts: overlay.toasts,
     dialogs: overlay.dialogs,
+    i18nLeaks: overlay.i18nLeaks,
+    brokenImages: overlay.brokenImages,
     act
   })
   const flagCount =
@@ -354,12 +508,14 @@ async function scanPage(page, route) {
     bizErr.length +
     overlay.toasts.length +
     overlay.dialogs.length +
+    overlay.i18nLeaks.length +
+    overlay.brokenImages.length +
     (p404 ? 1 : 0)
   const actStr = INTERACT
     ? ` interact[ro=${act.ro} add=${act.add}/${act.addOpen} view=${act.view}/${act.viewOpen}]`
     : ''
   console.log(
-    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} 404=${p404}${actStr}`
+    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} i18nLeak=${overlay.i18nLeaks.length} brokenImg=${overlay.brokenImages.length} 404=${p404}${actStr}`
   )
 }
 
@@ -385,6 +541,8 @@ async function main() {
       (r.bizErrors ? r.bizErrors.length : 0) +
       r.toasts.length +
       r.dialogs.length +
+      (r.i18nLeaks ? r.i18nLeaks.length : 0) +
+      (r.brokenImages ? r.brokenImages.length : 0) +
       (r.p404 ? 1 : 0)
     if (sig) {
       total++
@@ -396,6 +554,8 @@ async function main() {
       ;(r.bizErrors || []).forEach((m) => console.log(`  BIZERR ${m}`))
       r.toasts.forEach((m) => console.log(`  TOAST ${m}`))
       r.dialogs.forEach((m) => console.log(`  DIALOG ${m}`))
+      ;(r.i18nLeaks || []).forEach((m) => console.log(`  I18NLEAK ${m}`))
+      ;(r.brokenImages || []).forEach((m) => console.log(`  BROKENIMG ${m}`))
     }
   }
   console.log(`\n有信号的路由数: ${total}/${results.length}`)

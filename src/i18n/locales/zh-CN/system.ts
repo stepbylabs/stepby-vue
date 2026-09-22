@@ -947,6 +947,7 @@ export default {
       targetUrl: '目标 URL',
       contentType: '内容类型',
       timeoutSecs: '超时(秒)',
+      status: '状态',
       createBy: '创建者',
       createTime: '创建时间'
     },
