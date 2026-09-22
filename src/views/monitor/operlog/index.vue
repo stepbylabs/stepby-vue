@@ -236,23 +236,16 @@ import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/yebot'
+import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
 import type { SysOperLog, OperlogQueryParams } from '@/types/api/monitor/operlog'
 
 const { t, te } = useI18n()
 
-/** T-11：模块标题展示——新数据为 i18n key（module.*），旧数据为中文原文，te() 回退兼容
- * 后端 oper_log_middleware::infer_module_title 与 auth_handler 均存储 "module.xxx" 形式，
- * 前端 i18n key 为 "operlog.module.xxx"（无 "module." 前缀），需剥离前缀后拼接。
- */
+/** T-11：模块标题展示——委托共享 util，剥离后端存储前缀并 te() 回退（详见 utils/operModuleTitle） */
 function formatModuleTitle(title: string | undefined): string {
-  if (!title) return ''
-  // 剥离 "module." 前缀（后端存储格式），得到模块短名
-  const moduleKey = title.startsWith('module.') ? title.slice('module.'.length) : title
-  const key = `operlog.module.${moduleKey}`
-  // 缺翻译时回退为剥离 "module." 前缀的短名（如 "backup"），避免界面露出裸 "module.backup"
-  return te(key) ? t(key) : moduleKey
+  return resolveModuleTitle(title, t, te)
 }
 const queryRef = useTemplateRef('queryRef')
 const operlogRef = useTemplateRef('operlogRef')
@@ -305,8 +298,7 @@ const {
   handleSelectionChange,
   handleDelete
 } = useCrudTable<SysOperLog, OperlogQueryParams>({
-  listApi: (params) =>
-    list(addDateRange(params as Record<string, unknown>, dateRange.value) as OperlogQueryParams),
+  listApi: (params) => list(addDateRange(params as Record<string, unknown>, dateRange.value) as OperlogQueryParams),
   getApi: () => Promise.resolve({}),
   addApi: () => Promise.resolve({}),
   updateApi: () => Promise.resolve({}),

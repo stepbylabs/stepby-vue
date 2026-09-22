@@ -6,7 +6,9 @@
 
     <SkeletonTable v-if="loading && !loaded" :columns="4" :rows="6" />
     <el-table v-else :data="rows" size="small" :show-header="true" style="width: 100%">
-      <el-table-column prop="title" :label="t('common.tip')" min-width="120" show-overflow-tooltip />
+      <el-table-column :label="t('common.tip')" min-width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ moduleTitle(row.title) }}</template>
+      </el-table-column>
       <el-table-column prop="operName" :label="t('common.column.operator')" width="100" />
       <el-table-column :label="t('common.column.status')" width="70" align="center">
         <template #default="{ row }">
@@ -27,6 +29,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
+import { formatModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import WidgetCard from '../WidgetCard.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
@@ -38,8 +41,12 @@ interface RecentOperLog {
   costTime: number
 }
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const router = useRouter()
+
+function moduleTitle(title: string): string {
+  return formatModuleTitle(title, t, te)
+}
 
 const loading = ref(false)
 const loaded = ref(false)
