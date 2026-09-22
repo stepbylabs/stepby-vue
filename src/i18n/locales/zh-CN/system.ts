@@ -402,6 +402,10 @@ export default {
       configNameRequired: '参数名称不能为空',
       configKeyRequired: '参数键名不能为空',
       configValueRequired: '参数键值不能为空'
+    },
+    inlineEdit: {
+      saveSuccess: '参数值已保存',
+      saveFailed: '保存失败，已恢复原值'
     }
   },
   rateLimit: {

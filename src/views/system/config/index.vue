@@ -114,13 +114,18 @@
         min-width="180"
         show-overflow-tooltip
       />
-      <el-table-column
-        :label="t('config.column.configValue')"
-        align="center"
-        prop="configValue"
-        min-width="180"
-        show-overflow-tooltip
-      />
+      <el-table-column :label="t('config.column.configValue')" align="center" prop="configValue" min-width="180">
+        <template #default="scope">
+          <EditableCell
+            v-if="canEditValue"
+            :model-value="scope.row.configValue"
+            :maxlength="500"
+            :validate="validateConfigValue"
+            @commit="(nv: string, ov: string) => onConfigValueCommit(scope.row, nv, ov)"
+          />
+          <span v-else class="block truncate">{{ scope.row.configValue }}</span>
+        </template>
+      </el-table-column>
       <el-table-column :label="t('config.column.configType')" align="center" prop="configType" width="90">
         <template #default="scope">
           <dict-tag :options="sys_yes_no" :value="scope.row.configType" />
@@ -234,8 +239,10 @@ import {
 } from '@/api/system/config'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { addDateRange } from '@/utils/yebot'
+import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import EditableCell from '@/components/EditableCell/index.vue'
 
 const configRefRef = useTemplateRef('configRef')
 const queryRefRef = useTemplateRef('queryRef')
@@ -333,6 +340,41 @@ function handleRefreshCache() {
       modal.msgSuccess(t('common.refreshSuccess'))
     })
     .catch(() => {})
+}
+
+// ==================== 行内编辑（Tier-S #5）====================
+// 是否可编辑参数值：与「编辑」按钮同权限，无权限时单元格退化为纯文本。
+const canEditValue = computed(() => checkPermi(['system:config:edit']))
+
+/** 行内校验：参数值必填（与对话框 configValue 规则同源） */
+function validateConfigValue(v: string): string | true {
+  if (v === null || v === undefined || String(v).trim() === '') {
+    return t('config.validate.configValueRequired')
+  }
+  return true
+}
+
+/**
+ * 提交行内编辑：真实调用 PUT /system/config（与对话框同一后端链路与审计）。
+ * dataList 为 shallowRef（行非深层响应），故乐观写与失败回滚都必须通过
+ * 整体重新赋值数组触发单元格重渲染；直接改 row.configValue 不会刷新视图。
+ */
+async function onConfigValueCommit(row: SysConfig, newVal: string, oldVal: string): Promise<void> {
+  const patch = (value: string): void => {
+    dataList.value = dataList.value.map((r: SysConfig) =>
+      r.configId === row.configId ? { ...r, configValue: value } : r
+    )
+  }
+  patch(newVal)
+  try {
+    await updateConfig({ ...row, configValue: newVal })
+    invalidateConfigCache()
+    refreshCache().catch(() => {})
+    modal.msgSuccess(t('config.inlineEdit.saveSuccess'))
+  } catch {
+    patch(oldVal)
+    modal.msgError(t('config.inlineEdit.saveFailed'))
+  }
 }
 
 getList()

@@ -9,7 +9,7 @@
         <el-input
           v-if="type === 'text'"
           v-model="localValue"
-          :maxlength="100"
+          :maxlength="maxlength"
           size="small"
           ref="inputRef"
           @blur="commit"
@@ -94,6 +94,8 @@ const props = withDefaults(
     min?: number
     max?: number
     step?: number
+    /** 文本输入最大长度（默认 100；后端无上限的字段应由调用方显式放宽，避免静默截断致数据损坏） */
+    maxlength?: number
     activeValue?: TValue
     inactiveValue?: TValue
     /** 显示值格式化函数 */
@@ -106,6 +108,7 @@ const props = withDefaults(
     readonly: false,
     options: () => [],
     filterable: false,
+    maxlength: 100,
     activeValue: true as TValue,
     inactiveValue: false as TValue
   }

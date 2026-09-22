@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志（共 49 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格（共 50 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -9927,6 +9927,151 @@ async function testFeature49(page) {
   record(49, '可拖拽仪表盘综合验证', passedCount === checks.length, `${passedCount}/${checks.length} 项检查通过`)
 }
 
+// ==================== 功能 50：Tier-S #5 行内可编辑表格（参数设置 configValue） ====================
+
+async function testFeature50(page) {
+  log('=== 功能 50：行内可编辑表格（参数设置） ===')
+  let auth = {}
+  let target = null // { configId, original: 全量行 }
+
+  // 选取首行并快照原始整行（供清理恢复，直连 API 恢复最确定）
+  try {
+    const token = await getAdminToken(page)
+    auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    const list = await fetch(`${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=50`, { headers: auth }).then(
+      (r) => r.json()
+    )
+    const rows = list?.rows || []
+    if (rows.length > 0) {
+      const r0 = rows[0]
+      target = { configId: String(r0.configId), original: r0 }
+    }
+    record(50, '定位可编辑参数行并快照原值', !!target, target ? `configId=${target.configId}` : '无 config 记录')
+  } catch (err) {
+    record(50, '定位可编辑参数行并快照原值', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/system/config`, { waitUntil: 'networkidle' })
+    await sleep(800)
+    await skipTour(page)
+    const editableCount = await page.locator('.editable-cell').count()
+    record(50, '参数值列渲染行内编辑单元格', editableCount > 0, `editable-cell 数=${editableCount}`)
+  } catch (err) {
+    record(50, '参数值列渲染行内编辑单元格', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  try {
+    // 双击首行单元格进入编辑 → 输入唯一值 → 回车触发 PUT
+    const rowLoc = page.locator('.el-table__body-wrapper .el-table__row').first()
+    const cell = rowLoc.locator('.editable-cell').first()
+    await cell.dblclick()
+    await sleep(250)
+    const input = cell.locator('input').first()
+    const inputVisible = await input.isVisible().catch(() => false)
+    record(50, '双击进入编辑态出现输入框', inputVisible, `input visible=${inputVisible}`)
+    const newValue = `e2e_${Date.now()}`
+    await input.fill(newValue)
+    const putPromise = page
+      .waitForResponse((r) => r.url().endsWith('/system/config') && r.request().method() === 'PUT', { timeout: 8000 })
+      .catch(() => null)
+    await input.press('Enter')
+    const put = await putPromise
+    let saveOk = false
+    if (put) {
+      const putJson = await put.json().catch(() => ({}))
+      saveOk = put.status() === 200 && (putJson.code === 0 || putJson.code === 200)
+    }
+    record(50, '回车提交触发 PUT 保存成功', saveOk, put ? `status=${put.status()}` : '无 PUT 响应')
+
+    // 成功 toast + 单元格显示新值（验证 shallowRef 数组重赋值生效）
+    const toastOk = await page
+      .locator('.el-message--success')
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false)
+    await sleep(400)
+    const shownText = (
+      await cell
+        .locator('.cell-display')
+        .first()
+        .innerText()
+        .catch(() => '')
+    ).trim()
+    const displayOk = shownText === newValue
+    record(50, '保存成功反馈（toast + 单元格回显新值）', toastOk && displayOk, `toast=${toastOk}, 显示="${shownText}"`)
+  } catch (err) {
+    record(50, '回车提交触发 PUT 保存成功', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // 校验路径：清空后回车应被必填校验拦截（不产生新 PUT），并弹错误 toast
+  try {
+    const rowLoc = page.locator('.el-table__body-wrapper .el-table__row').first()
+    const cell = rowLoc.locator('.editable-cell').first()
+    await cell.dblclick()
+    await sleep(200)
+    const input = cell.locator('input').first()
+    await input.fill('')
+    let putFired = false
+    const listener = (r) => {
+      if (r.url().endsWith('/system/config') && r.request().method() === 'PUT') putFired = true
+    }
+    page.on('response', listener)
+    await input.press('Enter')
+    await sleep(700)
+    page.off('response', listener)
+    const errToast = await page
+      .locator('.el-message--error')
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false)
+    record(
+      50,
+      '空值被必填校验拦截（不发 PUT + 错误提示）',
+      !putFired && errToast,
+      `putFired=${putFired}, errToast=${errToast}`
+    )
+  } catch (err) {
+    record(50, '空值被必填校验拦截（不发 PUT + 错误提示）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // 清理：直连 API 恢复原值（try/finally 语义——无论前面断言是否抛错都尽量恢复），再刷新缓存
+  try {
+    if (target && target.original) {
+      const o = target.original
+      const restore = await fetch(`${CONFIG.backendUrl}/system/config`, {
+        method: 'PUT',
+        headers: auth,
+        body: JSON.stringify({
+          configId: o.configId,
+          configName: o.configName,
+          configKey: o.configKey,
+          configValue: o.configValue,
+          configType: o.configType,
+          remark: o.remark
+        })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const verify = await fetch(`${CONFIG.backendUrl}/system/config/${target.configId}`, { headers: auth })
+        .then((r) => r.json())
+        .catch(() => null)
+      const restored = verify?.data?.configValue === o.configValue
+      record(
+        50,
+        '测试后恢复原值（清理 LIVE 数据）',
+        (restore?.code === 0 || restore?.code === 200) && restored,
+        `restore=${restore?.code}, 现值="${verify?.data?.configValue}"`
+      )
+      await fetch(`${CONFIG.backendUrl}/system/config/refreshCache`, { method: 'DELETE', headers: auth }).catch(
+        () => {}
+      )
+    }
+  } catch (err) {
+    record(50, '测试后恢复原值（清理 LIVE 数据）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -9938,7 +10083,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（49 个功能）')
+  log('yebot 端到端主测试脚本（50 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -10032,7 +10177,8 @@ async function main() {
       { id: 46, fn: testFeature46 },
       { id: 47, fn: testFeature47 },
       { id: 48, fn: testFeature48 },
-      { id: 49, fn: testFeature49 }
+      { id: 49, fn: testFeature49 },
+      { id: 50, fn: testFeature50 }
     ]
 
     for (const f of features) {

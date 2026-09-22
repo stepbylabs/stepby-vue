@@ -402,6 +402,10 @@ export default {
       configNameRequired: 'Config name is required',
       configKeyRequired: 'Config key is required',
       configValueRequired: 'Config value is required'
+    },
+    inlineEdit: {
+      saveSuccess: 'Config value saved',
+      saveFailed: 'Save failed, reverted to original value'
     }
   },
   rateLimit: {
