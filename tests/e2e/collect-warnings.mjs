@@ -122,6 +122,10 @@ async function login(page) {
 const INTERACT = process.env.INTERACT === '1'
 // 交互扫描中"打开表单对话框再取消"的按钮文案（新增/添加/新建），只打开不提交，Esc 关闭。
 const ADD_BTN_RE = /(新增|添加|新建|New|Add)/i
+// 行内"编辑/查看/详情/预览"操作：打开回填表单对话框/抽屉（数据水合路径，编辑态才暴露的
+// 水合/渲染错误）。行操作按钮多为图标-only（accessible name 来自 aria-label），故按
+// 可访问名匹配，不靠可见文本。只读打开再取消，不提交、不改数据。
+const ROW_VIEW_BTN_RE = /(编辑|修改|查看|详情|预览|Edit|View|Detail|Preview)/i
 // 交互扫描中可安全点击的只读按钮（查询/重置/刷新），不改数据。
 const READONLY_BTN_RE = /^\s*(搜索|查询|重置|刷新)\s*$/
 
@@ -168,7 +172,8 @@ async function scanPage(page, route) {
   await page.goto(`${FRONTEND_URL}${route}`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
   await sleep(1800)
 
-  // 交互扫描：点击只读按钮 + 打开"新增"对话框再取消，捕获仅交互态才暴露的信号。
+  // 交互扫描：点击只读按钮 + 打开"新增"/行内"编辑/查看"对话框再取消，捕获仅交互态才暴露的信号。
+  const act = { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 } // 记录交互动作，证明扫描确有覆盖（非空转）
   if (INTERACT) {
     jsonResp = [] // 被动加载阶段的业务响应已在下方判定，交互阶段单独收敛避免重复
     // (a) 只读按钮
@@ -182,6 +187,7 @@ async function scanPage(page, route) {
           .catch(() => '')) || ''
       ).trim()
       if (READONLY_BTN_RE.test(label)) {
+        act.ro++
         await roBtns
           .nth(i)
           .click({ timeout: 1500 })
@@ -210,12 +216,54 @@ async function scanPage(page, route) {
       }
       // 仅当"未渲染对话框"伴随交互期新增的运行时错误时才计为异常信号；
       // 无错误的情况下可能是该页"新增"并非模态框（如工具页内联表单），属良性。
+      act.add = 1
+      if (dlgVisible) act.addOpen = 1
       if (!dlgVisible && msgs.length + pageErrors.length > errBefore) {
         msgs.push('[interact] 点击「新增」后对话框未渲染（伴随运行时错误）')
       }
       await page.keyboard.press('Escape').catch(() => {})
       await page
         .locator('.el-dialog__headerbtn:visible')
+        .first()
+        .click({ timeout: 800 })
+        .catch(() => {})
+      await sleep(400)
+    }
+    // (c) 打开首行「编辑/查看/详情/预览」回填对话框/抽屉（数据水合路径，编辑态才暴露的水合/
+    //     渲染错误），只读打开再取消不提交；仅当"未渲染"伴随交互期新增运行时错误时才算异常。
+    //     行操作按钮是图标-only（accessible name 取 aria-label），用 role+name 定位。
+    const tbl = page.locator('.el-table').first()
+    const viewBtn = tbl
+      .getByRole('button', { name: ROW_VIEW_BTN_RE })
+      .or(tbl.getByRole('link', { name: ROW_VIEW_BTN_RE }))
+      .first()
+    const overlaySel = '.el-dialog:visible, .el-drawer:visible'
+    if (await viewBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+      const urlBefore = page.url()
+      const errBefore2 = msgs.length + pageErrors.length
+      await viewBtn.click({ timeout: 1500 }).catch(() => {})
+      await sleep(1200)
+      let dlg2 = await page
+        .locator(overlaySel)
+        .first()
+        .isVisible({ timeout: 800 })
+        .catch(() => false)
+      if (!dlg2) {
+        await sleep(1000)
+        dlg2 = await page
+          .locator(overlaySel)
+          .first()
+          .isVisible({ timeout: 800 })
+          .catch(() => false)
+      }
+      if (!dlg2 && page.url() === urlBefore && msgs.length + pageErrors.length > errBefore2) {
+        msgs.push('[interact] 点击行「编辑/查看」后对话框/抽屉未渲染（伴随运行时错误）')
+      }
+      act.view = 1
+      if (dlg2) act.viewOpen = 1
+      await page.keyboard.press('Escape').catch(() => {})
+      await page
+        .locator('.el-dialog__headerbtn:visible, .el-drawer__close-btn:visible')
         .first()
         .click({ timeout: 800 })
         .catch(() => {})
@@ -286,7 +334,8 @@ async function scanPage(page, route) {
     badResponses: [...badResp],
     bizErrors: [...bizErr],
     toasts: overlay.toasts,
-    dialogs: overlay.dialogs
+    dialogs: overlay.dialogs,
+    act
   })
   const flagCount =
     msgs.length +
@@ -297,8 +346,11 @@ async function scanPage(page, route) {
     overlay.toasts.length +
     overlay.dialogs.length +
     (p404 ? 1 : 0)
+  const actStr = INTERACT
+    ? ` interact[ro=${act.ro} add=${act.add}/${act.addOpen} view=${act.view}/${act.viewOpen}]`
+    : ''
   console.log(
-    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} 404=${p404}`
+    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} 404=${p404}${actStr}`
   )
 }
 
@@ -338,6 +390,22 @@ async function main() {
     }
   }
   console.log(`\n有信号的路由数: ${total}/${results.length}`)
+  if (INTERACT) {
+    const sum = results.reduce(
+      (a, r) => {
+        a.ro += r.act.ro
+        a.add += r.act.add
+        a.addOpen += r.act.addOpen
+        a.view += r.act.view
+        a.viewOpen += r.act.viewOpen
+        return a
+      },
+      { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 }
+    )
+    console.log(
+      `交互动作覆盖：只读点击 ${sum.ro} 次；新增按钮 ${sum.add} 页(打开对话框 ${sum.addOpen})；行内编辑/查看 ${sum.view} 页(打开对话框/抽屉 ${sum.viewOpen})`
+    )
+  }
   await browser.close()
 }
 

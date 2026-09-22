@@ -82,11 +82,22 @@ node main.mjs --headless
 cd yebot-ui/tests/e2e
 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 交互态（打开“新增”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
+# 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
 INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/49"（INTERACT 模式同样 0/49 稳定）
+# 期望（已验证基线）：末行 "有信号的路由数: 0/49" + "交互动作覆盖：…（INTERACT 模式同样 0/49 稳定）
 ```
+
+- **交互态三段扫描（`INTERACT=1`）**，逐页执行且**只开不提、不污染数据**：
+  (a) 只读按钮（搜索/查询/重置/刷新，按可见文本匹配）；
+  (b) 工具栏「新增/添加/新建」按钮 → 打开表单对话框 → Esc 关闭（按可见文本匹配，工具栏按钮有文字）；
+  (c) 表格首行「编辑/修改/查看/详情/预览」→ 打开回填表单**对话框或抽屉**（`.el-dialog`/`.el-drawer`）→ Esc 关闭。
+  **关键**：行操作按钮在本仓是**图标-only**（`icon="Edit"` + `:aria-label="t('common.edit')"`，无可见文本），
+  故 (c) 必须用 **`getByRole(button|link, { name: 可访问名正则 })`** 命中，靠 `hasText` 文本匹配会全程空转。
+- **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=..]`，末行汇总
+  `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)`。这是**防“扫描器静默空转”的自检**
+  ——`0/49` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
+  只读 59 次、新增 18 页开 15（工具页内联表单无模态属良性）、行内编辑/查看 12 页开 12，全 0 信号。
 
 - **9 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
   `response` status≥400（剔除 favicon/预期 401 良性项）、同源 JSON 的**业务错误码**（`code!=200/0`，
@@ -94,8 +105,9 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   成功/信息类不算异常）、`el-message-box`/`el-dialog` 弹窗、真实 404（`.wscn-http404-container` 类名，
   避免正文含 "404" 误报）、以及后端 `/tmp/yebot-backend.log` 的 ERROR/WARN/panic（人工关联）。
   `EXT_NOISE_RE` 过滤浏览器扩展在严格 CSP 下的字体/脚本加载噪声（否则 embed 模式整批假阳）。
-- **交互态只开不提**：`INTERACT=1` 打开“新增/添加/新建”表单对话框后即取消，**不提交**，防污染数据；
-  真实“保存是否失败”由 `main.mjs` 的 CRUD 用例覆盖，二者分工互补。
+- **保存态数据失败如何捕获**：交互态采集器**刻意只开不提**（防污染数据），故“保存是否真的失败”由
+  `main.mjs` 的真实 CRUD 用例（新增/编辑/删除 + 业务码断言）覆盖；采集器的**业务错误码**信号则被动捕获
+  页面自身发起的请求失败。二者分工互补、不重复。
 - **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 49 个可达页面。
   新增页面若被手写猜错会命中 404 兜底页 → 假信号；务必 `SELECT ... FROM sys_menu` 核对（如 `/system/msg/*`、
   `/help-center/*`、`/system/webHook/*`）。第 8 步记录了“每轮核查是否遗漏采集面”的实践。
