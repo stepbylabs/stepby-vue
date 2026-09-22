@@ -65,6 +65,24 @@ export default {
       configDesc: '参数与全局设置',
       about: '关于系统',
       aboutDesc: '版本与技术栈信息'
+    },
+    layout: {
+      hint: '点击「自定义」后可拖拽卡片排序、调整宽度或隐藏',
+      edit: '自定义布局',
+      done: '完成',
+      reset: '恢复默认',
+      resetConfirm: '确定恢复默认布局？你的自定义将被清除。',
+      resetSuccess: '已恢复默认布局',
+      dragTip: '按住拖动排序',
+      width: '切换宽度',
+      hide: '隐藏卡片',
+      show: '显示',
+      add: '添加卡片',
+      noHidden: '暂无隐藏卡片',
+      allHidden: '所有卡片均已隐藏',
+      hiddenHint: '已隐藏，可显示或拖动排序',
+      widgetStats: '统计概览',
+      widgetQuickEntry: '快捷入口'
     }
   },
   workbench: {

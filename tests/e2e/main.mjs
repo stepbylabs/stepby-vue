@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志（共 48 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志（共 49 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -8172,28 +8172,49 @@ async function testFeature41(page) {
     const hasEchartsRenderers = moduleContent.includes('echarts/renderers')
     const hasEchartsUse = moduleContent.includes('echarts.use(')
 
-    // 检查 4 个使用 echarts 的页面是否统一走「按需导入」路径：
+    // 检查使用 echarts 的页面是否统一走「按需导入」路径：
     // 直接 import @/utils/echarts，或经 @/composables/useChart（其内部 import @/utils/echarts）。
-    // 二者等价——useChart 是集中式注册封装，页面复用即共享同一份按需 chunk。
-    const echartsConsumers = [
+    // 仪表盘已卡片化：图表代码分布于 src/views/dashboard/widgets/ 与 @/composables/useEchartsWidget.ts
+    // （后者 import @/utils/echarts + useChart），故按「整个 dashboard 目录 + useEchartsWidget」聚合判定。
+    const echartsPages = [
       'src/views/index.vue',
-      'src/views/dashboard/index.vue',
       'src/views/monitor/audit-dashboard/index.vue',
       'src/views/monitor/cache/index.vue'
     ]
+    const collectSources = (relDir) => {
+      const abs = path.join(uiRoot, relDir)
+      if (!fs.existsSync(abs)) return []
+      const out = []
+      for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
+        const childAbs = path.join(abs, e.name)
+        if (e.isDirectory()) out.push(...collectSources(path.relative(uiRoot, childAbs)))
+        else if (/\.(vue|ts)$/.test(e.name)) out.push(childAbs)
+      }
+      return out
+    }
+    const dashboardFiles = [
+      ...collectSources('src/views/dashboard'),
+      path.join(uiRoot, 'src/composables/useEchartsWidget.ts')
+    ].filter((p) => fs.existsSync(p))
+
+    const routesOnDemand = (c) =>
+      c.includes('@/utils/echarts') || c.includes('composables/useChart') || c.includes('composables/useEchartsWidget')
+    const usesFullEcharts = (c) => c.includes("from 'echarts'") || c.includes('from "echarts"')
+
     let migratedCount = 0
     let stillUsingFullEcharts = 0
-    for (const relPath of echartsConsumers) {
+    for (const relPath of echartsPages) {
       const fullPath = path.join(uiRoot, relPath)
       if (!fs.existsSync(fullPath)) continue
       const content = fs.readFileSync(fullPath, 'utf-8')
-      if (content.includes('@/utils/echarts') || content.includes('composables/useChart')) {
-        migratedCount++
-      }
-      if (content.includes("from 'echarts'") || content.includes('from "echarts"')) {
-        stillUsingFullEcharts++
-      }
+      if (routesOnDemand(content)) migratedCount++
+      if (usesFullEcharts(content)) stillUsingFullEcharts++
     }
+    // 仪表盘图表组：存在按需路由入口且整组不直接 import 全量 echarts，即计为已迁移
+    const dashboardOnDemand = dashboardFiles.some((p) => routesOnDemand(fs.readFileSync(p, 'utf-8')))
+    const dashboardFull = dashboardFiles.filter((p) => usesFullEcharts(fs.readFileSync(p, 'utf-8'))).length
+    if (dashboardOnDemand) migratedCount++
+    stillUsingFullEcharts += dashboardFull
 
     // useChart 必须经 @/utils/echarts 引入（集中式按需注册），否则页面委托即失效
     const useChartPath = path.join(uiRoot, 'src/composables/useChart.ts')
@@ -8398,30 +8419,24 @@ async function testFeature42(page) {
 
   // ---------- 2. U5 前端 dashboard 单次调用 ----------
   try {
-    const dashboardPath = path.join(uiRoot, 'src/views/dashboard/index.vue')
+    // 卡片化后，聚合取数位于 StatCardsWidget.vue（原 index.vue 的 loadStats）
+    const dashboardPath = path.join(uiRoot, 'src/views/dashboard/widgets/StatCardsWidget.vue')
     const content = fs.readFileSync(dashboardPath, 'utf-8')
 
-    // 检查 loadStats 改为单次调用 /dashboard/stats
-    const hasSingleCall =
-      /async function loadStats[\s\S]*?await request\(\{[^}]*url:\s*['"]\/dashboard\/stats['"][\s\S]*?\}\)/.test(
-        content
-      )
+    // 检查单次调用 /dashboard/stats
+    const hasSingleCall = /url:\s*['"]\/dashboard\/stats['"]/.test(content)
 
-    // 检查不再有 /system/user/list, /system/role/list, /monitor/online/list, /monitor/operlog/list, /monitor/logininfor/stats 的并发 Promise.all
-    const noParallelUsers =
-      !/request\(\{[^}]*url:\s*['"]\/system\/user\/list['"][\s\S]*?method:\s*['"]get['"][^}]*\}\)/.test(content)
-    const noParallelRoles =
-      !/request\(\{[^}]*url:\s*['"]\/system\/role\/list['"][\s\S]*?method:\s*['"]get['"][^}]*\}\)/.test(content)
-    const noParallelOnline =
-      !/request\(\{[^}]*url:\s*['"]\/monitor\/online\/list['"][\s\S]*?method:\s*['"]get['"][^}]*\}\)/.test(content)
+    // 检查不再有 /system/user/list, /system/role/list, /monitor/online/list 的并发调用
+    const noParallelUsers = !/url:\s*['"]\/system\/user\/list['"]/.test(content)
+    const noParallelRoles = !/url:\s*['"]\/system\/role\/list['"]/.test(content)
+    const noParallelOnline = !/url:\s*['"]\/monitor\/online\/list['"]/.test(content)
 
-    // 检查使用了 data.totalUsers / data.totalRoles 等字段
+    // 检查使用了聚合字段（卡片内映射到本地 stats）
     const usesAggregatedFields =
       content.includes('data.totalUsers') &&
       content.includes('data.totalRoles') &&
       content.includes('data.todayLogins') &&
-      content.includes('data.onlineCount') &&
-      content.includes('data.recentOperLogs')
+      content.includes('data.onlineCount')
 
     const passed = hasSingleCall && noParallelUsers && noParallelRoles && noParallelOnline && usesAggregatedFields
     record(
@@ -8485,28 +8500,25 @@ async function testFeature42(page) {
 
   // ---------- 5. U14 前端 loadUserTrend 改造 ----------
   try {
-    const dashboardPath = path.join(uiRoot, 'src/views/dashboard/index.vue')
-    const content = fs.readFileSync(dashboardPath, 'utf-8')
+    // 卡片化后，用户创建趋势取数位于 UserTrendWidget.vue
+    const widgetPath = path.join(uiRoot, 'src/views/dashboard/widgets/UserTrendWidget.vue')
+    const content = fs.readFileSync(widgetPath, 'utf-8')
 
-    // 检查 loadUserTrend 改为 /dashboard/user-stats 调用
-    const hasUserStatsCall =
-      /async function loadUserTrend[\s\S]*?url:\s*['"]\/dashboard\/user-stats['"][\s\S]*?method:\s*['"]get['"]/.test(
-        content
-      )
+    // 检查改为 /dashboard/user-stats 调用
+    const hasUserStatsCall = /url:\s*['"]\/dashboard\/user-stats['"]/.test(content)
 
-    // 检查不再使用实际的 request({ url: '/system/user/list' ... }) 调用（排除注释中的字符串）
-    const noLegacyUserList = !/request\(\s*\{\s*url:\s*['"]\/system\/user\/list['"]/.test(content)
+    // 检查不再使用 request({ url: '/system/user/list' ... })（排除注释中的字符串）
+    const noLegacyUserList = !/url:\s*['"]\/system\/user\/list['"]/.test(content)
 
-    // 检查使用了 createTrend 和 newUsersThisWeek
-    const usesCreateTrend = content.includes('data.createTrend')
-    const usesNewUsersThisWeek = content.includes('data.newUsersThisWeek')
+    // 检查消费 createTrend 趋势数据
+    const usesCreateTrend = content.includes('createTrend')
 
-    const passed = hasUserStatsCall && noLegacyUserList && usesCreateTrend && usesNewUsersThisWeek
+    const passed = hasUserStatsCall && noLegacyUserList && usesCreateTrend
     record(
       42,
       'U14 前端 loadUserTrend 改用 /dashboard/user-stats',
       passed,
-      `call=${hasUserStatsCall}, noLegacy=${noLegacyUserList}, trend=${usesCreateTrend}, newWeek=${usesNewUsersThisWeek}`
+      `call=${hasUserStatsCall}, noLegacy=${noLegacyUserList}, trend=${usesCreateTrend}`
     )
   } catch (err) {
     record(42, 'U14 前端 loadUserTrend 改用 /dashboard/user-stats', false, `异常: ${err.message.slice(0, 80)}`)
@@ -8541,8 +8553,10 @@ async function testFeature42(page) {
   // ---------- 7. U18 ECharts resize 防抖验证（4 页面） ----------
   try {
     // U18：resize 防抖(150ms) + 卸载清理。真实实现集中于图表 composable
-    // （useChart / useDashboardCharts / useAuditCharts），页面负责绑定/解绑 window resize。
-    // 校验两层：(a) 每个 composable 有 resizeTimer + 150ms + clearTimeout(resizeTimer)；
+    // （useChart / useAuditCharts），页面负责绑定/解绑 window resize。
+    // 仪表盘卡片化后，各图表实例复用 useChart（内部 resize 防抖 + ResizeObserver + onBeforeUnmount 清理），
+    // 故不再需要 useDashboardCharts.ts；useEchartsWidget.ts 仅委托 useChart，不重复持有防抖定时器。
+    // 校验两层：(a) 每个防抖 composable 有 resizeTimer + 150ms + clearTimeout(resizeTimer)；
     //          (b) 每个页面 addEventListener('resize') 且 onBeforeUnmount removeEventListener('resize')（无监听泄漏）。
     const echartsConsumers = [
       'src/views/dashboard/index.vue',
@@ -8550,11 +8564,7 @@ async function testFeature42(page) {
       'src/views/monitor/audit-dashboard/index.vue',
       'src/views/monitor/cache/index.vue'
     ]
-    const chartComposables = [
-      'src/composables/useChart.ts',
-      'src/views/dashboard/useDashboardCharts.ts',
-      'src/views/monitor/audit-dashboard/useAuditCharts.ts'
-    ]
+    const chartComposables = ['src/composables/useChart.ts', 'src/views/monitor/audit-dashboard/useAuditCharts.ts']
     let composablesOk = 0
     const compDetails = []
     for (const relPath of chartComposables) {
@@ -8583,12 +8593,12 @@ async function testFeature42(page) {
       pagesOk.push(bound && unbound)
     }
 
-    const passed = composablesOk === 3 && pagesOk.every(Boolean)
+    const passed = composablesOk === 2 && pagesOk.every(Boolean)
     record(
       42,
       'U18 ECharts resize 防抖 150ms（composable 防抖+清理 & 页面绑定/解绑）',
       passed,
-      `composables=${composablesOk}/3 [${compDetails.join(', ')}], pagesBound=${pagesOk.filter(Boolean).length}/4`
+      `composables=${composablesOk}/2 [${compDetails.join(', ')}], pagesBound=${pagesOk.filter(Boolean).length}/4`
     )
   } catch (err) {
     record(
@@ -8599,10 +8609,9 @@ async function testFeature42(page) {
     )
   }
 
-  // ---------- 8. U20 图表加载/错误状态验证（4 页面） ----------
+  // ---------- 8. U20 图表加载/错误状态验证（3 页面 + 仪表盘卡片组） ----------
   try {
-    const echartsConsumers = [
-      'src/views/dashboard/index.vue',
+    const echartsPages = [
       'src/views/index.vue',
       'src/views/monitor/audit-dashboard/index.vue',
       'src/views/monitor/cache/index.vue'
@@ -8610,14 +8619,14 @@ async function testFeature42(page) {
     let loadingCount = 0
     let errorCount = 0
     const details = []
-    for (const relPath of echartsConsumers) {
+    for (const relPath of echartsPages) {
       const fullPath = path.join(uiRoot, relPath)
       if (!fs.existsSync(fullPath)) {
         details.push(`${relPath}=missing`)
         continue
       }
       const content = fs.readFileSync(fullPath, 'utf-8')
-      // dashboard 用 chartLoading 对象，其他 3 页用 loading ref；均需 chartError
+      // 3 页用 chartLoading/loading ref + chartError；均需错误态
       const hasLoading =
         content.includes('chartLoading') ||
         /v-loading="loading"/.test(content) ||
@@ -8628,17 +8637,37 @@ async function testFeature42(page) {
       details.push(`${relPath.split('/').pop()}=${hasLoading ? 'load' : 'no'}/${hasChartError ? 'err' : 'no'}`)
     }
 
+    // 仪表盘卡片化：加载/错误/空态由各 echarts 卡片组件承载（useEchartsWidget 暴露 loading/error/empty）
+    const widgetDir = path.join(uiRoot, 'src/views/dashboard/widgets')
+    const dashboardChartWidgets = ['LoginTrendWidget.vue', 'OperPieWidget.vue', 'UserTrendWidget.vue']
+      .map((n) => path.join(widgetDir, n))
+      .filter((p) => fs.existsSync(p))
+    const dashLoading =
+      dashboardChartWidgets.length === 3 &&
+      dashboardChartWidgets.every((p) => /v-loading="loading"/.test(fs.readFileSync(p, 'utf-8')))
+    const dashError =
+      dashboardChartWidgets.length === 3 &&
+      dashboardChartWidgets.every((p) => {
+        const c = fs.readFileSync(p, 'utf-8')
+        return /error/.test(c) && /chart-empty/.test(c)
+      })
+    if (dashLoading) loadingCount++
+    if (dashError) errorCount++
+    details.push(
+      `dashboard-widgets(${dashboardChartWidgets.length})=${dashLoading ? 'load' : 'no'}/${dashError ? 'err' : 'no'}`
+    )
+
     const passed = loadingCount === 4 && errorCount === 4
     record(
       42,
-      'U20 ECharts 加载/错误状态（4 页面 v-loading + chart-error）',
+      'U20 ECharts 加载/错误状态（3 页面 + 仪表盘卡片组：v-loading + 错误空态）',
       passed,
       `loading=${loadingCount}/4, error=${errorCount}/4, ${details.join(', ')}`
     )
   } catch (err) {
     record(
       42,
-      'U20 ECharts 加载/错误状态（4 页面 v-loading + chart-error）',
+      'U20 ECharts 加载/错误状态（3 页面 + 仪表盘卡片组：v-loading + 错误空态）',
       false,
       `异常: ${err.message.slice(0, 80)}`
     )
@@ -9750,6 +9779,154 @@ async function testFeature48(page) {
   record(48, 'PAT 模块综合验证', passedCount === checks.length, `${passedCount}/${checks.length} 项检查通过`)
 }
 
+async function testFeature49(page) {
+  log('\n--- 功能 49：可拖拽仪表盘（Tier-S #4 · /system/dashboard 布局编辑/持久化/恢复默认）---')
+
+  const LS_KEY = 'dashboard-layout'
+  async function readLayout() {
+    return await page.evaluate((k) => localStorage.getItem(k), LS_KEY)
+  }
+
+  // ---------- 49-1 仪表盘渲染 + 图表卡片 + 工具栏 ----------
+  let renderOk = false
+  let chartOk = false
+  try {
+    await page
+      .goto(`${CONFIG.frontendUrl}/system/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .catch(() => {})
+    await sleep(2600)
+    await skipTour(page)
+    renderOk = await page
+      .getByRole('button', { name: /自定义|Customize/ })
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false)
+    // echarts 渲染出 canvas
+    chartOk = (await page.locator('.chart-box canvas').count()) > 0
+    record(49, '仪表盘工具栏渲染（自定义按钮）', renderOk, renderOk ? '工具栏可见' : '未找到自定义按钮')
+    record(
+      49,
+      '图表卡片渲染（echarts canvas）',
+      chartOk,
+      `canvas 数=${await page.locator('.chart-box canvas').count()}`
+    )
+  } catch (err) {
+    record(49, '仪表盘工具栏渲染（自定义按钮）', false, `异常: ${err.message.slice(0, 80)}`)
+    record(49, '图表卡片渲染（echarts canvas）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 49-2 进入编辑态出现拖拽抓手 ----------
+  let editOk = false
+  let handleCount = 0
+  try {
+    await page
+      .getByRole('button', { name: /自定义|Customize/ })
+      .first()
+      .click()
+    await sleep(700)
+    handleCount = await page.locator('.widget-drag-handle').count()
+    editOk = handleCount >= 6
+    record(49, '进入编辑态出现拖拽抓手', editOk, `抓手数=${handleCount}`)
+  } catch (err) {
+    record(49, '进入编辑态出现拖拽抓手', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 49-3 隐藏一张卡片 → 出现隐藏占位 + 落库 ----------
+  let hideOk = false
+  let persistOk = false
+  try {
+    const hideBtn = page.getByRole('button', { name: /隐藏卡片|Hide card/ }).first()
+    await hideBtn.click()
+    await sleep(600)
+    const hintCount = await page.locator('.widget-hidden-hint').count()
+    hideOk = hintCount >= 1
+    record(49, '隐藏卡片生效（出现隐藏占位）', hideOk, `隐藏占位数=${hintCount}`)
+
+    const raw = await readLayout()
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = null
+    }
+    const ids = Array.isArray(parsed) ? parsed.map((x) => x && x.id) : []
+    const knownIds = ['stats', 'quickEntry', 'loginTrend', 'operPie', 'userTrend', 'recentOperLog']
+    const hasHidden = Array.isArray(parsed) && parsed.some((x) => x && x.visible === false)
+    persistOk = Array.isArray(parsed) && parsed.length === 6 && ids.every((i) => knownIds.includes(i)) && hasHidden
+    record(49, '布局写入 localStorage 且含隐藏标记', persistOk, `长度=${Array.isArray(parsed) ? parsed.length : 'N/A'}`)
+  } catch (err) {
+    record(49, '隐藏卡片生效（出现隐藏占位）', false, `异常: ${err.message.slice(0, 80)}`)
+    record(49, '布局写入 localStorage 且含隐藏标记', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 49-4 刷新后布局持久化恢复（隐藏卡片仍隐藏） ----------
+  let reloadPersistOk = false
+  try {
+    await page
+      .goto(`${CONFIG.frontendUrl}/system/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .catch(() => {})
+    await sleep(2400)
+    await skipTour(page)
+    // 非编辑态：可见卡片数应为 5（隐藏了 1 张）；隐藏卡片不渲染内容体
+    const bodyCells = await page.locator('.widget-cell .widget-cell__body').count()
+    reloadPersistOk = bodyCells === 5
+    record(49, '刷新后布局持久化恢复', reloadPersistOk, `可见卡片=${bodyCells}（期望 5）`)
+  } catch (err) {
+    record(49, '刷新后布局持久化恢复', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 49-5 恢复默认布局 ----------
+  let resetOk = false
+  try {
+    await page
+      .getByRole('button', { name: /自定义|Customize/ })
+      .first()
+      .click()
+    await sleep(500)
+    await page
+      .getByRole('button', { name: /恢复默认|Reset/ })
+      .first()
+      .click()
+    await sleep(500)
+    // ElMessageBox 确认
+    const confirmBtn = page.getByRole('button', { name: /^(确定|OK|Confirm)$/ })
+    if (
+      await confirmBtn
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false)
+    ) {
+      await confirmBtn.first().click()
+    }
+    await sleep(700)
+    const raw = await readLayout()
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = null
+    }
+    const allVisible = Array.isArray(parsed) && parsed.length === 6 && parsed.every((x) => x && x.visible === true)
+    // 退出编辑态看可见卡片体数=6
+    await page
+      .getByRole('button', { name: /完成|Done/ })
+      .first()
+      .click()
+      .catch(() => {})
+    await sleep(700)
+    const bodyCells = await page.locator('.widget-cell .widget-cell__body').count()
+    resetOk = allVisible && bodyCells === 6
+    record(49, '恢复默认布局（全部显示）', resetOk, `持久化全显=${allVisible}, 可见卡片=${bodyCells}`)
+  } catch (err) {
+    record(49, '恢复默认布局（全部显示）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 49-6 综合验证 ----------
+  const checks = [renderOk, chartOk, editOk, hideOk, persistOk, reloadPersistOk, resetOk]
+  const passedCount = checks.filter(Boolean).length
+  record(49, '可拖拽仪表盘综合验证', passedCount === checks.length, `${passedCount}/${checks.length} 项检查通过`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -9761,7 +9938,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（48 个功能）')
+  log('yebot 端到端主测试脚本（49 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -9854,7 +10031,8 @@ async function main() {
       { id: 45, fn: testFeature45 },
       { id: 46, fn: testFeature46 },
       { id: 47, fn: testFeature47 },
-      { id: 48, fn: testFeature48 }
+      { id: 48, fn: testFeature48 },
+      { id: 49, fn: testFeature49 }
     ]
 
     for (const f of features) {

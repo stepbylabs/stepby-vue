@@ -65,6 +65,24 @@ export default {
       configDesc: 'Parameters and global settings',
       about: 'About',
       aboutDesc: 'Version and tech stack info'
+    },
+    layout: {
+      hint: 'Click "Customize" to drag cards to reorder, adjust width, or hide them',
+      edit: 'Customize',
+      done: 'Done',
+      reset: 'Reset',
+      resetConfirm: 'Restore the default layout? Your customization will be cleared.',
+      resetSuccess: 'Default layout restored',
+      dragTip: 'Hold and drag to reorder',
+      width: 'Toggle width',
+      hide: 'Hide card',
+      show: 'Show',
+      add: 'Add card',
+      noHidden: 'No hidden cards',
+      allHidden: 'All cards are hidden',
+      hiddenHint: 'Hidden — show it or drag to reorder',
+      widgetStats: 'Overview',
+      widgetQuickEntry: 'Quick Entry'
     }
   },
   workbench: {
