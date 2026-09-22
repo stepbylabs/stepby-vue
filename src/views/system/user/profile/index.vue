@@ -72,6 +72,9 @@
             <el-tab-pane :label="t('profile.msgPref')" name="pref">
               <msg-pref />
             </el-tab-pane>
+            <el-tab-pane :label="t('pat.tab')" name="pat">
+              <pat-token />
+            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
@@ -86,6 +89,7 @@ import resetPwd from './resetPwd.vue'
 import totp from './totp.vue'
 import oauth from './oauth.vue'
 import msgPref from './msgPref.vue'
+import patToken from './patToken.vue'
 import { getUserProfile } from '@/api/system/user'
 import type { SysUser } from '@/types/api/system/user'
 

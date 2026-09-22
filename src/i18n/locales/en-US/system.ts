@@ -49,7 +49,73 @@ export default {
     changelog: 'Changelog',
     dashboard: 'Dashboard',
     website: 'Yebot Website',
+    pat: 'API Tokens',
     componentNotFound: 'Component "{view}" does not exist, please check menu configuration'
+  },
+  pat: {
+    title: 'API Access Tokens',
+    tab: 'API Tokens',
+    tip: 'Personal access tokens let scripts or third-party apps call the API as you. The plaintext token is shown only once at creation — store it safely; revoking takes effect immediately.',
+    neverUsed: 'Never used',
+    scopeAll: 'All permissions',
+    btn: {
+      create: 'New Token',
+      revoke: 'Revoke',
+      copy: 'Copy',
+      done: 'I have saved it'
+    },
+    column: {
+      name: 'Name',
+      token: 'Token',
+      scopes: 'Scopes',
+      status: 'Status',
+      expiresAt: 'Expiry',
+      lastUsedAt: 'Last Used',
+      createTime: 'Created',
+      operation: 'Operation'
+    },
+    status: {
+      active: 'Active',
+      revoked: 'Revoked'
+    },
+    expiry: {
+      never: 'Never expires',
+      expired: 'Expired',
+      soon: 'Expires in {days} days',
+      active: '{days} days left'
+    },
+    create: {
+      title: 'New Access Token'
+    },
+    form: {
+      name: 'Token name',
+      namePh: 'e.g. CI deploy',
+      scopes: 'Scopes',
+      scopesPh: 'Select permissions to grant',
+      expireDays: 'Validity',
+      expireDaysTip: 'Days; 0 means never expires'
+    },
+    rule: {
+      nameRequired: 'Please enter a token name',
+      scopesRequired: 'Select at least one permission'
+    },
+    token: {
+      title: 'Token created',
+      warning: 'Copy and store it now. This token is shown only once and cannot be viewed again after closing.'
+    },
+    msg: {
+      copied: 'Copied to clipboard',
+      copyFailed: 'Copy failed, please copy manually',
+      revokeConfirm: 'Revoke token "{name}"? Requests using it will stop working immediately.',
+      revoked: 'Token revoked'
+    },
+    admin: {
+      tip: 'This page manages personal access tokens for all users. Admins may revoke any token, but a token itself cannot manage tokens (prevents self-escalation).',
+      phUserId: 'Filter by user ID',
+      column: {
+        userName: 'Owner'
+      }
+    }
   },
   noticeCenter: {
     title: 'My Notifications',

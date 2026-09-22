@@ -67,6 +67,7 @@ const ROUTES = [
   '/monitor/backup',
   '/monitor/task',
   '/monitor/frontendError',
+  '/monitor/pat',
   '/monitor/server',
   // 系统工具
   '/tool/build',
@@ -81,6 +82,7 @@ const ROUTES = [
   '/user/profile/index',
   '/user/profile/msgPref',
   '/user/profile/oauth',
+  '/user/profile/pat',
   '/user/profile/resetPwd',
   '/user/profile/totp',
   '/user/profile/userAvatar',
@@ -107,7 +109,7 @@ const I18N_NS = new Set(
     'notification,oauth,observability,online,operlog,passwordRule,passwordStrength,pdf,post,' +
     'printTable,profile,rateLimit,register,report,rightToolbar,role,route,server,session,' +
     'shortcuts,sizeSelect,task,taskProgress,theme,themeEditor,time,tour,treePanel,user,' +
-    'userAuthRole,userPrefs,userView,webHook,workbench,yebot'
+    'userAuthRole,userPrefs,userView,webHook,workbench,yebot,pat'
   ).split(',')
 )
 // 点号串里若任一段是常见文件扩展名，视为真实内容（如 report.pdf / dashboard.xlsx）而非泄漏键。
@@ -215,6 +217,59 @@ function isBizSuccess(body) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// 稳健关闭交互扫描中打开的对话框/抽屉：反复 Esc + 点关闭按钮，直到无可见浮层或达到上限。
+// 单一 Esc 在部分页面会被内部组件（聚焦输入/选择器）吞掉，导致扫描器自开的对话框残留成假阳性信号。
+async function dismissOverlays(page) {
+  const sel = '.el-dialog:visible, .el-drawer:visible'
+  for (let i = 0; i < 4; i++) {
+    const visible = await page
+      .locator(sel)
+      .count()
+      .catch(() => 0)
+    if (!visible) return
+    // 先 Esc（多数对话框即时响应），再给关闭过渡留足时间；仍残留才点关闭按钮。
+    await page.keyboard.press('Escape').catch(() => {})
+    await sleep(600)
+    if (
+      !(await page
+        .locator(sel)
+        .count()
+        .catch(() => 0))
+    )
+      continue
+    await page
+      .locator('.el-dialog__headerbtn:visible, .el-drawer__close-btn:visible')
+      .first()
+      .click({ timeout: 800 })
+      .catch(() => {})
+    await sleep(400)
+  }
+}
+
+// 首访引导遮罩（.yebot-tour-mask，pointer-events:auto）会拦截交互扫描对「新增/编辑」按钮的点击，
+// 导致对话框根本没打开——交互覆盖计数会静默退化为 0（正是"扫描器空转"陷阱）。每页加载后先移除引导，
+// 让点击落到页面自身控件上（引导本身由 main.mjs 的功能用例单独验证，非广度巡检职责）。
+async function dismissTour(page) {
+  const skipBtn = page
+    .locator(
+      'button:has-text("跳过"), button:has-text("跳过引导"), [class*="tour"] button:has-text("跳"), button:has-text("完成"), button:has-text("开始使用")'
+    )
+    .first()
+  if (await skipBtn.isVisible({ timeout: 600 }).catch(() => false)) {
+    await skipBtn.click({ timeout: 1000 }).catch(() => {})
+    await sleep(300)
+  }
+  await page.keyboard.press('Escape').catch(() => {})
+  await page
+    .evaluate(() => {
+      document
+        .querySelectorAll('.yebot-tour-mask, .tour-wrapper, [class*="driver-overlay"], [class*="tour-step"]')
+        .forEach((e) => e.remove())
+    })
+    .catch(() => {})
+  await sleep(200)
+}
 const results = []
 
 async function login(page) {
@@ -294,6 +349,7 @@ async function scanPage(page, route) {
   page.on('response', onResponse)
   await page.goto(`${FRONTEND_URL}${route}`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
   await sleep(1800)
+  await dismissTour(page)
 
   // 交互扫描：点击只读按钮 + 打开"新增"/行内"编辑/查看"对话框再取消，捕获仅交互态才暴露的信号。
   const act = { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 } // 记录交互动作，证明扫描确有覆盖（非空转）
@@ -344,13 +400,7 @@ async function scanPage(page, route) {
       if (!dlgVisible && msgs.length + pageErrors.length > errBefore) {
         msgs.push('[interact] 点击「新增」后对话框未渲染（伴随运行时错误）')
       }
-      await page.keyboard.press('Escape').catch(() => {})
-      await page
-        .locator('.el-dialog__headerbtn:visible')
-        .first()
-        .click({ timeout: 800 })
-        .catch(() => {})
-      await sleep(400)
+      await dismissOverlays(page)
     }
     // (c) 打开首行「编辑/查看/详情/预览」回填对话框/抽屉（数据水合路径，编辑态才暴露的水合/
     //     渲染错误），只读打开再取消不提交；仅当"未渲染"伴随交互期新增运行时错误时才算异常。
@@ -384,13 +434,7 @@ async function scanPage(page, route) {
       }
       act.view = 1
       if (dlg2) act.viewOpen = 1
-      await page.keyboard.press('Escape').catch(() => {})
-      await page
-        .locator('.el-dialog__headerbtn:visible, .el-drawer__close-btn:visible')
-        .first()
-        .click({ timeout: 800 })
-        .catch(() => {})
-      await sleep(400)
+      await dismissOverlays(page)
     }
     await sleep(800)
   }
@@ -437,8 +481,12 @@ async function scanPage(page, route) {
           if (t) out.dialogs.push(`[msgbox] ${t}`)
         })
         document.querySelectorAll('.el-dialog').forEach((el) => {
-          const box = el.closest('.el-dialog__wrapper')
+          // 关闭后的 el-dialog 会以 .el-overlay{display:none} 残留在 DOM（Element Plus 非
+          // destroy-on-close 的常态，尤其 append-to-body）。只看 .el-dialog__wrapper 会漏判、
+          // 把已关闭的对话框误报成信号。以"是否有布局盒 + 最近浮层容器是否 display:none"为准。
+          const box = el.closest('.el-dialog__wrapper, .el-overlay')
           if (box && getComputedStyle(box).display === 'none') return
+          if (el.getClientRects().length === 0) return
           const title = el.querySelector('.el-dialog__title')
           const t = (title ? title.textContent : el.textContent).trim()
           if (t) out.dialogs.push(`[dialog] ${t.slice(0, 120)}`)

@@ -35,6 +35,7 @@ export * from './monitor/logininfor'
 export * from './monitor/operlog'
 export * from './monitor/online'
 export * from './monitor/frontendError'
+export * from './monitor/pat'
 
 // 代码生成模块
 export * from './tool/gen'

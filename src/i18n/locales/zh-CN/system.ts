@@ -49,7 +49,73 @@ export default {
     changelog: '更新日志',
     dashboard: '数据看板',
     website: 'Yebot官网',
+    pat: 'API 令牌',
     componentNotFound: '组件「{view}」不存在，请检查菜单配置'
+  },
+  pat: {
+    title: 'API 访问令牌',
+    tab: 'API 令牌',
+    tip: '个人访问令牌可用于脚本或第三方应用以你的身份调用 API。令牌明文仅在创建时展示一次，请妥善保存；吊销后立即失效。',
+    neverUsed: '从未使用',
+    scopeAll: '全部权限',
+    btn: {
+      create: '新建令牌',
+      revoke: '吊销',
+      copy: '复制',
+      done: '我已保存'
+    },
+    column: {
+      name: '名称',
+      token: '令牌',
+      scopes: '权限范围',
+      status: '状态',
+      expiresAt: '有效期',
+      lastUsedAt: '最近使用',
+      createTime: '创建时间',
+      operation: '操作'
+    },
+    status: {
+      active: '有效',
+      revoked: '已吊销'
+    },
+    expiry: {
+      never: '永不过期',
+      expired: '已过期',
+      soon: '{days} 天后到期',
+      active: '剩余 {days} 天'
+    },
+    create: {
+      title: '新建访问令牌'
+    },
+    form: {
+      name: '令牌名称',
+      namePh: '请输入令牌名称，如 CI 部署',
+      scopes: '权限范围',
+      scopesPh: '选择授予该令牌的权限',
+      expireDays: '有效期',
+      expireDaysTip: '天数，0 表示永不过期'
+    },
+    rule: {
+      nameRequired: '请输入令牌名称',
+      scopesRequired: '至少选择一项权限'
+    },
+    token: {
+      title: '令牌已创建',
+      warning: '请立即复制并妥善保存，此令牌仅展示一次，关闭后无法再次查看。'
+    },
+    msg: {
+      copied: '已复制到剪贴板',
+      copyFailed: '复制失败，请手动复制',
+      revokeConfirm: '确认吊销令牌「{name}」？吊销后使用该令牌的请求将立即失效。',
+      revoked: '令牌已吊销'
+    },
+    admin: {
+      tip: '此页面管理所有用户的个人访问令牌。管理员可吊销任意令牌，但访问令牌本身不得用于管理令牌（防止自我扩权）。',
+      phUserId: '按用户 ID 过滤',
+      column: {
+        userName: '所属用户'
+      }
+    }
   },
   noticeCenter: {
     title: '我的通知',

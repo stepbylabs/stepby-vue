@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证（共 47 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志（共 48 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -9580,6 +9580,176 @@ async function testFeature47(page) {
   record(47, '实时日志模块综合验证', passedCount === 5, `${passedCount}/5 项检查通过`)
 }
 
+async function testFeature48(page) {
+  log('\n--- 功能 48：个人访问令牌（PAT / OpenAPI）验证（/monitor/pat + 个人中心令牌 tab + 作用域链路）---')
+
+  // ---------- 48-1 PAT 鉴权登录 ----------
+  const { token } = await apiLogin()
+  if (!token) {
+    record(48, 'PAT API 鉴权', false, 'apiLogin 未获取到 token')
+    return
+  }
+  const adminHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+
+  // ---------- 48-2 scope 选项 ----------
+  let scopesOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/user/profile/tokens/scopes`, { headers: adminHeaders })
+    const body = await resp.json()
+    const opts = Array.isArray(body?.data) ? body.data : []
+    scopesOk = resp.status === 200 && body?.code === 200 && opts.includes('*:*:*')
+    record(48, '获取 scope 选项（含全权限）', scopesOk, `status=${resp.status}, 选项数=${opts.length}`)
+  } catch (err) {
+    record(48, '获取 scope 选项（含全权限）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-3 创建受限令牌（system:config:list）返回一次性明文 + 脱敏 ----------
+  let createOk = false
+  let patId = null
+  let patToken = null
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/user/profile/tokens`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ name: `e2e-pat-${Date.now()}`, scopes: ['system:config:list'], expireDays: 1 })
+    })
+    const body = await resp.json()
+    patToken = body?.data?.token
+    patId = body?.data?.pat?.patId
+    createOk =
+      resp.status === 200 &&
+      body?.code === 200 &&
+      typeof patToken === 'string' &&
+      patToken.startsWith('ybt_') &&
+      !!patId &&
+      body?.data?.pat?.tokenHash === undefined
+    record(
+      48,
+      '创建受限令牌（明文一次性 + 响应脱敏）',
+      createOk,
+      `status=${resp.status}, 前缀=${patToken?.slice(0, 4)}, 泄漏tokenHash=${body?.data?.pat?.tokenHash !== undefined}`
+    )
+  } catch (err) {
+    record(48, '创建受限令牌（明文一次性 + 响应脱敏）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-4 PAT 命中作用域内接口 200 ----------
+  let inScopeOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=5`, {
+      headers: { Authorization: `Bearer ${patToken}` }
+    })
+    inScopeOk = resp.status === 200
+    record(48, 'PAT 作用域内接口可访问（system:config:list → 200）', inScopeOk, `status=${resp.status}`)
+  } catch (err) {
+    record(48, 'PAT 作用域内接口可访问（system:config:list → 200）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-5 PAT 越权接口 403 ----------
+  let outScopeOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/operlog/list?pageNum=1&pageSize=5`, {
+      headers: { Authorization: `Bearer ${patToken}` }
+    })
+    outScopeOk = resp.status === 403
+    record(48, 'PAT 越权接口被拒（monitor:operlog:list → 403）', outScopeOk, `status=${resp.status}`)
+  } catch (err) {
+    record(48, 'PAT 越权接口被拒（monitor:operlog:list → 403）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-6 PAT 不得管理令牌（防自我扩权）403 ----------
+  let selfMgmtOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/user/profile/tokens`, {
+      headers: { Authorization: `Bearer ${patToken}` }
+    })
+    selfMgmtOk = resp.status === 403
+    record(48, 'PAT 不得访问令牌管理接口（防自我扩权 → 403）', selfMgmtOk, `status=${resp.status}`)
+  } catch (err) {
+    record(48, 'PAT 不得访问令牌管理接口（防自我扩权 → 403）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-7 管理员全量列表可见 + 属主用户名 ----------
+  let adminListOk = false
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/pat/list?pageNum=1&pageSize=100`, { headers: adminHeaders })
+    const body = await resp.json()
+    const rows = Array.isArray(body?.rows) ? body.rows : []
+    adminListOk = resp.status === 200 && body?.code === 200 && rows.some((r) => r.patId === patId && !!r.userName)
+    record(48, '管理员全量列表可见（含属主用户名）', adminListOk, `status=${resp.status}, rows=${rows.length}`)
+  } catch (err) {
+    record(48, '管理员全量列表可见（含属主用户名）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-8 吊销 → 旧令牌立即失效 401 ----------
+  let revokeOk = false
+  try {
+    const d = await fetch(`${CONFIG.backendUrl}/monitor/pat/${patId}`, { method: 'DELETE', headers: adminHeaders })
+    const after = await fetch(`${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=5`, {
+      headers: { Authorization: `Bearer ${patToken}` }
+    })
+    revokeOk = d.status === 200 && after.status === 401
+    record(48, '管理员吊销后旧令牌立即失效（→401）', revokeOk, `revoke=${d.status}, after=${after.status}`)
+  } catch (err) {
+    record(48, '管理员吊销后旧令牌立即失效（→401）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-9 个人中心「API 令牌」标签页渲染 ----------
+  let profileTabOk = false
+  try {
+    await page
+      .goto(`${CONFIG.frontendUrl}/user/profile/pat`, { waitUntil: 'networkidle', timeout: 15000 })
+      .catch(() => {})
+    await sleep(2200)
+    await skipTour(page)
+    profileTabOk = await page
+      .getByRole('button', { name: /新建令牌|Create|新建/ })
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false)
+    record(48, '个人中心「API 令牌」标签页渲染', profileTabOk, profileTabOk ? '令牌面板可见' : '未找到新建令牌按钮')
+  } catch (err) {
+    record(48, '个人中心「API 令牌」标签页渲染', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-10 监控/PAT 管理页面渲染 ----------
+  let adminPageOk = false
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/monitor/pat`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    await sleep(2200)
+    await skipTour(page)
+    const hasTable = await page
+      .locator('.app-container')
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false)
+    const hasFilter = await page
+      .getByPlaceholder(/用户 ID|User ID|用户ID/)
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false)
+    adminPageOk = hasTable
+    record(48, '监控/PAT 管理页面渲染', adminPageOk, hasTable ? `页面渲染成功(过滤器=${hasFilter})` : '页面未渲染')
+  } catch (err) {
+    record(48, '监控/PAT 管理页面渲染', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 48-11 综合验证 ----------
+  const checks = [
+    scopesOk,
+    createOk,
+    inScopeOk,
+    outScopeOk,
+    selfMgmtOk,
+    adminListOk,
+    revokeOk,
+    profileTabOk,
+    adminPageOk
+  ]
+  const passedCount = checks.filter(Boolean).length
+  record(48, 'PAT 模块综合验证', passedCount === checks.length, `${passedCount}/${checks.length} 项检查通过`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -9591,7 +9761,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（47 个功能）')
+  log('yebot 端到端主测试脚本（48 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -9683,7 +9853,8 @@ async function main() {
       { id: 44, fn: testFeature44 },
       { id: 45, fn: testFeature45 },
       { id: 46, fn: testFeature46 },
-      { id: 47, fn: testFeature47 }
+      { id: 47, fn: testFeature47 },
+      { id: 48, fn: testFeature48 }
     ]
 
     for (const f of features) {
