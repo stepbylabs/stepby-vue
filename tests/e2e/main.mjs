@@ -506,10 +506,13 @@ async function testFeature3(page) {
   }
   record(3, '删除按钮存在', hasDeleteBtn)
 
-  // 端到端验证：点击下载按钮触发实际下载，监听 download 事件
+  // 端到端验证：点击下载按钮触发实际下载。判定收紧（轮1）：必须观察到 download 事件，
+  // 或 /system/backup/download/ 的 200 响应且响应体非空；"按钮可点击即过"是假通过。
   try {
-    // 监听下载事件（浏览器导航到 blob URL 时触发）
     const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
+    const responsePromise = page
+      .waitForResponse((r) => r.url().includes('/system/backup/download/') && r.status() === 200, { timeout: 15000 })
+      .catch(() => null)
     // 点击第一行的下载按钮（el-button link 类型，文本"下载"）
     const downloadBtn = page
       .locator('.el-table__body-wrapper tbody tr')
@@ -518,13 +521,14 @@ async function testFeature3(page) {
       .first()
     if ((await downloadBtn.count()) > 0) {
       await downloadBtn.click().catch(() => {})
-      const download = await downloadPromise
+      const [download, resp] = await Promise.all([downloadPromise, responsePromise])
       if (download) {
-        const suggestedFilename = download.suggestedFilename()
-        record(3, '下载功能端到端验证', true, `文件: ${suggestedFilename}`)
+        record(3, '下载功能端到端验证', true, `文件: ${download.suggestedFilename()}`)
+      } else if (resp) {
+        const body = await resp.body().catch(() => null)
+        record(3, '下载功能端到端验证', !!body && body.length > 0, `blob 响应 ${body ? body.length : 0} 字节`)
       } else {
-        // 部分实现使用 blob URL，可能不触发 download 事件，改为检查网络请求
-        record(3, '下载功能端到端验证', true, '按钮可点击（blob 下载未触发 download 事件）')
+        record(3, '下载功能端到端验证', false, '既无 download 事件也无 200 下载响应')
       }
     } else {
       record(3, '下载功能端到端验证', false, '未找到可点击的下载按钮')
@@ -1169,47 +1173,35 @@ async function testFeature11(page) {
     return
   }
 
-  // 设置下载监听（PDF 可能通过 blob URL 触发下载或在新窗口打开）
+  // 设置下载监听（html2pdf .save() 走真实浏览器下载）。判定收紧（轮1）：
+  // 通过条件 = download 事件，或（compliance-report 200 且出现成功 Toast）；
+  // 删除"按钮 loading 即过"的弱判定——loading 只证明函数被调用，不证明导出成功。
   let downloadTriggered = false
-  const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
+  const downloadPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null)
+  const reportRespPromise = page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/compliance-report') && r.status() === 200, {
+      timeout: 20000
+    })
+    .catch(() => null)
 
   try {
     await exportBtn.click()
-    await sleep(2000)
-
-    // 等待下载事件或成功消息
-    const download = await downloadPromise
+    const [download, reportResp] = await Promise.all([downloadPromise, reportRespPromise])
     if (download) {
       downloadTriggered = true
-      const suggestedFilename = download.suggestedFilename()
-      record(11, 'PDF 导出功能触发', true, `文件: ${suggestedFilename}`)
+      record(11, 'PDF 导出功能触发', true, `文件: ${download.suggestedFilename()}`)
+    } else if (reportResp) {
+      const payload = await reportResp.json().catch(() => null)
+      const bizOk = payload && (payload.code === 200 || payload.code === 0)
+      const successMsg = page.locator('.el-message--success').first()
+      const hasSuccessMsg = await successMsg.isVisible({ timeout: 8000 }).catch(() => false)
+      downloadTriggered = !!(bizOk && hasSuccessMsg)
+      record(11, 'PDF 导出功能触发', downloadTriggered, `报告API=200/biz${bizOk}, 成功Toast=${hasSuccessMsg}`)
     } else {
-      // 检查是否有成功消息（PDF 在浏览器内打开的情况）
-      const successMsg = page.locator('.el-message--success:has-text("成功"), text=导出成功').first()
-      const hasSuccessMsg = await successMsg.isVisible({ timeout: 5000 }).catch(() => false)
-      if (hasSuccessMsg) {
-        downloadTriggered = true
-        record(11, 'PDF 导出功能触发', true, '成功消息显示')
-      } else {
-        // 检查按钮 loading 状态变化（间接证明函数被调用）
-        const btnLoading = await page
-          .locator('button:has-text("导出合规报告").loading')
-          .first()
-          .isVisible({ timeout: 500 })
-          .catch(() => false)
-        if (btnLoading) {
-          downloadTriggered = true
-          record(11, 'PDF 导出功能触发', true, '按钮 loading 状态激活')
-        }
-      }
+      record(11, 'PDF 导出功能触发', false, '无下载事件且未观察到 compliance-report 响应')
     }
   } catch (err) {
     record(11, 'PDF 导出功能触发', false, `异常: ${err.message.slice(0, 80)}`)
-  }
-
-  if (!downloadTriggered) {
-    // 最后兜底：检查控制台是否有 PDF 相关日志
-    record(11, 'PDF 导出功能触发', false, '未检测到下载事件或成功消息')
   }
 
   // 验证报告周期选择器存在（7天/30天/90天）
@@ -1438,7 +1430,7 @@ async function testFeature14(page) {
 
   // 综合判断：按钮级"新增可见、删除隐藏"的页面数
   const isolationWorkingCount = [userIsolated, roleIsolated, rateLimitIsolated].filter(Boolean).length
-  record(14, '权限隔离综合验证', isolationWorkingCount >= 1, `生效页面数: ${isolationWorkingCount}/3`)
+  record(14, '权限隔离综合验证', isolationWorkingCount === 3, `生效页面数: ${isolationWorkingCount}/3`)
 
   // 步骤 5：注销 ry 用户，重新登录 admin（恢复测试环境）
   await logout(page)
@@ -5833,7 +5825,7 @@ async function testFeature34(page) {
   const feature34Results = results.filter((r) => r.feature === 34)
   const passedCount = feature34Results.filter((r) => r.passed).length
   const total = feature34Results.length
-  record(34, '低成本高价值功能综合验证', passedCount >= total - 1, `${passedCount}/${total} 项检查通过`)
+  record(34, '低成本高价值功能综合验证', passedCount === total, `${passedCount}/${total} 项检查通过`)
 }
 
 // ==================== 功能 35：低成本高价值功能 V2（通知中心/会话管理/主题切换） ====================
@@ -6136,7 +6128,7 @@ async function testFeature35(page) {
   const feature35Results = results.filter((r) => r.feature === 35 && !r.name.includes('综合验证'))
   const passedCount = feature35Results.filter((r) => r.passed).length
   const total = feature35Results.length
-  record(35, '低成本高价值功能 V2 综合验证', passedCount >= total - 1, `${passedCount}/${total} 项检查通过`)
+  record(35, '低成本高价值功能 V2 综合验证', passedCount === total, `${passedCount}/${total} 项检查通过`)
 }
 
 // ==================== 功能 36：低成本高价值功能 V3（个人工作台/快捷键中心/帮助中心） ====================
@@ -6439,7 +6431,7 @@ async function testFeature36(page) {
   const feature36Results = results.filter((r) => r.feature === 36 && !r.name.includes('综合验证'))
   const passedCount = feature36Results.filter((r) => r.passed).length
   const total = feature36Results.length
-  record(36, '低成本高价值功能 V3 综合验证', passedCount >= total - 1, `${passedCount}/${total} 项检查通过`)
+  record(36, '低成本高价值功能 V3 综合验证', passedCount === total, `${passedCount}/${total} 项检查通过`)
 }
 
 // ==================== 功能 37：第一批次 UX Bug 修复验证 ====================
@@ -6921,7 +6913,7 @@ async function testFeature37(page) {
   const feature37Results = results.filter((r) => r.feature === 37 && !r.name.includes('综合验证'))
   const passedCount37 = feature37Results.filter((r) => r.passed).length
   const total37 = feature37Results.length
-  record(37, '第一批次 UX Bug 修复综合验证', passedCount37 >= total37 - 1, `${passedCount37}/${total37} 项检查通过`)
+  record(37, '第一批次 UX Bug 修复综合验证', passedCount37 === total37, `${passedCount37}/${total37} 项检查通过`)
 }
 
 /**
@@ -7341,7 +7333,7 @@ async function testFeature38(page) {
   const feature38Results = results.filter((r) => r.feature === 38 && !r.name.includes('综合验证'))
   const passedCount38 = feature38Results.filter((r) => r.passed).length
   const total38 = feature38Results.length
-  record(38, '第二批次 Tier S 功能综合验证', passedCount38 >= total38 - 1, `${passedCount38}/${total38} 项检查通过`)
+  record(38, '第二批次 Tier S 功能综合验证', passedCount38 === total38, `${passedCount38}/${total38} 项检查通过`)
 }
 
 // ==================== 功能 39：第三批次 Tier A 功能验证 ====================
@@ -7792,7 +7784,7 @@ async function testFeature39(page) {
   const feature39Results = results.filter((r) => r.feature === 39 && !r.name.includes('综合验证'))
   const passedCount39 = feature39Results.filter((r) => r.passed).length
   const total39 = feature39Results.length
-  record(39, '第三批次 Tier A 功能综合验证', passedCount39 >= total39 - 1, `${passedCount39}/${total39} 项检查通过`)
+  record(39, '第三批次 Tier A 功能综合验证', passedCount39 === total39, `${passedCount39}/${total39} 项检查通过`)
 }
 
 // ==================== 功能 40：第四批次 Tier B 功能验证 ====================
@@ -8177,7 +8169,7 @@ async function testFeature40(page) {
   const feature40Results = results.filter((r) => r.feature === 40 && !r.name.includes('综合验证'))
   const passedCount40 = feature40Results.filter((r) => r.passed).length
   const total40 = feature40Results.length
-  record(40, '第四批次 Tier B 功能综合验证', passedCount40 >= total40 - 1, `${passedCount40}/${total40} 项检查通过`)
+  record(40, '第四批次 Tier B 功能综合验证', passedCount40 === total40, `${passedCount40}/${total40} 项检查通过`)
 }
 
 // ==================== 功能 41：第五批次 性能优化验证 ====================
@@ -8394,7 +8386,7 @@ async function testFeature41(page) {
   const feature41Results = results.filter((r) => r.feature === 41 && !r.name.includes('综合验证'))
   const passedCount41 = feature41Results.filter((r) => r.passed).length
   const total41 = feature41Results.length
-  record(41, '第五批次 性能优化综合验证', passedCount41 >= total41 - 1, `${passedCount41}/${total41} 项检查通过`)
+  record(41, '第五批次 性能优化综合验证', passedCount41 === total41, `${passedCount41}/${total41} 项检查通过`)
 }
 
 // ==================== 功能 42：U5 + U14 后端聚合接口验证 ====================
@@ -8769,7 +8761,7 @@ async function testFeature42(page) {
   const feature42Results = results.filter((r) => r.feature === 42 && !r.name.includes('综合验证'))
   const passedCount42 = feature42Results.filter((r) => r.passed).length
   const total42 = feature42Results.length
-  record(42, 'U5+U14 后端聚合接口综合验证', passedCount42 >= total42 - 1, `${passedCount42}/${total42} 项检查通过`)
+  record(42, 'U5+U14 后端聚合接口综合验证', passedCount42 === total42, `${passedCount42}/${total42} 项检查通过`)
 }
 
 // ==================== 功能 43：i18n/动效/交互优化验证（2026-07-24） ====================
@@ -8907,7 +8899,7 @@ async function testFeature43(page) {
   const passed43 = [titleFmtOk, routeTransitionOk, acceptLangOk, truncationHeaderOk, validateLocaleOk].filter(
     Boolean
   ).length
-  record(43, 'i18n/动效/交互优化综合验证', passed43 >= total43 - 1, `${passed43}/${total43} 项检查通过`)
+  record(43, 'i18n/动效/交互优化综合验证', passed43 === total43, `${passed43}/${total43} 项检查通过`)
 }
 
 // ==================== 功能 44：P3 文案/空状态/提交态验证（2026-07-24） ====================
@@ -9039,7 +9031,7 @@ async function testFeature44(page) {
 
   const total44 = 4
   const passed44 = [svcLocaleOk, adminProtectOk, emptyStateOk, submitLoadingOk].filter(Boolean).length
-  record(44, 'P3 文案/空状态/提交态综合验证', passed44 >= total44 - 1, `${passed44}/${total44} 项检查通过`)
+  record(44, 'P3 文案/空状态/提交态综合验证', passed44 === total44, `${passed44}/${total44} 项检查通过`)
 }
 
 // ==================== 功能 45：侧边栏/主题优化验证（theme-auto + CSS 变量统一） ====================
@@ -9413,7 +9405,7 @@ async function testFeature45(page) {
     themeEditorOk
   ]
   const passed45 = checks.filter(Boolean).length
-  record(45, '侧边栏/主题优化综合验证', passed45 >= total45 - 2, `${passed45}/${total45} 项检查通过`)
+  record(45, '侧边栏/主题优化综合验证', passed45 === total45, `${passed45}/${total45} 项检查通过`)
 }
 
 // ==================== 功能 46：WebSocket 实时通知连接回归验证 ====================

@@ -200,11 +200,10 @@ const DOTTED_TLDS = new Set([
 //  - /tool/gen：代码生成展示包名/字段（com.xxx.domain）。
 const I18N_LEAK_SKIP = new Set(['/system/config', '/monitor/logtail', '/tool/gen'])
 
-// 已知良性、无需告警的响应（favicon 缺失、登出/无 token 的 401、验证码等）
+// 已知良性、无需告警的响应（轮1收窄）：采集器以 admin 登录态浏览受保护页面，
+// 任何 401 都意味着鉴权/权限回归，不再一律豁免——否则权限类缺陷被整体吞掉。
 function benignResponse(url, status) {
   if (/favicon\.(ico|png)/i.test(url)) return true
-  // 未授权 401 在个别页属正常鉴权反馈，记录但不计入"错误"
-  if (status === 401) return true
   return false
 }
 
@@ -356,52 +355,63 @@ async function scanPage(page, route) {
   const act = { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 } // 记录交互动作，证明扫描确有覆盖（非空转）
   if (INTERACT) {
     jsonResp = [] // 被动加载阶段的业务响应已在下方判定，交互阶段单独收敛避免重复
-    // (a) 只读按钮
-    const roBtns = page.locator(`.el-button:visible`)
-    const roCount = await roBtns.count().catch(() => 0)
-    for (let i = 0; i < Math.min(roCount, 40); i++) {
-      const label = (
-        (await roBtns
-          .nth(i)
-          .innerText()
-          .catch(() => '')) || ''
-      ).trim()
+    // (a) 只读按钮。用 .all() 固化为元素句柄再遍历（轮1修正）：
+    //     locator.nth(i) 每次都对当前 DOM 重新解析，点击引发列表重渲染时索引会漂移（漏点/重点）。
+    const roHandles = await page
+      .locator('.el-button:visible')
+      .all()
+      .catch(() => [])
+    for (const btn of roHandles.slice(0, 40)) {
+      const label = ((await btn.innerText().catch(() => '')) || '').trim()
       if (READONLY_BTN_RE.test(label)) {
         act.ro++
-        await roBtns
-          .nth(i)
-          .click({ timeout: 1500 })
-          .catch(() => {})
+        await btn.click({ timeout: 1500 }).catch(() => {})
         await sleep(500)
       }
     }
-    // (b) 打开新增表单对话框（仅渲染验证，不提交），随后 Esc 关闭
+    // (b) 打开新增表单对话框（仅渲染验证，不提交），随后 Esc 关闭。
+    //     轮1收紧：点击后对话框未渲染且无新错误时也判定——若 URL 也未变化则是"点击无反应"
+    //     （处理器缺失/被禁用遮蔽），不再一律良性放行。
     const addBtn = page.locator('.el-button:visible').filter({ hasText: ADD_BTN_RE }).first()
     if (await addBtn.isVisible({ timeout: 800 }).catch(() => false)) {
-      const errBefore = msgs.length + pageErrors.length
-      await addBtn.click({ timeout: 1500 }).catch(() => {})
-      await sleep(1200)
-      let dlgVisible = await page
-        .locator('.el-dialog:visible')
-        .first()
-        .isVisible({ timeout: 800 })
-        .catch(() => false)
-      if (!dlgVisible) {
-        await sleep(1000) // 大型表单懒加载二次确认
-        dlgVisible = await page
+      const addDisabled = await addBtn.isDisabled().catch(() => false)
+      if (addDisabled) {
+        msgs.push('[interact] 「新增」按钮呈禁用态（权限隐藏与禁用无法区分，需人工研判）')
+      } else {
+        const errBefore = msgs.length + pageErrors.length
+        const urlBeforeAdd = page.url()
+        // 内联新增（加表格行/加选项/加表单项）是合法反应：以全局元素数量变化为证据，
+        // 只有"无弹窗、无跳转、无错误、DOM 无增量"才算真·点击无反应。
+        const elemCount = () => page.evaluate(() => document.getElementsByTagName('*').length).catch(() => -1)
+        const countBefore = await elemCount()
+        await addBtn.click({ timeout: 1500 }).catch(() => {})
+        await sleep(1200)
+        let dlgVisible = await page
           .locator('.el-dialog:visible')
           .first()
           .isVisible({ timeout: 800 })
           .catch(() => false)
+        if (!dlgVisible) {
+          await sleep(1000) // 大型表单懒加载二次确认
+          dlgVisible = await page
+            .locator('.el-dialog:visible')
+            .first()
+            .isVisible({ timeout: 800 })
+            .catch(() => false)
+        }
+        const navigated = page.url() !== urlBeforeAdd // 非模态新增：路由跳转到表单页
+        act.add = 1
+        if (dlgVisible) act.addOpen = 1
+        if (!dlgVisible && !navigated) {
+          const reacted = (await elemCount()) > countBefore
+          if (msgs.length + pageErrors.length > errBefore) {
+            msgs.push('[interact] 点击「新增」后对话框未渲染（伴随运行时错误）')
+          } else if (!reacted) {
+            msgs.push('[interact] 点击「新增」无反应：无对话框、无路由跳转、无 DOM 增量、无错误（疑似处理器缺失）')
+          }
+        }
+        await dismissOverlays(page)
       }
-      // 仅当"未渲染对话框"伴随交互期新增的运行时错误时才计为异常信号；
-      // 无错误的情况下可能是该页"新增"并非模态框（如工具页内联表单），属良性。
-      act.add = 1
-      if (dlgVisible) act.addOpen = 1
-      if (!dlgVisible && msgs.length + pageErrors.length > errBefore) {
-        msgs.push('[interact] 点击「新增」后对话框未渲染（伴随运行时错误）')
-      }
-      await dismissOverlays(page)
     }
     // (c) 打开首行「编辑/查看/详情/预览」回填对话框/抽屉（数据水合路径，编辑态才暴露的水合/
     //     渲染错误），只读打开再取消不提交；仅当"未渲染"伴随交互期新增运行时错误时才算异常。
@@ -462,19 +472,16 @@ async function scanPage(page, route) {
         document.querySelectorAll('.el-message, .el-notification').forEach((el) => {
           const t = el.textContent.trim()
           if (!t) return
-          // 仅 error/warning 类提示计为异常信号；success/info（如"操作成功/刷新成功"）属正常反馈。
+          // 类型类名优先（轮1修正）：Element Plus 按 type 挂 el-message--{success|info|warning|error}。
+          // 有明确类型类时以类名为准——success/info 即使文案含「失败」字样（如"0 项失败"）也是良性，
+          // 不再被文本正则误判为异常；仅"无类型类"的裸 toast 退化为文本启发式判定。
+          const typeClass = ['success', 'info', 'warning', 'error'].find((ty) =>
+            [...el.classList].some((c) => c === `el-message--${ty}` || c === `el-notification--${ty}`)
+          )
           const isError =
-            el.classList.contains('el-message--error') ||
-            el.classList.contains('el-message--warning') ||
-            el.classList.contains('el-notification--error') ||
-            el.classList.contains('el-notification--warning') ||
-            /错误|失败|异常|error|fail/i.test(t)
-          const isBenign =
-            el.classList.contains('el-message--success') ||
-            el.classList.contains('el-message--info') ||
-            el.classList.contains('el-notification--success') ||
-            el.classList.contains('el-notification--info')
-          if (isError || !isBenign) out.toasts.push(t)
+            typeClass === 'error' || typeClass === 'warning' || (!typeClass && /错误|失败|异常|error|fail/i.test(t))
+          const isBenign = typeClass === 'success' || typeClass === 'info'
+          if (isError && !isBenign) out.toasts.push(t)
         })
         // MessageBox / 可见 Dialog 标题与正文（不改状态，仅读取已弹出的内容）
         document.querySelectorAll('.el-message-box__message, .el-message-box__title').forEach((el) => {
@@ -575,7 +582,13 @@ async function main() {
 
   const ok = await login(page)
   console.log(`\n登录: ${ok ? '成功' : '失败'}\n`)
-  for (const route of ROUTES) {
+  // ROUTE_ONLY="/tool/build,/tool/http-debugger" 可只跑指定路由（子串匹配），用于定向复验
+  const routeOnly = (process.env.ROUTE_ONLY || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const routesToScan = routeOnly.length ? ROUTES.filter((r) => routeOnly.some((f) => r.includes(f))) : ROUTES
+  for (const route of routesToScan) {
     await scanPage(page, route)
   }
 
