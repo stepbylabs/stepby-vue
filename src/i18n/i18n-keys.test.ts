@@ -62,4 +62,12 @@ describe('i18n 键完整性静态守卫', () => {
       `缺失 en-US(${missingEn.length}):\n${missingEn.join('\n')}`
     expect(missingZh.length + missingEn.length, report).toBe(0)
   })
+
+  it('zh-CN 与 en-US 叶子键集合完全一致（防语言包漂移）', () => {
+    // 采集器只在 zh-CN 下跑，若某键仅存在于 zh-CN，则切到 en-US 会渲染裸键——静态双向断言堵住这类漂移。
+    const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort()
+    const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort()
+    const report = `仅 zh-CN(${onlyZh.length}): ${onlyZh.join(', ')}\n仅 en-US(${onlyEn.length}): ${onlyEn.join(', ')}`
+    expect(onlyZh.length + onlyEn.length, report).toBe(0)
+  })
 })
