@@ -72,20 +72,30 @@ node main.mjs --headless
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 
-`main.mjs` 是断言式功能回归；`collect-warnings.mjs` 是**广度巡检**：登录后逐页采集 8 类运行时信号，用于发现
+`main.mjs` 是断言式功能回归；`collect-warnings.mjs` 是**广度巡检**：登录后逐页采集 9 类运行时信号，用于发现
 断言未覆盖的新告警/错误。二者互补，每轮循环都应各跑一次。
+
+**权威全栈目标 = embed :8080**（同源、真实后端与数据、生产构建会注册 SW）：业务错误码、SW 兜底等
+只在 embed/生产构建才暴露的问题在此才测得到（如 `/tool/swagger` 的 SW `navigateFallback` 拦截）。
 
 ```bash
 cd yebot-ui/tests/e2e
-PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:4173 \
+PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/49"
+# 交互态（打开“新增”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
+INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
+YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
+# 期望（已验证基线）：末行 "有信号的路由数: 0/49"（INTERACT 模式同样 0/49 稳定）
 ```
 
-- **8 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
-  `response` status≥400（剔除 favicon/预期 401 良性项）、`el-message`/`el-notification` Toast、
-  `el-message-box`/`el-dialog` 弹窗、真实 404（`.wscn-http404-container` 类名，避免正文含 "404" 误报）、
-  以及后端 `/tmp/yebot-backend.log` 的 ERROR/WARN/panic（人工关联）。
+- **9 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
+  `response` status≥400（剔除 favicon/预期 401 良性项）、同源 JSON 的**业务错误码**（`code!=200/0`，
+  捕获被页面静默吞掉的保存/查询失败）、`el-message`/`el-notification` Toast（仅 error/warning 计数，
+  成功/信息类不算异常）、`el-message-box`/`el-dialog` 弹窗、真实 404（`.wscn-http404-container` 类名，
+  避免正文含 "404" 误报）、以及后端 `/tmp/yebot-backend.log` 的 ERROR/WARN/panic（人工关联）。
+  `EXT_NOISE_RE` 过滤浏览器扩展在严格 CSP 下的字体/脚本加载噪声（否则 embed 模式整批假阳）。
+- **交互态只开不提**：`INTERACT=1` 打开“新增/添加/新建”表单对话框后即取消，**不提交**，防污染数据；
+  真实“保存是否失败”由 `main.mjs` 的 CRUD 用例覆盖，二者分工互补。
 - **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 49 个可达页面。
   新增页面若被手写猜错会命中 404 兜底页 → 假信号；务必 `SELECT ... FROM sys_menu` 核对（如 `/system/msg/*`、
   `/help-center/*`、`/system/webHook/*`）。第 8 步记录了“每轮核查是否遗漏采集面”的实践。

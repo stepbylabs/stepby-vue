@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { createI18n } from 'vue-i18n'
 
 import zhCN from './zh-CN'
 import enUS from './en-US'
@@ -326,6 +327,131 @@ describe('i18n locale 键完整性', () => {
       const zh = { x: { y: 1 } }
       const en = { x: 'str' }
       expect(() => assertLocaleKeysAligned(zh, en)).toThrow()
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // 报文编译完整性（防回归）
+  // --------------------------------------------------------------------------
+  // 背景：/system/msg/channel、/system/msg/template、/system/report 的表单对话框曾因
+  // 占位/提示类报文含有 vue-i18n 保留字符（`{` `}` `@`、嵌套 `{{}}`、字面量 `|`）而
+  // 触发 message 编译错误（生产 JIT 下抛 SyntaxError 被 ErrorBoundary 捕获，导致整个
+  // 对话框无法渲染；该错误仅在交互态出现，被动页面加载采集不到）。
+  // 本用例逐一 t() 每个叶子报文并捕获 vue-i18n 打印到 console.error 的编译错误，
+  // 确保任何含保留字符的字面量都以 {'...'} 转义，杜绝同类回归。
+  // --------------------------------------------------------------------------
+  describe('i18n 报文编译完整性', () => {
+    /** 递归收集 (点分键路径 -> 字符串值) 叶子 */
+    function collectStringLeaves(obj: unknown, prefix = '', acc: { key: string; value: string }[] = []) {
+      if (obj === null || typeof obj !== 'object') return acc
+      if (Array.isArray(obj)) return acc
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        const path = prefix ? `${prefix}.${k}` : k
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+          collectStringLeaves(v, path, acc)
+        } else if (typeof v === 'string') {
+          acc.push({ key: path, value: v })
+        }
+      }
+      return acc
+    }
+
+    let errorSpy: ReturnType<typeof vi.spyOn>
+    afterEach(() => errorSpy?.mockRestore())
+
+    /** 在给定的 t 函数下逐一解析所有叶子报文，返回触发编译错误的记录 */
+    function findCompilationErrors(t: (key: string) => unknown, leaves: { key: string }[]): string[] {
+      const bad: string[] = []
+      errorSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        const text = args.map((a) => (typeof a === 'string' ? a : '')).join(' ')
+        if (
+          /Message compilation error|Invalid token|Not allowed nest placeholder|Detected nested|SyntaxError/i.test(text)
+        ) {
+          bad.push(text.slice(0, 160))
+        }
+      })
+      for (const { key } of leaves) {
+        try {
+          t(key)
+        } catch {
+          bad.push(`throw on ${key}`)
+        }
+      }
+      errorSpy.mockRestore()
+      return bad
+    }
+
+    it('zh-CN 全部报文可编译（无 message 编译错误）', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'zh-CN',
+        messages: { 'zh-CN': zhCN },
+        missingWarn: false,
+        fallbackWarn: false
+      })
+      const leaves = collectStringLeaves(zhCN)
+      expect(leaves.length).toBeGreaterThan(100)
+      const bad = findCompilationErrors((k) => i18n.global.t(k), leaves)
+      expect(bad, `存在编译失败的 zh-CN 报文:\n${bad.join('\n')}`).toEqual([])
+    })
+
+    it('en-US 全部报文可编译（无 message 编译错误）', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en-US',
+        messages: { 'en-US': enUS },
+        missingWarn: false,
+        fallbackWarn: false
+      })
+      const leaves = collectStringLeaves(enUS)
+      const bad = findCompilationErrors((k) => i18n.global.t(k), leaves)
+      expect(bad, `存在编译失败的 en-US 报文:\n${bad.join('\n')}`).toEqual([])
+    })
+
+    it('含 vue-i18n 保留字符的字面量示例（channel/template/report）已正确转义渲染', () => {
+      // 精确回归：这三条报文此前直接触发编译错误，必须以 {'...'} 字面量块包裹后正确渲染出原样文本。
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'zh-CN',
+        messages: { 'zh-CN': zhCN },
+        missingWarn: false,
+        fallbackWarn: false
+      })
+      const smtp = i18n.global.t('msg.channel.form.phConfigJson')
+      expect(smtp).toContain('{ "smtp_host"')
+      expect(smtp).toContain('xxx@qq.com')
+      expect(smtp).toContain('"smtp_password": "xxx"')
+      const report = i18n.global.t('report.form.phConfig')
+      expect(report).toContain('{"days":7}')
+    })
+  })
+
+  // footerDisclaimer 含字面量 |，vue-i18n 会按复数分隔处理并在无 count 时截断为第一段。
+  // 曾导致合规报告 PDF 页脚丢失 "| 仅供审计合规用途"。此处锁定完整文案不被截断。
+  describe('footerDisclaimer 不被 | 复数截断', () => {
+    it('zh-CN 页脚保留完整两段文案', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'zh-CN',
+        messages: { 'zh-CN': zhCN },
+        missingWarn: false,
+        fallbackWarn: false
+      })
+      const v = i18n.global.t('auditDashboard.report.footerDisclaimer')
+      expect(v).toContain('本报告由 yebot 系统自动生成')
+      expect(v).toContain('仅供审计合规用途')
+    })
+    it('en-US 页脚保留完整两段文案', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en-US',
+        messages: { 'en-US': enUS },
+        missingWarn: false,
+        fallbackWarn: false
+      })
+      const v = i18n.global.t('auditDashboard.report.footerDisclaimer')
+      expect(v).toContain('auto-generated by the yebot system')
+      expect(v).toContain('For audit compliance purposes only')
     })
   })
 })

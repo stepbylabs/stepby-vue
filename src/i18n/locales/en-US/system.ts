@@ -611,8 +611,7 @@ export default {
         statusNormal: 'Normal',
         statusDisabled: 'Disabled',
         configJson: 'Channel Config',
-        phConfigJson:
-          '{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }',
+        phConfigJson: `{'{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }'}`,
         phConfigGeneric: 'Enter the config JSON for this channel type',
         configSecretTip:
           'Tip: sensitive fields such as smtp_password / password are masked as ******. Leave blank when editing to keep unchanged.',
@@ -667,7 +666,7 @@ export default {
       },
       var: {
         label: 'Variable Placeholder',
-        hint: 'Supports {{variable}} placeholders, replaced with actual values when sending. Click to insert:',
+        hint: `{'Supports {{variable}} placeholders, replaced with actual values when sending. Click to insert:'}`,
         previewSubject: 'Subject Preview',
         previewContent: 'Content Preview',
         sampleName: 'John',
@@ -853,7 +852,7 @@ export default {
       phReportName: 'Enter report name',
       reportType: 'Report Type',
       config: 'Report Config',
-      phConfig: 'Enter report config JSON, e.g. {"days":7}',
+      phConfig: `{'Enter report config JSON, e.g. {"days":7}'}`,
       configTip: 'Note: custom type passes this JSON through as-is; login_stats supports config days.',
       status: 'Status',
       remark: 'Remark',

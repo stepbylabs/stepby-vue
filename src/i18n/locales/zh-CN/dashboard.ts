@@ -182,7 +182,7 @@ export default {
       unknownBusinessType: '类型{type}',
       periodConnector: '至',
       generatedAt: '生成时间',
-      footerDisclaimer: '本报告由 yebot 系统自动生成 | 仅供审计合规用途'
+      footerDisclaimer: `{'本报告由 yebot 系统自动生成 | 仅供审计合规用途'}`
     }
   },
   announcementBanner: {

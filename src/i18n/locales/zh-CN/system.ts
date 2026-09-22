@@ -610,8 +610,7 @@ export default {
         statusNormal: '正常',
         statusDisabled: '停用',
         configJson: '渠道配置',
-        phConfigJson:
-          '{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }',
+        phConfigJson: `{'{ "smtp_host": "smtp.qq.com", "smtp_port": 465, "smtp_user": "xxx@qq.com", "smtp_password": "xxx" }'}`,
         phConfigGeneric: '请输入该渠道类型对应的配置 JSON',
         configSecretTip:
           '提示：包含 smtp_password / password 等敏感字段时，后端会以 ****** 脱敏保存，修改时可留空表示不更改。',
@@ -666,7 +665,7 @@ export default {
       },
       var: {
         label: '变量占位',
-        hint: '支持 {{变量名}} 占位，发送时替换为实际值，点击插入：',
+        hint: `{'支持 {{变量名}} 占位，发送时替换为实际值，点击插入：'}`,
         previewSubject: '主题预览',
         previewContent: '内容预览',
         sampleName: '张三',
@@ -850,7 +849,7 @@ export default {
       phReportName: '请输入报表名称',
       reportType: '报表类型',
       config: '报表配置',
-      phConfig: '请输入报表配置 JSON，如 {"days":7}',
+      phConfig: `{'请输入报表配置 JSON，如 {"days":7}'}`,
       configTip: '提示：custom 类型将原样透传该 JSON；login_stats 可配置 days 天数。',
       status: '状态',
       remark: '备注',

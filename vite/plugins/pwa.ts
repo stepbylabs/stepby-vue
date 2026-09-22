@@ -39,6 +39,11 @@ export default function createPwaPlugin(): PluginOption {
       // 预缓存全部构建产物（带 hash 文件名天然 cache-first；入口 index.html 经 navigateFallback 兜底）
       globPatterns: ['**/*.{js,html,css,svg,ico,png,woff2,eot,ttf}'],
       navigateFallback: '/index.html',
+      // navigateFallbackDenylist：后端提供的路由绝不能被 SW 兜底成 SPA shell（/index.html）。
+      // 否则 embed 模式下前端"系统接口"页 iframe 请求 /swagger-ui/index.html 时，SW 会返回
+      // 缓存的 SPA index.html（其响应带 X-Frame-Options: DENY），触发浏览器
+      // "Refused to display ... in a frame" 拦截。这些路径必须由后端原样返回。
+      navigateFallbackDenylist: [/^\/swagger-ui/, /^\/v3\/api-docs/, /^\/actuator/],
       runtimeCaching: [
         {
           // API：networkFirst（先网络、离线兜底旧缓存），仅 GET 幂等接口

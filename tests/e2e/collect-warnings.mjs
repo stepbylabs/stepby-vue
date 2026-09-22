@@ -82,6 +82,15 @@ function benignResponse(url, status) {
   return false
 }
 
+// RuoYi 约定：业务失败以 HTTP 200 + body.code!=200 返回（前端 request 拦截器据此弹错误 Toast）。
+// 采集器需读取 JSON 响应体的 code 字段，捕获"被页面静默吞掉"的业务错误——这是被动加载
+// 信号（console/dialog）之外易遗漏的一类信息。200/0 视为成功；其余记为业务错误待人工研判。
+function isBizSuccess(body) {
+  if (!body || typeof body !== 'object') return true
+  if (typeof body.code === 'undefined') return true // 非统一封套接口（如 ts 类型/静态资源）不判定
+  return body.code === 200 || body.code === 0
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 
@@ -110,20 +119,47 @@ async function login(page) {
   return !page.url().includes('login')
 }
 
+const INTERACT = process.env.INTERACT === '1'
+// 交互扫描中"打开表单对话框再取消"的按钮文案（新增/添加/新建），只打开不提交，Esc 关闭。
+const ADD_BTN_RE = /(新增|添加|新建|New|Add)/i
+// 交互扫描中可安全点击的只读按钮（查询/重置/刷新），不改数据。
+const READONLY_BTN_RE = /^\s*(搜索|查询|重置|刷新)\s*$/
+
+// 浏览器扩展注入的资源（chrome-extension:// 等）并非被测应用的一部分：内嵌模式 :8080 的
+// CSP（default-src 'self'）会拦截扩展字体/脚本并打印 console error + requestfailed，这是测试
+// Chromium 环境噪声而非应用缺陷。此处过滤扩展来源，保留对应用自身源的真实 CSP/加载错误。
+const EXT_NOISE_RE =
+  /chrome-extension:\/\/|moz-extension:\/\/|ms-browser-extension:\/\/|extensions\.[a-z]+\.chromium\.org|Loading the font '[^']*(chrome-extension|moz-extension)|Content Security Policy directive:[^\n]*(chrome-extension|moz-extension)/i
+
 async function scanPage(page, route) {
   const msgs = []
   const pageErrors = []
   const reqFail = []
   const badResp = []
+  const bizErr = []
+  let jsonResp = []
   const onConsole = (msg) => {
     const t = msg.type()
-    if (t === 'warning' || t === 'error') msgs.push(`[${t}] ${msg.text()}`)
+    if (t !== 'warning' && t !== 'error') return
+    const text = msg.text()
+    if (EXT_NOISE_RE.test(text)) return
+    msgs.push(`[${t}] ${text}`)
   }
-  const onPageError = (err) => pageErrors.push(String(err && err.message ? err.message : err))
-  const onFail = (req) => reqFail.push(`${req.method()} ${req.url()} :: ${req.failure()?.errorText || 'failed'}`)
+  const onPageError = (err) => {
+    const s = String(err && err.message ? err.message : err)
+    if (!EXT_NOISE_RE.test(s)) pageErrors.push(s)
+  }
+  const onFail = (req) => {
+    const url = req.url()
+    if (EXT_NOISE_RE.test(url)) return
+    reqFail.push(`${req.method()} ${url} :: ${req.failure()?.errorText || 'failed'}`)
+  }
   const onResponse = (resp) => {
     const st = resp.status()
-    if (st >= 400 && !benignResponse(resp.url(), st)) badResp.push(`${resp.request().method()} ${resp.url()} -> ${st}`)
+    const url = resp.url()
+    if (st >= 400 && !benignResponse(url, st)) badResp.push(`${resp.request().method()} ${url} -> ${st}`)
+    const ct = resp.headers()['content-type'] || ''
+    if (url.startsWith(FRONTEND_URL) && ct.includes('application/json')) jsonResp.push(resp)
   }
   page.on('console', onConsole)
   page.on('pageerror', onPageError)
@@ -131,12 +167,94 @@ async function scanPage(page, route) {
   page.on('response', onResponse)
   await page.goto(`${FRONTEND_URL}${route}`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
   await sleep(1800)
+
+  // 交互扫描：点击只读按钮 + 打开"新增"对话框再取消，捕获仅交互态才暴露的信号。
+  if (INTERACT) {
+    jsonResp = [] // 被动加载阶段的业务响应已在下方判定，交互阶段单独收敛避免重复
+    // (a) 只读按钮
+    const roBtns = page.locator(`.el-button:visible`)
+    const roCount = await roBtns.count().catch(() => 0)
+    for (let i = 0; i < Math.min(roCount, 40); i++) {
+      const label = (
+        (await roBtns
+          .nth(i)
+          .innerText()
+          .catch(() => '')) || ''
+      ).trim()
+      if (READONLY_BTN_RE.test(label)) {
+        await roBtns
+          .nth(i)
+          .click({ timeout: 1500 })
+          .catch(() => {})
+        await sleep(500)
+      }
+    }
+    // (b) 打开新增表单对话框（仅渲染验证，不提交），随后 Esc 关闭
+    const addBtn = page.locator('.el-button:visible').filter({ hasText: ADD_BTN_RE }).first()
+    if (await addBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+      const errBefore = msgs.length + pageErrors.length
+      await addBtn.click({ timeout: 1500 }).catch(() => {})
+      await sleep(1200)
+      let dlgVisible = await page
+        .locator('.el-dialog:visible')
+        .first()
+        .isVisible({ timeout: 800 })
+        .catch(() => false)
+      if (!dlgVisible) {
+        await sleep(1000) // 大型表单懒加载二次确认
+        dlgVisible = await page
+          .locator('.el-dialog:visible')
+          .first()
+          .isVisible({ timeout: 800 })
+          .catch(() => false)
+      }
+      // 仅当"未渲染对话框"伴随交互期新增的运行时错误时才计为异常信号；
+      // 无错误的情况下可能是该页"新增"并非模态框（如工具页内联表单），属良性。
+      if (!dlgVisible && msgs.length + pageErrors.length > errBefore) {
+        msgs.push('[interact] 点击「新增」后对话框未渲染（伴随运行时错误）')
+      }
+      await page.keyboard.press('Escape').catch(() => {})
+      await page
+        .locator('.el-dialog__headerbtn:visible')
+        .first()
+        .click({ timeout: 800 })
+        .catch(() => {})
+      await sleep(400)
+    }
+    await sleep(800)
+  }
+
+  // 业务错误检测：读取本阶段捕获的 JSON 响应体，筛出 HTTP 200 但 code!=200 的失败封套。
+  const jsonToCheck = jsonResp
+  jsonResp = []
+  for (const resp of jsonToCheck) {
+    const body = await resp.json().catch(() => null)
+    if (body && !isBizSuccess(body)) {
+      bizErr.push(
+        `${resp.request().method()} ${resp.url()} -> code=${body.code} msg=${String(body.msg || '').slice(0, 80)}`
+      )
+    }
+  }
+
   const overlay = await page
     .evaluate(() => {
       const out = { toasts: [], dialogs: [] }
       document.querySelectorAll('.el-message, .el-notification').forEach((el) => {
         const t = el.textContent.trim()
-        if (t) out.toasts.push(t)
+        if (!t) return
+        // 仅 error/warning 类提示计为异常信号；success/info（如"操作成功/刷新成功"）属正常反馈。
+        const isError =
+          el.classList.contains('el-message--error') ||
+          el.classList.contains('el-message--warning') ||
+          el.classList.contains('el-notification--error') ||
+          el.classList.contains('el-notification--warning') ||
+          /错误|失败|异常|error|fail/i.test(t)
+        const isBenign =
+          el.classList.contains('el-message--success') ||
+          el.classList.contains('el-message--info') ||
+          el.classList.contains('el-notification--success') ||
+          el.classList.contains('el-notification--info')
+        if (isError || !isBenign) out.toasts.push(t)
       })
       // MessageBox / 可见 Dialog 标题与正文（不改状态，仅读取已弹出的内容）
       document.querySelectorAll('.el-message-box__message, .el-message-box__title').forEach((el) => {
@@ -166,6 +284,7 @@ async function scanPage(page, route) {
     pageErrors: [...pageErrors],
     requestsFailed: [...reqFail],
     badResponses: [...badResp],
+    bizErrors: [...bizErr],
     toasts: overlay.toasts,
     dialogs: overlay.dialogs
   })
@@ -174,11 +293,12 @@ async function scanPage(page, route) {
     pageErrors.length +
     reqFail.length +
     badResp.length +
+    bizErr.length +
     overlay.toasts.length +
     overlay.dialogs.length +
     (p404 ? 1 : 0)
   console.log(
-    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} 404=${p404}`
+    `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} 404=${p404}`
   )
 }
 
@@ -201,6 +321,7 @@ async function main() {
       r.pageErrors.length +
       r.requestsFailed.length +
       r.badResponses.length +
+      (r.bizErrors ? r.bizErrors.length : 0) +
       r.toasts.length +
       r.dialogs.length +
       (r.p404 ? 1 : 0)
@@ -211,6 +332,7 @@ async function main() {
       r.pageErrors.forEach((m) => console.log(`  PAGEERROR ${m}`))
       r.requestsFailed.forEach((m) => console.log(`  REQFAIL ${m}`))
       r.badResponses.forEach((m) => console.log(`  HTTP ${m}`))
+      ;(r.bizErrors || []).forEach((m) => console.log(`  BIZERR ${m}`))
       r.toasts.forEach((m) => console.log(`  TOAST ${m}`))
       r.dialogs.forEach((m) => console.log(`  DIALOG ${m}`))
     }
