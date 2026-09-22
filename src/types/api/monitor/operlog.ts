@@ -47,6 +47,8 @@ export interface SysOperLog extends BaseEntity {
   operParam?: string
   /** 变更前数据快照 */
   operBefore?: string
+  /** 字段级变更差异（JSON 数组 [{field,old,new}]，仅 PUT 成功记录） */
+  operDiff?: string
   /** 返回参数 */
   jsonResult?: string
   /** 错误消息 */

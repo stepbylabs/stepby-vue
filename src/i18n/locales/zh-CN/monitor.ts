@@ -428,7 +428,8 @@ export default {
       abnormal: '异常',
       copy: '复制',
       diffCompare: '变更对比',
-      diffTip: '对比请求参数（新值）与返回结果（修改后）中的字段差异，便于审计追踪',
+      diffTip:
+        '优先展示后端记录的逐字段变更差异（变更前 → 变更后）；无该数据的历史日志回退到请求参数与返回结果的字段对比',
       basicInfo: '基本信息',
       operModule: '操作模块',
       businessType: '业务类型',
@@ -446,7 +447,7 @@ export default {
       oldValue: '原值',
       newValue: '新值',
       errorMsg: '异常信息',
-      noDiff: '无字段差异（请求参数与响应数据无重叠字段，或仅新增/删除操作）',
+      noDiff: '本次修改未检测到字段级差异（数据未变化），或历史日志缺少字段级差异记录',
       empty: '（空）',
       noData: '（无数据）',
       millisecond: '毫秒'

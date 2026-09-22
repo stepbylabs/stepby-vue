@@ -4,4 +4,8 @@ export type Model = { operId: number, title: string | null, businessType: number
 /**
  * 变更前数据快照（JSON，仅 PUT/DELETE 记录）
  */
-operBefore: string | null, jsonResult: string | null, status: string | null, errorMsg: string | null, operTime: string | null, costTime: number | null, };
+operBefore: string | null, 
+/**
+ * 字段级变更差异（JSON 数组 [{field,old,new}]，仅 PUT 成功记录）
+ */
+operDiff: string | null, jsonResult: string | null, status: string | null, errorMsg: string | null, operTime: string | null, costTime: number | null, };

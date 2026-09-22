@@ -429,7 +429,7 @@ export default {
       copy: 'Copy',
       diffCompare: 'Diff Compare',
       diffTip:
-        'Compare field differences between request params (new value) and response (after modification) for audit tracking',
+        'Prioritizes the backend-computed per-field changes (before → after); historical logs without this data fall back to comparing request params against the response',
       basicInfo: 'Basic Info',
       operModule: 'Module',
       businessType: 'Business Type',
@@ -448,7 +448,7 @@ export default {
       newValue: 'New Value',
       errorMsg: 'Error Message',
       noDiff:
-        'No field differences (no overlapping fields between request params and response data, or only add/delete operations)',
+        'No field-level changes detected for this edit (data unchanged), or the historical log lacks field-level diff data',
       empty: '(Empty)',
       noData: '(No data)',
       millisecond: 'ms'

@@ -993,8 +993,27 @@ async function testFeature10(page) {
           hasOperBefore,
           hasOperBefore ? `长度=${configPutLog.operBefore.length}` : 'oper_before 为空'
         )
+
+        // 1.4 Tier-S #2：字段级审计 diff —— PUT 成功应写入 oper_diff（权威 before→after 差异）。
+        //     本次仅改 remark，故差异数组应恰含 remark 字段且 old != new。
+        let diffOk = false
+        let diffDetail = 'oper_diff 为空'
+        if (configPutLog.operDiff) {
+          try {
+            const diffs = JSON.parse(configPutLog.operDiff)
+            const remark = Array.isArray(diffs) ? diffs.find((d) => d.field === 'remark') : null
+            diffOk = !!remark && String(remark.old) !== String(remark.new)
+            diffDetail = diffOk
+              ? `remark: ${JSON.stringify(remark.old)} → ${JSON.stringify(remark.new)}`
+              : `未找到 remark 变更或 old==new，diff=${configPutLog.operDiff.slice(0, 120)}`
+          } catch (e) {
+            diffDetail = `oper_diff 解析失败: ${e.message.slice(0, 60)}`
+          }
+        }
+        record(10, 'oper_diff 字段级差异已写入', diffOk, diffDetail)
       } else {
         record(10, 'oper_before 字段已写入', false, '未找到对应的参数配置 PUT 日志')
+        record(10, 'oper_diff 字段级差异已写入', false, '依赖前置步骤失败')
       }
     } else {
       record(10, '触发 PUT 修改配置', false, '未找到可修改的 sys_config 记录')
@@ -1018,6 +1037,48 @@ async function testFeature10(page) {
   const table = page.locator('.el-table').first()
   const hasTable = await table.isVisible().catch(() => false)
   record(10, '操作日志表格', hasTable)
+
+  // 步骤 2.5：Tier-S #2 UI 验证 —— 打开"修改"类日志详情，确认"变更对比"卡片渲染字段级差异。
+  // 详情按钮在本仓文案为「详细」(operlog.btn.detail)，逐行尝试直到命中含变更对比对话框的行（不污染数据）。
+  try {
+    const rows = page.locator('.el-table__row')
+    const total = await rows.count().catch(() => 0)
+    let diffCardSeen = false
+    let remarkSeen = false
+    let openedCount = 0
+    const maxTry = Math.min(total, 8)
+    for (let i = 0; i < maxTry && !diffCardSeen; i++) {
+      const detailBtn = rows
+        .nth(i)
+        .getByRole('button', { name: /详细|详情|Detail/i })
+        .first()
+      if ((await detailBtn.count().catch(() => 0)) === 0) continue
+      await detailBtn.click().catch(() => {})
+      await page.waitForSelector('.el-dialog', { state: 'visible', timeout: 4000 }).catch(() => {})
+      await sleep(400)
+      const dialogText = await page
+        .locator('.el-dialog:visible')
+        .last()
+        .innerText()
+        .catch(() => '')
+      openedCount++
+      if (dialogText.includes('变更对比') || dialogText.toLowerCase().includes('compare')) {
+        diffCardSeen = true
+        remarkSeen = dialogText.includes('remark')
+        await screenshot(page, 'feat10_operlog_diff_detail')
+      }
+      await page.keyboard.press('Escape').catch(() => {})
+      await sleep(250)
+    }
+    record(
+      10,
+      '详情页渲染变更对比卡片',
+      diffCardSeen,
+      `已打开 ${openedCount} 个详情框，命中变更对比=${diffCardSeen}，含 remark 字段=${remarkSeen}`
+    )
+  } catch (err) {
+    record(10, '详情页渲染变更对比卡片', false, `异常: ${err.message.slice(0, 80)}`)
+  }
 
   // 步骤 3：验证 oper_before 字段在数据库 schema 中存在（通过 compliance-report 接口间接验证）
   try {

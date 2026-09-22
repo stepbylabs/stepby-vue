@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（47 个 feature / 372 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（47 个 feature / 374 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -68,7 +68,8 @@ node main.mjs --headless
 
 - 不带 `--feature` = 跑全部 47 个 feature（约 8 分钟）。
 - 单跑某 feature：`node main.mjs --headless --feature 47`（按实现支持与否而定）。
-- 通过判据（已验证基线）：`总计 372 通过 372 失败 0`，日志无 `❌`。
+- 通过判据（已验证基线）：`总计 374 通过 374 失败 0`，日志无 `❌`。
+  （Tier-S #2 后功能 10 审计追踪新增 `oper_diff 字段级差异已写入` 与 `详情页渲染变更对比卡片` 两条断言。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 

@@ -216,6 +216,7 @@
 import { CopyDocument } from '@element-plus/icons-vue'
 import modal from '@/plugins/modal'
 import type { SysOperLog } from '@/types/api/monitor/operlog'
+import { parseOperDiff, heuristicDiff, type DiffItem } from './diff'
 
 const { t } = useI18n()
 
@@ -259,58 +260,19 @@ function copyText(str?: string): void {
 }
 
 // 变更对比逻辑：仅修改操作（businessType=2）展示
-interface DiffItem {
-  field: string
-  oldVal: string
-  newVal: string
-  changed: boolean
-}
-
 const showDiff = computed(() => {
   // businessType: 1=新增 2=修改 3=删除
-  return form.value.businessType === 2 && !!(form.value.operParam || form.value.jsonResult)
+  return form.value.businessType === 2 && !!(form.value.operDiff || form.value.operParam || form.value.jsonResult)
 })
 
+// 优先使用服务端权威的字段级差异（oper_diff）；无该字段的历史日志回退到启发式对比
 const diffList = computed<DiffItem[]>(() => {
   if (!showDiff.value) return []
-  let oldObj: Record<string, unknown> = {}
-  let newObj: Record<string, unknown> = {}
-  try {
-    if (form.value.operParam) oldObj = JSON.parse(form.value.operParam)
-  } catch {
-    /* 非合法 JSON，跳过 */
-  }
-  try {
-    if (form.value.jsonResult) {
-      const res = JSON.parse(form.value.jsonResult)
-      // 后端响应格式 {code,msg,data:{...}}，取 data
-      newObj = res.data || res
-    }
-  } catch {
-    /* 非合法 JSON，跳过 */
-  }
-  // 取两对象字段并集
-  const fields = new Set([...Object.keys(oldObj), ...Object.keys(newObj)])
-  const list: DiffItem[] = []
-  for (const field of fields) {
-    // 跳过密码、token 等敏感字段
-    if (/password|pwd|token|secret|salt/i.test(field)) continue
-    const oldVal = oldObj[field]
-    const newVal = newObj[field]
-    // 仅对比基础类型字段（避免深层对象对比的复杂性）
-    if (typeof oldVal === 'object' && oldVal !== null) continue
-    if (typeof newVal === 'object' && newVal !== null) continue
-    const oldStr = oldVal == null ? '' : String(oldVal)
-    const newStr = newVal == null ? '' : String(newVal)
-    if (oldStr === newStr) continue
-    list.push({
-      field,
-      oldVal: oldStr,
-      newVal: newStr,
-      changed: oldStr !== newStr
-    })
-  }
-  return list
+  const serverDiff = parseOperDiff(form.value.operDiff)
+  if (serverDiff.length > 0) return serverDiff
+  // oper_diff 存在但为空数组：说明服务端已确认无字段变化，直接返回空，不再回退启发式
+  if (form.value.operDiff) return []
+  return heuristicDiff(form.value.operParam, form.value.jsonResult)
 })
 </script>
 
