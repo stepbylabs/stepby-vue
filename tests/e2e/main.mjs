@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证（共 52 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染（共 54 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -10964,6 +10964,170 @@ async function cleanupUiUser(uname) {
   }
 }
 
+// ==================== 功能 53：破坏性操作确认链·取消路径（页面级循环·轮3） ====================
+// 强退/清空/解锁/执行一次均经 modal.confirm 二次确认。取消路径此前零覆盖：若确认框缺失、
+// 取消仍执行（catch 丢失）、或取消后误报成功 Toast，都是真实数据破坏或语义错误。
+// 本功能逐链断言：弹确认框→点取消→框关闭→无成功/错误 Toast→列表状态不变（绝不点确定）。
+async function testFeature53(page) {
+  log('=== 功能 53：破坏性确认链取消路径（强退/清空/解锁/执行一次） ===')
+  const toastCounts = () =>
+    page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+  const mbox = page.locator('.el-message-box:visible')
+  // 通用取消链：点目标按钮 → 必须出现确认框 → 点取消 → 框关闭且无任何 Toast
+  const cancelChain = async (trigger, label) => {
+    await trigger.click({ timeout: 2000 }).catch(() => {})
+    await sleep(600)
+    const shown = await mbox.isVisible({ timeout: 1500 }).catch(() => false)
+    record(53, `${label}弹出确认框`, shown)
+    if (!shown) {
+      record(53, `${label}取消后无副作用`, false, '未出现确认框，取消路径无从验证')
+      return false
+    }
+    await mbox.getByRole('button', { name: /取\s*消/ }).click()
+    await sleep(1200)
+    const closed = (await page.locator('.el-message-box:visible').count()) === 0
+    const t = await toastCounts()
+    const clean = closed && t.ok === 0 && t.err === 0
+    record(53, `${label}取消后框关闭且无成功/错误Toast`, clean, `closed=${closed}, ok=${t.ok}, err=${t.err}`)
+    return clean
+  }
+  const openPage = async (path, probe) => {
+    await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'networkidle' })
+    await sleep(1500)
+    await skipTour(page)
+    const is404 = await is404Page(page)
+    record(53, `${path} 页加载`, !is404)
+    if (is404) return false
+    if (probe) {
+      const n = await page.locator('.el-table__body-wrapper tbody tr').count()
+      record(53, `${path} 有数据行（链可执行）`, n > 0, `rows=${n}`)
+      return n > 0
+    }
+    return true
+  }
+
+  // (1) 在线用户·强退取消 → 会话行数不变
+  if (await openPage('/monitor/online', true)) {
+    const rowsBefore = await page.locator('.el-table__body-wrapper tbody tr').count()
+    const btn = page.locator('.el-table__body-wrapper tbody tr').first().locator('button:has-text("强退")').first()
+    await cancelChain(btn, '强退')
+    const rowsAfter = await page.locator('.el-table__body-wrapper tbody tr').count()
+    record(53, '强退取消后会话行未被踢出', rowsAfter === rowsBefore, `${rowsBefore}→${rowsAfter}`)
+  }
+
+  // (2) 操作日志·清空取消 → 分页总数文案不变
+  if (await openPage('/system/log/operlog', true)) {
+    const totalTxt = () =>
+      page
+        .locator('.el-pagination__total')
+        .first()
+        .innerText()
+        .catch(() => '')
+    const before = await totalTxt()
+    await cancelChain(page.locator('button:has-text("清空")').first(), '清空(operlog)')
+    record(53, '清空取消后日志总数不变', before === (await totalTxt()), `before="${before}"`)
+  }
+
+  // (3) 登录日志·解锁：未勾选禁用 → 勾选一行后可点 → 取消无副作用
+  if (await openPage('/monitor/logininfor', true)) {
+    const unlock = page.locator('button:has-text("解锁")').first()
+    const disabledNoSel = await unlock.isDisabled().catch(() => false)
+    record(53, '解锁按钮未勾选时禁用（选择校验在位）', disabledNoSel)
+    if (disabledNoSel) {
+      await page.locator('.el-table__body-wrapper tbody tr').first().locator('.el-checkbox').first().click()
+      await sleep(400)
+      const enabledSel = !(await unlock.isDisabled().catch(() => true))
+      record(53, '勾选一行后解锁变为可点', enabledSel)
+      if (enabledSel) await cancelChain(unlock, '解锁')
+      else record(53, '解锁取消后框关闭且无成功/错误Toast', false, '按钮仍禁用')
+    } else {
+      record(53, '勾选一行后解锁变为可点', false, '前置未通过')
+      record(53, '解锁取消后框关闭且无成功/错误Toast', false, '前置未通过')
+    }
+    await cancelChain(page.locator('button:has-text("清空")').first(), '清空(logininfor)')
+  }
+
+  // (4) 定时任务·执行一次取消（图标钮按 aria-label=执行一次 命中）
+  if (await openPage('/monitor/job', true)) {
+    const runBtn = page
+      .locator('.el-table__body-wrapper tbody tr')
+      .first()
+      .getByRole('button', { name: /执行一次/ })
+      .first()
+    await cancelChain(runBtn, '执行一次')
+  }
+
+  // (5) 前端错误日志·清空取消（数据面板页，无表格行依赖，单独走确认框链）
+  if (await openPage('/monitor/frontendError', false)) {
+    const cleanBtn = page.locator('button:has-text("清空")').first()
+    const visible = await cleanBtn.isVisible({ timeout: 1500 }).catch(() => false)
+    record(53, '前端错误页清空按钮可见', visible)
+    if (visible) await cancelChain(cleanBtn, '清空(frontendError)')
+    else record(53, '清空(frontendError)弹出确认框', false, '按钮不可见')
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 54：非默认 Tab 全量渲染扫描（页面级循环·轮3） ====================
+// 采集器只落在默认 Tab 上，第二/三 Tab 的懒渲染报错（i18n 编译、图表初始化）此前零覆盖。
+// 逐页点开全部 el-tabs 页签：作用域内 console/pageerror 必须为 0，且可见 pane 内容非空。
+async function testFeature54(page) {
+  log('=== 功能 54：非默认 Tab 渲染（cache/online/logininfor/observability/profile） ===')
+  const pages = [
+    '/monitor/cache',
+    '/monitor/online',
+    '/monitor/logininfor',
+    '/monitor/observability',
+    '/user/profile/index'
+  ]
+  for (const path of pages) {
+    const scoped = []
+    const onConsole = (m) => {
+      if (m.type() === 'error' && !/chrome-extension|favicon/.test(m.text())) scoped.push(m.text())
+    }
+    const onPageErr = (e) => scoped.push(String(e?.message || e))
+    page.on('console', onConsole)
+    page.on('pageerror', onPageErr)
+    try {
+      await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'networkidle' })
+      await sleep(1500)
+      await skipTour(page)
+      const is404 = await is404Page(page)
+      record(54, `${path} 页加载`, !is404)
+      if (is404) continue
+      const tabs = await page.locator('.el-tabs__item').all()
+      record(54, `${path} 存在可切换页签`, tabs.length >= 2, `tabs=${tabs.length}`)
+      for (let i = 0; i < tabs.length; i++) {
+        const name = ((await tabs[i].innerText().catch(() => '')) || `tab${i}`).trim()
+        scoped.length = 0
+        await tabs[i].click({ timeout: 2000 }).catch(() => {})
+        await sleep(900)
+        const paneTxt = await page
+          .locator('.el-tab-pane:visible')
+          .last()
+          .innerText()
+          .catch(() => '')
+        const rendered =
+          paneTxt.trim().length > 0 ||
+          (await page.locator('.el-tab-pane:visible canvas, .el-tab-pane:visible table').count()) > 0
+        record(
+          54,
+          `${path} 页签「${name}」渲染无控制台错误且内容非空`,
+          scoped.length === 0 && rendered,
+          `errs=${scoped.length}${scoped.length ? ' :: ' + scoped[0].slice(0, 90) : ''}`
+        )
+      }
+    } finally {
+      page.removeListener('console', onConsole)
+      page.removeListener('pageerror', onPageErr)
+    }
+  }
+  await dismissAllOverlays(page)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -10975,7 +11139,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（52 个功能）')
+  log('yebot 端到端主测试脚本（54 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -11079,7 +11243,9 @@ async function main() {
       { id: 49, fn: testFeature49 },
       { id: 50, fn: testFeature50 },
       { id: 51, fn: testFeature51 },
-      { id: 52, fn: testFeature52 }
+      { id: 52, fn: testFeature52 },
+      { id: 53, fn: testFeature53 },
+      { id: 54, fn: testFeature54 }
     ]
 
     for (const f of features) {

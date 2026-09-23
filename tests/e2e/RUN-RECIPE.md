@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（52 个功能 / 432 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（54 个功能 / 483 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -67,10 +67,10 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 52 个功能（约 15 分钟）。
-- 单跑某功能：`node main.mjs --headless --feature=52`（注意是 `--feature=N` 等号形式）。
-- 通过判据（已验证基线）：`总计 432 通过 432 失败 0`，日志无 `❌`。
-  （页面级循环轮2：新增功能 52 用户页全 UI 增删改链+导出物证+operlog 回查 13 项，419→432。）
+- 不带 `--feature` = 跑全部 54 个功能（约 15 分钟）。
+- 单跑某功能：`node main.mjs --headless --feature=54`（注意是 `--feature=N` 等号形式）。
+- 通过判据（已验证基线）：`总计 483 通过 483 失败 0`，日志无 `❌`。
+  （页面级循环轮3：功能 53 破坏性确认链取消路径 26 项、功能 54 非默认 Tab 渲染 25 项，432→483。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 
