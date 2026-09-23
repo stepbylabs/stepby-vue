@@ -8,9 +8,19 @@ export type UserVo = { roleIds: Array<number>,
 /**
  * 部门信息（对齐前端 prop="dept.deptName"）
  */
-dept: SysDept | null, userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
+dept: SysDept | null, 
+/**
+ * v5-E4：是否已绑定第三方登录身份（sys_oauth_user 存在该 user_id 的绑定；
+ * 管理员识别账号来源，绑定明细见用户个人中心的"第三方绑定"页签）
+ */
+oauthBound: boolean, userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
 /**
  * 手机号国家/地区代码（ISO 3166-1 alpha-2，如 CN/HK/US）。
  * 方案 D（G18）手机号多地区化：None 视为回退 CN。
  */
-countryCode: string | null, sex: string | null, avatar: string | null, status: string | null, delFlag: string | null, loginIp: string | null, loginDate: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, };
+countryCode: string | null, sex: string | null, avatar: string | null, status: string | null, delFlag: string | null, loginIp: string | null, loginDate: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, 
+/**
+ * v5-N2 Phase 2（第一步）：租户 ID（登录 JWT 的 tid 数据源；默认 0 = 平台单租户，
+ * 多租户立项后由租户管理功能维护；Phase 2 后续：Repository 过滤层按 tid 注入条件）
+ */
+tenantId: number, };

@@ -228,6 +228,26 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
+            <!-- v5-D2：ID Token 签名算法（新增默认 RS256；HS256 用对称密钥，互操作兼容） -->
+            <el-form-item :label="t('sso.idTokenAlg')" prop="idTokenAlg">
+              <el-select v-model="form.idTokenAlg" class="w-full">
+                <el-option label="RS256" value="RS256" />
+                <el-option label="HS256" value="HS256" />
+              </el-select>
+              <div class="el-form-item__tip">{{ t('sso.idTokenAlgTip') }}</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <!-- v5-D5：subject 标识类型（pairwise 切换会使已发令牌 sub 变化，RP 视为新用户） -->
+            <el-form-item :label="t('sso.subjectType')" prop="subjectType">
+              <el-select v-model="form.subjectType" class="w-full">
+                <el-option label="public" value="public" />
+                <el-option label="pairwise" value="pairwise" />
+              </el-select>
+              <div class="el-form-item__tip">{{ t('sso.subjectTypeTip') }}</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item :label="t('sso.consentRequired')" prop="consentRequired">
               <el-radio-group v-model="form.consentRequired">
                 <el-radio v-for="dict in sys_yes_no" :key="dict.value" :value="dict.value">{{ dict.label }}</el-radio>
@@ -375,6 +395,8 @@ const {
     redirectUris: [],
     scopes: ['openid'],
     grantTypes: ['authorization_code'],
+    idTokenAlg: 'RS256',
+    subjectType: 'public',
     consentRequired: '1',
     enabled: '1',
     remark: ''

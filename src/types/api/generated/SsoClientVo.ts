@@ -5,4 +5,12 @@
  *
  * 属「应用私有 API」（我方 SPA 消费）→ camelCase + ts-rs 导出，前端复用生成类型。
  */
-export type SsoClientVo = { ssoClientId: number, clientId: string, clientName: string, logoUri: string, redirectUris: Array<string>, scopes: Array<string>, grantTypes: Array<string>, consentRequired: string, enabled: string, remark: string | null, createTime: string | null, };
+export type SsoClientVo = { ssoClientId: number, clientId: string, clientName: string, logoUri: string, redirectUris: Array<string>, scopes: Array<string>, grantTypes: Array<string>, 
+/**
+ * v5-D2：ID Token 签名算法（RS256/HS256）
+ */
+idTokenAlg: string, 
+/**
+ * v5-D5：subject 标识类型（public/pairwise）
+ */
+subjectType: string, consentRequired: string, enabled: string, remark: string | null, createTime: string | null, };
