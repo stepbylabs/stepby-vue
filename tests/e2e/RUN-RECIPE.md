@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（60 个功能 / 558 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（62 个功能 / 581 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -67,11 +67,11 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 60 个功能（约 18 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 62 个功能（约 19 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-60` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- 通过判据（已验证基线）：三段合计 `106 + 220 + 232 = 558 通过 558 失败 0`，日志无 `❌`。
-  （页面级循环轮6：功能 59 语言切换全链路 13 项、功能 60 树形展开折叠+上级部门树选择 13 项，532→558。
+  `1-20 / 21-40 / 41-62` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+- 通过判据（已验证基线）：三段合计 `106 + 220 + 255 = 581 通过 581 失败 0`，日志无 `❌`。
+  （页面级循环轮7：功能 61 角色菜单权限树联动+数据权限自定义范围 15 项、功能 62 重置密码 Prompt 校验链+分配角色跳转 8 项，558→581。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
@@ -190,6 +190,23 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   由点 `.el-tree-node__expand-icon:not(.is-leaf)` 展开后的增量断言覆盖。
 - **首跑排查用临时 DOM 探针**（登录→前后状态快照），区分"应用缺陷"与"脚本预期错误"后删探针；
   本轮三处 FAIL 均定位为脚本侧（计数口径/文案匹配/点击目标），应用行为全部正确。
+
+### 3.6 轮7 新增选择器教训（树形联动 / 数据范围字典 / MessageBox 校验）
+
+- **`.el-checkbox` 的半选态类名不在根元素上**：Element Plus 把 `is-indeterminate` 挂在**内层**
+  `.el-checkbox__input`（外层 label 只有 `is-checked`），故计数必须用
+  `querySelectorAll('.el-checkbox__input.is-indeterminate')`；写 `.el-checkbox.is-indeterminate` 恒为 0，
+  会把正确的联动行为误判成 FAIL。
+- **半选只在"兄弟≥2 的父节点"上出现**：DOM 序第一个 `.el-tree-node__children .el-tree-node__content`
+  实测是「工作台首页」，其父「个人工作台」只有一个子节点 → 勾选子节点后父直接 `is-checked`（`half=0, checked=2`
+  是**正确**级联）。断言祖先半选须先在 evaluate 里按 `parent.querySelectorAll(':scope > .el-tree-node__children > .el-tree-node').length >= 2`
+  筛出可证伪的目标节点，再点它的复选框。
+- **数据范围下拉的 value 2 文案是「自定数据权限」不是「自定义」**（`role.dataScopeOptions.custom`），
+  `/自定义/` 匹配不到 → 30s 超时；按 `/自定数据权限|Custom data/i` 双语匹配。
+- **`ElMessageBox` prompt 的校验失败提示类名是 `.el-message-box__errormsg`**（源码 `ns.e('errormsg')`，
+  仅此时 input 容器加 `invalid` 类）；`.el-message-box__errinput`/`.el-form-item__error` 都取不到文本，
+  会让"弱口令被 inputValidator 拦截"的提示断言假失败。
+- 本轮 3 处 FAIL 全部为脚本预期/选择器问题（联动前提、字典文案、errormsg 类名），应用行为经源码核实均正确。
 
 ## 4. source-check 防混淆约定（重要）
 

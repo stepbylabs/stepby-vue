@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互（共 60 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链（共 62 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -11938,6 +11938,330 @@ async function testFeature60(page) {
   record(60, '取消关闭对话框（未写入数据）', vis === 0, `visible=${vis}`)
 }
 
+/** 功能 61：角色菜单权限树联动 + 数据权限自定义范围（轮7） */
+async function testFeature61(page) {
+  log('=== 功能 61：角色菜单权限树联动 + 数据权限自定义范围 ===')
+  await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+  const rowCount = await rows.count()
+  record(61, '角色列表加载（超管保护首行无操作钮）', rowCount >= 2, `rows=${rowCount}`)
+  const editBtn = rows
+    .nth(1)
+    .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
+    .first()
+  const eOk = await editBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(61, '第二行角色「修改」按钮可见', eOk)
+  if (!eOk) return
+  let putSent = false
+  const reqH = (r) => {
+    if (r.method() === 'PUT' && r.url().includes('/system/role')) putSent = true
+  }
+  page.on('request', reqH)
+  await editBtn.click()
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.isVisible({ timeout: 4000 }).catch(() => false)
+  record(61, '修改角色对话框打开', dlgOk)
+  if (!dlgOk) {
+    page.off('request', reqH)
+    return
+  }
+  const menuTree = dlg
+    .locator('.el-form-item')
+    .filter({ hasText: /菜单权限|Menu/i })
+    .locator('.el-tree')
+    .first()
+  // 折叠子节点仍在 DOM（轮6教训）→ 几何可见计数
+  const visNodes = (root) =>
+    root.evaluate(
+      (el) => [...el.querySelectorAll('.el-tree-node')].filter((n) => n.getBoundingClientRect().height > 0).length
+    )
+  const checkedIn = (root) => root.evaluate((el) => el.querySelectorAll('.el-checkbox.is-checked').length)
+  const n0 = await visNodes(menuTree)
+  const expandCb = dlg
+    .locator('.el-checkbox')
+    .filter({ hasText: /展开\/收起|Expand\/Collapse/i })
+    .first()
+  await expandCb.click()
+  await sleep(600)
+  const n1 = await visNodes(menuTree)
+  const domTotal = await menuTree.locator('.el-tree-node').count()
+  record(
+    61,
+    '菜单树展开勾选：可见节点增加至全量',
+    n1 > n0 && n1 === domTotal && n1 > 20,
+    `before=${n0}, after=${n1}, dom=${domTotal}`
+  )
+  const allCb = dlg
+    .locator('.el-checkbox')
+    .filter({ hasText: /全选\/全不选|Select All/i })
+    .first()
+  await allCb.click()
+  await sleep(600)
+  const cAll = await checkedIn(menuTree)
+  record(61, '全选：全部节点复选框选中', cAll === domTotal && cAll > 20, `checked=${cAll}, nodes=${domTotal}`)
+  await allCb.click()
+  await sleep(600)
+  const cNone = await checkedIn(menuTree)
+  record(61, '全不选：清零', cNone === 0, `checked=${cNone}`)
+  // 父子联动：确保「父子联动」勾选（menuCheckStrictly=true → check-strictly=false 生效）
+  const linkCb = dlg
+    .locator('.el-checkbox')
+    .filter({ hasText: /父子联动|Linkage/i })
+    .first()
+  const linkOn = await linkCb.evaluate((el) => el.classList.contains('is-checked'))
+  if (!linkOn) {
+    await linkCb.click()
+    await sleep(400)
+  }
+  // 半选契约（探针实证修正）：勾选叶节点后，父节点"全选完→is-checked、部分选→is-indeterminate"。
+  // DOM 序第一个内容节点「工作台首页」是独子→父直接 is-checked（正确级联，非 bug），
+  // 要证 half 必须选"兄弟节点 ≥2 的父"下的第一个子。
+  const sibIdx = await menuTree.evaluate((el) => {
+    const contents = [...el.querySelectorAll('.el-tree-node__children .el-tree-node__content')]
+    for (let i = 0; i < contents.length; i++) {
+      const node = contents[i].closest('.el-tree-node')
+      const parent = node?.parentElement?.closest('.el-tree-node')
+      const kids = parent ? parent.querySelectorAll(':scope > .el-tree-node__children > .el-tree-node').length : 0
+      if (kids >= 2) return i
+    }
+    return -1
+  })
+  const sibOk = sibIdx >= 0
+  record(61, '定位兄弟≥2的父下的首个子节点', sibOk, `idx=${sibIdx}`)
+  const childContent = menuTree.locator('.el-tree-node__children .el-tree-node__content').nth(Math.max(sibIdx, 0))
+  await childContent.locator('.el-checkbox').first().click()
+  await sleep(600)
+  // EP 把 is-indeterminate 挂在内层 .el-checkbox__input（外层 label 只有 is-checked）
+  const half = await menuTree.evaluate((el) => el.querySelectorAll('.el-checkbox__input.is-indeterminate').length)
+  const cLink = await checkedIn(menuTree)
+  record(
+    61,
+    '联动：勾选多兄弟之一→自身选中且祖先半选',
+    sibOk && half >= 1 && cLink >= 1,
+    `half=${half}, checked=${cLink}`
+  )
+  await childContent.locator('.el-checkbox').first().click() // 复位残留
+  await sleep(300)
+  await dlg
+    .locator('.el-dialog__footer button')
+    .filter({ hasText: /^\s*(取\s*消|Cancel)\s*$/i })
+    .first()
+    .click()
+  await sleep(500)
+  record(61, '取消修改：无 PUT /system/role 发出', !putSent, `put=${putSent}`)
+
+  // —— 数据权限对话框：自定义范围 → 部门树全选/全不选 ——
+  const dsBtn = rows
+    .nth(1)
+    .getByRole('button', { name: /数据权限|Data Scope/i })
+    .first()
+  const dOk = await dsBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(61, '行内「数据权限」按钮可见', dOk)
+  if (dOk) {
+    await dsBtn.click()
+    const ddlg = page.locator('.el-dialog:visible').last()
+    const ddOk = await ddlg.isVisible({ timeout: 4000 }).catch(() => false)
+    record(61, '数据权限对话框打开', ddOk)
+    if (ddOk) {
+      const deptItem = ddlg.locator('.el-form-item').filter({ hasText: /数据权限/ })
+      const dsSelect = ddlg
+        .locator('.el-form-item')
+        .filter({ hasText: /数据范围/ })
+        .locator('.el-select__wrapper')
+        .first()
+      await dsSelect.click()
+      await sleep(500)
+      // 字典文案是「自定数据权限」（非"自定义"），双语匹配防 locale 漂移
+      await page
+        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+        .filter({ hasText: /自定数据权限|Custom data/i })
+        .first()
+        .click()
+      await sleep(700)
+      const deptTree = deptItem.locator('.el-tree').first()
+      const dn = await deptTree.locator('.el-tree-node').count()
+      const dv = await visNodes(deptTree)
+      record(61, '自定义数据权限：部门树显示（默认全展开）', dn >= 2 && dv === dn, `nodes=${dn}, visible=${dv}`)
+      const dAll = ddlg
+        .locator('.el-checkbox')
+        .filter({ hasText: /全选\/全不选/ })
+        .first()
+      await dAll.click()
+      await sleep(500)
+      const dc = await checkedIn(deptTree)
+      record(61, '部门树全选：全部选中（联动含子孙）', dc === dn && dn >= 2, `checked=${dc}, nodes=${dn}`)
+      await dAll.click()
+      await sleep(500)
+      const dc0 = await checkedIn(deptTree)
+      record(61, '部门树全不选：清零', dc0 === 0, `checked=${dc0}`)
+      await ddlg
+        .locator('.el-dialog__footer button')
+        .filter({ hasText: /^\s*(取\s*消|Cancel)\s*$/i })
+        .first()
+        .click()
+      await sleep(400)
+    }
+  }
+  page.off('request', reqH)
+  const t = await page.evaluate(() => ({
+    err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+    dlg: document.querySelectorAll('.el-dialog').length
+  }))
+  record(
+    61,
+    '全程零 PUT（取消即无痕）+ 无错误 Toast + 对话框全关',
+    !putSent && t.err === 0,
+    `put=${putSent}, err=${t.err}`
+  )
+}
+
+/** 功能 62：重置密码 Prompt 校验取消链 + 分配角色跳转（轮7） */
+async function testFeature62(page) {
+  log('=== 功能 62：重置密码 Prompt 校验取消链 + 分配角色跳转 ===')
+  const uniq = Date.now().toString(36).slice(-7)
+  const uname = `e2e_pwd_${uniq}`
+  let uid = null
+  try {
+    const { token } = await apiLogin()
+    const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    const created = await fetch(`${CONFIG.backendUrl}/system/user`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        deptId: 100,
+        userName: uname,
+        nickName: `密码测试${uniq}`,
+        password: 'Test@12345',
+        phonenumber: '13800000002',
+        email: 'e2e_pwd@example.com',
+        sex: '0',
+        status: '0',
+        roleIds: [2],
+        postIds: [1]
+      })
+    }).then((r) => r.json())
+    if (created?.code !== 200 && created?.code !== 0) {
+      record(62, '准备：API 创建测试用户', false, `code=${created?.code}`)
+      return
+    }
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`,
+      {
+        headers: auth
+      }
+    ).then((r) => r.json())
+    uid = (list?.rows || []).find((r) => r.userName === uname)?.userId ?? null
+    record(62, '准备：API 创建测试用户并查到 userId', uid != null, `uid=${uid}`)
+  } catch (err) {
+    record(62, '准备：API 创建测试用户', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+  if (!uid) return
+
+  const cleanup = async () => {
+    try {
+      const { token } = await apiLogin()
+      await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {})
+    } catch (_) {}
+  }
+
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
+  await page.locator('button:has-text("搜索")').first().click()
+  await sleep(1200)
+  const row = page.locator('.el-table .el-table__body-wrapper .el-table__row').filter({ hasText: uname }).first()
+  const rowOk = await row.isVisible({ timeout: 4000 }).catch(() => false)
+  record(62, '搜索定位测试用户行', rowOk)
+  if (!rowOk) {
+    await cleanup()
+    return
+  }
+  let resetSent = false
+  const reqH = (r) => {
+    if (r.method() === 'PUT' && r.url().includes('resetPwd')) resetSent = true
+  }
+  page.on('request', reqH)
+  await row
+    .getByRole('button', { name: /重置密码|Reset/i })
+    .first()
+    .click()
+  const box = page.locator('.el-message-box:visible').first()
+  const boxOk = await box.isVisible({ timeout: 3000 }).catch(() => false)
+  record(62, '重置密码 Prompt 弹出', boxOk)
+  if (boxOk) {
+    await box.locator('input').first().fill('123')
+    await box
+      .locator('.el-message-box__btns button')
+      .filter({ hasText: /确\s*定|OK/i })
+      .first()
+      .click()
+    await sleep(600)
+    const stillOpen = await box.isVisible().catch(() => false)
+    const hint = await box
+      .evaluate((el) => {
+        const n = el.querySelector('.el-message-box__errormsg, .el-message-box__errinput, .el-form-item__error')
+        return n ? (n.textContent || '').trim() : ''
+      })
+      .catch(() => '')
+    record(
+      62,
+      '弱口令被 inputValidator 拦截：弹框未关+校验提示非空+无 PUT',
+      stillOpen && hint.length > 0 && !resetSent,
+      `open=${stillOpen}, hint="${hint.slice(0, 30)}", put=${resetSent}`
+    )
+    await box
+      .locator('.el-message-box__btns button')
+      .filter({ hasText: /取\s*消|Cancel/i })
+      .first()
+      .click()
+    await sleep(500)
+    const closed = !(await box.isVisible().catch(() => false))
+    const t = await page.evaluate(() => ({
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+      ok: document.querySelectorAll('.el-message--success').length
+    }))
+    record(
+      62,
+      '取消：弹框关闭且 0 错误/0 成功 Toast（取消无痕）',
+      closed && t.err === 0 && t.ok === 0,
+      `closed=${closed}, err=${t.err}`
+    )
+  }
+  page.off('request', reqH)
+  record(62, '全程未触发 resetPwd PUT', !resetSent, `put=${resetSent}`)
+
+  // 分配角色跳转
+  await row
+    .getByRole('button', { name: /分配角色|Assign/i })
+    .first()
+    .click()
+  await sleep(1500)
+  const onAuth = (await page.evaluate(() => location.pathname)).includes('/system/user-auth/role/')
+  const is404 = await page.evaluate(() => !!document.querySelector('.wscn-http404-container'))
+  const tableOk = await page
+    .locator('.el-table')
+    .first()
+    .isVisible({ timeout: 3000 })
+    .catch(() => false)
+  record(
+    62,
+    '分配角色跳转到 /system/user-auth/role/:id 且页面渲染',
+    onAuth && !is404 && tableOk,
+    `path=${onAuth}, 404=${is404}, table=${tableOk}`
+  )
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(1200)
+  const backRows = await page.locator('.el-table .el-table__body-wrapper .el-table__row').count()
+  record(62, '返回用户列表正常', backRows > 0, `rows=${backRows}`)
+  await cleanup()
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -11961,7 +12285,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（60 个功能）')
+  log('yebot 端到端主测试脚本（62 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -12075,7 +12399,9 @@ async function main() {
       { id: 57, fn: testFeature57 },
       { id: 58, fn: testFeature58 },
       { id: 59, fn: testFeature59 },
-      { id: 60, fn: testFeature60 }
+      { id: 60, fn: testFeature60 },
+      { id: 61, fn: testFeature61 },
+      { id: 62, fn: testFeature62 }
     ]
 
     for (const f of features) {
