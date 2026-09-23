@@ -21,6 +21,8 @@ export default {
     jobLog: '调度日志',
     editGenConfig: '修改生成配置',
     monitorServer: '服务器监控',
-    ssoConsent: 'SSO 授权同意'
+    ssoConsent: 'SSO 授权同意',
+    flow: '审批中心',
+    flowTodo: '审批中心'
   }
 }

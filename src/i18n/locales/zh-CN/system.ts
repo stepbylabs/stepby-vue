@@ -1236,5 +1236,73 @@ export default {
     cancel: '取消',
     save: '保存',
     saveSuccess: '偏好设置已保存'
+  },
+  flow: {
+    pendingAlert: '您有 {count} 条审批待办待处理',
+    tabTodo: '我的待办',
+    tabMine: '我发起的单据',
+    tabAll: '全部单据',
+    colTitle: '单据标题',
+    colApplicant: '提交人',
+    colNode: '当前节点',
+    colType: '审批方式',
+    colDue: '办理时限',
+    colLeaveType: '请假类型',
+    colDays: '天数',
+    colMode: '审批模式',
+    colStatus: '状态',
+    colRound: '轮次',
+    typeSingle: '单审',
+    typeCountersign: '会签',
+    actApprove: '同意',
+    actReject: '驳回',
+    actTransfer: '转办',
+    actWithdraw: '撤回',
+    actResubmit: '重新提交',
+    btnSubmit: '提交请假单',
+    submitTitle: '提交请假申请',
+    detailTitle: '审批详情',
+    timeline: '审批时间线',
+    formTitle: '单据标题',
+    formLeaveType: '请假类型',
+    formDays: '请假天数',
+    formMode: '审批模式',
+    formReason: '事由',
+    formComment: '审批意见',
+    formToUser: '转办给（用户 ID）',
+    actTitle: {
+      approve: '同意审批',
+      reject: '驳回审批',
+      transfer: '转办审批'
+    },
+    rules: {
+      title: '请输入单据标题',
+      days: '请输入请假天数'
+    },
+    leave: {
+      annual: '年假',
+      sick: '病假',
+      personal: '事假'
+    },
+    status: {
+      pending: '待审批',
+      approved: '已通过',
+      rejected: '已驳回',
+      cancelled: '已取消',
+      transferred: '已转办',
+      withdrawn: '已撤回',
+      draft: '草稿'
+    },
+    action: {
+      submit: '提交',
+      approve: '同意',
+      reject: '驳回',
+      withdraw: '撤回',
+      transfer: '转办',
+      timeout_remind: '超时提醒',
+      auto_approve: '自动通过'
+    },
+    msgSubmitted: '提交成功，已进入审批流程',
+    msgNoTaskFound: '未找到该单据的待办任务'
   }
 }

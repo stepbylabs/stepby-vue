@@ -1239,5 +1239,73 @@ export default {
     cancel: 'Cancel',
     save: 'Save',
     saveSuccess: 'Preferences saved'
+  },
+  flow: {
+    pendingAlert: 'You have {count} approval task(s) to handle',
+    tabTodo: 'My Approvals',
+    tabMine: 'My Documents',
+    tabAll: 'All Documents',
+    colTitle: 'Title',
+    colApplicant: 'Applicant',
+    colNode: 'Current Node',
+    colType: 'Mode',
+    colDue: 'Due',
+    colLeaveType: 'Leave Type',
+    colDays: 'Days',
+    colMode: 'Approval Mode',
+    colStatus: 'Status',
+    colRound: 'Round',
+    typeSingle: 'Single',
+    typeCountersign: 'Countersign',
+    actApprove: 'Approve',
+    actReject: 'Reject',
+    actTransfer: 'Transfer',
+    actWithdraw: 'Withdraw',
+    actResubmit: 'Resubmit',
+    btnSubmit: 'Submit Leave Request',
+    submitTitle: 'Submit Leave Request',
+    detailTitle: 'Approval Detail',
+    timeline: 'Approval Timeline',
+    formTitle: 'Title',
+    formLeaveType: 'Leave Type',
+    formDays: 'Days',
+    formMode: 'Approval Mode',
+    formReason: 'Reason',
+    formComment: 'Comment',
+    formToUser: 'Transfer to (User ID)',
+    actTitle: {
+      approve: 'Approve',
+      reject: 'Reject',
+      transfer: 'Transfer'
+    },
+    rules: {
+      title: 'Please enter the title',
+      days: 'Please enter the days'
+    },
+    leave: {
+      annual: 'Annual Leave',
+      sick: 'Sick Leave',
+      personal: 'Personal Leave'
+    },
+    status: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      cancelled: 'Cancelled',
+      transferred: 'Transferred',
+      withdrawn: 'Withdrawn',
+      draft: 'Draft'
+    },
+    action: {
+      submit: 'Submit',
+      approve: 'Approve',
+      reject: 'Reject',
+      withdraw: 'Withdraw',
+      transfer: 'Transfer',
+      timeout_remind: 'Timeout Remind',
+      auto_approve: 'Auto Approve'
+    },
+    msgSubmitted: 'Submitted and entered the approval flow',
+    msgNoTaskFound: 'No pending task found for this document'
   }
 }
