@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链（共 62 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链（共 64 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -12262,6 +12262,144 @@ async function testFeature62(page) {
   await cleanup()
 }
 
+/** 功能 63：RightToolbar 搜索切换/刷新/列显隐+持久化全链（用户页，轮8） */
+async function testFeature63(page) {
+  log('=== 功能 63：右工具栏搜索切换/刷新/列显隐持久化链 ===')
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const searchInput = page.locator('input[placeholder="请输入用户名称"]').first()
+  const toggleBtn = page.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
+  const refreshBtn = page.getByRole('button', { name: /^刷\s*新$|Refresh/i }).first()
+  const colsBtn = page.getByRole('button', { name: /显隐列|Columns/i }).first()
+  const btnsOk =
+    (await toggleBtn.isVisible({ timeout: 3000 }).catch(() => false)) &&
+    (await refreshBtn.isVisible({ timeout: 1000 }).catch(() => false)) &&
+    (await colsBtn.isVisible({ timeout: 1000 }).catch(() => false))
+  record(63, '右工具栏三按钮可见（搜索切换/刷新/显隐列）', btnsOk)
+  const s0 = await searchInput.isVisible().catch(() => false)
+  record(63, '搜索区初始可见', s0)
+  await toggleBtn.click()
+  await sleep(500)
+  const s1 = await searchInput.isVisible().catch(() => false)
+  record(63, '点「隐藏搜索」→搜索区不可见（v-show 收起）', !s1)
+  const toggleBtn2 = page.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
+  await toggleBtn2.click()
+  await sleep(500)
+  const s2 = await searchInput.isVisible().catch(() => false)
+  record(63, 'aria-label 随状态翻转且再点恢复可见', s2)
+  let listReqs = 0
+  const reqH = (r) => {
+    if (r.method() === 'GET' && r.url().includes('/system/user/list')) listReqs++
+  }
+  page.on('request', reqH)
+  await refreshBtn.click()
+  await sleep(1200)
+  page.off('request', reqH)
+  record(63, '点「刷新」→重新发出列表 GET 请求', listReqs >= 1, `reqs=${listReqs}`)
+  // —— 列显隐下拉（checkbox 型，hide-on-click=false） ——
+  const headerTexts = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.el-table__header-wrapper th')]
+        .map((th) => (th.innerText || '').trim())
+        .filter((t) => t.length > 0)
+    )
+  const h0 = await headerTexts()
+  await colsBtn.click()
+  await sleep(500)
+  const dd = page.locator('.el-dropdown-menu:visible')
+  const ddItems = await dd.locator('.el-checkbox').count()
+  record(63, '显隐列下拉打开：全选+各列复选框 ≥8', ddItems >= 8, `items=${ddItems}`)
+  await dd.locator('.el-checkbox').nth(1).click() // 第一个数据列（columns 对象键序）
+  await sleep(600)
+  const h1 = await headerTexts()
+  const lost = h0.filter((t) => !h1.includes(t))
+  record(63, '取消一列→表头恰好少 1 列（DOM 同源推导）', lost.length === 1, `lost=${JSON.stringify(lost)}`)
+  const st1 = await page.evaluate(() => {
+    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
+    return Object.values(j).filter((v) => v === false).length
+  })
+  record(63, 'localStorage(user-list-columns) 恰好 1 个 false', st1 === 1, `falseCount=${st1}`)
+  await page.keyboard.press('Escape')
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const h2 = await headerTexts()
+  record(63, '刷新后该列仍隐藏（storageKey 恢复链）', lost.length === 1 && h2.includes(lost[0]) === false)
+  const st2 = await page.evaluate(() => {
+    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
+    return Object.values(j).filter((v) => v === false).length
+  })
+  record(63, '刷新后持久化值仍为 1 false', st2 === 1, `falseCount=${st2}`)
+  await colsBtn.click()
+  await sleep(500)
+  await page.locator('.el-dropdown-menu:visible .el-checkbox').nth(1).click()
+  await sleep(600)
+  const h3 = await headerTexts()
+  const back = lost.length === 1 && h3.includes(lost[0])
+  record(
+    63,
+    '再勾选→列恢复且表头数回到初始水平',
+    back && h3.length === h0.length,
+    `len0=${h0.length}, len3=${h3.length}`
+  )
+  const st3 = await page.evaluate(() => {
+    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
+    return Object.values(j).filter((v) => v === false).length
+  })
+  record(63, '恢复后 storage 全 true（不留残留）', st3 === 0, `falseCount=${st3}`)
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  const t = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  const sEnd = await searchInput.isVisible().catch(() => false)
+  record(63, '全程 0 错误 Toast 且终态搜索区可见（无残留）', t === 0 && sEnd, `err=${t}, search=${sEnd}`)
+}
+
+/** 功能 64：字典 + 参数「刷新缓存」DELETE 双链（轮8） */
+async function testFeature64(page) {
+  log('=== 功能 64：字典/参数刷新缓存 DELETE 双链 ===')
+  const targets = [
+    { name: 'dict', path: '/system/dict', api: '/system/dict/type/refreshCache' },
+    { name: 'config', path: '/system/config', api: '/system/config/refreshCache' }
+  ]
+  for (const tg of targets) {
+    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'networkidle' })
+    await sleep(1500)
+    await skipTour(page)
+    const btn = page
+      .locator('.el-button:visible')
+      .filter({ hasText: /^\s*(刷新|Refresh)\s*$/ })
+      .first()
+    const bOk = await btn.isVisible({ timeout: 3000 }).catch(() => false)
+    record(64, `${tg.name}：工具栏「刷新」按钮可见`, bOk)
+    if (!bOk) continue
+    let hit = null
+    const respH = async (r) => {
+      if (r.request().method() === 'DELETE' && r.url().includes(tg.api)) hit = r.status()
+    }
+    page.on('response', respH)
+    await btn.click()
+    await sleep(1000)
+    page.off('response', respH)
+    record(64, `${tg.name}：DELETE ${tg.api} 发出且 200`, hit === 200, `status=${hit}`)
+    const toasts = await page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+    record(
+      64,
+      `${tg.name}：恰 1 成功 Toast 且 0 错误 Toast`,
+      toasts.ok === 1 && toasts.err === 0,
+      `ok=${toasts.ok}, err=${toasts.err}`
+    )
+    const rows = await page.locator('.el-table .el-table__body-wrapper .el-table__row').count()
+    record(64, `${tg.name}：刷新后列表不受扰（行数>0）`, rows > 0, `rows=${rows}`)
+    await sleep(3300) // 等 Toast 自关，下一页计数干净
+  }
+  const tAll = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  record(64, '双页全程 0 错误 Toast', tAll === 0, `err=${tAll}`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -12285,7 +12423,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（62 个功能）')
+  log('yebot 端到端主测试脚本（64 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -12401,8 +12539,20 @@ async function main() {
       { id: 59, fn: testFeature59 },
       { id: 60, fn: testFeature60 },
       { id: 61, fn: testFeature61 },
-      { id: 62, fn: testFeature62 }
+      { id: 62, fn: testFeature62 },
+      { id: 63, fn: testFeature63 },
+      { id: 64, fn: testFeature64 }
     ]
+
+    // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
+    if (CONFIG.featureFilter) {
+      const registered = new Set(features.map((f) => f.id))
+      const unknown = [...CONFIG.featureFilter].filter((id) => !registered.has(id)).sort((a, b) => a - b)
+      if (unknown.length > 0) {
+        for (const id of unknown)
+          record(id, 'featureFilter 指定的功能未注册（无可执行用例）', false, '检查 features 数组是否漏注册')
+      }
+    }
 
     for (const f of features) {
       if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) continue
