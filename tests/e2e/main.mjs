@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链（共 66 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环（共 68 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -12731,6 +12731,300 @@ async function testFeature66(page) {
   }
 }
 
+/** 功能 67：个人中心资料保存链（负例拦截+正例持久化+还原）+ 改密前端校验拦截（绝不真实改密，轮10） */
+async function testFeature67(page) {
+  log('=== 功能 67：个人中心资料保存链 + 改密校验拦截 ===')
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const getProfile = async () =>
+    await fetch(`${CONFIG.backendUrl}/system/user/profile`, { headers: auth })
+      .then((r) => r.json())
+      .catch(() => null)
+
+  let profileGetStatus = null
+  const respGet = (r) => {
+    if (new URL(r.url()).pathname === '/system/user/profile' && r.request().method() === 'GET')
+      profileGetStatus = r.status()
+  }
+  page.on('response', respGet)
+  await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  page.off('response', respGet)
+
+  const nickInput = page.locator('.el-form-item:has-text("用户昵称") input').first()
+  const nickVisible = await nickInput.isVisible().catch(() => false)
+  const nickPrefill = nickVisible ? await nickInput.inputValue().catch(() => '') : ''
+  const base = await getProfile()
+  const origNick = base?.data?.nickName ?? ''
+  record(
+    67,
+    '打开个人中心：GET profile 200 + 昵称回显与 API 一致',
+    profileGetStatus === 200 && nickVisible && origNick.length > 0 && nickPrefill === origNick,
+    `status=${profileGetStatus}, ui=${nickPrefill}, api=${origNick}`
+  )
+
+  let profilePut = 0
+  let lastPutStatus = null
+  const reqPut = (r) => {
+    if (r.method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile') profilePut++
+  }
+  const respPut = (r) => {
+    if (r.request().method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile')
+      lastPutStatus = r.status()
+  }
+  page.on('request', reqPut)
+  page.on('response', respPut)
+  const saveBtn = page
+    .locator('button:visible')
+    .filter({ hasText: /^\s*保\s*存\s*$/ })
+    .first()
+
+  // —— 负例：清空昵称→保存应被客户端规则拦截，零 PUT ——
+  await nickInput.fill('')
+  await saveBtn.click()
+  await sleep(700)
+  const err1 = await page.locator('.el-form-item.is-error:visible').count()
+  record(
+    67,
+    '清空昵称→保存：必填错误≥1 且零 PUT（客户端拦截）',
+    err1 >= 1 && profilePut === 0,
+    `errors=${err1}, put=${profilePut}`
+  )
+
+  // —— 正例：改昵称→保存→API 复核持久化 ——
+  await nickInput.fill(`${origNick}A`)
+  await saveBtn.click()
+  await sleep(1300)
+  const okToast1 = await page.evaluate(() => document.querySelectorAll('.el-message--success').length)
+  const after1 = await getProfile()
+  record(
+    67,
+    '改昵称→保存：PUT 200 + 成功 Toast≥1 + API 复核已持久化',
+    lastPutStatus === 200 && profilePut === 1 && after1?.data?.nickName === `${origNick}A` && okToast1 >= 1,
+    `status=${lastPutStatus}, put=${profilePut}, api=${after1?.data?.nickName}, okToast=${okToast1}`
+  )
+
+  // —— 还原：改回原值→保存→API 复核——保证幂等无残留 ——
+  await sleep(3300) // 等成功 toast 消退，后续 Toast 计数可证伪
+  lastPutStatus = null
+  await nickInput.fill(origNick)
+  await saveBtn.click()
+  await sleep(1300)
+  const after2 = await getProfile()
+  record(
+    67,
+    '还原昵称：PUT 200 且 API 回到原值',
+    lastPutStatus === 200 && after2?.data?.nickName === origNick,
+    `status=${lastPutStatus}, api=${after2?.data?.nickName}`
+  )
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(1200)
+  await skipTour(page)
+  const nickNow = await page
+    .locator('.el-form-item:has-text("用户昵称") input')
+    .first()
+    .inputValue()
+    .catch(() => '')
+  record(67, '刷新后昵称回显仍为原值（无残留）', nickNow === origNick, `now=${nickNow}`)
+  page.off('request', reqPut)
+  page.off('response', respPut)
+
+  // —— 改密 Tab：仅校验前端拦截，绝不真实改密（改密会使 token 失效强制登出） ——
+  let pwdPut = 0
+  const reqPwd = (r) => {
+    if (r.method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile/updatePwd') pwdPut++
+  }
+  page.on('request', reqPwd)
+  await page
+    .locator('.el-tabs__item:visible')
+    .filter({ hasText: /修改密码/ })
+    .first()
+    .click()
+  await sleep(800)
+  await page.locator('input[placeholder="请输入新密码"]:visible').first().fill('Abcdef123')
+  await page.locator('input[placeholder="确认密码"]:visible').first().fill('Abcdef999')
+  // 旧密码故意留空 → required 拦截；确认密码不一致 → equalToPassword 拦截
+  await page
+    .locator('button:visible')
+    .filter({ hasText: /^\s*保\s*存\s*$/ })
+    .first()
+    .click()
+  await sleep(800)
+  const err2 = await page.locator('.el-form-item.is-error:visible').count()
+  record(
+    67,
+    '改密负例：旧密码空+两次不一致 → 错误≥2 且零 updatePwd PUT',
+    err2 >= 2 && pwdPut === 0,
+    `errors=${err2}, put=${pwdPut}`
+  )
+  page.off('request', reqPwd)
+  const tEnd = await page.evaluate(() => ({
+    err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+  }))
+  record(67, '全链 0 错误 Toast（未触发真实改密/登出）', tEnd.err === 0 && pwdPut === 0, `err=${tEnd.err}`)
+}
+
+/** 功能 68：执行一次→调度日志生成→详情→勾选删除闭环（自清理，无害任务，轮10） */
+async function testFeature68(page) {
+  log('=== 功能 68：执行一次→调度日志生成→详情→删除闭环 ===')
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const logList = async () =>
+    await fetch(`${CONFIG.backendUrl}/monitor/jobLog/list?pageNum=1&pageSize=5`, { headers: auth })
+      .then((r) => r.json())
+      .catch(() => null)
+  const base = await logList()
+  const baseTotal = base?.total ?? -1
+  record(
+    68,
+    '准备：API 读取调度日志基线 total',
+    (base?.code === 200 || base?.code === 0) && baseTotal >= 0,
+    `total=${baseTotal}`
+  )
+
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+  // 选「系统默认（无参）」：注册任务仅写日志、无副作用，日志随后被本用例删除（自清理闭环）
+  const targetRow = rows.filter({ hasText: '系统默认（无参）' }).first()
+  const targetExists = await targetRow.isVisible().catch(() => false)
+  record(68, '定位「系统默认（无参）」任务行', targetExists)
+  if (!targetExists) return
+
+  // —— 执行一次（真实确认执行） ——
+  let runStatus = null
+  const respRun = (r) => {
+    if (r.request().method() === 'PUT' && new URL(r.url()).pathname === '/monitor/job/run') runStatus = r.status()
+  }
+  page.on('response', respRun)
+  await targetRow
+    .getByRole('button', { name: /执行一次|Run Once|Execute Once/i })
+    .first()
+    .click()
+  await sleep(600)
+  const box = page.locator('.el-message-box:visible').first()
+  const boxText = (await box.innerText().catch(() => '')).slice(0, 40)
+  await box
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /确\s*定|OK|确\s*认/i })
+    .first()
+    .click()
+  await sleep(1600)
+  page.off('response', respRun)
+  record(68, '确认框含任务名', boxText.includes('系统默认'), `text=${boxText}`)
+  const okToast = await page.evaluate(() => document.querySelectorAll('.el-message--success').length)
+  record(
+    68,
+    '执行一次：PUT /monitor/job/run 200 + 成功 Toast≥1',
+    runStatus === 200 && okToast >= 1,
+    `status=${runStatus}, ok=${okToast}`
+  )
+
+  // —— 行内跳调度日志（jobName 预过滤）——
+  await targetRow
+    .getByRole('button', { name: /调度日志|Job Log|Schedule Log/i })
+    .first()
+    .click()
+  await sleep(1800)
+  const onLog = (await page.evaluate(() => location.pathname)).includes('/monitor/job-log/index/')
+  const logRows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+  const lc = await logRows.count()
+  record(68, '跳调度日志且新生成日志可见（预过滤生效）', onLog && lc >= 1, `path=${onLog}, rows=${lc}`)
+  const firstText =
+    lc > 0
+      ? await logRows
+          .first()
+          .innerText()
+          .catch(() => '')
+      : ''
+  record(
+    68,
+    '日志行含任务名且执行状态为成功',
+    firstText.includes('系统默认') && /成功|Success/i.test(firstText),
+    `text=${firstText.replace(/\s+/g, ' ').slice(0, 60)}`
+  )
+
+  // —— 日志详情弹窗 ——
+  await logRows
+    .first()
+    .getByRole('button', { name: /详\s*细|Detail/i })
+    .first()
+    .click()
+  await sleep(900)
+  const dlg = page
+    .locator('.el-dialog:visible')
+    .filter({ has: page.locator('.detail-card') })
+    .first()
+  const cards = await dlg
+    .locator('.detail-card')
+    .count()
+    .catch(() => 0)
+  const dlgText = cards > 0 ? await dlg.innerText().catch(() => '') : ''
+  record(
+    68,
+    '日志详情弹窗：详情卡≥3 + 标题「调度日志详细」',
+    cards >= 3 && dlgText.includes('调度日志详细'),
+    `cards=${cards}`
+  )
+  await dlg
+    .locator('.dialog-footer button')
+    .filter({ hasText: /关\s*闭|Close/i })
+    .first()
+    .click()
+  await sleep(600)
+
+  // —— API 复核：total 恰为基线+1 ——
+  const after1 = await logList()
+  record(
+    68,
+    'API 复核：日志 total 恰为基线+1',
+    (after1?.total ?? -1) === baseTotal + 1,
+    `before=${baseTotal}, after=${after1?.total}`
+  )
+
+  // —— 勾选删除：闭环自清理 ——
+  let delStatus = null
+  const respDel = (r) => {
+    const p = new URL(r.url()).pathname
+    if (r.request().method() === 'DELETE' && /\/monitor\/jobLog\/\d+$/.test(p)) delStatus = r.status()
+  }
+  page.on('response', respDel)
+  await logRows.first().locator('.el-checkbox').first().click()
+  await sleep(400)
+  await page
+    .locator('button:visible')
+    .filter({ hasText: /删\s*除/ })
+    .first()
+    .click()
+  await sleep(600)
+  const box2 = page.locator('.el-message-box:visible').first()
+  await box2
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /确\s*定|OK|确\s*认/i })
+    .first()
+    .click()
+  await sleep(1600)
+  page.off('response', respDel)
+  const rowsAfterDel = await logRows.count()
+  record(
+    68,
+    '勾选删除：DELETE 200 且列表回到空态',
+    delStatus === 200 && rowsAfterDel === 0,
+    `status=${delStatus}, rows=${rowsAfterDel}`
+  )
+  const after2 = await logList()
+  record(
+    68,
+    'API 复核：total 还原基线（闭环自清理）',
+    (after2?.total ?? -1) === baseTotal,
+    `before=${baseTotal}, after=${after2?.total}`
+  )
+  const errEnd = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  record(68, '全链 0 错误 Toast', errEnd === 0, `err=${errEnd}`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -12754,7 +13048,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（66 个功能）')
+  log('yebot 端到端主测试脚本（68 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -12874,7 +13168,9 @@ async function main() {
       { id: 63, fn: testFeature63 },
       { id: 64, fn: testFeature64 },
       { id: 65, fn: testFeature65 },
-      { id: 66, fn: testFeature66 }
+      { id: 66, fn: testFeature66 },
+      { id: 67, fn: testFeature67 },
+      { id: 68, fn: testFeature68 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
