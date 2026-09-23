@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界（共 56 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链（共 58 个功能）+ 表单负路径
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -11424,6 +11424,205 @@ async function testFeature56(page) {
   } catch (_) {}
 }
 
+// ==================== 功能 57：Cron 生成器双向回传链（轮5） ====================
+// (A) 表单→组件：填表达式后打开生成器应回显同串（expression prop 解析链，P2 响应式修复的活体回归）；
+// (B) 组件→表单：改值后点确定，crontabValueString 必须经 @fill 写回表单输入框；
+// (C) 重新打开回显回写后的新值；取消不改值；最近执行时间预览真实计算；重置回默认。
+async function testFeature57(page) {
+  log('=== 功能 57：Cron 生成器双向回传 + 执行时间预览 ===')
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await sleep(1800)
+  await skipTour(page)
+  await page
+    .locator('.el-button:visible')
+    .filter({ hasText: /^\s*新\s*增\s*$/ })
+    .first()
+    .click()
+  const dlg = page
+    .locator('.el-dialog:visible')
+    .filter({ has: page.locator('button:has-text("生成表达式")') })
+    .first()
+  const opened = await dlg.isVisible({ timeout: 5000 }).catch(() => false)
+  record(57, '任务新增对话框打开（含生成表达式按钮）', opened)
+  if (!opened) return
+  const cronInput = dlg
+    .locator('.el-input:has(.el-input-group__append button:has-text("生成表达式"))')
+    .locator('input')
+    .first()
+  const expr0 = '0 0 12 * * ?'
+  await cronInput.fill(expr0)
+
+  const gen = () => page.locator('.el-dialog:visible').filter({ hasText: 'Cron表达式生成器' }).last()
+  const exprCell = async () => (await gen().locator('.popup-main table tbody tr td').last().innerText()).trim()
+  const previewCount = () => gen().locator('.popup-result-scroll li').count()
+
+  await dlg.locator('button:has-text("生成表达式")').first().click()
+  const genOpen = await gen()
+    .isVisible({ timeout: 4000 })
+    .catch(() => false)
+  record(57, '生成器对话框打开', genOpen)
+  if (!genOpen) {
+    await dlg
+      .locator('button:has-text("取 消"), button:has-text("取消")')
+      .first()
+      .click()
+      .catch(() => {})
+    return
+  }
+  const tabCount = await gen().locator('.el-tabs__item').count()
+  record(57, '七个字段页签齐全', tabCount === 7, `tabs=${tabCount}`)
+  const echoed = await exprCell()
+  record(57, '初始回显=表单值（expression prop 链）', echoed === expr0, `cell="${echoed}"`)
+  const pv = await previewCount()
+  const pvFirst = pv > 0 ? await gen().locator('.popup-result-scroll li').first().innerText() : ''
+  record(
+    57,
+    '最近执行时间预览真实计算',
+    pv >= 1 && /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(pvFirst.trim()),
+    `items=${pv}, first=${pvFirst.trim().slice(0, 22)}`
+  )
+
+  await gen().locator('.el-tabs__item').nth(1).click()
+  await sleep(500)
+  const radios = await gen().locator('.el-tab-pane:visible .el-radio').count()
+  record(57, '分钟页签切换后单选项渲染', radios >= 3, `radios=${radios}`)
+
+  await gen().locator('button:has-text("重 置"), button:has-text("重置")').first().click()
+  await sleep(600)
+  const afterReset = await exprCell()
+  record(57, '重置回默认且≠初值', afterReset !== expr0 && afterReset.split(/\s+/).length === 6, `cell="${afterReset}"`)
+
+  await gen().locator('button:has-text("确 定"), button:has-text("确定")').first().click()
+  await sleep(700)
+  const genClosed = !(await gen()
+    .isVisible()
+    .catch(() => false))
+  record(57, '确定后生成器关闭', genClosed)
+  const formVal = await cronInput.inputValue()
+  record(57, '确定回写表单（@fill 链）', formVal === afterReset, `form="${formVal}", gen="${afterReset}"`)
+
+  await dlg.locator('button:has-text("生成表达式")').first().click()
+  const reopen = await gen()
+    .isVisible({ timeout: 4000 })
+    .catch(() => false)
+  let reopenOk = false
+  let cancelUnchanged = false
+  if (reopen) {
+    reopenOk = (await exprCell()) === afterReset
+    await gen().locator('button:has-text("取 消"), button:has-text("取消")').first().click()
+    await sleep(600)
+    cancelUnchanged =
+      !(await gen()
+        .isVisible()
+        .catch(() => false)) && (await cronInput.inputValue()) === afterReset
+  }
+  record(57, '重开回显回写后的新值（prop 响应式）', reopen && reopenOk)
+  record(57, '取消不改表单值', cancelUnchanged, `val="${await cronInput.inputValue()}"`)
+
+  const tErr = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  record(57, '全程无错误/警告 Toast', tErr === 0, `err=${tErr}`)
+  await dlg.locator('button:has-text("取 消"), button:has-text("取消")').last().click()
+  await sleep(600)
+  const dlgClosed = !(await dlg.isVisible().catch(() => false))
+  const tOk = await page.evaluate(() => document.querySelectorAll('.el-message--success').length)
+  record(57, '取消新增关闭且不提交', dlgClosed && tOk === 0, `closed=${dlgClosed}, ok=${tOk}`)
+}
+
+// ==================== 功能 58：CRUD 新增对话框空提交负路径（轮5） ====================
+// 校验拦截三连：逐字段报错数=当前为空的必填项数（期望值与被审对象同源，无魔法数字）；
+// 错误只落必填项（email/pattern 等格式规则不得误伤空值——async-validator 语义的应用侧回归）；
+// 无 POST 发出、0 Toast、对话框保持打开（拦截失败=脏数据入库前最后一道闸）。
+async function testFeature58(page) {
+  log('=== 功能 58：新增对话框空提交负路径（4 表单） ===')
+  const targets = [
+    { path: '/system/user', api: '/system/user', name: 'user' },
+    { path: '/system/dept', api: '/system/dept', name: 'dept' },
+    { path: '/system/menu', api: '/system/menu', name: 'menu' },
+    { path: '/system/notice', api: '/system/notice', name: 'notice' }
+  ]
+  for (const tg of targets) {
+    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'networkidle' })
+    await sleep(1500)
+    await skipTour(page)
+    await page
+      .locator('.el-button:visible')
+      .filter({ hasText: /^\s*新\s*增\s*$/ })
+      .first()
+      .click()
+    const dlg = page.locator('.el-dialog:visible').last()
+    const dlgOk = await dlg.isVisible({ timeout: 4000 }).catch(() => false)
+    if (!dlgOk) {
+      record(58, `${tg.name}：新增对话框打开`, false)
+      continue
+    }
+    // 归一化"空提交"：先清空所有可编辑输入（新增对话框会预填 initPassword 弱口令——
+    // 它被规则判错是正确拦截，但会让 errs>空必填数 破坏同源推导；清空后两侧同起点）
+    const editables = dlg.locator(
+      'input:visible:not([type="radio"]):not([type="checkbox"]):not([readonly]), textarea:visible'
+    )
+    const ec = await editables.count()
+    for (let i = 0; i < ec; i++)
+      await editables
+        .nth(i)
+        .fill('', { timeout: 1000 })
+        .catch(() => {})
+    const reqItems = dlg.locator('.el-form-item.is-required')
+    const reqCount = await reqItems.count()
+    let emptyReq = 0
+    for (let i = 0; i < reqCount; i++) {
+      const it = reqItems.nth(i)
+      const checked = await it.locator('input[type="radio"]:checked, input[type="checkbox"]:checked').count()
+      if (checked > 0) continue
+      const v = await it
+        .locator('input, textarea')
+        .first()
+        .inputValue()
+        .catch(() => '')
+      if (!v.trim()) emptyReq++
+    }
+    let posted = false
+    const reqHandler = (r) => {
+      if (r.method() === 'POST' && r.url().includes(tg.api)) posted = true
+    }
+    page.on('request', reqHandler)
+    await dlg
+      .locator('.el-dialog__footer button')
+      .filter({ hasText: /确\s*定/ })
+      .first()
+      .click()
+    await sleep(700)
+    const errs = await dlg.locator('.el-form-item.is-error').count()
+    const nonReqErrs = await dlg.locator('.el-form-item.is-error:not(.is-required)').count()
+    const stillOpen = await dlg.isVisible().catch(() => false)
+    const t = await page.evaluate(() => ({
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+      ok: document.querySelectorAll('.el-message--success').length
+    }))
+    page.off('request', reqHandler)
+    record(
+      58,
+      `${tg.name}：空提交逐字段报错数=空必填项数`,
+      errs === emptyReq && emptyReq > 0,
+      `errs=${errs}, emptyReq=${emptyReq}`
+    )
+    record(58, `${tg.name}：错误只落必填项（格式规则不误伤空值）`, nonReqErrs === 0, `nonReq=${nonReqErrs}`)
+    record(
+      58,
+      `${tg.name}：拦截生效——无POST/0Toast/对话框未关`,
+      !posted && t.err === 0 && t.ok === 0 && stillOpen,
+      `posted=${posted}, err=${t.err}, ok=${t.ok}, open=${stillOpen}`
+    )
+    await dlg
+      .locator('.el-dialog__footer button')
+      .filter({ hasText: /取\s*消/ })
+      .first()
+      .click()
+    await sleep(400)
+  }
+  const visibleDlg = await page.locator('.el-dialog:visible').count()
+  record(58, '四个对话框全部取消关闭', visibleDlg === 0, `visible=${visibleDlg}`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -11447,7 +11646,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（56 个功能）')
+  log('yebot 端到端主测试脚本（58 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -11557,7 +11756,9 @@ async function main() {
       { id: 53, fn: testFeature53 },
       { id: 54, fn: testFeature54 },
       { id: 55, fn: testFeature55 },
-      { id: 56, fn: testFeature56 }
+      { id: 56, fn: testFeature56 },
+      { id: 57, fn: testFeature57 },
+      { id: 58, fn: testFeature58 }
     ]
 
     for (const f of features) {
