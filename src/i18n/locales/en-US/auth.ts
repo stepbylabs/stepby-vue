@@ -267,7 +267,8 @@ export default {
     secureGoodTip: 'Only the current session',
     secureNormalTip: '1 other session active',
     secureWarnTip: '{count} other sessions active',
-    loadFail: 'Failed to load session list'
+    loadFail: 'Failed to load session list',
+    degradedHint: 'Non-HTTPS environment: session identification uses weak matching (last 8 chars of token) and may be inaccurate; use HTTPS for precise identification'
   },
   passwordStrength: {
     weak: 'Weak',

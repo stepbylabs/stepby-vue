@@ -95,6 +95,14 @@
     </el-card>
 
     <!-- 会话列表 -->
+    <el-alert
+      v-if="degradedIdentification"
+      type="warning"
+      :closable="true"
+      show-icon
+      class="mb10"
+      :title="t('mySession.degradedHint')"
+    />
     <el-card shadow="never" class="list-card" v-loading="loading">
       <el-table :data="filteredSessions" :empty-text="t('common.noData')">
         <el-table-column :label="t('mySession.colStatus')" width="120">
@@ -173,9 +181,14 @@ const queryParams = reactive({
 })
 
 // 获取当前用户的 token 哈希（从 cookie 中的 token 计算 SHA-256）
-// 降级：在不支持 crypto.subtle 的环境（如非 https）下取 token 末 8 位作为标识
+// 降级：在不支持 crypto.subtle 的环境（如非 https）下取 token 末 8 位作为标识。
+// v5-E7：降级标识为弱匹配（两个 token 末 8 位理论上可碰撞），置 degraded 标志，
+// 模板展示提示条——建议在 https 环境使用以获得精确的当前会话识别。
+const degradedIdentification = ref(false)
+
 async function computeTokenHash(token: string): Promise<string> {
   if (!window.crypto?.subtle) {
+    degradedIdentification.value = true
     return token.slice(-8)
   }
   const encoder = new TextEncoder()

@@ -264,7 +264,8 @@ export default {
     secureGoodTip: '仅有当前会话',
     secureNormalTip: '有 1 个其他会话',
     secureWarnTip: '有 {count} 个其他会话',
-    loadFail: '加载会话列表失败'
+    loadFail: '加载会话列表失败',
+    degradedHint: '当前为非 HTTPS 环境，会话识别使用弱匹配（token 末 8 位），可能不准确；建议使用 HTTPS 访问'
   },
   passwordStrength: {
     weak: '弱',
