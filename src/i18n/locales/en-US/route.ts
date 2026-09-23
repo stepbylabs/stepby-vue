@@ -21,6 +21,8 @@ export default {
     jobLog: 'Job Log',
     editGenConfig: 'Edit Gen Config',
     monitorServer: 'Server Monitor',
-    ssoConsent: 'SSO Consent'
+    ssoConsent: 'SSO Consent',
+    flow: 'Approval Center',
+    flowTodo: 'Approval Center'
   }
 }

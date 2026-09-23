@@ -30,7 +30,7 @@
               <span :class="{ 'flow-overdue': isOverdue(row) }">{{ row.dueAt || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.operate')" width="260" fixed="right">
+          <el-table-column :label="t('common.column.operation')" width="260" fixed="right">
             <template #default="{ row }">
               <el-button link type="success" icon="Check" @click="openAct(row, 'approve')">
                 {{ t('flow.actApprove') }}
@@ -80,7 +80,7 @@
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colRound')" prop="currentRound" width="80" />
-          <el-table-column :label="t('common.operate')" width="200" fixed="right">
+          <el-table-column :label="t('common.column.operation')" width="200" fixed="right">
             <template #default="{ row }">
               <el-button
                 v-if="row.status === 'pending' && row.applicantId === userId"
@@ -395,7 +395,7 @@ async function handleAct() {
       comment: actComment.value || undefined,
       toUserId: actAction.value === 'transfer' ? actToUserId.value : undefined
     })
-    ElMessage.success(t('common.operateSuccess'))
+    ElMessage.success(t('common.operationSuccess'))
     actOpen.value = false
     await Promise.all([loadTodo(), loadPendingCount()])
   } finally {
@@ -405,13 +405,13 @@ async function handleAct() {
 
 async function handleWithdraw(row: FlowDemoDoc) {
   await withdrawFlowDemo(row.docId)
-  ElMessage.success(t('common.operateSuccess'))
+  ElMessage.success(t('common.operationSuccess'))
   await Promise.all([loadMine(), loadPendingCount()])
 }
 
 async function handleResubmit(row: FlowDemoDoc) {
   await resubmitFlowDemo(row.docId)
-  ElMessage.success(t('common.operateSuccess'))
+  ElMessage.success(t('common.operationSuccess'))
   await Promise.all([loadMine(), loadPendingCount()])
 }
 
