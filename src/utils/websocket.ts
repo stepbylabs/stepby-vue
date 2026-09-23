@@ -16,7 +16,7 @@
 import { getToken } from '@/utils/auth'
 import mitt from 'mitt'
 
-export type WsMessageType = 'notice' | 'operLog' | 'system' | 'ping' | 'pong' | 'forceLogout' | 'taskProgress'
+export type WsMessageType = 'notice' | 'operLog' | 'system' | 'ping' | 'pong' | 'forceLogout' | 'taskProgress' | 'flowTodo' | 'flowFinished'
 
 /** WebSocket 消息数据载荷（由后端推送，字段因消息类型而异） */
 export interface WsMessageData {

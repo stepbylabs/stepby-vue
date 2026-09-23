@@ -65,7 +65,7 @@
           <el-table-column :label="t('flow.colTitle')" prop="title" show-overflow-tooltip />
           <el-table-column :label="t('flow.colLeaveType')" width="100">
             <template #default="{ row }">
-              {{ t(`flow.leave.${row.leaveType}`) }}
+              {{ leaveTypeLabel(row.leaveType) }}
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colDays')" prop="days" width="80" />
@@ -76,7 +76,7 @@
           </el-table-column>
           <el-table-column :label="t('flow.colStatus')" width="100">
             <template #default="{ row }">
-              <dict-tag :options="flowStatusOptions" :value="row.status" />
+              <dict-tag :options="sys_flow_task_status" :value="row.status" />
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colRound')" prop="currentRound" width="80" />
@@ -119,13 +119,13 @@
           <el-table-column :label="t('flow.colApplicant')" prop="applicantName" width="110" />
           <el-table-column :label="t('flow.colLeaveType')" width="100">
             <template #default="{ row }">
-              {{ t(`flow.leave.${row.leaveType}`) }}
+              {{ leaveTypeLabel(row.leaveType) }}
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colDays')" prop="days" width="80" />
           <el-table-column :label="t('flow.colStatus')" width="100">
             <template #default="{ row }">
-              <dict-tag :options="flowStatusOptions" :value="row.status" />
+              <dict-tag :options="sys_flow_task_status" :value="row.status" />
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colRound')" prop="currentRound" width="80" />
@@ -199,7 +199,7 @@
           {{ detail.doc?.title }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('flow.colLeaveType')">
-          {{ detail.doc ? t(`flow.leave.${detail.doc.leaveType}`) : '-' }}
+          {{ detail.doc ? leaveTypeLabel(detail.doc.leaveType) : '-' }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('flow.colDays')">
           {{ detail.doc?.days }}
@@ -230,6 +230,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { useDict } from '@/utils/dict'
+import { wsService } from '@/utils/websocket'
 import useUserStore from '@/store/modules/user'
 import {
   listFlowTodo,
@@ -270,16 +272,14 @@ const todoTotal = ref(0)
 const mineTotal = ref(0)
 const allTotal = ref(0)
 
-// 审批状态字典（本地静态对齐 sys_dict_data 种子；dict-tag 组件消费）
-const flowStatusOptions = ref([
-  { dictLabel: t('flow.status.pending'), dictValue: 'pending', listClass: 'warning' },
-  { dictLabel: t('flow.status.approved'), dictValue: 'approved', listClass: 'success' },
-  { dictLabel: t('flow.status.rejected'), dictValue: 'rejected', listClass: 'danger' },
-  { dictLabel: t('flow.status.cancelled'), dictValue: 'cancelled', listClass: 'info' },
-  { dictLabel: t('flow.status.transferred'), dictValue: 'transferred', listClass: 'info' },
-  { dictLabel: t('flow.status.withdrawn'), dictValue: 'withdrawn', listClass: 'info' },
-  { dictLabel: t('flow.status.draft'), dictValue: 'draft', listClass: 'info' }
-])
+// 审批状态/请假类型走字典中心（sys_flow_task_status / sys_flow_leave_type，迁移 70 段双语种子；
+// useDict 按 locale 自动选 dict_label / dict_label_en，字典中心改动即时生效——与 notice/task 页面同惯例）
+const { sys_flow_task_status, sys_flow_leave_type } = useDict(
+  'sys_flow_task_status',
+  'sys_flow_leave_type'
+)
+const leaveTypeLabel = (value: string) =>
+  sys_flow_leave_type.value.find((o: { value: string }) => o.value === value)?.label ?? value
 
 const isOverdue = (row: SysFlowTask) =>
   !!row.dueAt && row.status === 'pending' && new Date(row.dueAt).getTime() < Date.now()
@@ -438,6 +438,16 @@ onMounted(async () => {
     activeTab.value = 'todo'
   }
   await loadTodo()
+  // WS 加速器闭环：收到"新待办/已办结"推送即刷新当前 tab 与红点
+  // （红点以 pending_count 列表为准，WS 仅缩短感知延迟——方案 §3-8/§3-6）
+  wsService.on('flowTodo', () => {
+    pendingCount.value += 1
+    if (activeTab.value === 'todo') loadTodo()
+  })
+  wsService.on('flowFinished', () => {
+    if (activeTab.value === 'mine') loadMine()
+    if (activeTab.value === 'all') loadAll()
+  })
 })
 </script>
 

@@ -10562,6 +10562,7 @@ async function testFeature51(page) {
 
   // ---- 9. /sso/token（PKCE）换 token + id_token 声明校验 ----
   let accessToken = null
+  let idToken = null
   let idClaims = null
   try {
     if (!code) throw new Error('无授权码')
@@ -10580,6 +10581,7 @@ async function testFeature51(page) {
     })
     const data = await res.json()
     accessToken = data.access_token || null
+    idToken = data.id_token || null
     idClaims = data.id_token ? decodeJwt(data.id_token) : null
     const okTok =
       res.status === 200 && accessToken && data.token_type && data.id_token && typeof data.expires_in === 'number'
@@ -10682,6 +10684,81 @@ async function testFeature51(page) {
     record(51, 'PKCE：错误 code_verifier 被拒', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
+  // ---- 13a. grants 自助授权管理：列表可见 → 撤销 → AT 级联失效（v5-S4 补段） ----
+  let freshAuth = null // end_session 会拉黑当前登录 JWT，清理需备用会话
+  try {
+    // 备用会话：API 登录一枚新 JWT（end_session 用例会拉黑当前登录态，清理用它）
+    const lg = await fetch(`${B}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123' })
+    }).then((r) => r.json())
+    if (lg?.data?.token) freshAuth = { Authorization: `Bearer ${lg.data.token}` }
+    if (!accessToken || !created) throw new Error('前置失败：无 access_token/客户端')
+    const list = await fetch(`${B}/system/user/profile/sso-grants`, { headers: auth }).then((r) =>
+      r.json()
+    )
+    const grant = (list?.data || []).find((g) => g.clientId === created.clientId)
+    record(
+      51,
+      'grants 列表含刚授权的客户端（含 consentedAt 快照）',
+      !!grant && grant.clientName === created.clientId && typeof grant.consentedAt === 'string',
+      `rows=${(list?.data || []).length}, hit=${!!grant}`
+    )
+    const rv = await fetch(
+      `${B}/system/user/profile/sso-grants/${encodeURIComponent(created.clientId)}`,
+      { method: 'DELETE', headers: auth }
+    ).then((r) => r.json())
+    const ui = await fetch(`${B}/sso/userinfo`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    record(
+      51,
+      '撤销授权后该客户端 AT 级联失效（userinfo 401）',
+      (rv?.code === 200 || rv?.code === 0) && ui.status === 401,
+      `del=${rv?.code}, userinfo=${ui.status}`
+    )
+    // grants 撤销仅吊该客户端 AT，不拉黑浏览器会话——后续用例不受影响
+  } catch (err) {
+    record(51, 'grants 自助授权管理链（列表/撤销/级联失效）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 13b. RP-initiated end_session：hint 验签 + 白名单回跳 + AT/会话吊销（v5-S4 补段） ----
+  // 注意：hint 路径会拉黑当前登录 JWT（sso:sess 索引跨端拉黑）→ 本段必须是最后一个
+  // 依赖登录态的用例；清理（14）改用 13a 备用的 freshAuth。
+  try {
+    if (!idToken || !accessToken || !created) throw new Error('前置失败：无 id_token/AT/客户端')
+    const ru = encodeURIComponent(redirectUri)
+    const res = await page
+      .context()
+      .request.get(
+        `${B}/sso/logout?id_token_hint=${encodeURIComponent(idToken)}&post_logout_redirect_uri=${ru}`,
+        { maxRedirects: 0 }
+      )
+    const loc = res.headers()['location'] || ''
+    record(
+      51,
+      'RP-initiated logout：hint 验签通过且白名单精确回跳 302',
+      res.status() === 302 && loc === redirectUri,
+      `status=${res.status()}, loc=${loc.slice(0, 90)}`
+    )
+    const ui = await fetch(`${B}/sso/userinfo`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    record(51, 'end_session 后原 access_token 即刻失效（userinfo 401）', ui.status === 401, `status=${ui.status}`)
+    // 篡改 hint → fail-closed 不回跳（OIDC 安全 BCP 回归锁定）
+    const tampered = `${idToken.slice(0, -4)}x000`
+    const bad = await page
+      .context()
+      .request.get(`${B}/sso/logout?id_token_hint=${encodeURIComponent(tampered)}&post_logout_redirect_uri=${ru}`, {
+        maxRedirects: 0
+      })
+    record(
+      51,
+      '篡改 id_token_hint → fail-closed 不回跳',
+      bad.status() === 200 && !bad.headers()['location'],
+      `status=${bad.status()}, loc=${bad.headers()['location'] || '无'}`
+    )
+  } catch (err) {
+    record(51, 'RP-initiated end_session 链（回跳/吊销/fail-closed）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
   // ---- 13. 管理页真实浏览器渲染（表格 + 工具栏） ----
   try {
     await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'networkidle' })
@@ -10694,18 +10771,19 @@ async function testFeature51(page) {
     record(51, 'SSO 客户端管理页正常渲染', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  // ---- 14. 清理：删除测试客户端（无论前面成败都执行） ----
+  // ---- 14. 清理：删除测试客户端（无论前面成败都执行；end_session 可能已拉黑
+  //      当前登录 JWT → 优先用 13a 备用的 freshAuth） ----
   try {
     if (!created) throw new Error('无已创建客户端')
     const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
       method: 'DELETE',
-      headers: auth
+      headers: freshAuth || auth
     }).then((r) => r.json())
     let gone = false
     try {
-      const chk = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { headers: auth }).then((r) =>
-        r.json()
-      )
+      const chk = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
+        headers: freshAuth || auth
+      }).then((r) => r.json())
       gone = chk?.code !== 200 && chk?.code !== 0 && !chk?.data?.clientId
     } catch {
       gone = true
