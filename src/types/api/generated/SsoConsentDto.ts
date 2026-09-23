@@ -4,4 +4,9 @@
  * consent 批准入参（同意页回传，属「应用私有 API」→ camelCase + ts-rs 导出；
  * 其字段值最终须与 authorize 的 OIDC 参数对齐，故在 service 内以 snake_case 落库）
  */
-export type ConsentDto = { clientId: string, redirectUri?: string, scope: string, state?: string, nonce?: string, codeChallenge?: string, codeChallengeMethod?: string, approved: boolean, };
+export type ConsentDto = { clientId: string, redirectUri?: string, scope: string, state?: string, nonce?: string, codeChallenge?: string, codeChallengeMethod?: string, approved: boolean, 
+/**
+ * 用户认证时刻（登录 JWT 的 iat，v3 P1'-1）：由前端从 Operator 身份透传；
+ * 缺省回退为当前时间（仅影响存量旧前端的 auth_time 精度，不阻断流程）
+ */
+authTime?: number, };

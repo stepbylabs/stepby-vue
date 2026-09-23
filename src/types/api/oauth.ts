@@ -97,3 +97,4 @@ export type SsoClientCreateResult = import('@/types/api/generated/SsoClientCreat
 
 /** 同意页批准入参（POST /sso/consent） */
 export type SsoConsentForm = import('@/types/api/generated/SsoConsentDto').ConsentDto
+export type SsoGrant = import('@/types/api/generated/SsoGrantVo').SsoGrantVo

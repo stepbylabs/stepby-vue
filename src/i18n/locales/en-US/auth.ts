@@ -152,6 +152,7 @@ export default {
       title: 'Authorize "{client}"',
       subtitle: 'Current user: {user}',
       willAllow: 'This application will be granted the following:',
+      redirectHost: 'You will be redirected to:',
       approve: 'Authorize',
       deny: 'Deny',
       invalidTitle: 'Invalid authorization request',
@@ -163,6 +164,21 @@ export default {
         profile: 'View your profile',
         email: 'View your email address'
       }
+    },
+    grants: {
+      title: 'Authorized Apps',
+      tip: 'Third-party applications you have granted access via SSO. Revoking removes their access immediately (issued access tokens are revoked at the same time).',
+      column: {
+        app: 'Application',
+        scopes: 'Granted Scopes',
+        consentedAt: 'Consented At',
+        action: 'Actions'
+      },
+      scopeAll: 'Full access',
+      revoke: 'Revoke',
+      revokeConfirm: 'Revoke access for "{name}"? The application loses access to your data immediately.',
+      revoked: 'Access revoked',
+      empty: 'No authorized third-party applications yet'
     }
   },
   lock: {

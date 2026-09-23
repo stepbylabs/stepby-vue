@@ -150,6 +150,7 @@ export default {
       title: '授权 "{client}"',
       subtitle: '当前登录用户：{user}',
       willAllow: '该应用将获得以下权限：',
+      redirectHost: '授权后将跳转至：',
       approve: '授权',
       deny: '拒绝',
       invalidTitle: '授权请求无效',
@@ -161,6 +162,21 @@ export default {
         profile: '查看你的个人资料',
         email: '查看你的邮箱地址'
       }
+    },
+    grants: {
+      title: '已授权应用',
+      tip: '此处列出你通过 SSO 同意授权的第三方应用。撤销后该应用将立即失去访问权限（已签发的访问令牌同步吊销）。',
+      column: {
+        app: '应用',
+        scopes: '授权范围',
+        consentedAt: '授权时间',
+        action: '操作'
+      },
+      scopeAll: '全部权限',
+      revoke: '撤销授权',
+      revokeConfirm: '确认撤销对应用「{name}」的授权？该应用即刻失去对你数据的访问权限。',
+      revoked: '已撤销授权',
+      empty: '暂无已授权的第三方应用'
     }
   },
   lock: {

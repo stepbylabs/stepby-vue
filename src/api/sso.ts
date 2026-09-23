@@ -6,7 +6,8 @@ import type {
   SsoClientQueryParams,
   SsoClientForm,
   SsoClientCreateResult,
-  SsoConsentForm
+  SsoConsentForm,
+  SsoGrant
 } from '@/types'
 
 // ==================== SSO 客户端管理（受保护，system:oauth:client:*） ====================
@@ -71,5 +72,23 @@ export function submitSsoConsent(data: SsoConsentForm): Promise<AjaxResult<{ red
     url: '/sso/consent',
     method: 'post',
     data
+  })
+}
+
+// ==================== 自助授权管理（v4-R8：仅登录，无需管理权限） ====================
+
+// 当前用户"已授权应用"列表
+export function listSsoGrants(): Promise<AjaxResult<SsoGrant[]>> {
+  return request({
+    url: '/system/user/profile/sso-grants',
+    method: 'get'
+  })
+}
+
+// 撤销对某应用的授权（级联吊销该应用名下的 SSO 访问令牌）
+export function revokeSsoGrant(clientId: string): Promise<AjaxResult> {
+  return request({
+    url: `/system/user/profile/sso-grants/${encodeURIComponent(clientId)}`,
+    method: 'delete'
   })
 }

@@ -69,6 +69,9 @@
             <el-tab-pane :label="t('oauth.bindings')" name="oauth">
               <oauth />
             </el-tab-pane>
+            <el-tab-pane :label="t('sso.grants.title')" name="ssoGrants">
+              <sso-grants />
+            </el-tab-pane>
             <el-tab-pane :label="t('profile.msgPref')" name="pref">
               <msg-pref />
             </el-tab-pane>
@@ -88,6 +91,7 @@ import userInfo from './userInfo.vue'
 import resetPwd from './resetPwd.vue'
 import totp from './totp.vue'
 import oauth from './oauth.vue'
+import ssoGrants from './ssoGrants.vue'
 import msgPref from './msgPref.vue'
 import patToken from './patToken.vue'
 import { getUserProfile } from '@/api/system/user'

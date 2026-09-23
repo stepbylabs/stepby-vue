@@ -3,7 +3,8 @@
     <div class="panel rounded-md w-[440px] max-w-[calc(100vw-20px)] pt-[28px] px-[28px] pb-[28px] z-[1]">
       <template v-if="valid">
         <div class="app-head flex flex-col items-center">
-          <el-avatar v-if="logoUri" :size="60" :src="logoUri" />
+          <!-- v4-R6：logo 加载失败/跨源不可达时回落到首字母头像，绝不显示空白或占位图 -->
+          <el-avatar v-if="logoUri" :size="60" :src="logoUri">{{ initial }}</el-avatar>
           <el-avatar v-else :size="60">{{ initial }}</el-avatar>
           <h3 class="title mt15">{{ t('sso.consent.title', { client: clientName }) }}</h3>
         </div>
@@ -17,6 +18,13 @@
               <span>{{ scopeLabel(s) }}</span>
             </li>
           </ul>
+        </div>
+
+        <!-- v4-R6 防钓鱼：明示授权后代码回跳的主机，用户可核对是否为预期应用 -->
+        <div class="redirect-host mt10 text-text-secondary">
+          <el-icon><Warning /></el-icon>
+          <span>{{ t('sso.consent.redirectHost') }}</span>
+          <span class="host">{{ redirectHost }}</span>
         </div>
 
         <div class="actions mt20 flex gap-10">
@@ -76,6 +84,16 @@ const logoUri = q('logoUri')
 const scopes = computed(() => (form.value.scope || '').split(/\s+/).filter(Boolean))
 const userNick = computed(() => userStore.nickName || userStore.name || '')
 const initial = computed(() => (clientName ? clientName.charAt(0).toUpperCase() : '?'))
+// v4-R6 防钓鱼：解析回跳地址主机名展示给用户核对；非法 URL 时原样展示（后端 authorize
+// 已精确匹配白名单，此处仅为展示层兜底）
+const redirectHost = computed(() => {
+  const uri = form.value.redirectUri || ''
+  try {
+    return new URL(uri).host
+  } catch {
+    return uri
+  }
+})
 // authorize 硬约束：必须带 openid，且 clientId 缺一不可，否则视为非法入口
 const valid = computed(() => Boolean(form.value.clientId) && scopes.value.includes('openid'))
 
@@ -150,6 +168,18 @@ function toHome(): void {
 .actions {
   :deep(.el-button) {
     margin-left: 0;
+  }
+}
+.redirect-host {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  .host {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--el-color-warning);
+    word-break: break-all;
   }
 }
 html.dark .sso-consent {
