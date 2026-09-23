@@ -39,6 +39,8 @@ const ROUTES = [
   '/system/menu',
   '/system/post',
   '/system/dict',
+  // 字典数据页：静态隐藏路由 /system/dict-data/index/:dictId（带参可直达，轮2补捕）
+  '/system/dict-data/index/1',
   '/system/config',
   '/system/notice',
   '/system/notice-center',
@@ -303,7 +305,7 @@ const ADD_BTN_RE = /(新增|添加|新建|New|Add)/i
 // 行内"编辑/查看/详情/预览"操作：打开回填表单对话框/抽屉（数据水合路径，编辑态才暴露的
 // 水合/渲染错误）。行操作按钮多为图标-only（accessible name 来自 aria-label），故按
 // 可访问名匹配，不靠可见文本。只读打开再取消，不提交、不改数据。
-const ROW_VIEW_BTN_RE = /(编辑|修改|查看|详情|预览|Edit|View|Detail|Preview)/i
+const ROW_VIEW_BTN_RE = /(编辑|修改|查看|详情|详细|预览|Edit|View|Detail|Preview)/i
 // 交互扫描中可安全点击的只读按钮（查询/重置/刷新），不改数据。
 const READONLY_BTN_RE = /^\s*(搜索|查询|重置|刷新)\s*$/
 
@@ -352,7 +354,7 @@ async function scanPage(page, route) {
   await dismissTour(page)
 
   // 交互扫描：点击只读按钮 + 打开"新增"/行内"编辑/查看"对话框再取消，捕获仅交互态才暴露的信号。
-  const act = { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 } // 记录交互动作，证明扫描确有覆盖（非空转）
+  const act = { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0, exp: 0, expOk: 0 } // 记录交互动作，证明扫描确有覆盖（非空转）
   if (INTERACT) {
     jsonResp = [] // 被动加载阶段的业务响应已在下方判定，交互阶段单独收敛避免重复
     // (a) 只读按钮。用 .all() 固化为元素句柄再遍历（轮1修正）：
@@ -445,6 +447,39 @@ async function scanPage(page, route) {
       }
       act.view = 1
       if (dlg2) act.viewOpen = 1
+      await dismissOverlays(page)
+    }
+    // (d) 导出物证（轮2新增）：点击「导出」必须拿到真实下载证据——download 事件（saveAs 产物）
+    //     或 export/template 接口 200 响应，二者皆无即信号（处理器缺失/静默失败不再放行）。
+    //     operlog 等页导出前先弹字段选择对话框，点其确定后才会真正下载。
+    const expBtn = page
+      .locator('.el-button:visible')
+      .filter({ hasText: /^\s*导\s*出\s*$/ })
+      .first()
+    if (await expBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+      act.exp = 1
+      const errBeforeExp = msgs.length + pageErrors.length
+      const dlP = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
+      const respP = page
+        .waitForResponse((r) => /export|template/i.test(r.url()) && r.status() === 200, { timeout: 15000 })
+        .catch(() => null)
+      await expBtn.click({ timeout: 1500 }).catch(() => {})
+      await sleep(800)
+      const dlgOk = page
+        .locator('.el-dialog:visible .el-dialog__footer button, .el-message-box:visible button')
+        .filter({ hasText: /确\s*定|导\s*出|下\s*载/ })
+        .last()
+      if (await dlgOk.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await dlgOk.click().catch(() => {})
+      }
+      const dl = await dlP
+      const rs = await respP
+      if (dl || rs) {
+        act.expOk = 1
+      } else {
+        const withErr = msgs.length + pageErrors.length > errBeforeExp ? '，伴随交互期错误' : ''
+        msgs.push(`[interact] 「导出」点击后无 download 事件、无 export 200 响应（导出链路静默失效${withErr}）`)
+      }
       await dismissOverlays(page)
     }
     await sleep(800)
@@ -568,7 +603,7 @@ async function scanPage(page, route) {
     overlay.brokenImages.length +
     (p404 ? 1 : 0)
   const actStr = INTERACT
-    ? ` interact[ro=${act.ro} add=${act.add}/${act.addOpen} view=${act.view}/${act.viewOpen}]`
+    ? ` interact[ro=${act.ro} add=${act.add}/${act.addOpen} view=${act.view}/${act.viewOpen} exp=${act.exp}/${act.expOk}]`
     : ''
   console.log(
     `[${route}] sig=${flagCount} console=${msgs.length} pageErr=${pageErrors.length} reqFail=${reqFail.length} http>=400=${badResp.length} biz=${bizErr.length} toast=${overlay.toasts.length} dialog=${overlay.dialogs.length} i18nLeak=${overlay.i18nLeaks.length} brokenImg=${overlay.brokenImages.length} 404=${p404}${actStr}`
@@ -629,12 +664,14 @@ async function main() {
         a.addOpen += r.act.addOpen
         a.view += r.act.view
         a.viewOpen += r.act.viewOpen
+        a.exp += r.act.exp
+        a.expOk += r.act.expOk
         return a
       },
-      { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0 }
+      { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0, exp: 0, expOk: 0 }
     )
     console.log(
-      `交互动作覆盖：只读点击 ${sum.ro} 次；新增按钮 ${sum.add} 页(打开对话框 ${sum.addOpen})；行内编辑/查看 ${sum.view} 页(打开对话框/抽屉 ${sum.viewOpen})`
+      `交互动作覆盖：只读点击 ${sum.ro} 次；新增按钮 ${sum.add} 页(打开对话框 ${sum.addOpen})；行内编辑/查看 ${sum.view} 页(打开对话框/抽屉 ${sum.viewOpen})；导出 ${sum.exp} 页(物证 ${sum.expOk})`
     )
   }
   await browser.close()

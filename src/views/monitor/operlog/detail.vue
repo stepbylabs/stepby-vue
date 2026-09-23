@@ -17,7 +17,7 @@
           <el-col :span="12">
             <div class="detail-item">
               <span class="detail-label">{{ t('operlog.detail.operModule') }}</span>
-              <span class="detail-value">{{ form.title }}</span>
+              <span class="detail-value">{{ formatModuleTitle(form.title) }}</span>
             </div>
           </el-col>
           <el-col :span="12">
@@ -216,9 +216,13 @@
 import { CopyDocument } from '@element-plus/icons-vue'
 import modal from '@/plugins/modal'
 import type { SysOperLog } from '@/types/api/monitor/operlog'
+import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { parseOperDiff, heuristicDiff, type DiffItem } from './diff'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+// T-11：title 存量可能是 i18n key（module.*）或历史中文原文，与列表页同样经字典回退展示
+const formatModuleTitle = (title?: string | null) => resolveModuleTitle(title, t, te)
 
 const props = defineProps<{
   row: SysOperLog

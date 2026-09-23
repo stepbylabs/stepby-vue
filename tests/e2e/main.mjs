@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格（共 50 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证（共 52 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -10721,6 +10721,249 @@ async function testFeature51(page) {
   }
 }
 
+// ==================== 功能 52：用户管理全 UI 增删改链 + 导出物证（页面级循环·轮2） ====================
+
+/** 关闭可能仍打开的浮层（对话框/抽屉/确认框），避免残留遮挡后续点击 */
+async function dismissAllOverlays(page) {
+  for (let i = 0; i < 3; i++) {
+    const open = await page.locator('.el-dialog:visible, .el-drawer:visible, .el-message-box:visible').count()
+    if (!open) return
+    await page.keyboard.press('Escape')
+    await sleep(400)
+  }
+}
+
+// 此前 14 个 CRUD 页的"新增"只开框 Esc 或走纯 API（不经 UI）。本功能以 user 页为样板真实提交：
+// UI 新增→列表行出现→UI 编辑→行反映新值→UI 删除（MessageBox 确认）→行消失；
+// 每步断言 Toast（恰好 1 成功 0 错误）与表单校验错误数；导出须拿到真实 xlsx 文件（PK 魔数）；
+// 最后按 operlog 回查三类写操作已入审计。清理走 API 兜底，防脏数据残留。
+async function testFeature52(page) {
+  log('=== 功能 52：用户管理全 UI 增删改链 + 导出物证 ===')
+  const uniq = Date.now().toString(36).slice(-7)
+  const uname = `e2e_ui_${uniq}`
+  const nick1 = `E2E甲${uniq}`
+  const nick2 = `E2E乙${uniq}`
+
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(2000)
+  await skipTour(page)
+  const is404 = await is404Page(page)
+  record(52, '用户管理页加载', !is404)
+  if (is404) return
+
+  const dialog = page.locator('.el-dialog:visible').last()
+  const itemByLabel = (label) =>
+    dialog.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+  const rowsOf = (txt) => page.locator('.el-table__body-wrapper tbody tr').filter({ hasText: txt })
+  const toastCounts = () =>
+    page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+      formErr: document.querySelectorAll('.el-form-item.is-error').length
+    }))
+  const searchBy = async (name) => {
+    await page.locator('input[placeholder="请输入用户名称"]').first().fill(name)
+    await page.locator('button:has-text("搜索")').first().click()
+    await page
+      .waitForResponse((r) => r.url().includes('/system/user/list') && r.status() === 200, { timeout: 10000 })
+      .catch(() => null)
+    await sleep(700)
+  }
+  // 提交并等待：对话框关闭 + Toast 落定（成功类消息自动消失前的窗口内计数）
+  const submitDialog = async () => {
+    await dialog.getByRole('button', { name: /确\s*定/ }).click()
+    await sleep(2200)
+    return toastCounts()
+  }
+
+  // ---- (1) UI 新增 ----
+  await page.locator('button:has-text("新增")').first().click()
+  const dlgOpen = await dialog.isVisible({ timeout: 5000 }).catch(() => false)
+  record(52, '新增对话框打开', dlgOpen)
+  let added = false
+  if (!dlgOpen) {
+    record(52, 'UI 新增提交成功', false, '对话框未打开')
+  } else {
+    await itemByLabel('用户名称').locator('input').first().fill(uname)
+    await itemByLabel('用户昵称').locator('input').first().fill(nick1)
+    await itemByLabel('手机号码').locator('input').first().fill('15199990001')
+    await itemByLabel('邮箱').locator('input').first().fill('e2e_ui@example.com')
+    await itemByLabel('用户密码').locator('input').first().fill('Test@12345')
+    // 归属部门：tree-select 选首节点；角色：多选下拉选首项（对齐 API 样板最小可用集）
+    await itemByLabel('归属部门')
+      .locator('input')
+      .first()
+      .click()
+      .catch(() => {})
+    await page
+      .locator('.el-select-dropdown:visible .el-tree-node__content')
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
+    await sleep(300)
+    await itemByLabel('角色')
+      .locator('input')
+      .first()
+      .click()
+      .catch(() => {})
+    await page
+      .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
+    await sleep(300)
+    const t1 = await submitDialog()
+    added = t1.ok === 1 && t1.err === 0 && t1.formErr === 0
+    record(
+      52,
+      'UI 新增提交成功（Toast 恰1成功0错误0校验失败）',
+      added,
+      `ok=${t1.ok}, err=${t1.err}, formErr=${t1.formErr}`
+    )
+    await dismissAllOverlays(page)
+  }
+  await searchBy(uname)
+  const rowAfterAdd = await rowsOf(uname).count()
+  record(52, '新增后列表出现该用户行', rowAfterAdd === 1, `rows=${rowAfterAdd}`)
+  if (!added || rowAfterAdd !== 1) {
+    await cleanupUiUser(uname)
+    return
+  }
+
+  // ---- (2) UI 编辑（水合回填 + 改昵称 + 行反映新值） ----
+  const row1 = rowsOf(uname).first()
+  const editBtn = row1
+    .getByRole('button', { name: /修改|编辑/ })
+    .or(row1.locator('button:has-text("修改"), button:has-text("编辑")'))
+    .first()
+  const editVisible = await editBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(52, '行内编辑按钮可见', editVisible)
+  if (editVisible) {
+    await editBtn.click()
+    await dialog.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const nickVal = await itemByLabel('用户昵称')
+      .locator('input')
+      .first()
+      .inputValue()
+      .catch(() => '')
+    record(52, '编辑对话框回填原昵称', nickVal === nick1, `回填=${nickVal}`)
+    await itemByLabel('用户昵称').locator('input').first().fill(nick2)
+    const t2 = await submitDialog()
+    const edited = t2.ok === 1 && t2.err === 0
+    record(52, 'UI 编辑提交成功（Toast 恰1成功0错误）', edited, `ok=${t2.ok}, err=${t2.err}`)
+    await dismissAllOverlays(page)
+    await searchBy(uname)
+    const showsNew = (await rowsOf(nick2).count()) === 1
+    record(52, '编辑后列表即时反映新昵称', showsNew, `nick=${nick2}`)
+  } else {
+    record(52, '编辑对话框回填原昵称', false, '编辑按钮不可见')
+    record(52, 'UI 编辑提交成功（Toast 恰1成功0错误）', false, '未进入编辑')
+    record(52, '编辑后列表即时反映新昵称', false, '未进入编辑')
+  }
+
+  // ---- (3) UI 删除（MessageBox 二次确认 + 行消失） ----
+  const delBtn = rowsOf(nick2)
+    .first()
+    .getByRole('button', { name: /删除/ })
+    .or(rowsOf(nick2).first().locator('button:has-text("删除")'))
+    .first()
+  const delVisible = await delBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  let deleted = false
+  if (delVisible) {
+    await delBtn.click()
+    const mbox = page.locator('.el-message-box:visible')
+    const mboxShown = await mbox.isVisible({ timeout: 3000 }).catch(() => false)
+    record(52, '删除弹出确认框', mboxShown)
+    if (mboxShown) {
+      await mbox
+        .locator('button')
+        .filter({ hasText: /确\s*定/ })
+        .last()
+        .click()
+      await sleep(2000)
+      const t3 = await toastCounts()
+      deleted = t3.ok === 1 && t3.err === 0
+      record(52, 'UI 删除提交成功（Toast 恰1成功0错误）', deleted, `ok=${t3.ok}, err=${t3.err}`)
+      await dismissAllOverlays(page)
+      await searchBy(uname)
+      const rowsGone = (await rowsOf(uname).count()) === 0
+      record(52, '删除后列表行消失', rowsGone)
+    } else {
+      record(52, '删除弹出确认框', false, '未出现 MessageBox')
+      record(52, 'UI 删除提交成功（Toast 恰1成功0错误）', false, '无确认框')
+      record(52, '删除后列表行消失', false, '无确认框')
+    }
+  } else {
+    record(52, '删除弹出确认框', false, '删除按钮不可见')
+    record(52, 'UI 删除提交成功（Toast 恰1成功0错误）', false, '删除按钮不可见')
+    record(52, '删除后列表行消失', false, '删除按钮不可见')
+  }
+
+  // ---- (4) 导出物证：download 事件 + xlsx PK 魔数 + 非空 ----
+  try {
+    const dlPromise = page.waitForEvent('download', { timeout: 20000 }).catch(() => null)
+    await page.locator('button:has-text("导出")').first().click()
+    const dl = await dlPromise
+    if (dl) {
+      const p = await dl.path().catch(() => null)
+      let pk = false
+      let size = 0
+      if (p) {
+        const fd = await import('fs').then((fs) => fs.openSync(p, 'r'))
+        const buf = Buffer.alloc(2)
+        const n = await import('fs').then((fs) => fs.readSync(fd, buf, 0, 2, 0))
+        await import('fs').then((fs) => fs.closeSync(fd))
+        size = n
+        pk = buf[0] === 0x50 && buf[1] === 0x4b
+      }
+      record(52, '用户导出物证（xlsx PK 魔数）', pk && size === 2, `文件=${dl.suggestedFilename()}`)
+    } else {
+      record(52, '用户导出物证（xlsx PK 魔数）', false, '无 download 事件')
+    }
+  } catch (err) {
+    record(52, '用户导出物证（xlsx PK 魔数）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- (5) 审计回查：本轮三类 UI 写操作（新/改/删+导出）应已入 operlog ----
+  try {
+    const { token } = await apiLogin()
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/operlog/list?pageNum=1&pageSize=50`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then((r) => r.json())
+    // T-11 存储契约：operlog title 新数据存 i18n key（module.user），历史数据为中文原文
+    const rows = (resp?.rows || []).filter((r) => r.title === 'module.user' || r.title === '用户管理')
+    const has1234 = [1, 2, 3, 5].every((bt) => rows.some((r) => r.businessType === bt))
+    record(52, 'UI 写/导出操作入审计（用户管理 增1改2删3导出5）', has1234, `用户管理日志 ${rows.length} 条`)
+  } catch (err) {
+    record(52, 'UI 写/导出操作入审计（用户管理 增1改2删3导出5）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- (6) API 兜底清理（若 UI 删除未成功则强制清除测试用户，防脏数据） ----
+  await cleanupUiUser(uname)
+}
+
+/** API 兜底删除 e2e UI 测试用户（存在才删，幂等，不产生断言） */
+async function cleanupUiUser(uname) {
+  try {
+    const { token } = await apiLogin()
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    ).then((r) => r.json())
+    const hit = (list?.rows || []).find((r) => r.userName === uname)
+    if (hit) {
+      await fetch(`${CONFIG.backendUrl}/system/user/${hit.userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {})
+    }
+  } catch (_) {
+    /* 清理兜底失败不改变判定，脏数据留给下一轮排查 */
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -10732,7 +10975,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（50 个功能）')
+  log('yebot 端到端主测试脚本（52 个功能）')
   log('==========================================')
   log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
 
@@ -10835,7 +11078,8 @@ async function main() {
       { id: 48, fn: testFeature48 },
       { id: 49, fn: testFeature49 },
       { id: 50, fn: testFeature50 },
-      { id: 51, fn: testFeature51 }
+      { id: 51, fn: testFeature51 },
+      { id: 52, fn: testFeature52 }
     ]
 
     for (const f of features) {

@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（51 个功能 / 419 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（52 个功能 / 432 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -67,10 +67,10 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 51 个功能（约 15 分钟）。
-- 单跑某功能：`node main.mjs --headless --feature=51`（注意是 `--feature=N` 等号形式）。
-- 通过判据（已验证基线）：`总计 419 通过 419 失败 0`，日志无 `❌`。
-  （SSO 影响面收敛轮：功能 51 增 #18 登出态 RP 全链路、#19 多参深链回跳保留查询，417→419。）
+- 不带 `--feature` = 跑全部 52 个功能（约 15 分钟）。
+- 单跑某功能：`node main.mjs --headless --feature=52`（注意是 `--feature=N` 等号形式）。
+- 通过判据（已验证基线）：`总计 432 通过 432 失败 0`，日志无 `❌`。
+  （页面级循环轮2：新增功能 52 用户页全 UI 增删改链+导出物证+operlog 回查 13 项，419→432。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 
@@ -87,19 +87,21 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
 INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/55" + "交互动作覆盖：…（INTERACT 模式同样 0/55 稳定）
+# 期望（已验证基线）：末行 "有信号的路由数: 0/56" + "交互动作覆盖：…（INTERACT 模式同样 0/56 稳定）
 ```
 
-- **交互态三段扫描（`INTERACT=1`）**，逐页执行且**只开不提、不污染数据**：
+- **交互态四段扫描（`INTERACT=1`）**，逐页执行且 (a)(b)(c) **只开不提、不污染数据**，(d) 只读取文件不落库：
   (a) 只读按钮（搜索/查询/重置/刷新，按可见文本匹配）；
   (b) 工具栏「新增/添加/新建」按钮 → 打开表单对话框 → Esc 关闭（按可见文本匹配，工具栏按钮有文字）；
-  (c) 表格首行「编辑/修改/查看/详情/预览」→ 打开回填表单**对话框或抽屉**（`.el-dialog`/`.el-drawer`）→ Esc 关闭。
+  (c) 表格首行「编辑/修改/查看/详情/详细/预览」→ 打开回填表单**对话框或抽屉**（`.el-dialog`/`.el-drawer`）→ Esc 关闭；
+  (d) **导出物证（轮2 新增）**：点「导出」→（如先弹字段选择/确认框则点其确定）→ 必须拿到 `download` 事件
+  或 export/template 接口 200 响应，二者皆无即信号——导出链路静默失效不再放行。
   **关键**：行操作按钮在本仓是**图标-only**（`icon="Edit"` + `:aria-label="t('common.edit')"`，无可见文本），
   故 (c) 必须用 **`getByRole(button|link, { name: 可访问名正则 })`** 命中，靠 `hasText` 文本匹配会全程空转。
-- **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=..]`，末行汇总
-  `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)`。这是**防“扫描器静默空转”的自检**
-  ——`0/55` 只有在 view>0 时才真正代表“编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
-  只读 66 次、新增 20 页开 18（工具页内联表单无模态属良性）、行内编辑/查看 12 页开 12，全 0 信号。
+- **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=.. exp=页/证=..]`，末行汇总
+  `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)；导出 P 页(物证 Q)`。这是**防“扫描器静默空转”的自检**
+  ——`0/56` 只有在 exp/view>0 时才真正代表“导出/编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
+  只读 68 次、新增 21 页开 19（工具页内联表单无模态属良性）、行内编辑/查看 16 页开 16、导出 12 页物证 12，全 0 信号。
 
 - **11 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
   `response` status≥400（剔除 favicon/预期 401 良性项）、同源 JSON 的**业务错误码**（`code!=200/0`，
@@ -120,7 +122,7 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - **保存态数据失败如何捕获**：交互态采集器**刻意只开不提**（防污染数据），故“保存是否真的失败”由
   `main.mjs` 的真实 CRUD 用例（新增/编辑/删除 + 业务码断言）覆盖；采集器的**业务错误码**信号则被动捕获
   页面自身发起的请求失败。二者分工互补、不重复。
-- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 55 个可达页面
+- **路由来源**：以 `sys_menu`（status=0）为唯一权威，按 `/父path/子path` 组合成 56 个可达页面
   （注册菜单叶子页 + `/index` + `/user/profile/*` 隐藏页 + `/monitor/server` 隐藏实时页 + Tier-S/Tier-A 新增页如
   `/system/oauth/client`(SSO)、`/monitor/pat`、`/monitor/observability`、`/monitor/frontendError` 等）。ROUTES 必须与 `getRouters` 逐条对齐，
   否则手写猜错会命中 404 兜底页 → 假信号。实测教训：`/monitor/operlog`→`/system/log/operlog`、
