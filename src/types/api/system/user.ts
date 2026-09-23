@@ -60,6 +60,8 @@ export interface SysUser extends BaseEntity {
   roleIds?: number[]
   /** 岗位组 */
   postIds?: number[]
+  /** v5-E4：是否已绑定第三方登录身份（sys_oauth_user 存在绑定；仅列表接口返回） */
+  oauthBound?: boolean
 }
 
 /** 注册信息 */

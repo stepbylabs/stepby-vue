@@ -189,6 +189,20 @@
                 ></el-switch>
               </template>
             </el-table-column>
+            <!-- v5-E4：账号来源标识（sys_oauth_user 存在绑定 → 第三方） -->
+            <el-table-column
+              :label="t('user.column.oauthBound')"
+              align="center"
+              key="oauthBound"
+              width="90"
+            >
+              <template #default="scope">
+                <el-tag v-if="scope.row.oauthBound" type="warning" size="small">
+                  {{ t('user.column.oauthBoundTag') }}
+                </el-tag>
+                <span v-else class="text-text-placeholder">-</span>
+              </template>
+            </el-table-column>
             <el-table-column
               :label="t('user.column.createTime')"
               align="center"

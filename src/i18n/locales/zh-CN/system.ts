@@ -174,6 +174,8 @@ export default {
       dept: '部门',
       phone: '手机号码',
       status: '状态',
+      oauthBound: '第三方',
+      oauthBoundTag: '已绑定',
       createTime: '创建时间'
     },
     form: {

@@ -174,6 +174,8 @@ export default {
       dept: 'Department',
       phone: 'Phone',
       status: 'Status',
+      oauthBound: '3rd-party',
+      oauthBoundTag: 'Bound',
       createTime: 'Created Time'
     },
     form: {
