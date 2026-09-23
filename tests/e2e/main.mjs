@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链（共 58 个功能）+ 表单负路径
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互（共 60 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -11623,6 +11623,321 @@ async function testFeature58(page) {
   record(58, '四个对话框全部取消关闭', visibleDlg === 0, `visible=${visibleDlg}`)
 }
 
+/** 功能 59：语言切换全链路——EN 渲染/持久化/刷新恢复/回切（轮6） */
+async function testFeature59(page) {
+  log('=== 功能 59：语言切换全链路（EN 渲染/持久化/刷新恢复） ===')
+  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+  await sleep(1200)
+  await skipTour(page)
+  const langIcon = page.locator('.lang-icon--style').first()
+  const iconOk = await langIcon.isVisible({ timeout: 4000 }).catch(() => false)
+  record(59, '导航栏语言入口可见', iconOk)
+  if (!iconOk) return
+
+  // 打开下拉：两选项且当前语言项禁用
+  await langIcon.click()
+  await sleep(400)
+  const items = page.locator('.el-dropdown-menu__item:visible')
+  const itemCount = await items.count()
+  const zhDisabled = await items
+    .filter({ hasText: /简体中文|Simplified Chinese/ })
+    .first()
+    .evaluate((el) => el.classList.contains('is-disabled'))
+    .catch(() => false)
+  record(
+    59,
+    '下拉两选项且当前「简体中文」禁用',
+    itemCount === 2 && zhDisabled,
+    `count=${itemCount}, zhDisabled=${zhDisabled}`
+  )
+
+  // 切换到英文
+  await items
+    .filter({ hasText: /English/ })
+    .first()
+    .click()
+  await sleep(800)
+  const st1 = await page.evaluate(() => ({
+    ls: localStorage.getItem('language'),
+    htmlLang: document.documentElement.lang,
+    okTexts: [...document.querySelectorAll('.el-message--success')].map((e) => (e.textContent || '').trim()),
+    err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+  }))
+  record(
+    59,
+    '切EN：成功Toast恰1且为英文文案',
+    st1.okTexts.length === 1 && st1.okTexts[0].includes('Language switched successfully') && st1.err === 0,
+    `ok=${JSON.stringify(st1.okTexts)}, err=${st1.err}`
+  )
+  record(
+    59,
+    '切EN：localStorage 与 html lang 同步',
+    st1.ls === 'en-US' && st1.htmlLang === 'en-US',
+    `ls=${st1.ls}, lang=${st1.htmlLang}`
+  )
+
+  // EN 态打开用户新增对话框：标签与校验错误均为英文
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  await page
+    .locator('.el-button:visible')
+    .filter({ hasText: /^\s*(新\s*增|Add)\s*$/ })
+    .first()
+    .click()
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.isVisible({ timeout: 4000 }).catch(() => false)
+  record(59, 'EN态：用户新增对话框打开', dlgOk)
+  let restoreOk = false
+  if (dlgOk) {
+    const labels = await dlg.locator('.el-form-item__label').allInnerTexts()
+    const lblCJK = labels.filter((x) => /[\u4e00-\u9fff]/.test(x)).length
+    record(
+      59,
+      'EN态：表单标签全英文无CJK',
+      labels.length >= 8 && lblCJK === 0,
+      `labels=${labels.length}, cjk=${lblCJK}`
+    )
+    // 归一化清空（同功能58：initPassword 预填需清掉才是纯空提交）
+    const editables = dlg.locator(
+      'input:visible:not([type="radio"]):not([type="checkbox"]):not([readonly]), textarea:visible'
+    )
+    const ec = await editables.count()
+    for (let i = 0; i < ec; i++)
+      await editables
+        .nth(i)
+        .fill('', { timeout: 1000 })
+        .catch(() => {})
+    const reqItems = dlg.locator('.el-form-item.is-required')
+    const reqCount = await reqItems.count()
+    let emptyReq = 0
+    for (let i = 0; i < reqCount; i++) {
+      const it = reqItems.nth(i)
+      const checked = await it.locator('input[type="radio"]:checked, input[type="checkbox"]:checked').count()
+      if (checked > 0) continue
+      const v = await it
+        .locator('input, textarea')
+        .first()
+        .inputValue()
+        .catch(() => '')
+      if (!v.trim()) emptyReq++
+    }
+    let posted = false
+    const reqHandler = (r) => {
+      if (r.method() === 'POST' && r.url().includes('/system/user')) posted = true
+    }
+    page.on('request', reqHandler)
+    await dlg
+      .locator('.el-dialog__footer button')
+      .filter({ hasText: /^\s*(确\s*定|OK)\s*$/i })
+      .first()
+      .click()
+    await sleep(700)
+    const errs = await dlg.locator('.el-form-item.is-error').count()
+    const errTexts = await dlg.locator('.el-form-item__error').allInnerTexts()
+    const errCJK = errTexts.filter((x) => /[\u4e00-\u9fff]/.test(x)).length
+    const stillOpen = await dlg.isVisible().catch(() => false)
+    page.off('request', reqHandler)
+    record(59, 'EN态：空提交报错数=空必填项数', errs === emptyReq && emptyReq > 0, `errs=${errs}, emptyReq=${emptyReq}`)
+    record(
+      59,
+      'EN态：错误文案全英文无中文',
+      errCJK === 0 && errTexts.length >= 2,
+      `errCJK=${errCJK}, texts=${errTexts.length}`
+    )
+    record(59, 'EN态：拦截生效——无POST且对话框未关', !posted && stillOpen, `posted=${posted}, open=${stillOpen}`)
+    await dlg
+      .locator('.el-dialog__footer button')
+      .filter({ hasText: /^\s*(取\s*消|Cancel)\s*$/i })
+      .first()
+      .click()
+    await sleep(400)
+  }
+
+  // 刷新持久化：语言保持 EN 且登录态不丢（钉死启动同步 <html lang> 修复）
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(1800)
+  await skipTour(page)
+  const st2 = await page.evaluate(() => ({
+    ls: localStorage.getItem('language'),
+    lang: document.documentElement.lang,
+    path: location.pathname
+  }))
+  record(
+    59,
+    '刷新后语言持久化且登录态不丢',
+    st2.ls === 'en-US' && st2.lang === 'en-US' && !st2.path.startsWith('/login'),
+    JSON.stringify(st2)
+  )
+
+  // 回切中文：下拉当前项变 English 禁用 → 点简体中文 → zh 成功 Toast
+  await page.locator('.lang-icon--style').first().click()
+  await sleep(400)
+  const items2 = page.locator('.el-dropdown-menu__item:visible')
+  const enDisabled = await items2
+    .filter({ hasText: /English/ })
+    .first()
+    .evaluate((el) => el.classList.contains('is-disabled'))
+    .catch(() => false)
+  record(59, '刷新后下拉当前项「English」禁用', enDisabled)
+  // 选项文本随当前语言翻译（zh=简体中文 / en=Simplified Chinese），须双语匹配
+  await items2
+    .filter({ hasText: /简体中文|Simplified Chinese/ })
+    .first()
+    .click()
+  await sleep(800)
+  const st3 = await page.evaluate(() => ({
+    ls: localStorage.getItem('language'),
+    lang: document.documentElement.lang,
+    okTexts: [...document.querySelectorAll('.el-message--success')].map((e) => (e.textContent || '').trim()),
+    err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+  }))
+  restoreOk = st3.ls === 'zh-CN' && st3.lang === 'zh-CN' && st3.okTexts.some((x) => x.includes('语言切换成功'))
+  record(
+    59,
+    '回切中文：Toast/localStorage/html lang 全部恢复',
+    restoreOk,
+    `ls=${st3.ls}, lang=${st3.lang}, ok=${JSON.stringify(st3.okTexts)}`
+  )
+  record(59, '全链路无错误/警告 Toast', st1.err === 0 && st3.err === 0)
+}
+
+/** 功能 60：树形表格展开/折叠 + 上级部门树选择（menu/dept 双页，轮6）
+ * 关键：el-table 树折叠时子行仍在 DOM（display 隐藏），必须按几何可见性计行，不能用 locator.count() */
+async function testFeature60(page) {
+  log('=== 功能 60：树形表格展开折叠 + 上级部门树选择 ===')
+  const visibleRows = () =>
+    page.evaluate(
+      () =>
+        [...document.querySelectorAll('.el-table .el-table__body-wrapper .el-table__row')].filter(
+          (r) => r.getBoundingClientRect().height > 0
+        ).length
+    )
+  const toggleRe = /展开\/收起|Expand\/Collapse/
+
+  // —— 菜单页：默认折叠 → 展开加行 → 再折叠还原 ——
+  await page.goto(`${CONFIG.frontendUrl}/system/menu`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const mBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
+  const btnOk = await mBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(60, '菜单页展开/折叠按钮可见', btnOk)
+  if (btnOk) {
+    const n0 = await visibleRows()
+    await mBtn.click()
+    await sleep(1500) // toggleExpandAll 销毁重建表格
+    const n1 = await visibleRows()
+    const expIcons = await page.locator('.el-table .el-table__expand-icon--expanded').count()
+    record(
+      60,
+      '菜单展开：可见行数增加且存在展开态图标',
+      n1 > n0 && expIcons > 0,
+      `collapsed=${n0}, expanded=${n1}, expIcons=${expIcons}`
+    )
+    await mBtn.click()
+    await sleep(1500)
+    const n2 = await visibleRows()
+    const t0 = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+    record(60, '菜单折叠：可见行数还原顶层且无错误Toast', n2 === n0 && t0 === 0, `back=${n2}, base=${n0}, err=${t0}`)
+  }
+
+  // —— 部门页：默认展开 → 折叠减行 → 再展开还原 ——
+  await page.goto(`${CONFIG.frontendUrl}/system/dept`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const dBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
+  const dOk = await dBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(60, '部门页展开/折叠按钮可见', dOk)
+  if (dOk) {
+    const d0 = await visibleRows()
+    await dBtn.click()
+    await sleep(1500)
+    const d1 = await visibleRows()
+    record(60, '部门折叠：默认展开页折叠后可见行数减少', d1 < d0 && d0 > 0, `default=${d0}, collapsed=${d1}`)
+    await dBtn.click()
+    await sleep(1500)
+    const d2 = await visibleRows()
+    record(60, '部门再展开：可见行数还原', d2 === d0, `back=${d2}, base=${d0}`)
+  }
+
+  // —— 行内「添加下级」→ 上级部门 el-tree-select 交互链 ——
+  const firstRow = page.locator('.el-table .el-table__body-wrapper .el-table__row').first()
+  await firstRow
+    .locator('.el-button:visible')
+    .filter({ hasText: /新\s*增|Add/ })
+    .first()
+    .click()
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.isVisible({ timeout: 4000 }).catch(() => false)
+  const tsItem = dlg
+    .locator('.el-form-item')
+    .filter({ hasText: /上级部门|Parent/ })
+    .first()
+  // el-select 的 placeholder 层拦截内层 input 点击 → 点外层 wrapper
+  const tsWrap = tsItem.locator('.el-select__wrapper').first()
+  const tsOk = dlgOk && (await tsWrap.isVisible({ timeout: 2000 }).catch(() => false))
+  record(60, '添加下级对话框：上级部门树选择器可见', tsOk, `dlg=${dlgOk}`)
+  if (tsOk) {
+    await tsWrap.click()
+    await sleep(600)
+    const dd = page.locator('.el-select-dropdown:visible').last()
+    const nodes = dd.locator('.el-tree-node__content')
+    const n0 = await nodes.count()
+    // 树选择器默认折叠只显示根节点（正常形态），"多节点"由下一步展开断言覆盖
+    record(60, '树选择下拉展开：根节点显示', n0 >= 1, `nodes=${n0}`)
+    const arrow = dd.locator('.el-tree-node__expand-icon:not(.is-leaf)').first()
+    const aOk = await arrow.isVisible({ timeout: 1500 }).catch(() => false)
+    if (aOk) {
+      await arrow.click()
+      await sleep(600)
+    }
+    const n1 = await nodes.count()
+    record(
+      60,
+      '树节点箭头展开：可见节点数增加（多层级出现）',
+      aOk && n1 > n0 && n1 >= 3,
+      `arrows=${aOk}, before=${n0}, after=${n1}`
+    )
+    const selText = () =>
+      tsWrap
+        .locator('.el-select__selection')
+        .innerText()
+        .then((x) => x.trim())
+        .catch(() => '')
+    const v0 = await selText()
+    const texts = (await nodes.allInnerTexts()).map((x) => x.trim())
+    const idx = texts.findIndex((x) => x && x !== v0)
+    if (idx >= 0) {
+      await nodes.nth(idx).click()
+      await sleep(600)
+    }
+    const v1 = await selText()
+    const ddClosed = !(await dd.isVisible().catch(() => false))
+    record(
+      60,
+      '点选节点：选中回填=目标节点文本且变更',
+      idx >= 0 && v1 === texts[idx] && v1 !== v0,
+      `v0=${v0}, v1=${v1}, idx=${idx}`
+    )
+    record(60, '选择后下拉自动收起', ddClosed)
+    const t = await page.evaluate(() => ({
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+      ok: document.querySelectorAll('.el-message--success').length
+    }))
+    record(60, '树选择交互全程无错误Toast', t.err === 0, `err=${t.err}`)
+    await dlg
+      .locator('.el-dialog__footer button')
+      .filter({ hasText: /^\s*(取\s*消|Cancel)\s*$/i })
+      .first()
+      .click()
+    await sleep(500)
+  } else if (dlgOk) {
+    record(60, '添加下级对话框：上级部门树选择器可见', false, 'tree-select input not found')
+  }
+  const vis = await page.locator('.el-dialog:visible').count()
+  record(60, '取消关闭对话框（未写入数据）', vis === 0, `visible=${vis}`)
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -11646,7 +11961,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（58 个功能）')
+  log('yebot 端到端主测试脚本（60 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -11758,7 +12073,9 @@ async function main() {
       { id: 55, fn: testFeature55 },
       { id: 56, fn: testFeature56 },
       { id: 57, fn: testFeature57 },
-      { id: 58, fn: testFeature58 }
+      { id: 58, fn: testFeature58 },
+      { id: 59, fn: testFeature59 },
+      { id: 60, fn: testFeature60 }
     ]
 
     for (const f of features) {

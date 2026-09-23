@@ -43,6 +43,19 @@ describe('i18n index - 语言切换与持久化', () => {
     expect(getLanguage()).toBe('en-US')
   })
 
+  it('启动加载时按保存语言同步 <html lang>（刷新路径，重导模块验证顶层副作用）', async () => {
+    cache.local.set('language', 'en-US')
+    document.documentElement.lang = ''
+    vi.resetModules()
+    const fresh = await import('@/i18n')
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(fresh.getLanguage()).toBe('en-US')
+    // 还原，避免污染其他用例（fresh 与外层 i18n 是两个实例，各自复位）
+    fresh.setLanguage('zh-CN')
+    document.documentElement.lang = 'zh-CN'
+    cache.local.remove('language')
+  })
+
   it('缺失翻译 key 时返回 key 本身（missing handler 兜底）', () => {
     // missing handler 的 DEV console.warn 属预期，测试中静音避免噪音
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

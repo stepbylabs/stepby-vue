@@ -12,6 +12,11 @@ import cache from '@/plugins/cache'
 // 从 localStorage 读取用户上次选择的语言，默认中文
 const savedLang = cache.local.get('language') || 'zh-CN'
 
+// 启动即同步 <html lang>：否则刷新后 lang 回落为浏览器默认，与 localStorage 语言不一致
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = savedLang
+}
+
 const i18n = createI18n({
   legacy: false, // Composition API 模式
   locale: savedLang,

@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（58 个功能 / 532 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（60 个功能 / 558 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -67,11 +67,11 @@ FRONTEND_URL=http://localhost:4173 \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 58 个功能（约 17 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 60 个功能（约 18 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-58` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- 通过判据（已验证基线）：三段合计 `106 + 220 + 206 = 532 通过 532 失败 0`，日志无 `❌`。
-  （页面级循环轮5：功能 57 Cron 生成器双向回传+执行预览 13 项、功能 58 四表单空提交负路径 13 项，506→532。
+  `1-20 / 21-40 / 41-60` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+- 通过判据（已验证基线）：三段合计 `106 + 220 + 232 = 558 通过 558 失败 0`，日志无 `❌`。
+  （页面级循环轮6：功能 59 语言切换全链路 13 项、功能 60 树形展开折叠+上级部门树选择 13 项，532→558。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
@@ -176,6 +176,20 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - **下载/导出类断言必须有物证**：`download` 事件（文件名）或匹配端点的 200 响应体非空（如 `/system/backup/download/`、`/monitor/operlog/compliance-report`+成功 Toast）。"按钮可点/见 loading"不算通过（html2pdf `.save()` 在 headless Chromium 会真实触发 download 事件，已验证产出 `审计合规报告_*.pdf`）。
 - **采集器判定语义**：401 不再一律豁免（admin 登录态下任何 401 = 鉴权回归，计入 http>=400 信号）；Toast 按 `el-message--{type}` 类名优先分类，success/info 文案含"失败"字样不再误报；只读按钮遍历用 `.all()` 元素句柄（`nth(i)` 在点击致 DOM 变化后索引漂移）；「新增」点击后的合法反应 = 对话框 ∨ 路由跳转 ∨ **全局 DOM 元素数增量**（内联加行/加选项，如 http-debugger 加 Header 行），三者皆无且无错误才判"无反应"信号。
 - **定向复扫**：`ROUTE_ONLY="/tool/build,/tool/http-debugger" INTERACT=1 node collect-warnings.mjs`（子串过滤，秒级复验单页）。**Git-Bash 必须加 `MSYS_NO_PATHCONV=1` 前缀**，否则 MSYS 把以 `/` 开头的值静默改写成 `C:/Program Files/Git/…`，过滤不命中。
+
+### 3.5 轮6 新增选择器/计数教训（树表格与语言切换）
+
+- **el-table 树折叠时子行仍在 DOM**：`row.count()` 折叠前后不变（实测 menu 恒 185），必须按几何可见性计行：
+  `[...document.querySelectorAll('.el-table .el-table__body-wrapper .el-table__row')].filter(r => r.getBoundingClientRect().height > 0).length`；
+  展开态另用 `.el-table__expand-icon--expanded` 计数佐证（menu 折叠 6/展开 185、dept 展开 10/折叠 1）。
+- **语言下拉选项文本随当前 locale 翻译**：`t('langSelect.simplifiedChinese')` 在 EN 态渲染 "Simplified Chinese"，
+  点击/断言必须双语匹配（/简体中文|Simplified Chinese/），写死中文会 30s 超时。
+- **el-select 内层 input 被 placeholder 层拦截点击**：`tsInput.click()` 会反复 "intercepted by .el-select__placeholder"，
+  应改点外层 `.el-select__wrapper`；选中值也不在 input.value（恒空），读 `.el-select__selection` 的 innerText。
+- **el-tree-select 默认折叠只显示根节点**：初始 `nodes>=2` 是错误预期（根节点 1 个属正常），"多层级"
+  由点 `.el-tree-node__expand-icon:not(.is-leaf)` 展开后的增量断言覆盖。
+- **首跑排查用临时 DOM 探针**（登录→前后状态快照），区分"应用缺陷"与"脚本预期错误"后删探针；
+  本轮三处 FAIL 均定位为脚本侧（计数口径/文案匹配/点击目标），应用行为全部正确。
 
 ## 4. source-check 防混淆约定（重要）
 
