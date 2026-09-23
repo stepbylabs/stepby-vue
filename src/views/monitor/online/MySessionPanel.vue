@@ -144,7 +144,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import useUserStore from '@/store/modules/user'
-import { list as listOnline, forceLogout } from '@/api/monitor/online'
+import { listMySessions as listOnline, logoutMySession as forceLogout } from '@/api/monitor/online'
 import { getToken } from '@/utils/auth'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import modal from '@/plugins/modal'
