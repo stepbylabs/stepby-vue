@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染（共 54 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界（共 56 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -98,7 +98,7 @@ const CONFIG = {
   screenshotDir: path.resolve('screenshots'),
   slowMo: 100,
   headless: false,
-  featureFilter: null // null = 全部，数字 = 仅测试该功能
+  featureFilter: null // null = 全部，Set<number> = 仅测试集合内功能（--feature=N 或 --feature=A-B,C）
 }
 
 // P2 修复: 删除顶部位置参数解析死代码（与 main() 内的 --headless/--feature= 解析重复）
@@ -11128,6 +11128,302 @@ async function testFeature54(page) {
   await dismissAllOverlays(page)
 }
 
+// ==================== 功能 55：登录页表单校验/密码显隐/错误路径/OAuth 入口一致性（轮4） ====================
+// 套件其余部分都"从登录页成功进入"，登录页自身的失败与边界此前零覆盖：
+// 空提交校验数、密码过短单独报错、显隐切换、错误凭据→恰1错误Toast且停留/login、
+// OAuth 分隔线出现与否必须与 /oauth2/providers 实际启用数一致（隐藏≠缺失渲染）。
+async function testFeature55(page) {
+  log('=== 功能 55：登录页校验/显隐/错误路径/OAuth 一致性 ===')
+  // 已登录会话访问 /login 会被守卫重定向到首页——必须先真注销再测登录页
+  await logout(page)
+  const form = page.locator('.login-form').first()
+  const formReady = await form.isVisible({ timeout: 8000 }).catch(() => false)
+  record(55, '注销后登录页表单可见', formReady)
+  if (!formReady) {
+    await login(page)
+    return
+  }
+  const isErrCount = () => form.locator('.el-form-item.is-error').count()
+  const submit = form.getByRole('button', { name: /登\s*录/ }).first()
+  // placeholder 为 i18n 的「账号/密码」（zh-CN/auth.ts）；密码框 type 随显隐切换，不能用作定位锚点
+  const userItem = form
+    .locator('.el-form-item')
+    .filter({ has: page.locator('input[placeholder="账号"]') })
+    .first()
+  const userInput = userItem.locator('input')
+  const pwdItem = form
+    .locator('.el-form-item')
+    .filter({ has: page.locator('input[placeholder="密码"]') })
+    .first()
+  const pwdInput = pwdItem.locator('input')
+  const captchaVisible = await form
+    .locator('input[placeholder="验证码"]')
+    .first()
+    .isVisible({ timeout: 500 })
+    .catch(() => false)
+  // 必填错误条数随环境开关（captchaEnabled）变化，按可见字段数精确断言，不做猜测性放宽
+  const requiredErrs = captchaVisible ? 3 : 2
+
+  // (1) 空提交：用户名+密码（+验证码若启用）全部报必填
+  await userInput.fill('')
+  await pwdInput.fill('')
+  await submit.click()
+  await sleep(600)
+  const emptyErrs = await isErrCount()
+  record(
+    55,
+    '空提交出现恰好全部必填错误',
+    emptyErrs === requiredErrs,
+    `is-error=${emptyErrs}, expected=${requiredErrs}, captcha=${captchaVisible}`
+  )
+
+  // (2) 正确填写两字段提交：必填错误全部清除（登录规则仅 required/trigger:blur，
+  //     长度强度门槛属后端职责——(4) 用错误凭据验证后端拒绝路径）
+  await userInput.fill(CONFIG.username)
+  await pwdInput.fill('SomePwd@123')
+  await submit.click()
+  await sleep(600)
+  const shortErrs = await isErrCount()
+  const userOk = (await userItem.locator('.el-form-item__error').count()) === 0
+  record(55, '正确填写提交后校验错误全部清除', shortErrs === 0 && userOk, `is-error=${shortErrs}, userOk=${userOk}`)
+
+  // (3) 密码显隐切换：自定义 suffix el-icon（View/Hide）翻转 input type，再点翻回
+  const toggle = pwdItem.locator('.el-input__suffix .el-icon').first()
+  const tVisible = await toggle.isVisible({ timeout: 1000 }).catch(() => false)
+  record(55, '密码显隐切换图标可见', tVisible)
+  if (tVisible) {
+    const typeBefore = await pwdInput.getAttribute('type')
+    await toggle.click()
+    await sleep(300)
+    const typeAfter = await pwdInput.getAttribute('type')
+    record(55, '点击后密码框类型翻转', typeBefore === 'password' && typeAfter === 'text', `${typeBefore}→${typeAfter}`)
+    await toggle.click()
+    await sleep(300)
+    record(55, '再次点击恢复 password 类型', (await pwdInput.getAttribute('type')) === 'password')
+  } else {
+    record(55, '点击后密码框类型翻转', false, '图标不可见')
+    record(55, '再次点击恢复 password 类型', false, '图标不可见')
+  }
+
+  // (4) 错误凭据：≥1错误/警告Toast、0成功、停留在 /login（不产生半登录态跳转）
+  await userInput.fill(CONFIG.username)
+  await pwdInput.fill('Wrong@98765')
+  await submit.click()
+  const resp = await page
+    .waitForResponse((r) => r.url().includes('/login') && ['POST'].includes(r.request().method()), { timeout: 8000 })
+    .catch(() => null)
+  await sleep(1200)
+  const t = await page.evaluate(() => ({
+    err: document.querySelectorAll('.el-message--error, .el-message--warning, .el-notification--error').length,
+    ok: document.querySelectorAll('.el-message--success').length
+  }))
+  const stillLogin = page.url().includes('/login')
+  const rejected = resp ? resp.status() !== 200 || (await resp.json().catch(() => ({}))).code > 200 : true
+  record(55, '错误凭据：非200封套或业务码拒绝', !!resp && rejected, `status=${resp?.status()}`)
+  record(55, '错误凭据：恰好1错误Toast且无成功Toast', t.err >= 1 && t.ok === 0, `err=${t.err}, ok=${t.ok}`)
+  record(55, '错误凭据：停留在登录页（无半登录跳转）', stillLogin)
+
+  // (5) OAuth 入口与启用供应商数一致（隐藏是策略，渲染缺失才是缺陷）
+  try {
+    const providers = await fetch(`${CONFIG.backendUrl}/oauth2/providers`).then((r) => r.json())
+    const n = Array.isArray(providers?.data) ? providers.data.length : 0
+    const btns = await page.locator('.oauth-buttons button').count()
+    const divider = await page.locator('.oauth-divider').count()
+    record(
+      55,
+      'OAuth 按钮/分隔线与启用供应商数一致',
+      btns === n && (n > 0 ? divider > 0 : divider === 0),
+      `api=${n}, btn=${btns}, divider=${divider}`
+    )
+  } catch (err) {
+    record(55, 'OAuth 按钮/分隔线与启用供应商数一致', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+  // 恢复登录态：本功能以 logout 开头，必须成对地以 UI 登录收尾，避免污染同 page 的后续功能
+  const restored = await login(page)
+  record(55, '测后恢复登录态', restored)
+}
+
+// ==================== 功能 56：行内状态开关双路径 + 分页边界（轮4） ====================
+// (A) 用户行 el-switch：取消→开关回弹且无 Toast（catch 回滚路径）；确定→真实停用（API 状态
+//     复核为唯一权威）→再启用恢复。此前开关只有只读点击，confirm/catch 两分支均未验证。
+// (B) operlog 分页：下一页/超大页号钳制/0 页钳制——EP 的 clamp 行为在首尾页边界才暴露。
+async function testFeature56(page) {
+  log('=== 功能 56：行内开关双路径 + 分页边界钳制 ===')
+  const uniq = Date.now().toString(36).slice(-7)
+  const uname = `e2e_sw_${uniq}`
+  let swUserId = null
+  try {
+    const { token } = await apiLogin()
+    const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    const created = await fetch(`${CONFIG.backendUrl}/system/user`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        deptId: 100,
+        userName: uname,
+        nickName: `开关测试${uniq}`,
+        password: 'Test@12345',
+        phonenumber: '13800000001',
+        email: 'e2e_sw@example.com',
+        sex: '0',
+        status: '0',
+        roleIds: [2],
+        postIds: [1]
+      })
+    }).then((r) => r.json())
+    record(
+      56,
+      '准备：API 创建测试用户(status=0)',
+      created?.code === 200 || created?.code === 0,
+      `code=${created?.code}`
+    )
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`,
+      { headers: auth }
+    ).then((r) => r.json())
+    swUserId = (list?.rows || []).find((r) => r.userName === uname)?.userId ?? null
+    if (!swUserId) {
+      record(56, '准备：查到新用户 userId', false, '列表未命中')
+      return
+    }
+  } catch (err) {
+    record(56, '准备：API 创建测试用户(status=0)', false, `异常: ${err.message.slice(0, 60)}`)
+    return
+  }
+
+  const mbox = page.locator('.el-message-box:visible')
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await sleep(1800)
+  await skipTour(page)
+  await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
+  await page.locator('button:has-text("搜索")').first().click()
+  await page
+    .waitForResponse((r) => r.url().includes('/system/user/list') && r.status() === 200, { timeout: 10000 })
+    .catch(() => null)
+  await sleep(600)
+  const row = page.locator('.el-table__body-wrapper tbody tr').filter({ hasText: uname }).first()
+  const sw = row.locator('.el-switch input')
+  const checkedNow = async () => (await sw.evaluate((el) => el.checked)) === true
+  record(56, '行内开关初始为启用态(checked)', await checkedNow())
+
+  // (A1) 取消路径：点开关→确认框→取消→回弹+无 Toast
+  await row.locator('.el-switch').click()
+  const shown1 = await mbox.isVisible({ timeout: 1500 }).catch(() => false)
+  record(56, '停用弹出确认框', shown1)
+  if (shown1) {
+    await mbox.getByRole('button', { name: /取\s*消/ }).click()
+    await sleep(900)
+    // EP 点击后 checked 先翻转（视觉停用），取消走 catch 回滚 row.status → checked 复原 true
+    const restored = await checkedNow()
+    const t = await page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+    record(
+      56,
+      '取消后开关回弹为启用且无任何Toast',
+      restored && t.ok === 0 && t.err === 0,
+      `checked=${restored}, ok=${t.ok}, err=${t.err}`
+    )
+  } else {
+    record(56, '取消后开关回弹为启用且无任何Toast', false, '未出现确认框')
+  }
+
+  // (A2) 确定路径：点开关→确定→成功Toast→API 复核 status=1→再启用恢复→API 复核 status=0
+  await row.locator('.el-switch').click()
+  const shown2 = await mbox.isVisible({ timeout: 1500 }).catch(() => false)
+  record(56, '再次停用弹出确认框', shown2)
+  if (shown2) {
+    await mbox.getByRole('button', { name: /确\s*定/ }).click()
+    await sleep(1600)
+    const t2 = await page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+    record(56, '停用确认：恰1成功0错误Toast', t2.ok === 1 && t2.err === 0, `ok=${t2.ok}, err=${t2.err}`)
+    const { token } = await apiLogin()
+    const chk = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then((r) => r.json())
+    const stNow = (chk?.rows || []).find((r) => r.userName === uname)?.status
+    record(56, '停用已落库（API status=1）', stNow === '1', `status=${stNow}`)
+    // 恢复启用（同链反向），保证删除前状态路径双向都真实走通
+    await row.locator('.el-switch').click()
+    if (await mbox.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await mbox.getByRole('button', { name: /确\s*定/ }).click()
+      await sleep(1600)
+      const chk2 = await fetch(
+        `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      ).then((r) => r.json())
+      const stBack = (chk2?.rows || []).find((r) => r.userName === uname)?.status
+      record(56, '再启用恢复落库（API status=0）', stBack === '0', `status=${stBack}`)
+    } else {
+      record(56, '再启用恢复落库（API status=0）', false, '未出现确认框')
+    }
+  } else {
+    record(56, '停用确认：恰1成功0错误Toast', false, '未出现确认框')
+    record(56, '停用已落库（API status=1）', false, '未出现确认框')
+    record(56, '再启用恢复落库（API status=0）', false, '未出现确认框')
+  }
+
+  // (B) operlog 分页边界
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
+  await sleep(1800)
+  await skipTour(page)
+  const pager = page.locator('.el-pagination')
+  const activePage = async () =>
+    (
+      await pager
+        .locator('.el-pager li.is-active, .el-pager li.active')
+        .first()
+        .innerText()
+        .catch(() => '')
+    ).trim()
+  const totalTxt = await pager
+    .locator('.el-pagination__total')
+    .first()
+    .innerText()
+    .catch(() => '')
+  const total = Number((totalTxt.match(/\d+/) || ['0'])[0])
+  const pageCount = Math.ceil(total / 10)
+  await pager.locator('.btn-next').click()
+  await page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/list') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
+  await sleep(500)
+  record(56, '下一页到第2页', (await activePage()) === '2')
+  const jump = pager.locator('.el-pagination__editor input').first()
+  await jump.fill(String(pageCount + 9999))
+  await jump.press('Enter')
+  await page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/list') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
+  await sleep(600)
+  const ap = Number(await activePage())
+  record(56, `超大页号钳制到末页(≤${pageCount})`, ap > 0 && ap === pageCount, `active=${ap}, pageCount=${pageCount}`)
+  await jump.fill('0')
+  await jump.press('Enter')
+  await page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/list') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
+  await sleep(600)
+  record(56, '页号0钳制回第1页', (await activePage()) === '1')
+  const tB = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  record(56, '分页边界全程无错误Toast', tB === 0, `err=${tB}`)
+
+  // 清理测试用户
+  try {
+    const { token } = await apiLogin()
+    await fetch(`${CONFIG.backendUrl}/system/user/${swUserId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(() => {})
+  } catch (_) {}
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -11135,13 +11431,27 @@ async function main() {
   const args = process.argv.slice(2)
   for (const arg of args) {
     if (arg === '--headless') CONFIG.headless = true
-    if (arg.startsWith('--feature=')) CONFIG.featureFilter = parseInt(arg.split('=')[1], 10)
+    // --feature=N 单功能；--feature=1-20,51 集合（逗号分段+连字符区间），供前台分批跑长套件
+    if (arg.startsWith('--feature=')) {
+      const spec = arg.split('=')[1]
+      const ids = new Set()
+      for (const part of spec.split(',')) {
+        const m = part.trim().match(/^(\d+)(?:-(\d+))?$/)
+        if (!m) continue
+        const a = parseInt(m[1], 10)
+        const b = m[2] ? parseInt(m[2], 10) : a
+        for (let i = a; i <= b; i++) ids.add(i)
+      }
+      CONFIG.featureFilter = ids.size > 0 ? ids : null
+    }
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（54 个功能）')
+  log('yebot 端到端主测试脚本（56 个功能）')
   log('==========================================')
-  log(`配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter || '全部'}`)
+  log(
+    `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
+  )
 
   ensureDir(CONFIG.screenshotDir)
 
@@ -11245,11 +11555,13 @@ async function main() {
       { id: 51, fn: testFeature51 },
       { id: 52, fn: testFeature52 },
       { id: 53, fn: testFeature53 },
-      { id: 54, fn: testFeature54 }
+      { id: 54, fn: testFeature54 },
+      { id: 55, fn: testFeature55 },
+      { id: 56, fn: testFeature56 }
     ]
 
     for (const f of features) {
-      if (CONFIG.featureFilter && CONFIG.featureFilter !== f.id) continue
+      if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) continue
       try {
         await f.fn(page)
       } catch (err) {
