@@ -46,6 +46,7 @@
 <script setup lang="ts" name="GenPreview">
 import Prism from 'prismjs'
 import 'prismjs/components/prism-clike'
+import 'prismjs/components/prism-rust'
 import 'prismjs/components/prism-markup'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-typescript'
@@ -80,22 +81,30 @@ function basename(path: string): string {
   return last.replace(/\.vm$/i, '')
 }
 
-/** 根据模板文件路径推断 Prism 语言标识 */
+/** 文件扩展名 → Prism 语言标识（.vm 模板与真实产物路径共用同一映射） */
+const LANG_BY_EXT: Record<string, string> = {
+  java: 'java',
+  xml: 'xml',
+  htm: 'markup',
+  html: 'markup',
+  vue: 'markup',
+  ts: 'typescript',
+  js: 'javascript',
+  sql: 'sql',
+  json: 'json',
+  md: 'markdown',
+  yml: 'yaml',
+  yaml: 'yaml',
+  sh: 'bash',
+  py: 'python',
+  rs: 'rust'
+}
+
+/** 根据文件路径推断 Prism 语言标识（先剥掉模板 .vm 后缀，再按扩展名映射） */
 function detectLanguage(path: string): string {
-  const lower = path.toLowerCase()
-  if (lower.endsWith('.java.vm')) return 'java'
-  if (lower.endsWith('.xml.vm')) return 'xml'
-  if (lower.endsWith('.html.vm')) return 'markup'
-  if (lower.endsWith('.vue.vm')) return 'markup'
-  if (lower.endsWith('.ts.vm')) return 'typescript'
-  if (lower.endsWith('.js.vm')) return 'javascript'
-  if (lower.endsWith('.sql.vm')) return 'sql'
-  if (lower.endsWith('.json.vm')) return 'json'
-  if (lower.endsWith('.md.vm')) return 'markdown'
-  if (lower.endsWith('.yml.vm')) return 'yaml'
-  if (lower.endsWith('.sh.vm')) return 'bash'
-  if (lower.endsWith('.py.vm')) return 'python'
-  return 'plaintext'
+  const bare = path.replace(/\.vm$/i, '')
+  const ext = (bare.split('.').pop() || '').toLowerCase()
+  return LANG_BY_EXT[ext] ?? 'plaintext'
 }
 
 /** 转义 HTML，用于无匹配文法（plaintext）时的兜底，避免注入 */

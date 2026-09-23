@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链（共 64 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链（共 66 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -12400,6 +12400,337 @@ async function testFeature64(page) {
   record(64, '双页全程 0 错误 Toast', tAll === 0, `err=${tAll}`)
 }
 
+/** 功能 65：定时任务行操作链——开关取消回滚 / 执行一次取消 / 详情弹窗 / 调度日志跳转（页面级循环·轮9） */
+async function testFeature65(page) {
+  log('=== 功能 65：定时任务行操作链（开关取消/执行一次取消/详情/调度日志） ===')
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+  const rowCount = await rows.count()
+  record(65, '定时任务列表渲染（行数>0）', rowCount > 0, `rows=${rowCount}`)
+  if (rowCount === 0) return
+  const firstRow = rows.first()
+  const switchState = () => firstRow.locator('.el-switch').evaluate((el) => el.classList.contains('is-checked'))
+
+  // —— A：行内状态开关：确认框出现→取消→回滚且零 PUT ——
+  const st0 = await switchState()
+  let statusPut = 0
+  const reqH1 = (r) => {
+    if (r.method() === 'PUT' && r.url().includes('/monitor/job/changeStatus')) statusPut++
+  }
+  page.on('request', reqH1)
+  await firstRow.locator('.el-switch').click()
+  await sleep(600)
+  const box1 = page.locator('.el-message-box:visible').first()
+  const box1Visible = await box1.isVisible().catch(() => false)
+  record(65, '点开关先弹确认框（modal.confirm 前置拦截）', box1Visible)
+  const stMid = await switchState()
+  await box1
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /取\s*消|Cancel/i })
+    .first()
+    .click()
+  await sleep(800)
+  const stBack = await switchState()
+  record(
+    65,
+    '取消→开关回滚原状态（catch 还原，中途确曾翻转）',
+    stBack === st0 && stMid !== st0,
+    `before=${st0}, mid=${stMid}, after=${stBack}`
+  )
+  record(65, '取消后零 changeStatus PUT（取消无痕）', statusPut === 0, `put=${statusPut}`)
+  page.off('request', reqH1)
+
+  // —— B：执行一次：确认框取消→无 PUT 无 Toast ——
+  let runPut = 0
+  const reqH2 = (r) => {
+    if (r.method() === 'PUT' && r.url().includes('/monitor/job/run')) runPut++
+  }
+  page.on('request', reqH2)
+  await firstRow
+    .getByRole('button', { name: /执行一次|Run Once|Execute Once/i })
+    .first()
+    .click()
+  await sleep(600)
+  const box2 = page.locator('.el-message-box:visible').first()
+  const box2Visible = await box2.isVisible().catch(() => false)
+  const box2Text = box2Visible ? await box2.innerText().catch(() => '') : ''
+  record(65, '「执行一次」确认框出现且含任务名', box2Visible && box2Text.length > 6, `text=${box2Text.slice(0, 24)}`)
+  await box2
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /取\s*消|Cancel/i })
+    .first()
+    .click()
+  await sleep(600)
+  const t1 = await page.evaluate(() => ({
+    ok: document.querySelectorAll('.el-message--success').length,
+    err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+  }))
+  record(
+    65,
+    '取消执行一次：零 /run PUT 且 0 成功/0 错误 Toast',
+    runPut === 0 && t1.ok === 0 && t1.err === 0,
+    `put=${runPut}, ok=${t1.ok}, err=${t1.err}`
+  )
+  page.off('request', reqH2)
+
+  // —— C：任务名链接→详情弹窗（getJob 200 + 详情卡渲染 + 名称回显 + 关闭） ——
+  const linkText = (
+    await firstRow
+      .locator('.el-link')
+      .first()
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  let jobGetStatus = null
+  const respH = async (r) => {
+    const p = new URL(r.url()).pathname
+    if (r.request().method() === 'GET' && /\/monitor\/job\/\d+$/.test(p)) jobGetStatus = r.status()
+  }
+  page.on('response', respH)
+  await firstRow.locator('.el-link').first().click()
+  await sleep(1200)
+  page.off('response', respH)
+  const detailDlg = page
+    .locator('.el-dialog:visible')
+    .filter({ has: page.locator('.detail-card') })
+    .first()
+  const cards = await detailDlg
+    .locator('.detail-card')
+    .count()
+    .catch(() => 0)
+  record(
+    65,
+    '详情弹窗出现：getJob 200 + 详情卡≥3',
+    jobGetStatus === 200 && cards >= 3,
+    `status=${jobGetStatus}, cards=${cards}`
+  )
+  const dlgText = detailDlg.isVisible().catch(() => false) ? await detailDlg.innerText().catch(() => '') : ''
+  record(65, '详情回显任务名与链接一致', linkText.length > 0 && dlgText.includes(linkText), `name=${linkText}`)
+  await detailDlg
+    .locator('.dialog-footer button')
+    .filter({ hasText: /关\s*闭|Close/i })
+    .first()
+    .click()
+  await sleep(600)
+  const dlgClosed = !(await page
+    .locator('.el-dialog:visible')
+    .filter({ has: page.locator('.detail-card') })
+    .first()
+    .isVisible()
+    .catch(() => false))
+  const rowsAfter = await rows.count()
+  record(
+    65,
+    '关闭按钮收起详情且列表不受扰',
+    dlgClosed && rowsAfter === rowCount,
+    `closed=${dlgClosed}, rows=${rowsAfter}`
+  )
+
+  // —— D：行内调度日志跳转隐藏路由 ——
+  await firstRow
+    .getByRole('button', { name: /调度日志|Job Log|Schedule Log/i })
+    .first()
+    .click()
+  await sleep(1500)
+  const onLog = (await page.evaluate(() => location.pathname)).includes('/monitor/job-log/index/')
+  const is404 = await page.evaluate(() => !!document.querySelector('.wscn-http404-container'))
+  const logTable = await page
+    .locator('.el-table')
+    .first()
+    .isVisible({ timeout: 3000 })
+    .catch(() => false)
+  record(
+    65,
+    '调度日志跳 /monitor/job-log/index/:jobId 且非404渲染',
+    onLog && !is404 && logTable,
+    `path=${onLog}, 404=${is404}, table=${logTable}`
+  )
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await sleep(1200)
+  const backRows = await rows.count()
+  record(65, '返回定时任务列表正常', backRows > 0, `rows=${backRows}`)
+  const stEnd = await switchState()
+  record(65, '终态开关状态与初始一致（全程无残留变更）', stEnd === st0, `end=${stEnd}, init=${st0}`)
+  const tEnd = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
+  record(65, '全链 0 错误 Toast', tEnd === 0, `err=${tEnd}`)
+}
+
+/** 功能 66：代码生成预览弹窗（Prism/文件切换）+ 强制同步取消链（API 导入 sys_notice 并还原，轮9） */
+async function testFeature66(page) {
+  log('=== 功能 66：代码生成预览弹窗 + 同步数据库取消链 ===')
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const baseList = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageSize=50`, { headers: auth })
+    .then((r) => r.json())
+    .catch(() => null)
+  const baseTotal = baseList?.total ?? -1
+  const preExisting = (baseList?.rows || []).find((r) => r.tableName === 'sys_notice')?.tableId ?? null
+  if (preExisting != null) {
+    record(66, '准备：sys_notice 已在列表中（复用导入态，幂等）', true, `tableId=${preExisting}`)
+  } else {
+    const importResp = await fetch(
+      `${CONFIG.backendUrl}/tool/gen/importTable?tables=sys_notice&tplWebType=element-plus-typescript`,
+      { method: 'POST', headers: auth }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
+    record(
+      66,
+      '准备：API 导入 sys_notice 表',
+      importResp?.code === 200 || importResp?.code === 0,
+      `code=${importResp?.code}`
+    )
+  }
+  const listData = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageSize=50`, { headers: auth })
+    .then((r) => r.json())
+    .catch(() => null)
+  const tableId = (listData?.rows || []).find((r) => r.tableName === 'sys_notice')?.tableId ?? null
+  record(66, '准备：列表查到 tableId', tableId != null, `tableId=${tableId}`)
+  if (tableId == null) return
+  const cleanup = async () => {
+    await fetch(`${CONFIG.backendUrl}/tool/gen/${tableId}`, { method: 'DELETE', headers: auth }).catch(() => {})
+  }
+
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/tool/gen`, { waitUntil: 'networkidle' })
+    await sleep(1500)
+    await skipTour(page)
+    const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+    const rc = await rows.count()
+    record(66, '列表显示导入的表', rc > 0, `rows=${rc}`)
+    const firstRow = rows.first()
+
+    // —— 预览弹窗链 ——
+    let previewStatus = null
+    const respH = async (r) => {
+      if (new URL(r.url()).pathname.includes(`/tool/gen/preview/${tableId}`)) previewStatus = r.status()
+    }
+    page.on('response', respH)
+    await firstRow
+      .getByRole('button', { name: /预\s*览|Preview/i })
+      .first()
+      .click()
+    await sleep(1500)
+    page.off('response', respH)
+    const dlg = page.locator('.gen-preview-dialog:visible').first()
+    const dlgVisible = await dlg.isVisible().catch(() => false)
+    const codeLen = await dlg
+      .locator('.gen-preview-code code')
+      .first()
+      .evaluate((el) => el.innerHTML.length)
+      .catch(() => 0)
+    record(
+      66,
+      '预览弹窗打开：preview 200 + 默认首文件代码渲染非空',
+      dlgVisible && previewStatus === 200 && codeLen > 50,
+      `status=${previewStatus}, len=${codeLen}`
+    )
+    const tokens0 = await dlg.locator('.gen-preview-code .token').count()
+    // 语言标签是 select 的相邻兄弟 el-tag（首个 .el-tag 是 select 自身的 selection 项）
+    const langTag0 = (
+      await dlg
+        .locator('.gen-preview-select + .el-tag')
+        .first()
+        .innerText()
+        .catch(() => '')
+    ).trim()
+    record(
+      66,
+      '默认文件按 SQL 高亮（Prism token>0 且语言标签=sql）',
+      tokens0 > 0 && langTag0 === 'sql',
+      `tokens=${tokens0}, tag=${langTag0}`
+    )
+    await dlg.locator('.gen-preview-select .el-select__wrapper').first().click()
+    await sleep(500)
+    const opts = page.locator('.el-select-dropdown__item:visible')
+    const optCount = await opts.count()
+    record(66, '文件下拉列出 ≥8 个模板文件', optCount >= 8, `opts=${optCount}`)
+    await opts.nth(1).click() // 排序后第 2 个：src/api/system/sys_notice.ts
+    await sleep(800)
+    const langTag1 = (
+      await dlg
+        .locator('.gen-preview-select + .el-tag')
+        .first()
+        .innerText()
+        .catch(() => '')
+    ).trim()
+    const codeLen1 = await dlg
+      .locator('.gen-preview-code code')
+      .first()
+      .evaluate((el) => el.innerHTML.length)
+      .catch(() => 0)
+    const tokens1 = await dlg.locator('.gen-preview-code .token').count()
+    record(
+      66,
+      '切换文件：语言标签=typescript 且内容非空',
+      langTag1 === 'typescript' && codeLen1 > 50,
+      `tag=${langTag1}, len=${codeLen1}`
+    )
+    record(66, 'TS 文件同样获 Prism 高亮 token', tokens1 > 0, `tokens=${tokens1}`)
+    // Esc 依赖焦点在弹窗内不可靠，改点弹窗自身的关闭按钮
+    await dlg.locator('.el-dialog__headerbtn').first().click()
+    await sleep(600)
+    const dlgClosed = !(await page
+      .locator('.gen-preview-dialog:visible')
+      .first()
+      .isVisible()
+      .catch(() => false))
+    record(66, '关闭按钮收起预览弹窗', dlgClosed)
+
+    // —— 强制同步（取消路径）——
+    let syncPosted = 0
+    const reqH = (r) => {
+      if (r.method() === 'POST' && r.url().includes('/tool/gen/synchDb')) syncPosted++
+    }
+    page.on('request', reqH)
+    await firstRow
+      .getByRole('button', { name: /刷\s*新|Refresh/i })
+      .first()
+      .click()
+    await sleep(600)
+    const box = page.locator('.el-message-box:visible').first()
+    const boxVisible = await box.isVisible().catch(() => false)
+    const boxText = boxVisible ? await box.innerText().catch(() => '') : ''
+    record(
+      66,
+      '同步确认框出现且含表名',
+      boxVisible && boxText.includes('sys_notice'),
+      `open=${boxVisible}, text=${boxText.slice(0, 24)}`
+    )
+    await box
+      .locator('.el-message-box__btns button')
+      .filter({ hasText: /取\s*消|Cancel/i })
+      .first()
+      .click()
+    await sleep(600)
+    page.off('request', reqH)
+    const t = await page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+    record(
+      66,
+      '取消同步：零 synchDb POST 且 0 Toast',
+      syncPosted === 0 && t.ok === 0 && t.err === 0,
+      `post=${syncPosted}, ok=${t.ok}, err=${t.err}`
+    )
+  } finally {
+    await cleanup()
+    await sleep(500)
+    const after = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageSize=50`, { headers: auth })
+      .then((r) => r.json())
+      .catch(() => null)
+    record(
+      66,
+      '清理：删除后列表 total 还原为导入前基线',
+      (after?.total ?? -1) === baseTotal,
+      `before=${baseTotal}, after=${after?.total}`
+    )
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -12423,7 +12754,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（64 个功能）')
+  log('yebot 端到端主测试脚本（66 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -12541,7 +12872,9 @@ async function main() {
       { id: 61, fn: testFeature61 },
       { id: 62, fn: testFeature62 },
       { id: 63, fn: testFeature63 },
-      { id: 64, fn: testFeature64 }
+      { id: 64, fn: testFeature64 },
+      { id: 65, fn: testFeature65 },
+      { id: 66, fn: testFeature66 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿

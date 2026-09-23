@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（64 个功能 / 603 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（66 个功能 / 628 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -62,16 +62,19 @@ NODE_OPTIONS="" sh node_modules/.bin/vite preview --port 4173
 
 ```bash
 cd yebot-ui/tests/e2e && npm install
+# 权威环境 = embedded :8080（真后端+真数据+SW；见 memory 与 docs 轮2 定案）
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
-FRONTEND_URL=http://localhost:4173 \
+YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 64 个功能（约 20 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 66 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-64` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- 通过判据（已验证基线）：三段合计 `106 + 220 + 277 = 603 通过 603 失败 0`，日志无 `❌`。
-  （页面级循环轮8：功能 63 右工具栏搜索切换/刷新/列显隐持久化链 13 项、功能 64 字典+参数刷新缓存 DELETE 双链 9 项，581→603。
+  `1-20 / 21-40 / 41-66` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+- 通过判据（已验证基线）：三段合计 `106 + 220 + 302 = 628 通过 628 失败 0`，日志无 `❌`。
+  （页面级循环轮9：功能 65 定时任务行操作链 13 项、功能 66 代码生成预览+同步取消链 12 项，603→628；
+  并修复应用缺陷 `tool/gen/preview.vue` detectLanguage 只认 `.vm` 后缀致预览从无高亮。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
@@ -207,6 +210,29 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   仅此时 input 容器加 `invalid` 类）；`.el-message-box__errinput`/`.el-form-item__error` 都取不到文本，
   会让"弱口令被 inputValidator 拦截"的提示断言假失败。
 - 本轮 3 处 FAIL 全部为脚本预期/选择器问题（联动前提、字典文案、errormsg 类名），应用行为经源码核实均正确。
+
+### 3.7 轮8 新增选择器教训（右工具栏 / 显隐列下拉 / 缓存刷新按钮）
+
+- **RightToolbar 圆钮是 icon-only**：`getByRole('button', { name })` 按 aria-label 定位（隐藏搜索/显示搜索随状态翻转、
+  刷新、显隐列），文案匹配不可行；列下拉为 `.el-dropdown-menu:visible .el-checkbox`，nth(0)=「列展示」全选，
+  其后按 `columns` 对象**键序**对应数据列；显隐持久化写**裸 localStorage key**（如 `user-list-columns`，cache.local 无公共前缀）。
+- **工具栏「刷新」按文本匹配要先排除行内按钮**：行内 icon 钮无文本，`.el-button:visible` + `/^\s*(刷新|Refresh)\s*$/`
+  只命中带文本的工具栏钮；缓存刷新是 **DELETE**（dict/config 两页路径不同），Toast 计数在页间留 3.3s 等自污期结束才能断言"恰 1"。
+
+### 3.8 轮9 新增教训（定时任务链 / 代码生成预览 / 文案空格 / 失败污染）
+
+- **i18n 文案可能自带空格**：`common.close`='「关 闭」' 含间隔空格，`/关闭/` 匹配不到 → 30s 超时；
+  中文按钮正则一律写 `/关\s*闭/`（同 `取\s*消`）。
+- **同名类多实例**：预览弹窗里首个 `.el-tag` 是 el-select 的 selection 项（内容=占位符），语言标签须用邻接选择器
+  `.gen-preview-select + .el-tag`；对"页面上第二个同类元素"断言时 first() 是陷阱。
+- **Esc 关 el-dialog 依赖焦点在弹窗内**，实测不生效并让后续行内点击被 overlay 拦截 30s；
+  改点弹窗自身 `.el-dialog__headerbtn`（destroy-on-close 下确定可靠）。
+- **有数据准备的用例：准备幂等 + 清理放 finally**——先查已存在再导入（复用），UI 段整体 try/finally 删除，
+  否则一次中途失败留下残留表，喂给下一次运行的是假失败（本轮实测 tableId 2→3 漂移）。
+- **`.vm` 后缀假设是应用真缺陷**：本仓库代码生成器返回真实产物路径（`.sql/.ts/.rs/.vue`），
+  预览弹窗此前**从未有任何高亮**（E2E 首次触及即揭穿）；`detectLanguage` 已改扩展名映射并补 `prism-rust`。
+- **定时任务开关的取消链断言口径**：EP switch 点击即翻转模型（mid≠before），`handleStatusChange` 的
+  catch 才回滚——"取消无痕"必须断言 `after===before && mid!==before && PUT==0` 三件事。
 
 ## 4. source-check 防混淆约定（重要）
 
