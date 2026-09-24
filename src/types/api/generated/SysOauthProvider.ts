@@ -3,7 +3,11 @@
 /**
  * 注意：不 derive(Debug)，改用手动实现以脱敏 client_secret 字段
  */
-export type SysOauthProvider = { providerId: number, 
+export type SysOauthProvider = { 
+/**
+ * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
+ */
+tenantId: number, providerId: number, 
 /**
  * 提供商编码（github/gitee/wecom/oidc，唯一）
  */

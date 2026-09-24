@@ -3,7 +3,11 @@
 /**
  * 注意：不 derive(Debug)，改用手动实现以脱敏 access_token/refresh_token 字段
  */
-export type SysOauthUser = { oauthId: number, 
+export type SysOauthUser = { 
+/**
+ * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
+ */
+tenantId: number, oauthId: number, 
 /**
  * 绑定的本地用户 ID
  */

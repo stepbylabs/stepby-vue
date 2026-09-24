@@ -3,7 +3,11 @@
 /**
  * 角色视图对象（含已绑定菜单 ID 列表）
  */
-export type RoleVo = { menuIds: Array<number>, roleId: number, roleName: string, roleKey: string, roleSort: number, dataScope: string | null, 
+export type RoleVo = { menuIds: Array<number>, 
+/**
+ * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
+ */
+tenantId: number, roleId: number, roleName: string, roleKey: string, roleSort: number, dataScope: string | null, 
 /**
  * 自定义部门 SQL 过滤片段（data_scope="2" 时可选）。仅存原始字符串，
  * 运行时由 common::custom_scope 白名单解析为参数化条件，绝不拼接裸 SQL。

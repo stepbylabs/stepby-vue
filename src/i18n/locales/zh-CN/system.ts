@@ -13,6 +13,7 @@ export default {
     menu: '菜单管理',
     dept: '部门管理',
     post: '岗位管理',
+    tenant: '租户管理',
     dict: '字典管理',
     config: '参数设置',
     notice: '公告管理',
@@ -267,6 +268,21 @@ export default {
     nickName: '用户昵称',
     memberReadonly: '组成员由 SCIM IdP 侧管理，此处只读；如需移除成员请在 IdP 侧操作后同步',
     deleteConfirm: '确认删除组「{0}」？删除后该组的授权/兼职联动将被撤销，组数据软删除'
+  },
+  tenant: {
+    tenantId: '租户 ID',
+    tenantName: '租户名称',
+    leader: '负责人',
+    phone: '联系电话',
+    email: '邮箱',
+    userCount: '用户数',
+    modelTip: '租户模型：部门树根节点即租户（平台租户除外）；租户用户数据自动按租户隔离，停用租户后该租户用户无法登录',
+    addTitle: '新增租户',
+    editTitle: '修改租户',
+    nameRequired: '租户名称不能为空',
+    enableConfirm: '确认启用租户「{0}」？启用后该租户用户可正常登录',
+    disableConfirm: '确认停用租户「{0}」？停用后该租户用户将无法登录',
+    deleteConfirm: '确认删除租户「{0}」？需先移除该租户内全部用户；删除将软删整个租户部门子树'
   },
   role: {
     title: '角色管理',

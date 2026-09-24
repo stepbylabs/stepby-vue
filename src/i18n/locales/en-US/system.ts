@@ -13,6 +13,7 @@ export default {
     menu: 'Menus',
     dept: 'Departments',
     post: 'Positions',
+    tenant: 'Tenant Management',
     dict: 'Dictionaries',
     config: 'Config',
     notice: 'Announcements',
@@ -267,6 +268,21 @@ export default {
     nickName: 'Nickname',
     memberReadonly: 'Group members are managed on the SCIM IdP side and are read-only here; remove members on the IdP side to sync',
     deleteConfirm: 'Delete group "{0}"? Its role/department grants will be revoked and the group will be soft-deleted'
+  },
+  tenant: {
+    tenantId: 'Tenant ID',
+    tenantName: 'Tenant Name',
+    leader: 'Contact',
+    phone: 'Phone',
+    email: 'Email',
+    userCount: 'Users',
+    modelTip: 'Tenant model: top department tree root = tenant (platform root excluded); tenant users are data-isolated automatically, disabled tenants cannot log in',
+    addTitle: 'Add Tenant',
+    editTitle: 'Edit Tenant',
+    nameRequired: 'Tenant name is required',
+    enableConfirm: 'Enable tenant "{0}"? Its users will be able to log in again',
+    disableConfirm: 'Disable tenant "{0}"? Its users will be denied login',
+    deleteConfirm: 'Delete tenant "{0}"? All tenant users must be removed first; the whole tenant department subtree will be soft-deleted'
   },
   role: {
     title: 'Role Management',
