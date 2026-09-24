@@ -227,7 +227,7 @@
 </template>
 
 <script setup name="Flow" lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useDict } from '@/utils/dict'
@@ -432,6 +432,16 @@ function timelineType(action: string) {
   return 'primary'
 }
 
+// WS 订阅 handler（具名以便 onUnmounted 解绑，防内存泄漏与重复注册）
+const onFlowTodo = () => {
+  loadPendingCount()
+  if (activeTab.value === 'todo') loadTodo()
+}
+const onFlowFinished = () => {
+  if (activeTab.value === 'mine') loadMine()
+  if (activeTab.value === 'all') loadAll()
+}
+
 onMounted(async () => {
   await loadPendingCount()
   if (isManager.value) {
@@ -439,15 +449,9 @@ onMounted(async () => {
   }
   await loadTodo()
   // WS 加速器闭环：收到"新待办/已办结"推送即刷新当前 tab 与红点
-  // （红点以 pending_count 列表为准，WS 仅缩短感知延迟——方案 §3-8/§3-6）
-  wsService.on('flowTodo', () => {
-    pendingCount.value += 1
-    if (activeTab.value === 'todo') loadTodo()
-  })
-  wsService.on('flowFinished', () => {
-    if (activeTab.value === 'mine') loadMine()
-    if (activeTab.value === 'all') loadAll()
-  })
+  // （红点以 pending_count 列表为准，重新拉取保证准确——方案 §3-8/§3-6）
+  wsService.on('flowTodo', onFlowTodo)
+  wsService.on('flowFinished', onFlowFinished)
 })
 </script>
 
