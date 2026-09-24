@@ -13169,6 +13169,282 @@ async function testFeature68(page) {
   record(68, '全链 0 错误 Toast', errEnd === 0, `err=${errEnd}`)
 }
 
+// ==================== 功能 69：多租户管理 + 跨租户隔离 ====================
+
+async function testFeature69(page) {
+  log('=== 功能 69：多租户管理 + 跨租户隔离（租户 CRUD / 停用登录校验 / 数据隔离）===')
+
+  // ---------- 步骤 1：admin 登录 ----------
+  let adminToken = null
+  try {
+    const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: CONFIG.username, password: CONFIG.password, code: '', uuid: '' })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    adminToken = loginResp?.token
+  } catch (err) {
+    log(`  admin 登录异常: ${err.message.slice(0, 80)}`)
+  }
+  if (!adminToken) {
+    record(69, 'admin 登录获取 token', false, '登录失败')
+    for (let i = 0; i < 12; i++) record(69, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
+    return
+  }
+  record(69, 'admin 登录获取 token', true, 'token 获取成功')
+
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
+  const authHeaders = { Authorization: `Bearer ${adminToken}` }
+  const uniq = Date.now()
+  const tenantAName = `租户A${uniq}`
+  const tenantBName = `租户B${uniq}`
+
+  // ---------- 步骤 2：创建两个租户（根部门回填 tid=自身 dept_id） ----------
+  let deptIdA = null
+  let deptIdB = null
+  for (const [name, key] of [[tenantAName, 'A'], [tenantBName, 'B']]) {
+    let added = false
+    let listed = false
+    try {
+      const addResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ tenantName: name, leader: `负责人${key}`, orderNum: 99, status: '0' })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      added = addResp?.code === 200
+      const listResp = await fetch(`${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(name)}`, {
+        headers: authHeaders
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const found = listResp?.data?.find((t) => t.tenantName === name)
+      if (key === 'A') deptIdA = found?.deptId || null
+      else deptIdB = found?.deptId || null
+      listed = !!found
+    } catch (err) {
+      log(`  租户 ${key} 创建/查询异常: ${err.message.slice(0, 80)}`)
+    }
+    record(69, `租户 ${key} 新增`, added, 'POST /system/tenant')
+    record(69, `租户 ${key} 列表可见`, listed, `deptId=${key === 'A' ? deptIdA : deptIdB}`)
+  }
+
+  if (!deptIdA || !deptIdB) {
+    record(69, '后续隔离用例', false, `租户创建失败 deptIdA=${deptIdA} deptIdB=${deptIdB}`)
+    return
+  }
+
+  // ---------- 步骤 3：租户 A 详情 + 编辑 ----------
+  try {
+    const infoResp = await fetch(`${CONFIG.backendUrl}/system/tenant/${deptIdA}`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    record(69, '租户 A 详情查询', infoResp?.code === 200 && infoResp?.data?.tenantName === tenantAName, `deptId=${deptIdA}`)
+  } catch (err) {
+    record(69, '租户 A 详情查询', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+  try {
+    const editResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ deptId: deptIdA, tenantName: `租户A改${uniq}`, leader: '负责人A改' })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    record(69, '租户 A 编辑', editResp?.code === 200, 'PUT /system/tenant')
+  } catch (err) {
+    record(69, '租户 A 编辑', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+
+  // ---------- 步骤 4：在租户 B 根部门下建用户（common 角色 role_id=2） ----------
+  const uBName = `tu${uniq}`
+  const uBPassword = 'Tenant@2026x'
+  let uBUserId = null
+  try {
+    const addResp = await fetch(`${CONFIG.backendUrl}/system/user`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        userName: uBName,
+        nickName: '租户B用户',
+        password: uBPassword,
+        deptId: deptIdB,
+        roleIds: [2],
+        postIds: [],
+        status: '0'
+      })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    const addOk = addResp?.code === 200
+    const listResp = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uBName)}`, {
+      headers: authHeaders
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    const found = listResp?.rows?.find((u) => u.userName === uBName)
+    uBUserId = found?.userId || null
+    const tenantIdOk = found?.tenantId === deptIdB
+    record(69, '租户 B 用户创建', addOk && !!uBUserId, `userId=${uBUserId}`)
+    record(69, '用户归属 tenant_id=租户B 根', tenantIdOk, `tenantId=${found?.tenantId}, 期望=${deptIdB}`)
+  } catch (err) {
+    record(69, '租户 B 用户创建', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+  if (!uBUserId) {
+    record(69, '后续登录/隔离用例', false, '租户用户创建失败')
+    // 闭环清理：已建的租户要删掉，避免污染
+    for (const id of [deptIdB, deptIdA]) {
+      await fetch(`${CONFIG.backendUrl}/system/tenant/${id}`, { method: 'DELETE', headers: authHeaders }).catch(() => null)
+    }
+    return
+  }
+
+  // ---------- 步骤 5：租户用户登录 ----------
+  let uBToken = null
+  try {
+    const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    uBToken = loginResp?.token
+  } catch (err) {
+    log(`  租户用户登录异常: ${err.message.slice(0, 80)}`)
+  }
+  record(69, '租户用户登录', !!uBToken, `user=${uBName}`)
+
+  // ---------- 步骤 6：跨租户数据隔离 ----------
+  const uBHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${uBToken}` }
+  if (uBToken) {
+    // 6.1 用户列表：不得出现平台用户（admin tid=0），仅本租户
+    try {
+      const resp = await fetch(`${CONFIG.backendUrl}/system/user/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+        .then((r) => r.json())
+        .catch(() => null)
+      const rows = resp?.rows || []
+      const leakAdmin = rows.some((u) => u.userName === 'admin')
+      record(69, '隔离：用户列表不见平台用户', resp?.code === 200 && !leakAdmin, `rows=${rows.length}, leakAdmin=${leakAdmin}`)
+    } catch (err) {
+      record(69, '隔离：用户列表不见平台用户', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+    // 6.2 部门树：不含平台根/他租数据（common 角色 data_scope=仅本人时 rows 可为空，
+    //     属既有数据权限语义；关键断言是零跨租户泄漏）
+    try {
+      const resp = await fetch(`${CONFIG.backendUrl}/system/dept/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+        .then((r) => r.json())
+        .catch(() => null)
+      const rows = resp?.data || []
+      const leak = rows.some((d) => d.deptId === 100 || (d.tenantId != null && d.tenantId !== deptIdB))
+      record(69, '隔离：部门树不含平台外数据', resp?.code === 200 && !leak, `rows=${rows.length}（仅本人 data_scope 时可为空）`)
+    } catch (err) {
+      record(69, '隔离：部门树不含平台外数据', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+    // 6.3 租户列表：仅本租户（3700 只读权限已授 common，归属过滤防跨租户窥探）
+    try {
+      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+        .then((r) => r.json())
+        .catch(() => null)
+      const rows = resp?.data || []
+      const onlyOwn = rows.length >= 1 && rows.every((t) => t.deptId === deptIdB)
+      record(69, '隔离：租户列表仅本租户', resp?.code === 200 && onlyOwn, `rows=${rows.length}`)
+    } catch (err) {
+      record(69, '隔离：租户列表仅本租户', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+    // 6.4 越权防护：租户用户改他租（A）应被拒（无 3703 权限 + service 归属校验双保险）
+    try {
+      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant/changeStatus`, {
+        method: 'PUT',
+        headers: uBHeaders,
+        body: JSON.stringify({ deptId: deptIdA, status: '1' })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      record(69, '越权：租户用户改他租被拒', resp?.code !== 200, `code=${resp?.code}`)
+    } catch (err) {
+      record(69, '越权：租户用户改他租被拒', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+  } else {
+    for (const n of ['隔离：用户列表不见平台用户', '隔离：部门树不含平台外数据', '隔离：租户列表仅本租户', '越权：租户用户改他租被拒']) {
+      record(69, n, false, '租户用户登录失败，无法执行')
+    }
+  }
+
+  // ---------- 步骤 7：租户停用 → 登录被拒 → 恢复 → 登录成功 ----------
+  try {
+    const disableResp = await fetch(`${CONFIG.backendUrl}/system/tenant/changeStatus`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ deptId: deptIdB, status: '1' })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    let deniedOk = false
+    if (disableResp?.code === 200) {
+      const denied = await fetch(`${CONFIG.backendUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      deniedOk = denied?.code !== 200
+    }
+    record(69, '停用后租户用户登录被拒', deniedOk, '对外统一 login_failed')
+  } catch (err) {
+    record(69, '停用后租户用户登录被拒', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+  try {
+    const restoreResp = await fetch(`${CONFIG.backendUrl}/system/tenant/changeStatus`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ deptId: deptIdB, status: '0' })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    let reloginOk = false
+    if (restoreResp?.code === 200) {
+      const relogin = await fetch(`${CONFIG.backendUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      reloginOk = relogin?.code === 200 && !!relogin?.token
+    }
+    record(69, '恢复后租户用户登录成功', reloginOk, 'POST /login')
+  } catch (err) {
+    record(69, '恢复后租户用户登录成功', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+
+  // ---------- 步骤 8：闭环清理（先删用户后删租户，再删租户 A） ----------
+  try {
+    let userDelOk = false
+    let tenantBDelOk = false
+    let tenantADelOk = false
+    const userDel = await fetch(`${CONFIG.backendUrl}/system/user/${uBUserId}`, { method: 'DELETE', headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    userDelOk = userDel?.code === 200
+    const tenantBDel = await fetch(`${CONFIG.backendUrl}/system/tenant/${deptIdB}`, { method: 'DELETE', headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    tenantBDelOk = tenantBDel?.code === 200
+    const tenantADel = await fetch(`${CONFIG.backendUrl}/system/tenant/${deptIdA}`, { method: 'DELETE', headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    tenantADelOk = tenantADel?.code === 200
+    record(69, '清理：用户与租户删除', userDelOk && tenantBDelOk && tenantADelOk, `user=${userDelOk}, B=${tenantBDelOk}, A=${tenantADelOk}`)
+  } catch (err) {
+    record(69, '清理：用户与租户删除', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -13193,7 +13469,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（68 个功能）')
+  log('yebot 端到端主测试脚本（69 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -13315,7 +13591,8 @@ async function main() {
       { id: 65, fn: testFeature65 },
       { id: 66, fn: testFeature66 },
       { id: 67, fn: testFeature67 },
-      { id: 68, fn: testFeature68 }
+      { id: 68, fn: testFeature68 },
+      { id: 69, fn: testFeature69 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
