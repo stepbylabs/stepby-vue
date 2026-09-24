@@ -66,6 +66,11 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
+import {
+  capturePageCaptcha,
+  fillCaptchaOnPage,
+  fetchCaptchaForApi
+} from './e2e/run/auth.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
 const __filename = fileURLToPath(import.meta.url)
@@ -97,7 +102,8 @@ const CONFIG = {
   secondaryPassword: process.env.YEBOT_TEST_PASS_SECONDARY || TEST_PASS,
   screenshotDir: path.resolve('screenshots'),
   slowMo: 100,
-  headless: false,
+  // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
+  headless: true,
   featureFilter: null // null = 全部，Set<number> = 仅测试集合内功能（--feature=N 或 --feature=A-B,C）
 }
 
@@ -201,10 +207,12 @@ async function apiLogin(extraHeaders = {}, username = CONFIG.username, password 
   const maxRetries = 3
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      // 验证码开启时先取码再登录（API 自取 uuid 自用，同一次请求天然同源）
+      const { code, uuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
       const resp = await fetch(`${CONFIG.backendUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...extraHeaders },
-        body: JSON.stringify({ username, password, code: '', uuid: '' })
+        body: JSON.stringify({ username, password, code, uuid })
       })
       const text = await resp.text()
       let data = null
@@ -244,7 +252,11 @@ async function apiLogin(extraHeaders = {}, username = CONFIG.username, password 
  */
 async function login(page, username = CONFIG.username, password = CONFIG.password) {
   log(`=== 登录流程（用户: ${username}）===`)
-  await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle' })
+  // 验证码响应捕获必须在 goto 前注册（与页面显示的验证码图同 uuid 同源）
+  const captchaPromise = capturePageCaptcha(page)
+  await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle' }).catch(() => {
+    log('  ⚠️ networkidle 等待超时（可能有长连接），降级继续登录流程')
+  })
   await sleep(1500)
 
   // 关闭 Cookie 同意横幅（若存在）
@@ -253,6 +265,12 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
     await cookieBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(300)
     log('  已关闭 Cookie 同意横幅')
+  }
+
+  // 验证码真码（后端启用时经 yebot-redis 读取页面同源明文；读不到 fail-fast）
+  const captcha = await captchaPromise
+  if (captcha === null) {
+    log('  ⚠️ 页面未发出 /captchaImage 请求（后端未启用验证码），跳过填码')
   }
 
   // 等待用户名输入框可见（最多 10 秒），确保 SPA 完成渲染
@@ -270,12 +288,8 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await passInput.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   await passInput.fill(password)
 
-  // 验证码（若存在输入框，填任意值；后端已关闭校验）
-  const codeInput = page.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-  if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
-    await codeInput.fill('1234')
-    log('  已填充验证码（后端关闭校验，填任意值）')
-  }
+  // 验证码真码填入（不填假码；后端未启用时跳过）
+  await fillCaptchaOnPage(page, captcha)
 
   // 点击登录按钮（按钮文本含"登 录"/"登录"/"Login"）
   const loginBtn = page
@@ -1371,10 +1385,9 @@ async function testFeature14(page) {
   }
   await sleep(2000)
 
-  // ry（common 角色）在种子中被授予全部页面菜单与 :add 按钮权限，但**未授予** :remove
-  // （见 m20250711_000001_init 的 sys_role_menu 种子 + m20260721_000003 等新增菜单：
-  //  common 有 system:user:add 却无 system:user:remove / role:remove / rateLimit:remove）。
-  // 因此真实的按钮级权限隔离体现为：新增按钮可见（有 add），删除按钮被 v-hasPermi 移除（无 remove）。
+  // ry（common 角色）在 deep-e2e M9 前置中被声明式收紧为"全部页面 + 只读按钮"（无任何写权限，
+  // 见 deep-e2e.mjs ensureGenTableImported 旁的 M9 前置与专题文档 §8.2 安全发现）。
+  // 因此真实的按钮级权限隔离体现为：新增与删除按钮均被 v-hasPermi 移除（无 add 无 remove）。
   // helper：返回页面上"新增/Add""删除/Delete"按钮的可见状态（v-hasPermi 无权限时移除 DOM 节点）
   const visibleBtnState = () =>
     page
@@ -1390,37 +1403,37 @@ async function testFeature14(page) {
       })
       .catch(() => ({ add: false, del: false }))
 
-  // 步骤 1：用户管理页面（ry 有 system:user:add，无 system:user:remove）
+  // 步骤 1：用户管理页面（ry 无 system:user:add / system:user:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_user_page')
   const userBtns = await visibleBtnState()
-  const userIsolated = userBtns.add && !userBtns.del
+  const userIsolated = !userBtns.add && !userBtns.del
   record(
     14,
     '用户管理页面权限隔离',
     userIsolated,
-    `新增可见=${userBtns.add}, 删除隐藏=${!userBtns.del}（ry 有 add 无 remove）`
+    `新增可见=${userBtns.add}, 删除可见=${userBtns.del}（ry 只读：均应隐藏）`
   )
 
-  // 步骤 2：角色管理页面（ry 有 system:role:add，无 system:role:remove）
+  // 步骤 2：角色管理页面（ry 无 system:role:add / system:role:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_role_page')
   const roleBtns = await visibleBtnState()
-  const roleIsolated = roleBtns.add && !roleBtns.del
-  record(14, '角色管理页面权限隔离', roleIsolated, `新增可见=${roleBtns.add}, 删除隐藏=${!roleBtns.del}`)
+  const roleIsolated = !roleBtns.add && !roleBtns.del
+  record(14, '角色管理页面权限隔离', roleIsolated, `新增可见=${roleBtns.add}, 删除可见=${roleBtns.del}（均应隐藏）`)
 
-  // 步骤 3：限流配置页面（ry 有 system:rateLimit:add，无 system:rateLimit:remove）
+  // 步骤 3：限流配置页面（ry 无 system:rateLimit:add / system:rateLimit:remove）
   await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_ry_ratelimit_page')
   const rateLimitBtns = await visibleBtnState()
-  const rateLimitIsolated = rateLimitBtns.add && !rateLimitBtns.del
-  record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除隐藏=${!rateLimitBtns.del}`)
+  const rateLimitIsolated = !rateLimitBtns.add && !rateLimitBtns.del
+  record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除可见=${rateLimitBtns.del}（均应隐藏）`)
 
   // 步骤 4：访问审计大屏（ry 用户可能无权限）
   await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
@@ -1443,7 +1456,8 @@ async function testFeature14(page) {
 async function testFeature15(page) {
   log('=== 功能 15：注册功能测试 ===')
 
-  // 步骤 1：访问注册页面
+  // 步骤 1：访问注册页面（验证码捕获须在 goto 前注册，与页面显示图同源）
+  const captchaPromise = capturePageCaptcha(page)
   await page.goto(`${CONFIG.frontendUrl}/register`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
@@ -1495,11 +1509,9 @@ async function testFeature15(page) {
         .fill('Test@12345')
         .catch(() => {})
     }
-    // 验证码（若存在）
-    const codeInput = page.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-    if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
-      await codeInput.fill('1234')
-    }
+    // 验证码（后端启用时填页面同源真码；未启用跳过）
+    const registerCaptcha = await captchaPromise
+    await fillCaptchaOnPage(page, registerCaptcha)
 
     await screenshot(page, 'feat15_register_filled')
 
@@ -10141,19 +10153,25 @@ async function testFeature51(page) {
     }
   }
 
-  // ---- 0. 发现文档：确认 SSO 已启用 ----
+  // ---- 0. 发现文档：标准 OIDC 端点齐全 ----
+  // 后端已按安全决策移除非标准字段 sso_enabled（不再向匿名调用者暴露内部开关状态，
+  // 见 sso_service.rs 发现文档构造注释）；本断言改为校验标准端点 + PKCE S256 支持。
   let issuer = B
   try {
     const disc = await fetch(`${B}/.well-known/openid-configuration`).then((r) => r.json())
     issuer = disc.issuer || B
     record(
       51,
-      'OIDC 发现文档 sso_enabled=true',
-      disc.sso_enabled === true && !!disc.token_endpoint && disc.code_challenge_methods_supported?.includes('S256'),
+      'OIDC 发现文档标准端点齐全（authorization/token/userinfo/end_session + PKCE S256）',
+      !!disc.authorization_endpoint &&
+        !!disc.token_endpoint &&
+        !!disc.userinfo_endpoint &&
+        !!disc.end_session_endpoint &&
+        disc.code_challenge_methods_supported?.includes('S256'),
       `issuer=${issuer}, alg=${disc.id_token_signing_alg_values_supported?.join(',')}`
     )
   } catch (err) {
-    record(51, 'OIDC 发现文档 sso_enabled=true', false, `异常: ${err.message.slice(0, 80)}`)
+    record(51, 'OIDC 发现文档标准端点齐全（authorization/token/userinfo/end_session + PKCE S256）', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
   // ---- 1. 新增客户端（应用私有面，Bearer + camelCase） ----
@@ -10364,6 +10382,8 @@ async function testFeature51(page) {
     const BROWSER3 = page.context().browser()
     const ctx3 = await BROWSER3.newContext() // 全新上下文：无 Admin-Token、无既有 SW 控制
     const p3 = await ctx3.newPage()
+    // 验证码捕获须在 goto 前注册（与登录页显示图同源）
+    const captchaPromise3 = capturePageCaptcha(p3)
     await p3.goto(authorizeUrl, { waitUntil: 'networkidle' })
     const landedLogin = p3.url().includes('/login')
     const redirectKept = p3.url().includes('redirect=') && decodeURIComponent(p3.url()).includes('/sso/authorize')
@@ -10378,10 +10398,7 @@ async function testFeature51(page) {
       .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
       .first()
     await passInput.fill(CONFIG.password)
-    const codeInput = p3.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-    if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
-      await codeInput.fill('1234') // 后端测试环境关闭验证码校验
-    }
+    await fillCaptchaOnPage(p3, await captchaPromise3)
     const loginBtn = p3
       .locator(
         'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"], .el-button--primary'
@@ -10422,6 +10439,8 @@ async function testFeature51(page) {
     const BROWSER4 = page.context().browser()
     const ctx4 = await BROWSER4.newContext() // 无登录态、无 SW 控制
     const p4 = await ctx4.newPage()
+    // 验证码捕获须在 goto 前注册（与登录页显示图同源）
+    const captchaPromise4 = capturePageCaptcha(p4)
     await p4.goto(`${B}${deepLink}`, { waitUntil: 'networkidle' })
     const onLogin4 = p4.url().includes('/login')
     // redirect 查询解码一次必须等于完整深链（含 & 分隔的三个参数）
@@ -10436,10 +10455,7 @@ async function testFeature51(page) {
       .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
       .first()
       .fill(CONFIG.password)
-    const codeInput4 = p4.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-    if (await codeInput4.isVisible({ timeout: 500 }).catch(() => false)) {
-      await codeInput4.fill('1234')
-    }
+    await fillCaptchaOnPage(p4, await captchaPromise4)
     await p4
       .locator(
         'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"], .el-button--primary'
@@ -10684,26 +10700,51 @@ async function testFeature51(page) {
     record(51, 'PKCE：错误 code_verifier 被拒', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
+  // ---- 13. 管理页真实浏览器渲染（表格 + 工具栏） ----
+  // 注意：必须先于 13b end_session 执行——管理页列表 API 依赖当前登录态，
+  // end_session 拉黑主 JWT 后列表 401 → 表格永远渲染不出来（假阴性）。
+  try {
+    // 先注册列表响应等待再导航：表格由 /system/oauth/client/list 数据驱动渲染，
+    // 固定 sleep(1000) 在懒加载慢时会读到空表格（假阴性）
+    const listResp = page
+      .waitForResponse((r) => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 })
+      .catch(() => null)
+    await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'networkidle' })
+    await listResp
+    await sleep(800)
+    await skipTour(page)
+    const not404 = !(await is404Page(page))
+    const hasTable = (await page.locator('.el-table').count()) > 0
+    record(51, 'SSO 客户端管理页正常渲染', not404 && hasTable, `非404=${not404}, 表格=${hasTable}`)
+  } catch (err) {
+    record(51, 'SSO 客户端管理页正常渲染', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
   // ---- 13a. grants 自助授权管理：列表可见 → 撤销 → AT 级联失效（v5-S4 补段） ----
   let freshAuth = null // end_session 会拉黑当前登录 JWT，清理需备用会话
   try {
     // 备用会话：API 登录一枚新 JWT（end_session 用例会拉黑当前登录态，清理用它）
+    // 注意：/login 响应 token 在顶层（与 apiLogin 解析一致）；旧代码误读 lg.data.token
+    // 恒为空 → 清理段退回被拉黑的旧 auth → 401。
     const lg = await fetch(`${B}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'admin', password: 'admin123' })
     }).then((r) => r.json())
-    if (lg?.data?.token) freshAuth = { Authorization: `Bearer ${lg.data.token}` }
+    const freshToken = lg?.token || lg?.data?.token
+    if (freshToken) freshAuth = { Authorization: `Bearer ${freshToken}` }
     if (!accessToken || !created) throw new Error('前置失败：无 access_token/客户端')
     const list = await fetch(`${B}/system/user/profile/sso-grants`, { headers: auth }).then((r) =>
       r.json()
     )
     const grant = (list?.data || []).find((g) => g.clientId === created.clientId)
+    // grant 已按 clientId 精确命中；断言 clientName 非空展示名 + consentedAt 快照为字符串
+    // （旧断言 grant.clientName === created.clientId 恒假：clientName 是展示名，永远不会等于随机 clientId）
     record(
       51,
       'grants 列表含刚授权的客户端（含 consentedAt 快照）',
-      !!grant && grant.clientName === created.clientId && typeof grant.consentedAt === 'string',
-      `rows=${(list?.data || []).length}, hit=${!!grant}`
+      !!grant && typeof grant.clientName === 'string' && grant.clientName.length > 0 && typeof grant.consentedAt === 'string',
+      `rows=${(list?.data || []).length}, hit=${!!grant}, clientName=${grant?.clientName}`
     )
     const rv = await fetch(
       `${B}/system/user/profile/sso-grants/${encodeURIComponent(created.clientId)}`,
@@ -10759,18 +10800,6 @@ async function testFeature51(page) {
     record(51, 'RP-initiated end_session 链（回跳/吊销/fail-closed）', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  // ---- 13. 管理页真实浏览器渲染（表格 + 工具栏） ----
-  try {
-    await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'networkidle' })
-    await sleep(1000)
-    await skipTour(page)
-    const not404 = !(await is404Page(page))
-    const hasTable = (await page.locator('.el-table').count()) > 0
-    record(51, 'SSO 客户端管理页正常渲染', not404 && hasTable, `非404=${not404}, 表格=${hasTable}`)
-  } catch (err) {
-    record(51, 'SSO 客户端管理页正常渲染', false, `异常: ${err.message.slice(0, 80)}`)
-  }
-
   // ---- 14. 清理：删除测试客户端（无论前面成败都执行；end_session 可能已拉黑
   //      当前登录 JWT → 优先用 13a 备用的 freshAuth） ----
   try {
@@ -10796,6 +10825,25 @@ async function testFeature51(page) {
     )
   } catch (err) {
     record(51, '清理：删除测试客户端且详情不再可见', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---- 15. 会话恢复：13b end_session 已把主 page 的 JWT（Admin-Token cookie）列入
+  //      服务端黑名单，若不重登，后续功能（52 起）全部在登录页连锁失败（rows=0/tabs=0/
+  //      按钮 click 超时的共同根因）。
+  //      必须先 clearCookies 再登录：带着被拉黑的 JWT goto /login 会被 router 守卫
+  //      重定向 /index → getInfo 401 登出循环，登录表单 30s 不出现（fill 超时）；
+  //      清掉失效 cookie 后守卫无 token 直接渲染登录表单。
+  try {
+    // 与 logout() 助手同款清理语义：storage（前端 pinia token 副本）+ cookie（Admin-Token）
+    await page.evaluate(() => {
+      localStorage.clear()
+      sessionStorage.clear()
+    })
+    await page.context().clearCookies()
+    const ok = await login(page)
+    log(`  51 会话恢复（end_session 拉黑后重新登录）: ${ok ? '成功' : '失败'}`)
+  } catch (err) {
+    log(`  ⚠️ 51 会话恢复异常: ${err.message.slice(0, 80)}`)
   }
 }
 
@@ -11481,7 +11529,21 @@ async function testFeature56(page) {
     .catch(() => null)
   await sleep(600)
   const ap = Number(await activePage())
-  record(56, `超大页号钳制到末页(≤${pageCount})`, ap > 0 && ap === pageCount, `active=${ap}, pageCount=${pageCount}`)
+  // 异步 operlog 落库竞态：读 total（快照）与跳页之间若有写操作日志落库，后端真值
+  // 会比快照多 0-N 页；钳制基准是"当前真值"而非快照 → 断言用钳制后重读的 total 重算
+  const totalTxt2 = await pager
+    .locator('.el-pagination__total')
+    .first()
+    .innerText()
+    .catch(() => '')
+  const total2 = Number((totalTxt2.match(/\d+/) || ['0'])[0])
+  const pageCount2 = Math.ceil(total2 / 10)
+  record(
+    56,
+    `超大页号钳制到末页(≤${pageCount2})`,
+    ap > 0 && ap === pageCount2,
+    `active=${ap}, pageCount=${pageCount2}(快照=${pageCount})`
+  )
   await jump.fill('0')
   await jump.press('Enter')
   await page
@@ -12821,7 +12883,8 @@ async function testFeature67(page) {
 
   let profileGetStatus = null
   const respGet = (r) => {
-    if (new URL(r.url()).pathname === '/system/user/profile' && r.request().method() === 'GET')
+    // preview 代理下 pathname 带 /prod-api 前缀，精确相等会永远失配（status=null 假阴性）
+    if (new URL(r.url()).pathname.endsWith('/system/user/profile') && r.request().method() === 'GET')
       profileGetStatus = r.status()
   }
   page.on('response', respGet)
@@ -12845,10 +12908,11 @@ async function testFeature67(page) {
   let profilePut = 0
   let lastPutStatus = null
   const reqPut = (r) => {
-    if (r.method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile') profilePut++
+    // endsWith 兼容 /prod-api 代理前缀（同 respGet 注释）
+    if (r.method() === 'PUT' && new URL(r.url()).pathname.endsWith('/system/user/profile')) profilePut++
   }
   const respPut = (r) => {
-    if (r.request().method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile')
+    if (r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/system/user/profile'))
       lastPutStatus = r.status()
   }
   page.on('request', reqPut)
@@ -12911,7 +12975,8 @@ async function testFeature67(page) {
   // —— 改密 Tab：仅校验前端拦截，绝不真实改密（改密会使 token 失效强制登出） ——
   let pwdPut = 0
   const reqPwd = (r) => {
-    if (r.method() === 'PUT' && new URL(r.url()).pathname === '/system/user/profile/updatePwd') pwdPut++
+    // endsWith 兼容 /prod-api 代理前缀；/profile/updatePwd 不会误匹配 /profile（endsWith 锚定结尾）
+    if (r.method() === 'PUT' && new URL(r.url()).pathname.endsWith('/system/user/profile/updatePwd')) pwdPut++
   }
   page.on('request', reqPwd)
   await page
@@ -12974,7 +13039,8 @@ async function testFeature68(page) {
   // —— 执行一次（真实确认执行） ——
   let runStatus = null
   const respRun = (r) => {
-    if (r.request().method() === 'PUT' && new URL(r.url()).pathname === '/monitor/job/run') runStatus = r.status()
+    // endsWith 兼容 /prod-api 代理前缀（精确相等在 preview 下永远失配 → status=null 假阴性）
+    if (r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/monitor/job/run')) runStatus = r.status()
   }
   page.on('response', respRun)
   await targetRow
@@ -13110,6 +13176,7 @@ async function main() {
   const args = process.argv.slice(2)
   for (const arg of args) {
     if (arg === '--headless') CONFIG.headless = true
+    if (arg === '--headed') CONFIG.headless = false // 显式有头（人工观察浏览器）
     // --feature=N 单功能；--feature=1-20,51 集合（逗号分段+连字符区间），供前台分批跑长套件
     if (arg.startsWith('--feature=')) {
       const spec = arg.split('=')[1]
