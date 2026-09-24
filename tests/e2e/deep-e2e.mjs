@@ -29,6 +29,12 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { runMain } from './e2e/run/runner.mjs'
+import {
+  readCaptchaCodeFromRedis,
+  capturePageCaptcha,
+  fillCaptchaOnPage,
+  fetchCaptchaForApi
+} from './e2e/run/auth.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -243,6 +249,9 @@ async function createPage(browser) {
             u.includes('/redirect/index')
         )
         if (allHarmless) return
+        // 无法豁免：附加 404 URL 明细，便于快速定位未纳入白名单的资源
+        consoleErrors.push(`${text} — 404 URLs: ${Array.from(notFoundUrls).slice(0, 3).join(' | ')}`)
+        return
       }
       // 过滤 M32 边界测试中前端代码主动打印的 404 错误日志（代码生成器加载不存在的表）
       if (text.includes('加载表详细信息失败') && text.includes('404')) return
@@ -279,50 +288,30 @@ async function createPage(browser) {
 /**
  * 检查页面是否有控制台错误
  */
-function checkConsoleErrors(consoleErrors, pageErrors, moduleName) {
-  const hasErrors = consoleErrors.length > 0 || pageErrors.length > 0
+function checkConsoleErrors(consoleErrors, pageErrors, moduleName, ignorePatterns = []) {
+  const ignored = (msg) => ignorePatterns.some((p) => p instanceof RegExp && p.test(msg))
+  const consoleFiltered = consoleErrors.filter((m) => !ignored(m))
+  const pageFiltered = pageErrors.filter((m) => !ignored(m))
+  const totalRaw = consoleErrors.length + pageErrors.length
+  const hasErrors = consoleFiltered.length > 0 || pageFiltered.length > 0
   if (hasErrors) {
-    const allErrors = [...consoleErrors, ...pageErrors]
-    record(moduleName, '无控制台错误', false, `${allErrors.length} 个错误: ${allErrors[0]?.slice(0, 100) || ''}`)
+    const allErrors = [...consoleFiltered, ...pageFiltered]
+    record(moduleName, '无控制台错误', false, `${allErrors.length} 个错误: ${allErrors[0]?.slice(0, 400) || ''}`)
   } else {
-    record(moduleName, '无控制台错误', true, '0 个错误')
+    record(
+      moduleName,
+      '无控制台错误',
+      true,
+      totalRaw > 0 ? `0 个错误（豁免 ${totalRaw} 条负向测试预期错误）` : '0 个错误'
+    )
   }
   return !hasErrors
 }
 
 // ==================== 登录流程 ====================
 
-const { execSync } = require('child_process')
-
-/**
- * 经 yebot-redis 容器读取指定 uuid 的验证码明文（后端写入键 captcha:{uuid}:{ip}，TTL 300s）。
- * 按 pattern 扫描键名（ip 段格式无关）。读不到抛错（fail-fast），绝不填假码。
- */
-async function readCaptchaCodeFromRedis(uuid) {
-  const pattern = `captcha:${uuid}:*`
-  try {
-    // Windows 下 execSync 走 cmd：必须用双引号（单引号是字面字符，会导致 pattern 带引号匹配失败）
-    await sleep(300) // 键写入兜底等待
-    const key = execSync(
-      `docker exec yebot-redis redis-cli --raw --scan --pattern "${pattern}"`,
-      { encoding: 'utf-8', timeout: 10000 }
-    )
-      .trim()
-      .split('\n')[0]
-    if (!key) throw new Error('redis 无匹配键（可能已过期或 ip 段异常）')
-    const code = execSync(
-      `docker exec yebot-redis redis-cli --raw GET "${key}"`,
-      { encoding: 'utf-8', timeout: 10000 }
-    ).trim()
-    if (!code) throw new Error(`redis 键 ${key} 值为空`)
-    return code
-  } catch (e) {
-    throw new Error(
-      `验证码已启用且无法经 yebot-redis 读取真码（${String(e.message).slice(0, 100)}）。` +
-        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，或确保 yebot-redis 容器在运行`
-    )
-  }
-}
+// 验证码读码/填码工具已抽取至 ./e2e/run/auth.mjs（与 main.mjs 共享单一真源）：
+//   readCaptchaCodeFromRedis / capturePageCaptcha / fillCaptchaOnPage / fetchCaptchaForApi
 
 /**
  * 启动预检：探测验证码开关与 redis 链路可达性（不产出登录用码——
@@ -340,31 +329,12 @@ async function resolveCaptcha() {
   return { enabled: true, code }
 }
 
-/**
- * 从登录页自身发出的 /captchaImage 响应解析 uuid 并读取真码（与页面显示的图同源）。
- * 入参为 login() 中 goto 前注册的 waitForResponse promise。
- */
-async function resolveCaptchaFromPage(captchaPromise) {
-  const resp = await captchaPromise
-  if (!resp) throw new Error('登录页未发出 /captchaImage 请求（前端未启用验证码或页面异常）')
-  const data = await resp.json()
-  if (!data.captchaEnabled) return { enabled: false, code: '' }
-  const uuid = data.uuid
-  if (!uuid) throw new Error('页面 captchaImage 响应未含 uuid')
-  const code = await readCaptchaCodeFromRedis(uuid)
-  return { enabled: true, code }
-}
-
 async function login(page, username = CONFIG.username, password = CONFIG.password) {
   log(`=== 登录（用户: ${username}）===`)
 
   // 0. 先注册验证码响应监听（必须在 goto 前建好，捕获页面自己渲染的那次请求——
   //    与页面显示的验证码图同 uuid 同源，才能读到正确的明文）
-  const captchaPromise = page
-    .waitForResponse((r) => r.url().includes('/captchaImage') && r.status() === 200, {
-      timeout: 30000
-    })
-    .catch(() => null)
+  const captchaPromise = capturePageCaptcha(page)
 
   // 1. 打开登录页（networkidle 超时降级：前端存在 WS 长连接时可能永不空闲）
   try {
@@ -378,7 +348,10 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await sleep(1000)
 
   // 2. 从页面自身的 captchaImage 响应读取真码（开启但读不到 → 抛错终止，不空转）
-  const captcha = await resolveCaptchaFromPage(captchaPromise)
+  const captcha = await captchaPromise
+  if (captcha === null) {
+    throw new Error('登录页未发出 /captchaImage 请求（前端未启用验证码或页面异常）')
+  }
 
   // 关闭 Cookie 同意横幅
   const cookieBtn = page.locator('button:has-text("同意")').first()
@@ -400,16 +373,7 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await passInput.fill(password)
 
   // 验证码：仅在后端启用且取得页面同源真码时填写（不填假码）
-  if (captcha.enabled) {
-    const codeInput = page
-      .locator('input[placeholder="验证码"], input[placeholder="Captcha"]')
-      .first()
-    const codeVisible = await codeInput.isVisible({ timeout: 3000 }).catch(() => false)
-    if (!codeVisible) {
-      throw new Error('后端已启用验证码但登录页未渲染验证码输入框，页面与后端配置不一致')
-    }
-    await codeInput.fill(captcha.code)
-  }
+  await fillCaptchaOnPage(page, captcha)
 
   const loginBtn = page
     .locator('button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]')
@@ -773,16 +737,7 @@ async function checkSearchForm(page, expectedFields, moduleName, pageName) {
 async function getApiToken(username = CONFIG.username, password = CONFIG.password) {
   try {
     // 验证码开启时先取码再登录（API 自取 uuid 自用，同一次请求天然同源）
-    let code = ''
-    let uuid = ''
-    const capResp = await fetch(`${CONFIG.backendUrl}/captchaImage`, {
-      signal: AbortSignal.timeout(10000)
-    })
-    const cap = await capResp.json()
-    if (cap.captchaEnabled && cap.uuid) {
-      code = await readCaptchaCodeFromRedis(cap.uuid)
-      uuid = cap.uuid
-    }
+    const { code, uuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
     const resp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -794,6 +749,45 @@ async function getApiToken(username = CONFIG.username, password = CONFIG.passwor
     log(`  ⚠️ API 登录失败: ${err.message.slice(0, 80)}`)
     return null
   }
+}
+
+/**
+ * 确保代码生成列表至少有一张已导入表（e2e 空库自包含）。
+ * gen 列表为空时真实执行"从数据库导入表"流程（db/list → importTable），
+ * 保证 导入→列表→编辑 链路可跑通；导入成功后返回有效 tableId，否则 null。
+ * 幂等：列表非空时直接返回，不重复导入。
+ */
+async function ensureGenTableImported(token) {
+  if (!token) return null
+  const readFirstTableId = async () => {
+    const resp = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageNum=1&pageSize=1`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (resp.status !== 200) return null
+    const data = await resp.json()
+    return data.rows?.[0]?.tableId || null
+  }
+  const existing = await readFirstTableId()
+  if (existing) return existing
+  try {
+    const dbResp = await fetch(`${CONFIG.backendUrl}/tool/gen/db/list?pageNum=1&pageSize=20`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (dbResp.status === 200) {
+      const dbData = await dbResp.json()
+      const candidate = dbData.rows?.[0]?.tableName
+      if (candidate) {
+        const impResp = await fetch(
+          `${CONFIG.backendUrl}/tool/gen/importTable?tables=${encodeURIComponent(candidate)}`,
+          { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+        )
+        log(`  [gen] 导入表 ${candidate}: HTTP ${impResp.status}`)
+      }
+    }
+  } catch (e) {
+    log(`  [gen] 导入表流程异常: ${e.message}`)
+  }
+  return readFirstTableId()
 }
 
 // ==================== 模块 1: 系统管理页面深度测试 ====================
@@ -1317,7 +1311,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
         if (confirmVisible) {
           // 点击确认按钮
           await page
-            .locator('.el-message-box__btns button:has-text("确定"), .el-message-box__btns button:has-text("OK")')
+            .locator('.el-message-box__btns button:has-text("确 定"), .el-message-box__btns button:has-text("确定"), .el-message-box__btns button:has-text("OK")')
             .first()
             .click({ timeout: 3000 })
             .catch(() => {})
@@ -1372,6 +1366,10 @@ async function testModule1(page, consoleErrors, pageErrors) {
       record(M, '通知中心: 全部已读-按钮不可见', false, '全部已读按钮未渲染')
     }
 
+    // 防御：兜底关闭可能残留的确认框（Esc），避免遮罩挡住后续详情交互
+    await page.keyboard.press('Escape').catch(() => {})
+    await sleep(300)
+
     // 详情对话框：点击行内"详细"按钮打开详情对话框（按钮文本是"详细"而非"详情"）
     // 先尝试点击行内"详细"按钮，若无则尝试行点击
     const ncDetailBtn = page
@@ -1401,8 +1399,8 @@ async function testModule1(page, consoleErrors, pageErrors) {
     }
   }
 
-  // 1.10 备份管理（路由在 /tool/backup，使用 SkeletonTable，需等待加载完成）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/backup`, { moduleName: M, waitMs: 2500 })) {
+  // 1.10 备份管理（菜单挂在系统监控目录下，前端注册路径为 /monitor/backup，使用 SkeletonTable，需等待加载完成）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/backup`, { moduleName: M, waitMs: 2500 })) {
     record(M, '备份管理页面加载', true)
     await checkTableColumns(page, ['文件名', '文件大小', '备份类型', '状态', '创建时间', '操作'], M, '备份管理')
     const hasCreate = await isButtonVisible(page, ['创建备份'])
@@ -1429,8 +1427,8 @@ async function testModule1(page, consoleErrors, pageErrors) {
     )
   }
 
-  // 1.11 任务进度（路由在 /tool/task，使用 EmptyState，表格可能为空但表头应存在）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/task`, { moduleName: M, waitMs: 2500 })) {
+  // 1.11 任务进度（菜单挂在系统监控目录下，前端注册路径为 /monitor/task，使用 EmptyState，表格可能为空但表头应存在）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/task`, { moduleName: M, waitMs: 2500 })) {
     record(M, '任务进度页面加载', true)
     // 表格可能为空，但表头应渲染
     const hasTable = await page
@@ -1462,8 +1460,8 @@ async function testModule1(page, consoleErrors, pageErrors) {
     }
   }
 
-  // 1.12 限流配置（路由在 /system/rateLimit，使用 SkeletonTable，需等待加载完成）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/rateLimit`, { moduleName: M, waitMs: 2500 })) {
+  // 1.12 限流配置（菜单挂在系统监控目录下，前端注册路径为 /monitor/rateLimit，使用 SkeletonTable，需等待加载完成）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/rateLimit`, { moduleName: M, waitMs: 2500 })) {
     record(M, '限流配置页面加载', true)
     await checkTableColumns(page, ['路由前缀', '桶容量', '启用状态', '创建时间', '操作'], M, '限流配置')
     const hasAdd = await isButtonVisible(page, ['新增'])
@@ -1663,8 +1661,8 @@ async function testModule2(page, consoleErrors, pageErrors) {
     record(M, '登录日志: 用户名称列排序', hasLoginSortable)
   }
 
-  // 2.3 操作日志
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/operlog`, { moduleName: M })) {
+  // 2.3 操作日志（菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M })) {
     record(M, '操作日志页面加载', true)
     await checkTableColumns(
       page,
@@ -2082,6 +2080,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
   }
 
   // 3.2 代码生成器（之前未覆盖）
+  // 空库自包含：gen 列表为空时先真实导入一张表，否则行内按钮断言必失败
+  try {
+    await ensureGenTableImported(await getApiToken())
+  } catch {}
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen`, { moduleName: M })) {
     record(M, '代码生成器页面加载', true)
     await checkTableColumns(page, ['表名称', '表描述', '实体', '创建时间', '更新时间', '操作'], M, '代码生成器')
@@ -2366,7 +2368,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 帮助中心页面深度测试 ===`)
 
   // 4.1 关于系统
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/help-center/about`, { moduleName: M })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/about`, { moduleName: M })) {
     record(M, '关于系统页面加载', true)
     const hasContent = await page
       .locator('.app-container, .el-card')
@@ -2421,7 +2423,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
   }
 
   // 4.2 更新日志
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/help-center/changelog`, { moduleName: M })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/changelog`, { moduleName: M })) {
     record(M, '更新日志页面加载', true)
     const hasTimeline = await page
       .locator('.el-timeline, .el-card')
@@ -2453,7 +2455,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
   }
 
   // 4.3 快捷键中心
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/help-center/shortcuts`, { moduleName: M })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/shortcuts`, { moduleName: M })) {
     record(M, '快捷键中心页面加载', true)
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
@@ -2485,7 +2487,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
   }
 
   // 4.4 帮助中心
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/help-center/help`, { moduleName: M })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/help`, { moduleName: M })) {
     record(M, '帮助中心页面加载', true)
     const hasContent = await page
       .locator('.app-container, .el-card, .el-collapse')
@@ -2533,7 +2535,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: Dashboard 和工作台深度测试 ===`)
 
   // 5.1 数据看板
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard/index`, { moduleName: M, waitMs: 2000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard`, { moduleName: M, waitMs: 2000 })) {
     record(M, '数据看板页面加载', true)
     // 验证统计卡片
     const hasStatCard = await page
@@ -2594,7 +2596,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
       await viewAllBtn.click().catch(() => {})
       await sleep(2000)
       const afterUrl = page.url()
-      const correctRoute = afterUrl.includes('/monitor/operlog')
+      const correctRoute = afterUrl.includes('/system/log/operlog')
       record(M, '数据看板: 查看全部跳转 operlog', correctRoute, `跳转到: ${afterUrl.replace(CONFIG.frontendUrl, '')}`)
     } else {
       record(M, '数据看板: 查看全部按钮可见', false, '按钮不可见')
@@ -2602,7 +2604,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
   }
 
   // 5.2 个人工作台
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard/workbench`, { moduleName: M })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/workbench`, { moduleName: M })) {
     record(M, '个人工作台页面加载', true)
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
@@ -2880,19 +2882,9 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
   const M = 7
   log(`\n=== 模块 ${M}: 带参数路由页面测试 ===`)
 
-  // 7.1 代码生成编辑页（需要有效的 tableId）
+  // 7.1 代码生成编辑页（需要有效的 tableId；空库时 ensureGenTableImported 真实导入一张）
   try {
-    // 先通过 API 获取一个有效的 tableId
-    let tableId = null
-    if (token) {
-      const resp = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageNum=1&pageSize=1`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (resp.status === 200) {
-        const data = await resp.json()
-        tableId = data.rows?.[0]?.tableId
-      }
-    }
+    const tableId = await ensureGenTableImported(token)
     if (tableId) {
       if (
         await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen-edit/index/${tableId}`, { moduleName: M, waitMs: 2000 })
@@ -3196,6 +3188,47 @@ async function testModule9(page, consoleErrors, pageErrors) {
     .clearCookies()
     .catch(() => {})
 
+  // 9.0 测试前置：通过角色管理 API 将 common(role_id=2) 收紧为"仅页面可见"（剔除全部 F 按钮权限）
+  // 背景：初始迁移（m20250711_000001_init.rs）把全部菜单关联给普通角色（含全站写权限），
+  // 与"普通角色只读"的隔离测试预期不符（详见专题文档安全发现登记）。
+  // 此处真实调用角色重分配 API（幂等），把 ry 恢复为纯只读后，再验证前端/后端隔离机制本身。
+  try {
+    const adminToken = await getApiToken()
+    if (adminToken) {
+      const h = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' }
+      const menuResp = await fetch(`${CONFIG.backendUrl}/system/menu/list`, { headers: h })
+      if (menuResp.status === 200) {
+        const menus = (await menuResp.json()).data || []
+        // 声明式目标状态：common 角色 = 全部目录(M)/页面(C) + F 按钮中的只读权限（:list/:query/:view/:center）。
+        // 不基于 roleMenuTreeselect 的 checkedKeys 过滤——若库已被旧策略污染（写权限已收、只读也丢），
+        // checkedKeys 无法还原目标集合；直接按菜单清单生成目标 menuIds 幂等重分配。
+        // 页面内子资源 API 依赖 :query，若连只读按钮权限一并剔除，页面会 403 加载不出数据。
+        const readOnlyPerms = /:(list|query|view|center)$/
+        const newIds = menus
+          .filter((m) => m.menuType !== 'F' || readOnlyPerms.test(m.perms || ''))
+          .map((m) => m.menuId)
+        const putResp = await fetch(`${CONFIG.backendUrl}/system/role`, {
+          method: 'PUT',
+          headers: h,
+          body: JSON.stringify({ roleId: 2, menuIds: newIds })
+        })
+        const putBody = await putResp.json().catch(() => ({}))
+        record(
+          M,
+          '测试前置: ry 权限收紧为只读',
+          putResp.status === 200 && putBody.code === 200,
+          `HTTP ${putResp.status} code=${putBody.code}, 目标 ${newIds.length} 项（全部页面+只读按钮）`
+        )
+      } else {
+        record(M, '测试前置: ry 权限收紧为只读', false, `menu=${menuResp.status}`)
+      }
+    } else {
+      record(M, '测试前置: ry 权限收紧为只读', false, 'admin token 获取失败')
+    }
+  } catch (e) {
+    record(M, '测试前置: ry 权限收紧为只读', false, `异常: ${e.message.slice(0, 80)}`)
+  }
+
   // 登录 ry 用户
   const loginSuccess = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
   if (!loginSuccess) {
@@ -3250,7 +3283,8 @@ async function testModule9(page, consoleErrors, pageErrors) {
       const token = (document.cookie.match(/(?:^|;\s*)Admin-Token=([^;]+)/) || [])[1] || ''
       // 嵌入式模式：同源访问根路径；开发模式：通过 /dev-api 代理
       // 优先尝试根路径（嵌入式），若 404 则回退到 /dev-api（开发模式）
-      const basePaths = ['', '/dev-api']
+      // 优先尝试 /prod-api（preview/嵌入式前端约定的 API 前缀），若 404 则回退到根路径与 /dev-api
+      const basePaths = ['/prod-api', '', '/dev-api']
       for (const base of basePaths) {
         try {
           const r = await fetch(`${base}/system/user`, {
@@ -3285,7 +3319,8 @@ async function testModule9(page, consoleErrors, pageErrors) {
     try {
       const auditResp = await page.evaluate(async () => {
         const token = (document.cookie.match(/(?:^|;\s*)Admin-Token=([^;]+)/) || [])[1] || ''
-        const basePaths = ['', '/dev-api']
+        // 与写操作探针一致：/prod-api（preview/嵌入式）优先
+        const basePaths = ['/prod-api', '', '/dev-api']
         for (const base of basePaths) {
           try {
             // 查询最近 5 条操作日志，筛选 error_msg 包含 "permission denied" 或 "权限拒绝"
@@ -3383,7 +3418,7 @@ async function testModule10(page, consoleErrors, pageErrors) {
     '/system/config',
     '/monitor/online',
     '/monitor/logininfor',
-    '/monitor/operlog'
+    '/system/log/operlog'
   ]
   let chineseResidueCount = 0
   for (const p of pagesToScan) {
@@ -4140,7 +4175,7 @@ async function testModule16(page, consoleErrors, pageErrors) {
     }
   }
 
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/operlog`, { moduleName: M, waitMs: 2000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2000 })) {
     const searchInput = page.locator('.query-form input, .el-form--inline input').first()
     const searchVisible = await searchInput.isVisible({ timeout: 3000 }).catch(() => false)
     if (searchVisible) {
@@ -4266,7 +4301,7 @@ async function testModule17(page, consoleErrors, pageErrors) {
     }
   }
 
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/help-center/about`, { moduleName: M, waitMs: 2000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/about`, { moduleName: M, waitMs: 2000 })) {
     const tabs = page.locator('.el-tabs__item')
     const tabCount = await tabs.count()
     if (tabCount >= 2) {
@@ -5328,7 +5363,7 @@ async function testModule24(page, consoleErrors, pageErrors) {
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确认")')
+        .locator('.el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确认")')
         .first()
       if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
         const cancelBtn = page.locator('.el-message-box:visible button:has-text("取消")').first()
@@ -6124,7 +6159,7 @@ async function testModule27(page, consoleErrors, pageErrors) {
       if (dialogOpened) {
         // 直接点确定（空表单）
         const submitBtn = page
-          .locator('.el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("提交")')
+          .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("提交")')
           .first()
         if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
           await submitBtn.click({ timeout: 3000 }).catch(() => {})
@@ -6255,7 +6290,7 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
   }
 
   // 28.5 操作日志：验证最近操作记录存在
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/operlog`, { moduleName: M, waitMs: 2000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2000 })) {
     const operRows = await page.locator('.el-table__row').count()
     record(M, '操作日志: 列表加载', operRows > 0, `${operRows} 条操作记录`)
     // 验证最近的操作包含登录/查询等操作
@@ -6333,9 +6368,10 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     }
   })
 
-  // 29.2 ry 用户登录
+  // 29.2 ry 用户登录（验证码捕获须在 goto 前注册，与页面显示图同源）
   let ryLoggedIn = false
   try {
+    const ryCaptchaPromise = capturePageCaptcha(ryPage)
     await ryPage.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
     await ryPage.waitForSelector('input', { timeout: 20000 }).catch(() => {})
     await sleep(1000)
@@ -6355,10 +6391,8 @@ async function testModule29(browser, consoleErrors, pageErrors) {
       .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
       .first()
     await passInput.fill(CONFIG.secondaryPassword)
-    const codeInput = ryPage.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-    if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
-      await codeInput.fill('1234')
-    }
+    // 后端启用验证码时填页面同源真码（未启用跳过）
+    await fillCaptchaOnPage(ryPage, await ryCaptchaPromise)
     const loginBtn = ryPage.locator('button:has-text("登 录"), button:has-text("登录"), button[type="submit"]').first()
     await loginBtn.click()
     await ryPage.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
@@ -6458,7 +6492,12 @@ async function testModule29(browser, consoleErrors, pageErrors) {
   record(M, '越权访问: URL 直接访问', true, 'ry 用户访问 /tool/gen 已在 29.4 中验证')
 
   if (ryConsoleErrors.length > 0) {
-    record(M, 'ry 用户: 无控制台错误', false, `${ryConsoleErrors.length} 个错误`)
+    record(
+      M,
+      'ry 用户: 无控制台错误',
+      false,
+      `${ryConsoleErrors.length} 个错误: ${ryConsoleErrors.slice(0, 2).join(' || ').slice(0, 300)}`
+    )
   } else {
     record(M, 'ry 用户: 无控制台错误', true)
   }
@@ -6473,8 +6512,8 @@ async function testModule30(page, consoleErrors, pageErrors) {
   // 所有需要扫描的页面列表
   const allPages = [
     { url: '/index', name: '首页' },
-    { url: '/dashboard/workbench', name: '工作台首页' },
-    { url: '/dashboard/index', name: '数据看板' },
+    { url: '/workbench', name: '工作台首页' },
+    { url: '/dashboard', name: '数据看板' },
     { url: '/system/user', name: '用户管理' },
     { url: '/system/role', name: '角色管理' },
     { url: '/system/menu', name: '菜单管理' },
@@ -6485,12 +6524,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
     { url: '/system/notice', name: '公告管理' },
     { url: '/system/notice-center', name: '我的通知' },
     { url: '/system/file', name: '文件管理' },
-    { url: '/tool/backup', name: '备份管理' },
-    { url: '/tool/task', name: '任务管理' },
-    { url: '/system/rateLimit', name: '限流配置' },
+    { url: '/monitor/backup', name: '备份管理' },
+    { url: '/monitor/task', name: '任务管理' },
+    { url: '/monitor/rateLimit', name: '限流配置' },
     { url: '/monitor/online', name: '在线用户' },
     { url: '/monitor/logininfor', name: '登录日志' },
-    { url: '/monitor/operlog', name: '操作日志' },
+    { url: '/system/log/operlog', name: '操作日志' },
     { url: '/monitor/job', name: '定时任务' },
     { url: '/monitor/cache', name: '缓存监控' },
     { url: '/monitor/health', name: '服务器监控' },
@@ -6499,10 +6538,10 @@ async function testModule30(page, consoleErrors, pageErrors) {
     { url: '/tool/build', name: '表单构建' },
     { url: '/tool/gen', name: '代码生成' },
     { url: '/tool/swagger', name: 'API 文档' },
-    { url: '/help-center/about', name: '关于' },
-    { url: '/help-center/changelog', name: '更新日志' },
-    { url: '/help-center/shortcuts', name: '快捷键' },
-    { url: '/help-center/help', name: '使用帮助' },
+    { url: '/tool/about', name: '关于' },
+    { url: '/tool/changelog', name: '更新日志' },
+    { url: '/tool/shortcuts', name: '快捷键' },
+    { url: '/tool/help', name: '使用帮助' },
     { url: '/user/profile', name: '个人中心' }
   ]
 
@@ -6792,9 +6831,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
       await sleep(1500)
       // 验证：上传应失败（业务 code != 0 或 HTTP 状态 >= 400）
       const uploadRejected = uploadStatus >= 400 || bizCode !== 0
-      // 验证：错误提示出现
+      // 验证：错误提示出现（HTTP 400 走 errorHub warning 级提示 API-005，error/warning 类 toast 均算有效反馈）
       const errorMsg = await page
-        .locator('.el-message--error:visible')
+        .locator('.el-message--error:visible, .el-message--warning:visible')
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
@@ -6889,7 +6928,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
       // 等待下载或确认对话框（某些页面可能有确认）
       await sleep(1500)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确定")')
+        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")')
         .first()
       if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
         await confirmBtn.click({ timeout: 3000 }).catch(() => {})
@@ -6926,7 +6965,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确定")')
+        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")')
         .first()
       if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null)
@@ -6975,8 +7014,8 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
     }
   }
 
-  // 31.7 备份管理：创建备份（路由在 /tool/backup）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/backup`, { moduleName: M, waitMs: 2500 })) {
+  // 31.7 备份管理：创建备份（菜单挂在系统监控目录下，前端注册路径为 /monitor/backup）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/backup`, { moduleName: M, waitMs: 2500 })) {
     const createBtn = page.locator('button:has-text("创建"), button:has-text("新建"), button:has-text("备份")').first()
     if (await createBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
       await createBtn.click({ timeout: 3000 }).catch(() => {})
@@ -7032,7 +7071,8 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
     }
   }
 
-  checkConsoleErrors(consoleErrors, pageErrors, M)
+  // magic bytes 负向测试的上传 400 是预期产物，豁免该条 console 资源错误
+  checkConsoleErrors(consoleErrors, pageErrors, M, [/\b400\s*\(Bad Request\)/i])
 }
 
 // ==================== 模块 32: 错误处理与边界场景测试 ====================
@@ -7968,7 +8008,7 @@ async function testModule38(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 数据可视化测试 ===`)
 
   // 38.1 Dashboard 图表渲染
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard/index`, { moduleName: M, waitMs: 3000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard`, { moduleName: M, waitMs: 3000 })) {
     await dismissTour(page)
     // ECharts 图表使用 canvas 或 [_echarts_instance_] 属性
     const chartCount = await page.locator('canvas, [_echarts_instance_], .echarts').count()
@@ -7995,7 +8035,7 @@ async function testModule38(page, consoleErrors, pageErrors) {
   }
 
   // 38.2 图表 tooltip 交互
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard/index`, { moduleName: M, waitMs: 3000 })) {
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard`, { moduleName: M, waitMs: 3000 })) {
     await dismissTour(page)
     const canvas = page.locator('canvas').first()
     if (await canvas.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -8827,8 +8867,8 @@ async function testModule44(page, consoleErrors, pageErrors) {
   const M = 44
   log(`\n=== 模块 ${M}: 备份管理测试 ===`)
 
-  // 备份页面路由：/tool/backup
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/backup`, { moduleName: M, waitMs: 2500, allowFail: true })) {
+  // 备份页面路由：菜单挂在系统监控目录下，前端注册路径为 /monitor/backup
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/backup`, { moduleName: M, waitMs: 2500, allowFail: true })) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
       .first()
@@ -9168,7 +9208,7 @@ async function testModule48(page, consoleErrors, pageErrors) {
 
   // 限流规则页面
   if (
-    await safeGoto(page, `${CONFIG.frontendUrl}/system/rateLimit`, { moduleName: M, waitMs: 2500, allowFail: true })
+    await safeGoto(page, `${CONFIG.frontendUrl}/monitor/rateLimit`, { moduleName: M, waitMs: 2500, allowFail: true })
   ) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
@@ -9369,7 +9409,7 @@ async function testModule51(page, consoleErrors, pageErrors) {
       // 重新加载/立即更新/配置按钮受 v-hasPermi=['monitor:iplocation:edit'] 控制
       // 使用 waitFor 等待权限加载完成
       const reloadBtn = page
-        .locator('.app-container button:has-text("重新加载"), .app-container button:has-text("Reload")')
+        .locator('.app-container button:has-text("热加载"), .app-container button:has-text("重新加载"), .app-container button:has-text("Reload")')
         .first()
       await reloadBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
       const reloadVisible = await reloadBtn.isVisible().catch(() => false)
@@ -9641,8 +9681,8 @@ async function testModule53(page, consoleErrors, pageErrors) {
   const M = 53
   log(`\n=== 模块 ${M}: 任务进度管理测试 ===`)
 
-  // 任务进度页面（路由为 /tool/task，菜单 parent_id=2 系统监控目录，component=system/task/index）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/task`, { moduleName: M, waitMs: 2500 })) {
+  // 任务进度页面（菜单 parent_id=2 系统监控目录，component=system/task/index，前端注册路径为 /monitor/task）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/task`, { moduleName: M, waitMs: 2500 })) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
@@ -11651,10 +11691,10 @@ async function testModule66(page, consoleErrors, pageErrors) {
       record(M, '已读用户: 通知列表加载', rowCount > 0, `行数: ${rowCount}`)
 
       if (rowCount > 0) {
-        // 查找"已读用户"按钮（通常在操作列，图标按钮）
+        // 查找"阅读用户"按钮（i18n notice.btn.readUsers='阅读用户'；历史文案"已读用户"兼容保留）
         const readUsersBtn = page
           .locator(
-            '.el-table__row button:has-text("已读"), .el-table__row button[title*="已读"], .el-table__row .el-button:has(.el-icon-view), .el-table__row button:has-text("Read")'
+            '.el-table__row button:has-text("阅读"), .el-table__row button:has-text("已读"), .el-table__row button[title*="阅读"], .el-table__row button[title*="已读"], .el-table__row button:has-text("Read")'
           )
           .first()
         const btnVisible = await readUsersBtn.isVisible({ timeout: 2000 }).catch(() => false)
@@ -11663,7 +11703,7 @@ async function testModule66(page, consoleErrors, pageErrors) {
         if (btnVisible) {
           await clickButton(
             page,
-            '.el-table__row button:has-text("已读"), .el-table__row button[title*="已读"], .el-table__row .el-button:has(.el-icon-view), .el-table__row button:has-text("Read")'
+            '.el-table__row button:has-text("阅读"), .el-table__row button:has-text("已读"), .el-table__row button[title*="阅读"], .el-table__row button[title*="已读"], .el-table__row button:has-text("Read")'
           )
           await sleep(1500)
 
@@ -11842,7 +11882,8 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         record(M, '登录页: 空表单校验', false, '无登录按钮')
       }
 
-      // 67.8 错误密码登录提示
+      // 67.8 错误密码登录提示（失败路径测试：验证码框可见时填占位值——
+      // 断言语义是"出现错误提示且停留登录页"，任意码值均触发失败，不影响被测语义）
       if (userVisible && passVisible && loginBtnVisible) {
         await userInput.fill('admin').catch(() => {})
         await passInput.fill('wrongpassword123').catch(() => {})
@@ -12333,8 +12374,8 @@ async function testModule71(page, consoleErrors, pageErrors) {
   const M = 71
   log(`\n=== 模块 ${M}: 操作日志/任务详情对话框测试 ===`)
 
-  // 71.1 操作日志详情对话框（路由为 /monitor/operlog）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/operlog`, { moduleName: M, waitMs: 2500, allowFail: true })) {
+  // 71.1 操作日志详情对话框（菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2500, allowFail: true })) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
@@ -12616,6 +12657,10 @@ async function testModule73(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 代码生成器表单测试 ===`)
 
   // 73.1 代码生成列表页
+  // 空库自包含：gen 列表为空时先真实导入一张表，否则编辑按钮/编辑页断言必失败
+  try {
+    await ensureGenTableImported(await getApiToken())
+  } catch {}
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen`, { moduleName: M, waitMs: 3000 })) {
     const hasContainer = await page
       .locator('.app-container')
@@ -12948,7 +12993,7 @@ async function testModule75(page, consoleErrors, pageErrors) {
   const M = 75
   log(`\n=== 模块 ${M}: 数据导出功能验证测试 ===`)
 
-  // 测试目标页面列表（操作日志路由为 /monitor/operlog）
+  // 测试目标页面列表（操作日志菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog）
   const exportPages = [
     { url: '/system/user', name: '用户管理', optional: false },
     { url: '/system/role', name: '角色管理', optional: false },
@@ -12956,7 +13001,7 @@ async function testModule75(page, consoleErrors, pageErrors) {
     { url: '/system/dict', name: '字典管理', optional: false },
     { url: '/system/config', name: '参数管理', optional: false },
     { url: '/system/notice', name: '通知管理', optional: true },
-    { url: '/monitor/operlog', name: '操作日志', optional: false },
+    { url: '/system/log/operlog', name: '操作日志', optional: false },
     { url: '/monitor/logininfor', name: '登录日志', optional: false }
   ]
 

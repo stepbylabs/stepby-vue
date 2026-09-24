@@ -9,6 +9,9 @@ yarn-error.log*
 tests/**/coverage/
 /coverage/
 tests/e2e/reports
+
+# e2e 运行产物（失败截图 + JSON 报告），不入库
+/screenshots/
 selenium-debug.log
 
 # Editor directories and files

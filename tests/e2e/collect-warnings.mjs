@@ -16,6 +16,7 @@
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
+import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4173'
 const USER = process.env.YEBOT_TEST_USER || 'admin'
@@ -275,6 +276,8 @@ async function dismissTour(page) {
 const results = []
 
 async function login(page) {
+  // 验证码捕获须在 goto 前注册（与页面显示图同源；后端未启用时跳过填码）
+  const captchaPromise = capturePageCaptcha(page)
   await page.goto(`${FRONTEND_URL}/login`, { waitUntil: 'networkidle' }).catch(() => {})
   await sleep(1500)
   const cb = page.locator('button:has-text("同意")').first()
@@ -288,8 +291,7 @@ async function login(page) {
   const p = page.locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]').first()
   await p.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   await p.fill(PASS)
-  const code = page.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-  if (await code.isVisible({ timeout: 500 }).catch(() => false)) await code.fill('1234')
+  await fillCaptchaOnPage(page, await captchaPromise)
   const btn = page
     .locator('button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]')
     .first()

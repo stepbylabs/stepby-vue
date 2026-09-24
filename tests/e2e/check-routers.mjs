@@ -69,13 +69,20 @@ async function main() {
 
   // 检查关键路径
   const critical = [
-    '/monitor/operlog',
+    '/system/log/operlog',
     '/monitor/logininfor',
     '/monitor/online',
     '/monitor/audit-dashboard',
     '/monitor/cache',
     '/monitor/health',
     '/monitor/ip-location',
+    '/monitor/backup',
+    '/monitor/task',
+    '/monitor/rateLimit',
+    '/tool/about',
+    '/tool/changelog',
+    '/tool/shortcuts',
+    '/tool/help',
     '/system/user',
     '/system/role',
     '/system/menu',
@@ -84,10 +91,8 @@ async function main() {
     '/system/config',
     '/system/notice',
     '/system/notice-center',
-    '/system/rateLimit',
-    '/tool/backup',
-    '/tool/task',
-    '/dashboard/index'
+    '/dashboard',
+    '/workbench'
   ]
   console.log(`\n========== 关键路径检查 ==========`)
   for (const p of critical) {
