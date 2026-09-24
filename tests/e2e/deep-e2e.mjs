@@ -12,14 +12,15 @@
  *   - 控制台错误检测
  *
  * 运行方式：
- *   node tests/deep-e2e.mjs                  # 全量深度测试
+ *   node tests/deep-e2e.mjs                  # 全量深度测试（默认无头）
  *   node tests/deep-e2e.mjs --feature=10     # 仅测试模块 10
- *   node tests/deep-e2e.mjs --headless       # 无头模式
+ *   node tests/deep-e2e.mjs --headed         # 有头模式（人工观察浏览器）
  *
  * 前置条件：
  *   - 后端启动在 http://localhost:8080（默认，可通过 YEBOT_BASE_URL 环境变量覆盖）
  *   - 嵌入式前端已同步（或独立前端可通过 FRONTEND_URL / YEBOT_UI_URL 环境变量覆盖）
  *   - 测试账号通过 YEBOT_TEST_USER / YEBOT_TEST_PASS 环境变量注入
+ *   - 后端启用验证码时：需 yebot-redis 容器在运行（自动读取真码；读不到启动即报错退出）
  */
 
 import fs from 'fs'
@@ -54,7 +55,9 @@ const CONFIG = {
   secondaryUsername: process.env.YEBOT_TEST_USER_SECONDARY || 'ry',
   secondaryPassword: process.env.YEBOT_TEST_PASS_SECONDARY || TEST_PASS,
   screenshotDir: path.resolve(__dirname, 'screenshots'),
-  headless: false,
+  // P2 修复: headless 默认开启（无人值守安全默认，避免弹有头窗口挂机）；
+  // 需要人工观察浏览器时用 --headed 显式开启有头模式
+  headless: true,
   featureFilter: null,
   featureRange: null,
   domainFilter: null,
@@ -66,6 +69,9 @@ for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i]
   if (arg === '--headless') {
     CONFIG.headless = true
+  } else if (arg === '--headed') {
+    // 显式有头模式（需要人工观察浏览器动画时使用）
+    CONFIG.headless = false
   } else if (arg.startsWith('--feature=')) {
     CONFIG.featureFilter = parseInt(arg.split('=')[1], 10)
   } else if (arg === '--module') {
@@ -286,13 +292,93 @@ function checkConsoleErrors(consoleErrors, pageErrors, moduleName) {
 
 // ==================== 登录流程 ====================
 
+const { execSync } = require('child_process')
+
+/**
+ * 经 yebot-redis 容器读取指定 uuid 的验证码明文（后端写入键 captcha:{uuid}:{ip}，TTL 300s）。
+ * 按 pattern 扫描键名（ip 段格式无关）。读不到抛错（fail-fast），绝不填假码。
+ */
+async function readCaptchaCodeFromRedis(uuid) {
+  const pattern = `captcha:${uuid}:*`
+  try {
+    // Windows 下 execSync 走 cmd：必须用双引号（单引号是字面字符，会导致 pattern 带引号匹配失败）
+    await sleep(300) // 键写入兜底等待
+    const key = execSync(
+      `docker exec yebot-redis redis-cli --raw --scan --pattern "${pattern}"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    )
+      .trim()
+      .split('\n')[0]
+    if (!key) throw new Error('redis 无匹配键（可能已过期或 ip 段异常）')
+    const code = execSync(
+      `docker exec yebot-redis redis-cli --raw GET "${key}"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    ).trim()
+    if (!code) throw new Error(`redis 键 ${key} 值为空`)
+    return code
+  } catch (e) {
+    throw new Error(
+      `验证码已启用且无法经 yebot-redis 读取真码（${String(e.message).slice(0, 100)}）。` +
+        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，或确保 yebot-redis 容器在运行`
+    )
+  }
+}
+
+/**
+ * 启动预检：探测验证码开关与 redis 链路可达性（不产出登录用码——
+ * 登录必须用页面渲染那次请求的 uuid，预取的 uuid 与页面显示的图不同源，码必然对不上）。
+ */
+async function resolveCaptcha() {
+  const resp = await fetch(`${CONFIG.backendUrl}/captchaImage`, {
+    signal: AbortSignal.timeout(10000)
+  })
+  const data = await resp.json()
+  if (!data.captchaEnabled) return { enabled: false, code: '' }
+  const uuid = data.uuid
+  if (!uuid) throw new Error('验证码已启用但 /captchaImage 未返回 uuid，无法自动读取')
+  const code = await readCaptchaCodeFromRedis(uuid)
+  return { enabled: true, code }
+}
+
+/**
+ * 从登录页自身发出的 /captchaImage 响应解析 uuid 并读取真码（与页面显示的图同源）。
+ * 入参为 login() 中 goto 前注册的 waitForResponse promise。
+ */
+async function resolveCaptchaFromPage(captchaPromise) {
+  const resp = await captchaPromise
+  if (!resp) throw new Error('登录页未发出 /captchaImage 请求（前端未启用验证码或页面异常）')
+  const data = await resp.json()
+  if (!data.captchaEnabled) return { enabled: false, code: '' }
+  const uuid = data.uuid
+  if (!uuid) throw new Error('页面 captchaImage 响应未含 uuid')
+  const code = await readCaptchaCodeFromRedis(uuid)
+  return { enabled: true, code }
+}
+
 async function login(page, username = CONFIG.username, password = CONFIG.password) {
   log(`=== 登录（用户: ${username}）===`)
-  await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+
+  // 0. 先注册验证码响应监听（必须在 goto 前建好，捕获页面自己渲染的那次请求——
+  //    与页面显示的验证码图同 uuid 同源，才能读到正确的明文）
+  const captchaPromise = page
+    .waitForResponse((r) => r.url().includes('/captchaImage') && r.status() === 200, {
+      timeout: 30000
+    })
+    .catch(() => null)
+
+  // 1. 打开登录页（networkidle 超时降级：前端存在 WS 长连接时可能永不空闲）
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+  } catch {
+    log('  ⚠️ networkidle 等待超时（可能有长连接），降级继续登录流程')
+  }
   // 生产构建（嵌入式）JS bundle 较大，需要更长时间解析和渲染
   // 等待 Vue 应用挂载（#app 下出现 input 元素）
   await page.waitForSelector('input', { timeout: 20000 }).catch(() => {})
   await sleep(1000)
+
+  // 2. 从页面自身的 captchaImage 响应读取真码（开启但读不到 → 抛错终止，不空转）
+  const captcha = await resolveCaptchaFromPage(captchaPromise)
 
   // 关闭 Cookie 同意横幅
   const cookieBtn = page.locator('button:has-text("同意")').first()
@@ -313,9 +399,16 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await passInput.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   await passInput.fill(password)
 
-  const codeInput = page.locator('input[placeholder="验证码"], input[placeholder="Captcha"]').first()
-  if (await codeInput.isVisible({ timeout: 500 }).catch(() => false)) {
-    await codeInput.fill('1234')
+  // 验证码：仅在后端启用且取得页面同源真码时填写（不填假码）
+  if (captcha.enabled) {
+    const codeInput = page
+      .locator('input[placeholder="验证码"], input[placeholder="Captcha"]')
+      .first()
+    const codeVisible = await codeInput.isVisible({ timeout: 3000 }).catch(() => false)
+    if (!codeVisible) {
+      throw new Error('后端已启用验证码但登录页未渲染验证码输入框，页面与后端配置不一致')
+    }
+    await codeInput.fill(captcha.code)
   }
 
   const loginBtn = page
@@ -325,10 +418,25 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await loginBtn.click()
 
   await page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
-  await sleep(2500)
 
   const isLoggedIn = !page.url().includes('login')
-  if (isLoggedIn) {
+  if (!isLoggedIn) {
+    // 失败诊断三件套：即时抓错误提示（toast 约 3s 自动消失，必须先于其它等待）+ 截图 + URL
+    const errMsg = await page
+      .locator('.el-message--error, .el-message')
+      .first()
+      .innerText({ timeout: 800 })
+      .catch(() => '')
+    const shot = path.join(CONFIG.screenshotDir, `login-fail-${Date.now()}.png`)
+    await page.screenshot({ path: shot, fullPage: false }).catch(() => {})
+    log(
+      `  ❌ 登录失败: url=${page.url()}` +
+        `${errMsg ? ` 页面提示="${errMsg.trim().slice(0, 80)}"` : '（无错误提示）'}` +
+        ` 截图=${shot}`
+    )
+    await sleep(2000)
+  } else {
+    await sleep(1500)
     // 禁用新手引导 Tour（避免遮罩拦截按钮点击）
     await page.evaluate(() => {
       try {
@@ -664,10 +772,21 @@ async function checkSearchForm(page, expectedFields, moduleName, pageName) {
  */
 async function getApiToken(username = CONFIG.username, password = CONFIG.password) {
   try {
+    // 验证码开启时先取码再登录（API 自取 uuid 自用，同一次请求天然同源）
+    let code = ''
+    let uuid = ''
+    const capResp = await fetch(`${CONFIG.backendUrl}/captchaImage`, {
+      signal: AbortSignal.timeout(10000)
+    })
+    const cap = await capResp.json()
+    if (cap.captchaEnabled && cap.uuid) {
+      code = await readCaptchaCodeFromRedis(cap.uuid)
+      uuid = cap.uuid
+    }
     const resp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, code: '', uuid: '' })
+      body: JSON.stringify({ username, password, code, uuid })
     })
     const data = await resp.json()
     return data.token || null
@@ -13150,6 +13269,14 @@ const state = {
 }
 
 const helpers = { log, ensureDir, login, createPage, getApiToken, record }
+
+// 启动预检：验证码启用时先确认可读取真码（fail-fast，不弹浏览器空转）
+try {
+  await resolveCaptcha()
+} catch (e) {
+  log(`❌ 启动预检失败: ${e.message}`)
+  process.exit(1)
+}
 
 runMain({ testFns, config: CONFIG, helpers, state })
   .then((exitCode) => process.exit(exitCode))

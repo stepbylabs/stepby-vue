@@ -3,11 +3,14 @@
  *
  * 职责：遍历 deep-e2e.mjs 注册的 testFns（模块 1..N），逐模块创建页面/登录/执行，
  * 汇总 state.results 并输出每模块统计与总计。支持 deep-e2e.mjs 侧已解析的过滤约定：
- *   --headless            无头模式（CONFIG.headless）
+ *   --headless            无头模式（CONFIG.headless，默认开启）
+ *   --headed              显式有头模式（人工观察浏览器时使用）
  *   --feature=N / --module N   只跑单个模块
  *   --range=67-75         跑模块区间
  *   --except=13,29        排除指定模块
  *   --feature=1-20,51     集合过滤（main.mjs 同款语法：逗号分段 + 连字符区间）
+ *
+ * 韧性约定：连续 2 个模块登录失败即判定登录链路不可用，提前终止剩余模块。
  *
  * 模块签名约定（deep-e2e.mjs）：
  *   标准：  async function testModuleN(page, consoleErrors, pageErrors)
@@ -66,7 +69,7 @@ function moduleSelected(id, config) {
 }
 
 export async function runMain({ testFns, config, helpers, state }) {
-  const { log, ensureDir, login, createPage, getApiToken } = helpers
+  const { log, ensureDir, login, createPage, getApiToken, record } = helpers
   const { results, getPassCount, getFailCount } = state
 
   log('==========================================')
@@ -101,6 +104,7 @@ export async function runMain({ testFns, config, helpers, state }) {
 
   const startedAt = Date.now()
   const moduleStats = [] // { id, pass, fail, error }
+  let loginFailStreak = 0 // 连续登录失败计数：≥2 视为环境不可用，提前终止避免全量刷屏
 
   try {
     for (const id of ids) {
@@ -116,13 +120,17 @@ export async function runMain({ testFns, config, helpers, state }) {
         if (BROWSER_FIRST_MODULES.has(id)) {
           // 自管页面模块：runner 只提供 browser 与全新错误收集数组
           await fn(browser, [], [])
+          loginFailStreak = 0
         } else {
           const { page, consoleErrors, pageErrors } = await createPage(browser)
           const loggedIn = await login(page)
           if (!loggedIn) {
+            loginFailStreak += 1
             log(`❌ [M${id}] 登录失败，模块整体记为失败`)
-            results.push({ module: id, name: '登录', passed: false, detail: 'login 失败' })
+            // 走 record 计数（直接 push results 不会累加 failCount，导致 exit 码失真）
+            record(id, '登录', false, 'login 失败')
           } else {
+            loginFailStreak = 0
             if (TOKEN_MODULES.has(id)) {
               await fn(page, consoleErrors, pageErrors, token)
             } else if (BROWSER_EXTRA_MODULES.has(id)) {
@@ -134,6 +142,12 @@ export async function runMain({ testFns, config, helpers, state }) {
           // 单模块页面即用即弃，防句柄泄漏
           const ctx = page.context()
           await ctx.close().catch(() => {})
+        }
+        if (loginFailStreak >= 2) {
+          log(
+            `\n⛔ 连续 ${loginFailStreak} 个模块登录失败，判定登录链路不可用（检查后端/前端服务、凭据环境变量、验证码配置），提前终止剩余 ${ids.length - ids.indexOf(id) - 1} 个模块`
+          )
+          break
         }
       } catch (err) {
         errored = true
