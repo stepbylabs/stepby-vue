@@ -12940,7 +12940,117 @@ async function testModule75(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
-// ==================== 主函数（薄壳：委托给 e2e/run/runner.mjs）====================
+// ==================== 模块 76: SCIM 组管理深度测试 ====================
+
+async function testModule76(page, consoleErrors, pageErrors) {
+  const M = 76
+  log(`\n=== 模块 ${M}: SCIM 组管理深度测试 ===`)
+
+  // 76.1 后端管理端 API 直调（GET /system/scimGroup/list，需 JWT + system:scimgroup:list）
+  try {
+    const token = await getApiToken()
+    if (token) {
+      const resp = await fetch(
+        `${CONFIG.backendUrl}/system/scimGroup/list?pageNum=1&pageSize=10`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      let listOk = false
+      let rowCount = -1
+      if (resp.status === 200) {
+        const j = await resp.json().catch(() => null)
+        if (j && Array.isArray(j.rows)) {
+          listOk = true
+          rowCount = j.rows.length
+        }
+      }
+      record(
+        M,
+        'SCIM 组: 管理端列表 API',
+        listOk,
+        `HTTP ${resp.status}${rowCount >= 0 ? `, rows=${rowCount}` : ''}`
+      )
+
+      // 76.2 详情 API：不存在的 id → 404/500 均视为端点可达（真实组数据依赖 IdP 侧 SCIM 同步）
+      const resp2 = await fetch(`${CONFIG.backendUrl}/system/scimGroup/999999`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      record(
+        M,
+        'SCIM 组: 详情 API 可达',
+        [200, 404, 500].includes(resp2.status),
+        `HTTP ${resp2.status}`
+      )
+    } else {
+      record(M, 'SCIM 组: 管理端列表 API', false, '无 token')
+      record(M, 'SCIM 组: 详情 API 可达', false, '无 token')
+    }
+  } catch (err) {
+    record(M, 'SCIM 组: 管理端列表 API', false, `异常: ${err.message.slice(0, 60)}`)
+    record(M, 'SCIM 组: 详情 API 可达', false, `异常: ${err.message.slice(0, 60)}`)
+  }
+
+  // 76.3 页面测试（路由 /system/oauth/scimGroup，页 148 挂 145 单点登录目录）
+  if (
+    await safeGoto(page, `${CONFIG.frontendUrl}/system/oauth/scimGroup`, {
+      moduleName: M,
+      waitMs: 2500
+    })
+  ) {
+    const hasContainer = await page
+      .locator('.app-container')
+      .first()
+      .isVisible({ timeout: 3000 })
+      .catch(() => false)
+    record(M, 'SCIM 组: 页面加载', hasContainer)
+
+    if (hasContainer) {
+      await closeDialog(page)
+      await sleep(300)
+
+      // 搜索区（组名称输入 / 映射类型下拉）
+      const searchInput = page.locator('.app-container input').first()
+      const searchVisible = await searchInput.isVisible({ timeout: 2000 }).catch(() => false)
+      record(M, 'SCIM 组: 搜索区渲染', searchVisible)
+
+      // 表格列头（中英双语匹配，i18n 切换容错）
+      const headerText = await page
+        .locator('.app-container .el-table__header')
+        .first()
+        .innerText({ timeout: 4000 })
+        .catch(() => '')
+      const colChecks = [
+        ['组名称', 'Group Name'],
+        ['外部标识', 'External ID'],
+        ['映射类型', 'Mapping Type'],
+        ['成员数', 'Members'],
+        ['绑定数', 'Bindings']
+      ]
+      for (const [zh, en] of colChecks) {
+        const hit = headerText.includes(zh) || headerText.includes(en)
+        record(
+          M,
+          `SCIM 组: 列「${zh}」`,
+          hit,
+          hit ? '表头命中' : `表头未含（header=${headerText.slice(0, 60).replace(/\s+/g, ' ')}）`
+        )
+      }
+
+      // 表格主体渲染（空态/数据行均通过）
+      const hasTableBody = await page
+        .locator('.app-container .el-table__body')
+        .first()
+        .isVisible({ timeout: 3000 })
+        .catch(() => false)
+      record(M, 'SCIM 组: 表格主体渲染', hasTableBody)
+    }
+  } else {
+    ;['SCIM 组: 页面加载', 'SCIM 组: 搜索区渲染', 'SCIM 组: 表格主体渲染'].forEach((item) => {
+      record(M, item, false, '页面不可访问')
+    })
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
 
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
@@ -13019,7 +13129,8 @@ const testFns = {
   72: testModule72,
   73: testModule73,
   74: testModule74,
-  75: testModule75
+  75: testModule75,
+  76: testModule76
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
