@@ -182,6 +182,8 @@ export default {
       username: '用户名称',
       nickName: '用户昵称',
       dept: '归属部门',
+      deptPrimaryTip: '主部门：数据权限归属，仅可选择一个',
+      deptSecondary: '兼职部门',
       phone: '手机号码',
       email: '邮箱',
       status: '状态',
@@ -190,7 +192,9 @@ export default {
       sex: '性别',
       role: '角色',
       remark: '备注',
-      post: '岗位'
+      post: '岗位',
+      scimRoleSuffix: '来自组',
+      scimDeptTags: '来自组的兼职部门'
     },
     tip: {
       editPwd: '请输入新密码',
@@ -240,6 +244,28 @@ export default {
     initialPasswordWarning: '您的密码还是初始密码，请修改密码！',
     passwordExpiredWarning: '您的密码已过期，请尽快修改密码！',
     securityTip: '安全提示'
+  },
+  scimGroup: {
+    displayName: '组名称',
+    externalId: '外部标识',
+    mappingType: '映射类型',
+    memberCount: '成员数',
+    bindingCount: '绑定数',
+    sourceTip: '组数据由 SCIM 同步（IdP 侧管理），成员与绑定联动由系统自动维护，此处仅可调整绑定目标',
+    editTitle: '组绑定配置',
+    typeRole: '映射为角色',
+    typeDept: '映射为兼职部门',
+    mappingLocked: '已有绑定，映射类型不可切换（需先清空绑定）',
+    mappingTip: '绑定后组成员将自动获得授权，映射类型确定后不可随意切换',
+    bindRoles: '绑定角色',
+    bindRoleTip: '组成员将自动被授予所选角色（来源标记为该组，与管理员手工授权互不影响）',
+    bindDept: '绑定兼职部门',
+    bindDeptTip: '组成员将自动加入所选部门为兼职（主部门不受影响）',
+    members: '组成员',
+    userName: '用户名称',
+    nickName: '用户昵称',
+    memberReadonly: '组成员由 SCIM IdP 侧管理，此处只读；如需移除成员请在 IdP 侧操作后同步',
+    deleteConfirm: '确认删除组「{0}」？删除后该组的授权/兼职联动将被撤销，组数据软删除'
   },
   role: {
     title: '角色管理',

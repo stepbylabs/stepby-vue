@@ -13,7 +13,12 @@ dept: SysDept | null,
  * v5-E4：是否已绑定第三方登录身份（sys_oauth_user 存在该 user_id 的绑定；
  * 管理员识别账号来源，绑定明细见用户个人中心的"第三方绑定"页签）
  */
-oauthBound: boolean, userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
+oauthBound: boolean, 
+/**
+ * 多部门任职（最小侵入版）：兼职部门 ID 列表（sys_user_dept 全部行；
+ * 主部门 = dept_id 不在此列）
+ */
+deptIds: Array<number>, userId: number, deptId: number | null, userName: string, nickName: string, userType: string | null, email: string | null, phonenumber: string | null, 
 /**
  * 手机号国家/地区代码（ISO 3166-1 alpha-2，如 CN/HK/US）。
  * 方案 D（G18）手机号多地区化：None 视为回退 CN。

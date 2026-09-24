@@ -18,6 +18,36 @@
               clearable
               check-strictly
             />
+            <div class="el-form-item__tip">{{ t('user.form.deptPrimaryTip') }}</div>
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-row>
+        <el-col :span="24">
+          <el-form-item :label="t('user.form.deptSecondary')">
+            <el-tree-select
+              v-model="form.deptIds"
+              :data="secondaryDeptOptions"
+              :props="{ value: 'id', label: 'label', children: 'children' }"
+              value-key="id"
+              :placeholder="t('common.form.selectPlaceholder')"
+              multiple
+              clearable
+              check-strictly
+              style="width: 100%"
+            />
+            <div v-if="scimDeptTags.length" class="el-form-item__tip">
+              {{ t('user.form.scimDeptTags') }}：
+              <el-tag
+                v-for="d in scimDeptTags"
+                :key="d.id"
+                size="small"
+                type="warning"
+                class="mr-1"
+              >
+                {{ d.label }}
+              </el-tag>
+            </div>
           </el-form-item>
         </el-col>
       </el-row>
@@ -103,9 +133,9 @@
               <el-option
                 v-for="item in roleOptions"
                 :key="item.roleId"
-                :label="item.roleName"
+                :label="scimRoleIds.includes(item.roleId) ? item.roleName + '（' + t('user.form.scimRoleSuffix') + '）' : item.roleName"
                 :value="item.roleId"
-                :disabled="item.status == 1"
+                :disabled="item.status == 1 || scimRoleIds.includes(item.roleId)"
               ></el-option>
             </el-select>
           </el-form-item>
@@ -156,6 +186,10 @@ const props = defineProps<{
   postOptions?: SysPost[]
   /** 角色选项 */
   roleOptions?: SysRole[]
+  /** v5-D12 Group：SCIM 组联动角色 id 集合（角色树禁选 + "来自组"标记） */
+  scimRoleIds?: number[]
+  /** v5-D12 Group：SCIM 组同步兼职部门 id 集合（只读 tags 展示） */
+  scimDeptIds?: number[]
   /** 编辑场景回填的用户数据（含 postIds/roleIds），新增场景不传 */
   editUser?: SysUser
   /** 新增用户初始密码（取自 sys.user.initPassword 配置） */
@@ -169,6 +203,32 @@ const emit = defineEmits<{
 }>()
 
 const { pwdValidator } = usePasswordRule()
+
+const scimRoleIds = computed(() => props.scimRoleIds ?? [])
+const scimDeptIds = computed(() => props.scimDeptIds ?? [])
+
+/** SCIM 兼职只读 tags 的名称解析（从部门树查找 label） */
+const scimDeptTags = computed(() => {
+  const out: { id: number; label: string }[] = []
+  const walk = (nodes: TreeSelect[]) => {
+    for (const n of nodes) {
+      if (n.id != null && n.label != null && scimDeptIds.value.includes(n.id)) out.push({ id: n.id, label: n.label })
+      if (n.children?.length) walk(n.children)
+    }
+  }
+  walk(props.enabledDeptOptions ?? [])
+  return out
+})
+
+/** 兼职部门树：排除当前主部门（主部门唯一事实源 = deptId，防重复归属） */
+const secondaryDeptOptions = computed<TreeSelect[]>(() => {
+  const clone = JSON.parse(JSON.stringify(props.enabledDeptOptions ?? [])) as TreeSelect[]
+  const prune = (nodes: TreeSelect[]): TreeSelect[] =>
+    nodes
+      .filter((n) => n.id !== form.value.deptId)
+      .map((n) => ({ ...n, children: n.children?.length ? prune(n.children) : n.children }))
+  return prune(clone)
+})
 const { sys_normal_disable, sys_user_sex } = useDict('sys_normal_disable', 'sys_user_sex')
 
 const userRef = useTemplateRef('userRef')
@@ -186,7 +246,8 @@ const form = ref<SysUser>({
   status: '0',
   remark: undefined,
   postIds: [],
-  roleIds: []
+  roleIds: [],
+  deptIds: []
 })
 
 // M1: rules 改为 computed 以响应语言切换；el-form 通过 :rules 绑定读取最新值，validate 仍可正常工作
@@ -214,7 +275,8 @@ function reset() {
     status: '0',
     remark: undefined,
     postIds: [],
-    roleIds: []
+    roleIds: [],
+    deptIds: []
   }
   userRef.value?.resetFields()
 }
@@ -243,6 +305,10 @@ function submitForm() {
   userRef.value?.validate((valid: boolean) => {
     if (valid) {
       submitLoading.value = true
+      // 兼职部门：提交前排除与主部门重复项（主部门唯一事实源 = deptId）
+      if (form.value.deptIds?.length && form.value.deptId != null) {
+        form.value.deptIds = form.value.deptIds.filter((d: number) => d !== form.value.deptId)
+      }
       if (form.value.userId != undefined) {
         updateUser(form.value)
           .then(() => {

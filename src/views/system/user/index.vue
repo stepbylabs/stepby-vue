@@ -293,6 +293,8 @@
       :enabled-dept-options="enabledDeptOptions"
       :post-options="postOptions"
       :role-options="roleOptions"
+      :scim-role-ids="scimRoleIds"
+      :scim-dept-ids="scimDeptIds"
       :edit-user="editUser"
       :init-password="initPassword"
       @submit-success="getList"
@@ -384,8 +386,11 @@ const enabledDeptOptions = ref<TreeSelect[] | undefined>(undefined)
 const initPassword = ref<string | undefined>(undefined)
 const postOptions = ref<SysPost[]>([])
 const roleOptions = ref<SysRole[]>([])
-// 编辑场景回填用户数据（含 postIds/roleIds），新增场景为 undefined
+// 编辑场景回填用户数据（含 postIds/roleIds/deptIds），新增场景为 undefined
 const editUser = ref<SysUser | undefined>(undefined)
+// v5-D12 Group：SCIM 组联动角色/兼职部门（编辑表单只读标记）
+const scimRoleIds = ref<number[]>([])
+const scimDeptIds = ref<number[]>([])
 // 列显隐信息
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
 // 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
@@ -619,6 +624,8 @@ function handleViewData(row: SysUser) {
 /** 新增按钮操作 */
 function handleAdd() {
   editUser.value = undefined
+  scimRoleIds.value = []
+  scimDeptIds.value = []
   title.value = t('common.add')
   getUser()
     .then((response) => {
@@ -640,8 +647,11 @@ function handleUpdate(row?: SysUser) {
       editUser.value = {
         ...(response.data || {}),
         postIds: response.postIds,
-        roleIds: response.roleIds
+        roleIds: response.roleIds,
+        deptIds: response.deptIds
       }
+      scimRoleIds.value = response.scimRoleIds ?? []
+      scimDeptIds.value = response.scimDeptIds ?? []
       open.value = true
     })
     // M4: 加载用户信息失败由 request 拦截器提示，此处记录日志

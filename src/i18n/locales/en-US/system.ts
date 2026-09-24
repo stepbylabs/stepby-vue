@@ -182,6 +182,8 @@ export default {
       username: 'Username',
       nickName: 'Nickname',
       dept: 'Department',
+      deptPrimaryTip: 'Primary department: determines data scope. Only one can be selected',
+      deptSecondary: 'Secondary Departments',
       phone: 'Phone',
       email: 'Email',
       status: 'Status',
@@ -190,7 +192,9 @@ export default {
       sex: 'Gender',
       role: 'Role',
       remark: 'Remark',
-      post: 'Position'
+      post: 'Position',
+      scimRoleSuffix: 'from group',
+      scimDeptTags: 'Secondary departments from groups'
     },
     tip: {
       editPwd: 'Enter new password',
@@ -240,6 +244,28 @@ export default {
     initialPasswordWarning: 'Your password is still the initial password. Please change it!',
     passwordExpiredWarning: 'Your password has expired. Please change it as soon as possible!',
     securityTip: 'Security Tip'
+  },
+  scimGroup: {
+    displayName: 'Group Name',
+    externalId: 'External ID',
+    mappingType: 'Mapping Type',
+    memberCount: 'Members',
+    bindingCount: 'Bindings',
+    sourceTip: 'Group data is synced via SCIM (managed on the IdP side). Member and binding sync is maintained automatically; only binding targets can be adjusted here',
+    editTitle: 'Group Binding Configuration',
+    typeRole: 'Map to Roles',
+    typeDept: 'Map to Secondary Departments',
+    mappingLocked: 'Bindings exist; mapping type cannot be changed (clear bindings first)',
+    mappingTip: 'After binding, group members will be granted automatically; the mapping type cannot be changed arbitrarily once set',
+    bindRoles: 'Bound Roles',
+    bindRoleTip: 'Group members will automatically be granted the selected roles (sourced from this group, independent of admin manual grants)',
+    bindDept: 'Bound Secondary Departments',
+    bindDeptTip: 'Group members will automatically join the selected departments as secondary membership (primary department unaffected)',
+    members: 'Group Members',
+    userName: 'Username',
+    nickName: 'Nickname',
+    memberReadonly: 'Group members are managed on the SCIM IdP side and are read-only here; remove members on the IdP side to sync',
+    deleteConfirm: 'Delete group "{0}"? Its role/department grants will be revoked and the group will be soft-deleted'
   },
   role: {
     title: 'Role Management',

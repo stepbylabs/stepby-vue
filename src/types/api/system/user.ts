@@ -60,6 +60,8 @@ export interface SysUser extends BaseEntity {
   roleIds?: number[]
   /** 岗位组 */
   postIds?: number[]
+  /** 多部门任职：兼职部门 id 列表（sys_user_dept；列表接口=全部来源，表单接口=仅 admin 来源） */
+  deptIds?: number[]
   /** v5-E4：是否已绑定第三方登录身份（sys_oauth_user 存在绑定；仅列表接口返回） */
   oauthBound?: boolean
 }
@@ -88,6 +90,12 @@ export interface UserFormDataResult extends AjaxResult {
   roles: SysRole[]
   /** 所有岗位列表 */
   posts: SysPost[]
+  /** 多部门任职：兼职部门 ID 列表（仅 admin 来源，编辑可改） */
+  deptIds?: number[]
+  /** v5-D12 Group：SCIM 组联动角色 ID 集合（只读标记，提交不包含） */
+  scimRoleIds?: number[]
+  /** v5-D12 Group：SCIM 组同步兼职部门 ID 集合（只读标记） */
+  scimDeptIds?: number[]
 }
 
 /** 用户个人资料响应 */
