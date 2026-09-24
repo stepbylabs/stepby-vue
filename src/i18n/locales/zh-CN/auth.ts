@@ -61,6 +61,9 @@ export default {
     autoCreateUser: '首次登录自动创建账号',
     enabled: '是否启用',
     displayOrder: '显示顺序',
+    ownership: '归属',
+    ownershipPlatform: '平台',
+    ownershipTenant: '租户',
     remark: '备注',
     createTime: '创建时间',
     status: {

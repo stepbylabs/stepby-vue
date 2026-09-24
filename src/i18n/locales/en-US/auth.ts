@@ -62,6 +62,9 @@ export default {
     autoCreateUser: 'Auto-create account on first login',
     enabled: 'Enabled',
     displayOrder: 'Display Order',
+    ownership: 'Ownership',
+    ownershipPlatform: 'Platform',
+    ownershipTenant: 'Tenant',
     remark: 'Remark',
     createTime: 'Create Time',
     status: {

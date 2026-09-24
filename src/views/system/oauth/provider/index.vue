@@ -106,6 +106,13 @@
         min-width="200"
         show-overflow-tooltip
       />
+      <el-table-column :label="t('oauth.ownership')" align="center" width="90">
+        <template #default="scope">
+          <el-tag :type="scope.row.tenantId === 0 ? 'warning' : 'primary'" disable-transitions>
+            {{ scope.row.tenantId === 0 ? t('oauth.ownershipPlatform') : t('oauth.ownershipTenant') }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column :label="t('oauth.displayOrder')" align="center" prop="displayOrder" width="90" />
       <el-table-column :label="t('oauth.autoCreateUser')" align="center" prop="autoCreateUser" width="130">
         <template #default="scope">

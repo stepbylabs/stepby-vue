@@ -67,12 +67,12 @@
             />
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.createTime')" prop="createTime" width="170" align="center">
+        <el-table-column :label="t('common.column.createTime')" prop="createTime" width="170" align="center">
           <template #default="{ row }">
             {{ (row.createTime || '').replace('T', ' ').slice(0, 19) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.operation')" width="150" align="center" fixed="right">
+        <el-table-column :label="t('common.column.operation')" width="150" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               v-hasPermi="['system:tenant:edit']"
@@ -112,7 +112,7 @@
         <el-form-item :label="t('tenant.email')" prop="email">
           <el-input v-model.trim="form.email" :placeholder="t('common.inputText')" maxlength="50" />
         </el-form-item>
-        <el-form-item :label="t('common.sort')" prop="orderNum">
+        <el-form-item :label="t('common.column.sort')" prop="orderNum">
           <el-input-number v-model="form.orderNum" :min="0" :max="999" controls-position="right" />
         </el-form-item>
         <el-form-item v-if="!isEdit" :label="t('common.status')" prop="status">
