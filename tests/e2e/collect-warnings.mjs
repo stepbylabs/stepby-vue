@@ -221,6 +221,17 @@ function isBizSuccess(body) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// node 事件循环层硬超时竞速：Playwright 驱动偶发挂死（协议丢消息）时，其调用自带的
+// timeout 亦失效——timeout 由同一驱动层实现。唯有不依赖驱动的 setTimeout 必然触发
+// （node 事件循环仍在），用于把挂起的调用解除并继续/兜底。
+function withHardTimeout(promise, ms, label) {
+  let timer
+  const timeoutP = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`[watchdog] ${label} 超过 ${ms}ms 未完成（疑似驱动挂死）`)), ms)
+  })
+  return Promise.race([promise, timeoutP]).finally(() => clearTimeout(timer))
+}
+
 // 稳健关闭交互扫描中打开的对话框/抽屉：反复 Esc + 点关闭按钮，直到无可见浮层或达到上限。
 // 单一 Esc 在部分页面会被内部组件（聚焦输入/选择器）吞掉，导致扫描器自开的对话框残留成假阳性信号。
 async function dismissOverlays(page) {
@@ -488,10 +499,13 @@ async function scanPage(page, route) {
   }
 
   // 业务错误检测：读取本阶段捕获的 JSON 响应体，筛出 HTTP 200 但 code!=200 的失败封套。
+  // resp.json() 在响应体永不完成时会永久 pending（catch 只捕 reject 不防挂起）→ 5s 硬超时竞速。
   const jsonToCheck = jsonResp
   jsonResp = []
   for (const resp of jsonToCheck) {
-    const body = await resp.json().catch(() => null)
+    const body = await withHardTimeout(resp.json().catch(() => null), 5000, `读取响应体 ${resp.url()}`).catch(
+      () => null
+    )
     if (body && !isBizSuccess(body)) {
       bizErr.push(
         `${resp.request().method()} ${resp.url()} -> code=${body.code} msg=${String(body.msg || '').slice(0, 80)}`
@@ -612,23 +626,9 @@ async function scanPage(page, route) {
   )
 }
 
-async function main() {
-  const browser = await chromium.launch({ headless: true })
-  const context = await browser.newContext()
-  const page = await context.newPage()
-
-  const ok = await login(page)
-  console.log(`\n登录: ${ok ? '成功' : '失败'}\n`)
-  // ROUTE_ONLY="/tool/build,/tool/http-debugger" 可只跑指定路由（子串匹配），用于定向复验
-  const routeOnly = (process.env.ROUTE_ONLY || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const routesToScan = routeOnly.length ? ROUTES.filter((r) => routeOnly.some((f) => r.includes(f))) : ROUTES
-  for (const route of routesToScan) {
-    await scanPage(page, route)
-  }
-
+// 汇总输出（抽成函数供正常收尾 / watchdog / 浏览器断连三处复用——任何异常退出都必须
+// 把已采集内容落日志，避免"跑了几十分钟、一无所获且无任何输出"）
+function printSummary() {
   console.log('\n===== 采集汇总 =====')
   let total = 0
   for (const r of results) {
@@ -676,7 +676,92 @@ async function main() {
       `交互动作覆盖：只读点击 ${sum.ro} 次；新增按钮 ${sum.add} 页(打开对话框 ${sum.addOpen})；行内编辑/查看 ${sum.view} 页(打开对话框/抽屉 ${sum.viewOpen})；导出 ${sum.exp} 页(物证 ${sum.expOk})`
     )
   }
-  await browser.close()
+}
+
+async function main() {
+  // ROUTE_ONLY="/tool/build,/tool/http-debugger" 可只跑指定路由（子串匹配），用于定向复验
+  const routeOnly = (process.env.ROUTE_ONLY || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const routesToScan = routeOnly.length ? ROUTES.filter((r) => routeOnly.some((f) => r.includes(f))) : ROUTES
+
+  // 全局 watchdog：无论任何挂起，到时强制输出汇总退出（不依赖 Playwright 驱动层）
+  const GLOBAL_MS = 45 * 60 * 1000
+  const globalTimer = setTimeout(() => {
+    console.error(`\n[watchdog] 全局 ${GLOBAL_MS / 60000} 分钟上限到达，强制收尾`)
+    printSummary()
+    process.exit(2)
+  }, GLOBAL_MS)
+
+  const MAX_RESTARTS = 3
+  let browser = null
+  let page = null
+  let restarts = 0
+  let consecutiveTimeouts = 0
+
+  // 会话（浏览器 + 登录态）构建：浏览器被环境偶发清除/驱动挂死后重建续扫，
+  // 而不是半途中止（2026-09-24 实测两次 chrome-headless-shell 中途消失事故）
+  const bootstrap = async () => {
+    if (browser) await browser.close().catch(() => {})
+    browser = await chromium.launch({ headless: true })
+    // 断连只记日志：由循环顶部的 isClosed 检测/超时 catch 走重建路径，不再直接退出
+    browser.on('disconnected', () => console.error('[watchdog] 浏览器连接断开（将按需重建会话续扫）'))
+    const context = await browser.newContext()
+    page = await context.newPage()
+    const ok = await login(page)
+    console.log(`\n登录: ${ok ? '成功' : '失败'}\n`)
+    if (!ok) throw new Error('登录失败，无法继续采集')
+  }
+
+  try {
+    await bootstrap()
+    for (const route of routesToScan) {
+      // 会话失效检测：断连/页面关闭 → 重建（次数有界，防无限循环）
+      if (browser.isClosed?.() || page.isClosed()) {
+        if (++restarts > MAX_RESTARTS) {
+          console.error(`[watchdog] 会话重建次数耗尽（${MAX_RESTARTS}），终止采集`)
+          break
+        }
+        console.error(`[watchdog] 浏览器会话失效，重建并重新登录（第 ${restarts}/${MAX_RESTARTS} 次）`)
+        await bootstrap()
+      }
+      try {
+        await withHardTimeout(scanPage(page, route), 75000, `扫描 ${route}`)
+        consecutiveTimeouts = 0
+      } catch (err) {
+        console.error(`  ${err.message} → 跳过 ${route}`)
+        results.push({
+          route,
+          p404: false,
+          console: [`[watchdog] ${err.message}`],
+          pageErrors: [],
+          requestsFailed: [],
+          badResponses: [],
+          bizErrors: [],
+          toasts: [],
+          dialogs: [],
+          i18nLeaks: [],
+          brokenImages: [],
+          act: { ro: 0, add: 0, addOpen: 0, view: 0, viewOpen: 0, exp: 0, expOk: 0 }
+        })
+        // 驱动挂死/断连 → 重建会话续扫；连续 2 页超时也强制重建（单页偶发不重建）
+        if (browser.isClosed?.() || ++consecutiveTimeouts >= 2) {
+          consecutiveTimeouts = 0
+          if (++restarts > MAX_RESTARTS) {
+            console.error(`[watchdog] 会话重建次数耗尽（${MAX_RESTARTS}），终止采集`)
+            break
+          }
+          console.error(`[watchdog] 扫描超时/断连后重建会话（第 ${restarts}/${MAX_RESTARTS} 次）`)
+          await bootstrap()
+        }
+      }
+    }
+  } finally {
+    clearTimeout(globalTimer)
+    printSummary()
+  }
+  await browser?.close().catch(() => {})
 }
 
 main().catch((e) => {
