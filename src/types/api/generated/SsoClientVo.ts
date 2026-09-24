@@ -13,4 +13,8 @@ idTokenAlg: string,
 /**
  * v5-D5：subject 标识类型（public/pairwise）
  */
-subjectType: string, consentRequired: string, enabled: string, remark: string | null, createTime: string | null, };
+subjectType: string, 
+/**
+ * v5-D5：sector 聚合标识（https URL；NULL = 以 client_id 为 salt）
+ */
+sectorIdentifierUri: string | null, consentRequired: string, enabled: string, remark: string | null, createTime: string | null, };

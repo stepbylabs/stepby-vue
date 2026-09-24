@@ -248,6 +248,17 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
+            <!-- v5-D5：sector 聚合标识（pairwise 下同 sector 的多个 RP 获得相同 sub） -->
+            <el-form-item :label="t('sso.sectorIdentifier')" prop="sectorIdentifierUri">
+              <el-input
+                v-model.trim="form.sectorIdentifierUri"
+                :maxlength="255"
+                placeholder="https://"
+              />
+              <div class="el-form-item__tip">{{ t('sso.sectorIdentifierTip') }}</div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
             <el-form-item :label="t('sso.consentRequired')" prop="consentRequired">
               <el-radio-group v-model="form.consentRequired">
                 <el-radio v-for="dict in sys_yes_no" :key="dict.value" :value="dict.value">{{ dict.label }}</el-radio>
@@ -397,6 +408,7 @@ const {
     grantTypes: ['authorization_code'],
     idTokenAlg: 'RS256',
     subjectType: 'public',
+    sectorIdentifierUri: '',
     consentRequired: '1',
     enabled: '1',
     remark: ''

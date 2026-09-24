@@ -133,6 +133,8 @@ export default {
     idTokenAlgTip: 'RS256（推荐，公钥经 /sso/jwks 发布）；HS256 使用对称密钥验签',
     subjectType: 'Subject 类型',
     subjectTypeTip: 'pairwise 切换后已发令牌的 sub 将变化，RP 侧视为新用户',
+    sectorIdentifier: 'Sector 聚合标识',
+    sectorIdentifierTip: 'https URL；pairwise 下同 sector 的多个 RP 获得相同 sub（同组织账号关联）；留空以 clientId 为盐',
     consentRequired: '需要同意',
     enabled: '状态',
     remark: '备注',

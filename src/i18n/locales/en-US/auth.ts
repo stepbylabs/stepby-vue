@@ -135,6 +135,8 @@ export default {
     idTokenAlgTip: 'RS256 (recommended, public keys via /sso/jwks); HS256 uses a symmetric secret',
     subjectType: 'Subject Type',
     subjectTypeTip: 'Switching to pairwise changes the sub in issued tokens; RPs will see a new user',
+    sectorIdentifier: 'Sector Identifier',
+    sectorIdentifierTip: 'https URL; pairwise RPs sharing a sector receive the same sub (org-level account linking); empty = clientId as salt',
     consentRequired: 'Consent Required',
     enabled: 'Status',
     remark: 'Remark',

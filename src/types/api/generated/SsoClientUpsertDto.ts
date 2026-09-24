@@ -20,4 +20,9 @@ idTokenAlg?: string,
  * v5-D5：subject 标识类型（public/pairwise，默认 public；**切换会使已发令牌的
  * sub 变化，RP 侧视为新用户**——修改时后端强制确认提示由前端承担）
  */
-subjectType?: string, consentRequired?: string, enabled?: string, remark?: string, };
+subjectType?: string, 
+/**
+ * v5-D5：sector 聚合标识（https URL；pairwise 下同 sector 的多个 RP 获得相同
+ * sub；留空 = 以 client_id 为 salt）
+ */
+sectorIdentifierUri?: string, consentRequired?: string, enabled?: string, remark?: string, };
