@@ -1061,7 +1061,9 @@ export default {
     eventType: {
       all: '全部',
       login_success: '登录成功',
-      login_failure: '登录失败'
+      login_failure: '登录失败',
+      scim_user_provisioned: 'SCIM 用户创建',
+      scim_user_deactivated: 'SCIM 用户停用'
     },
     test: {
       eventType: '事件类型',

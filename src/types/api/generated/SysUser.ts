@@ -13,4 +13,9 @@ countryCode: string | null, sex: string | null, avatar: string | null, status: s
  * v5-N2 Phase 2（第一步）：租户 ID（登录 JWT 的 tid 数据源；默认 0 = 平台单租户，
  * 多租户立项后由租户管理功能维护；Phase 2 后续：Repository 过滤层按 tid 注入条件）
  */
-tenantId: number, };
+tenantId: number, 
+/**
+ * v5-D12：SCIM externalId（IdP 侧用户唯一标识；NULL = 非 SCIM provision，
+ * 全局唯一索引 idx_sys_user_scim_external_id）
+ */
+scimExternalId?: string | null, };

@@ -1064,7 +1064,9 @@ export default {
     eventType: {
       all: 'All',
       login_success: 'Login Success',
-      login_failure: 'Login Failure'
+      login_failure: 'Login Failure',
+      scim_user_provisioned: 'SCIM User Provisioned',
+      scim_user_deactivated: 'SCIM User Deactivated'
     },
     test: {
       eventType: 'Event Type',

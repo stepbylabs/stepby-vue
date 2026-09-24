@@ -362,7 +362,9 @@ const { sys_normal_disable } = useDict('sys_normal_disable')
 // 事件类型选项（支持 allow-create 自定义）
 const eventTypeOptions = computed(() => [
   { value: 'login_success', label: t('webHook.eventType.login_success') },
-  { value: 'login_failure', label: t('webHook.eventType.login_failure') }
+  { value: 'login_failure', label: t('webHook.eventType.login_failure') },
+  { value: 'scim_user_provisioned', label: t('webHook.eventType.scim_user_provisioned') },
+  { value: 'scim_user_deactivated', label: t('webHook.eventType.scim_user_deactivated') }
 ])
 
 // 请求体格式
