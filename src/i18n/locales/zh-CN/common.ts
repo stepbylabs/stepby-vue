@@ -31,6 +31,8 @@ export default {
     copyLink: '复制链接',
     create: '创建',
     viewAll: '查看全部',
+    all: '全部',
+    inputText: '请输入',
     preview: '预览',
     sync: '同步',
     // TierS-6: 图表下载

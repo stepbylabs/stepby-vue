@@ -164,8 +164,18 @@
               prop="dept.deptName"
               v-if="columns.deptName.visible"
               min-width="120"
-              show-overflow-tooltip
-            />
+            >
+              <template #default="scope">
+                <span>{{ scope.row.dept?.deptName }}</span>
+                <el-tooltip
+                  v-if="(scope.row.deptIds?.length ?? 0) > 0"
+                  :content="t('user.column.deptSecondaryTip', { count: scope.row.deptIds.length })"
+                  placement="top"
+                >
+                  <el-tag size="small" type="info" class="ml-1">+{{ scope.row.deptIds.length }}</el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
             <el-table-column
               :label="t('user.column.phone')"
               align="center"

@@ -1,5 +1,5 @@
 <template>
-  <div class="p-2">
+  <div class="app-container">
     <transition name="fade" enter-active-class="animate__animated animate__fadeInUp">
       <el-card v-if="showSearch" shadow="never" class="mb-2">
         <el-form :inline="true" :model="queryForm" @submit.prevent>

@@ -172,6 +172,7 @@ export default {
       username: '用户名称',
       nickName: '用户昵称',
       dept: '部门',
+      deptSecondaryTip: '另有 {count} 个兼职部门',
       phone: '手机号码',
       status: '状态',
       oauthBound: '第三方',

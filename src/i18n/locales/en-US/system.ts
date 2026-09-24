@@ -172,6 +172,7 @@ export default {
       username: 'Username',
       nickName: 'Nickname',
       dept: 'Department',
+      deptSecondaryTip: '{count} more secondary departments',
       phone: 'Phone',
       status: 'Status',
       oauthBound: '3rd-party',

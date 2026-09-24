@@ -31,6 +31,8 @@ export default {
     copyLink: 'Copy Link',
     create: 'Create',
     viewAll: 'View All',
+    all: 'All',
+    inputText: 'Please enter',
     preview: 'Preview',
     sync: 'Sync',
     // TierS-6: Chart download
