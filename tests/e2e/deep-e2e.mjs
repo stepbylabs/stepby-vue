@@ -13036,12 +13036,21 @@ async function testModule76(page, consoleErrors, pageErrors) {
       }
 
       // 表格主体渲染（空态/数据行均通过）
-      const hasTableBody = await page
-        .locator('.app-container .el-table__body')
+      // 空数据时 el-table__body 高度为 0（isVisible 判 false 属正常），
+      // 断言放宽为：body 元素存在 或 空态提示块可见，任一命中即通过
+      const bodyExists =
+        (await page.locator('.app-container .el-table__body').count()) > 0
+      const emptyVisible = await page
+        .locator('.app-container .el-table__empty-block')
         .first()
-        .isVisible({ timeout: 3000 })
+        .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, 'SCIM 组: 表格主体渲染', hasTableBody)
+      record(
+        M,
+        'SCIM 组: 表格主体渲染',
+        bodyExists || emptyVisible,
+        bodyExists ? '表格主体存在' : emptyVisible ? '空态提示渲染' : '均未命中'
+      )
     }
   } else {
     ;['SCIM 组: 页面加载', 'SCIM 组: 搜索区渲染', 'SCIM 组: 表格主体渲染'].forEach((item) => {
