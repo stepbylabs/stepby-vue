@@ -62,12 +62,12 @@
         </el-table-column>
         <el-table-column :label="t('scimGroup.memberCount')" prop="memberCount" width="90" align="center" />
         <el-table-column :label="t('scimGroup.bindingCount')" prop="bindingCount" width="90" align="center" />
-        <el-table-column :label="t('common.createTime')" prop="createTime" width="170" align="center">
+        <el-table-column :label="t('common.column.createTime')" prop="createTime" width="170" align="center">
           <template #default="{ row }">
             {{ (row.createTime || '').replace('T', ' ').slice(0, 19) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.operation')" width="150" align="center" fixed="right">
+        <el-table-column :label="t('common.column.operation')" width="150" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               v-hasPermi="['system:scimgroup:edit']"

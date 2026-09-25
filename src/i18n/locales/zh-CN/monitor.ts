@@ -72,7 +72,9 @@ export default {
       ipaddr: '登录地址',
       phIpaddr: '请输入登录地址',
       userName: '用户名称',
-      phUserName: '请输入用户名称'
+      phUserName: '请输入用户名称',
+      tenantId: '租户 ID',
+      phTenantId: '租户 ID（0=平台）'
     },
     btn: {
       forceLogout: '强退'
@@ -83,6 +85,7 @@ export default {
     column: {
       tokenId: '会话编号',
       userName: '登录名称',
+      tenantName: '所属租户',
       deptName: '所属部门',
       ipaddr: '主机',
       loginLocation: '登录地点',

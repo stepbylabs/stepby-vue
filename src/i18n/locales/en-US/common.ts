@@ -23,6 +23,8 @@ export default {
     collapse: 'Collapse',
     yes: 'Yes',
     no: 'No',
+    // Multi-tenant Phase 3: platform tenant display name (tenant_id = 0)
+    platformTenant: 'Platform',
     detail: 'Detail',
     download: 'Download',
     upload: 'Upload',

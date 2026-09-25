@@ -1,34 +1,127 @@
 import request from '@/utils/request'
 import type { AjaxResult } from '@/types'
 
+/**
+ * 租户管理 API（多租户 Phase 3：事实源 = sys_tenant，主键 = tenantId 独立 id 空间）
+ *
+ * 后端契约（src/handler/sys_tenant_handler.rs / src/service/sys_tenant_service.rs）：
+ * - GET    /system/tenant/list            租户列表（平台全量；租户操作者仅本租户）
+ * - GET    /system/tenant/{tenantId}      租户详情
+ * - POST   /system/tenant                 新建租户（仅平台；响应含一次性管理员初始密码）
+ * - PUT    /system/tenant                 修改租户（平台可改全部；租户仅名称/联系人/备注）
+ * - PUT    /system/tenant/changeStatus    租户启停（停用立即吊销该租户全部会话，仅平台）
+ * - DELETE /system/tenant/{tenantId}      删除租户（软删回收站；租户内仍有用户时拒绝，仅平台）
+ * - PUT    /system/tenant/restore/{tenantId}  恢复租户（回收站 → 停用态，仅平台）
+ * - GET    /system/tenant/package/options 套餐下拉（仅平台；租户表单选择套餐用）
+ */
+
+/** 租户查询参数 */
 export interface TenantQueryParams {
+  /** 租户名称（模糊） */
   tenantName?: string
+  /** 租户短码（精确） */
+  tenantCode?: string
+  /** 生命周期过滤：'0' 在册（默认）/ '2' 回收站 */
+  delFlag?: string
 }
 
+/** 租户视图（对齐后端 TenantVo） */
 export interface TenantVo {
-  deptId: number
+  /** 租户 ID（独立 id 空间；接口主键） */
+  tenantId: number
+  /** 租户短码（域名/展示/管理员用户名前缀） */
+  tenantCode: string
   tenantName: string
+  /** 组织树挂载根部门（可能缺省） */
+  deptId?: number
+  packageId?: number
+  packageName?: string
+  contactName?: string
+  contactPhone?: string
+  contactEmail?: string
+  /** 主域名（冗余自 sys_tenant_domain） */
+  domain?: string
+  /** 到期时间（空 = 永不过期） */
+  expireTime?: string
+  /** 账号数上限（0 = 不限） */
+  accountCount: number
+  /** '0' 正常 / '1' 停用 */
+  status?: string
+  /** '0' 存在 / '2' 已删除（回收站） */
+  delFlag?: string
+  /** 租户内用户数 */
+  userCount: number
+  /** 根部门负责人（组织树展示字段） */
   leader?: string
   phone?: string
   email?: string
-  status?: string
   orderNum?: number
-  userCount: number
+  remark?: string
   createTime?: string
+  /** 租户管理员用户名（仅新建响应返回） */
+  adminUserName?: string
+  /** 租户管理员初始密码（**仅新建响应返回一次**） */
+  adminInitPassword?: string
 }
 
-export interface TenantForm {
-  deptId?: number
+/** 租户新增入参（仅平台管理员，对齐后端 TenantAddDto） */
+export interface TenantAddDto {
   tenantName: string
+  /** 租户短码（可选；缺省由后端按 t{uuid 前 8 位} 生成） */
+  tenantCode?: string
+  packageId?: number
+  contactName?: string
+  contactPhone?: string
+  contactEmail?: string
+  /** 到期时间（可空 = 永不过期；格式 YYYY-MM-DD HH:mm:ss） */
+  expireTime?: string
+  /** 账号数上限（0 = 不限；缺省取套餐默认值） */
+  accountCount?: number
+  /** '0' 正常 / '1' 停用 */
+  status?: string
+  orderNum?: number
+  /** 根部门负责人 */
   leader?: string
   phone?: string
   email?: string
-  orderNum?: number
-  status?: string
   remark?: string
 }
 
-// 查询租户列表（dept 树根=租户，平台根除外）
+/**
+ * 租户修改入参（平台可改全部；租户仅可改名称/联系人/备注，对齐后端 TenantEditDto）
+ *
+ * 平台分配项（packageId/accountCount/expireTime）为**三态语义**（对齐后端）：
+ * - 字段缺省（undefined）→ 不修改该字段；
+ * - 显式 `null` → 清空（packageId = 不分配套餐 / accountCount = 0 不限 / expireTime = 永不过期）；
+ * - 传值 → 设置为该值。
+ *
+ * 前端清理表单后必须显式传 null（而非省略字段），否则"清空到期时间/套餐"不会生效。
+ */
+export interface TenantEditDto {
+  tenantId: number
+  tenantName: string
+  packageId?: number | null
+  contactName?: string
+  contactPhone?: string
+  contactEmail?: string
+  expireTime?: string | null
+  accountCount?: number | null
+  orderNum?: number
+  leader?: string
+  phone?: string
+  email?: string
+  remark?: string
+}
+
+/** 套餐下拉项（对齐后端 TenantPackageOptionVo） */
+export interface TenantPackageOption {
+  packageId: number
+  packageName: string
+  /** 套餐默认账号数（0 = 不限） */
+  defaultAccountCount: number
+}
+
+// 查询租户列表（delFlag='0' 在册 / '2' 回收站；平台全量，租户仅本租户）
 export function listTenant(query?: TenantQueryParams): Promise<AjaxResult<TenantVo[]>> {
   return request({
     url: '/system/tenant/list',
@@ -38,15 +131,15 @@ export function listTenant(query?: TenantQueryParams): Promise<AjaxResult<Tenant
 }
 
 // 查询租户详情
-export function getTenant(deptId: number): Promise<AjaxResult<TenantVo>> {
+export function getTenant(tenantId: number): Promise<AjaxResult<TenantVo>> {
   return request({
-    url: '/system/tenant/' + deptId,
+    url: '/system/tenant/' + tenantId,
     method: 'get'
   })
 }
 
-// 新增租户
-export function addTenant(data: TenantForm): Promise<AjaxResult> {
+// 新增租户（仅平台；响应 data 含一次性 adminInitPassword）
+export function addTenant(data: TenantAddDto): Promise<AjaxResult<TenantVo>> {
   return request({
     url: '/system/tenant',
     method: 'post',
@@ -55,7 +148,7 @@ export function addTenant(data: TenantForm): Promise<AjaxResult> {
 }
 
 // 修改租户
-export function updateTenant(data: TenantForm): Promise<AjaxResult> {
+export function updateTenant(data: TenantEditDto): Promise<AjaxResult<TenantVo>> {
   return request({
     url: '/system/tenant',
     method: 'put',
@@ -63,19 +156,35 @@ export function updateTenant(data: TenantForm): Promise<AjaxResult> {
   })
 }
 
-// 租户启停（停用后该租户用户无法登录）
-export function changeTenantStatus(deptId: number, status: string): Promise<AjaxResult> {
+// 租户启停（停用后该租户全部会话立即吊销，用户无法登录）
+export function changeTenantStatus(tenantId: number, status: string): Promise<AjaxResult> {
   return request({
     url: '/system/tenant/changeStatus',
     method: 'put',
-    data: { deptId, status }
+    data: { tenantId, status }
   })
 }
 
-// 删除租户（租户内仍有用户时拒绝）
-export function delTenant(deptId: number): Promise<AjaxResult> {
+// 删除租户（软删至回收站；租户内仍有用户时拒绝）
+export function delTenant(tenantId: number): Promise<AjaxResult> {
   return request({
-    url: '/system/tenant/' + deptId,
+    url: '/system/tenant/' + tenantId,
     method: 'delete'
+  })
+}
+
+// 恢复租户（回收站 → 停用态，需再显式启用）
+export function restoreTenant(tenantId: number): Promise<AjaxResult<TenantVo>> {
+  return request({
+    url: '/system/tenant/restore/' + tenantId,
+    method: 'put'
+  })
+}
+
+// 套餐下拉（仅平台；用于租户表单选择套餐白名单）
+export function listTenantPackageOptions(): Promise<AjaxResult<TenantPackageOption[]>> {
+  return request({
+    url: '/system/tenant/package/options',
+    method: 'get'
   })
 }

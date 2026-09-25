@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（68 个功能 / 646 checks，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（72 个功能，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -23,6 +23,9 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 ```
 
 - 该模式会让后端用 `ServeDir` 提供 `frontend-dist/`（见 `src/embedded_assets.rs`）。
+- ⚠️ **漏 `EMBEDDED_FRONTEND=true` 的典型症状**（轮11 实测）：后端退化为"前端分离模式"，`GET /login`
+  返回 JSON 404（而非 SPA HTML），e2e 首步即 `locator.fill: Timeout 30000ms`（找 `input[placeholder="账号"]`），
+  整套 UI 用例连环假失败——此时先查后端启动命令，而不是改选择器。
 - 其余 feature（除 F24 外）走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
 - **必须先把「嵌入式构建产物」同步进 `axum-backend/frontend-dist/`**：
   ```bash
@@ -69,10 +72,14 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 68 个功能（约 20 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 72 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-68` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- 通过判据（已验证基线）：三段合计 `106 + 220 + 320 = 646 通过 646 失败 0`，日志无 `❌`。
+  `1-20 / 21-40 / 41-72` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+- **功能 1-68** 通过判据（已验证基线）：三段合计 `106 + 220 + 326 = 652 通过 0 失败`，日志无 `❌`。
+- **功能 69-72** 通过判据（已验证基线，轮12）：`--feature=69-72` 单轮 `总计: 66  通过: 66  失败: 0`，EXIT=0，
+  且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=套餐与菜单白名单、
+  71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条）。
+  命令与 §3 相同，仅加 `--feature=69-72`。（轮11 基线为 62/62；轮12 新增 4 条读路径隔离断言 → 66/66。）
   （页面级循环轮10（收官）：功能 67 个人中心资料保存链+改密校验拦截 7 项、功能 68 执行一次→调度日志
   生成→详情→删除闭环 11 项，628→646，两功能均首轮全绿；应用零改动。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
@@ -248,6 +255,32 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 - 跳转日志列表页请求路径是 `/monitor/jobLog/list`（camelCase）；行删 DELETE 匹配用
   `/monitor\/jobLog\/\d+$/`（`$` 锚防止误匹配 `/clean`）。
 
+### 3.10 轮11 新增教训（租户三态 PATCH / 治理列 / 存量上传路径回填）
+
+- **PATCH 三态语义必须双向断言**：租户编辑 DTO 采用「字段缺省 = 不修改 / 显式 `null` = 清空 / 有值 = 设置」，
+  Rust 侧 `Option<Option<T>>` 默认把 JSON `null` 解析成**外层 None（=不修改）**，必须 `deserialize_with`
+  才能区分（后端 `src/common/double_opt.rs`）。e2e 因此写成三步可证伪链：详情快照 → 仅改名（断言
+  `packageId/expireTime` **不被隐式清空**）→ 显式传值设置 → 显式传 `null` 清空并回读复核。
+  只测"设置"会漏掉 serde 陷阱，只测"清空"会漏掉"改名误清空"。
+- **治理列断言取真实契约而非猜测**：`/system/config/configKey/{key}` 的 `data` 是**字符串**（不是对象），
+  租户覆盖行的治理列必须回读为 `scope=tenant_private`（租户不得篡改治理口径），平台锁定键回读为
+  `platform_only + editable=0 + visible=0`。断言前先 `GET` 一次确认真实结构，别按接口名猜。
+- **存量扁平上传路径由启动期回填（3.5i）**：`uploads/{kind}/{key}`（隔离前）→ `uploads/{tid}/{kind}/{key}`。
+  这类历史数据不是"运行期访问题"，而是**存量库兼容**：幂等扫描 + 同盘 rename / 跨盘 copy+delete，
+  启动日志会打印 `存量上传路径回填完成 … migrated=/moved=/skipped=/scanned=`。若头像等图片 404，
+  先看该行日志与 `sys_user.avatar` 是否仍是旧扁平路径，再怀疑代码。
+- **历史审计文本不算活引用**：`sys_oper_log` 里出现旧路径属历史记录（文本快照），不参与回填；
+  回填只改写**活引用列**（如 `sys_user.avatar`）。
+- **写断言前先确认响应"真实契约"（轮12 教训）**：功能 72 新增的读路径隔离断言首轮两条失败，不是修复无效，
+  而是**取错字段路径**——`GET /system/user/` 返回 `UserFormResult`，`roles`/`posts` 在**顶层**（无 `data` 包裹）；
+  `GET /system/dept/list` 返回 `AjaxResult<List>`，列表在 `data`（**不是**分页 `rows`）。
+  惯例：同一仓里"分页列表"用 `rows`、"全量下拉/树"用 `data`，而少数接口（如 `/system/user/`）连 `data` 都没有。
+  断言前先 `curl`/`fetch` 一次打 `Object.keys(resp)` 确认真实结构，别按接口名猜。
+- **下拉/树类读路径必须断言"租户不可见他租户"**：功能 72「步骤 10.5」四条可证伪断言（岗位下拉、
+  用户表单下拉角色/岗位、部门树 A/B 互不可见且不含平台部门、角色部门树跨租户 403 / 本租户 200），
+  每条先证明"平台侧确有该数据"再断言租户侧只见本租户行，避免"数据为空 → 越界 0"的空断言。
+- **后端必须 embedded 模式**（见 §1）：否则 UI 登录链路整体 404 假失败。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
@@ -272,8 +305,11 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 714 passed，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --all-targets -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
+- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 **814 passed / 0 failed**，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --all-targets -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
   - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
 - 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 40 个类型）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
 - CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `yebot-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。
+- 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.5 全 PASS**；
+  产物 `docs/optimization/tenant-audit-report.md` 是**候选集**，每条需回代码复核，
+  口径见 `docs/optimization/topic-multitenant-sso-audit-2026-09-23.md` §30.2.5/§30.2.6。

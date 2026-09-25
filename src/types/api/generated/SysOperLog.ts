@@ -4,7 +4,15 @@ export type SysOperLog = {
 /**
  * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
  */
-tenantId: number, operId: number, title: string | null, businessType: number | null, method: string | null, requestMethod: string | null, operatorType: number | null, operName: string | null, deptName: string | null, operUrl: string | null, operIp: string | null, operLocation: string | null, operParam: string | null, 
+tenantId: number, 
+/**
+ * 被操作资源的目标租户（多租户 Phase 3）。
+ *
+ * 仅当「操作者租户」与「被操作资源租户」不一致（平台代管他租户资源）时写入，
+ * 用于让资源所属租户也能在审计日志中看到涉及自身资源的代管操作；
+ * 两者一致或单租户场景为 `NULL`。
+ */
+targetTenantId: number | null, operId: number, title: string | null, businessType: number | null, method: string | null, requestMethod: string | null, operatorType: number | null, operName: string | null, deptName: string | null, operUrl: string | null, operIp: string | null, operLocation: string | null, operParam: string | null, 
 /**
  * 变更前数据快照（JSON，仅 PUT/DELETE 记录）
  */

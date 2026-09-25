@@ -23,6 +23,8 @@ interface UserState {
   avatar: string
   roles: string[]
   permissions: string[]
+  /** 多租户 Phase 3：当前登录用户所属租户 ID（0 = 平台租户；用于平台/租户分层视图判定） */
+  tenantId: number
 }
 
 const useUserStore = defineStore('user', {
@@ -33,7 +35,8 @@ const useUserStore = defineStore('user', {
     nickName: '',
     avatar: '',
     roles: [],
-    permissions: []
+    permissions: [],
+    tenantId: 0
   }),
   actions: {
     // 登录
@@ -80,6 +83,8 @@ const useUserStore = defineStore('user', {
       this.name = user.userName || ''
       this.nickName = user.nickName || ''
       this.avatar = avatar
+      // 多租户 Phase 3：租户归属随 getInfo 一次带回（0 = 平台租户）
+      this.tenantId = Number(user.tenantId ?? 0)
       cache.session.set('pwdChrtype', res.pwdChrtype || '0')
       // P1 修复: 同步更新 passwordRule 模块级 ref，确保登录后规则实时生效
       setPwdChrType(res.pwdChrtype || '0')
@@ -137,6 +142,8 @@ const useUserStore = defineStore('user', {
         this.name = ''
         this.nickName = ''
         this.avatar = ''
+        // 多租户 Phase 3：清理租户归属，避免切换账号后残留（P0-60 同类权限泄漏问题）
+        this.tenantId = 0
         // 清理字典缓存
         useDictStore().cleanDict()
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）

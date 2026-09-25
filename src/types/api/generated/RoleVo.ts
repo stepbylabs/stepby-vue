@@ -7,7 +7,15 @@ export type RoleVo = { menuIds: Array<number>,
 /**
  * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
  */
-tenantId: number, roleId: number, roleName: string, roleKey: string, roleSort: number, dataScope: string | null, 
+tenantId: number, roleId: number, roleName: string, 
+/**
+ * 角色权限字符。
+ *
+ * 唯一性已由迁移 `m20260925_000004` 的复合唯一索引
+ * `uk_sys_role_tenant_key (tenant_id, role_key)` 承担（同租户内唯一，不同租户可同名），
+ * 故此处不再标注单列 unique 属性；运行时查询由 SQL 显式构造，不受该属性影响。
+ */
+roleKey: string, roleSort: number, dataScope: string | null, 
 /**
  * 自定义部门 SQL 过滤片段（data_scope="2" 时可选）。仅存原始字符串，
  * 运行时由 common::custom_scope 白名单解析为参数化条件，绝不拼接裸 SQL。

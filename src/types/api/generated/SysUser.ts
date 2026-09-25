@@ -15,7 +15,10 @@ countryCode: string | null, sex: string | null, avatar: string | null, status: s
  */
 tenantId: number, 
 /**
- * v5-D12：SCIM externalId（IdP 侧用户唯一标识；NULL = 非 SCIM provision，
- * 全局唯一索引 idx_sys_user_scim_external_id）
+ * v5-D12：SCIM externalId（IdP 侧用户唯一标识；NULL = 非 SCIM provision）。
+ *
+ * 唯一性由迁移 `m20260925_000004` 的复合唯一索引
+ * `uk_sys_user_tenant_scim (tenant_id, scim_external_id)` 承担（同租户内唯一），
+ * 已取代旧的全局单列索引 `idx_sys_user_scim_external_id`。
  */
 scimExternalId?: string | null, };

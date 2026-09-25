@@ -32,6 +32,8 @@ export interface SysUser extends BaseEntity {
   userId?: number
   /** 部门ID */
   deptId?: number
+  /** 多租户归属租户 ID（0 = 平台租户；Phase 3 由 /getInfo 一次带回） */
+  tenantId?: number
   /** 用户账号 */
   userName?: string
   /** 用户昵称 */

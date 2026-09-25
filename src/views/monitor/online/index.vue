@@ -24,6 +24,17 @@
               @keyup.enter="handleQuery"
             />
           </el-form-item>
+          <!-- §27.13.2 分层视图：租户筛选仅平台操作者（tid=0）可见；租户操作者后端恒按本租户过滤 -->
+          <el-form-item v-if="isPlatform" :label="t('online.search.tenantId')" prop="tenantId">
+            <el-input-number
+              v-model="queryParams.tenantId"
+              :min="0"
+              :controls="false"
+              :placeholder="t('online.search.phTenantId')"
+              class="w-[140px]"
+              @keyup.enter="handleQuery"
+            />
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
             <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
@@ -54,6 +65,19 @@
             min-width="120"
             show-overflow-tooltip
           />
+          <!-- §27.13.2 分层视图：租户列仅平台视图展示（租户操作者全部会话同属本租户） -->
+          <el-table-column
+            v-if="isPlatform"
+            :label="t('online.column.tenantName')"
+            align="center"
+            prop="tenantName"
+            min-width="120"
+            show-overflow-tooltip
+          >
+            <template #default="{ row }">
+              {{ row.tenantName || (row.tenantId === 0 ? t('common.platformTenant') : `#${row.tenantId}`) }}
+            </template>
+          </el-table-column>
           <el-table-column
             :label="t('online.column.deptName')"
             align="center"
@@ -162,8 +186,12 @@ const formRef = ref<FormInstance | null>(null)
 
 const queryParams = ref<OnlineQueryParams>({
   ipaddr: undefined,
-  userName: undefined
+  userName: undefined,
+  tenantId: undefined
 })
+
+// §27.13.2 分层视图：平台操作者（tenantId=0）可跨租户查看并筛选；租户操作者仅本租户
+const isPlatform = computed(() => (userStore.tenantId ?? 0) === 0)
 
 // 权限判断：管理员视角需要 monitor:online:list，用户视角需要 monitor:session:list
 const hasOnlinePerm = computed(() => {
@@ -188,7 +216,8 @@ const {
   resetQuery: baseResetQuery
 } = useCrudTable<SysUserOnline, OnlineQueryParams>({
   // 在线用户列表为全量返回，仅透传过滤字段（不向后端传分页参数，由前端切片分页）
-  listApi: (params) => initData({ ipaddr: params.ipaddr, userName: params.userName }),
+  listApi: (params) =>
+    initData({ ipaddr: params.ipaddr, userName: params.userName, tenantId: params.tenantId }),
   getApi: () => Promise.resolve({}),
   addApi: () => Promise.resolve({}),
   updateApi: () => Promise.resolve({}),

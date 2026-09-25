@@ -453,6 +453,12 @@ onMounted(async () => {
   wsService.on('flowTodo', onFlowTodo)
   wsService.on('flowFinished', onFlowFinished)
 })
+
+// 组件卸载时解绑，防内存泄漏与重复注册
+onUnmounted(() => {
+  wsService.off('flowTodo', onFlowTodo)
+  wsService.off('flowFinished', onFlowFinished)
+})
 </script>
 
 <style scoped>

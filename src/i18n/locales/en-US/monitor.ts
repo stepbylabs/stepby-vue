@@ -72,7 +72,9 @@ export default {
       ipaddr: 'Login IP',
       phIpaddr: 'Enter login IP',
       userName: 'Username',
-      phUserName: 'Enter username'
+      phUserName: 'Enter username',
+      tenantId: 'Tenant ID',
+      phTenantId: 'Tenant ID (0 = platform)'
     },
     btn: {
       forceLogout: 'Force Logout'
@@ -83,6 +85,7 @@ export default {
     column: {
       tokenId: 'Session ID',
       userName: 'Username',
+      tenantName: 'Tenant',
       deptName: 'Department',
       ipaddr: 'Host',
       loginLocation: 'Login Location',
