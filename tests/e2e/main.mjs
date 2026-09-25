@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离（共 73 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）（共 74 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -15232,6 +15232,342 @@ async function testFeature73(page) {
   }
 }
 
+// ==================== 功能 74：跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读） ====================
+// 固化第四轮核查修复的 3 类跨租户缺陷（全部可证伪，均含同租户/平台侧对照）：
+//   ① sys_user_service 的 delete_user/delete_users/reset_user_pwd/update_user_status/assign_user_roles
+//      补 tenant_allowed(operator_tid, row.tenant_id) ⇒ 租户管理员跨租户写用户被拒 403；
+//   ② GET /system/post/{postId} 补 tenant_allowed ⇒ 跨租户读岗位详情 403；
+//   ③ GET /monitor/frontendError/list 补 tenant_scope + report 按上报者 tenant_id 落库 ⇒ 跨租户不可见。
+// 多租户语义：tenant_id=0 平台（全量）；tid≠0 仅本租户。租户管理员默认角色 = 平台 role2（只读白名单）∩ 套餐，
+//   故先由平台 admin 给租户 A 角色补 user:query/edit/remove/resetPwd，使 403 只能归因于租户归属校验（可证伪前提）。
+// 契约偏差（以实际后端为准，均已核实）：
+//   - 前端错误上报实际路径为 POST /monitor/frontendError/report（非 /monitor/frontendError）；
+//   - list 检索仅支持 name 模糊（不检索 message），故 marker 同时写入 name 与 message，用 name= 查询印证。
+async function testFeature74(page) {
+  log('=== 功能 74：跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读） ===')
+
+  // ---------- A. 前置 ----------
+  const { token: adminToken, detail: adminLoginDetail } = await apiLogin()
+  if (!adminToken) {
+    record(74, 'A1 平台 admin 登录获取 token', false, adminLoginDetail || '登录失败')
+    return
+  }
+  record(74, 'A1 平台 admin 登录获取 token', true, 'token 获取成功')
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
+  const authHeaders = { Authorization: `Bearer ${adminToken}` }
+  const uniq = Date.now()
+
+  let ta = null
+  let tb = null
+  let tokenA = null
+  let tokenB = null
+  let roleAuthA = null
+  let userAId = null
+  let userBId = null
+  let platformPostId = null
+  const feMarker = `e2e74-marker-${uniq}`
+  let feRecordIds = []
+
+  // 统一响应读取（返回 status / body / code / rows / total / data，网络异常安全兜底）
+  const api = async (url, opts) => {
+    const res = await fetch(url, opts).catch(() => null)
+    if (!res) return { ok: false, status: 0, body: null, code: null, msg: 'network', rows: [], total: null, data: null }
+    const body = await res.json().catch(() => null)
+    return {
+      ok: true,
+      status: res.status,
+      body,
+      code: body?.code ?? null,
+      msg: body?.msg ?? '',
+      rows: body?.rows || [],
+      total: body?.total ?? null,
+      data: body?.data ?? null
+    }
+  }
+
+  const mkTenant = async (label) => {
+    const name = `e2e74${label}${uniq}`
+    const code = `t74${label}${uniq}`
+    const resp = await api(`${CONFIG.backendUrl}/system/tenant`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ tenantName: name, tenantCode: code, status: '0' })
+    })
+    return {
+      name,
+      code,
+      tenantId: resp?.data?.tenantId || null,
+      userName: resp?.data?.adminUserName || null,
+      pw: resp?.data?.adminInitPassword || null
+    }
+  }
+
+  const listUserByName = async (headers, userName) =>
+    api(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(userName)}`, { headers })
+
+  try {
+    ta = await mkTenant('a')
+    tb = await mkTenant('b')
+    record(
+      74,
+      'A2 建立租户 A 与 B（返回管理员账号/初始密码）',
+      !!ta.tenantId && !!tb.tenantId && !!ta.userName && !!tb.userName && !!ta.pw && !!tb.pw,
+      `A=${ta.tenantId}/${ta.userName}, B=${tb.tenantId}/${tb.userName}`
+    )
+    if (!ta.tenantId || !tb.tenantId || !ta.userName || !tb.userName) {
+      record(74, 'A 后续用例', false, '前置失败：租户未创建')
+      return
+    }
+
+    const loginA = await apiLogin({}, ta.userName, ta.pw)
+    const loginB = await apiLogin({}, tb.userName, tb.pw)
+    tokenA = loginA.token
+    tokenB = loginB.token
+    record(74, 'A3 租户 A/B 管理员登录', !!tokenA && !!tokenB, `A=${loginA.detail || 'ok'}, B=${loginB.detail || 'ok'}`)
+    if (!tokenA || !tokenB) {
+      record(74, 'A 后续用例', false, '前置失败：租户管理员未登录')
+      return
+    }
+    const jsonA = { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+    const authA = { Authorization: `Bearer ${tokenA}` }
+    const authB = { Authorization: `Bearer ${tokenB}` }
+
+    // 取 A/B 管理员 userId（用各自 token 查自己租户列表 ⇒ 同时印证列表按租户收窄）
+    const aSelfList = await listUserByName(authA, ta.userName)
+    userAId = (aSelfList?.rows || []).find((u) => u.userName === ta.userName)?.userId || null
+    const bSelfList = await listUserByName(authB, tb.userName)
+    userBId = (bSelfList?.rows || []).find((u) => u.userName === tb.userName)?.userId || null
+    record(
+      74,
+      'A4 取到 A/B 管理员 userId（各自租户列表，租户内可见）',
+      aSelfList?.code === 200 && bSelfList?.code === 200 && !!userAId && !!userBId,
+      `A.userId=${userAId}, B.userId=${userBId}`
+    )
+
+    // ---------- A5/A6：定位租户 A 管理员角色 + 平台补权（可证伪前提） ----------
+    const roleList = await api(`${CONFIG.backendUrl}/system/role/list?roleKey=${encodeURIComponent(`${ta.code}_admin`)}`, {
+      headers: authHeaders
+    })
+    roleAuthA = (roleList?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId || null
+    let roleMenuBefore = []
+    if (roleAuthA) {
+      const d = await api(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+      roleMenuBefore = d?.data?.menuIds || []
+    }
+    // 1000=user:query / 1002=user:edit / 1003=user:remove / 1006=user:resetPwd
+    const NEED_MENUS = [1000, 1002, 1003, 1006]
+    const grantMenus = [...new Set([...roleMenuBefore, ...NEED_MENUS])].sort((a, b) => a - b)
+    let roleMenuAfter = []
+    let grantPutCode = null
+    if (roleAuthA) {
+      const putResp = await api(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: grantMenus })
+      })
+      grantPutCode = putResp?.code
+      const after = await api(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+      roleMenuAfter = after?.data?.menuIds || []
+    }
+    const allNeededGranted = NEED_MENUS.every((id) => roleMenuAfter.includes(id))
+    record(
+      74,
+      'A5 平台为租户 A 管理员角色补权 user:query/edit/remove/resetPwd',
+      !!roleAuthA && grantPutCode === 200 && allNeededGranted,
+      `roleId=${roleAuthA}, PUT=${grantPutCode}, menuIds=${roleMenuAfter.length}, 全含${NEED_MENUS.join('/')}=${allNeededGranted}`
+    )
+
+    const aPermList = await listUserByName(authA, ta.userName)
+    record(
+      74,
+      'A6 补权后 A GET /system/user/list 返回 200（证明确持有用户权限 ⇒ 后续 403 只能归因租户校验）',
+      aPermList?.code === 200,
+      `code=${aPermList?.code}`
+    )
+
+    // ---------- C. 跨租户读岗位详情（A/B 读平台岗位 403，平台 admin 读同岗位 200） ----------
+    const postCode = `e2e74post${uniq}`
+    const addPost = await api(`${CONFIG.backendUrl}/system/post`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ postCode, postName: `e2e74岗位${uniq}`, postSort: 999, status: '0' })
+    })
+    if (addPost?.code === 200) {
+      const pl = await api(`${CONFIG.backendUrl}/system/post/list?postCode=${encodeURIComponent(postCode)}&pageNum=1&pageSize=50`, {
+        headers: authHeaders
+      })
+      platformPostId = (pl?.rows || []).find((p) => p.postCode === postCode)?.postId || null
+    }
+    record(
+      74,
+      'C1 平台 admin 创建平台岗位（tenant_id=0）',
+      addPost?.code === 200 && typeof platformPostId === 'number',
+      `POST=${addPost?.code}, postId=${platformPostId}`
+    )
+    if (typeof platformPostId === 'number') {
+      const aPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authA })
+      const bPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authB })
+      const admPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authHeaders })
+      record(74, 'C2 A 读平台岗位详情 => 403（跨租户读被拒）', aPost.status === 403, `status=${aPost.status}, code=${aPost.code}`)
+      record(74, 'C3 B 读平台岗位详情 => 403（跨租户读被拒）', bPost.status === 403, `status=${bPost.status}, code=${bPost.code}`)
+      record(
+        74,
+        'C4 对照：平台 admin 读同一岗位 => 200（岗位存在、接口正常，403 系租户边界所致）',
+        admPost.status === 200 && admPost.code === 200,
+        `status=${admPost.status}, code=${admPost.code}`
+      )
+    } else {
+      record(74, 'C2 A 读平台岗位详情 => 403（跨租户读被拒）', false, '前置失败：平台岗位未创建')
+      record(74, 'C3 B 读平台岗位详情 => 403（跨租户读被拒）', false, '前置失败：平台岗位未创建')
+      record(74, 'C4 对照：平台 admin 读同一岗位 => 200', false, '前置失败：平台岗位未创建')
+    }
+
+    // ---------- D. 跨租户读前端错误（平台上报→平台可见；A/B 检索同一 marker 为 0） ----------
+    const feList = (headers) =>
+      api(`${CONFIG.backendUrl}/monitor/frontendError/list?pageNum=1&pageSize=50&name=${encodeURIComponent(feMarker)}`, {
+        headers
+      })
+    const report = await api(`${CONFIG.backendUrl}/monitor/frontendError/report`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ items: [{ level: 'error', source: 'vue', name: feMarker, message: feMarker }] })
+    })
+    record(74, 'D1 平台 admin 上报带独特 marker 的前端错误（POST /monitor/frontendError/report）', report.code === 200, `code=${report.code}, msg=${String(report.msg).slice(0, 40)}`)
+
+    const adminSearch = await feList(authHeaders)
+    feRecordIds = (adminSearch.rows || []).filter((r) => r.name === feMarker).map((r) => r.id)
+    record(
+      74,
+      'D2 平台按 marker 检索 => ≥1 条（证明数据确实存在，非空断言）',
+      adminSearch.code === 200 && (adminSearch.total ?? 0) >= 1 && feRecordIds.length >= 1,
+      `total=${adminSearch.total}, ids=${feRecordIds.length}`
+    )
+    const aSearch = await feList(authA)
+    const bSearch = await feList(authB)
+    record(
+      74,
+      'D3 A 按 marker 检索 => 0 条（跨租户不可见）',
+      aSearch.code === 200 && aSearch.total === 0 && (aSearch.rows || []).length === 0,
+      `code=${aSearch.code}, total=${aSearch.total}`
+    )
+    record(
+      74,
+      'D4 B 按 marker 检索 => 0 条（跨租户不可见）',
+      bSearch.code === 200 && bSearch.total === 0 && (bSearch.rows || []).length === 0,
+      `code=${bSearch.code}, total=${bSearch.total}`
+    )
+
+    // ---------- B. 跨租户写用户（A 的 token 操作 B 管理员 ⇒ 403；同租户对照 ⇒ 200） ----------
+    const cs = await api(`${CONFIG.backendUrl}/system/user/changeStatus`, {
+      method: 'PUT',
+      headers: jsonA,
+      body: JSON.stringify({ userId: userBId, status: '1' })
+    })
+    record(74, 'B1 A 跨租户停用 B 管理员（PUT /system/user/changeStatus）=> 403', !!userBId && cs.status === 403, `status=${cs.status}, code=${cs.code}`)
+
+    const rp = await api(`${CONFIG.backendUrl}/system/user/resetPwd`, {
+      method: 'PUT',
+      headers: jsonA,
+      body: JSON.stringify({ userId: userBId, password: `Zq74x${uniq}` })
+    })
+    record(74, 'B2 A 跨租户重置 B 管理员密码（PUT /system/user/resetPwd）=> 403', !!userBId && rp.status === 403, `status=${rp.status}, code=${rp.code}`)
+
+    const delB = await api(`${CONFIG.backendUrl}/system/user/${userBId}`, { method: 'DELETE', headers: authA })
+    record(74, 'B3 A 跨租户删除 B 管理员（DELETE /system/user/{id}）=> 403', !!userBId && delB.status === 403, `status=${delB.status}, code=${delB.code}`)
+
+    // 对照：A 对本租户（自身）changeStatus。用 status='0'（幂等启用）——停用自己会 INCR pwd_ver 令 token 立即
+    // 失效并摧毁后续共享会话，故不做 "1→0" 来回切；'0' 同租户写成功即可证明"并非全部拒绝"。
+    const ctrl = await api(`${CONFIG.backendUrl}/system/user/changeStatus`, {
+      method: 'PUT',
+      headers: jsonA,
+      body: JSON.stringify({ userId: userAId, status: '0' })
+    })
+    record(
+      74,
+      'B4 对照：A 对本租户用户 changeStatus => 200（证明并非全部拒绝）',
+      !!userAId && ctrl.status === 200 && ctrl.code === 200,
+      `status=${ctrl.status}, code=${ctrl.code}`
+    )
+  } finally {
+    // ---------- E. 闭环清理（前端错误记录 → 平台岗位 → 管理员用户 → 租户 → DB 角色菜单残留 → 复核） ----------
+    let cleanupOk = true
+    // 1) 删除本功能上报的前端错误记录
+    try {
+      for (const id of feRecordIds) {
+        const d = await api(`${CONFIG.backendUrl}/monitor/frontendError/${id}`, { method: 'DELETE', headers: authHeaders })
+        if (d.code !== 200) cleanupOk = false
+      }
+    } catch {
+      cleanupOk = false
+    }
+    // 2) 删除平台岗位
+    if (typeof platformPostId === 'number') {
+      const d = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { method: 'DELETE', headers: authHeaders })
+      if (d.code !== 200) cleanupOk = false
+    }
+    // 3) 删除租户管理员用户（否则租户删除被"租户内仍有用户"正确拒绝）
+    for (const t of [ta, tb]) {
+      if (!t?.userName) continue
+      const ul = await api(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(t.userName)}`, {
+        headers: authHeaders
+      })
+      const uid = (ul?.rows || []).find((u) => u.userName === t.userName)?.userId || null
+      if (uid) {
+        const d = await api(`${CONFIG.backendUrl}/system/user/${uid}`, { method: 'DELETE', headers: authHeaders })
+        if (d.code !== 200) cleanupOk = false
+      }
+    }
+    // 4) 删除租户 A/B
+    for (const t of [ta, tb]) {
+      if (!t?.tenantId) continue
+      const d = await api(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, { method: 'DELETE', headers: authHeaders })
+      if (d.code !== 200) cleanupOk = false
+    }
+    // 5) DB 直连清理租户 A 角色菜单残留（租户 remove 为软删且不清 sys_role_menu）
+    if (roleAuthA) {
+      try {
+        const { DatabaseSync } = await import('node:sqlite')
+        const dbPath = path.resolve(__dirname, '../../../axum-backend/data/yebot.db')
+        const cdb = new DatabaseSync(dbPath)
+        cdb.exec('PRAGMA busy_timeout = 5000')
+        cdb.prepare('DELETE FROM sys_role_menu WHERE role_id = ?').run(roleAuthA)
+        cdb.close()
+      } catch {
+        /* best-effort（残留不影响断言口径） */
+      }
+    }
+    // 6) 复核：前端错误记录 0 / 岗位已删 / 租户已不在列表
+    let remain = 0
+    for (const t of [ta, tb]) {
+      if (!t?.name) continue
+      const l = await api(`${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(t.name)}`, {
+        headers: authHeaders
+      })
+      remain += (l?.data || []).filter((x) => x.tenantName === t.name).length
+    }
+    const feAfter = await api(
+      `${CONFIG.backendUrl}/monitor/frontendError/list?pageNum=1&pageSize=50&name=${encodeURIComponent(feMarker)}`,
+      { headers: authHeaders }
+    )
+    let postAfterStatus = null
+    if (typeof platformPostId === 'number') {
+      const p = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authHeaders })
+      postAfterStatus = p.status
+    }
+    record(
+      74,
+      'E 清理：测试租户 / 平台岗位 / 前端错误记录已回收',
+      cleanupOk && remain === 0 && (feAfter.total ?? -1) === 0 && postAfterStatus === 404,
+      `残留租户=${remain}, 残留前端错误=${feAfter.total}, 岗位删除后状态=${postAfterStatus}`
+    )
+
+    // ---------- 综合判定（严格 === total，禁止宽容余量） ----------
+    const mine = results.filter((r) => r.feature === 74)
+    const passedCount = mine.filter((r) => r.passed).length
+    record(74, '功能综合验证（全部子项通过）', passedCount === mine.length, `${passedCount}/${mine.length}`)
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -15256,7 +15592,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（73 个功能）')
+  log('yebot 端到端主测试脚本（74 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -15383,7 +15719,8 @@ async function main() {
       { id: 70, fn: testFeature70 },
       { id: 71, fn: testFeature71 },
       { id: 72, fn: testFeature72 },
-      { id: 73, fn: testFeature73 }
+      { id: 73, fn: testFeature73 },
+      { id: 74, fn: testFeature74 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿

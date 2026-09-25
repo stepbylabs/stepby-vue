@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（73 个功能，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（74 个功能，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -72,9 +72,9 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 73 个功能（约 20 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 74 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-73` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+  `1-20 / 21-40 / 41-74` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
 - **功能 1-68** 通过判据（已验证基线）：三段合计 `106 + 220 + 326 = 652 通过 0 失败`，日志无 `❌`。
 - **功能 69-73** 通过判据（已验证基线，轮13）：`--feature=69-73` 单轮 `失败: 0`，EXIT=0，
   且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
@@ -86,6 +86,17 @@ node main.mjs --headless
   （页面级循环轮10（收官）：功能 67 个人中心资料保存链+改密校验拦截 7 项、功能 68 执行一次→调度日志
   生成→详情→删除闭环 11 项，628→646，两功能均首轮全绿；应用零改动。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
+- **功能 74** 通过判据（已验证基线，轮14）：`--feature=74` → `总计 20 通过 20 失败 0`（EXIT=0）；
+  `--feature=69-74` → `总计 103 通过 103 失败 0`（EXIT=0，未破坏既有 69-73）。功能 74 = **跨租户越权防护**
+  （user 写越权 / post 与 frontendError 跨租户读）：A 前置建租户 A/B，并以平台 admin 给 A 管理员角色补
+  `user:query/edit/remove/resetPwd`（可证伪前提：补权后 A 的 `GET /system/user/list` 200，使越权 403 只能归因租户校验）；
+  B 跨租户写 user（`changeStatus`/`resetPwd`/`DELETE /system/user/{id}` 各 **403**）+ 同租户对照 **200**；
+  C 跨租户读岗位详情（A/B 读平台岗位 **403**，平台 admin 读同一岗位 **200** 对照）；
+  D 前端错误跨租户不可见（平台上报 marker → 平台检索 ≥1，A/B 检索 **0**）；
+  E finally 闭环清理（前端错误记录 / 平台岗位 / 管理员用户 / 租户 / A 角色菜单残留全回收，复核残留 0）。
+  **契约偏差（以实际后端为准）**：上游描述的上报路径为 `/monitor/frontendError`，实际为
+  `/monitor/frontendError/report`（`report` 仅需登录）；list 仅按 `name` 模糊检索（不检索 `message`），
+  故 marker 同时写入 `name` 与 `message`、以 `name=<marker>` 查询印证。
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 
