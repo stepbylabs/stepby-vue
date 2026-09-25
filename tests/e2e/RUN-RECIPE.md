@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（72 个功能，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `yebot-ui/tests/e2e/main.mjs`（73 个功能，套件已并入 yebot-ui 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -72,14 +72,17 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 72 个功能（约 20 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 73 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-72` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+  `1-20 / 21-40 / 41-73` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
 - **功能 1-68** 通过判据（已验证基线）：三段合计 `106 + 220 + 326 = 652 通过 0 失败`，日志无 `❌`。
-- **功能 69-72** 通过判据（已验证基线，轮12）：`--feature=69-72` 单轮 `总计: 66  通过: 66  失败: 0`，EXIT=0，
-  且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=套餐与菜单白名单、
-  71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条）。
-  命令与 §3 相同，仅加 `--feature=69-72`。（轮11 基线为 62/62；轮12 新增 4 条读路径隔离断言 → 66/66。）
+- **功能 69-73** 通过判据（已验证基线，轮13）：`--feature=69-73` 单轮 `失败: 0`，EXIT=0，
+  且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
+  71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条、
+  **73=多租户 Phase 3 套餐白名单三处生效点（授权∩白名单 403 / getRouters 剪枝 / 套餐变更收敛）+ 到期三态（宽限只读 403 / 超宽限拒登）
+  + 文件跨租户隔离 403（`/common/download/resource`、`/uploads/{tid}/...`）**）。
+  命令与 §3 相同，仅加 `--feature=69-73`。（轮11 基线为 62/62；轮12 新增 4 条读路径隔离断言 → 66/66；
+  轮13 新增功能 73（15 项断言，含 finally 闭环清理）→ 69-73 全绿。）
   （页面级循环轮10（收官）：功能 67 个人中心资料保存链+改密校验拦截 7 项、功能 68 执行一次→调度日志
   生成→详情→删除闭环 11 项，628→646，两功能均首轮全绿；应用零改动。
   运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
@@ -280,6 +283,33 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   用户表单下拉角色/岗位、部门树 A/B 互不可见且不含平台部门、角色部门树跨租户 403 / 本租户 200），
   每条先证明"平台侧确有该数据"再断言租户侧只见本租户行，避免"数据为空 → 越界 0"的空断言。
 - **后端必须 embedded 模式**（见 §1）：否则 UI 登录链路整体 404 假失败。
+
+### 3.11 轮13 新增教训（套餐白名单三处生效点 / 到期三态 / 跨租户文件）
+
+- **套餐白名单无 CRUD API**：仓库只有只读 `/system/tenant/package/options`，迁移仅种入唯一 `标准版`（`menu_ids=NULL`=不限制）。
+  构造"受限白名单套餐"的合法途经是 e2e 用 `node:sqlite`（Node 内置，`DatabaseSync`；不用未安装的 better-sqlite3）
+  直连同一 `axum-backend/data/yebot.db` 注入夹具套餐（后端为 WAL + `busy_timeout=5s`，外部进程写安全），
+  **幂等（按 package_name 先删后插）+ finally 删净**，断言仍全走 HTTP（保真后端契约）。
+- **可证伪前提**：`converge_tenant_role_menus` 在套餐变更时总会把角色菜单收敛到 ⊆ 白名单，故正常路径下 getRouters 剪枝是 no-op。
+  证明剪枝必须**绕过收敛**：直接 DB `INSERT OR IGNORE sys_role_menu` 注入一条越界菜单，再用 API 证明"角色确有该菜单"但 getRouters 已剔除。
+  选**父节点也在角色内**的菜单（105 字典管理，父 1 系统管理）→ 其缺席必为白名单剪枝，排除"孤儿节点"误因。
+- **套餐①门禁的演员**：租户管理员默认角色 = 平台 role2 菜单 ∩ 白名单（`sys_tenant_service.rs` `add`），**不含** `system:role:add/edit`。
+  故须先用平台 admin 给该角色补 1008/1009（须 ⊆ 白名单），再以"对照 200 / 越界 403 且回读无部分写入"两条双向断言。
+- **到期三态语义**（`resolve_login_state`，`TENANT_EXPIRE_GRACE_DAYS=7`）：`now ≥ exp+7d`=Disabled（登录 403）；
+  `exp ≤ now < exp+7d`=Grace（登录放行，写 403 `error.tenant.expired_readonly`，读放行）；否则 Active。
+  时间戳须按 **UTC** 字符串提交（`datetime::parse_flexible` 按 UTC 解析，`now_naive()=Utc::now().naive_local()`）。
+  到期重登**不可复用 apiLogin（有 token 缓存）**，须原生 `fetch('/login')`。
+- **跨租户文件语义修正（台账口径更正）**：台账 P2-1 标注"跨租户下载 → 403"，但 `GET /common/download` 实为 **404**
+  （`common_handler.rs` download L573）；真正返回 **403** 的是 `/common/download/resource`（越权 `error.common.forbidden`，L632）
+  与直链 `/uploads/{tid}/{kind}/{key}`（L688）。功能 73 断言以后两者为准。
+- **清理口径**：租户 `remove` 为**软删且不清 `sys_role_menu`**，故角色-菜单残留须 finally 用 DB 显式删除；
+  上传文件用 `GET /common/download?delete=true` 收尾；`GET /system/tenant/list` 结果在 **`data`**（非分页 `rows`），
+  复核残留时用 `data` 才是有效断言。
+- **`page.goto: Timeout 30000ms exceeded` = 环境抖动，非断言回归**（本轮实测）：全量分段跑时长会话下，后端/Redis
+  若瞬时抖动，页面导航会 30s 超时并使该功能**提前中止**（后续断言不计入总计 ⇒ 该段 total 会低于基线，如 317 < 326），
+  同批还会收集到瞬时 `401/503` 告警。**判据**：① 失败文案是 `page.goto` 超时（非业务断言不符）；② 单独
+  `--feature=<该功能>` 复跑全绿（本轮功能 60：13/13）。二者同时成立即可判定为环境抖动，**必须重跑该段取净结果**，
+  不可直接采信首跑的 `失败: 1`。
 
 ## 4. source-check 防混淆约定（重要）
 

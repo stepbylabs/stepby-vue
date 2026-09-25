@@ -20,4 +20,11 @@ roleKey: string, roleSort: number, dataScope: string | null,
  * 自定义部门 SQL 过滤片段（data_scope="2" 时可选）。仅存原始字符串，
  * 运行时由 common::custom_scope 白名单解析为参数化条件，绝不拼接裸 SQL。
  */
-customSql: string | null, menuCheckStrictly: boolean | null, deptCheckStrictly: boolean | null, status: string, delFlag: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, };
+customSql: string | null, menuCheckStrictly: boolean | null, deptCheckStrictly: boolean | null, status: string, 
+/**
+ * 系统角色标记（台账 P0-2：超管判定与可变 `role_key` 解耦）。
+ *
+ * 平台超级管理员 = `is_system && tenant_id == 0`（见 [`Model::is_platform_super_admin`]）。
+ * 仅由种子/迁移置位；业务侧新建角色一律为 `false`，且不可通过 DTO 修改。
+ */
+isSystem: boolean, delFlag: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, };

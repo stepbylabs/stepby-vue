@@ -301,6 +301,10 @@ export default {
     remark: '备注',
     restore: '恢复',
     restoreConfirm: '确认将租户「{0}」从回收站恢复？恢复后为停用态，需再显式启用',
+    exportPackage: '导出数据包',
+    exportConfirm:
+      '确认导出 租户「{0}」的数据包？将导出该租户全部数据为 JSON 文件（不含其它租户数据），可在「数据备份」中下载',
+    exportSuccess: '租户数据包已导出并开始下载（记录见「数据备份」）',
     modelTip:
       '租户模型：事实源为独立租户表（tenant_id 独立 id 空间）；套餐白名单控制菜单上限；停用/删除/到期会立即吊销该租户全部会话。',
     addTitle: '新增租户',
@@ -958,6 +962,7 @@ export default {
     form: {
       manual: '手动备份',
       auto: '自动备份',
+      tenantExport: '租户数据包',
       success: '成功',
       fail: '失败'
     },

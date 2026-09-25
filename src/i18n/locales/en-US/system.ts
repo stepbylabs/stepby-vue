@@ -302,6 +302,10 @@ export default {
     restore: 'Restore',
     restoreConfirm:
       'Restore tenant "{0}" from the recycle bin? It will be set to Disabled and must be enabled explicitly',
+    exportPackage: 'Export package',
+    exportConfirm:
+      'Export the data package of tenant "{0}"? All data of this tenant will be exported as a JSON file (other tenants excluded); download it under Data Backup',
+    exportSuccess: 'Tenant package exported and download started (see Data Backup)',
     modelTip:
       'Tenant model: the dedicated tenant table is the source of truth (independent tenant_id space); the package whitelist caps menus; disabling/deleting/expiring a tenant revokes all its sessions immediately.',
     addTitle: 'Add Tenant',
@@ -966,6 +970,7 @@ export default {
     form: {
       manual: 'Manual Backup',
       auto: 'Auto Backup',
+      tenantExport: 'Tenant Package',
       success: 'Success',
       fail: 'Failed'
     },

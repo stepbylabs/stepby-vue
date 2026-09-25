@@ -13,6 +13,7 @@ import type { AjaxResult } from '@/types'
  * - DELETE /system/tenant/{tenantId}      删除租户（软删回收站；租户内仍有用户时拒绝，仅平台）
  * - PUT    /system/tenant/restore/{tenantId}  恢复租户（回收站 → 停用态，仅平台）
  * - GET    /system/tenant/package/options 套餐下拉（仅平台；租户表单选择套餐用）
+ * - POST   /system/backup/tenant-export/{tenantId} 租户数据包导出（仅平台；复用备份下载链路）
  */
 
 /** 租户查询参数 */
@@ -186,5 +187,28 @@ export function listTenantPackageOptions(): Promise<AjaxResult<TenantPackageOpti
   return request({
     url: '/system/tenant/package/options',
     method: 'get'
+  })
+}
+
+/** 租户数据包导出响应（对齐后端 BackupCreateVo） */
+export interface TenantExportVo {
+  backupId: number
+  fileName: string
+  filePath: string
+  fileSize: number
+}
+
+/**
+ * 导出租户数据包（仅平台；平台专属能力 system:backup:query）
+ *
+ * 后端把该租户在全部承载 `tenant_id` 的表（含 `sys_tenant` / `sys_tenant_domain` /
+ * `sys_tenant_menu`）的行导出为单个 JSON 文件并登记一条 `backup_type = "tenant_export"`
+ * 的备份日志；随后用 `downloadBackup(backupId)` 走既有下载链路取文件。
+ * 租户级恢复不支持（只导出不导入）。
+ */
+export function exportTenantPackage(tenantId: number): Promise<AjaxResult<TenantExportVo>> {
+  return request({
+    url: '/system/backup/tenant-export/' + tenantId,
+    method: 'post'
   })
 }

@@ -1,7 +1,7 @@
 /**
  * yebot 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理（共 72 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离（共 73 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -14644,6 +14644,505 @@ async function testFeature72(page) {
   }
 }
 
+// ==================== 功能 73：多租户 Phase 3 套餐白名单 / 到期三态 / 文件跨租户隔离 ====================
+// 覆盖台账 P2-1 的 6 条缺口（全部可证伪）：
+//   ① 套餐白名单①授权∩白名单（add/edit 门禁）② getRouters 剪枝 ③ 套餐变更收敛
+//   ④ 到期拒绝登录 / 宽限期只读 ⑤ 文件跨租户下载 403
+// 说明：仓库暂无套餐 CRUD API（仅只读 /system/tenant/package/options），故用 node:sqlite 直连
+// 同一 SQLite 注入夹具套餐（幂等 + finally 清理），全部断言仍走 HTTP API（真后端契约）。
+async function testFeature73(page) {
+  log('=== 功能 73：多租户套餐白名单 / 到期三态 / 文件跨租户隔离 ===')
+
+  // ---------- 步骤 1：admin 登录 ----------
+  const { token: adminToken, detail: adminLoginDetail } = await apiLogin()
+  if (!adminToken) {
+    record(73, 'admin 登录获取 token', false, adminLoginDetail || '登录失败')
+    return
+  }
+  record(73, 'admin 登录获取 token', true, 'token 获取成功')
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
+  const authHeaders = { Authorization: `Bearer ${adminToken}` }
+  const uniq = Date.now()
+
+  // 白名单集合（menu_id）：
+  //  SMALL = 1 系统管理(M) / 101 角色管理 / 1007 角色查询 / 134 文件管理 + 补齐 1008 角色新增 / 1009 角色修改 / 3012 文件上传
+  //  BIG   = SMALL ∪ {105 字典管理}：105 在平台普通角色(role_id=2)菜单内、其父节点 1 也在角色内，
+  //          故既能在"套餐改小"时被收敛（③），又能在"角色仍含该菜单"时被 getRouters 剪枝（②），可证伪。
+  const MENU_OUTSIDE = 105
+  const SMALL = [1, 101, 1007, 134, 1008, 1009, 3012]
+  const BIG = [...SMALL, MENU_OUTSIDE]
+  const PKG_BIG_NAME = `e2e73big${uniq}`
+  const PKG_SMALL_NAME = `e2e73small${uniq}`
+
+  let db = null
+  let ta = null
+  let tb = null
+  let tokenA = null
+  let tokenB = null
+  let roleAuthA = null
+  let roleMenusR0 = []
+  let R2 = []
+  let uploadedName = null
+
+  // ---------- 步骤 2：注入夹具套餐（幂等：按 package_name 先删后插） ----------
+  let fixtureOk = false
+  try {
+    const { DatabaseSync } = await import('node:sqlite')
+    const dbPath = path.resolve(__dirname, '../../../axum-backend/data/yebot.db')
+    db = new DatabaseSync(dbPath)
+    db.exec('PRAGMA busy_timeout = 5000')
+    const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ')
+    const mkPkg = (name, menuIds) => {
+      db.prepare('DELETE FROM sys_tenant_package WHERE package_name = ?').run(name)
+      db.prepare(
+        "INSERT INTO sys_tenant_package (package_name, menu_ids, default_account_count, status, del_flag, create_by, create_time, update_by, update_time, remark) VALUES (?, ?, ?, '0', '0', 'e2e', ?, 'e2e', ?, 'e2e 功能73 夹具套餐')"
+      ).run(name, menuIds, 50, nowStr, nowStr)
+      return db.prepare('SELECT package_id FROM sys_tenant_package WHERE package_name = ?').get(name)?.package_id || null
+    }
+    const pkgBigId = mkPkg(PKG_BIG_NAME, BIG.join(','))
+    const pkgSmallId = mkPkg(PKG_SMALL_NAME, SMALL.join(','))
+    fixtureOk = typeof pkgBigId === 'number' && typeof pkgSmallId === 'number'
+  } catch (err) {
+    log(`  夹具套餐注入异常: ${err.message.slice(0, 120)}`)
+  }
+  record(
+    73,
+    '前置：注入夹具套餐（BIG 含越界菜单 105 / SMALL 不含）',
+    fixtureOk,
+    `BIG=${typeof pkgBigId === 'number' ? pkgBigId : '-'}(${BIG.length} 项), SMALL=${typeof pkgSmallId === 'number' ? pkgSmallId : '-'}(${SMALL.length} 项)`
+  )
+
+  try {
+    if (!fixtureOk) {
+      record(73, '后续套餐/到期/文件用例', false, '前置失败：夹具套餐未就绪')
+      return
+    }
+
+    // ---------- 步骤 3：建租户 A（套餐=BIG）与租户 B（默认套餐），并登录两租户管理员 ----------
+    const mkTenant = async (label, packageId) => {
+      const name = `e2e73${label}${uniq}`
+      const code = `t${label}${uniq}`
+      const body = { tenantName: name, tenantCode: code, status: '0' }
+      if (packageId) body.packageId = packageId
+      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify(body)
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      return {
+        name,
+        code,
+        tenantId: resp?.data?.tenantId || null,
+        userName: resp?.data?.adminUserName || null,
+        pw: resp?.data?.adminInitPassword || null
+      }
+    }
+    ta = await mkTenant('a', pkgBigId)
+    tb = await mkTenant('b', null)
+    record(
+      73,
+      '前置：建立租户 A（套餐=BIG）与租户 B',
+      !!ta.tenantId && !!tb.tenantId && !!ta.userName && !!tb.userName,
+      `A=${ta.tenantId}/${ta.userName}, B=${tb.tenantId}/${tb.userName}`
+    )
+    if (!ta.tenantId || !tb.tenantId || !ta.userName || !tb.userName) {
+      record(73, '后续套餐/到期/文件用例', false, '前置失败：租户未创建')
+      return
+    }
+
+    const loginA = await apiLogin({}, ta.userName, ta.pw)
+    const loginB = await apiLogin({}, tb.userName, tb.pw)
+    tokenA = loginA.token
+    tokenB = loginB.token
+    record(73, '前置：租户 A/B 管理员登录', !!tokenA && !!tokenB, `A=${loginA.detail || 'ok'}, B=${loginB.detail || 'ok'}`)
+    if (!tokenA || !tokenB) {
+      record(73, '后续套餐/到期/文件用例', false, '前置失败：租户管理员未登录')
+      return
+    }
+    const jsonA = { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` }
+    const authA = { Authorization: `Bearer ${tokenA}` }
+    const authB = { Authorization: `Bearer ${tokenB}` }
+
+    // ---------- 步骤 4：定位租户 A 管理员角色，并确认其已含越界菜单（③ 的可证伪前提） ----------
+    try {
+      const listResp = await fetch(
+        `${CONFIG.backendUrl}/system/role/list?roleKey=${encodeURIComponent(`${ta.code}_admin`)}`,
+        { headers: authHeaders }
+      )
+        .then((r) => r.json())
+        .catch(() => null)
+      roleAuthA = (listResp?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId || null
+      if (!roleAuthA) {
+        const l2 = await fetch(`${CONFIG.backendUrl}/system/role/list?pageSize=200`, { headers: authHeaders })
+          .then((r) => r.json())
+          .catch(() => null)
+        roleAuthA = (l2?.rows || []).find((r) => r.tenantId === ta.tenantId)?.roleId || null
+      }
+      if (roleAuthA) {
+        const d = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+          .then((r) => r.json())
+          .catch(() => null)
+        roleMenusR0 = d?.data?.menuIds || []
+      }
+    } catch (err) {
+      log(`  定位租户A管理员角色异常: ${err.message.slice(0, 80)}`)
+    }
+    record(
+      73,
+      '前置：租户 A 管理员角色已含越界菜单 105（③ 收敛的可证伪前提）',
+      !!roleAuthA && roleMenusR0.includes(MENU_OUTSIDE),
+      `roleId=${roleAuthA}, menuIds=${roleMenusR0.length}, 含 ${MENU_OUTSIDE}=${roleMenusR0.includes(MENU_OUTSIDE)}`
+    )
+    if (!roleAuthA) {
+      record(73, '后续套餐/到期/文件用例', false, '前置失败：未定位租户A管理员角色')
+      return
+    }
+
+    // ---------- 步骤 5：套餐③——套餐变更收敛（改小套餐后越界授权被移除） ----------
+    try {
+      const putResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, packageId: pkgSmallId })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const after = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const afterMenus = after?.data?.menuIds || []
+      record(
+        73,
+        '套餐③变更收敛：套餐改小后越界菜单授权被移除',
+        putResp?.code === 200 &&
+          roleMenusR0.includes(MENU_OUTSIDE) &&
+          !afterMenus.includes(MENU_OUTSIDE) &&
+          afterMenus.length > 0,
+        `PUT=${putResp?.code}, 收敛前含${MENU_OUTSIDE}=${roleMenusR0.includes(MENU_OUTSIDE)}, 收敛后含=${afterMenus.includes(MENU_OUTSIDE)}, 剩余=${afterMenus.length}`
+      )
+    } catch (err) {
+      record(73, '套餐③变更收敛：套餐改小后越界菜单授权被移除', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+
+    // ---------- 步骤 6：平台为租户 A 管理员角色补齐授权（角色管理/文件上传，均 ⊆ SMALL） ----------
+    const R1 = roleMenusR0.filter((id) => SMALL.includes(id))
+    R2 = [...new Set([...R1, 1008, 1009, 3012])].sort((a, b) => a - b)
+    try {
+      const putResp = await fetch(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: R2 })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const after = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const afterMenus = after?.data?.menuIds || []
+      record(
+        73,
+        '前置：平台为租户 A 管理员角色补齐授权（角色新增/修改 + 文件上传）',
+        putResp?.code === 200 && [1008, 1009, 3012].every((id) => afterMenus.includes(id)),
+        `PUT=${putResp?.code}, menuIds=${afterMenus.length}`
+      )
+    } catch (err) {
+      record(73, '前置：平台为租户 A 管理员角色补齐授权', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+
+    // ---------- 步骤 7：套餐①——授权 ∩ 白名单（对照成功 + 越界拒绝且无部分写入） ----------
+    // 演员 = 租户 A 管理员，动作 = PUT /system/role 重分配本租户角色菜单
+    try {
+      const ctrl = await fetch(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonA,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: R2 })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const ctrlAfter = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const ctrlMenus = (ctrlAfter?.data?.menuIds || []).slice().sort((a, b) => a - b)
+      record(
+        73,
+        '套餐①授权∩白名单：白名单内菜单可分配（对照，证明演员/端点/权限均可用）',
+        ctrl?.code === 200 && JSON.stringify(ctrlMenus) === JSON.stringify(R2),
+        `code=${ctrl?.code}, menuIds=${ctrlMenus.length}`
+      )
+
+      const neg = await fetch(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonA,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: [...R2, MENU_OUTSIDE] })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const negAfter = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const negMenus = (negAfter?.data?.menuIds || []).slice().sort((a, b) => a - b)
+      record(
+        73,
+        '套餐①授权∩白名单：越界菜单被拒 403 且角色授权无部分写入',
+        neg?.code === 403 && !negMenus.includes(MENU_OUTSIDE) && JSON.stringify(negMenus) === JSON.stringify(R2),
+        `code=${neg?.code}, msg=${String(neg?.msg || '').slice(0, 40)}, 仍含${MENU_OUTSIDE}=${negMenus.includes(MENU_OUTSIDE)}`
+      )
+    } catch (err) {
+      record(73, '套餐①授权∩白名单：白名单内菜单可分配（对照）', false, `异常: ${err.message.slice(0, 60)}`)
+      record(73, '套餐①授权∩白名单：越界菜单被拒 403 且角色授权无部分写入', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+
+    // ---------- 步骤 8：套餐②——getRouters 剪枝（角色含越界菜单但路由树剔除） ----------
+    // 直接注入越界角色菜单（模拟历史残留/旁路写入），使"角色确有该菜单"成为前提；
+    // 105 的父节点 1 在角色内，故其缺席只能是白名单剪枝所致（非孤儿节点），可证伪。
+    try {
+      db.prepare('INSERT OR IGNORE INTO sys_role_menu (role_id, menu_id) VALUES (?, ?)').run(roleAuthA, MENU_OUTSIDE)
+      const roleAfter = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const hasInRole = (roleAfter?.data?.menuIds || []).includes(MENU_OUTSIDE)
+      const routers = await fetch(`${CONFIG.backendUrl}/getRouters`, { headers: authA })
+        .then((r) => r.json())
+        .catch(() => null)
+      const titles = []
+      const walk = (nodes) => {
+        for (const n of nodes || []) {
+          if (n?.meta?.title) titles.push(n.meta.title)
+          walk(n.children)
+        }
+      }
+      walk(routers?.data)
+      record(
+        73,
+        '套餐②getRouters 剪枝：角色仍含越界菜单但返回路由树已剔除',
+        hasInRole && routers?.code === 200 && titles.includes('角色管理') && !titles.includes('字典管理'),
+        `角色含${MENU_OUTSIDE}=${hasInRole}, 路由含角色管理=${titles.includes('角色管理')}, 路由含字典管理=${titles.includes('字典管理')}`
+      )
+    } catch (err) {
+      record(73, '套餐②getRouters 剪枝：角色仍含越界菜单但返回路由树已剔除', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+
+    // ---------- 步骤 9：文件跨租户隔离（A 上传 → A 自取 200 / B 取 403） ----------
+    const content = `e2e73-cross-tenant-${uniq}`
+    try {
+      const boundary = `----e2e73b${uniq}`
+      const bodyStr = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="e2e73-${uniq}.txt"\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--\r\n`
+      const upResp = await fetch(`${CONFIG.backendUrl}/common/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokenA}`, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        body: bodyStr
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      uploadedName = upResp?.newFileName || null
+      const url = upResp?.url || ''
+      const resource = url.replace(/^\//, '')
+      const aRes = await fetch(`${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`, {
+        headers: authA
+      })
+      const aStatus = aRes.status
+      const aText = await aRes.text().catch(() => '')
+      const bRes = await fetch(`${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`, {
+        headers: authB
+      })
+      const bStatus = bRes.status
+      record(
+        73,
+        '文件跨租户下载 403：同一资源 A 自取 200（内容一致）/ B 取 403',
+        upResp?.code === 200 && aStatus === 200 && aText === content && bStatus === 403,
+        `upload=${upResp?.code}, url=${url}, A=${aStatus}(内容一致=${aText === content}), B=${bStatus}`
+      )
+      if (url) {
+        const aPrev = await fetch(`${CONFIG.backendUrl}${url}`, { headers: authA })
+        const bPrev = await fetch(`${CONFIG.backendUrl}${url}`, { headers: authB })
+        record(
+          73,
+          '文件跨租户预览 403：/uploads/{tidA}/... A 取 200 / B 取 403',
+          aPrev.status === 200 && bPrev.status === 403,
+          `A=${aPrev.status}, B=${bPrev.status}`
+        )
+      } else {
+        record(73, '文件跨租户预览 403：/uploads/{tidA}/... A 取 200 / B 取 403', false, '上传未返回 url')
+      }
+    } catch (err) {
+      record(73, '文件跨租户下载 403：同一资源 A 自取 200 / B 取 403', false, `异常: ${err.message.slice(0, 60)}`)
+      record(73, '文件跨租户预览 403：/uploads/{tidA}/... A 取 200 / B 取 403', false, '异常')
+    }
+
+    // ---------- 步骤 10：到期链路（宽限期只读 + 超宽限拒绝登录） ----------
+    // 语义（sys_tenant_service.rs:1259 resolve_login_state）：
+    //   expire 在过去 <7 天 → Grace：登录放行，写 403 expired_readonly，读放行；
+    //   expire 在过去 ≥7 天 → Disabled：登录直接 403。
+    // 时间戳按 UTC 字符串提交（datetime::parse_flexible 按 UTC 语义解析）。
+    const fmtUtc = (ms) => {
+      const d = new Date(ms)
+      const p = (n) => String(n).padStart(2, '0')
+      return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
+    }
+    const setExpire = async (expireTime) => {
+      return await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, expireTime })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+    }
+    try {
+      // 对照：Active 下同一写请求（PUT /system/role，幂等 menuIds=R2）应 200
+      const activeWrite = await fetch(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonA,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: R2 })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      // 设为宽限期（过去 3 天）
+      const setGrace = await setExpire(fmtUtc(Date.now() - 3 * 86400 * 1000))
+      const graceRead = await fetch(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authA })
+        .then((r) => r.json())
+        .catch(() => null)
+      const graceWrite = await fetch(`${CONFIG.backendUrl}/system/role`, {
+        method: 'PUT',
+        headers: jsonA,
+        body: JSON.stringify({ roleId: roleAuthA, menuIds: R2 })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      record(
+        73,
+        '到期宽限期只读：读 200 / 写 403（Active 下同写 200 作对照）',
+        activeWrite?.code === 200 &&
+          setGrace?.code === 200 &&
+          graceRead?.code === 200 &&
+          graceWrite?.code === 403,
+        `active写=${activeWrite?.code}, setGrace=${setGrace?.code}, grace读=${graceRead?.code}, grace写=${graceWrite?.code}, msg=${String(graceWrite?.msg || '').slice(0, 40)}`
+      )
+      // 设为超宽限（过去 30 天）→ 登录被拒
+      const setExpired = await setExpire(fmtUtc(Date.now() - 30 * 86400 * 1000))
+      const relogin = await fetch(`${CONFIG.backendUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: ta.userName, password: ta.pw, code: '', uuid: '' })
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      record(
+        73,
+        '到期（超宽限）拒绝登录',
+        setExpired?.code === 200 && relogin?.code !== 200,
+        `setExpired=${setExpired?.code}, login=${relogin?.code}, msg=${String(relogin?.msg || '').slice(0, 40)}`
+      )
+    } catch (err) {
+      record(73, '到期宽限期只读：读 200 / 写 403（Active 下同写 200 作对照）', false, `异常: ${err.message.slice(0, 60)}`)
+      record(73, '到期（超宽限）拒绝登录', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+  } finally {
+    // ---------- 步骤 11：闭环清理（恢复到期 → 删文件 → 删角色菜单残留 → 删管理员用户 → 删租户 → 删夹具套餐） ----------
+    let cleanupOk = true
+    try {
+      // 1) 恢复租户 A 为"永不过期"（清空到期；同时使租户 A 令牌恢复可用）
+      if (ta?.tenantId) {
+        await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+          method: 'PUT',
+          headers: jsonHeaders,
+          body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, expireTime: null })
+        }).catch(() => null)
+      }
+      // 2) 删除上传文件（走存储后端，租户维度；download 为读路径，宽限内亦可用）
+      if (uploadedName && tokenA) {
+        await fetch(
+          `${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(uploadedName)}&delete=true`,
+          { headers: { Authorization: `Bearer ${tokenA}` } }
+        ).catch(() => null)
+      }
+      // 3) 删除越界角色菜单残留（DB 直连，确定性；租户删除为软删不清关联表）
+      if (db && roleAuthA) {
+        try {
+          db.prepare('DELETE FROM sys_role_menu WHERE role_id = ? AND menu_id = ?').run(roleAuthA, MENU_OUTSIDE)
+        } catch {
+          /* best-effort */
+        }
+      }
+      // 4) 删除租户管理员用户（否则后端按"租户内仍有用户"正确拒绝删除租户）
+      for (const t of [ta, tb]) {
+        if (!t?.userName) continue
+        const ul = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(t.userName)}`, {
+          headers: authHeaders
+        })
+          .then((r) => r.json())
+          .catch(() => null)
+        const uid = (ul?.rows || []).find((u) => u.userName === t.userName)?.userId || null
+        if (uid) {
+          const d = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { method: 'DELETE', headers: authHeaders })
+            .then((r) => r.json())
+            .catch(() => null)
+          if (d?.code !== 200) cleanupOk = false
+        }
+      }
+      // 5) 删除租户 A/B
+      for (const t of [ta, tb]) {
+        if (!t?.tenantId) continue
+        const d = await fetch(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, { method: 'DELETE', headers: authHeaders })
+          .then((r) => r.json())
+          .catch(() => null)
+        if (d?.code !== 200) cleanupOk = false
+      }
+      // 6) 删除夹具套餐
+      if (db) {
+        try {
+          db.prepare('DELETE FROM sys_tenant_package WHERE package_name = ?').run(PKG_BIG_NAME)
+          db.prepare('DELETE FROM sys_tenant_package WHERE package_name = ?').run(PKG_SMALL_NAME)
+        } catch {
+          cleanupOk = false
+        }
+      }
+      // 7) 复核：租户已不在列表、夹具套餐已删
+      const remain = []
+      for (const t of [ta, tb]) {
+        if (!t?.name) continue
+        const l = await fetch(`${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(t.name)}`, {
+          headers: authHeaders
+        })
+          .then((r) => r.json())
+          .catch(() => null)
+        remain.push(...(l?.data || []).filter((x) => x.tenantName === t.name))
+      }
+      let pkgRemain = 1
+      if (db) {
+        try {
+          pkgRemain = db
+            .prepare('SELECT COUNT(*) AS c FROM sys_tenant_package WHERE package_name IN (?, ?)')
+            .get(PKG_BIG_NAME, PKG_SMALL_NAME).c
+        } catch {
+          /* best-effort */
+        }
+      }
+      record(
+        73,
+        '清理：测试租户 / 上传文件 / 夹具套餐已回收',
+        cleanupOk && remain.length === 0 && pkgRemain === 0,
+        `残留租户=${remain.length}, 残留套餐=${pkgRemain}`
+      )
+    } catch (err) {
+      record(73, '清理：测试租户 / 上传文件 / 夹具套餐已回收', false, `异常: ${err.message.slice(0, 60)}`)
+    }
+    if (db) {
+      try {
+        db.close()
+      } catch {
+        /* best-effort */
+      }
+    }
+    // ---------- 综合判定（严格 === total，禁止宽容余量） ----------
+    const mine = results.filter((r) => r.feature === 73)
+    const passedCount = mine.filter((r) => r.passed).length
+    record(73, '功能综合验证（全部子项通过）', passedCount === mine.length, `${passedCount}/${mine.length}`)
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -14668,7 +15167,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（72 个功能）')
+  log('yebot 端到端主测试脚本（73 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -14794,7 +15293,8 @@ async function main() {
       { id: 69, fn: testFeature69 },
       { id: 70, fn: testFeature70 },
       { id: 71, fn: testFeature71 },
-      { id: 72, fn: testFeature72 }
+      { id: 72, fn: testFeature72 },
+      { id: 73, fn: testFeature73 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿

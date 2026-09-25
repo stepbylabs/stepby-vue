@@ -149,7 +149,7 @@
             {{ formatTime(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.column.operation')" width="260" align="center" fixed="right">
+        <el-table-column :label="t('common.column.operation')" width="330" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.delFlag !== '2'"
@@ -170,6 +170,17 @@
               @click="openDomain(row)"
             >
               {{ t('tenantDomain.manage') }}
+            </el-button>
+            <el-button
+              v-if="row.delFlag !== '2' && isPlatform"
+              v-hasPermi="['system:backup:query']"
+              link
+              type="warning"
+              icon="Download"
+              :loading="exportingId === row.tenantId"
+              @click="handleExport(row)"
+            >
+              {{ t('tenant.exportPackage') }}
             </el-button>
             <el-button
               v-if="row.delFlag !== '2' && isPlatform"
@@ -284,10 +295,12 @@ import {
   changeTenantStatus,
   delTenant,
   restoreTenant,
-  listTenantPackageOptions
+  listTenantPackageOptions,
+  exportTenantPackage
 } from '@/api/system/tenant'
 import type { TenantVo, TenantPackageOption, TenantAddDto, TenantEditDto } from '@/api/system/tenant'
 import TenantDomainDrawer from './TenantDomainDrawer.vue'
+import { downloadBackup } from '@/api/system/backup'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
 import useUserStore from '@/store/modules/user'
@@ -314,6 +327,8 @@ const formRef = ref()
 // 域名管理抽屉（仅平台可见；租户操作者无入口）
 const domainVisible = ref(false)
 const domainTenant = ref<TenantVo | null>(null)
+// 正在导出数据包的租户 id（按钮 loading；同时防重复点击）
+const exportingId = ref<number | null>(null)
 const form = reactive({
   tenantName: '',
   tenantCode: '',
@@ -547,6 +562,29 @@ async function handleRestore(row: TenantVo) {
   await restoreTenant(row.tenantId)
   proxy?.$modal.msgSuccess(t('common.restoreSuccess'))
   getList()
+}
+
+/**
+ * 导出租户数据包（仅平台专属能力 system:backup:query）
+ *
+ * 链路：POST /system/backup/tenant-export/{tenantId} 落盘并登记 backup_type=tenant_export
+ * 的备份日志 → 立即用返回的 backupId 走既有 GET /system/backup/download/{backupId} 取文件。
+ * 只导出不导入（租户级恢复不支持）；平台租户（tid=0）同样可导出。
+ */
+async function handleExport(row: TenantVo) {
+  const ok = await proxy?.$modal.confirm(t('tenant.exportConfirm', [row.tenantName]))
+  if (!ok) return
+  exportingId.value = row.tenantId
+  try {
+    const res = await exportTenantPackage(row.tenantId)
+    const created = res.data
+    if (created?.backupId) {
+      await downloadBackup(created.backupId, created.fileName)
+    }
+    proxy?.$modal.msgSuccess(t('tenant.exportSuccess'))
+  } finally {
+    exportingId.value = null
+  }
 }
 
 onMounted(() => {

@@ -11,6 +11,7 @@
           >
             <el-option :label="t('backup.form.manual')" value="manual" />
             <el-option :label="t('backup.form.auto')" value="auto" />
+            <el-option :label="t('backup.form.tenantExport')" value="tenant_export" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('backup.search.status')" prop="status">
@@ -93,10 +94,10 @@
             <span>{{ formatFileSize(scope.row.fileSize) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('backup.column.type')" align="center" width="100">
+        <el-table-column :label="t('backup.column.type')" align="center" width="110">
           <template #default="scope">
-            <el-tag :type="scope.row.backupType === 'manual' ? 'info' : 'success'" size="small">
-              {{ scope.row.backupType === 'manual' ? t('backup.form.manual') : t('backup.form.auto') }}
+            <el-tag :type="backupTypeMeta(scope.row.backupType).tag" size="small">
+              {{ backupTypeMeta(scope.row.backupType).label }}
             </el-tag>
           </template>
         </el-table-column>
@@ -135,7 +136,7 @@
               link
               type="warning"
               icon="RefreshRight"
-              :disabled="scope.row.status !== 'success'"
+              :disabled="scope.row.status !== 'success' || scope.row.backupType === 'tenant_export'"
               @click="handleRestore(scope.row)"
               v-hasPermi="['system:backup:edit']"
             >
@@ -269,6 +270,18 @@ function handleRestore(row: SysBackupLog) {
         if (import.meta.env.DEV) console.error('Restore failed:', err)
       }
     })
+}
+
+/**
+ * 备份类型标签元信息（手动/自动/租户数据包）
+ *
+ * `tenant_export` 为租户数据包导出（只导出不导入，故表格中「恢复」按钮对其禁用），
+ * 复用同一张 `sys_backup_log` 表与下载/删除链路，无需独立列表页。
+ */
+function backupTypeMeta(backupType: string): { label: string; tag: 'info' | 'success' | 'warning' } {
+  if (backupType === 'manual') return { label: t('backup.form.manual'), tag: 'info' }
+  if (backupType === 'tenant_export') return { label: t('backup.form.tenantExport'), tag: 'warning' }
+  return { label: t('backup.form.auto'), tag: 'success' }
 }
 
 function handleDownload(row: SysBackupLog) {
