@@ -311,6 +311,49 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   `--feature=<该功能>` 复跑全绿（本轮功能 60：13/13）。二者同时成立即可判定为环境抖动，**必须重跑该段取净结果**，
   不可直接采信首跑的 `失败: 1`。
 
+### 3.12 新库迁移路径验证（Migrator 全链 + 平台专属菜单治理查证）
+
+embedded 环境**不跑 Migrator**（架构约定：启动只跑 `initialize` 兜底）⇒ "新库走迁移"这条路径
+**e2e 测不到**。凡改动涉及迁移（尤其菜单/角色授权治理）时必须单独验证：
+
+```bash
+# 1) 全新库跑全链迁移（60+ 迁移）。显式 DATABASE_URL 覆盖 .env（dotenvy 不覆盖已存在的环境变量）
+cd axum-backend
+DATABASE_URL="sqlite://./data/mig-verify.db?mode=rwc" cargo run -p migration   # 期望「迁移完成」+ exit 0
+```
+
+```js
+// 2) 查证治理结果（落一个临时 .mjs 跑完即删，避免 shell 引号地狱；Node 内置 sqlite 无需额外依赖）
+//    文件名：axum-backend/.mig-verify.mjs
+import { DatabaseSync } from 'node:sqlite'
+const db = new DatabaseSync('data/mig-verify.db')
+const P = ['system:tenant:domain:', 'tool:gen:', 'tool:httpDebug:', 'monitor:cache:',
+  'monitor:log:', 'monitor:slowSql:', 'monitor:health:', 'system:backup:']
+const like = P.map((p) => `perms LIKE '${p}%'`).join(' OR ')
+const rows = db.prepare(
+  `SELECT COUNT(*) AS c FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id
+   WHERE rm.role_id = 2 AND (${like.replaceAll('m.', '')})`
+).all()
+console.log('[verify] role2 持平台专属菜单数（期望 0）:', JSON.stringify(rows))
+const domain = db.prepare("SELECT menu_id FROM sys_menu WHERE perms LIKE 'system:tenant:domain:%'").all()
+console.log('[verify] domain 菜单应存在:', JSON.stringify(domain))
+db.close()
+```
+
+```bash
+node .mig-verify.mjs          # 期望：role2 持有数 = 0，且 domain 菜单（3800-3804）确实存在
+rm -f .mig-verify.mjs data/mig-verify.db*
+```
+
+- **判据**：`role_id=2` 持有平台专属前缀菜单数 = **0**（2026-09-26 实测：库中平台专属菜单 26 个、
+  role2 持有 **0**）。常跑兜底已固化为 Rust 单测 `platform_only_prefixes_match_migration_lists`
+  （`common/tenant.rs`：`include_str!` 编译期比对常量与迁移清单），故日常 `cargo test --lib` 即可。
+- **为何必须单独验**：2026-09-26 实测发现 `m20260926_000002`（7 个硬编码菜单 ID）与
+  `m20260926_000005`（5 项前缀）覆盖集合不同，**两者都不含 `system:tenant:domain:`** ⇒ 新库中
+  role2 仍持域名管理菜单 3800/3802（"菜单可见但请求 403"的假入口）。修复 = 新增 `m000006`
+  （按完整 8 前缀全量剔除）。**教训：新增/改动迁移清单后，务必用本节的"全新库 + 查证"两步验一次，
+  不要只依赖 embedded 环境（它走 initialize，会掩盖迁移路径的缺口）。**
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

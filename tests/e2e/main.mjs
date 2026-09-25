@@ -4514,6 +4514,20 @@ async function testFeature27(page) {
       } else {
         operLogIpDetail = '无对应的操作日志'
       }
+
+      // 自清理：恢复原 remark。该行是列表第一条（可能是 platform_default 种子键
+      // sys.index.skinName），不留测试痕迹；治理列本身已由后端"部分更新语义"保证不被重置。
+      await fetch(`${CONFIG.backendUrl}/system/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          configId: cfg.configId,
+          configKey: cfg.configKey,
+          configValue: cfg.configValue,
+          configType: cfg.configType,
+          remark: cfg.remark ?? null
+        })
+      }).catch(() => {})
     } else {
       operLogIpDetail = '无 sys_config 记录可用于触发 PUT'
     }
@@ -14314,6 +14328,22 @@ async function testFeature72(page) {
   const overrideKey = 'sys.index.skinName'
   const overrideVal = `skin-e2e-${uniq}`
   try {
+    // 可证伪前置：该键必须仍为 platform_default（否则"覆盖"必然 403，会把**治理列被污染**
+    // 误判为覆盖功能回归）。2026-09-26 实测：其它功能（功能 27）的 `PUT /system/config`
+    // 曾把它静默降级为 platform_only —— 此处显式归因，便于快速定位污染源。
+    const govResp = await fetch(
+      `${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(overrideKey)}`,
+      { headers: authHeaders }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
+    const govRow = (govResp?.rows || []).find((r) => !r.tenantId)
+    record(
+      72,
+      '前置：覆盖目标键治理为 platform_default（可证伪前提）',
+      govRow?.scope === 'platform_default' && govRow?.tenantEditable === '1',
+      `scope=${govRow?.scope}, editable=${govRow?.tenantEditable}`
+    )
     // 覆盖前平台默认层快照（sys.index.skinName 为平台种子键，scope=platform_default）
     const platformBeforeResp = await fetch(
       `${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent(overrideKey)}`,
@@ -14686,6 +14716,10 @@ async function testFeature73(page) {
 
   // ---------- 步骤 2：注入夹具套餐（幂等：按 package_name 先删后插） ----------
   let fixtureOk = false
+  // 声明提升到 try 块外（函数作用域）：块内 `const` 在块外不可见，曾因此触发
+  // `pkgBigId is not defined` 回归（修 eslint no-var 时误将 var 改成 const）。
+  let pkgBigId = null
+  let pkgSmallId = null
   try {
     const { DatabaseSync } = await import('node:sqlite')
     const dbPath = path.resolve(__dirname, '../../../axum-backend/data/yebot.db')
@@ -14699,8 +14733,8 @@ async function testFeature73(page) {
       ).run(name, menuIds, 50, nowStr, nowStr)
       return db.prepare('SELECT package_id FROM sys_tenant_package WHERE package_name = ?').get(name)?.package_id || null
     }
-    const pkgBigId = mkPkg(PKG_BIG_NAME, BIG.join(','))
-    const pkgSmallId = mkPkg(PKG_SMALL_NAME, SMALL.join(','))
+    pkgBigId = mkPkg(PKG_BIG_NAME, BIG.join(','))
+    pkgSmallId = mkPkg(PKG_SMALL_NAME, SMALL.join(','))
     fixtureOk = typeof pkgBigId === 'number' && typeof pkgSmallId === 'number'
   } catch (err) {
     log(`  夹具套餐注入异常: ${err.message.slice(0, 120)}`)
