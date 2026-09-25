@@ -1383,6 +1383,7 @@ export default {
     actApprove: 'Approve',
     actReject: 'Reject',
     actTransfer: 'Transfer',
+    actCountersign: 'Add Approver',
     actWithdraw: 'Withdraw',
     actResubmit: 'Resubmit',
     btnSubmit: 'Submit Leave Request',
@@ -1395,11 +1396,12 @@ export default {
     formMode: 'Approval Mode',
     formReason: 'Reason',
     formComment: 'Comment',
-    formToUser: 'Transfer to (User ID)',
+    formToUser: 'Target user (User ID)',
     actTitle: {
       approve: 'Approve',
       reject: 'Reject',
-      transfer: 'Transfer'
+      transfer: 'Transfer',
+      countersign: 'Add Approver'
     },
     rules: {
       title: 'Please enter the title',

@@ -30,7 +30,7 @@
               <span :class="{ 'flow-overdue': isOverdue(row) }">{{ row.dueAt || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.column.operation')" width="260" fixed="right">
+          <el-table-column :label="t('common.column.operation')" width="330" fixed="right">
             <template #default="{ row }">
               <el-button link type="success" icon="Check" @click="openAct(row, 'approve')">
                 {{ t('flow.actApprove') }}
@@ -40,6 +40,10 @@
               </el-button>
               <el-button link type="primary" icon="Position" @click="openAct(row, 'transfer')">
                 {{ t('flow.actTransfer') }}
+              </el-button>
+              <!-- 加签（W-3）：当前节点追加会签审批人，节点由单审升级为会签 -->
+              <el-button link type="warning" icon="UserFilled" @click="openAct(row, 'countersign')">
+                {{ t('flow.actCountersign') }}
               </el-button>
               <el-button link icon="View" @click="openDetail(row)">
                 {{ t('common.detail') }}
@@ -177,7 +181,7 @@
     <!-- ============ 审批动作对话框 ============ -->
     <el-dialog v-model="actOpen" :title="actTitle" width="460px" append-to-body>
       <el-form label-width="90px">
-        <el-form-item v-if="actAction !== 'transfer'" :label="t('flow.formComment')">
+        <el-form-item v-if="actAction !== 'transfer' && actAction !== 'countersign'" :label="t('flow.formComment')">
           <el-input v-model="actComment" type="textarea" :rows="3" :maxlength="500" />
         </el-form-item>
         <el-form-item v-else :label="t('flow.formToUser')">
@@ -243,6 +247,7 @@ import {
   resubmitFlowDemo,
   withdrawFlowDemo,
   actFlowTask,
+  countersignAddFlowTask,
   type SysFlowTask,
   type FlowDemoDoc,
   type FlowTaskDetail,
@@ -373,13 +378,13 @@ async function handleSubmit() {
 // ---------- 审批动作 ----------
 const actOpen = ref(false)
 const acting = ref(false)
-const actAction = ref<FlowActionForm['action']>('approve')
+const actAction = ref<FlowActionForm['action'] | 'countersign'>('approve')
 const actTaskId = ref(0)
 const actComment = ref('')
 const actToUserId = ref(1)
 const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
 
-function openAct(row: SysFlowTask, action: FlowActionForm['action']) {
+function openAct(row: SysFlowTask, action: FlowActionForm['action'] | 'countersign') {
   actTaskId.value = row.taskId
   actAction.value = action
   actComment.value = ''
@@ -390,11 +395,16 @@ function openAct(row: SysFlowTask, action: FlowActionForm['action']) {
 async function handleAct() {
   acting.value = true
   try {
-    await actFlowTask(actTaskId.value, {
-      action: actAction.value,
-      comment: actComment.value || undefined,
-      toUserId: actAction.value === 'transfer' ? actToUserId.value : undefined
-    })
+    if (actAction.value === 'countersign') {
+      // 加签走独立端点（节点由单审升级为会签，须全部通过）
+      await countersignAddFlowTask(actTaskId.value, actToUserId.value)
+    } else {
+      await actFlowTask(actTaskId.value, {
+        action: actAction.value,
+        comment: actComment.value || undefined,
+        toUserId: actAction.value === 'transfer' ? actToUserId.value : undefined
+      })
+    }
     ElMessage.success(t('common.operationSuccess'))
     actOpen.value = false
     await Promise.all([loadTodo(), loadPendingCount()])

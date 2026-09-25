@@ -161,3 +161,15 @@ export function actFlowTask(taskId: number, data: FlowActionForm): Promise<AjaxR
     data
   })
 }
+
+// 加签（W-3：对当前节点追加一名会签审批人）
+export function countersignAddFlowTask(
+  taskId: number,
+  toUserId: number
+): Promise<AjaxResult<SysFlowTask>> {
+  return request({
+    url: `/system/flow/task/${taskId}/countersign-add`,
+    method: 'post',
+    data: { toUserId }
+  })
+}

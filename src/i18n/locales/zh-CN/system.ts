@@ -1373,6 +1373,7 @@ export default {
     actApprove: '同意',
     actReject: '驳回',
     actTransfer: '转办',
+    actCountersign: '加签',
     actWithdraw: '撤回',
     actResubmit: '重新提交',
     btnSubmit: '提交请假单',
@@ -1385,11 +1386,12 @@ export default {
     formMode: '审批模式',
     formReason: '事由',
     formComment: '审批意见',
-    formToUser: '转办给（用户 ID）',
+    formToUser: '目标用户（用户 ID）',
     actTitle: {
       approve: '同意审批',
       reject: '驳回审批',
-      transfer: '转办审批'
+      transfer: '转办审批',
+      countersign: '加签审批'
     },
     rules: {
       title: '请输入单据标题',
