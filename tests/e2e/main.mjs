@@ -32,7 +32,7 @@
  *  28. 审计日志写操作覆盖（POST/PUT/DELETE 被 oper_log_middleware 记录 + GET 不记录 + businessType 映射）
  *  29. 数据字典国际化（dict_label_en 字段 CRUD + /dict/data/type/{dictType} + /dict/data/{dictCode} 详情）
  *  30. 限流可视化查询参数（routePattern 模糊/精确过滤 + enabled 布尔过滤 + 详情接口 + 401 鉴权）
- *  31. 备份恢复权限 system:backup:edit（ry 实际 API 调用验证 list/query/download/restore/add + 不存在 ID 避免数据破坏）
+ *  31. 备份恢复权限（ry 的 list/query/download/add/edit 均期望 403 —— system:backup: 平台专属已从 role2 剔除；admin 侧同接口对照 200）
  *   32. 审计大屏权限 monitor:audit:list（stats/compliance-report 响应结构 + days 边界 + ry 权限 + 401 + 前端 i18n 资源加载）
  *   33. 未覆盖前端路由页面（/401 /403 /500 /network-error /privacy /lock /404 兜底 SPA fallback）
  *   34. 低成本高价值功能（我的登录历史 + 关于系统 + Dashboard 快捷入口 + 菜单注册 + 权限过滤 + 点击跳转）
@@ -1733,7 +1733,8 @@ async function testFeature17(page) {
   const ryLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
   if (!ryLoggedIn) {
     record(17, 'ry 用户登录', false, '无法登录 ry 账户')
-    record(17, '备份写权限已收紧（恢复按钮隐藏）', false, '依赖前置步骤失败')
+    record(17, '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）', false, '依赖前置步骤失败')
+    record(17, 'admin 备份页可达（对照）', false, '依赖前置步骤失败')
     record(17, '审计大屏数据加载', false, '依赖前置步骤失败')
     record(17, '权限修复综合验证', false, '依赖前置步骤失败')
     await logout(page)
@@ -1742,56 +1743,23 @@ async function testFeature17(page) {
   }
   await sleep(2000)
 
-  // 步骤 1：验证 ry 用户在备份管理页面看不到"恢复"按钮（安全策略）
-  // m20260803_000001_restrict_backup_write_perms 收紧了 common 角色的备份写权限
-  // ry 仅保留 system:backup:list / system:backup:query 只读权限，
-  // system:backup:add / system:backup:edit / system:backup:remove 已全部移除
+  // 步骤 1：验证平台普通角色 ry 对备份页不可达（安全策略，强于"仅隐藏恢复按钮"）
+  // system:backup: 前缀在 common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 中列为平台专属
+  // （理由：整库 dump/恢复、下载面即全库数据）。initialize::ensure_tenant_role_menu_governance
+  // 治理 SQL 修复补上 perms LIKE 列名后首次真正生效：菜单 118(system:backup:list)/1200(system:backup:query)
+  // 授权已从 role_id=2（ry）删除，故前端路由 /monitor/backup 对 ry 不可达（404）。
   await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat17_ry_backup_page')
 
   const is404_backup = await is404Page(page, { timeout: 1000 })
-  if (is404_backup) {
-    record(17, '备份写权限已收紧（恢复按钮隐藏）', false, '页面 404')
-  } else {
-    // 等待表格数据加载
-    let rowCount = 0
-    for (let i = 0; i < 8; i++) {
-      rowCount = await page
-        .locator('.el-table__body-wrapper tbody tr')
-        .count()
-        .catch(() => 0)
-      if (rowCount > 0) break
-      await sleep(1000)
-    }
-
-    if (rowCount > 0) {
-      // 检查"恢复"按钮是否被 v-hasPermi 隐藏（安全策略要求 ry 看不到）
-      const restoreBtnVisible = await page
-        .evaluate(() => {
-          const table = document.querySelector('.el-table__body-wrapper') || document.querySelector('.el-table')
-          if (!table) return false
-          const buttons = Array.from(table.querySelectorAll('button, .el-button, a'))
-          return buttons.some((b) => {
-            const text = (b.textContent || '').replace(/\s+/g, '')
-            const isVisible = b.offsetParent !== null && window.getComputedStyle(b).display !== 'none'
-            return (text.includes('恢复') || text.toLowerCase().includes('restore')) && isVisible
-          })
-        })
-        .catch(() => false)
-      // 安全策略：ry 不应看到恢复按钮（restoreBtnVisible 应为 false）
-      record(
-        17,
-        '备份写权限已收紧（恢复按钮隐藏）',
-        !restoreBtnVisible,
-        `表格行数=${rowCount}, 恢复按钮可见=${restoreBtnVisible}（应=false）`
-      )
-    } else {
-      // 表格无数据时按钮本就不会渲染，视为通过（v-hasPermi 在无数据时也不显示操作列按钮）
-      record(17, '备份写权限已收紧（恢复按钮隐藏）', true, '备份列表无数据，操作按钮未渲染（符合预期）')
-    }
-  }
+  record(
+    17,
+    '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）',
+    is404_backup,
+    is404_backup ? `页面 404（不可达），URL=${page.url()}` : `未 404，URL=${page.url()}（期望不可达）`
+  )
 
   // 步骤 2：验证 ry 用户能正常访问审计大屏（API 不返回 403）
   // 这验证 permission.rs 中 /monitor/operlog/stats 权限已改为 monitor:audit:list，
@@ -1864,18 +1832,37 @@ async function testFeature17(page) {
     record(17, '审计大屏 API 权限', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  // 步骤 4：综合判断
-  const backupOk =
-    results.find((r) => r.feature === 17 && r.name === '备份写权限已收紧（恢复按钮隐藏）')?.passed || false
-  const auditOk = results.find((r) => r.feature === 17 && r.name === '审计大屏数据加载')?.passed || false
-  const apiOk = results.find((r) => r.feature === 17 && r.name === '审计大屏 API 权限')?.passed || false
-  const allPass = backupOk && auditOk && apiOk
-  record(17, '权限修复综合验证', allPass, `备份收紧=${backupOk}, 大屏=${auditOk}, API=${apiOk}`)
-
-  // 恢复 admin 登录
+  // 步骤 4：恢复 admin 登录，并做 admin 侧对照（证明备份功能本身正常，收紧仅针对平台普通角色）
   await logout(page)
   await login(page, CONFIG.username, CONFIG.password)
   await sleep(2000)
+
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
+  await sleep(2500)
+  await skipTour(page)
+  await screenshot(page, 'feat17_admin_backup_page')
+  const adminBackup404 = await is404Page(page, { timeout: 1000 })
+  record(
+    17,
+    'admin 备份页可达（对照）',
+    !adminBackup404,
+    adminBackup404 ? `页面 404，URL=${page.url()}（期望可达）` : `URL=${page.url()}（期望可达）`
+  )
+
+  // 步骤 5：综合判断
+  const backupOk =
+    results.find((r) => r.feature === 17 && r.name === '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）')
+      ?.passed || false
+  const adminBackupOk = results.find((r) => r.feature === 17 && r.name === 'admin 备份页可达（对照）')?.passed || false
+  const auditOk = results.find((r) => r.feature === 17 && r.name === '审计大屏数据加载')?.passed || false
+  const apiOk = results.find((r) => r.feature === 17 && r.name === '审计大屏 API 权限')?.passed || false
+  const allPass = backupOk && adminBackupOk && auditOk && apiOk
+  record(
+    17,
+    '权限修复综合验证',
+    allPass,
+    `备份收紧=${backupOk}, admin对照=${adminBackupOk}, 大屏=${auditOk}, API=${apiOk}`
+  )
 }
 
 // ==================== 功能 18：IP 归属地库后台管理 ====================
@@ -5240,47 +5227,101 @@ async function testFeature31(page) {
 
   const ryHeaders = { Authorization: `Bearer ${ryToken}` }
 
-  // ---------- 步骤 3：ry 调用 GET /system/backup/list（应有 system:backup:list 权限） ----------
+  // ---------- 步骤 3：ry 调用 GET /system/backup/list（system:backup:list，平台专属，期望 403） ----------
+  // 设计：system:backup: 前缀在 common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 中列为平台专属
+  // （整库 dump/恢复、下载面即全库数据）。迁移 m20260926_000005 / m20260926_000006 显式剔除 role_id=2，
+  // 故平台普通角色 ry（role_id=2）不再持有 system:backup:list，接口应返回 403。
   let ryListOk = false
   let ryListDetail = ''
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, { headers: ryHeaders })
     const data = await resp.json().catch(() => null)
-    ryListOk = resp.status === 200 && data?.code === 200
-    ryListDetail = `status=${resp.status}, code=${data?.code}`
+    // 期望 403：权限按设计收紧（修复前误判为 200）
+    ryListOk = resp.status === 403
+    ryListDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
   } catch (err) {
     ryListDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry GET /system/backup/list（system:backup:list）', ryListOk, ryListDetail)
+  record(31, 'ry GET /system/backup/list（system:backup:list 平台专属，期望 403）', ryListOk, ryListDetail)
 
-  // ---------- 步骤 4：ry 调用 GET /system/backup/{backupId}（system:backup:query） ----------
+  // ---------- 步骤 3b：admin 对照：同一接口仍应为 200（证明备份功能本身正常，收紧仅针对平台普通角色） ----------
+  let adminListOk = false
+  let adminListDetail = ''
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    const data = await resp.json().catch(() => null)
+    adminListOk = resp.status === 200 && data?.code === 200
+    adminListDetail = `status=${resp.status}, code=${data?.code}（期望 200）`
+  } catch (err) {
+    adminListDetail = `异常: ${err.message.slice(0, 80)}`
+  }
+  record(31, 'admin GET /system/backup/list（对照，期望 200）', adminListOk, adminListDetail)
+
+  // ---------- 步骤 4：ry 调用 GET /system/backup/{backupId}（system:backup:query，平台专属，期望 403） ----------
   let ryQueryOk = false
   let ryQueryDetail = ''
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/backup/${backupId}`, { headers: ryHeaders })
     const data = await resp.json().catch(() => null)
-    // 应该 200 成功（或 404 如果备份不存在，但不应是 403）
-    ryQueryOk = resp.status !== 403
-    ryQueryDetail = `status=${resp.status}, code=${data?.code}`
+    // 期望 403：system:backup:query 平台专属，已从 role_id=2 可授集合剔除
+    ryQueryOk = resp.status === 403
+    ryQueryDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
   } catch (err) {
     ryQueryDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry GET /system/backup/{id}（system:backup:query）', ryQueryOk, ryQueryDetail)
+  record(31, 'ry GET /system/backup/{id}（system:backup:query 平台专属，期望 403）', ryQueryOk, ryQueryDetail)
 
-  // ---------- 步骤 5：ry 调用 GET /system/backup/download/{backupId}（system:backup:query） ----------
+  // ---------- 步骤 4b：admin 对照：同一接口仍应为 200 ----------
+  let adminQueryOk = false
+  let adminQueryDetail = ''
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/${backupId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    const data = await resp.json().catch(() => null)
+    adminQueryOk = resp.status === 200 && data?.code === 200
+    adminQueryDetail = `status=${resp.status}, code=${data?.code}（期望 200）`
+  } catch (err) {
+    adminQueryDetail = `异常: ${err.message.slice(0, 80)}`
+  }
+  record(31, 'admin GET /system/backup/{id}（对照，期望 200）', adminQueryOk, adminQueryDetail)
+
+  // ---------- 步骤 5：ry 调用 GET /system/backup/download/{backupId}（system:backup:query，平台专属，期望 403） ----------
   let ryDownloadOk = false
   let ryDownloadDetail = ''
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/backup/download/${backupId}`, { headers: ryHeaders })
-    // 期望：200（成功下载）或非 403
-    ryDownloadOk = resp.status !== 403
-    ryDownloadDetail = `status=${resp.status}`
+    // 期望 403：system:backup:query 平台专属，已从 role_id=2 可授集合剔除
+    ryDownloadOk = resp.status === 403
+    ryDownloadDetail = `status=${resp.status}（期望 403）`
     // 消费响应体以释放连接
     await resp.text().catch(() => '')
   } catch (err) {
     ryDownloadDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry GET /system/backup/download/{id}（system:backup:query）', ryDownloadOk, ryDownloadDetail)
+  record(
+    31,
+    'ry GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）',
+    ryDownloadOk,
+    ryDownloadDetail
+  )
+
+  // ---------- 步骤 5b：admin 对照：同一接口仍应为 200 ----------
+  let adminDownloadOk = false
+  let adminDownloadDetail = ''
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/download/${backupId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    adminDownloadOk = resp.status === 200
+    adminDownloadDetail = `status=${resp.status}（期望 200）`
+    await resp.text().catch(() => '')
+  } catch (err) {
+    adminDownloadDetail = `异常: ${err.message.slice(0, 80)}`
+  }
+  record(31, 'admin GET /system/backup/download/{id}（对照，期望 200）', adminDownloadOk, adminDownloadDetail)
 
   // ---------- 步骤 6：ry 调用 POST /system/backup/restore/{backupId}（system:backup:edit，关键权限验证） ----------
   // 安全策略（m20260729_000001 + m20260803_000001）：
@@ -5328,16 +5369,30 @@ async function testFeature31(page) {
   record(31, 'ry POST /system/backup（system:backup:add 权限隔离）', ryAddOk, ryAddDetail)
 
   // ---------- 步骤 8：综合判断 ----------
+  // ry 侧：system:backup:list/query 平台专属（期望 403）；add/edit 写权限亦为 403。
+  // admin 侧对照：list/query/download 仍为 200，证明收紧仅针对平台普通角色而非备份功能损坏。
   const allChecks = [
     results.find((r) => r.feature === 31 && r.name === 'admin 登录获取 token')?.passed || false,
     results.find((r) => r.feature === 31 && r.name === 'admin 创建备份')?.passed || false,
     results.find((r) => r.feature === 31 && r.name === 'ry 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'ry GET /system/backup/list（system:backup:list）')?.passed ||
+    results.find(
+      (r) => r.feature === 31 && r.name === 'ry GET /system/backup/list（system:backup:list 平台专属，期望 403）'
+    )?.passed || false,
+    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/list（对照，期望 200）')?.passed ||
       false,
-    results.find((r) => r.feature === 31 && r.name === 'ry GET /system/backup/{id}（system:backup:query）')?.passed ||
+    results.find(
+      (r) => r.feature === 31 && r.name === 'ry GET /system/backup/{id}（system:backup:query 平台专属，期望 403）'
+    )?.passed || false,
+    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/{id}（对照，期望 200）')?.passed ||
       false,
-    results.find((r) => r.feature === 31 && r.name === 'ry GET /system/backup/download/{id}（system:backup:query）')
-      ?.passed || false,
+    results.find(
+      (r) =>
+        r.feature === 31 &&
+        r.name === 'ry GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）'
+    )?.passed || false,
+    results.find(
+      (r) => r.feature === 31 && r.name === 'admin GET /system/backup/download/{id}（对照，期望 200）'
+    )?.passed || false,
     results.find(
       (r) => r.feature === 31 && r.name === 'ry POST /system/backup/restore/{id}（system:backup:edit 权限隔离）'
     )?.passed || false,
