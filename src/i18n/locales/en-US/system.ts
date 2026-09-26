@@ -14,6 +14,7 @@ export default {
     dept: 'Departments',
     post: 'Positions',
     tenant: 'Tenant Management',
+    myDomain: 'My Domains',
     dict: 'Dictionaries',
     config: 'Config',
     notice: 'Announcements',
@@ -371,7 +372,10 @@ export default {
     deleteConfirm:
       'Delete domain binding "{0}"? It will no longer participate in tenant resolution',
     statusTip: 'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
-    empty: 'No domain bound yet'
+    empty: 'No domain bound yet',
+    myTitle: 'My Domains',
+    subdomainPlatformTip:
+      'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.'
   },
   role: {
     title: 'Role Management',

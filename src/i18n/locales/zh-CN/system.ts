@@ -14,6 +14,7 @@ export default {
     dept: '部门管理',
     post: '岗位管理',
     tenant: '租户管理',
+    myDomain: '我的域名',
     dict: '字典管理',
     config: '参数设置',
     notice: '公告管理',
@@ -363,7 +364,10 @@ export default {
     setPrimaryTip: '仅「已验证」且「启用」中的域名可设为主域名',
     deleteConfirm: '确认删除域名绑定「{0}」？删除后该域名不再参与租户识别',
     statusTip: '停用后该域名不再参与租户识别（Host → 租户映射失效）',
-    empty: '暂无域名绑定'
+    empty: '暂无域名绑定',
+    myTitle: '我的域名',
+    subdomainPlatformTip:
+      '子域名由平台统一分配，租户侧仅可自助添加「自定义域名」，且需按提示配置 DNS TXT 记录并通过验证后方可设为主域名。'
   },
   role: {
     title: '角色管理',
