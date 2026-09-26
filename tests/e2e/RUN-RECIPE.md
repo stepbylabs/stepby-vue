@@ -336,6 +336,13 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   同批还会收集到瞬时 `401/503` 告警。**判据**：① 失败文案是 `page.goto` 超时（非业务断言不符）；② 单独
   `--feature=<该功能>` 复跑全绿（本轮功能 60：13/13）。二者同时成立即可判定为环境抖动，**必须重跑该段取净结果**，
   不可直接采信首跑的 `失败: 1`。
+- **`下载功能端到端验证 - blob 响应 0 字节`（功能 3）= 环境抖动，非断言回归**（第九批实测，**第二类抖动签名**）：
+  功能 3 点第一行下载按钮后，判据是"观察到 `download` 事件 **或** `/system/backup/download/` 的 200 响应体非空"。
+  后端备份文件为**数十 MB 级**（当前 DB 约 40 MB ⇒ 备份 ~36 MB），大响应下浏览器可能**未在 15 s 内发出 `download` 事件**，
+  于是走 `else if (resp)` 分支：此时响应被 abort（同批 console 可见 `net::ERR_FAILED`）⇒ `resp.body()` 读空 ⇒ 记 0 字节。
+  **判据**：① 失败文案是 `blob 响应 0 字节`（非"未找到下载按钮"）；② 同批后端 `backups/` 目录中该 `file_name` 对应文件**存在且非空**
+  （如 `Get-ChildItem backups | Sort LastWriteTime -Desc | Select -First 1`）；③ 单独 `--feature=3` 复跑全绿。
+  三者同时成立即判环境抖动，**必须重跑该段取净结果**（第九批复跑：`--feature=3` = 6/6，`--feature=1-20` = 107/107）。
 
 ### 3.12 新库迁移路径验证（Migrator 全链 + 平台专属菜单治理查证）
 
