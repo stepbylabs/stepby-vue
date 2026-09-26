@@ -434,7 +434,7 @@ cd axum-backend
 #    `mod gen_table_template_tests` 内加一个 `#[test] fn zz_dump()`：
 #      - mk_table() 改 table_name="zz_flow_verify_doc" / class_name="ZzFlowVerifyDoc"
 #        / tpl_category=Some("flow")；
-#      - columns 用 `column_type_to_rust_type()` **真实映射**构造（勿手写 java_type，
+#      - columns 用 `column_type_to_rust_type()` **真实映射**构造（勿手写 rust_type，
 #        否则会掩盖映射缺陷）；非主键列置 is_insert/is_edit/is_list="1"
 #        （对齐 gen_table_service.rs:794 的 `("1","1","1","0")`，否则 DTO 为空、看不出真实产物）；
 #      - 把 `files` 里以 `.rs` 结尾的项按 key 相对路径写入 `axum-backend/zz-verify/`。

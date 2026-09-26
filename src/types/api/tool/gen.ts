@@ -73,10 +73,10 @@ export interface GenTableColumn extends BaseEntity {
   columnComment?: string
   /** 列类型 */
   columnType?: string
-  /** Java类型 */
-  javaType?: string
-  /** Java字段名 */
-  javaField?: string
+  /** Rust 类型（如 i64 / String / chrono::NaiveDateTime；原 Java 遗留命名 javaType） */
+  rustType?: string
+  /** Rust 字段名（snake_case；原 Java 遗留命名 javaField） */
+  rustField?: string
   /** 是否主键（1是） */
   isPk?: '1' | '0'
   /** 是否自增（1是） */

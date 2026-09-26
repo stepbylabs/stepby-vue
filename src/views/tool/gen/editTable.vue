@@ -31,22 +31,26 @@
                 min-width="10%"
                 show-overflow-tooltip
               />
-              <el-table-column :label="t('gen.editTable.column.javaType')" min-width="11%">
+              <el-table-column :label="t('gen.editTable.column.rustType')" min-width="14%">
                 <template #default="scope">
-                  <el-select v-model="scope.row.javaType">
-                    <el-option label="Long" value="Long" />
+                  <!-- 值必须是**后端 `column_type_to_rust_type` 实际产出的 Rust 类型**：
+                       模板会把该值原样写进实体/DTO 字段声明，填 Java 类型（Long/BigDecimal/Date）
+                       会生成无法编译的 Rust。下拉项与 gen_table_service.rs 的映射逐一对应。 -->
+                  <el-select v-model="scope.row.rustType">
+                    <el-option label="i64" value="i64" />
+                    <el-option label="i8" value="i8" />
+                    <el-option label="i16" value="i16" />
+                    <el-option label="f32" value="f32" />
+                    <el-option label="f64" value="f64" />
+                    <el-option label="bool" value="bool" />
                     <el-option label="String" value="String" />
-                    <el-option label="Integer" value="Integer" />
-                    <el-option label="Double" value="Double" />
-                    <el-option label="BigDecimal" value="BigDecimal" />
-                    <el-option label="Date" value="Date" />
-                    <el-option label="Boolean" value="Boolean" />
+                    <el-option label="chrono::NaiveDateTime" value="chrono::NaiveDateTime" />
                   </el-select>
                 </template>
               </el-table-column>
-              <el-table-column :label="t('gen.editTable.column.javaField')" min-width="10%">
+              <el-table-column :label="t('gen.editTable.column.rustField')" min-width="10%">
                 <template #default="scope">
-                  <el-input v-model="scope.row.javaField" :maxlength="64"></el-input>
+                  <el-input v-model="scope.row.rustField" :maxlength="64"></el-input>
                 </template>
               </el-table-column>
 
