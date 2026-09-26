@@ -25,6 +25,8 @@ export default {
     no: 'No',
     // Multi-tenant Phase 3: platform tenant display name (tenant_id = 0)
     platformTenant: 'Platform',
+    // Multi-tenant Phase 3: header of the "tenant ownership" column ([ui].show_tenant_column)
+    tenantColumn: 'Tenant',
     detail: 'Detail',
     download: 'Download',
     upload: 'Upload',

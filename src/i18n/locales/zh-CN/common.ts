@@ -25,6 +25,8 @@ export default {
     no: '否',
     // 多租户 Phase 3：平台租户展示名（tenant_id = 0）
     platformTenant: '平台',
+    // 多租户 Phase 3：业务列表页「所属租户」归属列标题（[ui].show_tenant_column）
+    tenantColumn: '所属租户',
     detail: '详细',
     download: '下载',
     upload: '上传文件',

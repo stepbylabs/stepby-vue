@@ -130,6 +130,7 @@
       >
         <el-table-column type="selection" width="50" align="center" />
         <el-table-column :label="t('operlog.column.operId')" align="center" prop="operId" />
+        <TenantColumn />
         <el-table-column :label="t('operlog.column.title')" align="center" prop="title" show-overflow-tooltip>
           <template #default="scope">
             <!-- T-11：title 新数据存 i18n key（module.*），旧数据为中文原文；te() 回退兼容 -->
@@ -229,6 +230,7 @@
 <script setup lang="ts" name="Operlog">
 import OperlogDetail from './detail.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import TenantColumn from '@/components/TenantColumn/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
 import { list, delOperlog, cleanOperlog } from '@/api/monitor/operlog'

@@ -134,6 +134,7 @@
               v-if="columns.userId.visible"
               width="80"
             />
+            <TenantColumn />
             <el-table-column
               :label="t('user.column.username')"
               align="center"
@@ -353,6 +354,7 @@
 <script setup lang="ts" name="User">
 import TreePanel from '@/components/TreePanel/index.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import TenantColumn from '@/components/TenantColumn/index.vue'
 import BatchActions from '@/components/BatchActions/index.vue'
 import ExcelImportDialog from '@/components/ExcelImportDialog/index.vue'
 import UserViewDrawer from './view.vue'

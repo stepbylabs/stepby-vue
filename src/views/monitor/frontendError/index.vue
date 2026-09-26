@@ -137,6 +137,7 @@
       >
         <el-table-column type="selection" width="50" align="center" />
         <el-table-column :label="t('frontendError.column.id')" align="center" prop="id" width="80" />
+        <TenantColumn />
         <el-table-column :label="t('frontendError.column.level')" align="center" prop="level" width="90">
           <template #default="scope">
             <el-tag :type="levelTagType(scope.row.level)" size="small">{{ levelLabel(scope.row.level) }}</el-tag>
@@ -209,6 +210,7 @@
 <script setup lang="ts" name="FrontendError">
 import FrontendErrorDetail from './detail.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import TenantColumn from '@/components/TenantColumn/index.vue'
 import {
   listFrontendError,
   delFrontendError,

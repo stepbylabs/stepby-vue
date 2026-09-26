@@ -122,6 +122,7 @@
           >
             <el-table-column type="selection" width="55" align="center" />
             <el-table-column :label="t('logininfor.column.infoId')" align="center" prop="infoId" />
+            <TenantColumn />
             <el-table-column
               :label="t('logininfor.column.userName')"
               align="center"
@@ -192,6 +193,7 @@
 
 <script setup lang="ts" name="Logininfor">
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import TenantColumn from '@/components/TenantColumn/index.vue'
 import { list, delLogininfor, cleanLogininfor, unlockLogininfor } from '@/api/monitor/logininfor'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'

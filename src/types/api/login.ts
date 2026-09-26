@@ -21,6 +21,14 @@ export interface UserInfoResult extends AjaxResult {
   isDefaultModifyPwd?: boolean
   /** 密码是否过期 */
   isPasswordExpired?: boolean
+  /**
+   * 业务列表页是否显示「所属租户」归属列
+   *
+   * 由后端按 `[ui].show_tenant_column`（`auto` | `always` | `never`）结合操作者租户上下文
+   * **算好后下发**（`auto` = 仅平台操作者可见 = 历史行为）。前端不做二次推断，
+   * 避免"平台/租户"判定散落两处而漂移。
+   */
+  showTenantColumn?: boolean
 }
 
 /** 验证码响应 */

@@ -25,6 +25,14 @@ interface UserState {
   permissions: string[]
   /** 多租户 Phase 3：当前登录用户所属租户 ID（0 = 平台租户；用于平台/租户分层视图判定） */
   tenantId: number
+  /**
+   * 业务列表页是否显示「所属租户」归属列
+   *
+   * 后端按 `[ui].show_tenant_column` 结合操作者租户上下文算好后随 `getInfo` 下发：
+   * `auto`（默认）= 仅平台操作者可见 = 历史行为；`always` = 均可见；`never` = 均隐藏。
+   * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
+   */
+  showTenantColumn: boolean
 }
 
 const useUserStore = defineStore('user', {
@@ -36,7 +44,8 @@ const useUserStore = defineStore('user', {
     avatar: '',
     roles: [],
     permissions: [],
-    tenantId: 0
+    tenantId: 0,
+    showTenantColumn: false
   }),
   actions: {
     // 登录
@@ -85,6 +94,9 @@ const useUserStore = defineStore('user', {
       this.avatar = avatar
       // 多租户 Phase 3：租户归属随 getInfo 一次带回（0 = 平台租户）
       this.tenantId = Number(user.tenantId ?? 0)
+      // 归属列展示开关：后端已按 [ui].show_tenant_column + 操作者租户算好，
+      // 此处只做落库（缺字段视为 false，fail-safe）
+      this.showTenantColumn = res.showTenantColumn === true
       cache.session.set('pwdChrtype', res.pwdChrtype || '0')
       // P1 修复: 同步更新 passwordRule 模块级 ref，确保登录后规则实时生效
       setPwdChrType(res.pwdChrtype || '0')
@@ -144,6 +156,7 @@ const useUserStore = defineStore('user', {
         this.avatar = ''
         // 多租户 Phase 3：清理租户归属，避免切换账号后残留（P0-60 同类权限泄漏问题）
         this.tenantId = 0
+        this.showTenantColumn = false
         // 清理字典缓存
         useDictStore().cleanDict()
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）

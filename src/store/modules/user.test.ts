@@ -138,6 +138,24 @@ describe('store/modules/user', () => {
     expect(setPwdChrType).toHaveBeenCalledWith('2')
   })
 
+  // 多租户 Phase 3 / F-6：[ui].show_tenant_column 的展示决策由后端算好下发，
+  // store 只做落库；缺字段必须视为 false（fail-safe，宁可不显示归属列）
+  it('getInfo maps showTenantColumn from the server decision (missing -> false)', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showTenantColumn: true })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.showTenantColumn).toBe(true)
+
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'] })
+    await store.getInfo()
+    expect(store.showTenantColumn).toBe(false)
+
+    // 非布尔真值不得被当成 true（严格 === true）
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showTenantColumn: 'true' })
+    await store.getInfo()
+    expect(store.showTenantColumn).toBe(false)
+  })
+
   it('getInfo falls back to ROLE_DEFAULT when roles empty (and skips permissions)', async () => {
     api.getInfo.mockResolvedValue({ user: {}, roles: [], permissions: undefined })
     const store = useUserStore()
