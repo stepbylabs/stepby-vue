@@ -9,6 +9,7 @@
             <el-option :label="t('gen.genInfo.tplCrud')" value="crud" />
             <el-option :label="t('gen.genInfo.tplTree')" value="tree" />
             <el-option :label="t('gen.genInfo.tplSub')" value="sub" />
+            <el-option :label="t('gen.genInfo.tplFlow')" value="flow" />
           </el-select>
         </el-form-item>
       </el-col>

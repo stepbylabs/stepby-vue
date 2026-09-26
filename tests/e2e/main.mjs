@@ -1499,14 +1499,18 @@ async function testFeature15(page) {
   record(15, '注册提交按钮', hasRegisterBtn)
 
   // 步骤 4：尝试填写表单并提交（注册功能后端默认关闭，预期失败或返回错误）
+  // ⚠️ 注册密码规则（`registerPwdValidator` = chrtype 3）为 `^(?=.*[a-zA-Z])(?=.*[0-9])[a-zA-Z0-9]+$`
+  //    ——**只允许字母与数字**，带 `@` 等特殊字符会被前端校验拦下、POST 根本发不出去（实测踩坑）。
+  //    故此处用纯字母+数字，保证请求真正抵达后端，使「后端是否拒绝」成为可证伪判据。
+  const REG_PWD = 'Test12345'
   if (hasUsername && hasPassword) {
     const testUsername = `test_${Date.now()}`
     await userInput.fill(testUsername).catch(() => {})
-    await passInput.fill('Test@12345').catch(() => {})
+    await passInput.fill(REG_PWD).catch(() => {})
     if (passInputCount >= 2) {
       await passInputs
         .nth(1)
-        .fill('Test@12345')
+        .fill(REG_PWD)
         .catch(() => {})
     }
     // 验证码（后端启用时填页面同源真码；未启用跳过）
@@ -1515,22 +1519,42 @@ async function testFeature15(page) {
 
     await screenshot(page, 'feat15_register_filled')
 
-    // 点击注册按钮（预期后端拒绝，因为注册功能默认关闭）
+    // 点击注册按钮（预期被拦截：后端 sys.account.registerUser=false）
     if (hasRegisterBtn) {
-      await registerBtn.click().catch(() => {})
-      await sleep(2000)
+      // ⚠️ 选择器写法约束（实测）：`.css, text=xxx` 混合逗号列表会让 Playwright 按 CSS 解析并抛
+      //    "Unexpected token ="；`text=A, text=B` 会把逗号后整串当字面文本 → 恒 0 匹配。
+      //    故弹层反馈一律用**纯 CSS 选择器**（多语言并列用 `:has-text()` 的 CSS 列表）。
+      const [regResp] = await Promise.all([
+        page
+          .waitForResponse(
+            (r) => /\/register$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
+            { timeout: 6000 }
+          )
+          .catch(() => null),
+        registerBtn.click().catch(() => {})
+      ])
+      await sleep(1200)
 
-      // 验证是否有错误提示（注册功能关闭时后端会返回错误）
-      const errorMsg = page
-        .locator('.el-message--error, .el-message--warning, text=注册失败, text=注册关闭, text=不允许')
-        .first()
-      const hasError = await errorMsg.isVisible({ timeout: 3000 }).catch(() => false)
-      // 如果有错误提示，说明注册流程被正确拦截（符合预期）
+      const feedback = page.locator('.el-message--error, .el-message--warning, .el-form-item__error')
+      const feedbackCount = await feedback.count().catch(() => 0)
+      const feedbackText = feedbackCount
+        ? ((await feedback
+            .first()
+            .textContent()
+            .catch(() => '')) || ''
+          ).trim()
+        : ''
+
+      // 可证伪判据 = 「注册是否真的成功」：仅当后端返回业务成功码才算拦截失效（红）
+      const regBody = regResp ? await regResp.json().catch(() => null) : null
+      const accepted = regBody ? regBody.code === 200 : false
       record(
         15,
         '注册流程拦截验证',
-        true,
-        hasError ? '后端拒绝注册（符合预期：注册默认关闭）' : '注册请求已发送（结果未知）'
+        !accepted,
+        regBody
+          ? `后端 POST /register → code=${regBody.code} msg=${regBody.msg || ''}`
+          : `未发出注册请求（前端校验拦截${feedbackText ? `：${feedbackText}` : ''}）`
       )
     }
   } else {
@@ -9944,6 +9968,8 @@ async function testFeature49(page) {
   } catch (err) {
     record(49, '进入编辑态出现拖拽抓手', false, `异常: ${err.message.slice(0, 80)}`)
   }
+  // 卡片总数以注册表为准（编辑态抓手数 = 注册表条目数），供后续断言动态取值
+  const totalCards = handleCount
 
   // ---------- 49-3 隐藏一张卡片 → 出现隐藏占位 + 落库 ----------
   let hideOk = false
@@ -9964,10 +9990,17 @@ async function testFeature49(page) {
       parsed = null
     }
     const ids = Array.isArray(parsed) ? parsed.map((x) => x && x.id) : []
-    const knownIds = ['stats', 'quickEntry', 'loginTrend', 'operPie', 'userTrend', 'recentOperLog']
+    // 卡片总数以注册表为准（= 编辑态抓手数），不再硬编码——
+    // 新增卡片（如 W-10 的 flowTodo）不应让本用例假失败
+    const knownIds = ['stats', 'quickEntry', 'flowTodo', 'loginTrend', 'operPie', 'userTrend', 'recentOperLog']
     const hasHidden = Array.isArray(parsed) && parsed.some((x) => x && x.visible === false)
-    persistOk = Array.isArray(parsed) && parsed.length === 6 && ids.every((i) => knownIds.includes(i)) && hasHidden
-    record(49, '布局写入 localStorage 且含隐藏标记', persistOk, `长度=${Array.isArray(parsed) ? parsed.length : 'N/A'}`)
+    persistOk =
+      Array.isArray(parsed) &&
+      totalCards > 0 &&
+      parsed.length === totalCards &&
+      ids.every((i) => knownIds.includes(i)) &&
+      hasHidden
+    record(49, '布局写入 localStorage 且含隐藏标记', persistOk, `长度=${Array.isArray(parsed) ? parsed.length : 'N/A'}/${totalCards}`)
   } catch (err) {
     record(49, '隐藏卡片生效（出现隐藏占位）', false, `异常: ${err.message.slice(0, 80)}`)
     record(49, '布局写入 localStorage 且含隐藏标记', false, `异常: ${err.message.slice(0, 80)}`)
@@ -9981,10 +10014,10 @@ async function testFeature49(page) {
       .catch(() => {})
     await sleep(2400)
     await skipTour(page)
-    // 非编辑态：可见卡片数应为 5（隐藏了 1 张）；隐藏卡片不渲染内容体
+    // 非编辑态：可见卡片数应为 totalCards-1（隐藏了 1 张）；隐藏卡片不渲染内容体
     const bodyCells = await page.locator('.widget-cell .widget-cell__body').count()
-    reloadPersistOk = bodyCells === 5
-    record(49, '刷新后布局持久化恢复', reloadPersistOk, `可见卡片=${bodyCells}（期望 5）`)
+    reloadPersistOk = totalCards > 0 && bodyCells === totalCards - 1
+    record(49, '刷新后布局持久化恢复', reloadPersistOk, `可见卡片=${bodyCells}（期望 ${totalCards - 1}）`)
   } catch (err) {
     record(49, '刷新后布局持久化恢复', false, `异常: ${err.message.slice(0, 80)}`)
   }
@@ -10020,8 +10053,12 @@ async function testFeature49(page) {
     } catch {
       parsed = null
     }
-    const allVisible = Array.isArray(parsed) && parsed.length === 6 && parsed.every((x) => x && x.visible === true)
-    // 退出编辑态看可见卡片体数=6
+    const allVisible =
+      Array.isArray(parsed) &&
+      totalCards > 0 &&
+      parsed.length === totalCards &&
+      parsed.every((x) => x && x.visible === true)
+    // 退出编辑态看可见卡片体数=totalCards
     await page
       .getByRole('button', { name: /完成|Done/ })
       .first()
@@ -10029,8 +10066,8 @@ async function testFeature49(page) {
       .catch(() => {})
     await sleep(700)
     const bodyCells = await page.locator('.widget-cell .widget-cell__body').count()
-    resetOk = allVisible && bodyCells === 6
-    record(49, '恢复默认布局（全部显示）', resetOk, `持久化全显=${allVisible}, 可见卡片=${bodyCells}`)
+    resetOk = allVisible && bodyCells === totalCards
+    record(49, '恢复默认布局（全部显示）', resetOk, `持久化全显=${allVisible}, 可见卡片=${bodyCells}/${totalCards}`)
   } catch (err) {
     record(49, '恢复默认布局（全部显示）', false, `异常: ${err.message.slice(0, 80)}`)
   }
@@ -15568,6 +15605,255 @@ async function testFeature74(page) {
   }
 }
 
+// ==================== 功能 75：审批工作流增强（加签 / 已办 / 导出 / 看板待办 / 移动端）====================
+// 固化 2026-09-26 台账第二/三批交付（含三项安全前提修复）：
+//   - 权限 fail-closed 已成为真实默认（config 顶层键，不再被 [log] 表吞掉），故本用例同时是「不误伤正常路由」的活体检查；
+//   - nest 前缀归一化（/prod-api 等）后，前缀形态与裸路径行为必须一致（此处以「仅登录」路由做等价断言）；
+//   - W-3 加签：节点升级为会签（taskType=countersign），原审批人单独同意**不足以**推进；
+//   - W-8 已办：仅本人裁决类流水，且**带单据标题**（后端按 biz_id 联查补全）；
+//   - W-11 导出：表单编码 POST，返回真 xlsx（PK 魔数），权限键复用 system:flow:list；
+//   - W-10 看板卡片 / W-17 移动端（小屏取消操作列固定）。
+// 数据前缀：e2e75；末尾 finally 清理（撤回 pending 单据，避免残留污染）。
+async function testFeature75(page) {
+  log('=== 功能 75：审批工作流增强（加签 / 已办 / 导出 / 看板待办 / 移动端） ===')
+
+  const { token: adminToken, detail: adminLoginDetail } = await apiLogin()
+  if (!adminToken) {
+    record(75, 'A1 平台 admin 登录获取 token', false, adminLoginDetail || '登录失败')
+    return
+  }
+  record(75, 'A1 平台 admin 登录获取 token', true, 'token 获取成功')
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
+
+  const uniq = Date.now()
+  const docTitle = `e2e75-doc-${uniq}`
+  let docId = null
+  let task1 = null
+  let csUid = null
+  let csUidCreated = false
+
+  const api = async (url, opts) => {
+    const res = await fetch(`${CONFIG.backendUrl}${url}`, opts).catch(() => null)
+    if (!res) return { status: 0, body: null, code: null, rows: [], data: null }
+    const body = await res.json().catch(() => null)
+    return { status: res.status, body, code: body?.code ?? null, rows: body?.rows ?? [], data: body?.data ?? null }
+  }
+
+  try {
+    // ---------- A. 加签目标用户（幂等：已存在则复用） ----------
+    const csName = `e2e75cs_${uniq}`
+    const created = await api('/system/user', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        deptId: 103,
+        userName: csName,
+        nickName: 'e2e75 加签目标',
+        email: `${csName}@yebot.dev`,
+        phonenumber: '13800009999',
+        password: 'Yebot@12345',
+        status: '0',
+        roleIds: [2]
+      })
+    })
+    if (created.code !== 200) {
+      record(75, 'A2 创建加签目标用户', false, `code=${created.code} ${created.body?.msg || ''}`)
+      return
+    }
+    csUidCreated = true
+    const found = await api(`/system/user/list?userName=${encodeURIComponent(csName)}`, { headers: jsonHeaders })
+    csUid = Number(found.rows?.[0]?.userId || 0)
+    record(75, 'A2 创建加签目标用户并取 userId', csUid > 0, `userId=${csUid}`)
+    if (!csUid) return
+
+    // ---------- B. 提交示例单据（管理员自提交会触发全链自审拒绝，故用普通角色提交） ----------
+    const { token: ryToken } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+    if (!ryToken) {
+      record(75, 'B1 ry 登录获取 token', false, '登录失败')
+      return
+    }
+    const ryHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${ryToken}` }
+    const submit = await api('/system/flow/demo/submit', {
+      method: 'POST',
+      headers: ryHeaders,
+      body: JSON.stringify({
+        title: docTitle,
+        leaveType: 'annual',
+        days: 1,
+        reason: 'e2e75',
+        flowMode: 'single'
+      })
+    })
+    docId = Number(submit.data?.docId || 0)
+    record(75, 'B1 提交示例请假单', submit.code === 200 && docId > 0, `docId=${docId}`)
+    if (!docId) return
+
+    // ---------- C. 加签（W-3） ----------
+    const todo1 = await api('/system/flow/todo?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    task1 = Number(todo1.rows?.find((r) => Number(r.bizId) === docId)?.taskId || 0)
+    record(75, 'C1 管理视图待办含该单据（第一级）', task1 > 0, `taskId=${task1}`)
+    if (!task1) return
+
+    const csAdd = await api(`/system/flow/task/${task1}/countersign-add`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ toUserId: csUid })
+    })
+    record(
+      75,
+      'C2 加签成功且节点升级为会签（taskType=countersign）',
+      csAdd.code === 200 && csAdd.data?.taskType === 'countersign',
+      `code=${csAdd.code} taskType=${csAdd.data?.taskType}`
+    )
+
+    const dup = await api(`/system/flow/task/${task1}/countersign-add`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ toUserId: csUid })
+    })
+    record(75, 'C3 重复加签被拒（400 防重，非 500）', dup.status === 400, `status=${dup.status} code=${dup.code}`)
+
+    // 原审批人单独同意 → 会签未满，单据仍 pending（可证伪：会签语义真的生效）
+    const ap1 = await api(`/system/flow/task/${task1}/action`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: 'approve', comment: 'e2e75-1' })
+    })
+    const mine1 = await api('/system/flow/mine?pageNum=1&pageSize=50', { headers: ryHeaders })
+    const docAfter1 = mine1.rows?.find((r) => Number(r.docId) === docId)
+    record(
+      75,
+      'C4 会签未满时单据不推进（仍 pending）',
+      ap1.code === 200 && docAfter1?.status === 'pending',
+      `approve=${ap1.code} status=${docAfter1?.status}`
+    )
+
+    // ---------- D. 已办（W-8）：仅裁决类 + 带单据标题 ----------
+    const done = await api('/system/flow/done?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    const doneRow = done.rows?.find((r) => Number(r.bizId) === docId)
+    record(
+      75,
+      'D1 已办收录本人裁决流水且带单据标题',
+      done.code === 200 && doneRow?.action === 'approve' && doneRow?.title === docTitle,
+      `action=${doneRow?.action} title=${doneRow?.title}`
+    )
+    record(
+      75,
+      'D2 已办不含非裁决动作（submit 不入选）',
+      !done.rows?.some((r) => Number(r.bizId) === docId && r.action === 'submit'),
+      `actions=${done.rows?.filter((r) => Number(r.bizId) === docId).map((r) => r.action).join(',')}`
+    )
+
+    // ---------- E. 导出（W-11）：真 xlsx 物证 ----------
+    const expRes = await fetch(`${CONFIG.backendUrl}/system/flow/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Bearer ${adminToken}` },
+      body: 'status=pending'
+    }).catch(() => null)
+    const expBuf = expRes ? Buffer.from(await expRes.arrayBuffer()) : null
+    record(
+      75,
+      'E1 导出返回真 xlsx（PK 魔数，非 JSON 错误体）',
+      !!expBuf && expBuf.length > 0 && expBuf[0] === 0x50 && expBuf[1] === 0x4b,
+      `status=${expRes?.status} bytes=${expBuf?.length}`
+    )
+
+    // ---------- F. nest 前缀等价（归一化回归）----------
+    const bare = await api('/system/flow/todo?pageNum=1&pageSize=5', { headers: jsonHeaders })
+    const prodPrefixed = await api('/prod-api/system/flow/todo?pageNum=1&pageSize=5', {
+      headers: jsonHeaders
+    })
+    record(
+      75,
+      'F1 nest 前缀与裸路径行为一致（fail-closed 下不误伤仅登录路由）',
+      bare.code === 200 && prodPrefixed.code === 200,
+      `bare=${bare.code} prod-api=${prodPrefixed.code}`
+    )
+
+    // ---------- G. UI：已办 tab / 导出按钮 / 看板卡片 ----------
+    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'networkidle' }).catch(() => {})
+    await sleep(2000)
+    const doneTab = page.locator('.el-tabs__item:has-text("已办"), .el-tabs__item:has-text("Done")').first()
+    const hasDoneTab = await doneTab.isVisible({ timeout: 5000 }).catch(() => false)
+    record(75, 'G1 审批页出现「已办」tab', hasDoneTab, `visible=${hasDoneTab}`)
+
+    if (hasDoneTab) {
+      await doneTab.click().catch(() => {})
+      await sleep(1500)
+      const doneCell = page.locator(`.el-table__row:has-text("${docTitle}")`).first()
+      const hasDoneRow = await doneCell.isVisible({ timeout: 5000 }).catch(() => false)
+      record(75, 'G2 已办 tab 渲染出单据标题行', hasDoneRow, `visible=${hasDoneRow}`)
+    } else {
+      record(75, 'G2 已办 tab 渲染出单据标题行', false, '前置 G1 未通过')
+    }
+
+    const allTab = page.locator('.el-tabs__item:has-text("全部"), .el-tabs__item:has-text("All")').first()
+    const hasAllTab = await allTab.isVisible({ timeout: 3000 }).catch(() => false)
+    let hasExportBtn = false
+    if (hasAllTab) {
+      await allTab.click().catch(() => {})
+      await sleep(1500)
+      hasExportBtn = await page
+        .locator('button:has-text("导出"), button:has-text("Export")')
+        .first()
+        .isVisible({ timeout: 5000 })
+        .catch(() => false)
+    }
+    record(75, 'G3 管理视图出现「导出」按钮', hasExportBtn, `visible=${hasExportBtn}`)
+
+    // 看板卡片（W-10）：数量来自 pending-count，卡片标题双语匹配
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' }).catch(() => {})
+    await sleep(2500)
+    // ⚠️ 不可写 `text=A, text=B`：text 引擎会把逗号后整串当字面文本 → 恒 0 匹配（已实测）。
+    //    多语言并列必须用 CSS 列表 + :has-text()。
+    const cardTitle = await page
+      .locator(
+        '.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")'
+      )
+      .first()
+      .isVisible({ timeout: 5000 })
+      .catch(() => false)
+    record(75, 'G4 看板出现「我的待办」卡片', cardTitle, `visible=${cardTitle}`)
+
+    // ---------- H. 移动端（W-17）：小屏取消操作列固定 ----------
+    await page.setViewportSize({ width: 375, height: 720 })
+    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'networkidle' }).catch(() => {})
+    await sleep(2500)
+    const fixedCount = await page
+      .evaluate(
+        () =>
+          document.querySelectorAll('.el-table-fixed-column--right, .el-table__fixed-right').length
+      )
+      .catch(() => -1)
+    record(75, 'H1 375px 下操作列不再固定（sticky 固定列计数为 0）', fixedCount === 0, `fixed=${fixedCount}`)
+    await page.setViewportSize({ width: 1280, height: 800 }).catch(() => {})
+  } finally {
+    // ---------- Z. 清理（写路径闭环自清理） ----------
+    // 撤回单据（撤回后 pending 待办转 cancelled，不残留待办）
+    if (docId) {
+      const { token: ryToken2 } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+      if (ryToken2) {
+        await api(
+          `/system/flow/demo/${docId}/withdraw`,
+          { method: 'POST', headers: { Authorization: `Bearer ${ryToken2}` } }
+        ).catch(() => {})
+      }
+      const mineAfter = await api('/system/flow/mine?pageNum=1&pageSize=50', {
+        headers: { Authorization: `Bearer ${ryToken2}` }
+      })
+      const st = mineAfter.rows?.find((r) => Number(r.docId) === docId)?.status
+      log(`  清理复核：单据 ${docId} 终态=${st}`)
+    }
+    // 删除加签目标用户（软删，释放 user_name 唯一索引）
+    if (csUidCreated && csUid) {
+      await api(`/system/user/${csUid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${adminToken}` } }).catch(
+        () => {}
+      )
+      log(`  清理复核：加签目标用户 ${csUid} 已删除`)
+    }
+  }
+}
+
 // ==================== 主流程 ====================
 
 async function main() {
@@ -15720,7 +16006,8 @@ async function main() {
       { id: 71, fn: testFeature71 },
       { id: 72, fn: testFeature72 },
       { id: 73, fn: testFeature73 },
-      { id: 74, fn: testFeature74 }
+      { id: 74, fn: testFeature74 },
+      { id: 75, fn: testFeature75 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿

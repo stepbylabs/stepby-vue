@@ -6,7 +6,14 @@
  */
 
 /** 卡片唯一标识（同时也是持久化布局里存储的 id） */
-export type WidgetId = 'stats' | 'quickEntry' | 'loginTrend' | 'operPie' | 'userTrend' | 'recentOperLog'
+export type WidgetId =
+  | 'stats'
+  | 'quickEntry'
+  | 'flowTodo'
+  | 'loginTrend'
+  | 'operPie'
+  | 'userTrend'
+  | 'recentOperLog'
 
 /** 栅格宽度（24 列制，与 el-col :span 对齐） */
 export type WidgetSpan = 8 | 12 | 16 | 24
@@ -31,6 +38,7 @@ export interface WidgetDef {
 export const WIDGET_REGISTRY: WidgetDef[] = [
   { id: 'stats', titleKey: 'dashboard.layout.widgetStats', icon: 'DataLine', defaultSpan: 24, resizable: false },
   { id: 'quickEntry', titleKey: 'dashboard.layout.widgetQuickEntry', icon: 'Grid', defaultSpan: 24, resizable: false },
+  { id: 'flowTodo', titleKey: 'flow.cardMyTodo', icon: 'Bell', defaultSpan: 8, resizable: true },
   { id: 'loginTrend', titleKey: 'dashboard.loginTrend', icon: 'TrendCharts', defaultSpan: 16, resizable: true },
   { id: 'operPie', titleKey: 'dashboard.operTypeDist', icon: 'PieChart', defaultSpan: 8, resizable: true },
   { id: 'userTrend', titleKey: 'dashboard.userCreateTrend', icon: 'Histogram', defaultSpan: 12, resizable: true },

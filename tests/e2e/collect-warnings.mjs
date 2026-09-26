@@ -73,6 +73,8 @@ const ROUTES = [
   '/monitor/frontendError',
   '/monitor/pat',
   '/monitor/server',
+  // 审批中心（2026-09-26 补捕：W-8 已办 / W-11 导出 / W-17 移动端 都落在此页，此前未纳入采集面）
+  '/system/flow/todo',
   // 系统工具
   '/tool/build',
   '/tool/gen',

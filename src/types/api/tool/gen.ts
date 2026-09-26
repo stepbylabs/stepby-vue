@@ -27,8 +27,8 @@ export interface GenTable extends BaseEntity {
   subTableFkName?: string;
   /** 实体类名称(首字母大写) */
   className?: string;
-  /** 使用的模板（crud单表操作 tree树表操作 sub主子表操作） */
-  tplCategory?: 'crud' | 'tree' | 'sub'
+  /** 使用的模板（crud单表操作 tree树表操作 sub主子表操作 flow审批单据） */
+  tplCategory?: 'crud' | 'tree' | 'sub' | 'flow'
   /** 前端类型（element-ui模版 element-plus模版） */
   tplWebType?: 'element-ui' | 'element-plus'
   /** 生成包路径 */

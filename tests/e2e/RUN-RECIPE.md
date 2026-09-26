@@ -72,10 +72,12 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 74 个功能（约 20 分钟，分段见下）。
+- 不带 `--feature` = 跑全部 75 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-74` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- **功能 1-68** 通过判据（已验证基线）：三段合计 `106 + 220 + 326 = 652 通过 0 失败`，日志无 `❌`。
+  `1-20 / 21-40 / 41-75` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
+- **功能 1-75** 通过判据（**最新权威基线，2026-09-26 第五批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
+  实测 `107 + 223 + 445 = **775 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`）。
+  （历史基线：功能 1-68 曾为 `106 + 220 + 326 = 652`；随 W-3/W-8/W-10/W-11/W-17 与失败计数收紧逐批上移。）
 - **功能 69-73** 通过判据（已验证基线，轮13）：`--feature=69-73` 单轮 `失败: 0`，EXIT=0，
   且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
   71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条、
@@ -97,6 +99,16 @@ node main.mjs --headless
   **契约偏差（以实际后端为准）**：上游描述的上报路径为 `/monitor/frontendError`，实际为
   `/monitor/frontendError/report`（`report` 仅需登录）；list 仅按 `name` 模糊检索（不检索 `message`），
   故 marker 同时写入 `name` 与 `message`、以 `name=<marker>` 查询印证。
+- **功能 75** 通过判据（已验证基线，第三批）：`--feature=75` → 全绿（EXIT=0）；`--feature=49,75` → 全绿（未破坏 49）。
+  功能 75 = **审批工作流增强五件套**（加签 W-3 / 已办 W-8 / 导出 W-11 / 看板待办 W-10 / 移动端 W-17 + nest 前缀归一化回归）：
+  A 建加签目标用户 → B 以 `ry` 提交示例请假单（**前置依赖 N-7**：部门主管必须非空，否则 400 `error.flow.leader_missing`，
+  故后端启动必须包含 `initialize` 3.1.2b 的主管回填）→ C 加签（成功且节点升级 `taskType=countersign`、重复加签 **400** 防重、
+  **会签未满时单据仍 pending**——可证伪的会签语义）→ D 已办（收录 `approve` 且带单据标题；`submit` 不入选）→
+  E 导出（响应为**真 xlsx**，`PK` 魔数 `0x50 0x4B`，非 JSON 错误体）→ F `nest` 前缀等价
+  （`/prod-api/system/flow/todo` 与裸路径**行为一致**，fail-closed 下不误伤仅登录路由）→ G UI（已办 tab / 已办行 /
+  管理视图导出按钮 / 看板「我的待办」卡片）→ H 移动端（≤768px 取消固定列）→ finally 清理用户与单据。
+  **陷阱**：C 步骤必须用**加签人自己的 token** 调 `countersign-add`（用平台 admin token 会 403）；B 步骤必须用
+  普通角色提交（管理员自提交触发全链自审拒绝 → 400 `self_approve_chain`）。
 
 ### 3.0 逐页信号采集器 `collect-warnings.mjs`（配合 main.mjs 的深度巡检）
 
@@ -113,7 +125,7 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
 INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/56" + "交互动作覆盖：…（INTERACT 模式同样 0/56 稳定）
+# 期望（已验证基线）：末行 "有信号的路由数: 0/57" + "交互动作覆盖：…（INTERACT 模式同样 0/57 稳定）
 ```
 
 - **交互态四段扫描（`INTERACT=1`）**，逐页执行且 (a)(b)(c) **只开不提、不污染数据**，(d) 只读取文件不落库：
@@ -126,7 +138,8 @@ YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 node collect-warnings.mjs
   故 (c) 必须用 **`getByRole(button|link, { name: 可访问名正则 })`** 命中，靠 `hasText` 文本匹配会全程空转。
 - **交互覆盖计数**：INTERACT 模式每行末尾打印 `interact[ro=.. add=页/开=.. view=页/开=.. exp=页/证=..]`，末行汇总
   `交互动作覆盖：只读 N 次；新增 X 页(打开 Y)；行内编辑/查看 M 页(打开 K)；导出 P 页(物证 Q)`。这是**防“扫描器静默空转”的自检**
-  ——`0/56` 只有在 exp/view>0 时才真正代表“导出/编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080）：
+  ——`0/57` 只有在 exp/view>0 时才真正代表“导出/编辑态打开也没报错”，而非“根本没点到”。当前基线（embed :8080，
+  2026-09-26 第三批实测：路由面由 56 增至 57（新增 `/system/flow/todo`），非交互态 `0/57` 全 0 信号）：
   只读 68 次、新增 21 页开 19（工具页内联表单无模态属良性）、行内编辑/查看 16 页开 16、导出 12 页物证 12，全 0 信号。
 
 - **11 类信号**：console(warn/err)、`pageerror`（未捕获异常）、`requestfailed`（网络失败）、
@@ -365,6 +378,46 @@ rm -f .mig-verify.mjs data/mig-verify.db*
   （按完整 8 前缀全量剔除）。**教训：新增/改动迁移清单后，务必用本节的"全新库 + 查证"两步验一次，
   不要只依赖 embedded 环境（它走 initialize，会掩盖迁移路径的缺口）。**
 
+### 3.13 权限 fail-closed 与 nest 前缀归一化（2026-09-26；跑 e2e 前必读）
+
+本轮把安全前提从「文档声称 fail-closed」纠正为「**代码确实 fail-closed**」，并修复了一个**会改变 e2e 结果**的
+结构性缺陷。两者都直接决定 e2e 是否假失败/假通过：
+
+- **`permission_deny_by_default` 现为默认 `true`**（`config/settings.rs` 的 serde 缺省 + 三份配置模板顶层显式 `true`）。
+  含义：受保护路由中「未登记权限映射且不在仅登录白名单」的路径**返回 403**。
+  ⚠️ 配置坑：该键是**顶层键**，写在任何 `[table]`（如 `[log]`）之后会被解析进该表而被**静默忽略**——
+  历史 `config/config.toml` 正是这样失效的。已加两条单测锁死（`test_deny_by_default_defaults_to_true` /
+  `test_shipped_config_template_is_fail_closed`）。**新增受保护路由必须三处同步**
+  （`PERM_ROUTE_TABLE` + `is_login_only_path` 白名单 + `PROTECTED_ROUTES` 测试清单），否则运行时 403。
+- **nest 前缀必须归一化**：同源部署下 `/prod-api`、`/dev-api`、`/stage-api` 由 `Router::nest` 挂载，
+  axum 会把前缀并入 `MatchedPath`（如 `/prod-api/getInfo`）。归一化前，带前缀请求与
+  权限表/仅登录白名单/操作日志模块推断/指标标签**全部失配**——fail-open 时整体绕过 RBAC，
+  fail-closed 时**整体 403**（这正是本轮 `integration_tests::auth::test_prod_api_prefix` 首跑 403 的根因，
+  修复后转绿；该用例即本缺陷的**反向验证**）。
+  修复 = `middleware::normalize_api_prefix`，已接入 `permission` / `oper_log` / `observability` 三处。
+  **e2e 判别法**（fail-closed 下唯一能区分"归一化是否生效"的探针）：取一条**仅登录白名单**路由
+  （如 `/system/flow/todo`），分别裸路径与三前缀请求，带普通用户 token 应**全部 200**；
+  若前缀形态 403 而裸路径 200 ⇒ 归一化失效。
+- **PWA/Service Worker**：`/prod-api` 前缀形态在 `pwa.ts` 的 denylist 之外，前端业务请求走 SW 缓存策略，
+  `pending-count` 等新鲜度敏感接口已在响应侧加 `Cache-Control: no-store`（V7-E4），勿再依赖客户端绕缓存。
+
+### 3.14 Playwright 选择器写法约束（2026-09-26 第三批；写断言前必读）
+
+第三批排查「看板卡片不可见」时发现：**断言恒失败的真因是选择器语法，而非功能缺陷**。实测四种写法：
+
+| 写法 | 实测结果 | 结论 |
+| --- | --- | --- |
+| `text=我的待办` | `count=1` | ✅ 单条可用 |
+| `text=我的待办, text=My Pending Approvals` | `count=0` | ❌ text 引擎把逗号后整串当**字面文本** |
+| `.el-message--error, text=注册失败` | **抛异常** `Unexpected token "=" while parsing css selector` | ❌ 列表首项是 CSS 时整串按 CSS 解析，`text=` 非法 |
+| `.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")` | `count=1` | ✅ 多语言并列的**推荐**写法 |
+
+- **铁律**：多语言并列一律用 **CSS 选择器列表 + `:has-text()`**；不要混用 `text=` 引擎，也不要写 `text=A, text=B`。
+- 历史影响面：`main.mjs` 曾有 2 处违反（功能 15 的注册拦截、功能 75 的 G4 看板卡片）。前者因
+  `.catch(() => false)` + `record(..., true, ...)` **恒绿但零信息**（属"假断言"），已改为「以 `/register` POST
+  的业务码为唯一判据」的可证伪断言；后者改用 CSS 列表后转绿。
+- 复现探针：起一个临时 Playwright 脚本，对同一元素分别 `locator(四种写法).count()` 即可判定。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
@@ -389,9 +442,12 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 **814 passed / 0 failed**，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --all-targets -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）。
+- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 **854 passed / 0 failed**，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --lib --tests -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）、
+  `cargo fmt --all -- --check`（0 差异；2026-09-26 已清理 `rustfmt.toml` 中的 nightly 专属选项，稳定工具链下不再红）。
+  - Windows 下 `node_modules/.bin/vite` 是 sh 脚本，PowerShell 直跑会 `SyntaxError: missing ) after argument list`；
+    改用 `node node_modules/vite/bin/vite.js build --mode <mode>` 等价且跨 shell 稳定。
   - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
-- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 40 个类型）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
+- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 **50** 个类型；新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——本轮 `FlowDoneVo` 即因此先漏后补）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
 - CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `yebot-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。
 - 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.5 全 PASS**；

@@ -426,6 +426,7 @@ export default {
       tplCrud: '单表（增删改查）',
       tplTree: '树表（增删改查）',
       tplSub: '主子表（增删改查）',
+      tplFlow: '审批单据（含审批字段）',
       tplWebType: '前端类型',
       tplWebVue2: 'Vue2 Element UI 模版',
       tplWebVue3: 'Vue3 Element Plus 模版',

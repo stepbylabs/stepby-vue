@@ -106,6 +106,7 @@ import { WIDGET_REGISTRY, type WidgetId, type LayoutItem, nextSpan } from './das
 import { useDashboardLayout } from './useDashboardLayout'
 import StatCardsWidget from './widgets/StatCardsWidget.vue'
 import QuickEntryWidget from './widgets/QuickEntryWidget.vue'
+import FlowTodoWidget from './widgets/FlowTodoWidget.vue'
 import LoginTrendWidget from './widgets/LoginTrendWidget.vue'
 import OperPieWidget from './widgets/OperPieWidget.vue'
 import UserTrendWidget from './widgets/UserTrendWidget.vue'
@@ -117,6 +118,7 @@ const { layout, editing, toggleVisible, setSpan, reset } = useDashboardLayout()
 const WIDGET_COMPONENTS: Record<WidgetId, Component> = {
   stats: StatCardsWidget,
   quickEntry: QuickEntryWidget,
+  flowTodo: FlowTodoWidget,
   loginTrend: LoginTrendWidget,
   operPie: OperPieWidget,
   userTrend: UserTrendWidget,

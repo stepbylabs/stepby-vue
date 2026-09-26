@@ -427,6 +427,7 @@ export default {
       tplCrud: 'Single Table (CRUD)',
       tplTree: 'Tree Table (CRUD)',
       tplSub: 'Master-Detail (CRUD)',
+      tplFlow: 'Approval Document (with approval fields)',
       tplWebType: 'Frontend Type',
       tplWebVue2: 'Vue2 Element UI Template',
       tplWebVue3: 'Vue3 Element Plus Template',

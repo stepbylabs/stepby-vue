@@ -26,7 +26,15 @@ describe('dashboard/dashboardLayout', () => {
     ]
     const out = normalizeLayout(raw)
     // operPie、stats 保留用户相对顺序；其余按默认顺序补到末尾
-    expect(out.map((i) => i.id)).toEqual(['operPie', 'stats', 'quickEntry', 'loginTrend', 'userTrend', 'recentOperLog'])
+    expect(out.map((i) => i.id)).toEqual([
+      'operPie',
+      'stats',
+      'quickEntry',
+      'flowTodo',
+      'loginTrend',
+      'userTrend',
+      'recentOperLog'
+    ])
     const operPie = out.find((i) => i.id === 'operPie')
     expect(operPie?.span).toBe(12)
   })
@@ -37,7 +45,14 @@ describe('dashboard/dashboardLayout', () => {
     const out = normalizeLayout(raw)
     // recentOperLog 在注册表最后，用户仅留它 → 它排最前，其余按默认顺序补在其后
     expect(out[0].id).toBe('recentOperLog')
-    expect(out.map((i) => i.id).slice(1)).toEqual(['stats', 'quickEntry', 'loginTrend', 'operPie', 'userTrend'])
+    expect(out.map((i) => i.id).slice(1)).toEqual([
+      'stats',
+      'quickEntry',
+      'flowTodo',
+      'loginTrend',
+      'operPie',
+      'userTrend'
+    ])
   })
 
   it('非法宽度归一到合法档位，visible 强制布尔', () => {

@@ -30,7 +30,7 @@
               <span :class="{ 'flow-overdue': isOverdue(row) }">{{ row.dueAt || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.column.operation')" width="330" fixed="right">
+          <el-table-column :label="t('common.column.operation')" width="330" :fixed="opFixed">
             <template #default="{ row }">
               <el-button link type="success" icon="Check" @click="openAct(row, 'approve')">
                 {{ t('flow.actApprove') }}
@@ -84,7 +84,7 @@
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colRound')" prop="currentRound" width="80" />
-          <el-table-column :label="t('common.column.operation')" width="200" fixed="right">
+          <el-table-column :label="t('common.column.operation')" width="200" :fixed="opFixed">
             <template #default="{ row }">
               <el-button
                 v-if="row.status === 'pending' && row.applicantId === userId"
@@ -116,8 +116,48 @@
         />
       </el-tab-pane>
 
+      <!-- ============ 我的已办（我作为审批人处理过的流水） ============ -->
+      <el-tab-pane :label="t('flow.tabDone')" name="done">
+        <el-table v-loading="loading" :data="doneRows">
+          <el-table-column :label="t('flow.colTitle')" width="220" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.title || '-' }}</template>
+          </el-table-column>
+          <el-table-column :label="t('flow.colBizId')" prop="bizId" width="90" />
+          <el-table-column :label="t('flow.colAction')" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.action === 'approve' ? 'success' : 'danger'">
+                {{ row.action === 'approve' ? t('flow.actApproveShort') : t('flow.actRejectShort') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('flow.colRound')" prop="roundNo" width="80" />
+          <el-table-column :label="t('flow.colComment')" prop="comment" show-overflow-tooltip />
+          <el-table-column :label="t('flow.colActedAt')" prop="actedAt" width="170" />
+        </el-table>
+        <pagination
+          v-show="doneTotal > 0"
+          v-model:page="doneQuery.pageNum"
+          v-model:limit="doneQuery.pageSize"
+          :total="doneTotal"
+          @pagination="loadDone"
+        />
+      </el-tab-pane>
+
       <!-- ============ 全部单据（管理视图） ============ -->
       <el-tab-pane v-if="isManager" :label="t('flow.tabAll')" name="all">
+        <el-row :gutter="10" class="mb8">
+          <el-col :span="1.5">
+            <el-button
+              type="warning"
+              plain
+              icon="Download"
+              :loading="exporting"
+              @click="handleExport"
+            >
+              {{ t('flow.btnExport') }}
+            </el-button>
+          </el-col>
+        </el-row>
         <el-table v-loading="loading" :data="allRows">
           <el-table-column :label="t('flow.colTitle')" prop="title" show-overflow-tooltip />
           <el-table-column :label="t('flow.colApplicant')" prop="applicantName" width="110" />
@@ -236,10 +276,12 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useDict } from '@/utils/dict'
 import { wsService } from '@/utils/websocket'
+import { download } from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import {
   listFlowTodo,
   listFlowMine,
+  listFlowDone,
   listFlowAll,
   flowPendingCount,
   getFlowTaskDetail,
@@ -249,6 +291,7 @@ import {
   actFlowTask,
   countersignAddFlowTask,
   type SysFlowTask,
+  type FlowDoneVo,
   type FlowDemoDoc,
   type FlowTaskDetail,
   type FlowPageQuery
@@ -257,24 +300,35 @@ import type { FlowActionForm } from '@/api/flow'
 
 const { t } = useI18n()
 const userStore = useUserStore()
-const userId = computed(() => Number(userStore.state.user?.userId ?? 0))
+const userId = computed(() => Number(userStore.id ?? 0))
 // 管理视图 tab 依赖权限键 system:flow:list（v-hasPermi 同源）
 const isManager = computed(() =>
-  userStore.state.permissions.some((p: string) => p === '*:*:*' || p === 'system:flow:list')
+  userStore.permissions.some((p: string) => p === '*:*:*' || p === 'system:flow:list')
 )
 
 const activeTab = ref('todo')
 const loading = ref(false)
 const pendingCount = ref(0)
 
+// W-17 移动端：窄屏下取消操作列右侧固定，避免遮挡内容
+const isNarrow = ref(false)
+let mq: MediaQueryList | null = null
+const onMqChange = (e: MediaQueryListEvent) => {
+  isNarrow.value = e.matches
+}
+const opFixed = computed<'right' | false>(() => (isNarrow.value ? false : 'right'))
+
 const todoQuery = ref<FlowPageQuery>({ pageNum: 1, pageSize: 10 })
 const mineQuery = ref<FlowPageQuery>({ pageNum: 1, pageSize: 10 })
+const doneQuery = ref<FlowPageQuery>({ pageNum: 1, pageSize: 10 })
 const allQuery = ref<FlowPageQuery>({ pageNum: 1, pageSize: 10 })
 const todoRows = ref<SysFlowTask[]>([])
 const mineRows = ref<FlowDemoDoc[]>([])
+const doneRows = ref<FlowDoneVo[]>([])
 const allRows = ref<FlowDemoDoc[]>([])
 const todoTotal = ref(0)
 const mineTotal = ref(0)
+const doneTotal = ref(0)
 const allTotal = ref(0)
 
 // 审批状态/请假类型走字典中心（sys_flow_task_status / sys_flow_leave_type，迁移 70 段双语种子；
@@ -317,6 +371,17 @@ async function loadMine() {
   }
 }
 
+async function loadDone() {
+  loading.value = true
+  try {
+    const res = await listFlowDone(doneQuery.value)
+    doneRows.value = res.rows
+    doneTotal.value = res.total
+  } finally {
+    loading.value = false
+  }
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -331,7 +396,28 @@ async function loadAll() {
 function handleTabChange(tab: string) {
   if (tab === 'todo') loadTodo()
   else if (tab === 'mine') loadMine()
+  else if (tab === 'done') loadDone()
   else if (tab === 'all') loadAll()
+}
+
+// ---------- 导出（管理视图 all tab，权限 system:flow:list） ----------
+const exporting = ref(false)
+
+function handleExport() {
+  // 护栏①：无数据时提示并中止
+  if (allTotal.value === 0) {
+    ElMessage.warning(t('flow.exportNoData'))
+    return
+  }
+  exporting.value = true
+  // 复用既有 download 工具：表单编码 + blob + saveAs + 截断提示 + 失败走统一错误通道
+  // （errorHub）。该工具内部已吞掉异常并自行提示，故**不可**在此按 Promise 结果追加
+  // 成功/失败提示——失败时会误报"导出成功"。
+  // 护栏②：exporting 期间按钮 loading，防重复提交
+  download('/system/flow/export', { status: allQuery.value.status }, `flow_doc_${Date.now()}.xlsx`)
+    .finally(() => {
+      exporting.value = false
+    })
 }
 
 // ---------- 提交 ----------
@@ -449,6 +535,7 @@ const onFlowTodo = () => {
 }
 const onFlowFinished = () => {
   if (activeTab.value === 'mine') loadMine()
+  if (activeTab.value === 'done') loadDone()
   if (activeTab.value === 'all') loadAll()
 }
 
@@ -458,6 +545,10 @@ onMounted(async () => {
     activeTab.value = 'todo'
   }
   await loadTodo()
+  // W-17 移动端：窄屏取消操作列固定（EP 2 固定列用 sticky 实现，纯 CSS 无法可靠取消）
+  mq = window.matchMedia('(max-width: 768px)')
+  isNarrow.value = mq.matches
+  mq.addEventListener('change', onMqChange)
   // WS 加速器闭环：收到"新待办/已办结"推送即刷新当前 tab 与红点
   // （红点以 pending_count 列表为准，重新拉取保证准确——方案 §3-8/§3-6）
   wsService.on('flowTodo', onFlowTodo)
@@ -468,6 +559,7 @@ onMounted(async () => {
 onUnmounted(() => {
   wsService.off('flowTodo', onFlowTodo)
   wsService.off('flowFinished', onFlowFinished)
+  mq?.removeEventListener('change', onMqChange)
 })
 </script>
 
@@ -478,5 +570,23 @@ onUnmounted(() => {
 .flow-overdue {
   color: var(--el-color-danger);
   font-weight: 600;
+}
+
+/* W-17 移动端适配：窄屏下收紧内边距、表格横向滚动、时间列换行，
+   避免固定列宽挤压导致操作按钮被截断（与本仓 privacy.vue 同断点） */
+@media (max-width: 768px) {
+  .app-container {
+    padding: 8px;
+  }
+  :deep(.el-tabs__item) {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+  :deep(.el-table) {
+    font-size: 12px;
+  }
+  .mb12 {
+    margin-bottom: 8px;
+  }
 }
 </style>

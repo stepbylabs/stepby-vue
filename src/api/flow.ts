@@ -48,7 +48,15 @@ export interface SysFlowLog {
   bizId: number
   roundNo: number
   nodeSeq?: number
-  action: 'submit' | 'approve' | 'reject' | 'withdraw' | 'transfer' | 'timeout_remind' | 'auto_approve'
+  action:
+    | 'submit'
+    | 'approve'
+    | 'reject'
+    | 'withdraw'
+    | 'transfer'
+    | 'countersign_add'
+    | 'timeout_remind'
+    | 'auto_approve'
   fromStatus?: string
   toStatus?: string
   operatorId?: number
@@ -62,6 +70,9 @@ export interface FlowPageQuery {
   pageSize?: number
   status?: string
 }
+
+// 已办视图行（W-8）：流水字段 + 单据标题，由后端 ts-rs 生成（含查得的 title）
+export type FlowDoneVo = import('@/types/api/generated/FlowDoneVo').FlowDoneVo
 
 // 提交示例请假单
 export interface FlowSubmitForm {
@@ -106,6 +117,15 @@ export function flowPendingCount(): Promise<AjaxResult<number>> {
 export function listFlowMine(query: FlowPageQuery): Promise<TableDataInfo<FlowDemoDoc>> {
   return request({
     url: '/system/flow/mine',
+    method: 'get',
+    params: query
+  })
+}
+
+// 我的已办（我作为审批人处理过的流水，action 为 approve/reject，W-8）
+export function listFlowDone(query: FlowPageQuery): Promise<TableDataInfo<FlowDoneVo>> {
+  return request({
+    url: '/system/flow/done',
     method: 'get',
     params: query
   })
