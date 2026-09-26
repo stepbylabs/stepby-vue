@@ -21,7 +21,8 @@ isPrimary: string | null,
  */
 verifyStatus: string | null, 
 /**
- * DNS TXT 校验 token（仅平台操作者可见——域名管理接口整体为平台专属，租户不可调用）
+ * DNS TXT 校验 token（归属租户与平台可见——`list` 已按 [`DomainScope`] 行级收窄，
+ * 租户只会拿到本租户行，且租户需据它配置 TXT 记录）
  */
 verifyToken: string | null, 
 /**
