@@ -15,6 +15,7 @@ export default {
     post: 'Positions',
     tenant: 'Tenant Management',
     myDomain: 'My Domains',
+    myNav: 'Navigation Settings',
     dict: 'Dictionaries',
     config: 'Config',
     notice: 'Announcements',
@@ -376,6 +377,42 @@ export default {
     myTitle: 'My Domains',
     subdomainPlatformTip:
       'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.'
+  },
+  tenantNav: {
+    myTitle: 'Navigation Settings',
+    tip: 'Tenant-built navigation only re-arranges already authorized menus (parent, order, visibility). It never adds pages or permission codes, so it cannot expand any privilege. Unresolvable parents, cycles or excessive depth fall back to the platform default layout automatically.',
+    add: 'Add Navigation Item',
+    addTitle: 'Add Navigation Item',
+    editTitle: 'Edit Navigation Item',
+    refMenu: 'Referenced Menu',
+    refMenuPlaceholder: 'Select a menu to add to the navigation',
+    refMenuTip:
+      'Only directories/pages granted by both the tenant package and the role are selectable; buttons cannot be navigation nodes',
+    refMenuType: 'Type',
+    typeDir: 'Directory',
+    typePage: 'Page',
+    parent: 'Parent Navigation',
+    parentTop: 'Top level',
+    orderNum: 'Order',
+    orderNumTip: 'Ascending within the same parent',
+    visible: 'Visibility',
+    show: 'Visible',
+    hide: 'Hidden',
+    status: 'Status',
+    statusNormal: 'Normal',
+    statusDisabled: 'Disabled',
+    statusDisabledTip:
+      'When disabled the whole row is ignored and the node falls back to its platform default position',
+    perms: 'Permission',
+    selected: 'Added',
+    empty: 'No tenant navigation configured (the navigation fully follows the platform default)',
+    deleteConfirm:
+      'Delete navigation item "{0}"? The node will fall back to its platform default position',
+    duplicate: 'This menu is already in the navigation',
+    readonlyTip:
+      'The capability is in view-only mode (nav.l3 = view_only); navigation settings are read-only.',
+    disabledTip:
+      'The "tenant-built navigation" capability (nav.l3) is not enabled; please ask a platform administrator to enable it.'
   },
   role: {
     title: 'Role Management',
