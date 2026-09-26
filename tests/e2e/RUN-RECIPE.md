@@ -551,6 +551,12 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 - 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 **50** 个类型；新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——本轮 `FlowDoneVo` 即因此先漏后补）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
 - CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `yebot-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
 - 全部通过后，yebot-ui 与 axum-backend 分别提交；e2e 套件随 yebot-ui 提交（位于 `yebot-ui/tests/e2e/`）。
-- 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.5 全 PASS**；
+- 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.7 全 PASS**；
+  CI 门禁为 `--full --gate`（与已提交基线 `docs/optimization/tenant-audit.json` 做差集，**新增非 info 候选即 FAIL**）。
+  **R9（2026-09-26 新增·调用点复核锁）**：R1 白名单按 `file::fn` **函数级**豁免 ⇒ 被登记的仓储方法
+  **永久不再产生 R1 候选**（"R1=0"有假绿风险）。R9 对白名单函数的**调用点**做复核：调用方函数体内
+  无 tenant 证据 ⇒ 产出 `low` 候选，候选键含调用方 `file::fn` ⇒ **新增调用点 = 新键 = 门禁 FAIL**；
+  已复核接受的调用点登记 `scripts/tenant-audit-allow.json` 的 `callSites`（键
+  `"<calleeFile>::<calleeFn> => <callerFile>::<callerFn>"`）。局部复核：`--full --rule=R9`。
   产物 `docs/optimization/tenant-audit-report.md` 是**候选集**，每条需回代码复核，
   口径见 `docs/optimization/topic-multitenant-sso-audit-2026-09-23.md` §30.2.5/§30.2.6。
