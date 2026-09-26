@@ -31,6 +31,14 @@ export function createBackup(): Promise<AjaxResult<BackupCreateVo>> {
   })
 }
 
+// 租户自助导出：导出当前登录账号所属租户的数据包（无参数，后端按登录用户租户强制收窄）
+export function selfExportTenantPackage(): Promise<AjaxResult<BackupCreateVo>> {
+  return request({
+    url: '/system/backup/self-export',
+    method: 'post'
+  })
+}
+
 // 恢复指定备份
 export function restoreBackup(backupId: number): Promise<AjaxResult> {
   return request({

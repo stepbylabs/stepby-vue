@@ -986,12 +986,15 @@ export default {
     btn: {
       create: '创建备份',
       download: '下载',
-      restore: '恢复'
+      restore: '恢复',
+      exportSelf: '导出租户数据包'
     },
     tip: {
       backupSuccess: '备份成功',
       restoreSuccess: '恢复成功',
       downloadFail: '下载失败',
+      selfExportTooltip: '导出当前登录账号所属租户的数据包',
+      selfExportSuccess: '导出成功',
       confirmDelete: '确认删除选中的 {count} 条备份记录及文件？',
       confirmCreate: '确认立即创建一个数据库备份？该操作可能耗时数秒至数分钟。',
       confirmRestore: '确认从备份 "{name}" 恢复数据库？此操作将覆盖当前数据库所有数据，不可撤销！'

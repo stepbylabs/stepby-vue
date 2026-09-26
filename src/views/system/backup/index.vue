@@ -68,6 +68,20 @@
           {{ t('common.delete') }}
         </el-button>
       </el-col>
+      <el-col :span="1.5">
+        <el-tooltip :content="t('backup.tip.selfExportTooltip')" placement="top">
+          <el-button
+            type="warning"
+            plain
+            icon="Upload"
+            :loading="selfExporting"
+            @click="handleSelfExport"
+            v-hasPermi="['system:backup:export']"
+          >
+            {{ t('backup.btn.exportSelf') }}
+          </el-button>
+        </el-tooltip>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -128,7 +142,7 @@
               :loading="downloadingIds.includes(scope.row.backupId)"
               :disabled="scope.row.status !== 'success'"
               @click="handleDownload(scope.row)"
-              v-hasPermi="['system:backup:query']"
+              v-hasPermi="['system:backup:download']"
             >
               {{ t('backup.btn.download') }}
             </el-button>
@@ -170,7 +184,14 @@
 </template>
 
 <script setup lang="ts" name="Backup">
-import { listBackup, createBackup, restoreBackup, delBackup, downloadBackup } from '@/api/system/backup'
+import {
+  listBackup,
+  createBackup,
+  restoreBackup,
+  delBackup,
+  downloadBackup,
+  selfExportTenantPackage
+} from '@/api/system/backup'
 import type { SysBackupLog, BackupLogQueryParams } from '@/api/system/backup'
 import { addDateRange } from '@/utils/yebot'
 import { formatFileSize } from '@/utils'
@@ -181,6 +202,7 @@ const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
 
 const creating = ref(false)
+const selfExporting = ref(false)
 const downloadingIds = ref<number[]>([])
 const dateRange = ref<string[]>([])
 
@@ -253,6 +275,22 @@ function handleCreate() {
     })
     .finally(() => {
       creating.value = false
+    })
+}
+
+/** 租户自助导出：导出当前登录账号所属租户的数据包 */
+function handleSelfExport() {
+  selfExporting.value = true
+  selfExportTenantPackage()
+    .then(() => {
+      modal.msgSuccess(t('backup.tip.selfExportSuccess'))
+      getList()
+    })
+    .catch((err: unknown) => {
+      if (import.meta.env.DEV) console.error('Self export failed:', err)
+    })
+    .finally(() => {
+      selfExporting.value = false
     })
 }
 

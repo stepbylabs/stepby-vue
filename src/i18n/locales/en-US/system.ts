@@ -995,12 +995,15 @@ export default {
     btn: {
       create: 'Create Backup',
       download: 'Download',
-      restore: 'Restore'
+      restore: 'Restore',
+      exportSelf: 'Export Tenant Package'
     },
     tip: {
       backupSuccess: 'Backup succeeded',
       restoreSuccess: 'Restore succeeded',
       downloadFail: 'Download failed',
+      selfExportTooltip: 'Export the data package of the tenant that the current account belongs to',
+      selfExportSuccess: 'Export succeeded',
       confirmDelete: 'Are you sure to delete {count} selected backup records and files?',
       confirmCreate:
         'Are you sure to create a database backup now? This operation may take a few seconds to several minutes.',

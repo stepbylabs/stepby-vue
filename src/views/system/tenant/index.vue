@@ -183,7 +183,7 @@
             </el-button>
             <el-button
               v-if="row.delFlag !== '2' && isPlatform"
-              v-hasPermi="['system:backup:query']"
+              v-hasPermi="['system:backup:export']"
               link
               type="warning"
               icon="Download"
@@ -702,7 +702,7 @@ async function handleRestore(row: TenantVo) {
 }
 
 /**
- * 导出租户数据包（仅平台专属能力 system:backup:query）
+ * 导出租户数据包（仅平台专属能力 system:backup:export）
  *
  * 链路：POST /system/backup/tenant-export/{tenantId} 落盘并登记 backup_type=tenant_export
  * 的备份日志 → 立即用返回的 backupId 走既有 GET /system/backup/download/{backupId} 取文件。
