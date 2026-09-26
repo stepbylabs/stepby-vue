@@ -178,6 +178,7 @@
               type="textarea"
               :rows="5"
               :placeholder="t('msg.channel.form.phConfigJson')"
+              :disabled="clearConfig"
               class="font-mono"
             />
             <div class="mt-1 text-xs text-text-secondary">{{ t('msg.channel.form.configSecretTip') }}</div>
@@ -190,10 +191,16 @@
               type="textarea"
               :rows="5"
               :placeholder="t('msg.channel.form.phConfigGeneric')"
+              :disabled="clearConfig"
               class="font-mono"
             />
             <div class="mt-1 text-xs text-text-secondary">{{ t('msg.channel.form.configSecretTip') }}</div>
           </div>
+        </el-form-item>
+        <!-- 显式清空（后端 `common::clear_fields`）：缺省「留空」= 保持现值（防误擦密钥），
+             故「清空」必须显式声明，避免"清空了却没生效"的静默失败 -->
+        <el-form-item v-if="form.channelId != null">
+          <el-checkbox v-model="clearConfig">{{ t('msg.channel.form.clearConfig') }}</el-checkbox>
         </el-form-item>
         <el-form-item :label="t('msg.channel.form.remark')" prop="remark">
           <el-input
@@ -254,6 +261,9 @@ import modal from '@/plugins/modal'
 
 const { t } = useI18n()
 const channelRefRef = useTemplateRef('channelRef')
+
+/** 显式清空渠道配置（编辑态可选）：对应后端 `clearFields: ['configJson']` */
+const clearConfig = ref(false)
 const queryRefRef = useTemplateRef('queryRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
@@ -320,7 +330,22 @@ const {
   queryParams,
   form,
   formRef: channelRefRef,
-  queryRef: queryRefRef
+  queryRef: queryRefRef,
+  beforeSubmit: (payload) => {
+    // 显式清空渠道配置：值必须同时置空（后端对「既给值又声明清空」返回 400）
+    if (payload.channelId == null || !clearConfig.value) return payload
+    const withClear: SysMsgChannel & { clearFields: string[] } = {
+      ...payload,
+      configJson: undefined,
+      clearFields: ['configJson']
+    }
+    return withClear
+  }
+})
+
+// 每次打开弹窗重置「清空配置」勾选，避免上一轮的选择残留导致误清
+watch(open, (visible: boolean) => {
+  if (visible) clearConfig.value = false
 })
 
 /** 渠道类型变化时同步渠道编码 */

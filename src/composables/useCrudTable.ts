@@ -40,6 +40,9 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   formRef: Ref<FormInstance | null>
   /** 查询表单组件 ref（用于 resetFields） */
   queryRef: Ref<FormInstance | null>
+  /** 提交前的载荷改写（可选）：用于携带后端「显式清空」声明 `clearFields`
+   * （见 `axum-backend/src/common/clear_fields.rs`——缺省 = 保持现值，清空必须显式声明） */
+  beforeSubmit?: (payload: T) => T
   /** 提交成功后的回调（可选，如刷新缓存） */
   onAfterSubmit?: () => void
   /** 删除成功后的回调（可选） */
@@ -65,6 +68,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     form,
     formRef,
     queryRef,
+    beforeSubmit,
     onAfterSubmit,
     onAfterDelete
   } = options
@@ -176,7 +180,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       if (!valid) return
       submitLoading.value = true
       const isUpdate = form.value[idField] != null
-      const api = isUpdate ? updateApi(form.value) : addApi(form.value)
+      const payload = beforeSubmit ? beforeSubmit(form.value) : form.value
+      const api = isUpdate ? updateApi(payload) : addApi(payload)
       api
         .then(() => {
           modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))

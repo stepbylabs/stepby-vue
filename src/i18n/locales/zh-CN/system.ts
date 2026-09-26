@@ -846,6 +846,7 @@ export default {
         phConfigGeneric: '请输入该渠道类型对应的配置 JSON',
         configSecretTip:
           '提示：包含 smtp_password / password 等敏感字段时，后端会以 ****** 脱敏保存，修改时可留空表示不更改。',
+        clearConfig: '清空渠道配置（含密钥）',
         remark: '备注',
         phRemark: '请输入备注'
       },

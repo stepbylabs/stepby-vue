@@ -80,7 +80,13 @@ const form = ref<SsoConsentForm>({
 })
 
 const clientName = q('clientName') || form.value.clientId
-const logoUri = q('logoUri')
+// 批次 4（D9）：后端开启 `[sso].proxy_logo_uri` 时，同意页用**同源**代理端点取 logo，
+// 避免把用户 IP/Referer 泄漏给第三方主机；未开启则沿用原有外链行为（= 历史行为）。
+const logoProxy = q('logoProxy') === '1'
+const logoUri =
+  logoProxy && form.value.clientId
+    ? `/sso/client-logo/${encodeURIComponent(form.value.clientId)}`
+    : q('logoUri')
 const scopes = computed(() => (form.value.scope || '').split(/\s+/).filter(Boolean))
 const userNick = computed(() => userStore.nickName || userStore.name || '')
 const initial = computed(() => (clientName ? clientName.charAt(0).toUpperCase() : '?'))

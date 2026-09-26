@@ -563,6 +563,61 @@ e2e 无法在单次运行内完成"改配置 + 重启 + 断言"。故能力位�
 都要先确认目标列是否 `NOT NULL`；是则必须补缺省（本仓既有口径 `Set(x.or(Some(0)))`）。
 此类缺陷**只有活体联调能发现**：单测覆盖不到 SQL 约束，e2e 因为默认关而跑不到这个分支。
 
+### 3.18 能力位「档位化」与可选集成点的开启态配方（2026-09-26 批次 A/C/D；改这批必跑）
+
+§3.17 是**通用配方**（改配置 → 重启 → 正/负路径 → 回收）。本节的三个开关**各有专门的"档位边界"或"外部副作用"**，只跑单测不足以证明"关闭态即安全态"：
+
+**(1) `backup.visibility` 档位边界（批次 A，⚠️ 旧键已改名）**
+
+```toml
+[features]
+"backup.visibility" = "view_only"   # 先只读档
+```
+重启后端后（租户管理员 token）：
+
+| 断言 | 期望 |
+|---|---|
+| `GET /system/backup/list` | **200**（仅本租户 `backup_type='tenant_export'` 行） |
+| `GET /system/backup/{backupId}`（纯数字，本租户） | **200** |
+| `GET /system/backup/download/{backupId}` | **403**（`view_only` **不含**下载） |
+| `POST /system/backup` / `PUT /system/backup`（创建/恢复）/ `DELETE /system/backup/{id}` | **403 恒**（写面属平台专属，**不属任何档位**） |
+
+再把 `"backup.visibility" = "full"` 重启 ⇒ `download` 变 **200**（其余写面仍 403）。
+**反向验证**：改回 `off` 重启 ⇒ 上表四行**全部 403**，且启动日志回到「能力位：平台层全部关闭」。
+> ⚠️ 旧键 `backup.readonly_visible` 已**失效**（未知 key 静默忽略 ⇒ 回落 `off`）。若改配置后行为"没变"，先确认没有写成旧键名。
+
+**(2) `[sso]` 三个可选开关（批次 D，默认 `false`；需先 `sso.enabled = true`）**
+
+| 开关 | OFF 断言（关闭态即现状） | ON 断言 |
+|---|---|---|
+| `introspection_enabled` | `POST /sso/introspect` ⇒ **404** | **200** + `{ "active": true, "client_id": ... }`；用**他客户端**签发的 AT 调 ⇒ `{"active": false}`；`discovery` 文档含 `introspection_endpoint` |
+| `audit_authorize_get` | 走一次 `authorize` 后**操作日志无新增** | 操作日志新增 1 条（含 `client_id` / `redirect_uri` / `scope`），`oper_name=anonymous`、`tenant_id=0`（预认证端点无租户上下文，**属预期**） |
+| `proxy_logo_uri` | consent 页 logo 直接指向 RP 的 `logoUri` | consent 页 logo 指向 `/sso/client-logo/{clientId}`；该端点仅 `image/*`、超 256KB 或 5s 超时 ⇒ 失败（**不跟随重定向**） |
+
+**(3) `[acme] mode = "webhook"` 输出契约（批次 C，默认 `off` 无副作用）**
+
+1. 起一个本地接收器（看请求头 + 验签），例如 `node -e` 起 8081 打印 `req.headers['x-yebot-event']` 与 body；
+2. `config.toml` 置：
+   ```toml
+   [acme]
+   mode = "webhook"
+   webhook_url = "http://127.0.0.1:8081"
+   secret = "test-secret"
+   ```
+3. 触发**状态迁移**（不是重复验证）：给某租户域名做一次**首次验证成功**（`verify_status` 0/2 → 1）⇒ 接收器应收 `cert.issue`；删除一个**已验证**域名 ⇒ 收 `cert.remove`。**重复验证同一域名不重复推送**（幂等由状态迁移保证）；
+4. 用 `secret` 对原始 body 做 HMAC-SHA256 并 hex 比对 `X-Yebot-Signature`；
+5. **负路径**：`mode = "webhook"` 但 `webhook_url` 留空/非法 ⇒ 启动日志必须打 **WARN**（拒绝静默失效）；
+6. 回收：`mode = "off"` 重启 ⇒ 再触发迁移**无任何请求发出**。
+
+**(4) `[scheduler].replicas` 误配自检（批次 E）**
+
+```toml
+[scheduler]
+replicas = 2
+cluster_mode = "auto"   # 默认值
+```
+重启 ⇒ 启动日志**必须**出现 WARN（提示"多副本 + auto 可能重复扫描"）；改 `cluster_mode = "leader"` 重启 ⇒ WARN 消失。**该开关不改变任何调度行为**（仅日志与自检）。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

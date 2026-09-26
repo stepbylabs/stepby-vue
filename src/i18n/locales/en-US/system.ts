@@ -860,6 +860,7 @@ export default {
         phConfigGeneric: 'Enter the config JSON for this channel type',
         configSecretTip:
           'Tip: sensitive fields such as smtp_password / password are masked as ******. Leave blank when editing to keep unchanged.',
+        clearConfig: 'Clear channel config (including secrets)',
         remark: 'Remark',
         phRemark: 'Enter remark'
       },
