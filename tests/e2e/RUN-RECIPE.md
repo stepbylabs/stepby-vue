@@ -75,8 +75,10 @@ node main.mjs --headless
 - 不带 `--feature` = 跑全部 75 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
   `1-20 / 21-40 / 41-75` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- **功能 1-75** 通过判据（**最新权威基线，2026-09-26 第五批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
+- **功能 1-75** 通过 判据（**最新权威基线，2026-09-26 第六批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
   实测 `107 + 223 + 445 = **775 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`）。
+  第 51 功能首跑曾因 `networkidle` 被 web-vitals beacon 卡死而**假失败**，修复后复跑 `24/24`（见 §3.16）；
+  最终源码上再验 `--feature=51,66` = `36/36`。
   （历史基线：功能 1-68 曾为 `106 + 220 + 326 = 652`；随 W-3/W-8/W-10/W-11/W-17 与失败计数收紧逐批上移。）
 - **功能 69-73** 通过判据（已验证基线，轮13）：`--feature=69-73` 单轮 `失败: 0`，EXIT=0，
   且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
@@ -417,6 +419,78 @@ rm -f .mig-verify.mjs data/mig-verify.db*
   `.catch(() => false)` + `record(..., true, ...)` **恒绿但零信息**（属"假断言"），已改为「以 `/register` POST
   的业务码为唯一判据」的可证伪断言；后者改用 CSS 列表后转绿。
 - 复现探针：起一个临时 Playwright 脚本，对同一元素分别 `locator(四种写法).count()` 即可判定。
+
+### 3.15 生成代码「真编译」校验配方（2026-09-26 第六轮；改模板后必跑）
+
+**为什么需要**：`gen_table` 的外置模板（`axum-backend/templates/*.tera`）此前只用**字符串断言**验证
+（如 `assert!(service.contains("engine_open_round("))`）。字符串断言**无法发现**语义级缺陷——
+第六轮首次把 flow 分类的渲染结果落到 crate 内真实路径并编译，一次暴露 **6 处真实缺陷**
+（`Option<Option<NaiveDateTime>>` 二次包裹、从 `sys_flow_service` 顶层导入 `RoundChain`/`BizTypeRegistration`、
+camelCase AppState 字段名、2 处未使用 import、`collapsible_if`）。**改任何 `.tera` 后必须跑一次本配方。**
+
+```bash
+cd axum-backend
+# 1) 临时把渲染结果写盘：在 service/gen_table_service.rs 的
+#    `mod gen_table_template_tests` 内加一个 `#[test] fn zz_dump()`：
+#      - mk_table() 改 table_name="zz_flow_verify_doc" / class_name="ZzFlowVerifyDoc"
+#        / tpl_category=Some("flow")；
+#      - columns 用 `column_type_to_rust_type()` **真实映射**构造（勿手写 java_type，
+#        否则会掩盖映射缺陷）；非主键列置 is_insert/is_edit/is_list="1"
+#        （对齐 gen_table_service.rs:794 的 `("1","1","1","0")`，否则 DTO 为空、看不出真实产物）；
+#      - 把 `files` 里以 `.rs` 结尾的项按 key 相对路径写入 `axum-backend/zz-verify/`。
+cargo test --lib <dump 测试名>
+
+# 2) 拷进 crate 真实路径并临时接线（**校验后必须全部还原**）：
+#    zz-verify/src/{entity,repository,service,handler,router}/<name>*.rs
+#      → axum-backend/src/{entity,repository,service,handler,router}/
+#    各 mod.rs 追加 `pub mod <name>;`
+#    state.rs 的 AppState 增加字段 `pub zz_flow_verify_doc_service: …Service`
+#      并在 `AppState::new` 初始化（字段名=snake_case 表名+`_service`）
+
+# 3) 编译（这是唯一能发现语义缺陷的判据）
+cargo clippy --lib -- -D warnings     # 期望：Finished，且**生成代码零告警**
+
+# 4) 还原：删掉拷入的 5 个文件 + `git checkout -- src/{entity,repository,service,handler,router}/mod.rs src/state.rs`
+#    + 删掉 zz-verify/ 与临时测试
+```
+
+- **判据**：`cargo clippy --lib -- -D warnings` 通过，且**生成代码不产生任何告警**（unused import /
+  `non_snake_case` / `collapsible_if` 都算失败——用户拿去就是 warning 源码）。
+- **回归防线**：已固化为单测 `test_generated_code_is_clippy_clean_by_construction`
+  （`gen_table_service.rs`，断言上述 6 点），日常 `cargo test --lib` 即覆盖字符串层；
+  **编译层仍需按本节手工执行**（单测无法编译产物）。
+- **AppState/路由接线是用户步骤**：生成代码的 `state.<表名>_service` 字段与 `<表名>_routes()`
+  需用户自行登记（**字段/函数名一律 snake_case 表名**，与 `router/mod.rs` 既有 `xxx_routes()` 惯例一致）。
+
+### 3.16 `networkidle` 会被 web-vitals 上报「卡死」（2026-09-26 第六轮；写 goto 必读）
+
+**症状**：`--feature=51` 的步骤 13「SSO 客户端管理页正常渲染」恒 `page.goto: Timeout 30000ms exceeded`，
+但**页面其实已经渲染成功**（`.el-table` 存在、非 404、后续步骤全绿）。属**假失败**。
+
+**根因（探针实证）**：该页会由前端 web-vitals 上报 `POST /monitor/frontendError/report`
+（`level:"info", source:"vital", name:"TTFB"…`，类 beacon 发送）。实测：
+- 后端**已返回 200**（`response` 事件可见）；
+- 但 Chromium/Playwright 对该请求**永不触发 `requestfinished`** ⇒ 它被永久计为 in-flight
+  ⇒ `networkidle`（= 500ms 内无网络连接）**永远不成立**，必然吃满 30s 超时。
+  探针输出：`still-inflight: 1 → POST /monitor/frontendError/report pending 27859 ms`。
+
+**判据**：`goto` 超时 + 页面元素断言本可成立 + 悬空请求是 `/monitor/frontendError/report`
+（或同类 beacon）三者同时出现 ⇒ **改等具体数据响应，不要用 networkidle**：
+
+```js
+// ❌ 会被 vitals beacon 卡死
+await page.goto(url, { waitUntil: 'networkidle' })
+// ✅ 等"数据驱动渲染"的那条响应（比全局空闲启发式更确定）
+const listResp = page.waitForResponse(r => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 }).catch(() => null)
+await page.goto(url, { waitUntil: 'domcontentloaded' })
+await listResp
+```
+
+- 本仓既有容忍写法：`goto(...networkidle).catch(() => {})`（`main.mjs:257-259`）与
+  `waitForLoadState('networkidle', {timeout:15000}).catch(()=>{})`（`:1280/:1317`）——**仅适用于
+  "后续断言不依赖页面就绪"**的场景；依赖数据渲染的场景**必须**改为等具体响应（本轮功能 51 即此类）。
+- **不要去"修" web-vitals 上报**：那是刻意的功能（前端指标回流 + 错误中心数据源），
+  服务端行为正确（10ms 返回 200）。
 
 ## 4. source-check 防混淆约定（重要）
 

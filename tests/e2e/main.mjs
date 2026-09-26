@@ -10815,7 +10815,11 @@ async function testFeature51(page) {
     const listResp = page
       .waitForResponse((r) => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 })
       .catch(() => null)
-    await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'networkidle' })
+    // 不可用 `networkidle`：本页会由 web-vitals 上报（`/monitor/frontendError/report`，
+    // 类 beacon 发送）——服务端确已 200，但 Chromium 对该请求**永不发 requestfinished**，
+    // 使 networkidle 恒等 30s 超时（实测「页面已渲染出表格但 goto 超时」的假失败）。
+    // 判据改为「等具体数据响应」，比全局空闲启发式更确定（下方 listResp + sleep 已足够）。
+    await page.goto(`${CONFIG.frontendUrl}/system/oauth/client`, { waitUntil: 'domcontentloaded' })
     await listResp
     await sleep(800)
     await skipTour(page)
