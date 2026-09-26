@@ -462,6 +462,26 @@ cargo clippy --lib -- -D warnings     # 期望：Finished，且**生成代码零
 - **AppState/路由接线是用户步骤**：生成代码的 `state.<表名>_service` 字段与 `<表名>_routes()`
   需用户自行登记（**字段/函数名一律 snake_case 表名**，与 `router/mod.rs` 既有 `xxx_routes()` 惯例一致）。
 
+#### 3.15.1 生成**前端**产物同样要落真实路径跑类型检查（2026-09-26 第七轮；改 `api.tera`/`index.tera` 后必跑）
+
+`.tera` 里的 `.ts` / `.vue` 只做字符串断言同样不可信。把渲染出的
+`src/api/<module>/<table>.ts` 与 `src/views/<module>/<table>/index.vue` 落到 **yebot-ui 真实路径**后跑：
+
+```bash
+cd yebot-ui
+NODE_OPTIONS="" node node_modules/vue-tsc/bin/vue-tsc.js --noEmit   # 期望 0 错误
+NODE_OPTIONS="" npm run lint                                        # 期望 0 errors
+# 校验后删除落盘文件（勿提交生成物）
+```
+
+第七轮实测暴露并修复 3 处真实缺陷（**crud 与 flow 都中招**）：
+① `api.tera` 导出裸 `list` 与页面 `const list = ref([])` **重名冲突**（TS2440，生成页面直接编译失败）
+→ API 函数改带实体前缀（`list<实体类名>`，与仓库既有 `listNotice` 惯例一致）；
+② `:row-key="(row) => row.xxx"` 隐式 any（TS7006）→ 改用字符串 `row-key="xxxId"`；
+③ api 函数未标注返回类型 ⇒ 推断 `AxiosResponse`，而 `request` 拦截器已解包为 `res.data` ⇒ `res.rows` 报 TS2339
+→ 全部标注 `Promise<any>`（脚手架宽松型）。
+回归锁：单测 `test_generated_frontend_is_typecheck_clean_by_construction`。
+
 ### 3.16 `networkidle` 会被 web-vitals 上报「卡死」（2026-09-26 第六轮；写 goto 必读）
 
 **症状**：`--feature=51` 的步骤 13「SSO 客户端管理页正常渲染」恒 `page.goto: Timeout 30000ms exceeded`，
