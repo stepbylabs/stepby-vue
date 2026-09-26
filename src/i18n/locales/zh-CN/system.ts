@@ -313,7 +313,20 @@ export default {
     enableConfirm: '确认启用租户「{0}」？启用后该租户用户可正常登录',
     disableConfirm: '确认停用租户「{0}」？停用将立即吊销该租户全部会话（在线用户被踢出）',
     deleteConfirm: '确认删除租户「{0}」？需先移除该租户内全部用户；删除后进入回收站（可恢复）',
-    adminInitTip: '租户管理员已创建：用户名 {0} / 初始密码 {1}（仅本次显示，请立即转交并提示首次登录修改密码）'
+    adminInitTip: '租户管理员已创建：用户名 {0} / 初始密码 {1}（仅本次显示，请立即转交并提示首次登录修改密码）',
+    capability: '能力位',
+    capabilityTitle: '套餐能力位 — {0}',
+    capabilityTip:
+      '三层开关：平台 config [features]（能开什么）→ 套餐能力位（这个租户能开什么）→ 角色授权（这个人能用什么）。「平台未开启」的能力位在此无法开启；关闭能力位保存后会同步回收已下放的菜单授权（避免「菜单可见但请求 403」的假入口）。',
+    capabilityKey: '能力位',
+    capabilityMode: '模式',
+    capabilityPlatformOff: '平台未开启',
+    capabilitySave: '保存',
+    capabilitySaved: '能力位已保存，并已同步收敛角色菜单授权',
+    capabilityNoPackage: '该租户未分配套餐，请先在「编辑」中分配套餐后再配置能力位',
+    capabilityModeOffTip: 'off = 关闭（与迁移前行为一致）',
+    capabilityPlatformCeiling:
+      '套餐能力位只能收窄平台层（平台是天花板）：平台未开启的能力位，套餐写什么都不会生效'
   },
   tenantDomain: {
     manage: '域名',

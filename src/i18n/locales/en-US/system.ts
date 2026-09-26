@@ -316,7 +316,21 @@ export default {
     deleteConfirm:
       'Delete tenant "{0}"? All tenant users must be removed first; the tenant goes to the recycle bin (restorable)',
     adminInitTip:
-      'Tenant admin created: username {0} / initial password {1} (shown only once — hand it over and require a password change on first login)'
+      'Tenant admin created: username {0} / initial password {1} (shown only once — hand it over and require a password change on first login)',
+    capability: 'Capabilities',
+    capabilityTitle: 'Package Capabilities — {0}',
+    capabilityTip:
+      'Three-layer switches: platform config [features] (what may be enabled) → package capabilities (what this tenant may enable) → role grants (what this person may use). A capability marked "platform off" cannot be enabled here; disabling one also revokes the menu grants it previously unlocked (prevents "menu visible but request 403" fake entries).',
+    capabilityKey: 'Capability',
+    capabilityMode: 'Mode',
+    capabilityPlatformOff: 'Platform off',
+    capabilitySave: 'Save',
+    capabilitySaved: 'Capabilities saved; role menu grants have been reconciled',
+    capabilityNoPackage:
+      'This tenant has no package assigned. Assign one via "Edit" before configuring capabilities.',
+    capabilityModeOffTip: 'off = disabled (identical to the behavior before this feature existed)',
+    capabilityPlatformCeiling:
+      'Package capabilities can only narrow the platform layer (the platform is the ceiling): capabilities the platform has not enabled cannot take effect regardless of the package setting'
   },
   tenantDomain: {
     manage: 'Domains',

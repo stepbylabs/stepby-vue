@@ -6,6 +6,15 @@ export type SysTenantPackage = { packageId: number, packageName: string,
  */
 menuIds: string | null, 
 /**
+ * 能力位（Feature Flags）JSON 对象：key = 能力位键，value = 模式串；
+ * NULL / `{}` = 全默认（**全部关闭**，即"关闭态即安全态"）。
+ *
+ * 注册表与合法取值见 `crate::common::features::KNOWN_FEATURES`（单一事实源）；
+ * 未登记键与非法模式在读取时被剔除并告警（fail-closed）。
+ * 三层开关的**中间层**：平台 `config`（能开什么）→ 本列（这个租户能开什么）→ 角色授权。
+ */
+features: string | null, 
+/**
  * 新建租户时的默认账号配额（拷贝到 sys_tenant.account_count）
  */
 defaultAccountCount: number | null, 

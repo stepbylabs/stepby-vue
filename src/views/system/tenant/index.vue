@@ -163,6 +163,16 @@
             </el-button>
             <el-button
               v-if="row.delFlag !== '2' && isPlatform"
+              v-hasPermi="['system:tenant:edit']"
+              link
+              type="info"
+              icon="Setting"
+              @click="openCapabilities(row)"
+            >
+              {{ t('tenant.capability') }}
+            </el-button>
+            <el-button
+              v-if="row.delFlag !== '2' && isPlatform"
               v-hasPermi="['system:tenant:domain:list']"
               link
               type="info"
@@ -281,6 +291,64 @@
       </template>
     </el-dialog>
 
+    <!-- 套餐能力位（三层开关中间层：平台 [features] → 套餐能力位 → 角色授权；仅平台可配） -->
+    <el-dialog
+      v-model="capabilityVisible"
+      :title="t('tenant.capabilityTitle', [capabilityPackageName])"
+      width="760px"
+      destroy-on-close
+    >
+      <el-alert :title="t('tenant.capabilityTip')" type="info" :closable="false" class="mb-2" />
+      <el-alert
+        :title="t('tenant.capabilityPlatformCeiling')"
+        type="warning"
+        :closable="false"
+        class="mb-2"
+      />
+      <el-table
+        v-loading="capabilityLoading"
+        :data="capabilityItems"
+        border
+        size="small"
+        row-key="key"
+      >
+        <el-table-column :label="t('tenant.capabilityKey')" prop="key" min-width="220" />
+        <el-table-column :label="t('tenant.capabilityMode')" min-width="220">
+          <template #default="{ row }">
+            <el-select
+              v-model="capabilityForm[row.key]"
+              size="small"
+              class="w-full"
+              :disabled="!isPlatformEnabled(row.key)"
+            >
+              <el-option v-for="m in row.modes" :key="m" :label="m" :value="m" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('common.status')" width="130" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="!isPlatformEnabled(row.key)" type="info" size="small">
+              {{ t('tenant.capabilityPlatformOff') }}
+            </el-tag>
+            <el-tag v-else-if="capabilityForm[row.key] !== 'off'" type="success" size="small">
+              {{ capabilityForm[row.key] }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button
+          type="primary"
+          :loading="capabilitySaving"
+          :disabled="capabilityItems.length === 0"
+          @click="saveCapabilities"
+        >
+          {{ t('tenant.capabilitySave') }}
+        </el-button>
+        <el-button @click="capabilityVisible = false">{{ t('common.cancel') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 域名管理抽屉（仅平台：域名接入 + DNS TXT 验证） -->
     <tenant-domain-drawer v-model="domainVisible" :tenant="domainTenant" @refresh="getList" />
   </div>
@@ -296,9 +364,12 @@ import {
   delTenant,
   restoreTenant,
   listTenantPackageOptions,
-  exportTenantPackage
+  exportTenantPackage,
+  getPackageFeatures,
+  updatePackageFeatures
 } from '@/api/system/tenant'
 import type { TenantVo, TenantPackageOption, TenantAddDto, TenantEditDto } from '@/api/system/tenant'
+import type { PackageFeatureItemVo } from '@/types/api/generated/PackageFeatureItemVo'
 import TenantDomainDrawer from './TenantDomainDrawer.vue'
 import { downloadBackup } from '@/api/system/backup'
 import type { ComponentInternalInstance } from 'vue'
@@ -327,6 +398,19 @@ const formRef = ref()
 // 域名管理抽屉（仅平台可见；租户操作者无入口）
 const domainVisible = ref(false)
 const domainTenant = ref<TenantVo | null>(null)
+
+// 套餐能力位（三层开关中间层；仅平台可配）
+const capabilityVisible = ref(false)
+const capabilityLoading = ref(false)
+const capabilitySaving = ref(false)
+const capabilityPackageId = ref<number | null>(null)
+const capabilityPackageName = ref('')
+/** 注册表（后端返回全量能力位定义，前端不硬编码 key 清单） */
+const capabilityItems = ref<PackageFeatureItemVo[]>([])
+/** 当前编辑值：key → mode（提交时整体回传） */
+const capabilityForm = ref<Record<string, string>>({})
+/** 平台层已开启的能力位（天花板）：不在此列表内的项不可开启、选择器禁用 */
+const capabilityPlatformEnabled = ref<string[]>([])
 // 正在导出数据包的租户 id（按钮 loading；同时防重复点击）
 const exportingId = ref<number | null>(null)
 const form = reactive({
@@ -396,6 +480,59 @@ function onPackageChange(pkgId: number | undefined) {
   if (isEdit.value) return
   const pkg = packageOptions.value.find((p: TenantPackageOption) => p.packageId === pkgId)
   form.accountCount = pkg && pkg.defaultAccountCount > 0 ? pkg.defaultAccountCount : 0
+}
+
+/** 该能力位在平台层是否已开启（平台是天花板：未开启则套餐无法开启，选择器禁用） */
+function isPlatformEnabled(key: string): boolean {
+  return capabilityPlatformEnabled.value.includes(key)
+}
+
+/** 打开套餐能力位配置（按租户的套餐维度：能力位挂在套餐上，同套餐租户共享） */
+async function openCapabilities(row: TenantVo) {
+  if (!row.packageId) {
+    proxy?.$modal.msgWarning(t('tenant.capabilityNoPackage'))
+    return
+  }
+  capabilityPackageId.value = row.packageId
+  capabilityPackageName.value = row.packageName || String(row.packageId)
+  capabilityVisible.value = true
+  await loadCapabilities()
+}
+
+/** 拉取套餐能力位（注册表 + 当前模式 + 平台天花板） */
+async function loadCapabilities() {
+  if (!capabilityPackageId.value) return
+  capabilityLoading.value = true
+  try {
+    const res = await getPackageFeatures(capabilityPackageId.value)
+    const data = res.data
+    capabilityItems.value = data?.items ?? []
+    capabilityPlatformEnabled.value = data?.platformEnabled ?? []
+    // 平台未开启的项一律置 off 并禁用：避免把"平台没开"的值回传而被后端 400 拒绝
+    const next: Record<string, string> = {}
+    for (const item of capabilityItems.value) {
+      next[item.key] = isPlatformEnabled(item.key) ? item.mode : 'off'
+    }
+    capabilityForm.value = next
+  } finally {
+    capabilityLoading.value = false
+  }
+}
+
+/** 保存套餐能力位（后端会做三道校验并立即收敛该套餐下全部租户的角色菜单授权） */
+async function saveCapabilities() {
+  if (!capabilityPackageId.value) return
+  capabilitySaving.value = true
+  try {
+    await updatePackageFeatures({
+      packageId: capabilityPackageId.value,
+      features: { ...capabilityForm.value }
+    })
+    proxy?.$modal.msgSuccess(t('tenant.capabilitySaved'))
+    capabilityVisible.value = false
+  } finally {
+    capabilitySaving.value = false
+  }
 }
 
 async function getList() {

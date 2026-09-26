@@ -1,5 +1,7 @@
 import request from '@/utils/request'
 import type { AjaxResult } from '@/types'
+import type { PackageFeaturesVo } from '@/types/api/generated/PackageFeaturesVo'
+import type { PackageFeaturesUpdateDto } from '@/types/api/generated/PackageFeaturesUpdateDto'
 
 /**
  * 租户管理 API（多租户 Phase 3：事实源 = sys_tenant，主键 = tenantId 独立 id 空间）
@@ -13,6 +15,8 @@ import type { AjaxResult } from '@/types'
  * - DELETE /system/tenant/{tenantId}      删除租户（软删回收站；租户内仍有用户时拒绝，仅平台）
  * - PUT    /system/tenant/restore/{tenantId}  恢复租户（回收站 → 停用态，仅平台）
  * - GET    /system/tenant/package/options 套餐下拉（仅平台；租户表单选择套餐用）
+ * - GET    /system/tenant/package/{packageId}/features 套餐能力位查询（仅平台）
+ * - PUT    /system/tenant/package/features             套餐能力位保存（仅平台）
  * - POST   /system/backup/tenant-export/{tenantId} 租户数据包导出（仅平台；复用备份下载链路）
  */
 
@@ -187,6 +191,38 @@ export function listTenantPackageOptions(): Promise<AjaxResult<TenantPackageOpti
   return request({
     url: '/system/tenant/package/options',
     method: 'get'
+  })
+}
+
+/**
+ * 查询套餐能力位配置（仅平台）
+ *
+ * 能力位 = 三层开关的**中间层**：平台 `config.toml [features]`（能开什么）
+ * → 本配置（这个租户能开什么）→ 角色授权（这个人能用什么）。
+ * 返回值含**全量注册表** `items`（前端不硬编码能力位清单）与 `platformEnabled`
+ * （平台层天花板：未出现在此数组的能力位无法开启，开启会被后端 400 拒绝）。
+ */
+export function getPackageFeatures(packageId: number): Promise<AjaxResult<PackageFeaturesVo>> {
+  return request({
+    url: '/system/tenant/package/' + packageId + '/features',
+    method: 'get'
+  })
+}
+
+/**
+ * 保存套餐能力位配置（仅平台）
+ *
+ * 落库前由后端做三道校验：键必须已登记、模式必须在允许集合内、
+ * **非 off 的项必须在平台层 `[features]` 已开启**（否则 400）。
+ * 保存后后端会立即收敛该套餐下全部租户的角色菜单授权（关闭能力位同步回收菜单）。
+ */
+export function updatePackageFeatures(
+  data: PackageFeaturesUpdateDto
+): Promise<AjaxResult<PackageFeaturesVo>> {
+  return request({
+    url: '/system/tenant/package/features',
+    method: 'put',
+    data
   })
 }
 
