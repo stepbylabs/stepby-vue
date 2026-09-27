@@ -95,6 +95,9 @@ export type SsoClientQueryParams = import('@/types/api/generated/SsoClientQueryD
 /** SSO 客户端新增结果：明文 clientSecret 仅此一次返回 */
 export type SsoClientCreateResult = import('@/types/api/generated/SsoClientCreateResult').SsoClientCreateResult
 
+/** SSO D9 客户端密钥轮换结果：新密钥明文仅此一次返回（旧密钥进入双密钥读取期） */
+export type SsoClientRotateResult = import('@/types/api/generated/SsoClientRotateResult').SsoClientRotateResult
+
 /** 同意页批准入参（POST /sso/consent） */
 export type SsoConsentForm = import('@/types/api/generated/SsoConsentDto').ConsentDto
 export type SsoGrant = import('@/types/api/generated/SsoGrantVo').SsoGrantVo

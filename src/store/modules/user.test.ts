@@ -174,6 +174,29 @@ describe('store/modules/user', () => {
     expect(store.showTenantFilter).toBe(false)
   })
 
+  // GDPR 用户匿名化：能力位 privacy.user_erasure + 平台归属由后端算好后随 getInfo 下发，
+  // store 只做落库；缺字段必须视为 false（fail-safe，宁可不显示入口），
+  // 并断言 reset 会清理它（避免切换账号后残留入口）
+  it('getInfo maps showUserErasure from the server decision (missing -> false) and reset clears it', async () => {
+    const store = useUserStore()
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showUserErasure: true })
+    await store.getInfo()
+    expect(store.showUserErasure).toBe(true)
+
+    // reset 必须清理（否则切换账号后仍显示"匿名化"入口）
+    await store.logOut()
+    expect(store.showUserErasure).toBe(false)
+
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'] })
+    await store.getInfo()
+    expect(store.showUserErasure).toBe(false)
+
+    // 非布尔真值不得被当成 true（严格 === true）
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showUserErasure: 'yes' })
+    await store.getInfo()
+    expect(store.showUserErasure).toBe(false)
+  })
+
   it('getInfo falls back to ROLE_DEFAULT when roles empty (and skips permissions)', async () => {
     api.getInfo.mockResolvedValue({ user: {}, roles: [], permissions: undefined })
     const store = useUserStore()

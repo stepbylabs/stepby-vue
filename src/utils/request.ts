@@ -270,8 +270,11 @@ service.interceptors.response.use(
     // 处理 HTTP 状态码 401（与响应体 code=401 区分，P0-42）
     const httpStatus = error?.response?.status
     // 提取后端返回的具体错误信息（body.msg）
-    const responseError = error as AxiosError<{ msg?: string }>
+    const responseError = error as AxiosError<{ msg?: string; code?: number }>
     const backendMsg = responseError?.response?.data?.msg
+    // P2-33：同时取出 body.code —— `restful` 档（HTTP 状态码约定）下业务失败会走真实状态码，
+    // 此时 body.code 仍是权威业务码，不能被 HTTP 状态吞掉。
+    const backendCode = responseError?.response?.data?.code
     if (httpStatus === 401) {
       // 登录页/锁屏页的 401 是认证失败（用户名/密码错误），显示具体错误信息而非"重新登录"对话框
       const path = window.location.pathname
@@ -313,6 +316,14 @@ service.interceptors.response.use(
       }
       // P1 修复: Promise.reject 用 Error 而非字符串
       return Promise.reject(new Error(t('common.sessionExpired')))
+    }
+    // P2-33：`restful` 档下业务失败走真实 HTTP 状态码 ⇒ 错误拦截器也必须识别 body.code。
+    // 尤其是 1003（TOTP 多因子：需验证码 / 验证码错误 / 尝试过多）——login.vue 依赖该业务码
+    // 进入/停留在验证码步骤；若被当作普通 400 处理会丢失业务码，造成"后端改契约、前端不认"的断链。
+    if (backendCode === 1003) {
+      const err = new Error(backendMsg || t('common.systemTip')) as Error & { code?: number }
+      err.code = 1003
+      return Promise.reject(err)
     }
     // API-005~007：HTTP 层错误码差异化提示
     if (httpStatus === 400) {

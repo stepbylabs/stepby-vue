@@ -6,6 +6,7 @@ import type {
   SsoClientQueryParams,
   SsoClientForm,
   SsoClientCreateResult,
+  SsoClientRotateResult,
   SsoConsentForm,
   SsoGrant
 } from '@/types'
@@ -61,6 +62,25 @@ export function toggleSsoClient(ssoClientId: number | string, enabled: string): 
     url: `/system/oauth/client/${ssoClientId}/status`,
     method: 'put',
     params: { enabled }
+  })
+}
+
+// SSO D9：轮换 client_secret（新密钥立即生效，旧密钥进入"双密钥读取期"；
+// 返回的 clientSecret 为一次性明文，请立即写入 RP 配置）
+export function rotateSsoClientSecret(
+  ssoClientId: number | string
+): Promise<AjaxResult<SsoClientRotateResult>> {
+  return request({
+    url: `/system/oauth/client/${ssoClientId}/rotate-secret`,
+    method: 'post'
+  })
+}
+
+// SSO D9：结束双密钥读取期（旧 client_secret 立即失效；幂等）
+export function clearSsoClientPrevSecret(ssoClientId: number | string): Promise<AjaxResult> {
+  return request({
+    url: `/system/oauth/client/${ssoClientId}/rotate-secret`,
+    method: 'delete'
   })
 }
 

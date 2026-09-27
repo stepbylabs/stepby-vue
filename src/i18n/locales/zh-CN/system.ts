@@ -245,6 +245,18 @@ export default {
     },
     resetPwd: '重置密码',
     assignRoles: '分配角色',
+    erasure: {
+      button: '匿名化（GDPR）',
+      title: '用户匿名化（不可逆）',
+      confirm:
+        '即将匿名化用户「{user}」，此操作不可逆：\n' +
+        '· 将置换 {fields} 个字段（登录名 → deleted_编号、昵称/邮箱/手机号/性别/头像/备注/登录IP 清空）；\n' +
+        '· 密码将被清空，该用户无法再登录，并被停用 + 软删除；\n' +
+        '· 即时吊销全部凭据：PAT {pat} 个、第三方登录绑定 {sso} 个、在线会话 {sessions} 个；\n' +
+        '· 审计留痕（操作日志 / 登录日志）保留。\n\n是否继续？',
+      confirmBtn: '确认匿名化',
+      done: '用户「{user}」已匿名化（不可逆）'
+    },
     initialPasswordWarning: '您的密码还是初始密码，请修改密码！',
     passwordExpiredWarning: '您的密码已过期，请尽快修改密码！',
     securityTip: '安全提示'

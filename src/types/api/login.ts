@@ -40,6 +40,16 @@ export interface UserInfoResult extends AjaxResult {
    * 故它不构成安全边界 —— 租户即便手工传他租户 id 也只会得到空集。
    */
   showTenantFilter?: boolean
+  /**
+   * 用户管理页是否显示「匿名化（GDPR）」入口
+   *
+   * 由后端按能力位 `privacy.user_erasure`（`off` | `precheck` | `full`）结合操作者租户上下文
+   * **算好后下发**（`off` 或非平台操作者 = 不提供入口 = 历史行为）。前端只消费不推断，
+   * 避免"平台/租户 + 能力位"判定散落两处而漂移（也不会造出"菜单可见但请求 404"的假入口）。
+   *
+   * ⚠️ 匿名化**不可逆**（PII 置换 + 凭据全吊销），前端必须二次确认。
+   */
+  showUserErasure?: boolean
 }
 
 /** 验证码响应 */

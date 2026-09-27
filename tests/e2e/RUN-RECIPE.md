@@ -708,6 +708,40 @@ tenant_filter = "platform"   # off | platform | always
 - 置 `off` 重启 ⇒ 输入框消失且 `getInfo` 返回 `showTenantFilter: false`（**关闭态即现状**）；
 - 负路径：写非法值（如 `"on"`）⇒ 启动 **WARN** 并回落 `off` 且不提供入口。
 
+### 3.21 本轮（第十五批）专项方案落地配方（改这批代码必跑）
+
+本批把台账 §8.17-C 登记的三项"单独专题"从登记转为**落地**（另两项经重分析判定"更优方案已存在/不宜实现"，见台账）。默认全部**关闭/现状**，故关闭态必须先跑一遍确认零回归。
+
+#### (1) SSO D9：`client_secret` 零停机轮换（双密钥读取期）
+
+| 步骤 | 操作 | 期望 |
+|---|---|---|
+| 1 | 客户端列表任选一行 → 点「轮换密钥」 | 弹确认 → 弹"一次性密钥"框，含**新密钥明文**（关闭后不可再查看） |
+| 2 | 用**旧** `client_secret` 走 `POST /sso/token` | **仍可鉴权**（读到"旧密钥"WARN 即读取期生效）：密钥错 ⇒ `invalid_grant`；密钥对但码错 ⇒ 也是 `invalid_grant` |
+| 3 | 用**新** `client_secret` 同上 | 立即可用 |
+| 4 | 点「结束读取期」 | 再用**旧**密钥 ⇒ `401 invalid_client`（立即失效）；新密钥不受影响 |
+| 5 | 再次点「结束读取期」 | 幂等成功 |
+
+- 判定技巧：客户端鉴权**先于**授权码校验 ⇒ 用任意无效 `code` 即可把两段解耦 —— 密钥被接受 = `invalid_grant`；被拒 = `401 invalid_client`。
+- 连续轮换两次 ⇒ 只有"最近一把"在读取期内，更早的密钥**不得复活**。
+- 关闭态（未轮换过任何客户端）：`previous_client_secret_hash` 为 NULL ⇒ 行为与改造前逐字节一致。
+
+#### (2) P2-33：`[server].http_status_convention`
+
+| 档位 | 自定义业务码（如 TOTP `1003`） | 已知码（400/401/403/404/409/422/429/500/503） |
+|---|---|---|
+| `legacy`（**默认 = 现状**） | HTTP **200** + `body.code=1003` | 映射为同名真实 HTTP 状态 |
+| `restful` | HTTP **400** + `body.code=1003` | **完全相同**（两档只在未归类码上分叉） |
+
+- `restful` 装配后：网关/监控可直接按 HTTP 状态码告警；前端 `request.ts` 的成功/失败**两个**分支都识别 `body.code`，故 TOTP（1003）登录流程不受影响（错误分支已显式保留 `err.code = 1003` 供 `login.vue` 进入验证码步骤）。
+- 负路径：写非法值（如 `"strict"`）⇒ 启动 **WARN** 并回落 `legacy`，**不**拒绝启动。
+
+#### (3) `cargo-fuzz`（夜间独立 job）
+
+- 本地：`cd axum-backend; cargo +nightly fuzz build`；短跑 `cargo +nightly fuzz run <target> -- -runs=2000 -max_total_time=20`。
+- 与 `src/common/fuzz_invariants.rs`（stable 确定性不变式，随 `cargo test` 跑）**分工**：前者做覆盖率导向探索，后者做可回归的属性断言。
+- CI：仅 `schedule`（夜间）+ `workflow_dispatch`，失败不阻断日间流水线。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

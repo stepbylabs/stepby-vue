@@ -11,7 +11,8 @@ import type {
   SysUserRoles,
   AjaxResult,
   TableDataInfo,
-  TreeSelect
+  TreeSelect,
+  UserErasureReport
 } from '@/types'
 
 // 查询用户列表
@@ -54,6 +55,33 @@ export function delUser(userId: number | number[]): Promise<AjaxResult> {
   return request({
     url: '/system/user/' + userId,
     method: 'delete'
+  })
+}
+
+/**
+ * GDPR 用户匿名化**预检**（dry-run，只读）。
+ *
+ * 能力位 `privacy.user_erasure` ≥ `precheck` 且操作者为平台管理员时可用；
+ * 否则后端返回 404（关闭态端点表现为"不存在"）。返回将被置换的字段清单与受影响凭据计数。
+ */
+export function anonymizeUserPrecheck(userId: number): Promise<AjaxResult<UserErasureReport>> {
+  return request({
+    url: `/system/user/${userId}/anonymize/precheck`,
+    method: 'get'
+  })
+}
+
+/**
+ * GDPR 用户匿名化**执行**（不可逆）。
+ *
+ * 需能力位档位 = `full` 且操作者为平台管理员。执行后：PII 置换、登录键改为
+ * `deleted_{id}`、密码清空、停用 + 软删、全部会话 / PAT / SSO 令牌即时吊销；
+ * **审计留痕保留**。幂等（已匿名化的用户重复调用不报错）。
+ */
+export function anonymizeUser(userId: number): Promise<AjaxResult<UserErasureReport>> {
+  return request({
+    url: `/system/user/${userId}/anonymize`,
+    method: 'post'
   })
 }
 

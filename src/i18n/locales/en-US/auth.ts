@@ -145,6 +145,14 @@ export default {
     remark: 'Remark',
     createTime: 'Created At',
     deleteTip: 'Are you sure you want to delete SSO client "{ids}"?',
+    rotateSecret: 'Rotate Secret',
+    clearPrevSecret: 'End Grace Period',
+    rotateTip:
+      'Rotate the secret of "{client}"? The new secret takes effect immediately, while the old one keeps working during the dual-key grace period (so RPs can switch without downtime).',
+    clearPrevTip:
+      'End the dual-key grace period for "{client}"? The old secret will be invalidated immediately (idempotent).',
+    rotateDone: 'Secret rotated — copy the new secret now',
+    clearDone: 'Dual-key grace period ended',
     rule: {
       nameRequired: 'Please enter the client name',
       redirectRequired: 'Please enter at least one redirect URI',

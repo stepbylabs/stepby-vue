@@ -143,6 +143,13 @@ export default {
     remark: '备注',
     createTime: '创建时间',
     deleteTip: '是否确认删除 SSO 客户端 "{ids}"？',
+    rotateSecret: '轮换密钥',
+    clearPrevSecret: '结束读取期',
+    rotateTip:
+      '是否轮换客户端 "{client}" 的密钥？新密钥**立即生效**，旧密钥在"双密钥读取期"内仍可用（供 RP 平滑换配、不断服）。',
+    clearPrevTip: '是否结束 "{client}" 的双密钥读取期？结束后旧密钥**立即失效**（幂等操作）。',
+    rotateDone: '密钥已轮换，请复制新密钥',
+    clearDone: '双密钥读取期已结束',
     rule: {
       nameRequired: '请输入客户端名称',
       redirectRequired: '请至少填写一个回调地址',

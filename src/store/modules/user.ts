@@ -41,6 +41,14 @@ interface UserState {
    * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
    */
   showTenantFilter: boolean
+  /**
+   * 用户管理页是否显示「匿名化（GDPR）」入口。
+   *
+   * 后端按能力位 `privacy.user_erasure` 结合操作者租户上下文算好后随 `getInfo` 下发：
+   * `off`（默认）或非平台操作者 = 不提供入口 = 历史行为。
+   * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
+   */
+  showUserErasure: boolean
 }
 
 const useUserStore = defineStore('user', {
@@ -54,7 +62,8 @@ const useUserStore = defineStore('user', {
     permissions: [],
     tenantId: 0,
     showTenantColumn: false,
-    showTenantFilter: false
+    showTenantFilter: false,
+    showUserErasure: false
   }),
   actions: {
     // 登录
@@ -108,6 +117,9 @@ const useUserStore = defineStore('user', {
       this.showTenantColumn = res.showTenantColumn === true
       // 「按租户筛选」入口开关：同样由后端算好，前端只落库（缺字段视为 false，fail-safe）
       this.showTenantFilter = res.showTenantFilter === true
+      // 「匿名化（GDPR）」入口开关：由后端按能力位 privacy.user_erasure + 平台归属算好，
+      // 前端只落库（缺字段视为 false，fail-safe ⇒ 默认不显示入口）
+      this.showUserErasure = res.showUserErasure === true
       cache.session.set('pwdChrtype', res.pwdChrtype || '0')
       // P1 修复: 同步更新 passwordRule 模块级 ref，确保登录后规则实时生效
       setPwdChrType(res.pwdChrtype || '0')
@@ -169,6 +181,7 @@ const useUserStore = defineStore('user', {
         this.tenantId = 0
         this.showTenantColumn = false
         this.showTenantFilter = false
+        this.showUserErasure = false
         // 清理字典缓存
         useDictStore().cleanDict()
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）

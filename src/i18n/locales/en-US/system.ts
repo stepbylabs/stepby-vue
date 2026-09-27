@@ -245,6 +245,18 @@ export default {
     },
     resetPwd: 'Reset Password',
     assignRoles: 'Assign Roles',
+    erasure: {
+      button: 'Anonymize (GDPR)',
+      title: 'Anonymize user (irreversible)',
+      confirm:
+        'About to anonymize user "{user}". This action is IRREVERSIBLE:\n' +
+        '· {fields} fields will be replaced (login name → deleted_id; nickname/email/phone/gender/avatar/remark/login IP cleared);\n' +
+        '· the password will be cleared — the user can no longer sign in — and the account will be disabled and soft-deleted;\n' +
+        '· all credentials are revoked immediately: {pat} PAT(s), {sso} third-party binding(s), {sessions} online session(s);\n' +
+        '· audit trails (operation / login logs) are RETAINED.\n\nContinue?',
+      confirmBtn: 'Anonymize',
+      done: 'User "{user}" has been anonymized (irreversible)'
+    },
     initialPasswordWarning: 'Your password is still the initial password. Please change it!',
     passwordExpiredWarning: 'Your password has expired. Please change it as soon as possible!',
     securityTip: 'Security Tip'

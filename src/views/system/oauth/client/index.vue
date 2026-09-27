@@ -132,7 +132,7 @@
       <el-table-column
         :label="t('common.column.operation')"
         align="center"
-        width="150"
+        width="260"
         class-name="small-padding fixed-width"
       >
         <template #default="scope">
@@ -144,6 +144,25 @@
             @click="handleUpdate(scope.row)"
           >
             {{ t('common.edit') }}
+          </el-button>
+          <el-button
+            link
+            type="primary"
+            icon="Key"
+            v-hasPermi="['system:oauth:client:edit']"
+            :loading="rotateLoading === scope.row.ssoClientId"
+            @click="handleRotateSecret(scope.row)"
+          >
+            {{ t('sso.rotateSecret') }}
+          </el-button>
+          <el-button
+            link
+            type="warning"
+            icon="Unlock"
+            v-hasPermi="['system:oauth:client:edit']"
+            @click="handleClearPrevSecret(scope.row)"
+          >
+            {{ t('sso.clearPrevSecret') }}
           </el-button>
           <el-button
             link
@@ -331,7 +350,7 @@
 <script setup lang="ts" name="SsoClient">
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import type { SsoClient, SsoClientForm, SsoClientQueryParams } from '@/types'
-import { listSsoClients, getSsoClient, addSsoClient, updateSsoClient, delSsoClient, toggleSsoClient } from '@/api/sso'
+import { listSsoClients, getSsoClient, addSsoClient, updateSsoClient, delSsoClient, toggleSsoClient, rotateSsoClientSecret, clearSsoClientPrevSecret } from '@/api/sso'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 
@@ -540,6 +559,53 @@ function handleToggle(row: SsoClient, val: string | number | boolean): void {
     .finally(() => {
       toggleLoading.value = 0
     })
+}
+
+// ==================== SSO D9：client_secret 零停机轮换 ====================
+
+const rotateLoading = ref(0)
+
+// 轮换密钥：新密钥立即生效，旧密钥进入"双密钥读取期"（RP 换配期间不断服）。
+// 复用新增流程的"一次性明文"弹窗（revealed + revealVisible），避免第二套展示组件。
+async function handleRotateSecret(row: SsoClient): Promise<void> {
+  try {
+    await modal.confirm(t('sso.rotateTip', { client: row.clientName }))
+  } catch {
+    // 用户取消：不执行
+    return
+  }
+  rotateLoading.value = row.ssoClientId
+  try {
+    const res = await rotateSsoClientSecret(row.ssoClientId)
+    const data = res.data
+    if (!data?.clientSecret) {
+      modal.msgError(t('sso.secret.copyFailed'))
+      return
+    }
+    // 展示一次性明文（与新增一致：关闭后无法再次查看）
+    revealed.value = { clientId: data.clientId, clientSecret: data.clientSecret }
+    revealVisible.value = true
+    modal.msgSuccess(t('sso.rotateDone'))
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[sso] rotate secret:', e)
+  } finally {
+    rotateLoading.value = 0
+  }
+}
+
+// 结束双密钥读取期：旧密钥立即失效（幂等）。
+async function handleClearPrevSecret(row: SsoClient): Promise<void> {
+  try {
+    await modal.confirm(t('sso.clearPrevTip', { client: row.clientName }))
+  } catch {
+    return
+  }
+  try {
+    await clearSsoClientPrevSecret(row.ssoClientId)
+    modal.msgSuccess(t('sso.clearDone'))
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[sso] clear previous secret:', e)
+  }
 }
 
 getList()

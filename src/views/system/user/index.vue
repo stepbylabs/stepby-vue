@@ -275,6 +275,22 @@
                     v-hasPermi="['system:user:edit']"
                   ></el-button>
                 </el-tooltip>
+                <!-- GDPR 用户匿名化：入口可见性由后端按能力位 privacy.user_erasure + 平台归属算好下发
+                     （userStore.showUserErasure），不在此处二次推断 ⇒ 不会造出"可见但请求 404"的假入口 -->
+                <el-tooltip
+                  :content="t('user.erasure.button')"
+                  placement="top"
+                  v-if="scope.row.userId !== 1 && userStore.showUserErasure"
+                >
+                  <el-button
+                    link
+                    type="danger"
+                    icon="UserFilled"
+                    :aria-label="t('user.erasure.button')"
+                    @click="handleAnonymize(scope.row)"
+                    v-hasPermi="['system:user:remove']"
+                  ></el-button>
+                </el-tooltip>
               </template>
             </el-table-column>
             <template #empty>
@@ -364,8 +380,8 @@ import ExcelImportDialog from '@/components/ExcelImportDialog/index.vue'
 import UserViewDrawer from './view.vue'
 import UserFormDialog from './UserFormDialog.vue'
 import { usePasswordRule } from '@/utils/passwordRule'
-import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, deptTreeSelect } from '@/api/system/user'
-import type { SysUser, UserQueryParams } from '@/types/api/system/user'
+import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, deptTreeSelect, anonymizeUserPrecheck, anonymizeUser } from '@/api/system/user'
+import type { SysUser, UserQueryParams, UserErasureReport } from '@/types/api/system/user'
 import type { SysRole } from '@/types/api/system/role'
 import type { SysPost } from '@/types/api/system/post'
 import type { TreeSelect, TableShowColumns, AjaxResult } from '@/types/api/common'
@@ -375,7 +391,9 @@ import { download } from '@/utils/request'
 import { getConfigKey } from '@/api/system/config'
 import { ElMessageBox } from 'element-plus'
 import { useSearchPersistence } from '@/composables/useSearchPersistence'
+import useUserStore from '@/store/modules/user'
 
+const userStore = useUserStore()
 const router = useRouter()
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
@@ -615,6 +633,53 @@ function handleResetPwd(row: SysUser) {
         if (import.meta.env.DEV) console.error('Failed to reset password:', e)
       }
     })
+}
+
+/**
+ * GDPR 用户匿名化（不可逆）。
+ *
+ * 两段式：先调**只读预检**拿到影响面（字段清单 + 凭据计数），把后果逐项告知用户；
+ * 用户在确认框中明确同意后才调执行端点。执行成功后刷新列表。
+ *
+ * 入口本身由后端 `userStore.showUserErasure` 门控（能力位 + 平台归属），
+ * 因此正常情况下不会触达"能力关闭 ⇒ 404"的分支。
+ */
+async function handleAnonymize(row: SysUser): Promise<void> {
+  if (!row.userId) return
+  let report: UserErasureReport | undefined
+  try {
+    const pre = await anonymizeUserPrecheck(row.userId)
+    report = pre.data
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[user] anonymize precheck failed:', e)
+    return
+  }
+  if (!report) return
+  const detail = t('user.erasure.confirm', {
+    user: row.userName || '',
+    fields: report.fields?.length ?? 0,
+    pat: report.patCount ?? 0,
+    sso: report.ssoBindingCount ?? 0,
+    sessions: report.onlineSessionCount ?? 0
+  })
+  try {
+    await ElMessageBox.confirm(detail, t('user.erasure.title'), {
+      confirmButtonText: t('user.erasure.confirmBtn'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+      closeOnClickModal: false
+    })
+  } catch {
+    // 用户取消：不执行（预检是只读的，无副作用）
+    return
+  }
+  try {
+    await anonymizeUser(row.userId)
+    modal.msgSuccess(t('user.erasure.done', { user: row.userName || '' }))
+    getList()
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[user] anonymize failed:', e)
+  }
 }
 
 /** 选择条数  */
