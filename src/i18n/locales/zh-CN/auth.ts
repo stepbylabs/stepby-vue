@@ -21,7 +21,10 @@ export default {
     oauthDivider: '或使用第三方账号登录',
     oauthTitle: '第三方登录',
     oauthBindRequired: '该第三方账号尚未绑定本系统账号，请先使用账号密码登录后绑定。',
-    oauthGoLogin: '前往登录'
+    oauthGoLogin: '前往登录',
+    passkeyLogin: '使用通行密钥登录',
+    passkeyDivider: '或使用通行密钥登录',
+    passkeyUsernameRequired: '请先输入账号，再使用通行密钥登录'
   },
   register: {
     title: '注册',

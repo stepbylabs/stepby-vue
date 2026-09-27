@@ -746,6 +746,47 @@ tenant_filter = "platform"   # off | platform | always
 - 与 `src/common/fuzz_invariants.rs`（stable 确定性不变式，随 `cargo test` 跑）**分工**：前者做覆盖率导向探索，后者做可回归的属性断言。
 - CI：仅 `schedule`（夜间）+ `workflow_dispatch`，失败不阻断日间流水线；崩溃时 artifacts 保留最小复现输入。
 
+### 3.22 Passkey / WebAuthn 开启态配方与验证策略（第十六批；改这批必跑）
+
+能力位 `auth.webauthn`（`[features]` 段，默认 `off`）；配置面 `[webauthn]`（`rp_id` / `rp_name` / `origin` / `state_ttl_secs`）。
+
+#### (1) 装配（**必须显式配信任锚**）
+
+```toml
+[features]
+"auth.webauthn" = "on"
+
+[webauthn]
+rp_id = "localhost"                 # 域名后缀，不含 scheme/端口；留空则由 cors_origins 首个来源推导
+rp_name = "Yebot"
+origin = "http://localhost:8080"    # 含 scheme；留空同上
+```
+
+- ⚠️ 推导兜底是"末两段标签"的**保守启发式**（多级公共后缀不精确）⇒ 生产必须显式配置。
+- ⚠️ 非 HTTPS 时浏览器不提供 `navigator.credentials`（`http://localhost` 例外）。
+- ⚠️ 关闭态（默认）⇒ 6 条端点全 **404**；前端登录页入口由**浏览器支持性检测**隐藏（不依赖能力位）。
+
+#### (2) 手工验证（浏览器）
+
+| 步骤 | 期望 |
+|---|---|
+| 个人中心 → 「通行密钥」→ 添加 | 浏览器弹出 passkey 创建（Windows Hello / 安全密钥 / 手机）；成功后列表出现 1 条 |
+| 退出登录 → 登录页「使用通行密钥登录」+ 填用户名 | 弹出凭据选择 → 通过后**直接进入系统**（无需密码/TOTP） |
+| 删除该凭据后再用 passkey 登录 | 失败（无凭据）；用户名不存在 与 无凭据用户 的**提示必须同形**（防枚举） |
+| 关闭能力位重启 | 登录页入口消失（浏览器支持性检测）或点击后提示"能力未开启"（后端 404 文案） |
+
+#### (3) 自动化验证（本批已落地，改这批必跑）
+
+- **Rust 集成测试**（主证据）：`cd axum-backend; cargo test --lib webauthn::`
+  - 能力位 off ⇒ 6 端点全 404；on ⇒ options 契约（43 字符 challenge / rp.id / ES256）；
+  - 垃圾 finish ⇒ 400；未知用户与无凭据用户 ⇒ 与密码登录失败**全等**（防枚举）；凭据列表与**越权删除 404**；
+  - **完整快乐路径（注册 + 无密码登录 + 令牌可用）**：由测试内的**纯 Rust 软件认证器**（ES256/COSE/CBOR）驱动，
+    不依赖浏览器，也不需要 Redis 之外的额外服务；同时覆盖**重放/篡改/origin 不符**的负路径。
+- **前端单测/类型**：`cd yebot-ui; npx vue-tsc --noEmit && npx vitest run`（含 `utils/webauthn.ts` 的 base64url 往返用例）。
+- **e2e（浏览器真实凭据）**：如需浏览器级联调，可用 Chromium 的 CDP 虚拟认证器
+  （`WebAuthn.enable` + `WebAuthn.addVirtualAuthenticator`）驱动真实 `navigator.credentials`；
+  本批未纳入 `main.mjs`（15k 行套件），故以 Rust 软认证器用例作为快乐路径主证据。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

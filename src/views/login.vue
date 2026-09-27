@@ -106,6 +106,18 @@
           </div>
         </Transition>
       </el-form-item>
+      <!-- WebAuthn / Passkey：通行密钥登录入口（仅浏览器支持时渲染） -->
+      <template v-if="webauthnSupported">
+        <el-divider class="oauth-divider">
+          <span class="oauth-divider-text">{{ t('login.passkeyDivider') }}</span>
+        </el-divider>
+        <el-form-item class="w-full">
+          <el-button size="large" class="w-full" :loading="webauthnLoading" @click.prevent="handlePasskeyLogin">
+            <svg-icon icon-class="lock" class="passkey-icon" />
+            {{ t('login.passkeyLogin') }}
+          </el-button>
+        </el-form-item>
+      </template>
       <!-- P0 OAuth：第三方登录入口 -->
       <template v-if="oauthProviders.length > 0">
         <el-divider class="oauth-divider">
@@ -141,6 +153,8 @@ import { ElMessage } from 'element-plus'
 import { errorHub } from '@/utils/errorHub'
 import { getCodeImg } from '@/api/login'
 import { listEnabledProviders, getAuthorizeUrl, bindOauth } from '@/api/oauth'
+import { webauthnLoginStart, webauthnLoginFinish } from '@/api/webauthn'
+import { isWebauthnSupported, isUserCancelled, toRequestOptions, assertionToDto } from '@/utils/webauthn'
 import { takePendingHandoff } from '@/utils/oauth'
 import { resolveLoginTarget } from '@/utils/redirect'
 import Cookies from 'js-cookie'
@@ -195,6 +209,10 @@ const redirect = ref<string | undefined>(undefined)
 // P0 OAuth：登录页第三方登录提供商列表 + 跳转 loading
 const oauthProviders = ref<EnabledOauthProvider[]>([])
 const oauthLoading = ref('')
+
+// WebAuthn / Passkey：浏览器是否支持 + 通行密钥登录 loading
+const webauthnSupported = isWebauthnSupported()
+const webauthnLoading = ref(false)
 
 // 第三方类型 → 图标名（svg 位于 src/assets/icons/svg）
 function oauthIcon(providerType: string): string {
@@ -251,6 +269,34 @@ watch(
   { immediate: true }
 )
 
+// 登录成功后的统一处理（密码登录与通行密钥登录共用同一套，避免两套链路漂移）：
+// 重置 loading、处理待绑定第三方身份、解析并跳转目标（拉取用户信息由路由守卫完成）。
+function afterLoginSuccess(): void {
+  // P1 修复：成功路径也重置 loading，避免 router.push 被守卫拒绝/重复导航失败时按钮永久 loading
+  loading.value = false
+  // P0 OAuth：登录成功后，若存在待绑定的第三方身份（授权回调归档的 handoff），自动完成绑定
+  const pendingHandoff = takePendingHandoff()
+  if (pendingHandoff) {
+    bindOauth(pendingHandoff)
+      .then(() => {
+        ElMessage.success(t('oauth.tip.pendingHandoff'))
+      })
+      .catch(() => {
+        // 绑定失败不阻塞登录，稍后可到个人中心「OAuth 绑定」页手动处理
+      })
+  }
+  // F1 审计加固：校验用户可控的 redirect，防止开放重定向 / 协议相对路径；
+  // 后端协议路由（SSO authorize/logout）非 SPA 路由，必须整页跳转交给后端
+  // （判定逻辑与原因见 utils/redirect.ts resolveLoginTarget，已有单测钉死）。
+  const { kind, target } = resolveLoginTarget(redirect.value)
+  if (kind === 'backend') {
+    window.location.href = target
+    return
+  }
+  // SPA 路由：以字符串形式导航，保留 target 内嵌的 query/hash（对象 path 形式会丢查询）。
+  router.push(target).catch(() => {})
+}
+
 function handleLogin(): void {
   loginRefRef.value?.validate((valid: boolean) => {
     if (valid) {
@@ -267,31 +313,7 @@ function handleLogin(): void {
       // 调用action的登录方法
       userStore
         .login(loginForm.value)
-        .then(() => {
-          // P1 修复：成功路径也重置 loading，避免 router.push 被守卫拒绝/重复导航失败时按钮永久 loading
-          loading.value = false
-          // P0 OAuth：密码登录成功后，若存在待绑定的第三方身份（授权回调归档的 handoff），自动完成绑定
-          const pendingHandoff = takePendingHandoff()
-          if (pendingHandoff) {
-            bindOauth(pendingHandoff)
-              .then(() => {
-                ElMessage.success(t('oauth.tip.pendingHandoff'))
-              })
-              .catch(() => {
-                // 绑定失败不阻塞登录，稍后可到个人中心「OAuth 绑定」页手动处理
-              })
-          }
-          // F1 审计加固：校验用户可控的 redirect，防止开放重定向 / 协议相对路径；
-          // 后端协议路由（SSO authorize/logout）非 SPA 路由，必须整页跳转交给后端
-          // （判定逻辑与原因见 utils/redirect.ts resolveLoginTarget，已有单测钉死）。
-          const { kind, target } = resolveLoginTarget(redirect.value)
-          if (kind === 'backend') {
-            window.location.href = target
-            return
-          }
-          // SPA 路由：以字符串形式导航，保留 target 内嵌的 query/hash（对象 path 形式会丢查询）。
-          router.push(target).catch(() => {})
-        })
+        .then(() => afterLoginSuccess())
         .catch((err: Error & { code?: number }) => {
           loading.value = false
           // P0-4：TOTP 多因子登录——进入/停留在 TOTP 输入步骤（密码已通过，仅缺动态码）
@@ -306,6 +328,35 @@ function handleLogin(): void {
         })
     }
   })
+}
+
+// WebAuthn / Passkey：使用通行密钥登录。
+// 取用户名 → login/start → navigator.credentials.get → login/finish →
+// 复用密码登录同一套成功链路（写 token + 成功处理，用户信息由路由守卫拉取、跳转）。
+async function handlePasskeyLogin(): Promise<void> {
+  if (webauthnLoading.value) return
+  const username = loginForm.value.username.trim()
+  if (!username) {
+    ElMessage.warning(t('login.passkeyUsernameRequired'))
+    return
+  }
+  webauthnLoading.value = true
+  try {
+    const startRes = await webauthnLoginStart({ username })
+    const options = startRes.data
+    if (!options) return
+    const credential = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
+    if (!credential) return
+    const finishRes = await webauthnLoginFinish(assertionToDto(credential as PublicKeyCredential, username))
+    userStore.applyLoginToken(finishRes.token)
+    afterLoginSuccess()
+  } catch (err) {
+    // 用户取消认证器交互（NotAllowedError）：安静返回，不报错刷红
+    if (isUserCancelled(err)) return
+    // 其余错误（含能力位关闭的 404、登录失败反枚举统一的 401）已由 request 拦截器展示后端 msg
+  } finally {
+    webauthnLoading.value = false
+  }
 }
 
 function getCode(): void {
@@ -396,6 +447,11 @@ loadOauthProviders()
 }
 .oauth-icon {
   font-size: 20px;
+  color: var(--el-text-color-regular);
+}
+.passkey-icon {
+  font-size: 18px;
+  margin-right: 6px;
   color: var(--el-text-color-regular);
 }
 .oauth-divider {

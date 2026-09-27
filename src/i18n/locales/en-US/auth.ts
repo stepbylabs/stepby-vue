@@ -22,7 +22,10 @@ export default {
     oauthTitle: 'Third-party login',
     oauthBindRequired:
       'This third-party account has not been linked to a system account. Please log in with username/password first.',
-    oauthGoLogin: 'Go to login'
+    oauthGoLogin: 'Go to login',
+    passkeyLogin: 'Sign in with a passkey',
+    passkeyDivider: 'or sign in with a passkey',
+    passkeyUsernameRequired: 'Enter your username first to sign in with a passkey'
   },
   register: {
     title: 'Register',

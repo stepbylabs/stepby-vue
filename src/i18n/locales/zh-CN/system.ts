@@ -1351,6 +1351,29 @@ export default {
       disableSuccess: 'TOTP 已关闭',
       keyCopied: '密钥已复制'
     },
+    passkey: {
+      title: '通行密钥 / Passkeys',
+      tip: '通行密钥（Passkey）让您无需密码即可安全登录：通过本设备的指纹、面部识别或安全密钥完成验证。',
+      add: '添加通行密钥',
+      dialogTitle: '添加通行密钥',
+      nameLabel: '名称',
+      namePlaceholder: '为这个通行密钥起个名字（如：我的笔记本）',
+      nameRequired: '请输入名称',
+      column: {
+        name: '名称',
+        createTime: '创建时间',
+        lastUsedAt: '最近使用',
+        signCount: '签名计数',
+        action: '操作'
+      },
+      delete: '删除',
+      deleteConfirm: '确认删除通行密钥「{name}」？删除后该设备将无法再用于登录。',
+      deleteSuccess: '已删除',
+      addSuccess: '通行密钥添加成功',
+      empty: '暂无已添加的通行密钥',
+      neverUsed: '从未使用',
+      unsupported: '当前浏览器不支持通行密钥（WebAuthn），请更换浏览器或设备。'
+    },
     avatar: {
       uploadTip: '点击上传头像',
       currentAvatar: '当前头像，点击修改',

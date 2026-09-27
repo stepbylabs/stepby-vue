@@ -1367,6 +1367,29 @@ export default {
       disableSuccess: 'TOTP disabled',
       keyCopied: 'Secret copied'
     },
+    passkey: {
+      title: 'Passkeys',
+      tip: 'Passkeys let you sign in securely without a password, using the fingerprint, face recognition or security key of this device.',
+      add: 'Add a passkey',
+      dialogTitle: 'Add a passkey',
+      nameLabel: 'Name',
+      namePlaceholder: 'Give this passkey a name (e.g. My laptop)',
+      nameRequired: 'Please enter a name',
+      column: {
+        name: 'Name',
+        createTime: 'Created At',
+        lastUsedAt: 'Last Used',
+        signCount: 'Sign Count',
+        action: 'Actions'
+      },
+      delete: 'Delete',
+      deleteConfirm: 'Delete the passkey "{name}"? This device will no longer be able to sign in with it.',
+      deleteSuccess: 'Deleted',
+      addSuccess: 'Passkey added successfully',
+      empty: 'No passkeys added yet',
+      neverUsed: 'Never used',
+      unsupported: 'This browser does not support passkeys (WebAuthn). Please use another browser or device.'
+    },
     avatar: {
       uploadTip: 'Click to upload avatar',
       currentAvatar: 'Current avatar, click to change',

@@ -335,6 +335,12 @@ service.interceptors.response.use(
       errorHub.report('warning', 'api', backendMsg || t('common.noPermission'))
       return Promise.reject(error)
     }
+    if (httpStatus === 404) {
+      // 端点不存在 / 能力位关闭（如 WebAuthn 关闭态端点表现"不存在"）：
+      // 优先展示后端 msg（后端已做不泄漏存在性的统一文案），缺失时回落通用提示
+      errorHub.report('warning', 'api', backendMsg || t('common.requestError', { code: '404' }))
+      return Promise.reject(error)
+    }
     if (httpStatus === 429) {
       // 登录频率限制（IP/用户失败次数超限），显示具体提示
       errorHub.report('warning', 'api', backendMsg || t('common.tooManyRequests'))

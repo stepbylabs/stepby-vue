@@ -10,6 +10,9 @@ export * from './menu'
 // OAuth 模块
 export * from './oauth'
 
+// WebAuthn / Passkey 模块
+export * from './webauthn'
+
 // System 模块
 export * from './system/user'
 export * from './system/role'

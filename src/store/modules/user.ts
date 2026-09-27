@@ -71,14 +71,23 @@ const useUserStore = defineStore('user', {
       const username = userInfo.username.trim()
       const { password, code, uuid } = userInfo
       const res = await login(username, password, code, uuid)
-      setToken(res.token)
-      this.token = res.token
+      // P2 修复: 不再 try/catch 吞错。request.ts 拦截器已统一弹错误提示，
+      // 此处让错误向上抛出，使 login.vue 的 .catch() 能正确触发（重置 loading、刷新验证码）
+      this.applyLoginToken(res.token)
+    },
+    /**
+     * 登录成功后的令牌落地（密码登录与 WebAuthn / Passkey 登录共用同一套后置动作）。
+     *
+     * 各登录方式（密码 / passkey）只负责拿到 token，此后的写 token、解锁锁屏、
+     * 初始化 WebSocket 通知均在此收敛，避免多套登录链路各自实现而漂移。
+     */
+    applyLoginToken(token: string) {
+      setToken(token)
+      this.token = token
       useLockStore().unlockScreen()
       // P2 修复: 登录成功后立即初始化 WebSocket 通知连接。main.ts 挂载时的 init() 因无 token 早退，
       // 必须在此 token 已写入后再触发，否则不刷新页面则实时通知/铃铛角标不生效。
       useNotificationStore().init()
-      // P2 修复: 不再 try/catch 吞错。request.ts 拦截器已统一弹错误提示，
-      // 此处让错误向上抛出，使 login.vue 的 .catch() 能正确触发（重置 loading、刷新验证码）
     },
     // 获取用户信息
     async getInfo() {
