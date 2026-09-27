@@ -738,9 +738,13 @@ tenant_filter = "platform"   # off | platform | always
 
 #### (3) `cargo-fuzz`（夜间独立 job）
 
-- 本地：`cd axum-backend; cargo +nightly fuzz build`；短跑 `cargo +nightly fuzz run <target> -- -runs=2000 -max_total_time=20`。
+- 本地：`cd axum-backend; cargo +nightly fuzz build`；短跑 `cargo +nightly fuzz run <target> -- -runs=3000 -max_total_time=30`。
+- **Windows 运行期注意**：nightly 的 fuzz 二进制**动态链接 ASan 运行时** `clang_rt.asan_dynamic-x86_64.dll`（不在 rustup 工具链里）。直接运行会以 `0xC0000135`（DLL 找不到）退出 ⇒ 需把其所在目录加入 `PATH`：
+  - 优先用**与链接期同源**的那份（版本不符会变成 `0xC0000139` ENT_ENTRYPOINT_NOT_FOUND）；
+  - 实测可用：`C:\Program Files\Microsoft Visual Studio\<ver>\Community\VC\Tools\MSVC\<ver>\bin\Hostx64\x64`；
+  - Linux（CI 所用）无此问题。
 - 与 `src/common/fuzz_invariants.rs`（stable 确定性不变式，随 `cargo test` 跑）**分工**：前者做覆盖率导向探索，后者做可回归的属性断言。
-- CI：仅 `schedule`（夜间）+ `workflow_dispatch`，失败不阻断日间流水线。
+- CI：仅 `schedule`（夜间）+ `workflow_dispatch`，失败不阻断日间流水线；崩溃时 artifacts 保留最小复现输入。
 
 ## 4. source-check 防混淆约定（重要）
 
