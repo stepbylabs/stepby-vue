@@ -618,6 +618,57 @@ cluster_mode = "auto"   # 默认值
 ```
 重启 ⇒ 启动日志**必须**出现 WARN（提示"多副本 + auto 可能重复扫描"）；改 `cluster_mode = "leader"` 重启 ⇒ WARN 消失。**该开关不改变任何调度行为**（仅日志与自检）。
 
+### 3.19 本轮（第十三批）新增开关的开启态配方（改这批代码必跑）
+
+**(1) JWT 多密钥轮换（零停机，`[jwt].previous_secrets`）**
+
+```toml
+[jwt]
+secret = "<新密钥 ≥32 字符>"
+previous_secrets = ["<原密钥 ≥32 字符>"]   # 过渡期：仅验签回退
+```
+
+- 轮换前用**原密钥**启动并登录，保存返回的 `token`；
+- 改成上表配置重启 ⇒ 用 `token` 访问 `/getInfo` 仍 **200**（存量会话**未被登出**）；
+- 启动日志出现 INFO「JWT 密钥轮换过渡期」；
+- 把 `previous_secrets` 清空重启 ⇒ 同一 `token` 变 **401**（轮换真正生效）；
+- 反例：把 `previous_secrets` 里写 <32 字符或含 `change_me` ⇒ **拒绝启动**（fail-closed）。
+
+**(2) 出站领域事件（`[events]`，默认 off）**
+
+先起一个接收端：`python -m http.server 9000`（或 webhook.site），然后：
+
+```toml
+[events]
+outbound = "webhook"
+webhook_url = "http://127.0.0.1:9000/hook"
+# secret = "<可选，配置后带 X-Yebot-Signature>"
+```
+
+- `off`（默认）时新建租户 ⇒ 接收端**零请求**（关闭态即现状）；
+- `webhook` 时新建租户 ⇒ 收到 `tenant.created`，请求头含 `X-Yebot-Event: tenant.created`，
+  信封含 `source/event/occurredAt/data`（`data.tenantId` 与新建结果一致）；
+- 启停 / 删除 / 恢复分别对应 `tenant.status_changed` / `tenant.deleted` / `tenant.restored`；
+- 接收端故意返回 500 ⇒ 后端只打 WARN，**租户业务仍成功**（fire-and-forget）；
+- `outbound = "webhook"` 但地址填 `file:///tmp/x` ⇒ 启动打 **WARN** 且不发请求。
+
+**(3) `[sso].userinfo_cache_ttl_secs`（默认 0 = 不缓存）**
+
+- `0`（默认）：每次 `/sso/userinfo` 都回查令牌绑定 ⇒ 吊销 AT 后立即 401；
+- 置 `60`：连续两次 `/sso/userinfo` 第二次命中服务端缓存（响应仍带 `Cache-Control: no-store`）；
+  吊销 AT 后**最多 60 秒内仍可能返回 200**——这正是该开关需要自行权衡的代价；
+- 置 `86400` ⇒ 生效值被夹到 **300**（`USERINFO_CACHE_MAX_SECS`）。
+
+**(4) 表 × 过滤接入矩阵（替代人肉重读蓝本 §二/§三）**
+
+```bash
+node scripts/tenant-audit.mjs --matrix
+# → docs/optimization/tenant-filter-matrix.generated.md
+```
+
+以源码为唯一真值（实体 `tenant_id` 列 × `TENANT_FILTER_MATRIX` 档位）。**该模式不参与 `--gate`**，
+故不会扰动门禁基线键集；改实体或矩阵后重跑即可对齐。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
