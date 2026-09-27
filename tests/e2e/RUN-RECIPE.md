@@ -786,6 +786,25 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
 - **e2e（浏览器真实凭据）**：如需浏览器级联调，可用 Chromium 的 CDP 虚拟认证器
   （`WebAuthn.enable` + `WebAuthn.addVirtualAuthenticator`）驱动真实 `navigator.credentials`；
   本批未纳入 `main.mjs`（15k 行套件），故以 Rust 软认证器用例作为快乐路径主证据。
+- **独立脚本 `webauthn.mjs`（浏览器级真实凭据三场景，不并入 main.mjs）**：
+  密码登录→个人中心添加通行密钥（真实 attestation）→退出→passkey 免密登录（真实 assertion）→
+  删除凭据后 passkey 登录失败（反枚举同形提示）。运行（后端 embed :8080 + 前端 preview :4173 需在跑，
+  且平台能力位 `auth.webauthn=on`、`[webauthn] rp_id=localhost / origin=http://localhost:8080`）：
+  ```bash
+  cd yebot-ui/tests/e2e
+  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
+  YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
+  YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+  node webauthn.mjs   # 期望「总计 25 通过，0 失败」且 EXIT=0
+  ```
+- ⚠️ **类名复用陷阱（2026-09-27 全量复跑抓出，改登录页/新增同视觉区块必读）**：新增区块**不得复用既有的
+  "语义锚点"类名**。本批 passkey 分隔线最初为复用视觉样式而写成 `class="oauth-divider"`，而 `main.mjs`
+  功能 55 正是用 `.oauth-divider` **计数**断言"分隔线出现与否与 `/oauth2/providers` 启用数一致"
+  （`n>0 ⇒ divider>0`、`n==0 ⇒ divider==0`）；Chromium 下 `webauthnSupported` 恒真 ⇒ 无 OAuth 供应商时
+  得到 `divider=1` ⇒ **功能 55 失败**（首跑 seg3 = 445/446，`api=0, btn=0, divider=1`）。
+  **修法**：改用独立类名（`passkey-divider` / `passkey-divider-text`），视觉样式由两条选择器并列共用；
+  **不要**改断言去迁就 —— 那会丢掉"渲染缺失 vs 策略隐藏"的区分能力。**通用判据**：凡被 e2e 以类选择器
+  计数/断言的元素，其类名即**契约**；新增同视觉区块请另起类名 + CSS 并列选择器。
 
 ## 4. source-check 防混淆约定（重要）
 
