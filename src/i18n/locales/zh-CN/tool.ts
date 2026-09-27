@@ -234,7 +234,38 @@ export default {
     heading6: '标题6',
     fontStandard: '标准字体',
     fontSerif: '衬线字体',
-    fontMonospace: '等宽字体'
+    fontMonospace: '等宽字体',
+    // U4：富文本 / Markdown 编辑器的**可访问名称**（键盘与读屏可达性）。
+    // Quill 自带的是英文硬编码 aria-label（如 "list: ordered"），这里按格式名映射成本地化文案，
+    // 同时写入 title（鼠标悬停提示）⇒ 读屏与鼠标用户拿到同一套名称。
+    a11y: {
+      richText: '富文本编辑器',
+      markdown: 'Markdown 编辑器',
+      toolbar: '编辑器工具栏',
+      editorArea: '编辑区',
+      bold: '加粗',
+      italic: '斜体',
+      underline: '下划线',
+      strike: '删除线',
+      blockquote: '引用',
+      codeBlock: '代码块',
+      orderedList: '有序列表',
+      bulletList: '无序列表',
+      indentDecrease: '减少缩进',
+      indentIncrease: '增加缩进',
+      size: '字号',
+      header: '标题级别',
+      font: '字体',
+      color: '字体颜色',
+      background: '背景颜色',
+      align: '对齐方式',
+      clean: '清除格式',
+      link: '插入链接',
+      image: '插入图片',
+      video: '插入视频',
+      colorValue: '颜色 {value}',
+      alignValue: '{value}对齐'
+    }
   },
   excelImport: {
     dragText: '将文件拖到此处，或',

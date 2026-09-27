@@ -896,6 +896,62 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
   `yebot-ui/src/api/login.totp.test.ts`。**教训**：凡"多步登录/多步提交"链路，断言必须覆盖**最后一步真的带上了新参数**，
   只断言"进入了第二步"会漏掉这类断链。
 
+### 3.24 富文本编辑器键盘可达性（U4）配方与验证策略（改 `components/Editor` / `MarkdownEditor` 必跑）
+
+**背景（U4 是长期登记的唯一实质缺口）**：`ANALYSIS_FULL-2026-08-20.md §5.2 U4` 登记"富文本编辑器键盘可达性"未做。
+2026-09-28 回代码 + 回真实 DOM 取证后确认并修复，**不是**"加个 tabindex"就完事 —— 实测缺的是**可访问名称**与**焦点可见**。
+
+#### (1) 修复前的真实 DOM 现状（Chromium，公告管理「新增」弹窗内）
+
+| 元素 | 修复前 | 影响 |
+|---|---|---|
+| `.ql-editor`（contenteditable 编辑区） | 无 `role` / 无 `aria-label` / 无 `aria-multiline`，`tabIndex = -1` | 读屏只读到"无名可编辑区域"；键盘无法 Tab 进入 |
+| `.ql-picker-label`（字号/标题/颜色/背景/对齐 5 个下拉） | 有 `role="button"` + `tabindex="0"`，但**无可访问名称** | 读屏只念"按钮" |
+| `.ql-toolbar` | 有 `role="toolbar"`，无名称 | 区域不可定位 |
+| 工具栏 `button` | 有 `aria-label`，但是 **Quill 硬编码英文**（`list: ordered` / `indent: -1`） | 中文界面下读屏念英文 |
+| `.ql-picker-item`（尤其色板项） | 免文本项**无可访问名称** | 读屏念不出颜色/对齐 |
+
+#### (2) 修复要点（`components/Editor/index.vue`）
+
+- 新增 `applyEditorA11y()`：编辑区补 `role=textbox` + `aria-multiline=true` + `aria-placeholder` +
+  **`tabindex=0`** + 本地化 `aria-label`；工具栏区域补名称；按钮把 Quill 的英文 `aria-label`
+  **按映射表换成本地化文案**并同步写 `title`；5 个下拉的 label 与全部 item（含纯色块项）补名称。
+- 名称来源是 i18n 新增的 `editor.a11y.*`（zh-CN / en-US 双语），`watch(getLanguage())` **切换语言后重放**
+  （属性是命令式写入的，不会随 i18n 自动更新）。
+- `focus-visible` 可见焦点：工具栏按钮 / 下拉 label / 下拉项 / 编辑区统一 `outline: 2px solid var(--el-color-primary)`
+  （**仅 `:focus-visible`**，不干扰鼠标点击）。
+- `components/MarkdownEditor/index.vue`：上游 `md-editor-v3` **已**为工具栏按钮写好本地化 `aria-label`+`title`
+  （无需改），但其输入区（CodeMirror 的 `.cm-content`，`role="textbox"`）与根容器**没有可访问名称** ⇒
+  组件在 `onMounted` 后补 `aria-label`（根容器同时补 `role="group"`），同样随 locale 重放。
+
+#### (3) 自动化验证（改这批必跑）
+
+- **浏览器级（主证据）**：`node editor-a11y.mjs`（后端 embedded :8080 在跑）
+  ```bash
+  cd yebot-ui/tests/e2e
+  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
+  YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
+  YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+  node editor-a11y.mjs      # 期望「总计 22 通过，0 失败」EXIT=0
+  ```
+  断言分四组：**S1** 编辑区语义（role / aria-multiline / 非空名称 / aria-placeholder / tabindex）；
+  **S2** 工具栏区域名称 + 14 个按钮全部"有名 + 有 title + **名称已本地化**"（"仍是 Quill 英文原值即 FAIL"是可证伪断言）；
+  **S3** 5 个下拉的 label 与**全部 item**（含色板）均有非空名称；
+  **S4** 键盘链路：编辑区可键盘输入 → `Shift+Tab` 可达工具栏 → 聚焦按钮**真的有可见 outline**
+  （`:focus-visible` 生效）→ 全选后 `Enter` **真的触发加粗**（产出 `<strong>`）⇒ 证明"可键盘操作"而非仅"有名"。
+  ⚠️ 该脚本用 `addInitScript` 预置 `localStorage['yebot-layout-tour']='skipped'`：否则新手引导遮罩
+  （`.yebot-tour-mask`）会拦截点击（实测首版即因此 30s 超时）。
+  ⚠️ **不要**在编辑器弹窗内按 `Escape`（会关闭 Element Plus 弹窗 ⇒ 元素 detached）。
+- **组件级（MarkdownEditor 无消费页，用 jsdom 挂载真实组件）**：`npx vitest run src/components/MarkdownEditor/index.a11y.test.ts`
+  （3 例：输入区 role/名称、根容器 group 名称、工具栏按钮全部具名）。
+- **i18n 键平价**：新增的 `editor.a11y.*` 必须 zh-CN / en-US 同步（`src/i18n/i18n-keys.test.ts` 会兜底）。
+
+#### (4) 关闭态 / 兼容性说明
+
+- 本项是**无障碍增强**，不新增配置开关（项目准则里的"默认关"适用于**高危能力**；无障碍属性属纯增益，
+  对所有部署一律生效），也不改变任何布局与交互行为（仅新增属性与 `:focus-visible` 样式）。
+- 属于**深色/浅色**与**语言切换**下均生效的实现（名称随 locale 重放；焦点色用主题变量 `--el-color-primary`）。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

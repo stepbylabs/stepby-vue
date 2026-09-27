@@ -233,7 +233,38 @@ export default {
     heading6: 'Heading 6',
     fontStandard: 'Standard',
     fontSerif: 'Serif',
-    fontMonospace: 'Monospace'
+    fontMonospace: 'Monospace',
+    // U4: accessible names for the rich-text / Markdown editors (keyboard + screen-reader reachability).
+    // Quill ships hardcoded English aria-labels (e.g. "list: ordered"); we map them to localized text
+    // and mirror it into `title`, so screen-reader and mouse users get the same wording.
+    a11y: {
+      richText: 'Rich text editor',
+      markdown: 'Markdown editor',
+      toolbar: 'Editor toolbar',
+      editorArea: 'Editing area',
+      bold: 'Bold',
+      italic: 'Italic',
+      underline: 'Underline',
+      strike: 'Strikethrough',
+      blockquote: 'Blockquote',
+      codeBlock: 'Code block',
+      orderedList: 'Ordered list',
+      bulletList: 'Bullet list',
+      indentDecrease: 'Decrease indent',
+      indentIncrease: 'Increase indent',
+      size: 'Font size',
+      header: 'Heading level',
+      font: 'Font',
+      color: 'Text color',
+      background: 'Background color',
+      align: 'Alignment',
+      clean: 'Clear formatting',
+      link: 'Insert link',
+      image: 'Insert image',
+      video: 'Insert video',
+      colorValue: 'Color {value}',
+      alignValue: 'Align {value}'
+    }
   },
   excelImport: {
     dragText: 'Drag file here, or',
