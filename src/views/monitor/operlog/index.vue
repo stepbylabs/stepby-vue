@@ -64,6 +64,9 @@
           ></el-date-picker>
         </el-form-item>
         <el-form-item>
+          <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
+        </el-form-item>
+        <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
           <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
         </el-form-item>
@@ -231,6 +234,7 @@
 import OperlogDetail from './detail.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
+import TenantFilter from '@/components/TenantFilter/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
 import { list, delOperlog, cleanOperlog } from '@/api/monitor/operlog'
@@ -322,6 +326,7 @@ function resetQuery() {
   dateRange.value = []
   queryParams.value.orderByColumn = undefined
   queryParams.value.isAsc = undefined
+  queryParams.value.tenantId = undefined
   queryRef.value?.resetFields()
   handleQuery()
   operlogRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)

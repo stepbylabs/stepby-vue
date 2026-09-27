@@ -18,6 +18,12 @@ export interface UserQueryParams extends PageDomain {
     beginTime?: string
     endTime?: string
   }
+  /**
+   * 按租户筛选（`[ui].tenant_filter` 决定前端是否给出入口）
+   *
+   * 仅用于**收窄**：后端与行级 `tenant_scope` 相与（AND），传他租户 id 只会得到空集。
+   */
+  tenantId?: number
 }
 
 /** 角色授权用户分页查询参数 */

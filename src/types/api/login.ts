@@ -29,6 +29,17 @@ export interface UserInfoResult extends AjaxResult {
    * 避免"平台/租户"判定散落两处而漂移。
    */
   showTenantColumn?: boolean
+  /**
+   * 业务列表页是否显示「按租户筛选」入口
+   *
+   * 由后端按 `[ui].tenant_filter`（`off` | `platform` | `always`）结合操作者租户上下文
+   * **算好后下发**（`off` = 不提供入口 = 历史行为）。前端不做二次推断，
+   * 避免"平台/租户"判定散落两处而漂移。
+   *
+   * ⚠️ 该筛选仅用于**收窄**：后端把显式 `tenantId` 与行级 `tenant_scope` **相与**（AND），
+   * 故它不构成安全边界 —— 租户即便手工传他租户 id 也只会得到空集。
+   */
+  showTenantFilter?: boolean
 }
 
 /** 验证码响应 */

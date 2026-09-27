@@ -27,6 +27,8 @@ export default {
     platformTenant: 'Platform',
     // Multi-tenant Phase 3: header of the "tenant ownership" column ([ui].show_tenant_column)
     tenantColumn: 'Tenant',
+    // Placeholder of the "filter by tenant" input ([ui].tenant_filter)
+    tenantFilterPlaceholder: 'Tenant ID',
     detail: 'Detail',
     download: 'Download',
     upload: 'Upload',

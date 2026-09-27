@@ -156,6 +156,24 @@ describe('store/modules/user', () => {
     expect(store.showTenantColumn).toBe(false)
   })
 
+  // 多租户 Phase 3：[ui].tenant_filter 的「按租户筛选」入口同样由后端算好下发，
+  // store 只做落库；缺字段必须视为 false（fail-safe，宁可不显示入口）
+  it('getInfo maps showTenantFilter from the server decision (missing -> false)', async () => {
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showTenantFilter: true })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(store.showTenantFilter).toBe(true)
+
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'] })
+    await store.getInfo()
+    expect(store.showTenantFilter).toBe(false)
+
+    // 非布尔真值不得被当成 true（严格 === true）
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showTenantFilter: 1 })
+    await store.getInfo()
+    expect(store.showTenantFilter).toBe(false)
+  })
+
   it('getInfo falls back to ROLE_DEFAULT when roles empty (and skips permissions)', async () => {
     api.getInfo.mockResolvedValue({ user: {}, roles: [], permissions: undefined })
     const store = useUserStore()

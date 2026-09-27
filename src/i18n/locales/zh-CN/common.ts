@@ -27,6 +27,8 @@ export default {
     platformTenant: '平台',
     // 多租户 Phase 3：业务列表页「所属租户」归属列标题（[ui].show_tenant_column）
     tenantColumn: '所属租户',
+    // 业务列表页「按租户筛选」输入框占位文案（[ui].tenant_filter）
+    tenantFilterPlaceholder: '租户号',
     detail: '详细',
     download: '下载',
     upload: '上传文件',

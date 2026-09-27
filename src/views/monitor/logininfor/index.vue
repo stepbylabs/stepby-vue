@@ -52,6 +52,9 @@
               ></el-date-picker>
             </el-form-item>
             <el-form-item>
+              <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
+            </el-form-item>
+            <el-form-item>
               <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
               <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
             </el-form-item>
@@ -194,6 +197,7 @@
 <script setup lang="ts" name="Logininfor">
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
+import TenantFilter from '@/components/TenantFilter/index.vue'
 import { list, delLogininfor, cleanLogininfor, unlockLogininfor } from '@/api/monitor/logininfor'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
@@ -277,6 +281,7 @@ function resetQuery() {
   dateRange.value = []
   queryParams.value.orderByColumn = undefined
   queryParams.value.isAsc = undefined
+  queryParams.value.tenantId = undefined
   queryRef.value?.resetFields()
   handleQuery()
   logininforRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)

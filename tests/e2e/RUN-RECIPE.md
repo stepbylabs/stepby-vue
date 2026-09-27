@@ -669,6 +669,45 @@ node scripts/tenant-audit.mjs --matrix
 以源码为唯一真值（实体 `tenant_id` 列 × `TENANT_FILTER_MATRIX` 档位）。**该模式不参与 `--gate`**，
 故不会扰动门禁基线键集；改实体或矩阵后重跑即可对齐。
 
+### 3.20 治理注册表与「按租户筛选」开启态配方（第十四批；改这批必跑）
+
+**(1) 治理项注册表抽出为零依赖共享 crate（`axum-backend/governance`）**
+
+```bash
+cargo test -p governance --lib     # 注册表自洽 9 例（排序/唯一/默认 off/档位单调/收敛只收窄/值域）
+cargo test --workspace --lib       # axum-backend 960 例：既有单测一行未改即全绿 ⇒ 派生与原常量等价
+```
+
+- 新增能力位或参数项**只改 `governance/src/lib.rs` 一处**：启动兜底 `ensure_tenant_saas_governance`
+  与迁移 `m20260925_000004` 会按 `Coverage` 四态（`Locked` / `Free` / `Ceiling` / `Private`）自动跟随，
+  不再需要"同值本地副本 + 修改时人工两处同步"。
+- **反向验证（可证伪）**：在 `CONFIGS` 里故意插入一个**乱序** key ⇒ `test_registry_ordering_and_uniqueness`
+  立即变红；把 `Coverage::Ceiling` 误改成"取请求值" ⇒ `test_converge_ceiling_only_narrows` 立即变红。
+
+**(2) `[ui].tenant_filter`（默认 `off` = 不提供入口 ⇒ 历史行为）**
+
+```toml
+[ui]
+tenant_filter = "platform"   # off | platform | always
+```
+
+重启后端后：
+
+| 断言（**平台**操作者） | 期望 |
+|---|---|
+| `getInfo` 返回体 | `showTenantFilter: true` |
+| 操作日志 / 登录日志 / 前端错误 / 用户管理 搜索栏 | 出现「租户号」输入框（组件 `TenantFilter`） |
+| 输入某租户号后查询 | 结果**仅**该租户行（显式 `tenantId` 与行级 `tenant_scope` **相与**） |
+
+| 断言（**租户**操作者） | 期望 |
+|---|---|
+| `getInfo` 返回体（`platform` 档） | `showTenantFilter: false` |
+| 手工构造 `GET /monitor/operlog/list?tenantId=<他租户>` | **200 但空集**（只收窄、不放宽 ⇒ 该筛选**不构成安全边界**） |
+
+- 置 `always` 重启 ⇒ 租户操作者也出现输入框（传自己 = 结果不变，传他人 = 空集）；
+- 置 `off` 重启 ⇒ 输入框消失且 `getInfo` 返回 `showTenantFilter: false`（**关闭态即现状**）；
+- 负路径：写非法值（如 `"on"`）⇒ 启动 **WARN** 并回落 `off` 且不提供入口。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
