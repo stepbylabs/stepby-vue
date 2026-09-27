@@ -107,9 +107,13 @@
         </Transition>
       </el-form-item>
       <!-- WebAuthn / Passkey：通行密钥登录入口（仅浏览器支持时渲染） -->
+      <!-- 注意：分隔线必须用**独立类名** `passkey-divider`，不得复用 `.oauth-divider`
+           —— 后者是「OAuth 第三方登录」区块的语义锚点（e2e 功能 55 以 `.oauth-divider`
+           计数断言"分隔线出现与否与 /oauth2/providers 启用数一致"）；复用会让
+           "无 OAuth 供应商时计数应为 0" 的断言被 passkey 分隔线污染。视觉样式两处共用。 -->
       <template v-if="webauthnSupported">
-        <el-divider class="oauth-divider">
-          <span class="oauth-divider-text">{{ t('login.passkeyDivider') }}</span>
+        <el-divider class="passkey-divider">
+          <span class="passkey-divider-text">{{ t('login.passkeyDivider') }}</span>
         </el-divider>
         <el-form-item class="w-full">
           <el-button size="large" class="w-full" :loading="webauthnLoading" @click.prevent="handlePasskeyLogin">
@@ -454,10 +458,12 @@ loadOauthProviders()
   margin-right: 6px;
   color: var(--el-text-color-regular);
 }
-.oauth-divider {
+.oauth-divider,
+.passkey-divider {
   margin: 8px 0 6px;
 }
-.oauth-divider-text {
+.oauth-divider-text,
+.passkey-divider-text {
   color: var(--el-text-color-placeholder);
   font-size: 12px;
   white-space: nowrap;
