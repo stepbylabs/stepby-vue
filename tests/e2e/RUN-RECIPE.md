@@ -806,6 +806,96 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
   **不要**改断言去迁就 —— 那会丢掉"渲染缺失 vs 策略隐藏"的区分能力。**通用判据**：凡被 e2e 以类选择器
   计数/断言的元素，其类名即**契约**；新增同视觉区块请另起类名 + CSS 并列选择器。
 
+### 3.23 本轮（第十八批）新增开关的开启态配方（改这批代码必跑）
+
+本批落地两项"原登记 / 待补"的能力，**默认值一律 = 现状**（关闭态逐字节等价），故先跑默认档确认零回归，再按下表各跑一遍开启态。
+
+#### (1) `[resilience].outbound_breaker`（#10 出站 webhook 熔断）
+
+```toml
+[resilience]
+outbound_breaker = "on"    # off（默认，= 现状）| on
+failure_threshold = 3      # 连续失败达该次数 ⇒ 打开（夹取 1..=1000）
+cooldown_secs = 10         # 打开后的冷却秒数（夹取 1..=86400）
+```
+
+| 步骤 | 操作 | 期望 |
+|---|---|---|
+| 1 | `[events] outbound="webhook"` 指向一个**必然失败**的地址（如 `http://127.0.0.1:9/hook`），触发 3 次租户状态变更 | 每次事件打 1 条 WARN；第 3 次出现「连续失败达阈值，熔断打开」WARN |
+| 2 | 再触发 1 次事件 | **不再发请求**（只打 1 条 DEBUG「已被出站熔断跳过」），业务结果不受影响 |
+| 3 | 等过 `cooldown_secs` 再触发 | 放行**一次**探测（半开）：失败 ⇒ WARN「熔断保持打开」并重新计时 |
+| 4 | 把目标地址改回可用端点再触发 | 探测成功 ⇒ WARN「熔断恢复」，之后每次照常发送 |
+| 5 | 关掉熔断（`off`）复跑第 1 步 | 每次都尝试发送（**关闭态零行为变更**），且 `sso`/`events` 的行为与改造前逐字一致 |
+
+- 单测证据（不需要网络）：`cd axum-backend; cargo test --lib common::breaker`（11 例：关闭态不记账、阈值打开、冷却到期单探测、探测成功恢复、探测失败重计时、成功清零、多 URL 隔离、解析与夹取、未 init 恒放行、host 脱敏）。
+- ⚠️ 熔断是**进程内**状态；多副本部署各实例独立判定（本能力不引入跨实例共享态）。
+- ⚠️ 日志里 URL **只记 host**（脱敏，避免 query/secret 落日志）。
+
+#### (2) `[sso].consent_ticket = "required"`（SSO-3 / D9 最后一项）
+
+```toml
+[sso]
+enabled = true
+# 其余 SSO 必填（issuer / CONFIG_ENC_KEY）见 §3.18
+consent_ticket = "required"
+consent_ticket_ttl_secs = 300   # 夹取 60..=1800
+```
+
+| 步骤 | 操作 | 期望 |
+|---|---|---|
+| 1 | 建一个 `consentRequired=1` 的客户端，浏览器走 `/sso/authorize?...` | 302 到 `/sso-consent?...&ticket=<32 位随机 id>`（**query 里必须出现 ticket**） |
+| 2 | 同意页点「批准」 | 正常签发 code 并回跳 RP（前端已自动回传 ticket） |
+| 3 | 用 curl 直发 `POST /sso/consent`（**不带** ticket） | `400`，文案「同意票据无效或已过期，请重新发起授权」 |
+| 4 | 同请求带上任意伪造 ticket | 同上 400（不区分"票不存在"与"参数不符"，防探测） |
+| 5 | 带**合法** ticket 但改 `scope` / `state` | 同上 400，且该票**未被消费**（用原参数再发一次仍成功） |
+| 6 | 用合法 ticket 且参数一致再发一次 | 成功；**同票重放** ⇒ 400（一次性） |
+| 7 | 把 `consent_ticket` 改回 `off` 复跑 | 不带 ticket 也能成功（**关闭态零行为变更**，与历史行为逐字节一致） |
+
+- 集成测试（主证据，无需手动）：`cd axum-backend; cargo test --lib test_sso_consent_ticket_required`（覆盖 ①无票 ②伪造票 ③改参不消费票 ④一致成功 ⑤同票重放拒绝）；默认档对照见 `test_sso_consent_flow`（不带票也成功）。
+- 前端守卫：`cd yebot-ui; npx vitest run src/views/sso/consent.ticket.test.ts`（断言同意页读取并回传 `ticket`，且不把它渲染到页面上）。
+
+#### (3) P2-33 双档 e2e 回归脚本 `http-status-convention.mjs`
+
+`main.mjs`（15k 行套件）整体跑在**默认 `legacy` 档**，无法证明 `restful` 档下的前端链路；
+`http-status-convention.mjs` 用**真实后端 + 真实浏览器**把"未归类业务码"（TOTP `1003`）这条路跑穿，
+**不 mock、不替换浏览器 API**。
+
+```bash
+cd yebot-ui/tests/e2e
+# ① 默认档（后端按 config.toml 启动，http_status_convention 缺省 = legacy）
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
+YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
+YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 22 通过，0 失败」EXIT=0
+
+# ② restful 档：见下方"临时 CWD 装配"后把端口/`EXPECT_CONVENTION` 换成 restful 再跑一遍
+```
+
+- **装配 `restful` 档（临时 CWD，绝不改仓库 `config/config.toml`）**：
+  1. 建临时目录（如 `$env:TEMP\yebot-hsc\`），复制 `config/config.toml` 进去，把
+     `[server].http_status_convention` 改为 `"restful"`、`[server].port` 改为**另一个空闲端口**
+     （示例用 **8082**；⚠️ 本机 8081 可能被无关项目占用，**先确认端口空闲**再选）；
+  2. **必须同时复制 `axum-backend/.env` 到临时目录**（⚠️ 本轮实测踩坑）：`main.rs` 用
+     `dotenvy::dotenv()` 从**当前工作目录**加载 `.env`，而 `JWT_SECRET` / `CONFIG_ENC_KEY` /
+     `SSO_ENABLED` / `SSO_ISSUER` 都在 `.env` 里 ⇒ 漏拷会依次表现为：SSO 启动校验直接失败退出、
+     `CONFIG_ENC_KEY` 未配置导致 `POST /system/user/totp/setup` 返回 **500**（fail-closed）；
+  3. 在该目录下建 `frontend-dist` 目录（**junction** 指向仓库的 `axum-backend/frontend-dist`）
+     与 `data` 目录（**复制** `data/yebot.db`：`[database].url` 是 `./data/yebot.db` 相对路径，
+     直接跑会创建一个空库 ⇒ 无表无种子数据），`frontend-dist` 与 `data` 都是相对 CWD 解析的；
+  4. 用该 CWD 启动 `axum-backend.exe`（`EMBEDDED_FRONTEND=true`），确认启动日志里
+     `HTTP 状态码约定 = restful`；
+  5. 跑 `FRONTEND_URL=http://localhost:8082 BACKEND_URL=http://localhost:8082 EXPECT_CONVENTION=restful node http-status-convention.mjs`；
+  6. 收尾：停进程、删临时目录（**不要**在仓库内留 `config.toml` 副本或 `.env` 副本）。
+- 脚本断言要点：`body.code === 1003` 两档一致；HTTP 状态 legacy=`200` / restful=`400`；
+  两档都必须**进入验证码步骤**并在补码后**真正进入系统**；错误凭据两档都弹同一条 Toast 且停留 `/login`。
+- 一次性用户（`e2e_hsc_*`）由脚本创建、绑 TOTP、跑完**硬删**（含异常路径兜底清理），不留残留。
+- ⚠️ 脚本以 `body.code` 为权威业务码，**不**假定 HTTP 状态 ⇒ 同一份脚本可在两档复用（档位靠 `EXPECT_CONVENTION` 断言）。
+- **本脚本已抓出并修复的真实缺陷（P0-4 链路断裂）**：`api/login.ts` 与 `store/modules/user.ts` 此前**未透传 `totpCode`**
+  ⇒ 已启用 TOTP 的用户进入"动态验证码"步骤后，第二步请求体与第一步完全相同 ⇒ 后端**再次**返回 1003
+  （该码按设计**不弹 Toast**，表示"继续输入"）⇒ 用户表现为"点了登录没反应、永远进不去"。修复后守卫见
+  `yebot-ui/src/api/login.totp.test.ts`。**教训**：凡"多步登录/多步提交"链路，断言必须覆盖**最后一步真的带上了新参数**，
+  只断言"进入了第二步"会漏掉这类断链。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。

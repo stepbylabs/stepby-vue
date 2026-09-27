@@ -67,10 +67,17 @@ const useUserStore = defineStore('user', {
   }),
   actions: {
     // 登录
-    async login(userInfo: { username: string; password: string; code: string; uuid: string }) {
+    // P0-4 修复：`totpCode` 必须透传（否则 TOTP 二次验证永远无法完成，详见 `api/login.ts`）
+    async login(userInfo: {
+      username: string
+      password: string
+      code: string
+      uuid: string
+      totpCode?: string
+    }) {
       const username = userInfo.username.trim()
-      const { password, code, uuid } = userInfo
-      const res = await login(username, password, code, uuid)
+      const { password, code, uuid, totpCode } = userInfo
+      const res = await login(username, password, code, uuid, totpCode)
       // P2 修复: 不再 try/catch 吞错。request.ts 拦截器已统一弹错误提示，
       // 此处让错误向上抛出，使 login.vue 的 .catch() 能正确触发（重置 loading、刷新验证码）
       this.applyLoginToken(res.token)

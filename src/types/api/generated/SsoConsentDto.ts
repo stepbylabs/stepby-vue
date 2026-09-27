@@ -9,4 +9,11 @@ export type ConsentDto = { clientId: string, redirectUri?: string, scope: string
  * 用户认证时刻（登录 JWT 的 iat，v3 P1'-1）：由前端从 Operator 身份透传；
  * 缺省回退为当前时间（仅影响存量旧前端的 auth_time 精度，不阻断流程）
  */
-authTime?: number, };
+authTime?: number, 
+/**
+ * v5-D9：同意票据（`[sso].consent_ticket = required` 时必填；`off` 档被完全忽略）。
+ *
+ * 由 `authorize` 在判定需同意时签发、经 `/sso-consent?ticket=...` 交前端回传；
+ * 服务端据此比对"回显参数是否与票面逐字一致"，从而封堵"同意参数被中间人篡改"。
+ */
+ticket?: string, };

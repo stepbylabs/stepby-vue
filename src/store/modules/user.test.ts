@@ -103,11 +103,22 @@ describe('store/modules/user', () => {
     api.login.mockResolvedValue({ token: 'abc123' })
     const store = useUserStore()
     await store.login({ username: '  admin  ', password: 'pw', code: '9', uuid: 'u1' })
-    expect(api.login).toHaveBeenCalledWith('admin', 'pw', '9', 'u1')
+    // P0-4：第 5 个参数是 totpCode（本次未提供 ⇒ undefined；见下一条用例）
+    expect(api.login).toHaveBeenCalledWith('admin', 'pw', '9', 'u1', undefined)
     expect(auth.setToken).toHaveBeenCalledWith('abc123')
     expect(store.token).toBe('abc123')
     expect(collaborators.lockStore.unlockScreen).toHaveBeenCalled()
     expect(collaborators.notifStore.init).toHaveBeenCalled()
+  })
+
+  // P0-4 回归（第十八批）：TOTP 第二步必须把 `totpCode` 透传到 api.login，
+  // 否则后端恒返回 1003（且该码不弹 Toast）⇒ 用户"点了登录没反应"。
+  it('login forwards totpCode to api.login (TOTP 二次验证链路)', async () => {
+    api.login.mockResolvedValue({ token: 'totp-token' })
+    const store = useUserStore()
+    await store.login({ username: 'admin', password: 'pw', code: '9', uuid: 'u1', totpCode: '123456' })
+    expect(api.login).toHaveBeenCalledWith('admin', 'pw', '9', 'u1', '123456')
+    expect(store.token).toBe('totp-token')
   })
 
   it('login rejects upward when the api call fails (no silent swallow)', async () => {

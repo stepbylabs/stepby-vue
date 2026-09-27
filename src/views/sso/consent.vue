@@ -76,6 +76,10 @@ const form = ref<SsoConsentForm>({
   nonce: q('nonce') || undefined,
   codeChallenge: q('codeChallenge') || undefined,
   codeChallengeMethod: q('codeChallengeMethod') || undefined,
+  // v5-D9：后端开启 `[sso].consent_ticket = required` 时会在跳转 query 带 ticket，
+  // 本页原样回传供服务端校验"同意参数未被篡改"；未开启时后端不下发 ⇒ undefined，
+  // 与改造前逐字节等价（后端 off 档完全忽略该字段）。
+  ticket: q('ticket') || undefined,
   approved: false
 })
 
