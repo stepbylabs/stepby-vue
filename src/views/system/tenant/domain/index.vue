@@ -32,6 +32,13 @@
         :closable="false"
         class="mb-2"
       />
+      <el-alert
+        v-if="!isPlatform"
+        :title="t('tenantDomain.selfServiceTip')"
+        type="info"
+        :closable="false"
+        class="mb-2"
+      />
       <TenantDomainPanel v-if="!isPlatform || selectedTenantId != null" :tenant-id="selectedTenantId" />
     </el-card>
   </div>
