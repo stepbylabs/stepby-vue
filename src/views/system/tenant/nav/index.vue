@@ -6,6 +6,35 @@
       </template>
 
       <el-alert :title="t('tenantNav.tip')" type="info" :closable="false" class="mb-2" />
+
+      <!-- 平台操作者：自助页语义 = 管理某个租户的自建导航，必须先选租户（否则后端 400：
+           "平台操作者必须显式指定 tenantId"，见 sys_tenant_nav_service::effective_write_tenant/options）。
+           租户操作者不受影响（后端强制本租户）。 -->
+      <el-form v-if="isPlatform" inline class="mb-2" @submit.prevent>
+        <el-form-item :label="t('tenantNav.targetTenant')">
+          <el-select
+            v-model="selectedTenantId"
+            filterable
+            :placeholder="t('tenantNav.targetTenantPlaceholder')"
+            class="w-[280px]"
+            @change="loadAll"
+          >
+            <el-option
+              v-for="tnt in tenantOptions"
+              :key="tnt.tenantId"
+              :label="`${tnt.tenantName} (${tnt.tenantCode})`"
+              :value="tnt.tenantId"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <el-alert
+        v-if="isPlatform && !selectedTenantId"
+        :title="t('tenantNav.platformPickTenant')"
+        type="warning"
+        :closable="false"
+        class="mb-2"
+      />
       <el-alert
         v-if="blocked"
         :title="blockedTip"
@@ -21,7 +50,7 @@
         class="mb-2"
       />
 
-      <el-row :gutter="10" class="mb8">
+      <el-row v-if="canLoad" :gutter="10" class="mb8">
         <el-col :span="1.5">
           <el-button
             v-hasPermi="['system:tenantMenu:add']"
@@ -38,7 +67,7 @@
         </el-col>
       </el-row>
 
-      <el-table v-loading="loading" :data="rows" row-key="l3Id" border>
+      <el-table v-if="canLoad" v-loading="loading" :data="rows" row-key="l3Id" border>
         <el-table-column
           :label="t('tenantNav.refMenu')"
           prop="refMenuName"
@@ -115,7 +144,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && rows.length === 0" :description="t('tenantNav.empty')" />
+      <el-empty v-if="canLoad && !loading && rows.length === 0" :description="t('tenantNav.empty')" />
     </el-card>
 
     <el-dialog
@@ -199,9 +228,12 @@ import {
   updateTenantNav,
   delTenantNav
 } from '@/api/system/tenantNav'
+import { listTenant } from '@/api/system/tenant'
 import type { SysTenantMenuVo, TenantNavMenuOptionVo } from '@/api/system/tenantNav'
+import type { TenantVo } from '@/api/system/tenant'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import useUserStore from '@/store/modules/user'
 
 /**
  * 租户自建导航 L3 页面（批次 3 / MT-1）
@@ -209,13 +241,21 @@ import { checkPermi } from '@/utils/permission'
  * 语义：只调整「已授权菜单」的父级 / 排序 / 显隐——不新增页面、不新增权限码。
  * 准入由后端能力位 `nav.l3` 决定（off ⇒ 403；view_only ⇒ 只读；full ⇒ 可写），
  * 本页仅按 perms 控制按钮可见性，并在无 list 权限 / 403 时给出提示。
+ *
+ * 平台操作者（tid=0）：后端要求平台显式指定 tenantId（list/options 查询与
+ * add 写入均校验，缺省 400），故页面提供租户选择器，选中后以平台身份代管
+ * 该租户的自建导航；未选租户时不发请求，避免"打开页面即弹警告"。
  */
 const { t } = useI18n()
 const { proxy } = getCurrentInstance() as ComponentInternalInstance
+const userStore = useUserStore()
 /** 页面查看权限（无此权限 ⇒ 多半是能力位未开启或角色未授权，展示提示而非空表） */
 const hasNavPermi = checkPermi(['system:tenantMenu:list'])
 /** 写权限（用于「只读档」提示） */
 const canWrite = checkPermi(['system:tenantMenu:add'])
+
+/** 平台操作者（tid=0）：自助页必须先选目标租户 */
+const isPlatform = userStore.tenantId === 0
 
 const loading = ref(false)
 const saving = ref(false)
@@ -223,6 +263,13 @@ const rows = ref<SysTenantMenuVo[]>([])
 const menuOptions = ref<TenantNavMenuOptionVo[]>([])
 const blocked = ref(false)
 const blockedTip = ref('')
+const tenantOptions = ref<TenantVo[]>([])
+const selectedTenantId = ref<number | undefined>(undefined)
+
+/** 平台未选租户 ⇒ 不发任何请求（防 400 警告）；租户操作者恒可加载 */
+const canLoad = computed(() => (isPlatform ? selectedTenantId.value != null : true))
+/** 实际传给后端的 tenantId：平台 = 选中的租户；租户操作者 = 不传（后端强制本租户） */
+const targetTenantId = computed(() => (isPlatform ? selectedTenantId.value : undefined))
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -258,9 +305,13 @@ async function loadAll() {
     blockedTip.value = t('tenantNav.disabledTip')
     return
   }
+  if (!canLoad.value) return
   loading.value = true
   try {
-    const [listRes, optRes] = await Promise.all([listTenantNav(), tenantNavOptions()])
+    const [listRes, optRes] = await Promise.all([
+      listTenantNav(targetTenantId.value),
+      tenantNavOptions(targetTenantId.value)
+    ])
     rows.value = listRes.data ?? []
     menuOptions.value = optRes.data ?? []
     blocked.value = false
@@ -270,6 +321,17 @@ async function loadAll() {
     blockedTip.value = t('tenantNav.disabledTip')
   } finally {
     loading.value = false
+  }
+}
+
+/** 平台操作者：拉取租户下拉（自助页 = 平台代管某租户的入口） */
+async function loadTenantOptions() {
+  if (!isPlatform) return
+  try {
+    const res = await listTenant()
+    tenantOptions.value = res.data ?? []
+  } catch {
+    tenantOptions.value = []
   }
 }
 
@@ -317,6 +379,7 @@ async function submitForm() {
       })
     } else {
       await addTenantNav({
+        tenantId: targetTenantId.value,
         refMenuId: form.refMenuId as number,
         parentId: form.parentId,
         orderNum: form.orderNum,
@@ -339,5 +402,8 @@ async function handleDelete(row: SysTenantMenuVo) {
   await loadAll()
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadTenantOptions()
+  loadAll()
+})
 </script>

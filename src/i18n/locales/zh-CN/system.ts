@@ -379,11 +379,19 @@ export default {
     statusTip: '停用后该域名不再参与租户识别（Host → 租户映射失效）',
     empty: '暂无域名绑定',
     myTitle: '我的域名',
+    targetTenant: '目标租户',
+    targetTenantPlaceholder: '平台操作者请选择要管理的租户',
+    platformPickTenant:
+      '本页为租户自助功能。平台操作者请先在上方选择目标租户，再管理该租户的域名绑定；租户管理员打开本页时自动限定为本租户。',
     subdomainPlatformTip:
       '子域名由平台统一分配，租户侧仅可自助添加「自定义域名」，且需按提示配置 DNS TXT 记录并通过验证后方可设为主域名。'
   },
   tenantNav: {
     myTitle: '导航设置',
+    targetTenant: '目标租户',
+    targetTenantPlaceholder: '平台操作者请选择要管理的租户',
+    platformPickTenant:
+      '本页为租户自助功能。平台操作者请先在上方选择目标租户，再代管该租户的自建导航；租户管理员打开本页时自动限定为本租户。',
     tip: '自建导航只能调整「已授权菜单」的父级、排序与显隐：不新增页面、不新增权限码，故不会扩大任何权限。父级不可解、成环或超深的配置会自动回退到平台默认位置。',
     add: '新增导航项',
     addTitle: '新增导航项',

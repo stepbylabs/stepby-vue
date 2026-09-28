@@ -387,11 +387,19 @@ export default {
     statusTip: 'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
     empty: 'No domain bound yet',
     myTitle: 'My Domains',
+    targetTenant: 'Target Tenant',
+    targetTenantPlaceholder: 'Select a tenant to manage (platform operator)',
+    platformPickTenant:
+      'This page is a tenant self-service feature. Platform operators must select a target tenant above to manage its domain bindings; tenant admins are automatically scoped to their own tenant.',
     subdomainPlatformTip:
       'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.'
   },
   tenantNav: {
     myTitle: 'Navigation Settings',
+    targetTenant: 'Target Tenant',
+    targetTenantPlaceholder: 'Select a tenant to manage (platform operator)',
+    platformPickTenant:
+      'This page is a tenant self-service feature. Platform operators must select a target tenant above to manage its navigation; tenant admins are automatically scoped to their own tenant.',
     tip: 'Tenant-built navigation only re-arranges already authorized menus (parent, order, visibility). It never adds pages or permission codes, so it cannot expand any privilege. Unresolvable parents, cycles or excessive depth fall back to the platform default layout automatically.',
     add: 'Add Navigation Item',
     addTitle: 'Add Navigation Item',
