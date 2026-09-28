@@ -187,7 +187,7 @@ import { useI18n } from 'vue-i18n'
 import { list as listLogininfor } from '@/api/monitor/logininfor'
 import type { SysLogininfor, TableDataInfo, LogininforQueryParams } from '@/types'
 import useUserStore from '@/store/modules/user'
-import { addDateRange } from '@/utils/yebot'
+import { addDateRange } from '@/utils/stepby'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()

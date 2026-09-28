@@ -1,6 +1,6 @@
 /**
  * TierS-7: 自动刷新 composable
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：读取用户偏好 userPrefs.autoRefreshInterval（秒），定时调用回调
  *   - 0 表示禁用自动刷新

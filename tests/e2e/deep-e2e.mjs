@@ -1,5 +1,5 @@
 /**
- * yebot 深度 E2E 测试脚本（Playwright）
+ * stepby 深度 E2E 测试脚本（Playwright）
  *
  * 测试目标：覆盖每个前端界面的每个功能
  *   - 所有路由页面渲染（含未覆盖的 9 个页面）
@@ -17,10 +17,10 @@
  *   node tests/deep-e2e.mjs --headed         # 有头模式（人工观察浏览器）
  *
  * 前置条件：
- *   - 后端启动在 http://localhost:8080（默认，可通过 YEBOT_BASE_URL 环境变量覆盖）
- *   - 嵌入式前端已同步（或独立前端可通过 FRONTEND_URL / YEBOT_UI_URL 环境变量覆盖）
- *   - 测试账号通过 YEBOT_TEST_USER / YEBOT_TEST_PASS 环境变量注入
- *   - 后端启用验证码时：需 yebot-redis 容器在运行（自动读取真码；读不到启动即报错退出）
+ *   - 后端启动在 http://localhost:8080（默认，可通过 STEPBY_BASE_URL 环境变量覆盖）
+ *   - 嵌入式前端已同步（或独立前端可通过 FRONTEND_URL / STEPBY_UI_URL 环境变量覆盖）
+ *   - 测试账号通过 STEPBY_TEST_USER / STEPBY_TEST_PASS 环境变量注入
+ *   - 后端启用验证码时：需 stepby-redis 容器在运行（自动读取真码；读不到启动即报错退出）
  */
 
 import fs from 'fs'
@@ -52,14 +52,14 @@ try {
 // ==================== 配置 ====================
 
 const CONFIG = {
-  // P2 修复: frontendUrl 支持 YEBOT_UI_URL 环境变量，与 test-config.mjs 保持一致
-  frontendUrl: process.env.FRONTEND_URL || process.env.YEBOT_UI_URL || BASE_URL,
+  // P2 修复: frontendUrl 支持 STEPBY_UI_URL 环境变量，与 test-config.mjs 保持一致
+  frontendUrl: process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL,
   backendUrl: process.env.BACKEND_URL || BASE_URL,
   username: TEST_USER,
   password: TEST_PASS,
   // P2 修复: 次要账号支持环境变量覆盖，避免硬编码 'ry' 用户名
-  secondaryUsername: process.env.YEBOT_TEST_USER_SECONDARY || 'ry',
-  secondaryPassword: process.env.YEBOT_TEST_PASS_SECONDARY || TEST_PASS,
+  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'ry',
+  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || TEST_PASS,
   screenshotDir: path.resolve(__dirname, 'screenshots'),
   // P2 修复: headless 默认开启（无人值守安全默认，避免弹有头窗口挂机）；
   // 需要人工观察浏览器时用 --headed 显式开启有头模式
@@ -404,11 +404,11 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
     // 禁用新手引导 Tour（避免遮罩拦截按钮点击）
     await page.evaluate(() => {
       try {
-        localStorage.setItem('yebot-layout-tour', 'completed')
+        localStorage.setItem('stepby-layout-tour', 'completed')
       } catch (e) {}
     })
     // 如果 Tour 已经显示，按 Escape 关闭
-    const tourMask = page.locator('.yebot-tour-mask').first()
+    const tourMask = page.locator('.stepby-tour-mask').first()
     if (await tourMask.isVisible({ timeout: 500 }).catch(() => false)) {
       await page.keyboard.press('Escape').catch(() => {})
       await sleep(500)
@@ -422,7 +422,7 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
  * 关闭可能出现的 Tour 遮罩（每次页面导航后调用）
  */
 async function dismissTour(page) {
-  const tourMask = page.locator('.yebot-tour-mask').first()
+  const tourMask = page.locator('.stepby-tour-mask').first()
   if (await tourMask.isVisible({ timeout: 300 }).catch(() => false)) {
     await page.keyboard.press('Escape').catch(() => {})
     await sleep(300)
@@ -2703,9 +2703,9 @@ async function testModule5(page, consoleErrors, pageErrors) {
     record(M, '首页: 访问仓库按钮', hasRepoBtn)
     // "访问官网"按钮可见：按钮文本可能为"官网"、"访问官网"、"访问"等
     const hasSiteBtn =
-      (await isButtonVisible(page, ['访问官网', '官网', '访问', 'yebot'])) ||
+      (await isButtonVisible(page, ['访问官网', '官网', '访问', 'stepby'])) ||
       (await page
-        .locator('a:has-text("官网"), a:has-text("yebot"), .el-button:has-text("yebot")')
+        .locator('a:has-text("官网"), a:has-text("stepby"), .el-button:has-text("stepby")')
         .first()
         .isVisible({ timeout: 1000 })
         .catch(() => false))
@@ -5167,8 +5167,8 @@ async function testModule22(page, consoleErrors, pageErrors) {
   record(M, '主题切换按钮: 可见', tsVisible)
 
   // 22.9 外部链接（Git/Doc）
-  const gitLink = page.locator('#yebot-git').first()
-  const docLink = page.locator('#yebot-doc').first()
+  const gitLink = page.locator('#stepby-git').first()
+  const docLink = page.locator('#stepby-doc').first()
   const gitVisible = await gitLink.isVisible({ timeout: 2000 }).catch(() => false)
   const docVisible = await docLink.isVisible({ timeout: 2000 }).catch(() => false)
   record(M, '外部链接: Git/Doc 可见', gitVisible || docVisible, `Git=${gitVisible}, Doc=${docVisible}`)
@@ -6407,7 +6407,7 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     // 禁用新手引导
     await ryPage.evaluate(() => {
       try {
-        localStorage.setItem('yebot-layout-tour', 'completed')
+        localStorage.setItem('stepby-layout-tour', 'completed')
       } catch (e) {}
     })
 

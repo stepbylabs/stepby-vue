@@ -1,6 +1,6 @@
 /**
  * 导出 composable
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：统一非 useCrudTable 页面的导出逻辑（dict/data、rateLimit、job/log、logininfor 等）
  *   - 封装 download() 调用，统一文件名生成规则

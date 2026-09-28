@@ -1,4 +1,4 @@
-# Yebot 前端性能优化与监控指南
+# Stepby 前端性能优化与监控指南
 
 > 覆盖 R102-MISC-001（性能优化 README）、R102-MISC-002（性能监控使用指南）、
 > R102-MISC-010（最佳实践）。所有阈值/脚本/配置均为真实可执行项，非建议清单。
@@ -51,8 +51,8 @@ tree-shake（全量 `import *` 例外，见 §4.3 图标说明）。
 
 ### 2.2 告警（FCP-010）
 
-`deploy/prometheus/rules.yml` 的 `yebot-frontend-vitals` 组：基于 `sys_frontend_error`
-vitals 数据经 metrics 导出后的 `yebot_frontend_vital_p95_ms / yebot_frontend_error_rate`
+`deploy/prometheus/rules.yml` 的 `stepby-frontend-vitals` 组：基于 `sys_frontend_error`
+vitals 数据经 metrics 导出后的 `stepby_frontend_vital_p95_ms / stepby_frontend_error_rate`
 等指标做退化告警（阈值与 `perf-budget.json` runtime 段对齐）。部署方式见该文件头注释。
 
 ### 2.3 错误堆栈还原（SMAP-001~004）

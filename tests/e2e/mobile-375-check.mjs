@@ -1,14 +1,14 @@
 // U3 移动端 375px 视口验证/E2E（Playwright）
 // 真实验证：连接真实后端 + vite dev(5173)，视口 375×812（iPhone X 典型宽度）。
 // 用法：
-//   YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 YEBOT_BASE_URL=http://localhost:8080 node mobile-375-check.mjs
+//   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 STEPBY_BASE_URL=http://localhost:8080 node mobile-375-check.mjs
 import { createRequire } from 'module'
 import { mkdirSync } from 'fs'
 import { TEST_USER, TEST_PASS, UI_URL } from './test-config.mjs'
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 
-const SHOT_DIR = process.env.MOBILE_SHOT_DIR || 'D:/Projects/yebot/.mobile375-screens'
+const SHOT_DIR = process.env.MOBILE_SHOT_DIR || 'D:/Projects/stepby/.mobile375-screens'
 mkdirSync(SHOT_DIR, { recursive: true })
 
 const VIEWPORT = { width: 375, height: 812 }

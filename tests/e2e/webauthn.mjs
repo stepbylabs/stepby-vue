@@ -12,12 +12,12 @@
  *   3. 个人中心删除该凭据 → 列表清空；再用 passkey 登录应失败（无凭据，反枚举同形提示）。
  *
  * 运行（后端 embedded :8080 + 前端 preview :4173 均需在跑；能力位 auth.webauthn=on）：
- *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
- *   YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
- *   YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+ *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+ *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node webauthn.mjs
  *
- * 依赖：yebot-ui/tests/e2e/node_modules 下的 playwright（与 main.mjs 同源）。
+ * 依赖：stepby-ui/tests/e2e/node_modules 下的 playwright（与 main.mjs 同源）。
  */
 
 import { createRequire } from 'module'
@@ -37,7 +37,7 @@ try {
   chromium = globalRequire('playwright').chromium
 }
 
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.YEBOT_UI_URL || BASE_URL
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
 const BACKEND_URL = process.env.BACKEND_URL || BASE_URL
 
 // 用户名/密码必填（test-config.mjs 已 fail-fast）

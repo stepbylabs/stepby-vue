@@ -6,7 +6,7 @@ import type { RouteComponent, RouteRecordName, RouteRecordRedirect, RouteMeta } 
  * 与 `RouterVo`（后端原始数据，component 为字符串）不同，`AppRouteRecord`
  * 的 component 已解析为实际 Vue 组件，可直接传给 `router.addRoute`。
  *
- * 兼容 vue-router 的 `RouteRecordRaw` 约束，同时携带 yebot 框架自定义字段
+ * 兼容 vue-router 的 `RouteRecordRaw` 约束，同时携带 stepby 框架自定义字段
  * （hidden、permissions、roles 等），供侧边栏、面包屑等组件使用。
  */
 export interface AppRouteRecord {

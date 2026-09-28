@@ -44,7 +44,7 @@
 <script setup lang="ts">
 const { t } = useI18n()
 // Cookie 同意状态存储键
-const CONSENT_KEY = 'yebot_cookie_consent'
+const CONSENT_KEY = 'stepby_cookie_consent'
 // 超时自动采用默认值（30 秒，业界标准 20-60 秒）
 const autoDismissMs = 30000
 
@@ -60,7 +60,7 @@ onMounted(() => {
   const isTestMode =
     window.navigator.webdriver ||
     new URLSearchParams(window.location.search).has('test') ||
-    localStorage.getItem('yebot_test_mode') === '1'
+    localStorage.getItem('stepby_test_mode') === '1'
   if (isTestMode) {
     autoAcceptSilently()
     return

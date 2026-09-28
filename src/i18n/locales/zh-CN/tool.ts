@@ -463,7 +463,7 @@ export default {
       tplWebVue3: 'Vue3 Element Plus 模版',
       tplWebVue3Ts: 'Vue3 Element Plus TypeScript 模版',
       packageName: '生成包路径',
-      packageNameTip: '生成在哪个java包下，例如 com.yebot.system',
+      packageNameTip: '生成在哪个java包下，例如 com.stepby.system',
       moduleName: '生成模块名',
       moduleNameTip: '可理解为子系统名，例如 system',
       businessName: '生成业务名',

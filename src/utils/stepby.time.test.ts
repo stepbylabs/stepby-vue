@@ -1,7 +1,7 @@
-import { parseTime, tzOffsetLabel, addDateRange } from '@/utils/yebot'
+import { parseTime, tzOffsetLabel, addDateRange } from '@/utils/stepby'
 
 // ============================================================================
-// parseTime 时间格式化（从 yebot.test.ts 拆分而来，覆盖时间/日期类工具）
+// parseTime 时间格式化（从 stepby.test.ts 拆分而来，覆盖时间/日期类工具）
 // ============================================================================
 describe('parseTime', () => {
   describe('异常输入', () => {

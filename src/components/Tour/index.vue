@@ -3,11 +3,11 @@
     <div v-if="visible" class="tour-wrapper">
       <!-- H1: mask 仅用于事件捕获（点击关闭），遮罩效果由 highlight 的 box-shadow 实现，
            避免与 box-shadow 叠加导致 0.75 透明度（过暗） -->
-      <div class="yebot-tour-mask fixed inset-0 bg-transparent z-[9998] pointer-events-auto" @click="onMaskClick"></div>
-      <div class="yebot-tour-highlight" :style="highlightStyle"></div>
+      <div class="stepby-tour-mask fixed inset-0 bg-transparent z-[9998] pointer-events-auto" @click="onMaskClick"></div>
+      <div class="stepby-tour-highlight" :style="highlightStyle"></div>
       <div
         ref="popoverRef"
-        class="yebot-tour-popover"
+        class="stepby-tour-popover"
         :style="popoverStyle"
         role="dialog"
         aria-modal="true"
@@ -16,18 +16,18 @@
         @keydown="onPopoverKeydown"
       >
         <div
-          class="yebot-tour-arrow absolute w-0 h-0 border-8 border-transparent"
+          class="stepby-tour-arrow absolute w-0 h-0 border-8 border-transparent"
           :class="arrowClass"
           :style="arrowStyle"
         ></div>
-        <div class="yebot-tour-header flex justify-between items-center mb-2">
-          <span class="yebot-tour-title font-semibold text-sm">{{ currentStep.title }}</span>
-          <span class="yebot-tour-counter text-text-secondary text-xs">
+        <div class="stepby-tour-header flex justify-between items-center mb-2">
+          <span class="stepby-tour-title font-semibold text-sm">{{ currentStep.title }}</span>
+          <span class="stepby-tour-counter text-text-secondary text-xs">
             {{ currentStepIndex + 1 }} / {{ steps.length }}
           </span>
         </div>
-        <div class="yebot-tour-body text-[13px] leading-relaxed mb-4 text-text-regular">{{ currentStep.content }}</div>
-        <div class="yebot-tour-footer flex justify-end gap-2 items-center">
+        <div class="stepby-tour-body text-[13px] leading-relaxed mb-4 text-text-regular">{{ currentStep.content }}</div>
+        <div class="stepby-tour-footer flex justify-end gap-2 items-center">
           <el-button v-if="currentStepIndex > 0" size="small" @click="prev">{{ t('tour.prev') }}</el-button>
           <el-button v-if="currentStepIndex < steps.length - 1" size="small" type="primary" @click="next">
             {{ t('tour.next') }}
@@ -43,7 +43,7 @@
 <script setup lang="ts">
 /**
  * 新手引导 Tour 组件
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 轻量级实现（无外部依赖），通过 selector 定位元素并展示引导提示
  *
@@ -157,7 +157,7 @@ const popoverStyle = computed(() => {
   return { left: `${left}px`, top: `${top}px`, width: `${popoverWidth}px` }
 })
 
-const arrowClass = computed(() => `yebot-tour-arrow-${currentStep.value.placement || 'bottom'}`)
+const arrowClass = computed(() => `stepby-tour-arrow-${currentStep.value.placement || 'bottom'}`)
 
 const arrowStyle = computed(() => {
   if (!targetRect.value) return {}
@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.yebot-tour-highlight {
+.stepby-tour-highlight {
   position: fixed;
   border-radius: 4px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
   transition: all 0.3s ease;
   border: 2px solid var(--el-color-primary, #409eff);
 }
-.yebot-tour-popover {
+.stepby-tour-popover {
   position: fixed;
   background: var(--el-bg-color, #fff);
   color: var(--el-text-color-primary, #303133);
@@ -394,19 +394,19 @@ onBeforeUnmount(() => {
   pointer-events: auto;
   transition: all 0.3s ease;
 }
-.yebot-tour-arrow-top {
+.stepby-tour-arrow-top {
   bottom: -16px;
   border-top-color: var(--el-bg-color, #fff);
 }
-.yebot-tour-arrow-bottom {
+.stepby-tour-arrow-bottom {
   top: -16px;
   border-bottom-color: var(--el-bg-color, #fff);
 }
-.yebot-tour-arrow-left {
+.stepby-tour-arrow-left {
   right: -16px;
   border-left-color: var(--el-bg-color, #fff);
 }
-.yebot-tour-arrow-right {
+.stepby-tour-arrow-right {
   left: -16px;
   border-right-color: var(--el-bg-color, #fff);
 }

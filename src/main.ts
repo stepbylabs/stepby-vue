@@ -38,7 +38,7 @@ import './permission' // permission control
 
 // 动效库：@vueuse/motion 提供 v-motion 指令（声明式入场动画）
 import { MotionPlugin } from '@vueuse/motion'
-import { parseTime } from '@/utils/yebot'
+import { parseTime } from '@/utils/stepby'
 
 // 分页组件
 import Pagination from '@/components/Pagination/index.vue'
@@ -69,7 +69,7 @@ const app = createApp(App)
 //   8. $t                —— 全仓 0 处模板 `$t()`（组件统一 `const { t } = useI18n()`），已移除。
 //   9. parseTime（保留例外）—— 作为模板"时间过滤器"在 28 个 .vue 的模板插值中裸名调用共 31 处
 //                          （如 `{{ parseTime(scope.row.createTime) }}`），并承担"默认追加本地时区
-//                          偏移后缀（GMT+8）"的展示约定（tz=true，见 yebot.ts）。若改为普通显式
+//                          偏移后缀（GMT+8）"的展示约定（tz=true，见 stepby.ts）。若改为普通显式
 //                          import（tz 默认 false）会丢失时区后缀、改变展示结果；逐文件包装改造成本/
 //                          风险过大。按优化项"被大量模板以全局名使用可保留并说明"的例外予以保留。
 // 全局时间过滤器：默认追加浏览器本地时区偏移后缀（如 "GMT+8"），标注展示时间所属时区，

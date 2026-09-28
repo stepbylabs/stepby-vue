@@ -14,9 +14,9 @@
  * （若本地化被移除即变红）。
  *
  * ── 运行（后端 embedded :8080 在跑；`sys.account.captchaEnabled=false` 时无需读验证码）──
- *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
- *   YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
- *   YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+ *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+ *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node editor-a11y.mjs      # 期望「总计 N 通过，0 失败」EXIT=0
  */
 
@@ -36,7 +36,7 @@ try {
   chromium = globalRequire('playwright').chromium
 }
 
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.YEBOT_UI_URL || BASE_URL
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
 const USER_INPUT_SEL =
   'input[placeholder="账号"], input[placeholder="Username"], input[name="username"]'
 const LOGIN_BTN_SEL =
@@ -118,7 +118,7 @@ async function main() {
     const context = await browser.newContext()
     const page = await context.newPage()
     // 预置新手引导已完成标记，避免遮罩拦截点击（与 main.mjs 的 skipTour 同效但更确定）
-    await page.addInitScript(() => localStorage.setItem('yebot-layout-tour', 'skipped'))
+    await page.addInitScript(() => localStorage.setItem('stepby-layout-tour', 'skipped'))
 
     await passwordLogin(page)
     check('登录成功（离开 /login）', !page.url().includes('/login'), `url=${page.url()}`)

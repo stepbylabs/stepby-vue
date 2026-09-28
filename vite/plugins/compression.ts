@@ -7,7 +7,7 @@ export default function createCompression(env: Record<string, string>) {
   if (VITE_BUILD_COMPRESS) {
     const compressList = VITE_BUILD_COMPRESS.split(',')
     if (compressList.includes('gzip')) {
-      // https://yebot.dev/docs/faq#gzip
+      // https://stepby.tzkj.net/docs/faq#gzip
       plugin.push(
         compression({
           ext: '.gz',

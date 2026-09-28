@@ -1,6 +1,6 @@
 /**
  * 最近访问页面 composable
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：记录用户最近访问的 10 个页面，提供快速跳转入口
  * 存储：localStorage，按用户 ID 隔离

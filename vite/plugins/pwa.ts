@@ -15,8 +15,8 @@ export default function createPwaPlugin(): PluginOption {
     registerType: 'autoUpdate',
     includeAssets: ['favicon.ico'],
     manifest: {
-      name: 'Yebot 管理系统',
-      short_name: 'Yebot',
+      name: 'Stepby 管理系统',
+      short_name: 'Stepby',
       description: '基于 Axum + Vue 3 + Element Plus 的企业级后台管理系统',
       lang: 'zh-CN',
       theme_color: '#409eff',
@@ -58,7 +58,7 @@ export default function createPwaPlugin(): PluginOption {
           handler: 'NetworkFirst',
           method: 'GET',
           options: {
-            cacheName: 'yebot-api',
+            cacheName: 'stepby-api',
             networkTimeoutSeconds: 3,
             cacheableResponse: { statuses: [0, 200] },
             expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 }
@@ -70,7 +70,7 @@ export default function createPwaPlugin(): PluginOption {
           handler: 'StaleWhileRevalidate',
           method: 'GET',
           options: {
-            cacheName: 'yebot-static',
+            cacheName: 'stepby-static',
             cacheableResponse: { statuses: [0, 200] },
             expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 }
           }

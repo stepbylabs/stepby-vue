@@ -135,7 +135,7 @@ describe('toRequestOptions', () => {
 describe('toCreationOptions', () => {
   it('深转换 challenge / user.id / excludeCredentials[].id，其余字段透传', () => {
     const options = toCreationOptions({
-      rp: { name: 'Yebot', id: 'example.com' },
+      rp: { name: 'Stepby', id: 'example.com' },
       user: { id: 'aGVsbG8', name: 'alice', displayName: 'Alice' },
       challenge: 'aGVsbG8',
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
@@ -145,7 +145,7 @@ describe('toCreationOptions', () => {
       attestation: 'none'
     })
 
-    expect(options.rp).toEqual({ name: 'Yebot', id: 'example.com' })
+    expect(options.rp).toEqual({ name: 'Stepby', id: 'example.com' })
     expect(options.challenge).toBeInstanceOf(ArrayBuffer)
     expect(options.user.id).toBeInstanceOf(ArrayBuffer)
     expect(bytesOf(options.user.id)).toEqual([104, 101, 108, 108, 111])
@@ -162,7 +162,7 @@ describe('toCreationOptions', () => {
 
   it('缺省可选字段时不产生多余键', () => {
     const options = toCreationOptions({
-      rp: { name: 'Yebot', id: 'example.com' },
+      rp: { name: 'Stepby', id: 'example.com' },
       user: { id: 'aGVsbG8', name: 'alice', displayName: 'Alice' },
       challenge: 'aGVsbG8',
       pubKeyCredParams: []

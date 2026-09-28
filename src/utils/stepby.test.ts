@@ -1,12 +1,12 @@
-import { sprintf, parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/yebot'
+import { sprintf, parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/stepby'
 
 // ============================================================================
 // 说明
 // ============================================================================
-// 本文件聚焦 yebot.ts 中此前未被测试覆盖的工具函数：
+// 本文件聚焦 stepby.ts 中此前未被测试覆盖的工具函数：
 //   sprintf / parseStrEmpty / mergeRecursive / transParams / getNormalPath / blobValidate
-// 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 yebot.time.test.ts；
-// 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 yebot.dictTree.test.ts。
+// 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 stepby.time.test.ts；
+// 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 stepby.dictTree.test.ts。
 
 // ============================================================================
 // sprintf 字符串格式化（%s 占位符）

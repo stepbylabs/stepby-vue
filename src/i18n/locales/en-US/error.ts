@@ -81,7 +81,7 @@ export default {
   about: {
     title: 'About',
     projectInfo: 'Project Info',
-    projectName: 'Yebot Admin',
+    projectName: 'Stepby Admin',
     projectDesc: 'Enterprise backend management system based on Axum 0.8 + SeaORM 1.1 + Vue3 + Element Plus',
     frontendVersion: 'Frontend Version',
     backendVersion: 'Backend Version',
@@ -154,7 +154,7 @@ export default {
     sections: {
       quickStart: {
         title: 'Quick Start',
-        intro: 'Welcome to Yebot admin system. Follow these steps to get started:',
+        intro: 'Welcome to Stepby admin system. Follow these steps to get started:',
         step1Title: '1. Login',
         step1Desc:
           'Login with the credentials provided by your administrator. Change your password and bind TOTP immediately after first login.',
@@ -232,9 +232,9 @@ export default {
         github: 'GitHub',
         githubDesc: 'Submit Issue or Pull Request',
         website: 'Website',
-        websiteDesc: 'yebot.dev',
+        websiteDesc: 'stepby.tzkj.net',
         email: 'Email Support',
-        emailDesc: "support{'@'}yebot.dev"
+        emailDesc: "support{'@'}stepby.tzkj.net"
       }
     }
   },

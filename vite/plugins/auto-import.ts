@@ -8,7 +8,7 @@ export default function createAutoImport() {
       'pinia',
       {
         '@/utils/dict': ['useDict'],
-        '@/utils/yebot': ['selectDictLabel'],
+        '@/utils/stepby': ['selectDictLabel'],
         'vue-i18n': ['useI18n']
       }
     ],

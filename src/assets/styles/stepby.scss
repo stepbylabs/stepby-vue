@@ -1,6 +1,6 @@
 /**
  * 通用css样式布局处理
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  */
 
 /** 基础通用 **/
@@ -496,7 +496,7 @@ h6 {
  * - text-warning → var(--el-color-warning)  警告色（橙色）
  * - text-danger  → var(--el-color-danger)    危险色（红色）
  *
- * 注意：原 yebot.scss 中 .text-success 定义为 #1c84c6（蓝色）、.text-info 定义为 #23c6c8（青色），
+ * 注意：原 stepby.scss 中 .text-success 定义为 #1c84c6（蓝色）、.text-info 定义为 #23c6c8（青色），
  * 与语义名称不匹配。删除后由 Tailwind @theme 桥接的 Element Plus 变量提供正确的语义化颜色。
  * .text-primary 原定义为 color: inherit，删除后由 Tailwind 提供主题色（蓝色）。
  */

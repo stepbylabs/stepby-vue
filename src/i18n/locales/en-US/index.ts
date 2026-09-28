@@ -10,7 +10,7 @@ import tool from './tool'
 import error from './error'
 import route from './route'
 import time from './time'
-import yebot from './yebot'
+import stepby from './stepby'
 
 export default {
   ...common,
@@ -22,5 +22,5 @@ export default {
   ...error,
   ...route,
   ...time,
-  ...yebot
+  ...stepby
 }

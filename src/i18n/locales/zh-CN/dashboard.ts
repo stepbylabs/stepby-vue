@@ -30,9 +30,9 @@ export default {
     versionTitle: '当前版本:',
     visitRepo: '访问仓库',
     visitHome: '访问主页',
-    welcomeTitle: 'Yebot后台管理框架',
+    welcomeTitle: 'Stepby后台管理框架',
     welcomeDesc:
-      'Yebot管理系统可以用于所有的Web应用程序，如网站管理后台，网站会员中心，CMS，CRM，OA等等，您也可以对她进行深度定制，以做出更强系统。所有前端后台代码封装过后十分精简易上手，出错概率低。同时支持移动客户端访问。系统会陆续更新一些实用功能。',
+      'Stepby管理系统可以用于所有的Web应用程序，如网站管理后台，网站会员中心，CMS，CRM，OA等等，您也可以对她进行深度定制，以做出更强系统。所有前端后台代码封装过后十分精简易上手，出错概率低。同时支持移动客户端访问。系统会陆续更新一些实用功能。',
     freeOpenSource: '免费开源',
     techStack: '技术选型',
     backendTech: '后端技术',
@@ -201,7 +201,7 @@ export default {
       unknownBusinessType: '类型{type}',
       periodConnector: '至',
       generatedAt: '生成时间',
-      footerDisclaimer: `{'本报告由 yebot 系统自动生成 | 仅供审计合规用途'}`
+      footerDisclaimer: `{'本报告由 stepby 系统自动生成 | 仅供审计合规用途'}`
     }
   },
   announcementBanner: {

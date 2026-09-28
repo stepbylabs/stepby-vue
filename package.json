@@ -1,8 +1,8 @@
 {
-  "name": "yebot-ui",
+  "name": "stepby-ui",
   "version": "3.9.2",
-  "description": "Yebot管理系统",
-  "author": "Yebot",
+  "description": "Stepby管理系统",
+  "author": "Stepby",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitcode.com/bmate/yebot-ui.git"
+    "url": "https://gitcode.com/bmate/stepby-ui.git"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",

@@ -31,12 +31,12 @@ describe('apiCache', () => {
   // ==========================================================================
   describe('cachedApi', () => {
     it('返回的数据与原函数一致', async () => {
-      const mockFn = vi.fn().mockResolvedValue({ id: 1, name: 'yebot' })
+      const mockFn = vi.fn().mockResolvedValue({ id: 1, name: 'stepby' })
       const cached = cachedApi('test:basic', mockFn)
 
       const result = await cached()
 
-      expect(result).toEqual({ id: 1, name: 'yebot' })
+      expect(result).toEqual({ id: 1, name: 'stepby' })
       expect(mockFn).toHaveBeenCalledTimes(1)
     })
 

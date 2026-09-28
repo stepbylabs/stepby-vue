@@ -40,7 +40,7 @@
 <script setup lang="ts">
 import { isExternal } from '@/utils/validate'
 import AppLink from './Link.vue'
-import { getNormalPath } from '@/utils/yebot'
+import { getNormalPath } from '@/utils/stepby'
 import { useMenuTitle } from '@/composables/useMenuTitle'
 import type { AppRouteRecord } from '@/types'
 

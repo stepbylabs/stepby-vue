@@ -1,6 +1,6 @@
 /**
  * 树形表格通用排序/展开 composable
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：抽取 menu/dept 等树形表格的共性逻辑
  *   - isExpandAll / refreshTable：控制展开/折叠 + 强制重渲染

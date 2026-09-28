@@ -209,7 +209,7 @@ import GenPreview from './preview.vue'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import downloadPlugin from '@/plugins/download'
-import { addDateRange } from '@/utils/yebot'
+import { addDateRange } from '@/utils/stepby'
 import type { GenTable, GenQueryParams } from '@/types/api/tool/gen'
 
 const route = useRoute()

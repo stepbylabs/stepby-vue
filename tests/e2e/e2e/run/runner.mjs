@@ -73,7 +73,7 @@ export async function runMain({ testFns, config, helpers, state }) {
   const { results, getPassCount, getFailCount } = state
 
   log('==========================================')
-  log('yebot 深度端到端测试（deep-e2e）')
+  log('stepby 深度端到端测试（deep-e2e）')
   log('==========================================')
   log(`配置: headless=${config.headless}, 模块总数=${Object.keys(testFns).length}`)
 

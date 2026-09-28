@@ -57,7 +57,7 @@ function buildProxy(target: string): Record<string, ProxyOptions> {
 function resourceHintsPlugin(domains: string[]): Plugin {
   const clean = domains.map((d) => d.trim()).filter(Boolean)
   return {
-    name: 'yebot-resource-hints',
+    name: 'stepby-resource-hints',
     transformIndexHtml() {
       return clean.flatMap((href) => [
         { tag: 'link', attrs: { rel: 'preconnect', href, crossorigin: '' } },
@@ -84,7 +84,7 @@ export default defineConfig(({ mode, command }) => {
   return {
     // 部署生产环境和开发环境下的URL。
     // 默认情况下，vite 会假设你的应用是被部署在一个域名的根路径上
-    // 例如 https://yebot.dev/。如果应用被部署在一个子路径上，你就需要用这个选项指定这个子路径。
+    // 例如 https://stepby.tzkj.net/。如果应用被部署在一个子路径上，你就需要用这个选项指定这个子路径。
     // CDN 集成点（R102-CDN-001/002）：在 .env.production 设 VITE_APP_CDN_BASE=https://cdn.example.com/
     // 即可把全部静态资源引用指向 CDN 域名（index.html 仍由源站托管）。默认 '/' 同源。
     base: env.VITE_APP_CDN_BASE || '/',

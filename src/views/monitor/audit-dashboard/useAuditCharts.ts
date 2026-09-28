@@ -17,7 +17,7 @@
 import { ref, type Ref } from 'vue'
 import type { ECharts, EChartsOption, ECElementEvent } from '@/utils/echarts'
 import { readCssVar } from '@/composables/useChart'
-import { selectDictLabel } from '@/utils/yebot'
+import { selectDictLabel } from '@/utils/stepby'
 import type { DictOption } from '@/types'
 
 /** 饼图扇区点击回调参数（用于反查业务类型 code 并跳转 operlog） */

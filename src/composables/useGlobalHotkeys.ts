@@ -1,6 +1,6 @@
 /**
  * 全局快捷键组合式函数
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 基于 @vueuse/core 的 useMagicKeys，无需新增依赖
  *
@@ -91,7 +91,7 @@ export function useGlobalHotkeys() {
   // Ctrl+K：打开命令面板（通过自定义事件触发）
   bind('search', () => {
     // 优先触发命令面板
-    window.dispatchEvent(new CustomEvent('yebot:open-command-palette'))
+    window.dispatchEvent(new CustomEvent('stepby:open-command-palette'))
     // 兜底：触发顶部搜索
     const searchBtn = document.querySelector('.header-search-trigger, #header-search, .HeaderSearch') as HTMLElement
     if (searchBtn) searchBtn.click()

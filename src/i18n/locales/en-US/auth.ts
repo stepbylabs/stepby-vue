@@ -3,7 +3,7 @@
 
 export default {
   login: {
-    title: 'Yebot Admin System',
+    title: 'Stepby Admin System',
     username: 'Username',
     password: 'Password',
     capsLockOn: 'Caps Lock is on',
@@ -335,7 +335,7 @@ export default {
       title: 'Privacy Policy',
       lastUpdated: 'Last updated: {date}',
       intro1:
-        'This Privacy Policy (hereinafter "this Policy") describes how Yebot (hereinafter "we") collects, uses, stores, and protects your personal information when you use our website and services, as well as the rights you enjoy. This Policy is formulated in accordance with the Personal Information Protection Law of the People\'s Republic of China (hereinafter "PIPL"), the Cybersecurity Law of the People\'s Republic of China, the Data Security Law of the People\'s Republic of China, and other relevant laws and regulations.',
+        'This Privacy Policy (hereinafter "this Policy") describes how Stepby (hereinafter "we") collects, uses, stores, and protects your personal information when you use our website and services, as well as the rights you enjoy. This Policy is formulated in accordance with the Personal Information Protection Law of the People\'s Republic of China (hereinafter "PIPL"), the Cybersecurity Law of the People\'s Republic of China, the Data Security Law of the People\'s Republic of China, and other relevant laws and regulations.',
       intro2:
         'Please read and fully understand all the contents of this Policy before using this website. Continued use of this website indicates that you have agreed to the terms set forth in this Policy.',
       section1Title: '1. Information Collection',
@@ -402,11 +402,11 @@ export default {
       section6Title: '6. Contact Us',
       section6Intro:
         'If you have any questions, suggestions, or complaints about this Policy, you can contact us through the following methods:',
-      section6Email: 'Email: privacy＠yebot.dev',
+      section6Email: 'Email: privacy＠stepby.tzkj.net',
       section6Channel: 'Submit your questions through the feedback channel provided on this website.',
       section6Conclusion: 'We will process and respond to your feedback as soon as possible after receipt.',
       footer1:
-        'This Policy is formulated and interpreted by Yebot. We reserve the right of final interpretation of this Policy.',
+        'This Policy is formulated and interpreted by Stepby. We reserve the right of final interpretation of this Policy.',
       footer2:
         'If this Policy changes, we will update it on this page in a timely manner and indicate the last update date.'
     }

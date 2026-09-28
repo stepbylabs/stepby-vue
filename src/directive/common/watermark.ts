@@ -1,6 +1,6 @@
 /**
  * v-watermark 页面水印指令
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：在页面/元素上叠加文字水印，防止截图泄露敏感数据
  *

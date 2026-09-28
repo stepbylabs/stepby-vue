@@ -11,7 +11,7 @@
  * 运行：
  *   PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers \
  *   node collect-warnings.mjs
- * 环境变量覆盖：FRONTEND_URL / YEBOT_TEST_USER / YEBOT_TEST_PASS / INTERACT=1。
+ * 环境变量覆盖：FRONTEND_URL / STEPBY_TEST_USER / STEPBY_TEST_PASS / INTERACT=1。
  */
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
@@ -19,8 +19,8 @@ const { chromium } = require('playwright')
 import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4173'
-const USER = process.env.YEBOT_TEST_USER || 'admin'
-const PASS = process.env.YEBOT_TEST_PASS || 'admin123'
+const USER = process.env.STEPBY_TEST_USER || 'admin'
+const PASS = process.env.STEPBY_TEST_PASS || 'admin123'
 
 // 覆盖 sys_menu 中已注册（status=0）的全部可达功能页面。
 // 路径权威来源是后端 getRouters 组合结果（/父目录path/子path），不是手写猜测。
@@ -115,7 +115,7 @@ const I18N_NS = new Set(
     'notification,oauth,observability,online,operlog,passwordRule,passwordStrength,pdf,post,' +
     'printTable,profile,rateLimit,register,report,rightToolbar,role,route,server,session,' +
     'shortcuts,sizeSelect,task,taskProgress,theme,themeEditor,time,tour,treePanel,user,' +
-    'userAuthRole,userPrefs,userView,webHook,workbench,yebot,pat'
+    'userAuthRole,userPrefs,userView,webHook,workbench,stepby,pat'
   ).split(',')
 )
 // 点号串里若任一段是常见文件扩展名，视为真实内容（如 report.pdf / dashboard.xlsx）而非泄漏键。
@@ -162,7 +162,7 @@ const DOTTED_EXTS = new Set([
   'ttf',
   'bak'
 ])
-// 末段是常见 TLD 时视为域名（如官网 "yebot.dev"），非 i18n 键。
+// 末段是常见 TLD 时视为域名（如官网 "stepby.tzkj.net"），非 i18n 键。
 const DOTTED_TLDS = new Set([
   'com',
   'cn',
@@ -200,7 +200,7 @@ const DOTTED_TLDS = new Set([
   'academy'
 ])
 // 少数页面按设计展示点号标识串（非 i18n 键，any-segment 启发式会误判），整页跳过 #10 扫描：
-//  - /system/config：参数管理列表把 configKey（如 yebot.captcha.enabled）当数据列展示；
+//  - /system/config：参数管理列表把 configKey（如 stepby.captcha.enabled）当数据列展示；
 //  - /monitor/logtail：日志行含 Java/类路径等点号串；
 //  - /tool/gen：代码生成展示包名/字段（com.xxx.domain）。
 const I18N_LEAK_SKIP = new Set(['/system/config', '/monitor/logtail', '/tool/gen'])
@@ -263,7 +263,7 @@ async function dismissOverlays(page) {
   }
 }
 
-// 首访引导遮罩（.yebot-tour-mask，pointer-events:auto）会拦截交互扫描对「新增/编辑」按钮的点击，
+// 首访引导遮罩（.stepby-tour-mask，pointer-events:auto）会拦截交互扫描对「新增/编辑」按钮的点击，
 // 导致对话框根本没打开——交互覆盖计数会静默退化为 0（正是"扫描器空转"陷阱）。每页加载后先移除引导，
 // 让点击落到页面自身控件上（引导本身由 main.mjs 的功能用例单独验证，非广度巡检职责）。
 async function dismissTour(page) {
@@ -280,7 +280,7 @@ async function dismissTour(page) {
   await page
     .evaluate(() => {
       document
-        .querySelectorAll('.yebot-tour-mask, .tour-wrapper, [class*="driver-overlay"], [class*="tour-step"]')
+        .querySelectorAll('.stepby-tour-mask, .tour-wrapper, [class*="driver-overlay"], [class*="tour-step"]')
         .forEach((e) => e.remove())
     })
     .catch(() => {})

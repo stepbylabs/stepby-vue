@@ -233,7 +233,7 @@ import {
 } from '@/api/monitor/frontendError'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
-import { addDateRange } from '@/utils/yebot'
+import { addDateRange } from '@/utils/stepby'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useChart } from '@/composables/useChart'

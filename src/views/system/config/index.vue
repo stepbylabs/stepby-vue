@@ -238,7 +238,7 @@ import {
   invalidateConfigCache
 } from '@/api/system/config'
 import { useCrudTable } from '@/composables/useCrudTable'
-import { addDateRange } from '@/utils/yebot'
+import { addDateRange } from '@/utils/stepby'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'

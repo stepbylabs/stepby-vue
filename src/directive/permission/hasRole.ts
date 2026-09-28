@@ -1,6 +1,6 @@
 /**
  * v-hasRole 角色权限处理
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  */
 import useUserStore from '@/store/modules/user'
 

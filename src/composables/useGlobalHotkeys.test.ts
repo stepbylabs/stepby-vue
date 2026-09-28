@@ -115,14 +115,14 @@ describe('composables/useGlobalHotkeys', () => {
 
     let dispatched = 0
     const listener = () => dispatched++
-    window.addEventListener('yebot:open-command-palette', listener)
+    window.addEventListener('stepby:open-command-palette', listener)
 
     useGlobalHotkeys()
     handlers[H.search]()
 
     expect(dispatched).toBe(1)
     expect(clickSpy).toHaveBeenCalled()
-    window.removeEventListener('yebot:open-command-palette', listener)
+    window.removeEventListener('stepby:open-command-palette', listener)
   })
 
   it('bind("search") is safe when no trigger element exists', () => {

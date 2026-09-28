@@ -14,7 +14,7 @@
             <div
               class="project-logo w-20 h-20 rounded-2xl flex items-center justify-center mr-5 shrink-0 overflow-hidden"
             >
-              <img :src="logo" alt="Yebot" class="w-full h-full object-cover" />
+              <img :src="logo" alt="Stepby" class="w-full h-full object-cover" />
             </div>
             <div class="project-detail flex-1">
               <h2 class="project-name m-0 mb-2 text-xl font-semibold text-text-primary">
@@ -63,7 +63,7 @@
           <el-divider />
 
           <div class="action-buttons flex gap-2 flex-wrap">
-            <el-button type="primary" icon="Link" @click="openLink('https://github.com/yebot/yebot')">
+            <el-button type="primary" icon="Link" @click="openLink('https://github.com/stepby/stepby')">
               {{ t('about.repoButton') }}
             </el-button>
             <el-button icon="Document" @click="openLink('/swagger-ui')">{{ t('about.apiButton') }}</el-button>
@@ -258,7 +258,7 @@ function refreshInfo(): void {
 /** 复制系统信息到剪贴板 */
 async function copyInfo(): Promise<void> {
   const info = {
-    project: 'Yebot Admin',
+    project: 'Stepby Admin',
     version: version.value,
     buildMode: buildMode.value,
     buildTime: buildTime.value,

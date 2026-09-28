@@ -80,7 +80,7 @@ export default {
   about: {
     title: '关于系统',
     projectInfo: '项目信息',
-    projectName: 'Yebot 管理系统',
+    projectName: 'Stepby 管理系统',
     projectDesc: '基于 Axum 0.8 + SeaORM 1.1 + Vue3 + Element Plus 的企业级后台管理系统',
     frontendVersion: '前端版本',
     backendVersion: '后端版本',
@@ -153,7 +153,7 @@ export default {
     sections: {
       quickStart: {
         title: '快速上手',
-        intro: '欢迎使用 Yebot 后台管理系统，以下几步帮您快速开始：',
+        intro: '欢迎使用 Stepby 后台管理系统，以下几步帮您快速开始：',
         step1Title: '1. 登录系统',
         step1Desc: '使用管理员分配的账号密码登录，首次登录建议立即修改密码并绑定 TOTP。',
         step2Title: '2. 浏览菜单',
@@ -229,9 +229,9 @@ export default {
         github: 'GitHub',
         githubDesc: '提交 Issue 或 Pull Request',
         website: '官方网站',
-        websiteDesc: 'yebot.dev',
+        websiteDesc: 'stepby.tzkj.net',
         email: '邮件支持',
-        emailDesc: "support{'@'}yebot.dev"
+        emailDesc: "support{'@'}stepby.tzkj.net"
       }
     }
   },

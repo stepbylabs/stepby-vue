@@ -1,4 +1,4 @@
-import { parseTime } from './yebot'
+import { parseTime } from './stepby'
 import i18n from '@/i18n'
 import DOMPurify from 'dompurify'
 

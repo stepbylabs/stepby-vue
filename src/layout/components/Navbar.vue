@@ -141,11 +141,11 @@
 
         <!-- 外部链接（低频，最末）：源码仓库 / 使用文档 -->
         <el-tooltip :content="safeT('layout.navbar.sourceCode')" effect="dark" placement="bottom">
-          <yebot-git id="yebot-git" class="right-menu-item hover-effect" />
+          <stepby-git id="stepby-git" class="right-menu-item hover-effect" />
         </el-tooltip>
 
         <el-tooltip :content="safeT('layout.navbar.docs')" effect="dark" placement="bottom">
-          <yebot-doc id="yebot-doc" class="right-menu-item hover-effect" />
+          <stepby-doc id="stepby-doc" class="right-menu-item hover-effect" />
         </el-tooltip>
       </template>
 
@@ -204,8 +204,8 @@ import Hamburger from '@/components/Hamburger/index.vue'
 import Screenfull from '@/components/Screenfull/index.vue'
 import SizeSelect from '@/components/SizeSelect/index.vue'
 import HeaderSearch from '@/components/HeaderSearch/index.vue'
-import YebotGit from '@/components/Yebot/Git/index.vue'
-import YebotDoc from '@/components/Yebot/Doc/index.vue'
+import StepbyGit from '@/components/Stepby/Git/index.vue'
+import StepbyDoc from '@/components/Stepby/Doc/index.vue'
 import LangSelect from '@/components/LangSelect/index.vue'
 import CommandPalette from '@/components/CommandPalette/index.vue'
 import UserPrefsDialog from '@/components/UserPrefsDialog/index.vue'

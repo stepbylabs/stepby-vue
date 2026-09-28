@@ -4,7 +4,7 @@ import { saveAs, type FileSaverOptions } from 'file-saver'
 import i18n from '@/i18n'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
-import { blobValidate } from '@/utils/yebot'
+import { blobValidate } from '@/utils/stepby'
 import { errorHub } from '@/utils/errorHub'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API

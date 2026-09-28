@@ -1,7 +1,7 @@
 /**
  * 极简静态资源服务 + /prod-api 代理（替代 vite preview）
  *
- * 用途：yebot-ui 未安装 node_modules（无法直接运行 vite preview）时，
+ * 用途：stepby-ui 未安装 node_modules（无法直接运行 vite preview）时，
  * 用 Node 原生 http 提供：
  *   - 静态资源：从 ../dist 读取（SPA fallback 到 index.html）
  *   - /prod-api、/dev-api、/stage-api 前缀：剥离后转发到后端 BASE
@@ -118,7 +118,7 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res, urlPath === '/' ? '/index.html' : urlPath)
 })
 
-// 简易 WebSocket 中继：只转发字节流（适用于 yebot 通知 /ws）
+// 简易 WebSocket 中继：只转发字节流（适用于 stepby 通知 /ws）
 // 若后端不可达或握手失败，直接关闭客户端连接并静默处理错误，不让进程崩溃。
 server.on('upgrade', (req, socket, head) => {
   silenceSocket(socket)

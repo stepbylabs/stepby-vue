@@ -1,6 +1,6 @@
-# Yebot UI
+# Stepby UI
 
-Yebot 管理系统前端，基于 Vue 3 + Element Plus + TypeScript + Pinia + Vite 构建，配套后端为 [Axum (Rust)](../axum-backend)。
+Stepby 管理系统前端，基于 Vue 3 + Element Plus + TypeScript + Pinia + Vite 构建，配套后端为 [Axum (Rust)](../axum-backend)。
 
 ## 技术栈
 
@@ -85,7 +85,7 @@ npm run test:headless
 $env:FRONTEND_URL = "http://localhost:5173"
 $env:BACKEND_URL = "http://localhost:8080"
 # 注意：需在 axum-backend 目录下执行，或使用绝对路径
-$env:DATABASE_URL = "sqlite://./data/yebot.db?mode=rwc"  # 后端
+$env:DATABASE_URL = "sqlite://./data/stepby.db?mode=rwc"  # 后端
 $env:REDIS_URL = "redis://127.0.0.1:6379/0"              # 后端
 
 # Linux/macOS
@@ -143,7 +143,7 @@ export BACKEND_URL=http://localhost:8080
 ## 项目结构
 
 ```
-yebot-ui/
+stepby-ui/
 ├── src/
 │   ├── api/                  # API 请求层
 │   ├── assets/               # 静态资源（图片、样式、图标）

@@ -42,10 +42,10 @@
           <el-tag type="danger">{{ t('dashboard.freeOpenSource') }}</el-tag>
         </p>
         <p>
-          <el-button type="primary" icon="Cloudy" plain @click="goTarget('https://github.com/yebot/yebot')">
+          <el-button type="primary" icon="Cloudy" plain @click="goTarget('https://github.com/stepby/stepby')">
             {{ t('dashboard.visitRepo') }}
           </el-button>
-          <el-button icon="HomeFilled" plain @click="goTarget('https://yebot.dev')">
+          <el-button icon="HomeFilled" plain @click="goTarget('https://stepby.tzkj.net')">
             {{ t('dashboard.visitHome') }}
           </el-button>
         </p>
@@ -98,17 +98,17 @@
             <p>
               <el-icon><Promotion /></el-icon>
               {{ t('dashboard.officialSite') }}
-              <el-link href="https://yebot.dev" target="_blank">https://yebot.dev</el-link>
+              <el-link href="https://stepby.tzkj.net" target="_blank">https://stepby.tzkj.net</el-link>
             </p>
             <p>
               <el-icon><ChatDotRound /></el-icon>
               {{ t('dashboard.wechat') }}
-              <span class="font-semibold">Yebot</span>
+              <span class="font-semibold">Stepby</span>
             </p>
             <p>
               <el-icon><Money /></el-icon>
               {{ t('dashboard.alipay') }}
-              <span class="font-semibold">Yebot</span>
+              <span class="font-semibold">Stepby</span>
             </p>
           </div>
         </el-card>

@@ -1,7 +1,7 @@
 {
-  "name": "yebot-e2e-tests",
+  "name": "stepby-e2e-tests",
   "version": "1.0.0",
-  "description": "yebot 端到端主测试脚本（Playwright）",
+  "description": "stepby 端到端主测试脚本（Playwright）",
   "type": "module",
   "scripts": {
     "test": "node main.mjs",

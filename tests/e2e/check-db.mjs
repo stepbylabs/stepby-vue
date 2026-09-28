@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 
-const db = new Database('d:/桌面/yebot/axum-backend/data/yebot.db', { readonly: true })
+const db = new Database('d:/桌面/stepby/axum-backend/data/stepby.db', { readonly: true })
 
 // Check migrations
 const migrations = db.prepare('SELECT * FROM seaql_migrations ORDER BY version').all()

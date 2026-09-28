@@ -286,9 +286,9 @@ const commonShortcuts = [
 ]
 
 const contactChannels = [
-  { name: 'github', icon: Link, url: 'https://github.com/yebot/yebot' },
-  { name: 'website', icon: Promotion, url: 'https://yebot.dev' },
-  { name: 'email', icon: Message, url: 'mailto:support@yebot.dev' }
+  { name: 'github', icon: Link, url: 'https://github.com/stepby/stepby' },
+  { name: 'website', icon: Promotion, url: 'https://stepby.tzkj.net' },
+  { name: 'email', icon: Message, url: 'mailto:stepby@tzkj.net' }
 ]
 
 function scrollToSection(id: string): void {

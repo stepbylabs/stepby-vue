@@ -393,7 +393,7 @@ import SvgIcon from '@/components/SvgIcon/index.vue'
 import IconSelect from '@/components/IconSelect/index.vue'
 import type { SysMenu, MenuQueryParams } from '@/types/api/system/menu'
 import modal from '@/plugins/modal'
-import { handleTree } from '@/utils/yebot'
+import { handleTree } from '@/utils/stepby'
 import { useMenuTitle } from '@/composables/useMenuTitle'
 import { useTreeTableSort } from '@/composables/useTreeTableSort'
 

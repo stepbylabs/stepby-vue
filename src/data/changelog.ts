@@ -1,6 +1,6 @@
 /**
  * 更新日志数据（从 index.vue 外置化提取）
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  */
 
 export interface ChangelogEntry {
@@ -1043,7 +1043,7 @@ export const changelog: ChangelogEntry[] = [
   {
     version: 'v1.0.0',
     date: '2019-10-08',
-    items: ['Yebot前后端分离系统正式发布']
+    items: ['Stepby前后端分离系统正式发布']
   }
 ]
 

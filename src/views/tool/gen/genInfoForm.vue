@@ -274,7 +274,7 @@
 /* eslint-disable vue/no-mutating-props */
 const { t } = useI18n()
 import { listMenu } from '@/api/system/menu'
-import { handleTree } from '@/utils/yebot'
+import { handleTree } from '@/utils/stepby'
 
 const subColumns = ref([])
 const menuOptions = ref([])

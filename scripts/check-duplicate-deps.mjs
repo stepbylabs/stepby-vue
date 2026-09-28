@@ -2,7 +2,7 @@
 /**
  * 重复依赖检测（R103-INF-MIN-008）
  *
- * 检查 yebot-ui/package.json 中的依赖声明是否存在“重复”：
+ * 检查 stepby-ui/package.json 中的依赖声明是否存在“重复”：
  *   1) 同一依赖段内重复键——JSON 规范下后写覆盖前写，JSON.parse 会静默丢键，故需按原文扫描；
  *   2) 同一包同时出现在 dependencies / devDependencies / optionalDependencies / peerDependencies
  *      两个及以上段——属重复声明，会造成安装与升级语义歧义。

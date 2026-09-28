@@ -1,4 +1,4 @@
-// yebot-ui/tests/e2e/visual-regression.mjs
+// stepby-ui/tests/e2e/visual-regression.mjs
 // 首屏截图基线像素回归（R102-FCP-006 配套）：
 // 对 /login 首屏截图，与 tests/e2e/__baselines__/login.png 基线做像素级比对，
 // 差异像素占比超过阈值（默认 1%）即失败 —— 防止样式/布局意外回归。

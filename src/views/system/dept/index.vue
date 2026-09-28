@@ -181,7 +181,7 @@ import { refreshDeptTreeSelect } from '@/api/system/user'
 import type { SysDept, DeptQueryParams } from '@/types/api/system/dept'
 import type { TreeSelect } from '@/types/api/common'
 import modal from '@/plugins/modal'
-import { handleTree } from '@/utils/yebot'
+import { handleTree } from '@/utils/stepby'
 import { useTreeTableSort } from '@/composables/useTreeTableSort'
 
 const { t } = useI18n()

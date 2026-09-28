@@ -5,7 +5,7 @@ import { mkdirSync } from 'fs'
 import { TEST_USER, TEST_PASS } from './test-config.mjs'
 
 const BASE = process.env.TEST_BASE || 'http://localhost:4173'
-const SHOT_DIR = 'D:/桌面/yebot/screenshots/browser-test'
+const SHOT_DIR = 'D:/桌面/stepby/screenshots/browser-test'
 mkdirSync(SHOT_DIR, { recursive: true })
 
 const consoleErrors = [] // { page, text }
@@ -57,7 +57,7 @@ try {
     await page
       .evaluate(() => {
         document
-          .querySelectorAll('.yebot-tour-mask, [class*="tour-mask"], [class*="tour-popover"]')
+          .querySelectorAll('.stepby-tour-mask, [class*="tour-mask"], [class*="tour-popover"]')
           .forEach((el) => el.remove())
       })
       .catch(() => {})

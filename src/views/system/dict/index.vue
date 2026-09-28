@@ -232,7 +232,7 @@ import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import tab from '@/plugins/tab'
-import { addDateRange } from '@/utils/yebot'
+import { addDateRange } from '@/utils/stepby'
 
 const dictRefRef = useTemplateRef('dictRef')
 const queryRefRef = useTemplateRef('queryRef')

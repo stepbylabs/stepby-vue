@@ -1,6 +1,6 @@
 /**
  * v-desensitize 敏感数据脱敏指令
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  *
  * 用途：在前端展示敏感信息时自动脱敏，原始数据仅保留在内存中（不上写 DOM）
  *

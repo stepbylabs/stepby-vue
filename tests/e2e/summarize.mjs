@@ -1,5 +1,5 @@
 import fs from 'fs';
-const r = JSON.parse(fs.readFileSync('d:/桌面/yebot/tests/screenshots/test-report.json', 'utf8'));
+const r = JSON.parse(fs.readFileSync('d:/桌面/stepby/tests/screenshots/test-report.json', 'utf8'));
 console.log(`总计: ${r.total}  通过: ${r.passed}  失败: ${r.failed}`);
 console.log('---');
 const failed = r.results.filter(x => !x.passed);

@@ -34,7 +34,7 @@
       <settings ref="settingRef" />
     </div>
     <!-- 新手引导 Tour -->
-    <Tour v-model:visible="tourVisible" :steps="tourSteps" storage-key="yebot-layout-tour" />
+    <Tour v-model:visible="tourVisible" :steps="tourSteps" storage-key="stepby-layout-tour" />
     <!-- 任务进度浮层（监听 WS taskProgress 事件） -->
     <TaskProgress />
   </div>
@@ -164,7 +164,7 @@ onMounted(() => {
   // 初始化系统暗色模式监听（用户偏好设置中开启时生效）
   settingsStore.initSystemDarkWatcher()
   // 首次访问自动显示引导
-  const tourStatus = cache.local.get('yebot-layout-tour')
+  const tourStatus = cache.local.get('stepby-layout-tour')
   if (!tourStatus) {
     tourTimer.value = setTimeout(() => {
       tourVisible.value = true

@@ -1,7 +1,7 @@
-import { selectDictLabel, selectDictLabels, handleTree } from '@/utils/yebot'
+import { selectDictLabel, selectDictLabels, handleTree } from '@/utils/stepby'
 
 // ============================================================================
-// selectDictLabel 字典标签选择（从 yebot.test.ts 拆分而来，覆盖字典/树类工具）
+// selectDictLabel 字典标签选择（从 stepby.test.ts 拆分而来，覆盖字典/树类工具）
 // ============================================================================
 describe('selectDictLabel', () => {
   const datas = {

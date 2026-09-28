@@ -52,7 +52,7 @@ export default {
     changelog: 'Changelog',
     dashboard: 'Dashboard',
     tenantSpace: 'Tenant Services',
-    website: 'Yebot Website',
+    website: 'Stepby Website',
     pat: 'API Tokens',
     componentNotFound: 'Component "{view}" does not exist, please check menu configuration'
   },

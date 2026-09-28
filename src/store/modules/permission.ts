@@ -137,7 +137,7 @@ function filterAsyncRouter(
         route.component = loadView(route.component)
       }
     }
-    // 处理 noRedirect 标记：yebot 后端对 M 类型目录设置 redirect='noRedirect'，
+    // 处理 noRedirect 标记：stepby 后端对 M 类型目录设置 redirect='noRedirect'，
     // 用于面包屑组件判断"不可点击"。但 Vue Router 会将其当作实际重定向路径，
     // 导致访问父级目录（如 /dashboard）时重定向到 /noRedirect 触发 404。
     // 解决方案：删除 noRedirect，改为重定向到第一个可见子路由，

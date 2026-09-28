@@ -24,9 +24,9 @@
  * ── 运行 ──
  *   后端（embedded :8080）+ 前端 preview 需在跑；`sys.account.captchaEnabled=false` 时无需读验证码。
  *   legacy 档：
- *     PLAYWRIGHT_BROWSERS_PATH="D:/Projects/yebot/.pw-browsers" \
- *     YEBOT_TEST_USER=admin YEBOT_TEST_PASS=admin123 \
- *     YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+ *     PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *     STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+ *     STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *     EXPECT_CONVENTION=legacy node http-status-convention.mjs
  *   restful 档（装配见 RUN-RECIPE §3.23）：把 EXPECT_CONVENTION 换成 restful 再跑一遍。
  *   两档都必须「总计 N 通过，0 失败」且 EXIT=0；`EXPECT_CONVENTION` 可用于断言"确实跑在对的档上"。
@@ -51,12 +51,12 @@ try {
 }
 
 const BACKEND_URL = process.env.BACKEND_URL || BASE_URL
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.YEBOT_UI_URL || BASE_URL
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
 /** 期望档位（可选）：legacy | restful；留空 = 只做自洽断言 */
 const EXPECT = (process.env.EXPECT_CONVENTION || '').trim().toLowerCase()
 
 const TOTP_CODE_REQUIRED = 1003
-const CS_PASSWORD = 'Yebot@12345'
+const CS_PASSWORD = 'Stepby@12345'
 const CS_USER = `e2e_hsc_${Date.now().toString(36)}`
 
 const USERNAME_SEL =

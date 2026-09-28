@@ -1,5 +1,5 @@
 /**
- * yebot 端到端主测试脚本（Playwright）
+ * stepby 端到端主测试脚本（Playwright）
  *
  * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）（共 75 个功能）
  *   1. 在线用户强制踢出（/monitor/online）
@@ -53,11 +53,11 @@
  *   node main.mjs --feature=3      # 仅测试功能 3
  *
  * 前置条件：
- *   - 后端启动在 http://localhost:8080（默认，可通过 YEBOT_BASE_URL 环境变量覆盖）
- *   - 前端启动地址可通过 FRONTEND_URL / YEBOT_UI_URL 环境变量覆盖
+ *   - 后端启动在 http://localhost:8080（默认，可通过 STEPBY_BASE_URL 环境变量覆盖）
+ *   - 前端启动地址可通过 FRONTEND_URL / STEPBY_UI_URL 环境变量覆盖
  *   - 数据库 sys_config.sys.account.captchaEnabled=false（关闭验证码）
  *   - 数据库已执行 m20260721_000003_add_new_menus + m20260722_* migration
- *   - 测试账号通过 YEBOT_TEST_USER / YEBOT_TEST_PASS 环境变量注入
+ *   - 测试账号通过 STEPBY_TEST_USER / STEPBY_TEST_PASS 环境变量注入
  */
 
 import fs from 'fs'
@@ -92,14 +92,14 @@ try {
 
 const CONFIG = {
   // 支持环境变量覆盖 frontendUrl（嵌入模式下与 backendUrl 同源）
-  frontendUrl: process.env.FRONTEND_URL || process.env.YEBOT_UI_URL || BASE_URL,
+  frontendUrl: process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL,
   backendUrl: process.env.BACKEND_URL || BASE_URL,
   username: TEST_USER,
   password: TEST_PASS,
   // 普通角色账户（common 角色，用于多角色和权限隔离测试）
   // P2 修复: 支持环境变量覆盖，避免硬编码 'ry' 用户名和假设与主账号同密码
-  secondaryUsername: process.env.YEBOT_TEST_USER_SECONDARY || 'ry',
-  secondaryPassword: process.env.YEBOT_TEST_PASS_SECONDARY || TEST_PASS,
+  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'ry',
+  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || TEST_PASS,
   screenshotDir: path.resolve('screenshots'),
   slowMo: 100,
   // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
@@ -267,7 +267,7 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
     log('  已关闭 Cookie 同意横幅')
   }
 
-  // 验证码真码（后端启用时经 yebot-redis 读取页面同源明文；读不到 fail-fast）
+  // 验证码真码（后端启用时经 stepby-redis 读取页面同源明文；读不到 fail-fast）
   const captcha = await captchaPromise
   if (captcha === null) {
     log('  ⚠️ 页面未发出 /captchaImage 请求（后端未启用验证码），跳过填码')
@@ -4164,7 +4164,7 @@ async function testFeature26(page) {
     return { body: out, contentType: `multipart/form-data; boundary=${boundary}` }
   }
 
-  const txtBytes = new TextEncoder().encode('yebot common upload test content')
+  const txtBytes = new TextEncoder().encode('stepby common upload test content')
   const uniq = Date.now()
 
   // ---------- 步骤 2：POST /common/upload 上传合法 txt ----------
@@ -4354,7 +4354,7 @@ async function testFeature26(page) {
   let downloadRoundtripOk = false
   let downloadRoundtripDetail = ''
   try {
-    const content = `yebot-download-roundtrip-${uniq}`
+    const content = `stepby-download-roundtrip-${uniq}`
     const up = buildMultipart('file', `dl-${uniq}.txt`, new TextEncoder().encode(content), 'text/plain')
     const upResp = await fetch(`${CONFIG.backendUrl}/common/upload`, {
       method: 'POST',
@@ -5833,7 +5833,7 @@ async function testFeature34(page) {
     const hasAboutContent =
       bodyText.includes('项目信息') ||
       bodyText.includes('技术栈') ||
-      bodyText.includes('Yebot') ||
+      bodyText.includes('Stepby') ||
       bodyText.includes('关于')
     const noError = !bodyText.includes('Vue warn') && !bodyText.includes('Cannot read')
     record(
@@ -8282,18 +8282,18 @@ async function testFeature40(page) {
 async function testFeature41(page) {
   log('=== 功能 41：第五批次 性能优化验证 ===')
 
-  // 工作区根：向上查找同时含 yebot-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
+  // 工作区根：向上查找同时含 stepby-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if (fs.existsSync(path.join(d, 'yebot-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if (fs.existsSync(path.join(d, 'stepby-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
     }
     return path.resolve(__dirname, '..')
   })()
-  const uiRoot = path.join(projectRoot, 'yebot-ui')
+  const uiRoot = path.join(projectRoot, 'stepby-ui')
 
   // ---------- 1. echarts 按需导入 ----------
   try {
@@ -8498,18 +8498,18 @@ async function testFeature41(page) {
 async function testFeature42(page) {
   log('=== 功能 42：U5 Dashboard 聚合接口 + U14 用户统计接口验证 ===')
 
-  // 工作区根：向上查找同时含 yebot-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
+  // 工作区根：向上查找同时含 stepby-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if (fs.existsSync(path.join(d, 'yebot-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if (fs.existsSync(path.join(d, 'stepby-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
     }
     return path.resolve(__dirname, '..')
   })()
-  const uiRoot = path.join(projectRoot, 'yebot-ui')
+  const uiRoot = path.join(projectRoot, 'stepby-ui')
   const backendRoot = path.join(projectRoot, 'axum-backend')
 
   // ---------- 1. U5 后端 DashboardStatsVo 字段扩展 ----------
@@ -14818,7 +14818,7 @@ async function testFeature73(page) {
   let pkgSmallId = null
   try {
     const { DatabaseSync } = await import('node:sqlite')
-    const dbPath = path.resolve(__dirname, '../../../axum-backend/data/yebot.db')
+    const dbPath = path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
     db = new DatabaseSync(dbPath)
     db.exec('PRAGMA busy_timeout = 5000')
     const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -15568,7 +15568,7 @@ async function testFeature74(page) {
     if (roleAuthA) {
       try {
         const { DatabaseSync } = await import('node:sqlite')
-        const dbPath = path.resolve(__dirname, '../../../axum-backend/data/yebot.db')
+        const dbPath = path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
         const cdb = new DatabaseSync(dbPath)
         cdb.exec('PRAGMA busy_timeout = 5000')
         cdb.prepare('DELETE FROM sys_role_menu WHERE role_id = ?').run(roleAuthA)
@@ -15653,9 +15653,9 @@ async function testFeature75(page) {
         deptId: 103,
         userName: csName,
         nickName: 'e2e75 加签目标',
-        email: `${csName}@yebot.dev`,
+        email: `${csName}@stepby.tzkj.net`,
         phonenumber: '13800009999',
-        password: 'Yebot@12345',
+        password: 'Stepby@12345',
         status: '0',
         roleIds: [2]
       })
@@ -15882,7 +15882,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('yebot 端到端主测试脚本（75 个功能）')
+  log('stepby 端到端主测试脚本（75 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`

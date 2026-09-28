@@ -86,7 +86,7 @@
 <script setup lang="ts">
 import Fuse from 'fuse.js'
 import type { InputInstance } from 'element-plus'
-import { getNormalPath } from '@/utils/yebot'
+import { getNormalPath } from '@/utils/stepby'
 import { isHttp } from '@/utils/validate'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'

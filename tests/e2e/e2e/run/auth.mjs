@@ -3,7 +3,7 @@
  *
  * 依赖约定（本机测试环境）：
  *   - 后端验证码开启时写入 redis 键 captcha:{uuid}:{ip}（明文小写，TTL 300s）
- *   - 本机 yebot-redis 容器在运行（redis-cli 可达）
+ *   - 本机 stepby-redis 容器在运行（redis-cli 可达）
  *
  * 关键约束：
  *   - 浏览器场景必须用**页面自身发出的 /captchaImage 响应**里的 uuid
@@ -20,7 +20,7 @@ const { execSync } = require('child_process')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * 经 yebot-redis 容器读取指定 uuid 的验证码明文。
+ * 经 stepby-redis 容器读取指定 uuid 的验证码明文。
  * 按 pattern 扫描键名（ip 段格式无关）。读不到抛错（fail-fast），绝不填假码。
  * @param {string} uuid - /captchaImage 响应中的 uuid
  * @returns {Promise<string>} 验证码明文
@@ -30,22 +30,22 @@ export async function readCaptchaCodeFromRedis(uuid) {
   try {
     await sleep(300) // 键写入兜底等待
     const key = execSync(
-      `docker exec yebot-redis redis-cli --raw --scan --pattern "${pattern}"`,
+      `docker exec stepby-redis redis-cli --raw --scan --pattern "${pattern}"`,
       { encoding: 'utf-8', timeout: 10000 }
     )
       .trim()
       .split('\n')[0]
     if (!key) throw new Error('redis 无匹配键（可能已过期或 ip 段异常）')
     const code = execSync(
-      `docker exec yebot-redis redis-cli --raw GET "${key}"`,
+      `docker exec stepby-redis redis-cli --raw GET "${key}"`,
       { encoding: 'utf-8', timeout: 10000 }
     ).trim()
     if (!code) throw new Error(`redis 键 ${key} 值为空`)
     return code
   } catch (e) {
     throw new Error(
-      `验证码已启用且无法经 yebot-redis 读取真码（${String(e.message).slice(0, 100)}）。` +
-        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，并清除 redis config: 前缀的对应缓存键，或确保 yebot-redis 容器在运行`
+      `验证码已启用且无法经 stepby-redis 读取真码（${String(e.message).slice(0, 100)}）。` +
+        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，并清除 redis config: 前缀的对应缓存键，或确保 stepby-redis 容器在运行`
     )
   }
 }

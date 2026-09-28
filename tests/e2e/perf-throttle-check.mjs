@@ -1,4 +1,4 @@
-// yebot-ui/tests/e2e/perf-throttle-check.mjs
+// stepby-ui/tests/e2e/perf-throttle-check.mjs
 // 弱网/弱设备性能回归（R102-FCP-012 慢速 3G / R102-FCP-013 弱 CPU）：
 // 用 Playwright CDP 注入网络与 CPU 节流，访问 /login，通过注入的
 // PerformanceObserver 采集 FCP/LCP，与 perf-budget.json 的运行时预算比对。

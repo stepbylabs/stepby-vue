@@ -1,6 +1,6 @@
 /**
  * v-copyText 复制文本内容
- * Copyright (c) 2024-2026 Yebot
+ * Copyright (c) 2024-2026 Stepby
  */
 interface CopyHTMLElement extends HTMLElement {
   $copyValue?: string

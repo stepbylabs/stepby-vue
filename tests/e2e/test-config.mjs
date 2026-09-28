@@ -5,10 +5,10 @@
  * 凭据必须通过环境变量传入，无默认值，防止弱密码泄漏。
  *
  * 环境变量：
- *   YEBOT_TEST_USER  —— 测试登录用户名（必填）
- *   YEBOT_TEST_PASS  —— 测试登录密码（必填）
- *   YEBOT_BASE_URL   —— 后端基础 URL（可选，默认 http://localhost:8080）
- *   YEBOT_UI_URL     —— 前端基础 URL（可选，默认 http://localhost:5173）
+ *   STEPBY_TEST_USER  —— 测试登录用户名（必填）
+ *   STEPBY_TEST_PASS  —— 测试登录密码（必填）
+ *   STEPBY_BASE_URL   —— 后端基础 URL（可选，默认 http://localhost:8080）
+ *   STEPBY_UI_URL     —— 前端基础 URL（可选，默认 http://localhost:5173）
  *
  * 用法：
  *   import { TEST_USER, TEST_PASS, BASE_URL, UI_URL, withBrowser } from './test-config.mjs'
@@ -19,20 +19,20 @@
  */
 
 /** 测试用户名（必须通过环境变量设置） */
-export const TEST_USER = process.env.YEBOT_TEST_USER || (() => {
-  throw new Error('必须设置环境变量 YEBOT_TEST_USER（测试用户名）')
+export const TEST_USER = process.env.STEPBY_TEST_USER || (() => {
+  throw new Error('必须设置环境变量 STEPBY_TEST_USER（测试用户名）')
 })()
 
 /** 测试密码（必须通过环境变量设置） */
-export const TEST_PASS = process.env.YEBOT_TEST_PASS || (() => {
-  throw new Error('必须设置环境变量 YEBOT_TEST_PASS（测试密码）')
+export const TEST_PASS = process.env.STEPBY_TEST_PASS || (() => {
+  throw new Error('必须设置环境变量 STEPBY_TEST_PASS（测试密码）')
 })()
 
 /** 后端 API 基础 URL */
-export const BASE_URL = process.env.YEBOT_BASE_URL || 'http://localhost:8080'
+export const BASE_URL = process.env.STEPBY_BASE_URL || 'http://localhost:8080'
 
 /** 前端 UI 基础 URL */
-export const UI_URL = process.env.YEBOT_UI_URL || 'http://localhost:5173'
+export const UI_URL = process.env.STEPBY_UI_URL || 'http://localhost:5173'
 
 /** HTTP 请求默认超时（毫秒） */
 export const HTTP_TIMEOUT_MS = 10000

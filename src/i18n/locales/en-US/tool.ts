@@ -464,7 +464,7 @@ export default {
       tplWebVue3: 'Vue3 Element Plus Template',
       tplWebVue3Ts: 'Vue3 Element Plus TypeScript Template',
       packageName: 'Package Path',
-      packageNameTip: 'Which Java package to generate under, e.g. com.yebot.system',
+      packageNameTip: 'Which Java package to generate under, e.g. com.stepby.system',
       moduleName: 'Module Name',
       moduleNameTip: 'Can be seen as subsystem name, e.g. system',
       businessName: 'Business Name',
