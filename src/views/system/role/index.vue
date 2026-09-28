@@ -187,7 +187,7 @@
     />
 
     <!-- 添加或修改角色配置对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
       <el-form ref="roleRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('role.form.roleName')" prop="roleName">
           <el-input v-model.trim="form.roleName" :placeholder="t('role.search.phRoleName')" />
@@ -391,6 +391,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   handleQuery,
   handleSelectionChange,
   handleDelete,

@@ -144,7 +144,7 @@
     />
 
     <!-- 添加或修改消息渠道对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 560px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 560px)" append-to-body destroy-on-close>
       <el-form ref="channelRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('msg.channel.form.channelName')" prop="channelName">
           <el-input
@@ -301,6 +301,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,

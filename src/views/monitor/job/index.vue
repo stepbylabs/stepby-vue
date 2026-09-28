@@ -169,7 +169,7 @@
     />
 
     <!-- 添加或修改定时任务对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(80%, 820px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(80%, 820px)" append-to-body destroy-on-close>
       <el-form ref="jobRef" :model="form" :rules="rules" label-width="120px">
         <el-row>
           <el-col :span="12">
@@ -313,6 +313,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   reset,
   handleQuery,

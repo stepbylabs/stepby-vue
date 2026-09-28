@@ -150,7 +150,7 @@
     />
 
     <!-- 添加或修改消息模板对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(92%, 720px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(92%, 720px)" append-to-body destroy-on-close>
       <el-form ref="templateRef" :model="form" :rules="rules" label-width="80px" class="template-form">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -324,6 +324,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,

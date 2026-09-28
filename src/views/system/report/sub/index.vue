@@ -155,7 +155,7 @@
     />
 
     <!-- 添加或修改订阅对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 620px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 620px)" append-to-body destroy-on-close>
       <el-form ref="subRef" :model="form" :rules="rules" label-width="120px">
         <el-form-item :label="t('report.sub.form.subName')" prop="subName">
           <el-input v-model.trim="form.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" />
@@ -268,6 +268,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,

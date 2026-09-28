@@ -178,7 +178,7 @@
     />
 
     <!-- 添加或修改字典对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
       <el-form ref="dictRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('dict.form.dictName')" prop="dictName">
           <el-input v-model.trim="form.dictName" :placeholder="t('dict.search.phDictName')" />
@@ -271,6 +271,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   handleSelectionChange,

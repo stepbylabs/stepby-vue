@@ -180,7 +180,7 @@
     />
 
     <!-- 添加或修改报表定义对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
       <el-form ref="reportRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('report.form.reportCode')" prop="reportCode">
           <el-input v-model.trim="form.reportCode" :placeholder="t('report.form.phReportCode')" :maxlength="64" />
@@ -560,6 +560,7 @@ const {
   title,
   ids,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,

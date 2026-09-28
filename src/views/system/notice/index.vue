@@ -164,7 +164,7 @@
     />
 
     <!-- 添加或修改公告对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(80%, 780px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(80%, 780px)" append-to-body destroy-on-close>
       <el-form ref="noticeRef" :model="form" :rules="rules" label-width="80px">
         <el-row>
           <el-col :span="12">
@@ -280,6 +280,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,

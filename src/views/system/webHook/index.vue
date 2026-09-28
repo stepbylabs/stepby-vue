@@ -202,7 +202,7 @@
     <!-- 添加或修改回调配置对话框 -->
     <el-dialog
       :title="title"
-      v-model="open"
+       :before-close="beforeDialogClose" v-model="open"
       width="min(90%, 620px)"
       append-to-body
       destroy-on-close
@@ -418,6 +418,7 @@ const {
   title,
   ids,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery: crudHandleQuery,
   resetQuery: crudResetQuery,

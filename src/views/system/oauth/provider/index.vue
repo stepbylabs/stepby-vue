@@ -179,7 +179,7 @@
     />
 
     <!-- 新增 / 编辑提供商 -->
-    <el-dialog :title="title" v-model="open" width="min(94%, 720px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(94%, 720px)" append-to-body destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
@@ -390,6 +390,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   handleSelectionChange,

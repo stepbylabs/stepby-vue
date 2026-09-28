@@ -137,7 +137,7 @@
     />
 
     <!-- 添加或修改岗位对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
       <el-form ref="postRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('post.form.postName')" prop="postName">
           <el-input v-model.trim="form.postName" :placeholder="t('post.search.phPostName')" />
@@ -214,6 +214,7 @@ const {
   total,
   title,
   getList,
+  beforeDialogClose,
   cancel,
   handleQuery,
   resetQuery,
