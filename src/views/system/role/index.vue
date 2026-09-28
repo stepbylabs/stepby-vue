@@ -78,6 +78,7 @@
       </el-col>
       <right-toolbar
         v-model:showSearch="showSearch"
+        :columns="columns"
         @queryTable="getList"
         :show-print="true"
         :print-data="dataList"
@@ -97,10 +98,10 @@
       >
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column :label="t('role.column.id')" prop="roleId" width="80" />
-        <el-table-column :label="t('role.column.roleName')" prop="roleName" show-overflow-tooltip width="150" />
-        <el-table-column :label="t('role.column.roleKey')" prop="roleKey" show-overflow-tooltip width="150" />
-        <el-table-column :label="t('role.column.sort')" prop="roleSort" width="100" />
-        <el-table-column :label="t('role.column.status')" align="center" width="100">
+        <el-table-column :label="t('role.column.roleName')" prop="roleName" show-overflow-tooltip width="150" v-if="columns.roleName.visible" />
+        <el-table-column :label="t('role.column.roleKey')" prop="roleKey" show-overflow-tooltip width="150" v-if="columns.roleKey.visible" />
+        <el-table-column :label="t('role.column.sort')" prop="roleSort" width="100" v-if="columns.roleSort.visible" />
+        <el-table-column :label="t('role.column.status')" align="center" width="100" v-if="columns.status.visible">
           <template #default="scope">
             <el-switch
               v-hasPermi="['system:role:edit']"
@@ -316,10 +317,11 @@ import {
 } from '@/api/system/role'
 import { roleMenuTreeselect, treeselect as menuTreeselect } from '@/api/system/menu'
 import type { SysRole, RoleQueryParams } from '@/types/api/system/role'
-import type { TreeSelect } from '@/types/api/common'
+import type { TreeSelect, TableShowColumns } from '@/types/api/common'
 import type { RoleDeptTreeResult } from '@/types/api/system/role'
 import type { RoleMenuTreeselectResult } from '@/types/api/system/menu'
 import type { TreeInstance } from 'element-plus'
+import useSettingsStore from '@/store/modules/settings'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
@@ -329,6 +331,33 @@ const { t } = useI18n()
 const roleRefRef = useTemplateRef('roleRef')
 const queryRefRef = useTemplateRef('queryRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
+
+// UX-7：列显隐偏好持久化（与用户管理页同一模式：RightToolbar 面板 + userPrefs 存储）
+const settingsStore = useSettingsStore()
+const ROLE_TABLE_KEY = 'system:role'
+const columns = ref<Record<string, TableShowColumns>>({
+  roleName: { label: t('role.column.roleName'), visible: true },
+  roleKey: { label: t('role.column.roleKey'), visible: true },
+  roleSort: { label: t('role.column.sort'), visible: true },
+  status: { label: t('role.column.status'), visible: true },
+  createTime: { label: t('role.column.createTime'), visible: true }
+})
+const savedRoleColumns = settingsStore.userPrefs.tableColumns?.[ROLE_TABLE_KEY]
+if (savedRoleColumns?.length) {
+  for (const key of Object.keys(columns.value)) {
+    columns.value[key].visible = savedRoleColumns.includes(key)
+  }
+}
+watch(
+  columns,
+  (v: Record<string, TableShowColumns>) => {
+    const visible = Object.keys(v).filter((k) => v[k].visible)
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [ROLE_TABLE_KEY]: visible }
+    })
+  },
+  { deep: true }
+)
 
 const dateRange = ref<string[]>([])
 const menuOptions = ref<TreeSelect[]>([])
