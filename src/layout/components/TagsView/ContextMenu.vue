@@ -73,6 +73,15 @@ const emit = defineEmits<{
     padding: 7px 16px;
     cursor: pointer;
     transition: background-color 0.15s ease;
+    /* icon + 文字强制单行：避免窗口边缘/长文案时被挤成两行（用户实测缺陷） */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+
+    :deep(svg) {
+      flex-shrink: 0;
+    }
 
     &:hover {
       background: var(--tags-item-hover, #eee);

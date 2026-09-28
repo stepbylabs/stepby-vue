@@ -161,8 +161,12 @@ export default defineConfig(({ mode, command }) => {
     },
     // vite preview 用于本地预览生产/预发构建产物，
     // 其请求基址为 /prod-api 或 /stage-api，需同样代理到后端。
+    // strictPort：端口被占时**直接报错**而非自动漂移到 4174——端口漂移会让
+    // "服务在哪个端口"产生歧义（用户实测混淆：4173 被残留进程占用后悄悄换到 4174，
+    // 旧的 4173 实例/书签全部失效）。
     preview: {
       port: 4173,
+      strictPort: true,
       proxy: buildProxy(baseUrl)
     }
   }

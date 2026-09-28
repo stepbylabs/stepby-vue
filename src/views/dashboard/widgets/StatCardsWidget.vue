@@ -1,7 +1,12 @@
 <template>
   <WidgetCard :title="t('dashboard.layout.widgetStats')" icon="DataLine">
     <div v-loading="loading && !loaded" :element-loading-text="t('common.loading')">
-      <StatCards :stats="stats" />
+      <!-- StatCards 输出的是 5 个 el-col（24 栅格各占 6 → 一行 4 张），
+           el-col 必须作为 el-row 的直接子元素才成横向栅格；widget 化改造时
+           遗漏了 el-row 容器导致卡片默认竖排（用户实测缺陷） -->
+      <el-row :gutter="10">
+        <StatCards :stats="stats" />
+      </el-row>
     </div>
   </WidgetCard>
 </template>
