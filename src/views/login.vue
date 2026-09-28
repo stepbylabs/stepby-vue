@@ -106,12 +106,13 @@
           </div>
         </Transition>
       </el-form-item>
-      <!-- WebAuthn / Passkey：通行密钥登录入口（仅浏览器支持时渲染） -->
+      <!-- WebAuthn / Passkey：通行密钥登录入口（**浏览器支持 且 服务端能力位 auth.webauthn 开启**时渲染；
+           能力位关闭态后端端点为 404，若仍渲染即"入口可见但请求 404"的假入口） -->
       <!-- 注意：分隔线必须用**独立类名** `passkey-divider`，不得复用 `.oauth-divider`
            —— 后者是「OAuth 第三方登录」区块的语义锚点（e2e 功能 55 以 `.oauth-divider`
            计数断言"分隔线出现与否与 /oauth2/providers 启用数一致"）；复用会让
            "无 OAuth 供应商时计数应为 0" 的断言被 passkey 分隔线污染。视觉样式两处共用。 -->
-      <template v-if="webauthnSupported">
+      <template v-if="webauthnSupported && webauthnEnabled">
         <el-divider class="passkey-divider">
           <span class="passkey-divider-text">{{ t('login.passkeyDivider') }}</span>
         </el-divider>
@@ -216,6 +217,9 @@ const oauthLoading = ref('')
 
 // WebAuthn / Passkey：浏览器是否支持 + 通行密钥登录 loading
 const webauthnSupported = isWebauthnSupported()
+// 服务端能力位 `auth.webauthn` 开关（由 /captchaImage 下发，与 WebAuthn 端点守卫同一判据）。
+// 默认 false（fail-safe）：未取到时宁可不显示入口，避免"入口可见但请求 404"的假入口。
+const webauthnEnabled = ref(false)
 const webauthnLoading = ref(false)
 
 // 第三方类型 → 图标名（svg 位于 src/assets/icons/svg）
@@ -373,6 +377,9 @@ function getCode(): void {
       captchaEnabled.value = res.captchaEnabled === undefined ? true : res.captchaEnabled
       // 同时读取注册开关（后端 /captchaImage 已返回 registerEnabled 字段，避免探测 /register 触发 403）
       register.value = res.registerEnabled === true
+      // 通行密钥登录开关：同样由后端算好下发（能力位 auth.webauthn 关闭 ⇒ 端点为 404，
+      // 故入口必须同步隐藏，避免控制台 404 与"假入口"）
+      webauthnEnabled.value = res.webauthnEnabled === true
       // 仅在 captchaEnabled 且 res.img 非空时设置验证码图片
       // 防止 res.img 为 undefined/空字符串时生成 data:image/gif;base64,undefined 的无效 URL
       if (captchaEnabled.value && res.img) {

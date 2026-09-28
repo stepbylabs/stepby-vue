@@ -75,15 +75,25 @@ node main.mjs --headless
 - 不带 `--feature` = 跑全部 75 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
   `1-20 / 21-40 / 41-75` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- **功能 1-75** 通过 判据（**最新权威基线，2026-09-28 第二十批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
-  实测 `107 + 223 + 446 = **776 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`；跑前 `/health` = `db UP / redis UP`）。
-  （上一权威基线为 2026-09-26 第六批 `107 + 223 + 445 = 775`；第三段计数随后上移 1，非本批改动 `main.mjs` 所致。）
-  唯一**非失败**告警：第二段末尾 `⚠️ [404] GET /system/user/webauthn/credentials`×3 ——
-  WebAuthn 能力位默认 off 时该路由不注册，而前端入口只按浏览器能力判断（既有"假入口"类问题，
-  见台账 §8.25-D 末行登记与建议方案）。
-  第 51 功能首跑曾因 `networkidle` 被 web-vitals beacon 卡死而**假失败**，修复后复跑 `24/24`（见 §3.16）；
+- **功能 1-75** 通过 判据（**最新权威基线，2026-09-28 第二十一批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
+  实测 `107 + 223 + 445 = **775 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`；跑前 `/health` = `db UP / redis UP`）。
+  第二段告警数由 3 → **0**；第三段 `[-1]` 与第二段的告警归零**同源**，都是第二十一批修掉假入口的直接结果
+  （详见下方「计数与告警的变动说明」）。
+  （历史基线：第二十批 `107 + 223 + 446 = 776`；第六批 `107 + 223 + 445 = 775`；
+  功能 1-68 曾为 `106 + 220 + 326 = 652`，随 W-3/W-8/W-10/W-11/W-17 与失败计数收紧逐批上移。）
+- **计数与告警的变动说明（重要，改能力位门控必读）**：第二十一批把个人中心「通行密钥 / Passkeys」页签
+  由"恒渲染"改为 `v-if="userStore.showPasskey"`（能力位 `auth.webauthn` 管辖）。故：
+  - 功能 54 的 `/user/profile/index 存在可切换页签` 由 `tabs=8` → **`tabs=7`**（少掉 passkey 页签）
+    ⇒ 第三段总数 446 → 445。**这是修复的预期结果，不是回归**；
+  - 第二十批基线中**唯一非失败告警** `⚠️ [404] GET /system/user/webauthn/credentials`×3 随之**消失**
+    （页签不再渲染 ⇒ 其子组件 `onMounted` 不再探测未注册端点）。**"0 告警"是新增的通过判据之一**：
+    若该 404 重现，说明门控退化成了"入口在但接口不注册"的假入口。
+  - 开启态（`auth.webauthn=on` + `[webauthn]` 配好信任锚）必须**另行**验证入口不误藏：见 §3.22(4)。
+- 段 1 的 `⚠️ [403] /register` 与段 3 的 `⚠️ [401] /login`（各 1~4 条）均为**既定断言**而非缺陷：
+  前者是功能 15「注册流程拦截验证」断言的后端返回（`当前系统未开放注册，请联系管理员`），
+  后者来自功能 51/52/55 等"未授权 / 错误凭据必须被拒"的负路径断言。
+- 第 51 功能首跑曾因 `networkidle` 被 web-vitals beacon 卡死而**假失败**，修复后复跑 `24/24`（见 §3.16）；
   最终源码上再验 `--feature=51,66` = `36/36`。
-  （历史基线：功能 1-68 曾为 `106 + 220 + 326 = 652`；随 W-3/W-8/W-10/W-11/W-17 与失败计数收紧逐批上移。）
 - **功能 69-73** 通过判据（已验证基线，轮13）：`--feature=69-73` 单轮 `失败: 0`，EXIT=0，
   且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
   71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条、
@@ -768,7 +778,9 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
 
 - ⚠️ 推导兜底是"末两段标签"的**保守启发式**（多级公共后缀不精确）⇒ 生产必须显式配置。
 - ⚠️ 非 HTTPS 时浏览器不提供 `navigator.credentials`（`http://localhost` 例外）。
-- ⚠️ 关闭态（默认）⇒ 6 条端点全 **404**；前端登录页入口由**浏览器支持性检测**隐藏（不依赖能力位）。
+- ⚠️ 关闭态（默认）⇒ 6 条端点全 **404**；前端两处入口**同时**由能力位隐藏
+  （第二十一批起：登录页 `webauthnSupported && webauthnEnabled`、个人中心页签 `v-if="userStore.showPasskey"`）。
+  判据与端点守卫**同源** ⇒ **可见即可用、不可见即 404**，既不造假入口、也不藏真入口。
 
 #### (2) 手工验证（浏览器）
 
@@ -777,7 +789,8 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
 | 个人中心 → 「通行密钥」→ 添加 | 浏览器弹出 passkey 创建（Windows Hello / 安全密钥 / 手机）；成功后列表出现 1 条 |
 | 退出登录 → 登录页「使用通行密钥登录」+ 填用户名 | 弹出凭据选择 → 通过后**直接进入系统**（无需密码/TOTP） |
 | 删除该凭据后再用 passkey 登录 | 失败（无凭据）；用户名不存在 与 无凭据用户 的**提示必须同形**（防枚举） |
-| 关闭能力位重启 | 登录页入口消失（浏览器支持性检测）或点击后提示"能力未开启"（后端 404 文案） |
+| **关闭能力位重启** | 登录页分隔线与按钮**都不出现**、个人中心**无**「通行密钥」页签，且控制台**无** `/system/user/webauthn/*` 404（第二十一批前的旧行为：入口在但请求 404 —— 假入口） |
+| **开启能力位重启** | 上述两处入口**都要出现**（验证门控不会"误藏真入口"） |
 
 #### (3) 自动化验证（本批已落地，改这批必跑）
 
@@ -801,6 +814,28 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
   YEBOT_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
   node webauthn.mjs   # 期望「总计 25 通过，0 失败」且 EXIT=0
   ```
+
+#### (4) 双档验收流程（第二十一批起**强制**；改能力位门控必跑）
+
+能力位门控是"两态"代码 ⇒ **只跑关闭态等于只验了一半**（关闭态全绿也可能把真入口一并藏掉）。
+务必按序跑完两侧，并各自留存日志：
+
+```bash
+# ① 关闭态（默认，main.mjs 全量）：期望 107 + 223 + 445 = 775 通过 / 0 失败，且第二段告警数 = 0
+# ② 开启态（临时改 config/config.toml，该文件 .gitignore ⇒ 不入库）
+#    [features] "auth.webauthn" = "on"
+#    [webauthn] rp_id = "localhost" / rp_name = "Yebot" / origin = "http://localhost:8080"
+#    重启后端（无需重新构建前端：入口开关是 /getInfo 与 /captchaImage 的运行时下发值）
+node webauthn.mjs           # 期望「总计 25 通过，0 失败」且 EXIT=0
+# ③ 逐字还原 config/config.toml（复核 `[features]` 命中数 = 0）
+```
+
+- 第二十一批实测：① `107 + 223 + 445 = 775 / 0`（三段 EXIT=0，第二段 0 告警）；② `25 / 0`（EXIT=0）。
+- ②的 25 条断言中「S2 登录页『使用通行密钥登录』入口可见」与「S1 初始凭据列表为 0 条」
+  正是"入口不误藏 + 端点真的可用"的**可证伪**证据（若门控写反，第一步即 FAIL）。
+- ①中出现 `⚠️ [404] GET /system/user/webauthn/credentials` ⇒ 门控退化（假入口回归），**必须**排查
+  是否有人把 `v-if` 改回 `v-show`/去掉判断（Element Plus 会渲染 `v-show` 隐藏页签的内容，
+  其子组件 `onMounted` 仍会探测未注册端点 ⇒ 必然 404）。
 - ⚠️ **类名复用陷阱（2026-09-27 全量复跑抓出，改登录页/新增同视觉区块必读）**：新增区块**不得复用既有的
   "语义锚点"类名**。本批 passkey 分隔线最初为复用视觉样式而写成 `class="oauth-divider"`，而 `main.mjs`
   功能 55 正是用 `.oauth-divider` **计数**断言"分隔线出现与否与 `/oauth2/providers` 启用数一致"
@@ -1022,6 +1057,87 @@ curl.exe -sI http://localhost:18080/system/user             # SPA fallback 亦 n
   → 以 `EMBEDDED_FRONTEND=true SSO_ENABLED=true` 启动 `:8080` → `vite preview --port 4173`。
 - 启动方式：**必须在本工具中以「后台任务」方式常驻**（前台 `Start-Process` 曾出现进程随调用结束而消失，
   导致 e2e 首步登录页超时）。启动后先 `curl http://localhost:8080/health` 确认 `db/redis` 双 UP。
+
+### 3.26 本轮（第二十一批）新增开关的开启态配方（改这批代码必跑）
+
+**本批有「运行时语义」的改动**：能力位前端下发（假入口收敛）+ 登录风控 / 上传扫描集成点（均默认 `off`）
++ `menu_type` 常量化（纯重构，无行为变更）+ cron DTO 上限对齐 `64`。
+
+#### (1) 能力位前端下发（`auth.webauthn`）——**本批最重要的可证伪点**
+
+```bash
+# 关闭档（默认，= 现状）：能力位 auth.webauthn 缺省 off
+curl.exe -s http://localhost:8080/captchaImage                                  # ⇒ "webauthnEnabled": false
+curl.exe -s -H "Authorization: Bearer <AT>" http://localhost:8080/getInfo        # ⇒ "showPasskey": false
+curl.exe -s -o NUL -w "%{http_code}" -H "Authorization: Bearer <AT>" \
+  http://localhost:8080/system/user/webauthn/credentials                        # ⇒ 404
+
+# 开启档（另需配 [webauthn] rp_id / origin 使端点真的可用）
+#   ⇒ captchaImage.webauthnEnabled = true；getInfo.showPasskey = true；上述端点 ⇒ 200
+```
+
+- 可证伪回归锁：`cargo test --lib integration_tests::capability_features::test_ui_entry_flags_are_delivered_and_follow_capability`
+  —— 除断言四个开关的**下发值**外，**交叉锁定**「入口开关 false ⇒ 端点确实 404」「为 true ⇒ 端点确实 200」，
+  防止"入口隐藏了但接口还能调"或反之。
+- 手工：登录页不应出现「通行密钥登录」分隔线与按钮；个人中心不应出现「通行密钥」页签；
+  浏览器控制台**不应有 `/system/user/webauthn/*` 的 404 报错**（这正是本批修掉的假入口）。
+- **本批实测（两档都跑）**：关闭态 `main.mjs` 三段 `107 + 223 + 445 = 775 / 0`，第二段告警 **3 → 0**；
+  开启态 `node webauthn.mjs` **25 / 0**。验收流程与判据见 §3.22(4)。
+- ⚠️ 本批同时修掉一个**长期存在但从未被发现**的缺陷：`GetInfoResult` 此前**从未包含**
+  `showTenantColumn` / `showTenantFilter` ⇒ 前端「所属租户」归属列与「按租户筛选」入口**从未出现过**。
+  验证：`getInfo` 响应中这两个字段**存在且为布尔**（修复前是 `undefined`）。
+
+#### (2) `[risk_control]`（登录面风控，**默认 `off` = 现状**）
+
+```bash
+# 关闭档（默认）：任何 UA 都能进入正常登录流程
+curl.exe -s -X POST http://localhost:8080/login -H "User-Agent: curl/8.0.1" \
+  -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}'
+  # ⇒ 走正常流程（失败在验证码/口令，而**不是** 403 风控）
+
+# 开启档
+RISK_CONTROL_LOGIN_UA_FILTER=block <启动后端>
+#   curl UA   ⇒ 403 + error.auth.ua_blocked
+#   浏览器 UA ⇒ 正常流程
+```
+
+- `strict` 档额外拒绝空 UA（不带 `User-Agent` 头）。
+- 留痕：被拒时 `sys_logininfor` 新增 1 行 `status='1'`、`msg=登录客户端特征被风控策略拒绝`。
+- 可证伪单测：`cargo test --lib common::risk_control`（6 例：`off` 恒放行 / 大小写无关子串 /
+  空 UA 仅 `strict` 拦 / 空白特征不匹配 / 粗粒度地区键 / 同省不同城不告警）。
+- ⚠️ 三条登录链路（密码 / WebAuthn / OAuth）**共用同一判据**；若只改了密码链路，另两条会漏判。
+
+#### (3) `[risk_control].login_geo_alert = alert`（异地告警，**只告警不拦截**）
+
+- 判据：同租户内同用户名最近一次**成功**登录的**国家 + 省份**与本次不同 ⇒ 打 WARN，且本次**成功登录日志的
+  `msg`** 变为 `异地登录告警：X 变更为 Y`（普通成功登录为 `登录成功`）。
+- 快速构造：先用 A 地区出口登录一次（产生历史行），再用不同省份出口登录（代理 / VPN）。
+- 边界（**必须不告警**）：首次登录 / 归属地库未命中 / 只有"中国"这种粒度 / 同省换城市换 ISP。
+
+#### (4) `[upload_scan]`（上传扫描，**默认 `off` = 零出站**）
+
+```bash
+# 关闭档：url 指向一个必然无人监听的端口，上传仍必须成功（证明"一个字节都不出站"）
+UPLOAD_SCAN_MODE=off UPLOAD_SCAN_URL=http://127.0.0.1:9/scan <启动后端>
+curl.exe -F "file=@some.png" http://localhost:8080/common/upload      # ⇒ 200（若真发请求必然连接失败）
+```
+
+- 可证伪单测：`cargo test --lib common::upload_scan`（4 例：`off` 档零出站 / 非法与内网地址一律判"不可用" /
+  响应契约解析（缺 `clean`、非布尔一律视为不合约）/ `fail_closed` 语义）。
+- 生效入口 3 处（均在**落盘之前**）：`/common/upload`、`/system/file/upload`、`/system/user/profile/avatar`。
+- ⚠️ **真正的端到端扫描需要真实 AV 端点**——SSRF 守卫会拒绝环回地址，故本地 stub 无法作为端到端证据；
+  部署侧验收见 `deploy/README.md` §7.2「上线核对」新增两条（EICAR 样本 ⇒ 400；停掉端点 ⇒ 503）。
+
+#### (5) `menu_type` 常量化（纯重构，无行为变更）
+
+- 三处调用点改为引用 `common::constants::menu_type`（`DIR`/`MENU`/`BUTTON`），**取值不变**
+  （`common::constants::tests::test_menu_type_values_are_persisted_contract` 锁死）。
+- 回归判据：§3 三段全量 e2e 中菜单/路由相关断言（`getRouters` 与侧边栏）全绿即证明无回归。
+
+#### (6) cron 表达式上限对齐（`64`）
+
+- 手工：`POST /prod-api/monitor/job` 传 **65 字符**的 `cronExpression` ⇒ 应得业务码 **400**
+  （此前 garde 上限 255 会放行，随后落库报 500）。
 
 ## 4. source-check 防混淆约定（重要）
 

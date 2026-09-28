@@ -50,6 +50,14 @@ export interface UserInfoResult extends AjaxResult {
    * ⚠️ 匿名化**不可逆**（PII 置换 + 凭据全吊销），前端必须二次确认。
    */
   showUserErasure?: boolean
+  /**
+   * 个人中心是否显示「通行密钥（Passkey）」页签
+   *
+   * 由后端按能力位 `auth.webauthn`（**与 WebAuthn 端点守卫同一判据**）算好后下发：
+   * 关闭态后端对 `/system/user/webauthn/*` 一律 404。前端只消费不推断，
+   * 避免造出「页签可见但请求 404」的假入口。
+   */
+  showPasskey?: boolean
 }
 
 /** 验证码响应 */
@@ -62,6 +70,14 @@ export interface CaptchaInfoResult extends AjaxResult {
   captchaEnabled: boolean
   /** 注册开关（后端从 sys.account.registerUser 读取，前端据此控制"立即注册"链接显示） */
   registerEnabled?: boolean
+  /**
+   * WebAuthn / Passkey 登录开关
+   *
+   * 后端按能力位 `auth.webauthn`（**与 WebAuthn 端点守卫同一判据**）算好后下发。
+   * 前端据此控制登录页「通行密钥登录」入口显示，避免探测 `/login/webauthn/*` 触发 404
+   * 控制台错误（与 `registerEnabled` 同一动机）。
+   */
+  webauthnEnabled?: boolean
 }
 
 /** 注册提交信息 */

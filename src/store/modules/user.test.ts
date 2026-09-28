@@ -208,6 +208,29 @@ describe('store/modules/user', () => {
     expect(store.showUserErasure).toBe(false)
   })
 
+  // 通行密钥（Passkey）：能力位 auth.webauthn 由后端算好后随 getInfo 下发，
+  // store 只做落库；缺字段必须视为 false（fail-safe ⇒ 不显示页签、不探测端点），
+  // 并断言 reset 会清理它（避免切换账号后残留页签）
+  it('getInfo maps showPasskey from the server decision (missing -> false) and reset clears it', async () => {
+    const store = useUserStore()
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showPasskey: true })
+    await store.getInfo()
+    expect(store.showPasskey).toBe(true)
+
+    // reset 必须清理（否则切换账号后仍显示通行密钥页签 ⇒ 端点 404 假入口）
+    await store.logOut()
+    expect(store.showPasskey).toBe(false)
+
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'] })
+    await store.getInfo()
+    expect(store.showPasskey).toBe(false)
+
+    // 非布尔真值不得被当成 true（严格 === true）
+    api.getInfo.mockResolvedValue({ user: {}, roles: ['r'], showPasskey: 1 })
+    await store.getInfo()
+    expect(store.showPasskey).toBe(false)
+  })
+
   it('getInfo falls back to ROLE_DEFAULT when roles empty (and skips permissions)', async () => {
     api.getInfo.mockResolvedValue({ user: {}, roles: [], permissions: undefined })
     const store = useUserStore()

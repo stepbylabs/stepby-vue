@@ -66,7 +66,10 @@
             <el-tab-pane :label="t('profile.mfaSetting')" name="totp">
               <totp />
             </el-tab-pane>
-            <el-tab-pane :label="t('profile.passkey.title')" name="passkeys">
+            <!-- 通行密钥页签：**能力位 auth.webauthn 关闭时不渲染**（关闭态端点一律 404）。
+                 用 `v-if` 而非 `v-show`：Element Plus 会渲染页签内容 ⇒ `passkeys.vue` 的
+                 `onMounted` 会去探测凭据接口，能力位关闭时即产生 404 控制台错误与假入口。 -->
+            <el-tab-pane v-if="userStore.showPasskey" :label="t('profile.passkey.title')" name="passkeys">
               <passkeys />
             </el-tab-pane>
             <el-tab-pane :label="t('oauth.bindings')" name="oauth">
@@ -100,9 +103,12 @@ import msgPref from './msgPref.vue'
 import patToken from './patToken.vue'
 import { getUserProfile } from '@/api/system/user'
 import type { SysUser } from '@/types/api/system/user'
+import useUserStore from '@/store/modules/user'
 
 const route = useRoute()
 const { t } = useI18n()
+// 「通行密钥」页签是否可见由后端能力位判定（getInfo 下发 showPasskey），前端只消费不推断
+const userStore = useUserStore()
 const selectedTab = ref<string>('userinfo')
 
 interface UserProfileState {
@@ -130,7 +136,9 @@ function getUser() {
 onMounted(() => {
   const activeTab = route.params && route.params.activeTab
   if (activeTab) {
-    selectedTab.value = activeTab as string
+    // 能力位关闭时「通行密钥」页签不存在 ⇒ 落到该页签会显示空白，故回落基本信息页
+    const target = activeTab as string
+    selectedTab.value = target === 'passkeys' && !userStore.showPasskey ? 'userinfo' : target
   }
   getUser()
 })

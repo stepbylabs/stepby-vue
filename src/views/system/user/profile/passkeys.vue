@@ -72,8 +72,11 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { listCredentials, registerStart, registerFinish, deleteCredential } from '@/api/webauthn'
 import type { WebauthnCredentialVo } from '@/types'
 import { isWebauthnSupported, isUserCancelled, toCreationOptions, registrationToDto } from '@/utils/webauthn'
+import useUserStore from '@/store/modules/user'
 
 const { t } = useI18n()
+// 能力位 `auth.webauthn` 是否开启（后端 getInfo 下发；关闭态端点一律 404）
+const userStore = useUserStore()
 const supported = ref(isWebauthnSupported())
 const loading = ref(false)
 const adding = ref(false)
@@ -149,6 +152,8 @@ function handleDelete(row: WebauthnCredentialVo): void {
 }
 
 onMounted(() => {
-  if (supported.value) load()
+  // 双重保险：父级已按能力位 `v-if` 收敛该页签；这里再判一次，保证组件被别处复用时
+  // 也不会在能力位关闭态去探测端点（关闭态该端点 404 ⇒ 控制台报错 + 假入口）
+  if (supported.value && userStore.showPasskey) load()
 })
 </script>

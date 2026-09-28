@@ -49,6 +49,14 @@ interface UserState {
    * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
    */
   showUserErasure: boolean
+  /**
+   * 个人中心是否显示「通行密钥（Passkey）」页签。
+   *
+   * 后端按能力位 `auth.webauthn`（与 WebAuthn 端点守卫**同一判据**）算好后随 `getInfo` 下发：
+   * `off`（默认）= 隐藏页签 = 历史行为（关闭态端点一律 404，显示即假入口）。
+   * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
+   */
+  showPasskey: boolean
 }
 
 const useUserStore = defineStore('user', {
@@ -63,7 +71,8 @@ const useUserStore = defineStore('user', {
     tenantId: 0,
     showTenantColumn: false,
     showTenantFilter: false,
-    showUserErasure: false
+    showUserErasure: false,
+    showPasskey: false
   }),
   actions: {
     // 登录
@@ -136,6 +145,9 @@ const useUserStore = defineStore('user', {
       // 「匿名化（GDPR）」入口开关：由后端按能力位 privacy.user_erasure + 平台归属算好，
       // 前端只落库（缺字段视为 false，fail-safe ⇒ 默认不显示入口）
       this.showUserErasure = res.showUserErasure === true
+      // 「通行密钥（Passkey）」页签开关：由后端按能力位 auth.webauthn 算好（与端点守卫同一判据），
+      // 前端只落库（缺字段视为 false，fail-safe ⇒ 默认不显示页签、不探测端点）
+      this.showPasskey = res.showPasskey === true
       cache.session.set('pwdChrtype', res.pwdChrtype || '0')
       // P1 修复: 同步更新 passwordRule 模块级 ref，确保登录后规则实时生效
       setPwdChrType(res.pwdChrtype || '0')
@@ -198,6 +210,7 @@ const useUserStore = defineStore('user', {
         this.showTenantColumn = false
         this.showTenantFilter = false
         this.showUserErasure = false
+        this.showPasskey = false
         // 清理字典缓存
         useDictStore().cleanDict()
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）
