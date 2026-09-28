@@ -171,7 +171,7 @@ export function selectDictLabels(
 }
 
 // 字符串格式化(%s )
-// 注意：使用 rest 参数时，第一个 %s 对应 args[0]（原 RuoYi 基于 arguments 的实现
+// 注意：使用 rest 参数时，第一个 %s 对应 args[0]（原基于 arguments 的实现
 // 下标从 1 开始是因为 arguments[0] 是格式化串本身；rest 参数已剔除该串，故从 0 开始）。
 export function sprintf(str: string, ...args: unknown[]): string {
   let flag = true,
