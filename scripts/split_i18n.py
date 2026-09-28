@@ -2,7 +2,7 @@
 """将 i18n 大文件按顶层模块拆分为分类目录文件。
 
 - 保留每个模块的原始文本（含注释/尾逗号），机械切分，绝不改写文案
-- 分类映射：common / auth / dashboard / system / monitor / tool / error / route / time / yebot
+- 分类映射：common / auth / dashboard / system / monitor / tool / error / route / time / stepby
 - 每个分类文件是合法 TS 模块：`export default { ... }`（可被 index.ts import）
 - <locale>/index.ts 按分类顺序 spread 聚合导出，合并对象与拆分前内容完全一致
 - 校验：
@@ -22,7 +22,7 @@ OLD_EN = SRC / "en-US.ts"
 
 CATEGORY_ORDER = [
     "common", "auth", "dashboard", "system", "monitor",
-    "tool", "error", "route", "time", "yebot",
+    "tool", "error", "route", "time", "stepby",
 ]
 
 CATEGORY_LABEL = {
@@ -35,7 +35,7 @@ CATEGORY_LABEL = {
     "error": "错误与反馈",
     "route": "路由导航",
     "time": "时间日期",
-    "yebot": "品牌",
+    "stepby": "品牌",
 }
 
 CATEGORY_MAP = {
@@ -72,8 +72,8 @@ CATEGORY_MAP = {
     "route": "route", "batchActions": "route",
     # time 时间日期
     "time": "time",
-    # yebot 品牌
-    "yebot": "yebot",
+    # stepby 品牌
+    "stepby": "stepby",
 }
 
 # 顶层模块匹配：2 空格缩进的 `name: {`

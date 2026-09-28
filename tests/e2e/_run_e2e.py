@@ -13,7 +13,7 @@
 
 路径与凭据按脚本位置推导，可用环境变量覆盖:
   YEBOT_E2E_NODE      node 可执行文件（默认 PATH 中的 node）
-  YEBOT_UI_ROOT       yebot-ui 仓库根（默认按脚本位置推导 <root>/../..）
+  YEBOT_UI_ROOT       stepby-ui 仓库根（默认按脚本位置推导 <root>/../..）
   YEBOT_TEST_USER     测试用户名（默认 admin）
   YEBOT_TEST_PASS     测试密码（默认 admin123）
   YEBOT_BASE_URL      后端 URL（默认 http://localhost:8080）

@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """Update testing-guide.md with M15-M25 module descriptions."""
 
-with open(r'd:\桌面\yebot\axum-backend\docs\testing-guide.md', 'rb') as f:
+with open(r'd:\桌面\stepby\axum-backend\docs\testing-guide.md', 'rb') as f:
     content_bytes = f.read()
 crlf_count = content_bytes.count(b'\r\n')
 lf_count = content_bytes.count(b'\n') - crlf_count
 newline = '\r\n' if crlf_count > lf_count else '\n'
 
-with open(r'd:\桌面\yebot\axum-backend\docs\testing-guide.md', 'r', encoding='utf-8') as f:
+with open(r'd:\桌面\stepby\axum-backend\docs\testing-guide.md', 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Replace header and run command
@@ -149,7 +149,7 @@ if old_json_norm in content:
 else:
     print('WARN: JSON example not found, skipping')
 
-with open(r'd:\桌面\yebot\axum-backend\docs\testing-guide.md', 'w', encoding='utf-8', newline='') as f:
+with open(r'd:\桌面\stepby\axum-backend\docs\testing-guide.md', 'w', encoding='utf-8', newline='') as f:
     f.write(content)
 
 print('Documentation updated successfully')
