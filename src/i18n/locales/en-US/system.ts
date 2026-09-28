@@ -14,7 +14,7 @@ export default {
     dept: 'Departments',
     post: 'Positions',
     tenant: 'Tenant Management',
-    myDomain: 'My Domains',
+    myDomain: 'Domain Management',
     myNav: 'Navigation Settings',
     dict: 'Dictionaries',
     config: 'Config',
@@ -387,7 +387,7 @@ export default {
       'Delete domain binding "{0}"? It will no longer participate in tenant resolution',
     statusTip: 'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
     empty: 'No domain bound yet',
-    myTitle: 'My Domains',
+    myTitle: 'Domain Management',
     targetTenant: 'Target Tenant',
     targetTenantPlaceholder: 'Select a tenant to manage (platform operator)',
     platformPickTenant:

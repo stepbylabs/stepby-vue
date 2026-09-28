@@ -14,7 +14,7 @@ export default {
     dept: '部门管理',
     post: '岗位管理',
     tenant: '租户管理',
-    myDomain: '我的域名',
+    myDomain: '域名管理',
     myNav: '导航设置',
     dict: '字典管理',
     config: '参数设置',
@@ -379,7 +379,7 @@ export default {
     deleteConfirm: '确认删除域名绑定「{0}」？删除后该域名不再参与租户识别',
     statusTip: '停用后该域名不再参与租户识别（Host → 租户映射失效）',
     empty: '暂无域名绑定',
-    myTitle: '我的域名',
+    myTitle: '域名管理',
     targetTenant: '目标租户',
     targetTenantPlaceholder: '平台操作者请选择要管理的租户',
     platformPickTenant:
