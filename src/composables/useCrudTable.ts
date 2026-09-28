@@ -1,9 +1,24 @@
-import { ref, shallowRef, type Ref } from 'vue'
+import { nextTick, ref, shallowRef, type Ref } from 'vue'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { useI18n } from 'vue-i18n'
+import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 import type { FormInstance } from 'element-plus'
+
+/**
+ * 表单校验失败后定位到第一个错误字段（UX：长表单不必手动找红字）。
+ * 滚动到可视区并聚焦其输入框；弹窗内表单同样生效（按文档顺序取首个 is-error）。
+ */
+export function focusFirstError(): void {
+  nextTick(() => {
+    const item = document.querySelector<HTMLElement>('.el-form-item.is-error')
+    if (!item) return
+    item.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const field = item.querySelector<HTMLElement>('input, textarea, select')
+    field?.focus()
+  })
+}
 
 /**
  * 通用 CRUD 表格 composable
@@ -52,6 +67,11 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   onAfterSubmit?: () => void
   /** 删除成功后的回调（可选） */
   onAfterDelete?: () => void
+  /**
+   * 查询条件同步到 URL query（UX-6，默认 true）：刷新/分享链接后筛选条件不丢失。
+   * 仅同步非空业务字段与分页参数；无路由上下文（单测环境）时自动降级为不同步。
+   */
+  syncQueryToUrl?: boolean
 }
 
 export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
@@ -75,8 +95,25 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     queryRef,
     beforeSubmit,
     onAfterSubmit,
-    onAfterDelete
+    onAfterDelete,
+    syncQueryToUrl = true
   } = options
+
+  // 路由上下文（单测/无路由环境下降级为空，不影响 CRUD 主流程）
+  const router: Router | null = (() => {
+    try {
+      return useRouter()
+    } catch {
+      return null
+    }
+  })()
+  const route: RouteLocationNormalizedLoaded | null = (() => {
+    try {
+      return useRoute()
+    } catch {
+      return null
+    }
+  })()
 
   // ====== 响应式状态 ======
   const dataList = shallowRef<T[]>([])
@@ -100,9 +137,43 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
 
   // ====== 方法 ======
 
+  /**
+   * 从 URL query 恢复查询条件（UX-6）：仅覆盖「当前查询对象已存在该键」且 URL 显式携带的值，
+   * 避免把任意 URL 参数注入查询对象。
+   */
+  function restoreQueryFromUrl(): void {
+    if (!syncQueryToUrl || !route) return
+    const q = route.query as Record<string, unknown>
+    if (!q || Object.keys(q).length === 0) return
+    const target = queryParams.value as unknown as Record<string, unknown>
+    for (const [k, v] of Object.entries(q)) {
+      if (!(k in target) || v === undefined || v === null || v === '') continue
+      if (k === 'pageNum' || k === 'pageSize') {
+        const n = Number(v)
+        if (!Number.isNaN(n) && n > 0) target[k] = n
+        continue
+      }
+      target[k] = typeof target[k] === 'number' && !Number.isNaN(Number(v)) ? Number(v) : v
+    }
+  }
+
+  /** 当前查询条件写入 URL（UX-6，replace 不污染历史栈） */
+  function syncUrlQuery(): void {
+    if (!syncQueryToUrl || !router || !route) return
+    const src = queryParams.value as unknown as Record<string, unknown>
+    const query: Record<string, string> = {}
+    for (const [k, v] of Object.entries(src)) {
+      if (v === undefined || v === null || v === '') continue
+      query[k] = String(v)
+    }
+    if (JSON.stringify(query) === JSON.stringify(route.query as Record<string, string>)) return
+    router.replace({ query }).catch(() => {})
+  }
+
   /** 查询列表 */
   function getList(): void {
     const currentRequestId = ++listRequestId
+    syncUrlQuery()
     loading.value = true
     listApi(queryParams.value)
       .then((response) => {
@@ -198,7 +269,11 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   /** 提交按钮 */
   function submitForm(): void {
     formRef.value?.validate((valid: boolean) => {
-      if (!valid) return
+      // UX：校验失败时滚动并聚焦第一个错误字段（长表单不必手动找红字）
+      if (!valid) {
+        focusFirstError()
+        return
+      }
       submitLoading.value = true
       const isUpdate = form.value[idField] != null
       const payload = beforeSubmit ? beforeSubmit(form.value) : form.value
@@ -259,6 +334,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       exportLoading.value = false
     })
   }
+
+  // UX-6：进入页面时先从 URL 恢复筛选条件（此后 getList 会持续回写 URL）
+  restoreQueryFromUrl()
 
   return {
     // 状态
