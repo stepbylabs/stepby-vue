@@ -1,10 +1,10 @@
-// 诊断脚本：登录后截取侧边栏与「租户服务」目录展开态（复用 main.mjs 登录选择器）
+// 诊断：侧边栏全展开截图 + 菜单管理页面截图（icon 匹配问题取证）
 import { chromium } from 'playwright'
 import process from 'node:process'
 
 const base = process.env.TEST_BASE || 'http://localhost:4173'
 const browser = await chromium.launch({ headless: true })
-const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 }, locale: 'zh-CN' })
+const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, locale: 'zh-CN' })
 const page = await ctx.newPage()
 await page.goto(`${base}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 })
 await page.waitForTimeout(2000)
@@ -16,19 +16,24 @@ await userInput.fill('admin')
 await page.locator('input[type="password"]').first().fill('admin123')
 await page.keyboard.press('Enter')
 await page.waitForTimeout(4500)
-await page.screenshot({ path: 'screenshots/diag-sidebar-all.png' })
-const tenantSpace = page.getByText('租户服务', { exact: true }).first()
-if (await tenantSpace.count()) {
-  await tenantSpace.click()
-  await page.waitForTimeout(900)
-  await page.screenshot({ path: 'screenshots/diag-sidebar-tenantspace.png' })
+
+// 展开侧边栏全部目录（点击每个 el-sub-menu__title）
+const titles = page.locator('.sidebar-container .el-sub-menu__title')
+const n = await titles.count()
+for (let i = 0; i < n; i++) {
+  await titles.nth(i).click({ force: true }).catch(() => {})
+  await page.waitForTimeout(200)
 }
-const svgCount = await page.locator('.sidebar-container svg, aside svg').count()
-console.log('sidebar svg count =', svgCount)
-// 检查「租户服务」子项是否带 svg
-const myDomainRow = page.locator('li:has-text("域名管理"), li:has-text("我的域名")').first()
-if (await myDomainRow.count()) {
-  const hasSvg = await myDomainRow.locator('svg').count()
-  console.log('my-domain row svg count =', hasSvg)
-}
+await page.waitForTimeout(600)
+await page.screenshot({ path: 'screenshots/diag-sidebar-full.png' })
+
+// 菜单管理页面
+await page.goto(`${base}/system/menu`, { waitUntil: 'domcontentloaded' })
+await page.waitForTimeout(3000)
+await page.screenshot({ path: 'screenshots/diag-menu-page.png' })
+
+// 租户服务目录展开 + 我的导航页
+await page.goto(`${base}/tenant-space/my-nav`, { waitUntil: 'domcontentloaded' })
+await page.waitForTimeout(3000)
+await page.screenshot({ path: 'screenshots/diag-my-nav.png' })
 await browser.close()
