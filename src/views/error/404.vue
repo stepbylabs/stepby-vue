@@ -2,10 +2,10 @@
   <div class="wscn-http404-container absolute top-[40%] left-1/2 w-full max-w-[1200px] px-5 box-border">
     <div class="wscn-http404 relative w-full max-w-[1200px] px-[50px] box-border overflow-hidden">
       <div class="pic-404 relative float-left w-[600px] max-w-[60%] overflow-hidden">
-        <img class="w-full" src="@/assets/404_images/404.png" alt="404" loading="lazy" />
-        <img class="pic-404__child left" src="@/assets/404_images/404_cloud.png" alt="404" loading="lazy" />
-        <img class="pic-404__child mid" src="@/assets/404_images/404_cloud.png" alt="404" loading="lazy" />
-        <img class="pic-404__child right" src="@/assets/404_images/404_cloud.png" alt="404" loading="lazy" />
+        <img class="w-full" src="@/assets/404_images/404.webp" alt="404" loading="lazy" />
+        <img class="pic-404__child left" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
+        <img class="pic-404__child mid" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
+        <img class="pic-404__child right" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
       </div>
       <div class="bullshit relative float-left w-[300px] py-[30px] overflow-hidden">
         <div class="bullshit__oops text-[32px] font-bold leading-10 text-primary opacity-0 mb-5">

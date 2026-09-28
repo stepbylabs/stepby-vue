@@ -231,7 +231,8 @@ getCode()
 
 <style lang="scss" scoped>
 .register {
-  background-image: url('../assets/images/login-background.jpg');
+  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%） */
+  background-image: url('/bg-login.webp');
 }
 
 .register-form {

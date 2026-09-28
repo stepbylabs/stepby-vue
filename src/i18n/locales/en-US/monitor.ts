@@ -637,7 +637,9 @@ export default {
       createTime: 'Occurred At',
       phLevel: 'Select level',
       phSource: 'Select source',
-      phName: 'Enter error or metric name'
+      phName: 'Enter error or metric name',
+      deviceType: 'Device',
+      phDeviceType: 'Select device type'
     },
     column: {
       id: 'ID',
@@ -665,6 +667,11 @@ export default {
       download: 'Download',
       vital: 'Web Vital',
       other: 'Other'
+    },
+    deviceType: {
+      mobile: 'Mobile',
+      tablet: 'Tablet',
+      desktop: 'Desktop'
     },
     btn: {
       detail: 'Detail',

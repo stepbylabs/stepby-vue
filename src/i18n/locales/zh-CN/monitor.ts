@@ -635,7 +635,9 @@ export default {
       createTime: '发生时间',
       phLevel: '请选择级别',
       phSource: '请选择来源',
-      phName: '请输入错误名或指标名'
+      phName: '请输入错误名或指标名',
+      deviceType: '设备类型',
+      phDeviceType: '请选择设备类型'
     },
     column: {
       id: '编号',
@@ -663,6 +665,11 @@ export default {
       download: '下载',
       vital: '性能指标',
       other: '其他'
+    },
+    deviceType: {
+      mobile: '移动端',
+      tablet: '平板',
+      desktop: '桌面端'
     },
     btn: {
       detail: '详情',

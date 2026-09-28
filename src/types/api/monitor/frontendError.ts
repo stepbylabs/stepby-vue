@@ -8,6 +8,8 @@ export interface FrontendErrorQueryParams extends PageDomain {
   source?: string
   /** 错误名/指标名（模糊） */
   name?: string
+  /** 设备类型分桶（FCP-011）：mobile / tablet / desktop */
+  deviceType?: string
   /** 时间范围 */
   params?: {
     beginTime?: string
@@ -39,6 +41,8 @@ export interface SysFrontendError extends BaseEntity {
   pageUrl?: string
   /** User-Agent */
   userAgent?: string
+  /** 设备类型分桶（FCP-011）：mobile / tablet / desktop */
+  deviceType?: string
   /** 视口宽 */
   viewWidth?: number
   /** 视口高 */

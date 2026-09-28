@@ -79,6 +79,16 @@
             @keyup.enter="handleQuery"
           />
         </el-form-item>
+        <el-form-item :label="t('frontendError.search.deviceType')" prop="deviceType">
+          <el-select
+            v-model="queryParams.deviceType"
+            :placeholder="t('frontendError.search.phDeviceType')"
+            clearable
+            class="w-[140px]"
+          >
+            <el-option v-for="v in deviceTypeOptions" :key="v" :label="deviceTypeLabel(v)" :value="v" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="t('frontendError.search.createTime')" class="w-[308px]">
           <el-date-picker
             v-model="dateRange"
@@ -259,6 +269,13 @@ function sourceLabel(v?: string): string {
   const key = `frontendError.source.${v}`
   return te(key) ? t(key) : v
 }
+/** 设备类型分桶（FCP-011） */
+const deviceTypeOptions = ['mobile', 'tablet', 'desktop']
+function deviceTypeLabel(v?: string): string {
+  if (!v) return '-'
+  const key = `frontendError.deviceType.${v}`
+  return te(key) ? t(key) : v
+}
 function formatVital(row: SysFrontendError): string {
   if (row.value == null) return '-'
   if (row.name === 'CLS') return String(Math.round(row.value * 1000) / 1000)
@@ -272,7 +289,8 @@ const data = reactive({
     pageSize: 10,
     level: undefined,
     source: undefined,
-    name: undefined
+    name: undefined,
+    deviceType: undefined
   } as FrontendErrorQueryParams
 })
 const { queryParams, form } = toRefs(data)

@@ -293,7 +293,7 @@ import { translateTitle } from '@/composables/useMenuTitle'
 import { listNoticeTop } from '@/api/system/notice'
 import { list as listOnline } from '@/api/monitor/online'
 import request from '@/utils/request'
-import defAva from '@/assets/images/profile.jpg'
+import defAva from '@/assets/images/profile.webp'
 import type { SysNotice } from '@/types'
 
 const { t } = useI18n()

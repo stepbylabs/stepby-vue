@@ -11,7 +11,7 @@ import useDictStore from '@/store/modules/dict'
 import useTagsViewStore from '@/store/modules/tagsView'
 import useNotificationStore from '@/store/modules/notification'
 import useNoticeStore from '@/store/modules/notice'
-import defAva from '@/assets/images/profile.jpg'
+import defAva from '@/assets/images/profile.webp'
 import i18n from '@/i18n'
 import { setPwdChrType } from '@/utils/passwordRule'
 

@@ -1,5 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
-import type { ProxyOptions } from 'vite'
+import type { Plugin, ProxyOptions } from 'vite'
 import path from 'path'
 import { readFileSync } from 'fs'
 import createVitePlugins from './vite/plugins'
@@ -49,6 +49,24 @@ function buildProxy(target: string): Record<string, ProxyOptions> {
   }
 }
 
+// 资源提示注入（R102-PRELOAD-007/008、R102-CRP-009）：
+// 在 .env.* 配置 VITE_PRECONNECT_DOMAINS（逗号分隔，含 scheme），构建时为每个域注入
+// <link rel="preconnect" ...> + <link rel="dns-prefetch" ...>。
+// 本项目默认全部同源（无第三方域名）⇒ 默认空 ⇒ 不注入任何标签（零开销）。
+// 接入 CDN / 对象存储后配置该键即可获得提前建连收益。
+function resourceHintsPlugin(domains: string[]): Plugin {
+  const clean = domains.map((d) => d.trim()).filter(Boolean)
+  return {
+    name: 'yebot-resource-hints',
+    transformIndexHtml() {
+      return clean.flatMap((href) => [
+        { tag: 'link', attrs: { rel: 'preconnect', href, crossorigin: '' } },
+        { tag: 'link', attrs: { rel: 'dns-prefetch', href } }
+      ])
+    }
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd())
@@ -58,11 +76,18 @@ export default defineConfig(({ mode, command }) => {
   const baseUrl = env.VITE_PROXY_TARGET || 'http://localhost:8080'
   const appVersion = readPackageVersion()
   const buildTime = new Date().toISOString()
+  // preconnect/dns-prefetch 域名清单（逗号分隔）；未配置 ⇒ 空数组 ⇒ 不注入
+  const preconnectDomains = (env.VITE_PRECONNECT_DOMAINS || '')
+    .split(',')
+    .map((s: string) => s.trim())
+    .filter(Boolean)
   return {
     // 部署生产环境和开发环境下的URL。
     // 默认情况下，vite 会假设你的应用是被部署在一个域名的根路径上
-    // 例如 https://yebot.dev/。如果应用被部署在一个子路径上，你就需要用这个选项指定这个子路径。例如，如果你的应用被部署在 https://yebot.dev/admin/，则设置 baseUrl 为 /admin/。
-    base: '/',
+    // 例如 https://yebot.dev/。如果应用被部署在一个子路径上，你就需要用这个选项指定这个子路径。
+    // CDN 集成点（R102-CDN-001/002）：在 .env.production 设 VITE_APP_CDN_BASE=https://cdn.example.com/
+    // 即可把全部静态资源引用指向 CDN 域名（index.html 仍由源站托管）。默认 '/' 同源。
+    base: env.VITE_APP_CDN_BASE || '/',
     // 全局常量定义（在源码中可直接引用，编译期替换）
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
@@ -83,7 +108,12 @@ export default defineConfig(({ mode, command }) => {
     // 打包配置
     build: {
       // https://vite.dev/config/build-options.html
-      sourcemap: command === 'build' ? false : 'inline',
+      // 生产构建输出 **hidden sourcemap**（R102-SMAP-001/002）：生成 .map 文件供错误堆栈
+      // 离线还原（scripts/decode-stack.mjs / source-map CLI），但产物 JS 尾部**不带**
+      // sourceMappingURL 注释、浏览器不会自动拉取 ⇒ 源码不暴露给访客。
+      // 部署侧兜底：nginx.conf 拒绝对外提供 *.map（location ~* \.map$ { deny all; }）。
+      // 无 Sentry 等第三方错误平台时不需要"上传 map"步骤（R102-SMAP-003/004 改判，见性能文档）。
+      sourcemap: command === 'build' ? 'hidden' : 'inline',
       outDir: 'dist',
       assetsDir: 'assets',
       // 性能优化：目标设为 es2020，使用现代 JS 特性（可选链、空值合并、async/await 原生支持），

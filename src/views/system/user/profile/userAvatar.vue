@@ -107,7 +107,7 @@ import { uploadAvatar } from '@/api/system/user'
 import useUserStore from '@/store/modules/user'
 import modal from '@/plugins/modal'
 import { verifyImageMagicBytes } from '@/utils/validate'
-import defAva from '@/assets/images/profile.jpg'
+import defAva from '@/assets/images/profile.webp'
 
 const { t } = useI18n()
 const userStore = useUserStore()

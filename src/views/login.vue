@@ -427,7 +427,8 @@ loadOauthProviders()
 
 <style lang="scss" scoped>
 .login {
-  background-image: url('../assets/images/login-background.jpg');
+  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%）；index.html 对其 preload + fetchpriority=high */
+  background-image: url('/bg-login.webp');
 }
 
 .login-form {
@@ -481,7 +482,7 @@ loadOauthProviders()
 
 html.dark .login {
   background-image:
-    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url('../assets/images/login-background.jpg');
+    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url('/bg-login.webp');
   .login-form {
     background: var(--el-bg-color-overlay) !important;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);

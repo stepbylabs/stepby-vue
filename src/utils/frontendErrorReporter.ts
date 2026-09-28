@@ -24,6 +24,7 @@ interface FrontendErrorPayload {
   stack?: string
   pageUrl?: string
   userAgent?: string
+  deviceType?: 'mobile' | 'tablet' | 'desktop'
   viewWidth?: number
   viewHeight?: number
   value?: number
@@ -48,11 +49,28 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
+/**
+ * 设备类型分桶（FCP-011：移动端独立指标采集）。
+ * 以视口宽为主判据（业务上"移动端体验"即小屏体验），UA 移动标识为辅：
+ * 宽度 < 768 → mobile；< 1024 → tablet；否则 desktop（平板横屏视口 ≥1024 归 desktop，
+ * 与 Element Plus 的 xs/sm 断点口径一致）。
+ */
+function detectDeviceType(): 'mobile' | 'tablet' | 'desktop' {
+  const width = window.innerWidth
+  if (width < 768) return 'mobile'
+  if (width < 1024) return 'tablet'
+  return 'desktop'
+}
+
 /** 页面级公共上下文（每次入队时采集） */
-function pageContext(): Pick<FrontendErrorPayload, 'pageUrl' | 'userAgent' | 'viewWidth' | 'viewHeight'> {
+function pageContext(): Pick<
+  FrontendErrorPayload,
+  'pageUrl' | 'userAgent' | 'deviceType' | 'viewWidth' | 'viewHeight'
+> {
   return {
     pageUrl: location.href,
     userAgent: navigator.userAgent,
+    deviceType: detectDeviceType(),
     viewWidth: window.innerWidth,
     viewHeight: window.innerHeight
   }

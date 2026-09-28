@@ -34,6 +34,10 @@ pageUrl: string | null,
  */
 userAgent: string | null, 
 /**
+ * 设备类型分桶（FCP-011）：mobile / tablet / desktop（前端按 UA+视口推断；NULL = 旧数据/未上报）
+ */
+deviceType: string | null, 
+/**
  * 视口宽（px）
  */
 viewWidth: number | null, 

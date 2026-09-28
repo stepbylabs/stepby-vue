@@ -21,7 +21,11 @@
     "test:run": "vitest run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "deps:check": "node scripts/check-duplicate-deps.mjs"
+    "deps:check": "node scripts/check-duplicate-deps.mjs",
+    "check:budget": "node scripts/check-perf-budget.mjs",
+    "perf:throttle": "node tests/e2e/perf-throttle-check.mjs",
+    "visual:regression": "node tests/e2e/visual-regression.mjs",
+    "warmup:cdn": "node scripts/cdn-warmup.mjs"
   },
   "repository": {
     "type": "git",

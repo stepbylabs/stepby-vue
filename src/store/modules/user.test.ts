@@ -35,7 +35,7 @@ vi.mock('@/plugins/cache', () => ({ default: { session: { set: cacheSessionSet }
 vi.mock('element-plus', () => ({ ElMessageBox: { confirm: elConfirm } }))
 vi.mock('@/router', () => ({ default: { push: routerPush } }))
 vi.mock('@/i18n', () => ({ default: { global: { t: i18nT } } }))
-vi.mock('@/assets/images/profile.jpg', () => ({ default: '/default-avatar.png' }))
+vi.mock('@/assets/images/profile.webp', () => ({ default: '/default-avatar.png' }))
 
 vi.mock('@/store/modules/lock', () => ({
   default: () => collaborators.lockStore,
