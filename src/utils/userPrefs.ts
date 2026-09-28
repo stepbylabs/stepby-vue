@@ -25,6 +25,40 @@ export interface UserPrefs {
   watermarkEnabled: boolean
   /** TierB-2: 会话超时阈值（分钟），0 表示禁用，默认 30 分钟 */
   sessionTimeout: number
+  /** UX-7: 列显隐偏好 —— 页面标识 → 可见列 key 列表（未记录的页面用列定义默认值） */
+  tableColumns: Record<string, string[]>
+}
+
+/** 列表列定义（列显隐偏好的输入） */
+export interface TableColumnDef {
+  /** 列唯一标识（与模板中的列一一对应） */
+  key: string
+  /** 默认是否可见 */
+  defaultVisible?: boolean
+}
+
+/**
+ * 解析某页的可见列（纯函数，便于单测）
+ *
+ * 规则：
+ * - 无存档 → 取列定义中 `defaultVisible !== false` 的列
+ * - 有存档 → 仅保留「存档 ∩ 现有列定义」且按列定义顺序返回（列被改名/删除时自动失效，不残留脏 key）
+ * - 存档为空数组 → 视为"全部隐藏"，但至少保留第一列，避免出现完全无列的空表格
+ *
+ * @param saved 存档的可见列 key 列表（可能 undefined）
+ * @param columns 当前列定义（按显示顺序）
+ */
+export function resolveTableColumns(
+  saved: string[] | undefined,
+  columns: TableColumnDef[]
+): string[] {
+  const allKeys = columns.map((c) => c.key)
+  if (!saved) {
+    const defaults = columns.filter((c) => c.defaultVisible !== false).map((c) => c.key)
+    return defaults.length ? defaults : allKeys.slice(0, 1)
+  }
+  const visible = allKeys.filter((k) => saved.includes(k))
+  return visible.length ? visible : allKeys.slice(0, 1)
 }
 
 /** 用户偏好白名单键（sanitize 时只保留这些已知字段） */
@@ -37,7 +71,8 @@ export const USER_PREFS_KEYS: (keyof UserPrefs)[] = [
   'timezone',
   'customHotkeys',
   'watermarkEnabled',
-  'sessionTimeout'
+  'sessionTimeout',
+  'tableColumns'
 ]
 
 /** 用户偏好默认值 */
@@ -50,7 +85,8 @@ export const DEFAULT_USER_PREFS: UserPrefs = {
   timezone: 'Asia/Shanghai',
   customHotkeys: {},
   watermarkEnabled: false,
-  sessionTimeout: 30
+  sessionTimeout: 30,
+  tableColumns: {}
 }
 
 /**

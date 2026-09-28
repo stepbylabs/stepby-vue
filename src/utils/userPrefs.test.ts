@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   sanitizeUserPrefs,
+  resolveTableColumns,
   USER_PREFS_KEYS,
   DEFAULT_USER_PREFS,
   type UserPrefs
@@ -28,7 +29,8 @@ describe('sanitizeUserPrefs', () => {
       timezone: 'UTC',
       customHotkeys: { search: 'ctrl_k' },
       watermarkEnabled: true,
-      sessionTimeout: 15
+      sessionTimeout: 15,
+      tableColumns: { 'system:user': ['userName'] }
     }
     const result = sanitizeUserPrefs(input)
     expect(result).toEqual(input)
@@ -89,3 +91,33 @@ describe('sanitizeUserPrefs', () => {
 
 // 确保 UserPrefs 类型在编译期可用（防止误删导出）
 export type _CheckUserPrefs = UserPrefs
+
+describe('resolveTableColumns（UX-7 列显隐偏好解析）', () => {
+  const cols = [
+    { key: 'userName' },
+    { key: 'nickName' },
+    { key: 'status', defaultVisible: false },
+    { key: 'createTime' }
+  ]
+
+  it('无存档时应返回 defaultVisible !== false 的列', () => {
+    expect(resolveTableColumns(undefined, cols)).toEqual(['userName', 'nickName', 'createTime'])
+  })
+
+  it('有存档时按列定义顺序返回「存档 ∩ 现有列」', () => {
+    expect(resolveTableColumns(['createTime', 'userName'], cols)).toEqual(['userName', 'createTime'])
+  })
+
+  it('存档含已被删除的列时应自动丢弃脏 key', () => {
+    expect(resolveTableColumns(['userName', 'ghostColumn'], cols)).toEqual(['userName'])
+  })
+
+  it('存档为空数组时应至少保留第一列（避免空表格）', () => {
+    expect(resolveTableColumns([], cols)).toEqual(['userName'])
+  })
+
+  it('全部列都默认隐藏时应至少保留第一列', () => {
+    const hidden = [{ key: 'a', defaultVisible: false }, { key: 'b', defaultVisible: false }]
+    expect(resolveTableColumns(undefined, hidden)).toEqual(['a'])
+  })
+})

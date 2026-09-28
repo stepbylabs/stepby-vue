@@ -88,6 +88,7 @@ export default {
     operationSuccess: '操作成功',
     importSuccess: '导入成功',
     exportSuccess: '导出成功',
+    exporting: '正在导出，数据量较大时请稍候…',
     copySuccess: '复制成功',
     copyFail: '复制失败',
     saveSuccess: '保存成功',
@@ -289,7 +290,14 @@ export default {
     switchShortcut: '切换',
     selectShortcut: '选择',
     closeShortcut: '关闭',
-    menuAriaLabel: '菜单：{title}'
+    menuAriaLabel: '菜单：{title}',
+    placeholderWithData: '搜索菜单、用户、角色、字典（2 个字以上自动搜索数据）',
+    group: {
+      menu: '菜单',
+      user: '用户',
+      role: '角色',
+      dict: '字典'
+    }
   },
   rightToolbar: {
     hideSearch: '隐藏搜索',

@@ -88,6 +88,7 @@ export default {
     operationSuccess: 'Operation successful',
     importSuccess: 'Imported successfully',
     exportSuccess: 'Exported successfully',
+    exporting: 'Exporting, this may take a while for large datasets…',
     copySuccess: 'Copied successfully',
     copyFail: 'Copy failed',
     saveSuccess: 'Saved successfully',
@@ -290,7 +291,14 @@ export default {
     switchShortcut: 'Switch',
     selectShortcut: 'Select',
     closeShortcut: 'Close',
-    menuAriaLabel: 'Menu: {title}'
+    menuAriaLabel: 'Menu: {title}',
+    placeholderWithData: 'Search menus, users, roles, dictionaries (2+ chars triggers data search)',
+    group: {
+      menu: 'Menu',
+      user: 'User',
+      role: 'Role',
+      dict: 'Dict'
+    }
   },
   rightToolbar: {
     hideSearch: 'Hide Search',

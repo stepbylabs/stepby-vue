@@ -322,17 +322,28 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       })
   }
 
-  /** 导出按钮操作 */
+  /** 导出按钮操作（UX-8：导出前提示"导出中"，完成后给成功反馈） */
   function handleExport(filename?: string): void {
     if (!exportUrl || exportLoading.value) return
     exportLoading.value = true
-    download(
-      exportUrl,
-      { ...queryParams.value },
-      filename || `${exportUrl.split('/').pop()}_${Date.now()}.xlsx`
-    ).finally(() => {
-      exportLoading.value = false
-    })
+    const name = filename || `${exportUrl.split('/').pop()}_${Date.now()}.xlsx`
+    // 数据量较大时后端流式生成可能耗时数秒，先给"导出中"提示避免用户以为点了没反应
+    const startedAt = Date.now()
+    const notifyStart = setTimeout(() => {
+      if (exportLoading.value) modal.msgInfo(t('common.exporting'))
+    }, 300)
+    download(exportUrl, { ...queryParams.value }, name)
+      .then(() => {
+        // 仅在耗时较长（>800ms）时补成功反馈，短耗时直接下载即可，避免提示噪音
+        if (Date.now() - startedAt > 800) modal.msgSuccess(t('common.exportSuccess'))
+      })
+      .catch((e) => {
+        if (import.meta.env.DEV) console.error('[useCrudTable] handleExport:', e)
+      })
+      .finally(() => {
+        clearTimeout(notifyStart)
+        exportLoading.value = false
+      })
   }
 
   // UX-6：进入页面时先从 URL 恢复筛选条件（此后 getList 会持续回写 URL）

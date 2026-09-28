@@ -16,8 +16,8 @@
         size="large"
         @input="querySearch"
         prefix-icon="Search"
-        :placeholder="t('headerSearch.placeholder')"
-        :aria-label="t('headerSearch.placeholder')"
+        :placeholder="t('headerSearch.placeholderWithData')"
+        :aria-label="t('headerSearch.placeholderWithData')"
         :maxlength="100"
         clearable
         @keyup.enter="selectActiveResult"
@@ -50,7 +50,14 @@
                 </div>
                 <div class="search-info" @click="change(item)">
                   <div class="menu-title" v-html="highlightText(item.title.join(' / '))"></div>
-                  <div class="menu-path" v-html="highlightText(item.path)"></div>
+                  <div class="menu-path">
+                    <!-- UX-9：数据项展示来源分组 + 副标题；菜单项仍展示路由路径 -->
+                    <el-tag v-if="item.group && item.group !== 'menu'" size="small" class="mr-1">
+                      {{ t(`headerSearch.group.${item.group}`) }}
+                    </el-tag>
+                    <span v-if="item.group && item.group !== 'menu'" v-html="highlightText(item.subtitle || '')" />
+                    <span v-else v-html="highlightText(item.path)" />
+                  </div>
                 </div>
                 <svg-icon icon-class="enter" v-show="index === activeIndex" />
               </div>
@@ -93,6 +100,10 @@ import usePermissionStore from '@/store/modules/permission'
 import i18n from '@/i18n'
 import { translateTitle } from '@/composables/useMenuTitle'
 import type { AppRouteRecord } from '@/types'
+// UX-9：数据级搜索（用户 / 角色 / 字典）
+import { listUser } from '@/api/system/user'
+import { listRole } from '@/api/system/role'
+import { listType } from '@/api/system/dict/type'
 
 const { t } = useI18n()
 
@@ -101,7 +112,75 @@ interface SearchItem {
   title: string[]
   icon: string
   query?: string
+  /** UX-9：结果分组（菜单 / 用户 / 角色 / 字典），用于在面板中分区展示 */
+  group?: 'menu' | 'user' | 'role' | 'dict'
+  /** 副标题（数据项展示账号/编码等次要信息） */
+  subtitle?: string
 }
+
+/** 数据级搜索触发的最小关键词长度（避免 1 个字符就打后端） */
+const DATA_SEARCH_MIN_LEN = 2
+/** 每组数据结果条数上限（控制请求体量与面板长度） */
+const DATA_SEARCH_PAGE_SIZE = 5
+
+/**
+ * UX-9：数据级搜索（用户 / 角色 / 字典）
+ * 命中后跳转到对应列表并带上筛选条件 —— 与 UX-6（查询条件同步到 URL）配合，
+ * 跳转即完成"搜索"，无需用户再次输入。
+ */
+async function searchData(keyword: string): Promise<SearchItem[]> {
+  const results: SearchItem[] = []
+  const [users, roles, dicts] = await Promise.allSettled([
+    listUser({ userName: keyword, pageNum: 1, pageSize: DATA_SEARCH_PAGE_SIZE }),
+    listRole({ roleName: keyword, pageNum: 1, pageSize: DATA_SEARCH_PAGE_SIZE }),
+    listType({ dictName: keyword, pageNum: 1, pageSize: DATA_SEARCH_PAGE_SIZE })
+  ])
+  if (users.status === 'fulfilled') {
+    for (const u of users.value.rows ?? []) {
+      results.push({
+        path: '/system/user',
+        title: [u.userName ?? '', u.nickName ?? ''],
+        icon: 'user',
+        group: 'user',
+        subtitle: u.phonenumber ?? '',
+        query: JSON.stringify({ userName: u.userName ?? '' })
+      })
+    }
+  }
+  if (roles.status === 'fulfilled') {
+    // listRole 声明为 TableDataInfo<SysRole[]>，运行时 rows 实为角色数组，此处做一次显式收窄
+    const roleRows = (roles.value.rows ?? []) as unknown as Array<{
+      roleName?: string
+      roleKey?: string
+    }>
+    for (const r of roleRows) {
+      results.push({
+        path: '/system/role',
+        title: [r.roleName ?? '', r.roleKey ?? ''],
+        icon: 'peoples',
+        group: 'role',
+        subtitle: r.roleKey ?? '',
+        query: JSON.stringify({ roleName: r.roleName ?? '' })
+      })
+    }
+  }
+  if (dicts.status === 'fulfilled') {
+    for (const d of dicts.value.rows ?? []) {
+      results.push({
+        path: '/system/dict',
+        title: [d.dictName ?? '', d.dictType ?? ''],
+        icon: 'dict',
+        group: 'dict',
+        subtitle: d.dictType ?? '',
+        query: JSON.stringify({ dictName: d.dictName ?? '' })
+      })
+    }
+  }
+  return results
+}
+
+// 数据搜索防抖定时器（输入过程中不打后端，停手 250ms 后才查）
+let dataSearchTimer: ReturnType<typeof setTimeout> | null = null
 
 const search = ref<string>('')
 const options = ref<SearchItem[]>([])
@@ -209,6 +288,10 @@ function generateRoutes(routes: AppRouteRecord[], basePath = '', prefixTitle: st
 
 function querySearch(query: string): void {
   activeIndex.value = -1
+  if (dataSearchTimer) {
+    clearTimeout(dataSearchTimer)
+    dataSearchTimer = null
+  }
   if (query !== '') {
     const q = query.toLowerCase()
     const pathMatches = searchPool.value.filter((item: SearchItem) => item.path.toLowerCase().includes(q))
@@ -220,6 +303,15 @@ function querySearch(query: string): void {
       }
     })
     options.value = merged
+    // UX-9：菜单结果立刻呈现，数据结果防抖补齐（停手 250ms 后）
+    if (query.trim().length >= DATA_SEARCH_MIN_LEN) {
+      dataSearchTimer = setTimeout(async () => {
+        const dataHits = await searchData(query.trim())
+        if (search.value !== query) return // 期间关键词已变化，丢弃过期结果
+        const all = [...options.value, ...dataHits]
+        options.value = all
+      }, 250)
+    }
   } else {
     options.value = searchPool.value
   }

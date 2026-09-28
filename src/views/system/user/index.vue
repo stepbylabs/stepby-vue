@@ -391,6 +391,8 @@ import { download } from '@/utils/request'
 import { getConfigKey } from '@/api/system/config'
 import { ElMessageBox } from 'element-plus'
 import { useSearchPersistence } from '@/composables/useSearchPersistence'
+import { useRoute } from 'vue-router'
+import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
 
 const userStore = useUserStore()
@@ -439,6 +441,26 @@ const columns = ref<Record<string, TableShowColumns>>({
   createTime: { label: t('user.column.createTime'), visible: true }
 })
 
+// UX-7：列显隐偏好持久化 —— 从用户偏好恢复，改动后写回（刷新/换设备保持一致）
+const settingsStore = useSettingsStore()
+const USER_TABLE_KEY = 'system:user'
+const savedColumns = settingsStore.userPrefs.tableColumns?.[USER_TABLE_KEY]
+if (savedColumns?.length) {
+  for (const key of Object.keys(columns.value)) {
+    columns.value[key].visible = savedColumns.includes(key)
+  }
+}
+watch(
+  columns,
+  (v: Record<string, TableShowColumns>) => {
+    const visible = Object.keys(v).filter((k) => v[k].visible)
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [USER_TABLE_KEY]: visible }
+    })
+  },
+  { deep: true }
+)
+
 const data = reactive({
   queryParams: {
     pageNum: 1,
@@ -468,15 +490,46 @@ const hasQueryFilter = computed(() => {
 
 // TierB-3: 搜索条件持久化 - 进入页面时恢复，搜索/重置时保存
 const { savedQuery, saveQuery: persistQuery, clearQuery: clearPersistedQuery } = useSearchPersistence('user-list')
+
+// UX-6：恢复查询条件的优先级 —— **URL query 优先**（可分享/刷新/书签保持），
+// 无 URL 参数时才回落到 localStorage 记忆（跨会话）。两者互补而非互相覆盖。
 // L11: setup 顶层 Object.assign 是有意为之 - 必须在 getList() 调用前恢复查询参数，
 // 否则首次加载会用默认分页而非用户上次保存的搜索条件。此处副作用可接受。
-if (savedQuery.value) {
+const route = useRoute()
+const urlQuery = route.query as Record<string, unknown>
+const hasUrlQuery = Object.keys(urlQuery).length > 0
+if (hasUrlQuery) {
+  // 仅覆盖查询对象中已存在的键，避免把任意 URL 参数注入查询条件
+  for (const [k, v] of Object.entries(urlQuery)) {
+    if (!(k in queryParams.value) || v === undefined || v === null || v === '') continue
+    const current = (queryParams.value as unknown as Record<string, unknown>)[k]
+    ;(queryParams.value as unknown as Record<string, unknown>)[k] =
+      typeof current === 'number' && !Number.isNaN(Number(v)) ? Number(v) : v
+  }
+} else if (savedQuery.value) {
   Object.assign(queryParams.value, savedQuery.value)
 }
 
-/** 查询用户列表 */
+/**
+ * 查询条件写入 URL（UX-6，replace 不污染历史栈）
+ * 仅写入非空值，与 useCrudTable 内的同名逻辑保持一致语义。
+ */
+function syncUrlQuery() {
+  if (!router) return
+  const src = queryParams.value as unknown as Record<string, unknown>
+  const q: Record<string, string> = {}
+  for (const [k, v] of Object.entries(src)) {
+    if (v === undefined || v === null || v === '') continue
+    q[k] = String(v)
+  }
+  if (JSON.stringify(q) === JSON.stringify(route.query as Record<string, string>)) return
+  router.replace({ query: q }).catch(() => {})
+}
+
+/** 查询用户列表（UX-6：同步查询条件到 URL，刷新/分享不丢失） */
 function getList() {
   loading.value = true
+  syncUrlQuery()
   listUser(addDateRange(queryParams.value, dateRange.value))
     .then((res) => {
       userList.value = res.rows

@@ -228,4 +228,31 @@ aside {
   .el-card__body {
     padding: 12px;
   }
+
+  // UX-10：窄屏表格改为「横向滚动」而非挤压列宽
+  // 挤压会把多列内容换行成高耸行、按钮重叠难以点击；改为单元格不换行 +
+  // 容器横向滚动，用户可左右滑动查看完整列（配合已有的 fixed 操作列）。
+  .el-table {
+    // 单元格内容不换行，保证列宽稳定、行高可控
+    .cell {
+      white-space: nowrap;
+    }
+
+    // 表体/表头允许横向滚动（el-table 默认会自行计算宽度，此处补触摸滚动体验）
+    .el-table__body-wrapper,
+    .el-table__header-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    // 滚动条在移动端更明显，便于发现可横滑
+    .el-table__body-wrapper::-webkit-scrollbar {
+      height: 6px;
+    }
+
+    .el-table__body-wrapper::-webkit-scrollbar-thumb {
+      background-color: var(--el-border-color-darker, #c0c4cc);
+      border-radius: 3px;
+    }
+  }
 }
