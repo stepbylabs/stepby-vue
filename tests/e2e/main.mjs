@@ -14818,7 +14818,7 @@ async function testFeature73(page) {
   let pkgSmallId = null
   try {
     const { DatabaseSync } = await import('node:sqlite')
-    const dbPath = path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
+    const dbPath = e2eDbPath()
     db = new DatabaseSync(dbPath)
     db.exec('PRAGMA busy_timeout = 5000')
     const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -15568,7 +15568,7 @@ async function testFeature74(page) {
     if (roleAuthA) {
       try {
         const { DatabaseSync } = await import('node:sqlite')
-        const dbPath = path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
+        const dbPath = e2eDbPath()
         const cdb = new DatabaseSync(dbPath)
         cdb.exec('PRAGMA busy_timeout = 5000')
         cdb.prepare('DELETE FROM sys_role_menu WHERE role_id = ?').run(roleAuthA)
@@ -15860,6 +15860,60 @@ async function testFeature75(page) {
 
 // ==================== 主流程 ====================
 
+/**
+ * e2e 直连的数据库路径（UX/隔离：默认开发库，可用 E2E_DB_PATH 指向独立测试库）
+ * 注意：夹具注入与 DB 直连断言都走此路径 —— 若启用独立测试库，
+ * 后端也必须以 DATABASE_URL 指向同一文件启动（两者必须是同一份库）。
+ */
+function e2eDbPath() {
+  const custom = process.env.E2E_DB_PATH
+  if (custom && custom.trim()) return path.resolve(custom.trim())
+  return path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
+}
+
+/**
+ * e2e 残留自清理（防开发库被测试数据累积污染）：
+ * 物理删除本套件产生的软删（del_flag='2'）测试实体及其关联，与数据库修复脚本同规则。
+ * 仅删"已软删"的行 —— 在册（del_flag='0'）数据不受影响。
+ */
+function cleanupE2eResidue() {
+  if (process.env.E2E_SKIP_CLEANUP === '1') return
+  try {
+    const { DatabaseSync } = importSyncDatabase()
+    const db = new DatabaseSync(e2eDbPath())
+    db.exec('PRAGMA busy_timeout = 5000')
+    const steps = [
+      ['role_menu', "DELETE FROM sys_role_menu WHERE role_id IN (SELECT role_id FROM sys_role WHERE del_flag='2')"],
+      ['user_role', "DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2')"],
+      ['user_post', "DELETE FROM sys_user_post WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2') OR post_id IN (SELECT post_id FROM sys_post WHERE del_flag='2')"],
+      ['tenant_domain', 'DELETE FROM sys_tenant_domain WHERE tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
+      ['users', "DELETE FROM sys_user WHERE del_flag='2'"],
+      ['depts', "DELETE FROM sys_dept WHERE del_flag='2'"],
+      ['roles', "DELETE FROM sys_role WHERE del_flag='2'"],
+      ['posts', "DELETE FROM sys_post WHERE del_flag='2' OR post_code LIKE 'test%'"],
+      ['tenants', "DELETE FROM sys_tenant WHERE del_flag='2'"]
+    ]
+    let total = 0
+    for (const [name, sql] of steps) {
+      try {
+        total += db.prepare(sql).run().changes
+      } catch (e) {
+        log(`  残留清理跳过 ${name}: ${String(e).slice(0, 80)}`)
+      }
+    }
+    db.close()
+    log(`🧹 e2e 残留自清理完成：${total} 行（软删测试数据物理清除）`)
+  } catch (e) {
+    log(`  残留自清理失败（不影响测试结果）: ${String(e).slice(0, 120)}`)
+  }
+}
+
+/** 延迟导入 node:sqlite（统一入口，便于 mock/替换） */
+async function importSyncDatabase() {
+  const mod = await import('node:sqlite')
+  return mod
+}
+
 async function main() {
   // 解析命令行参数
   const args = process.argv.slice(2)
@@ -16077,11 +16131,13 @@ async function main() {
     log(`📄 测试报告已保存: ${reportFile}`)
 
     await browser.close()
+    cleanupE2eResidue()
     process.exit(failed === 0 ? 0 : 1)
   } catch (err) {
     log(`💥 测试脚本异常: ${err.message}`)
     console.error(err)
     await browser.close()
+    try { cleanupE2eResidue() } catch { /* best-effort */ }
     process.exit(2)
   }
 }
