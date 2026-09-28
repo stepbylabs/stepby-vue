@@ -15,7 +15,7 @@ export default {
     post: 'Positions',
     tenant: 'Tenant Management',
     myDomain: 'Domain Management',
-    myNav: 'Navigation Settings',
+    myNav: 'My Navigation',
     dict: 'Dictionaries',
     config: 'Config',
     notice: 'Announcements',
@@ -388,6 +388,8 @@ export default {
     statusTip: 'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
     empty: 'No domain bound yet',
     myTitle: 'Domain Management',
+    selfServiceTip:
+      'This page is tenant self-service binding: only custom domains with DNS TXT verification can be added. Subdomains are allocated by the platform under Tenant Management (no verification needed).',
     targetTenant: 'Target Tenant',
     targetTenantPlaceholder: 'Select a tenant to manage (platform operator)',
     platformPickTenant:
@@ -396,7 +398,7 @@ export default {
       'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.'
   },
   tenantNav: {
-    myTitle: 'Navigation Settings',
+    myTitle: 'My Navigation',
     targetTenant: 'Target Tenant',
     targetTenantPlaceholder: 'Select a tenant to manage (platform operator)',
     platformPickTenant:

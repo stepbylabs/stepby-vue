@@ -15,7 +15,7 @@ export default {
     post: '岗位管理',
     tenant: '租户管理',
     myDomain: '域名管理',
-    myNav: '导航设置',
+    myNav: '我的导航',
     dict: '字典管理',
     config: '参数设置',
     notice: '公告管理',
@@ -380,6 +380,8 @@ export default {
     statusTip: '停用后该域名不再参与租户识别（Host → 租户映射失效）',
     empty: '暂无域名绑定',
     myTitle: '域名管理',
+    selfServiceTip:
+      '本页为租户自助域名绑定：仅可添加自定义域名并通过 DNS TXT 验证。子域名由平台在【租户管理 → 域名查询】中统一分配，平台可免验证绑定。',
     targetTenant: '目标租户',
     targetTenantPlaceholder: '平台操作者请选择要管理的租户',
     platformPickTenant:
@@ -388,7 +390,7 @@ export default {
       '子域名由平台统一分配，租户侧仅可自助添加「自定义域名」，且需按提示配置 DNS TXT 记录并通过验证后方可设为主域名。'
   },
   tenantNav: {
-    myTitle: '导航设置',
+    myTitle: '我的导航',
     targetTenant: '目标租户',
     targetTenantPlaceholder: '平台操作者请选择要管理的租户',
     platformPickTenant:
