@@ -47,12 +47,13 @@ function decodeVLQ(segment) {
 function parseMappings(map) {
   const entries = []
   const { mappings, names = [] } = map
+  // srcIdx/srcLine/srcCol/nameIdx 为**跨行持续**累加的 delta 状态（spec：仅 genLine/genCol 每行重置）
+  let srcIdx = 0
+  let srcLine = 0
+  let srcCol = 0
+  let nameIdx = 0
   mappings.split(';').forEach((lineStr, genLine) => {
     let genCol = 0
-    let srcIdx = 0
-    let srcLine = 0
-    let srcCol = 0
-    let nameIdx = 0
     if (!lineStr) return
     for (const seg of lineStr.split(',')) {
       if (!seg) continue

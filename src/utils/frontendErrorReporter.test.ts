@@ -114,5 +114,7 @@ describe('frontendErrorReporter', () => {
     const item = JSON.parse(fetchCalls[0].init.body as string).items[0]
     expect(item.source).toBe('vital')
     expect(item.level).toBe('info')
+    // FCP-011：设备类型分桶随每条上报携带（jsdom 视口宽 1024 → desktop）
+    expect(['mobile', 'tablet', 'desktop']).toContain(item.deviceType)
   })
 })

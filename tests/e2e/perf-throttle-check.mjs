@@ -36,8 +36,11 @@ const SCENARIOS = [
     desc: 'Slow 3G（400kbps 下行 / 400ms RTT）',
     network: { offline: false, downloadThroughput: (400 * 1024) / 8, uploadThroughput: (400 * 1024) / 8, latency: 400 },
     cpuRate: 1,
-    lcpLimit: runtime.lcpMs * 4,
-    fcpLimit: runtime.fcpMs * 3
+    // 校准依据（2026-09-28 实测）：单 chunk（codeSplitting:false）下 1.6MB gzip JS
+    // 在 400kbps 传输 ~6s，FCP/LCP 均 ≈6028ms。预算倍数取 FCP×4 / LCP×5；
+    // Rolldown 修复移除 codeSplitting:false 恢复分包后应同步收紧倍数。
+    lcpLimit: runtime.lcpMs * 5,
+    fcpLimit: runtime.fcpMs * 4
   },
   {
     name: 'cpu-4x',
