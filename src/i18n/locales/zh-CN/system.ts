@@ -51,6 +51,7 @@ export default {
     helpCenter: '帮助中心',
     changelog: '更新日志',
     dashboard: '数据看板',
+    tenantSpace: '租户服务',
     website: 'Yebot官网',
     pat: 'API 令牌',
     componentNotFound: '组件「{view}」不存在，请检查菜单配置'

@@ -51,6 +51,7 @@ export default {
     helpCenter: 'Help Center',
     changelog: 'Changelog',
     dashboard: 'Dashboard',
+    tenantSpace: 'Tenant Services',
     website: 'Yebot Website',
     pat: 'API Tokens',
     componentNotFound: 'Component "{view}" does not exist, please check menu configuration'

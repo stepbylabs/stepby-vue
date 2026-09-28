@@ -106,21 +106,7 @@
           <header-notice id="header-notice" class="right-menu-item hover-effect" />
         </el-tooltip>
 
-        <!-- 问题监控（错误/警告聚合角标，紧邻通知便于统一查看） -->
-        <el-tooltip :content="safeT('error.monitor.title')" effect="dark" placement="bottom">
-          <error-monitor id="error-monitor" class="right-menu-item hover-effect" />
-        </el-tooltip>
-
-        <!-- 外部链接（次要功能，靠近右侧） -->
-        <el-tooltip :content="safeT('layout.navbar.sourceCode')" effect="dark" placement="bottom">
-          <yebot-git id="yebot-git" class="right-menu-item hover-effect" />
-        </el-tooltip>
-
-        <el-tooltip :content="safeT('layout.navbar.docs')" effect="dark" placement="bottom">
-          <yebot-doc id="yebot-doc" class="right-menu-item hover-effect" />
-        </el-tooltip>
-
-        <!-- 显示控制：全屏 → 主题 → 语言 → 尺寸 -->
+        <!-- 显示控制：全屏 → 主题 → 语言 → 尺寸（个人偏好类靠后成组） -->
         <screenfull id="screenfull" class="right-menu-item hover-effect" />
 
         <el-tooltip :content="safeT('layout.navbar.themeMode')" effect="dark" placement="bottom">
@@ -146,6 +132,20 @@
 
         <el-tooltip :content="safeT('layout.navbar.layoutSize')" effect="dark" placement="bottom">
           <size-select id="size-select" class="right-menu-item hover-effect" />
+        </el-tooltip>
+
+        <!-- 问题监控（错误/警告聚合角标）：视图/偏好类之后的运维向入口 -->
+        <el-tooltip :content="safeT('error.monitor.title')" effect="dark" placement="bottom">
+          <error-monitor id="error-monitor" class="right-menu-item hover-effect" />
+        </el-tooltip>
+
+        <!-- 外部链接（低频，最末）：源码仓库 / 使用文档 -->
+        <el-tooltip :content="safeT('layout.navbar.sourceCode')" effect="dark" placement="bottom">
+          <yebot-git id="yebot-git" class="right-menu-item hover-effect" />
+        </el-tooltip>
+
+        <el-tooltip :content="safeT('layout.navbar.docs')" effect="dark" placement="bottom">
+          <yebot-doc id="yebot-doc" class="right-menu-item hover-effect" />
         </el-tooltip>
       </template>
 
