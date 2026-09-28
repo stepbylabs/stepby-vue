@@ -107,7 +107,7 @@
         </div>
 
         <el-descriptions v-if="result.headers.length" :column="1" border size="small" class="mb-4">
-          <el-descriptions-item v-for="(h, i) in result.headers" :key="i" :label="h.name">
+          <el-descriptions-item v-for="h in result.headers" :key="h.name + ':' + h.value" :label="h.name">
             {{ h.value }}
           </el-descriptions-item>
         </el-descriptions>

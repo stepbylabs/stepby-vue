@@ -1210,6 +1210,7 @@ export default {
       phTargetUrl: '请输入出站目标 URL，如 https://example.com/hook',
       secret: '签名密钥',
       phSecret: '请输入签名密钥',
+      phSecretKeep: '已配置签名密钥，留空保持不变',
       secretTip: '编辑时留空表示不改变；新增时可选',
       contentType: '请求体格式',
       timeoutSecs: '超时秒数',

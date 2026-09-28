@@ -1226,6 +1226,7 @@ export default {
       phTargetUrl: 'Enter outbound target URL, e.g. https://example.com/hook',
       secret: 'Signing Secret',
       phSecret: 'Enter signing secret',
+      phSecretKeep: 'Secret configured; leave empty to keep it',
       secretTip: 'Leave empty on edit to keep unchanged; optional on add',
       contentType: 'Content Type',
       timeoutSecs: 'Timeout (seconds)',

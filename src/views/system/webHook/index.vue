@@ -237,7 +237,7 @@
               v-model="form.secret"
               type="password"
               show-password
-              :placeholder="t('webHook.form.phSecret')"
+              :placeholder="form.id != null && form.hasSecret ? t('webHook.form.phSecretKeep') : t('webHook.form.phSecret')"
               :maxlength="256"
             />
             <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.secretTip') }}</div>

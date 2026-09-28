@@ -50,8 +50,8 @@
                   </template>
                   <ul class="version-items list-none p-0 m-0">
                     <li
-                      v-for="(item, idx) in entry.items"
-                      :key="idx"
+                      v-for="item in entry.items"
+                      :key="item"
                       class="version-item relative py-1.5 pl-4 text-[13px] leading-[1.6] text-text-primary"
                       v-html="highlightSearch(item)"
                     ></li>

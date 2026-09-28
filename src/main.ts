@@ -28,7 +28,6 @@ import i18n from '@/i18n'
 
 // 注册指令
 import plugins from './plugins' // plugins
-import { download } from '@/utils/request'
 
 // svg图标
 import 'virtual:svg-icons-register'
@@ -37,11 +36,9 @@ import elementIcons from '@/components/SvgIcon/svgicon'
 
 import './permission' // permission control
 
-import { useDict } from '@/utils/dict'
 // 动效库：@vueuse/motion 提供 v-motion 指令（声明式入场动画）
 import { MotionPlugin } from '@vueuse/motion'
-import { getConfigKey } from '@/api/system/config'
-import { parseTime, addDateRange, handleTree, selectDictLabel, selectDictLabels } from '@/utils/yebot'
+import { parseTime } from '@/utils/yebot'
 
 // 分页组件
 import Pagination from '@/components/Pagination/index.vue'
@@ -60,18 +57,25 @@ import EmptyState from '@/components/EmptyState/index.vue'
 
 const app = createApp(App)
 
-// 全局方法挂载
-app.config.globalProperties.useDict = useDict
-app.config.globalProperties.download = download
+// M-12 / R103-FE-MAJ-005：清理"旧代码兼容"的 globalProperties（原 9 个），逐项核查如下：
+//   1. useDict           —— 全仓 0 处以全局名调用，调用点均为显式 import 或 unplugin-auto-import
+//                          自动导入（vite/plugins/auto-import.ts），属死代码，已移除注册。
+//   2. download          —— 同上，调用点统一 `import { download } from '@/utils/request'`，已移除。
+//   3. handleTree        —— 调用点统一显式 import，已移除。
+//   4. addDateRange      —— 调用点统一显式 import，已移除。
+//   5. getConfigKey      —— 调用点统一显式 import，已移除。
+//   6. selectDictLabel   —— 显式 import / 自动导入，已移除。
+//   7. selectDictLabels  —— 全仓无调用，已移除。
+//   8. $t                —— 全仓 0 处模板 `$t()`（组件统一 `const { t } = useI18n()`），已移除。
+//   9. parseTime（保留例外）—— 作为模板"时间过滤器"在 28 个 .vue 的模板插值中裸名调用共 31 处
+//                          （如 `{{ parseTime(scope.row.createTime) }}`），并承担"默认追加本地时区
+//                          偏移后缀（GMT+8）"的展示约定（tz=true，见 yebot.ts）。若改为普通显式
+//                          import（tz 默认 false）会丢失时区后缀、改变展示结果；逐文件包装改造成本/
+//                          风险过大。按优化项"被大量模板以全局名使用可保留并说明"的例外予以保留。
 // 全局时间过滤器：默认追加浏览器本地时区偏移后缀（如 "GMT+8"），标注展示时间所属时区，
 // 消除跨区域协作/排障的时区歧义；纯日期格式（不含 {h}/{i}/{s}）不加后缀。
 app.config.globalProperties.parseTime = (time: unknown, pattern?: string) =>
   parseTime(time as string | number | Date | null | undefined, pattern, true)
-app.config.globalProperties.handleTree = handleTree
-app.config.globalProperties.addDateRange = addDateRange
-app.config.globalProperties.getConfigKey = getConfigKey
-app.config.globalProperties.selectDictLabel = selectDictLabel
-app.config.globalProperties.selectDictLabels = selectDictLabels
 
 // 全局组件挂载
 app.component('DictTag', DictTag)
@@ -91,9 +95,6 @@ app.use(i18n)
 // 动效库：@vueuse/motion 提供 v-motion 指令（声明式入场动画）
 app.use(MotionPlugin)
 app.component('svg-icon', SvgIcon)
-
-// i18n 兜底：将 $t 挂到全局属性，避免组件未调用 useI18n() 时模板 $t() 报错
-app.config.globalProperties.$t = i18n.global.t
 
 directive(app)
 

@@ -1,10 +1,10 @@
-import { sprintf, parseStrEmpty, mergeRecursive, tansParams, getNormalPath, blobValidate } from '@/utils/yebot'
+import { sprintf, parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/yebot'
 
 // ============================================================================
 // 说明
 // ============================================================================
 // 本文件聚焦 yebot.ts 中此前未被测试覆盖的工具函数：
-//   sprintf / parseStrEmpty / mergeRecursive / tansParams / getNormalPath / blobValidate
+//   sprintf / parseStrEmpty / mergeRecursive / transParams / getNormalPath / blobValidate
 // 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 yebot.time.test.ts；
 // 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 yebot.dictTree.test.ts。
 
@@ -166,43 +166,43 @@ describe('mergeRecursive', () => {
 })
 
 // ============================================================================
-// tansParams 参数处理（序列化查询串）
+// transParams 参数处理（序列化查询串）
 // ============================================================================
-describe('tansParams', () => {
+describe('transParams', () => {
   it('空对象返回空字符串', () => {
-    expect(tansParams({})).toBe('')
+    expect(transParams({})).toBe('')
   })
 
   it('简单键值对序列化并以 & 结尾', () => {
-    expect(tansParams({ name: '张三' })).toBe('name=%E5%BC%A0%E4%B8%89&')
+    expect(transParams({ name: '张三' })).toBe('name=%E5%BC%A0%E4%B8%89&')
   })
 
   it('多个键值对按顺序拼接', () => {
-    expect(tansParams({ a: '1', b: '2' })).toBe('a=1&b=2&')
+    expect(transParams({ a: '1', b: '2' })).toBe('a=1&b=2&')
   })
 
   it('null / undefined / 空字符串值被跳过', () => {
-    expect(tansParams({ a: null, b: undefined, c: '', d: 'keep' })).toBe('d=keep&')
+    expect(transParams({ a: null, b: undefined, c: '', d: 'keep' })).toBe('d=keep&')
   })
 
   it('对象值展开为 [key]=value 形式', () => {
-    expect(tansParams({ filter: { status: '1', type: '2' } })).toBe('filter%5Bstatus%5D=1&filter%5Btype%5D=2&')
+    expect(transParams({ filter: { status: '1', type: '2' } })).toBe('filter%5Bstatus%5D=1&filter%5Btype%5D=2&')
   })
 
   it('对象值中空字段被跳过', () => {
-    expect(tansParams({ filter: { a: '', b: 'x' } })).toBe('filter%5Bb%5D=x&')
+    expect(transParams({ filter: { a: '', b: 'x' } })).toBe('filter%5Bb%5D=x&')
   })
 
   it('特殊字符被 encodeURIComponent 编码', () => {
-    expect(tansParams({ q: 'a&b=c' })).toBe('q=a%26b%3Dc&')
+    expect(transParams({ q: 'a&b=c' })).toBe('q=a%26b%3Dc&')
   })
 
   it('数字值被转字符串', () => {
-    expect(tansParams({ num: 42 })).toBe('num=42&')
+    expect(transParams({ num: 42 })).toBe('num=42&')
   })
 
   it('布尔值被转字符串', () => {
-    expect(tansParams({ flag: true })).toBe('flag=true&')
+    expect(transParams({ flag: true })).toBe('flag=true&')
   })
 })
 

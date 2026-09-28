@@ -20,8 +20,18 @@ export interface WebHookLogQueryParams extends PageDomain {
   status?: string
 }
 
-/** 回调配置（后端生成类型） */
-export type SysWebHook = import('@/types/api/generated/SysWebHook').SysWebHook
+/**
+ * 回调配置（后端生成类型 + 表单专用输入字段）
+ *
+ * 后端出参已**脱敏**：不返回签名密钥原文，仅返回 `hasSecret` 标注是否已配置。
+ * `secret` 为前端表单专用字段（仅新增/修改时提交）：
+ * - 新增：非空则设置密钥，留空则未配置；
+ * - 修改：非空则覆盖，**留空保持原值**（与后端 edit 语义一致）。
+ */
+export type SysWebHook = import('@/types/api/generated/WebHookVo').WebHookVo & {
+  /** 仅表单输入用：签名密钥明文；后端永不回传 */
+  secret?: string | null
+}
 
 /** 推送记录（后端生成类型） */
 export type SysWebHookLog = import('@/types/api/generated/SysWebHookLog').SysWebHookLog

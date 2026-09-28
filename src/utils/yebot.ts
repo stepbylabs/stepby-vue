@@ -261,7 +261,7 @@ export function handleTree<T>(data: T[], id?: string, parentId?: string, childre
  * 参数处理
  * @param params  参数
  */
-export function tansParams(params: Record<string, unknown>): string {
+export function transParams(params: Record<string, unknown>): string {
   let result = ''
   for (const propName of Object.keys(params)) {
     const value = params[propName]

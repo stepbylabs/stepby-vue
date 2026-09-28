@@ -8,7 +8,7 @@ import { ElMessageBox, ElMessage, ElLoading } from 'element-plus'
 import i18n, { getLanguage } from '@/i18n'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
-import { tansParams, blobValidate } from '@/utils/yebot'
+import { transParams, blobValidate } from '@/utils/yebot'
 import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
 import useUserStore from '@/store/modules/user'
@@ -139,7 +139,7 @@ service.interceptors.request.use(
     }
     // get请求映射params参数
     if (config.method === 'get' && config.params) {
-      let url = config.url + '?' + tansParams(config.params as Record<string, unknown>)
+      let url = config.url + '?' + transParams(config.params as Record<string, unknown>)
       url = url.slice(0, -1)
       config.params = {}
       config.url = url
@@ -391,7 +391,7 @@ export function download(url: string, params: Record<string, unknown>, filename:
     service.post(url, params, {
       transformRequest: [
         (params: unknown) => {
-          return tansParams(params as Record<string, unknown>)
+          return transParams(params as Record<string, unknown>)
         }
       ],
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

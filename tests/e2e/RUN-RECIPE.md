@@ -75,8 +75,12 @@ node main.mjs --headless
 - 不带 `--feature` = 跑全部 75 个功能（约 20 分钟，分段见下）。
 - 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
   `1-20 / 21-40 / 41-75` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- **功能 1-75** 通过 判据（**最新权威基线，2026-09-26 第六批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
-  实测 `107 + 223 + 445 = **775 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`）。
+- **功能 1-75** 通过 判据（**最新权威基线，2026-09-28 第二十批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
+  实测 `107 + 223 + 446 = **776 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`；跑前 `/health` = `db UP / redis UP`）。
+  （上一权威基线为 2026-09-26 第六批 `107 + 223 + 445 = 775`；第三段计数随后上移 1，非本批改动 `main.mjs` 所致。）
+  唯一**非失败**告警：第二段末尾 `⚠️ [404] GET /system/user/webauthn/credentials`×3 ——
+  WebAuthn 能力位默认 off 时该路由不注册，而前端入口只按浏览器能力判断（既有"假入口"类问题，
+  见台账 §8.25-D 末行登记与建议方案）。
   第 51 功能首跑曾因 `networkidle` 被 web-vitals beacon 卡死而**假失败**，修复后复跑 `24/24`（见 §3.16）；
   最终源码上再验 `--feature=51,66` = `36/36`。
   （历史基线：功能 1-68 曾为 `106 + 220 + 326 = 652`；随 W-3/W-8/W-10/W-11/W-17 与失败计数收紧逐批上移。）
@@ -952,6 +956,73 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
   对所有部署一律生效），也不改变任何布局与交互行为（仅新增属性与 `:focus-visible` 样式）。
 - 属于**深色/浅色**与**语言切换**下均生效的实现（名称随 locale 重放；焦点色用主题变量 `--el-color-primary`）。
 
+### 3.25 本轮（第二十批）新增/修改项的开启态配方（改这批代码必跑）
+
+**本批有「运行时语义」的改动**（OpenAPI 注解 / 日志级别 / 前端死全局清理不改变运行语义，跑 §3 全量 e2e 即覆盖）：
+
+#### (1) `[rate_limit].mode = redis`（M-8 收口，**默认 `local` = 现状**）
+
+```bash
+RATE_LIMIT_MODE=local <启动后端>   # 关闭档：进程内令牌桶，Redis 中**不得**出现 rate_limit:{tid}:{ip} 桶键
+RATE_LIMIT_MODE=redis <启动后端>   # 开启档：Lua 原子分布式令牌桶，**真写** HASH 桶键，多实例共享配额
+```
+
+- **可证伪判据（真 Redis，非 mock）**：`cargo test --lib integration_tests::sys_rate_limit::test_rate_limit_mode_switch_local_vs_redis`
+  —— ①`local` 档不写桶键；②`redis` 档真写桶键且带 `tokens` 字段；③收紧配额后第 3 次请求**真返回 429**。
+  另一例 `test_redis_token_bucket_atomic_and_ttl` 断言原子计数 / `PTTL>0` / 补充恢复 / 键间隔离。
+- **fail-closed**：Redis 不可用时，开启档必须返回 **503**（限流器不可用却放行 = 攻击者获准），不得静默降级。
+- TTL 由 `max(key_ttl_secs, 桶自然补满秒数×2)` 决定（否则桶未补满即过期并按满桶重建 ⇒ 限流被悄悄放宽）。
+
+#### (2) Redis 命令超时护栏（`utils::redis::cmd_timeout`，161 处包裹）
+
+- 语义：超时（`REDIS_CMD_TIMEOUT_SECS = 3`）统一转 `RedisError`，调用方走**原有**错误分支，无需改代码。
+- ⚠️ **跑门禁时不要与前端 `vitest` 并发**：3s 是**墙钟**超时；重度 CPU 争抢（vitest 单次 `environment` 可达 170s+）
+  下"其实已完成"的命令可能来不及被 poll 而**假超时** ⇒ SSO 用例假红。本轮实测踩到：并发时
+  `integration_tests::sso::{full_flow_and_replay, d3_refresh_rotation_and_revoke}` 断言 `userinfo 应 200` 得 **401**；
+  **单独串行重跑即 1020/0 全绿**。⇒ 门禁按 §5 **串行**执行；出现此类红先串行复跑取净结果，不要改代码。
+
+#### (3) WebHook 签名密钥脱敏（安全）+ `edit` 不再清空密钥
+
+- 判据（可证伪）：`cargo test --lib integration_tests::sys_web_hook::test_web_hook_secret_masked_and_preserved_on_edit`
+  —— `list` / `{id}` 的 JSON **不含** `secret` / `tenantId` / `delFlag` 且 `hasSecret` 正确；
+  且「编辑不传 secret」「传空串」后 `hasSecret` **仍为 true**（旧代码必红）。
+- 手工核对：`GET /prod-api/monitor/webHook/list`，响应中搜不到密钥明文。
+
+#### (4) nginx 缓存规则（`yebot-ui/nginx.conf` 与 `deploy/helm/yebot/templates/configmap-nginx.yaml` **必须同改**）
+
+真实 nginx 实测手法（本轮据此验收，可复现）：
+
+```bash
+docker run -d --name yebot-nginx-test --add-host backend:127.0.0.1 -p 18080:80 \
+  -v "<repo>/yebot-ui/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  -v "<repo>/yebot-ui/dist:/usr/share/nginx/html:ro" nginx:1.27-alpine
+curl.exe -sI http://localhost:18080/index.html              # no-cache, must-revalidate（单条）
+curl.exe -sI http://localhost:18080/static/js/index-*.js    # public, max-age=31536000, immutable（单条）
+curl.exe -sI http://localhost:18080/sw.js                   # no-cache, no-store, must-revalidate + Expires: 0
+curl.exe -sI http://localhost:18080/system/user             # SPA fallback 亦 no-cache（try_files 内部重定向生效）
+```
+
+- Helm 变体校验：把 configmap 的 `default.conf` 块按 4 空格反缩进渲染
+  （`{{ include "yebot.backendName" . }}`→`backend`、`{{ .Values.service.port }}`→`8080`），
+  再 `docker run --rm --add-host backend:127.0.0.1 -v <rendered>:/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine nginx -t`
+  （本轮实测：`nginx -t` 通过，且 4 条 `curl -I` 结果与 `nginx.conf` **逐条一致**）。
+- ⚠️ 教训：本轮 `nginx.conf` 已去重（单条 Cache-Control）而 Helm 变体仍为 `expires 1y` + `add_header`
+  （两条头），且 Helm 变体**整块缺失** SW 禁缓存块 ⇒ 改 nginx 缓存必须**两处同改**并各自实测。
+
+#### (5) 用户 `sex` / `status` 枚举校验（非法值 400）
+
+- 判据：`cargo test --lib test_normalize_sex_accepts_registered_enum_only` / `test_normalize_user_status_accepts_registered_enum_only`
+  （已登记值放行、空值归一为未设置、`trim` 生效、非法值一律拒绝）。
+- 手工：`PUT /prod-api/system/user` 带 `"sex":"9"` 应得业务码 **400**（此前会静默入库）。
+
+#### (6) 环境：**必须先重启服务进程，跑在最终产物上**（否则"假绿"）
+
+- 旧的 `:8080` 后端进程是**上一批的二进制**、旧 `:4173` preview 也在跑：不重启就测不到本批改动。
+  顺序固定为：`build:embedded` → 拷入 `axum-backend/frontend-dist/` → `build:prod`（留 `dist/`）→ `cargo build`
+  → 以 `EMBEDDED_FRONTEND=true SSO_ENABLED=true` 启动 `:8080` → `vite preview --port 4173`。
+- 启动方式：**必须在本工具中以「后台任务」方式常驻**（前台 `Start-Process` 曾出现进程随调用结束而消失，
+  导致 e2e 首步登录页超时）。启动后先 `curl http://localhost:8080/health` 确认 `db/redis` 双 UP。
+
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
@@ -976,7 +1047,7 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 - 前端：`NODE_OPTIONS="" sh node_modules/.bin/vue-tsc --noEmit`（0 类型错误）、
   `npm run lint`（0 错误 0 警告）。
-- 后端：`cargo check --lib --tests`、`cargo test --lib`（基线 **854 passed / 0 failed**，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --lib --tests -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）、
+- 后端：`cargo check --workspace --all-targets`、`cargo test --workspace --lib`（基线 **1020 passed / 0 failed + governance 9**，需本机 Redis 在线；无 Redis 时以 `cargo clippy --all-targets` 编译校验）、`cargo clippy --workspace --all-targets -- -D warnings`（0 项目警告；仅第三方 `proc-macro-error2` future-incompat 提示，非本仓库代码）、
   `cargo fmt --all -- --check`（0 差异；2026-09-26 已清理 `rustfmt.toml` 中的 nightly 专属选项，稳定工具链下不再红）。
   - Windows 下 `node_modules/.bin/vite` 是 sh 脚本，PowerShell 直跑会 `SyntaxError: missing ) after argument list`；
     改用 `node node_modules/vite/bin/vite.js build --mode <mode>` 等价且跨 shell 稳定。
