@@ -17,6 +17,10 @@ const { download, modal, t } = vi.hoisted(() => ({
 vi.mock('@/utils/request', () => ({ download }))
 vi.mock('@/plugins/modal', () => ({ default: modal }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t }) }))
+// UX-5 未保存守卫：useUnsavedGuard 依赖 element-plus 的 ElMessageBox
+// （该文件整体禁真实加载 element-plus，confirm 行为由用例内 spy 控制）
+const { elMessageBoxConfirm } = vi.hoisted(() => ({ elMessageBoxConfirm: vi.fn() }))
+vi.mock('element-plus', () => ({ ElMessageBox: { confirm: elMessageBoxConfirm } }))
 
 import { useCrudTable } from './useCrudTable'
 
@@ -163,15 +167,37 @@ describe('composables/useCrudTable', () => {
 
   // ===== cancel / reset =====
   describe('cancel', () => {
-    it('关闭弹窗并重置表单', () => {
+    it('干净表单直接关闭并重置（快照比对非脏，不弹确认）', async () => {
       const { ctx, form, formRef, defaultForm } = makeCtx()
-      form.value.postName = 'dirty'
+      ctx.handleAdd() // 打开时快照默认表单（未修改 ⇒ 非脏）
       ctx.open.value = true
-      ctx.cancel()
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).not.toHaveBeenCalled()
       expect(ctx.open.value).toBe(false)
       expect(form.value).toEqual({ postId: undefined, postName: '' })
       expect(formRef.value!.resetFields).toHaveBeenCalled()
       expect(defaultForm).toHaveBeenCalled()
+    })
+
+    it('脏表单取消 → 用户确认放弃后关闭（UX-5）', async () => {
+      const { ctx, form } = makeCtx()
+      ctx.handleAdd() // 打开时快照默认表单
+      ctx.open.value = true
+      form.value.postName = 'dirty' // 用户修改（与快照不一致）
+      elMessageBoxConfirm.mockResolvedValueOnce('confirm')
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).toHaveBeenCalled()
+      expect(ctx.open.value).toBe(false)
+    })
+
+    it('脏表单取消 → 用户取消确认后保持打开（UX-5）', async () => {
+      const { ctx, form } = makeCtx()
+      ctx.handleAdd()
+      ctx.open.value = true
+      form.value.postName = 'dirty'
+      elMessageBoxConfirm.mockRejectedValueOnce('cancel')
+      await ctx.cancel()
+      expect(ctx.open.value).toBe(true)
     })
   })
 

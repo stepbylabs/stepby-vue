@@ -56,6 +56,7 @@ export default {
       title: 'Issue Monitor',
       empty: 'No errors or warnings',
       clear: 'Clear',
+      viewAll: 'View all frontend errors',
       ariaWithCount: '{count} errors or warnings',
       ariaNoIssue: 'No errors or warnings',
       multi: ' (×{count})',

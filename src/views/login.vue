@@ -29,6 +29,8 @@
           :aria-label="t('login.password')"
           :maxlength="20"
           @keyup.enter="handleLogin"
+          @keyup="capsLockOn = $event.getModifierState?.('CapsLock') ?? capsLockOn"
+          @blur="capsLockOn = false"
         >
           <template #prefix><svg-icon icon-class="password" class="el-input__icon input-icon" /></template>
           <template #suffix>
@@ -42,6 +44,16 @@
           </template>
         </el-input>
       </el-form-item>
+      <!-- Caps Lock 检测提示（UX-4）：大小写敏感是登录失败常见原因 -->
+      <Transition name="expand-fade">
+        <el-alert
+          v-if="capsLockOn"
+          :title="t('login.capsLockOn')"
+          type="warning"
+          :closable="false"
+          class="mb-1 -mt-1"
+        />
+      </Transition>
       <Transition name="expand-fade">
         <el-form-item prop="code" v-if="captchaEnabled">
           <el-input
@@ -201,6 +213,8 @@ const codeUrl = ref('')
 const loading = ref(false)
 // 密码显示/隐藏切换
 const passwordVisible = ref(false)
+/** Caps Lock 开启检测（UX-4）：密码框 keyup 时刷新，失焦即隐藏 */
+const capsLockOn = ref(false)
 // 验证码刷新 loading
 const codeLoading = ref(false)
 // 验证码开关

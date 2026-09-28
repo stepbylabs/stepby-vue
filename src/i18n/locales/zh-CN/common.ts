@@ -56,6 +56,8 @@ export default {
     emptyActionCreate: '立即创建',
     emptyActionReset: '重置筛选',
     tip: '提示',
+    unsavedConfirm: '当前表单内容尚未保存，确定要离开吗？',
+    leaveWithoutSaving: '不保存并离开',
     warning: '警告',
     error: '错误',
     other: '其他',

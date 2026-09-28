@@ -183,8 +183,8 @@
       @pagination="getList"
     />
 
-    <!-- 添加或修改参数配置对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <!-- 添加或修改参数配置对话框（before-close：未保存离开确认，UX-5） -->
+    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close :before-close="beforeDialogClose">
       <el-form ref="configRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('config.form.configName')" prop="configName">
           <el-input v-model.trim="form.configName" :placeholder="t('config.search.phConfigName')" />
@@ -279,6 +279,7 @@ const {
   multiple,
   total,
   title,
+  beforeDialogClose,
   getList,
   cancel,
   handleQuery,

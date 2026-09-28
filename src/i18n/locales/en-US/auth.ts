@@ -6,6 +6,7 @@ export default {
     title: 'Yebot Admin System',
     username: 'Username',
     password: 'Password',
+    capsLockOn: 'Caps Lock is on',
     code: 'Captcha',
     showPassword: 'Show password',
     hidePassword: 'Hide password',

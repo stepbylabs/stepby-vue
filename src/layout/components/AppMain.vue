@@ -1,5 +1,7 @@
 <template>
   <section id="main-content" class="app-main w-full relative overflow-hidden">
+    <!-- 面包屑（UX-1）：内容区顶部层级定位；随内容滚动（TagsView 常驻提供访问历史） -->
+    <breadcrumb v-if="!route.meta.link" class="app-breadcrumb-wrap" />
     <router-view v-slot="{ Component, route }">
       <!-- P1 修复：key 用 fullPath（含 query），使同一路径不同参数（详情页带参跳转）重建组件，
            避免 keep-alive 缓存导致显示旧数据；与 TagsView isActive 的 fullPath 语义一致 -->
@@ -12,6 +14,8 @@
       </ErrorBoundary>
     </router-view>
     <iframe-toggle />
+    <!-- 回到顶部（UX-2）：滚动容器为 .app-main 自身（overflow-y: auto） -->
+    <el-backtop target=".app-main" :right="24" :bottom="48" />
     <copyright />
   </section>
 </template>
@@ -19,6 +23,7 @@
 <script setup lang="ts">
 import copyright from './Copyright/index.vue'
 import iframeToggle from './IframeToggle/index.vue'
+import Breadcrumb from './Breadcrumb/index.vue'
 import ErrorBoundary from '@/components/ErrorBoundary/index.vue'
 import useTagsViewStore from '@/store/modules/tagsView'
 
@@ -43,6 +48,11 @@ function addIframe(): void {
 .app-main {
   /* 50= navbar  50  */
   min-height: calc(100vh - 50px);
+}
+
+/* 面包屑容器：内容区顶部，深目录页面的层级定位（UX-1） */
+.app-breadcrumb-wrap:empty {
+  display: none;
 }
 
 .fixed-header + .app-main {

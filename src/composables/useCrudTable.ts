@@ -2,6 +2,7 @@ import { ref, shallowRef, type Ref } from 'vue'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { useI18n } from 'vue-i18n'
+import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 import type { FormInstance } from 'element-plus'
 
 /**
@@ -10,6 +11,10 @@ import type { FormInstance } from 'element-plus'
  *
  * 调用方自行定义 form / queryParams / rules（页面特有结构），
  * 通过本 composable 注入 API 和状态管理，返回可直接在模板使用的方法。
+ *
+ * 未保存守卫（UX-5）：handleAdd/handleUpdate 打开时快照表单；cancel 与
+ * beforeDialogClose（页面 el-dialog 绑定 :before-close）在脏表单关闭前确认；
+ * submitForm 成功后自动刷新基准。
  */
 export interface UseCrudTableOptions<T extends object, Q extends object> {
   /** 列表查询 API */
@@ -90,6 +95,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   let listRequestId = 0
   let updateRequestId = 0
 
+  // 未保存守卫（UX-5）：编辑弹窗脏表单关闭前确认
+  const { snapshotForm, markSaved, confirmLeave } = useUnsavedGuard()
+
   // ====== 方法 ======
 
   /** 查询列表 */
@@ -117,10 +125,21 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       })
   }
 
-  /** 取消按钮 */
-  function cancel(): void {
-    open.value = false
-    reset()
+  /** 取消按钮（UX-5：脏表单关闭前确认） */
+  async function cancel(): Promise<void> {
+    if (await confirmLeave(form.value)) {
+      open.value = false
+      reset()
+    }
+  }
+
+  /** 弹窗 × / ESC / 遮罩关闭钩子：页面 el-dialog 绑定 :before-close="beforeDialogClose" */
+  async function beforeDialogClose(done: () => void): Promise<void> {
+    if (await confirmLeave(form.value)) {
+      open.value = false
+      reset()
+      done()
+    }
   }
 
   /** 表单重置 */
@@ -151,6 +170,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   /** 新增按钮操作 */
   function handleAdd(): void {
     reset()
+    snapshotForm(form.value)
     open.value = true
     title.value = t('common.add') + t(titleKey)
   }
@@ -165,6 +185,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         if (currentRequestId !== updateRequestId) return // discard stale response
         const resp = response as { data?: T }
         form.value = resp.data as T
+        snapshotForm(form.value)
         open.value = true
         title.value = t('common.edit') + t(titleKey)
       })
@@ -185,6 +206,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       api
         .then(() => {
           modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))
+          markSaved(form.value)
           open.value = false
           getList()
           onAfterSubmit?.()
@@ -245,6 +267,10 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     loading,
     submitLoading,
     exportLoading,
+    // 未保存守卫（UX-5）：页面 el-dialog 绑定 :before-close="beforeDialogClose"；
+    // snapshotForm 供测试与自定义流程刷新脏检查基准
+    beforeDialogClose,
+    snapshotForm,
     showSearch,
     ids,
     single,

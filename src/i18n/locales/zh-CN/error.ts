@@ -55,6 +55,7 @@ export default {
       title: '问题监控',
       empty: '暂无错误或警告',
       clear: '清空',
+      viewAll: '查看全部前端异常',
       ariaWithCount: '有 {count} 个错误或警告',
       ariaNoIssue: '暂无错误或警告',
       multi: ' (×{count})',

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog :title="title" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
+  <el-dialog :title="title" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close :before-close="beforeClose">
     <el-form :model="form" :rules="rules" ref="userRef" label-width="80px">
       <el-row>
         <el-col :span="12">
@@ -166,6 +166,7 @@
 
 <script setup lang="ts" name="UserFormDialog">
 import { addUser, updateUser } from '@/api/system/user'
+import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 import type { SysUser } from '@/types/api/system/user'
 import type { SysRole } from '@/types/api/system/role'
 import type { SysPost } from '@/types/api/system/post'
@@ -203,6 +204,8 @@ const emit = defineEmits<{
 }>()
 
 const { pwdValidator } = usePasswordRule()
+/** 未保存离开确认（UX-5）：弹窗打开时快照，× / ESC / 遮罩 / 取消 关闭前若脏则确认 */
+const { snapshotForm, markSaved, confirmLeave } = useUnsavedGuard()
 
 const scimRoleIds = computed(() => props.scimRoleIds ?? [])
 const scimDeptIds = computed(() => props.scimDeptIds ?? [])
@@ -292,12 +295,21 @@ watch(open, (val: boolean) => {
   } else {
     form.value.password = props.initPassword
   }
+  // 回填完成后快照为"已保存"基准（before-close 脏检查依据）
+  snapshotForm(form.value)
 })
 
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  emit('cancel')
+/** × / ESC / 遮罩关闭前确认（UX-5）：脏表单需用户显式确认放弃 */
+async function beforeClose(done: () => void): Promise<void> {
+  if (await confirmLeave(form.value)) done()
+}
+
+/** 取消按钮（显式取消同样走未保存确认） */
+async function cancel(): Promise<void> {
+  if (await confirmLeave(form.value)) {
+    open.value = false
+    emit('cancel')
+  }
 }
 
 /** 提交按钮 */
@@ -313,6 +325,7 @@ function submitForm() {
         updateUser(form.value)
           .then(() => {
             modal.msgSuccess(t('common.editSuccess'))
+            markSaved(form.value)
             open.value = false
             emit('submit-success')
           })
@@ -327,6 +340,7 @@ function submitForm() {
         addUser(form.value)
           .then(() => {
             modal.msgSuccess(t('common.addSuccess'))
+            markSaved(form.value)
             open.value = false
             emit('submit-success')
           })

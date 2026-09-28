@@ -56,6 +56,8 @@ export default {
     emptyActionCreate: 'Create Now',
     emptyActionReset: 'Reset Filter',
     tip: 'Tip',
+    unsavedConfirm: 'The form has unsaved changes. Leave without saving?',
+    leaveWithoutSaving: 'Leave without saving',
     warning: 'Warning',
     error: 'Error',
     other: 'Other',

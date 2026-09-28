@@ -6,6 +6,7 @@ export default {
     title: 'Yebot 后台管理系统',
     username: '账号',
     password: '密码',
+    capsLockOn: '键盘大写锁定（Caps Lock）已开启',
     code: '验证码',
     showPassword: '显示密码',
     hidePassword: '隐藏密码',

@@ -55,6 +55,13 @@
         </div>
       </div>
     </Transition>
+
+    <!-- 直达明细页（UX-3）：聚合窗只显示缓冲区，完整列表/筛选在前端异常页 -->
+    <div class="error-monitor-footer">
+      <el-button link type="primary" size="small" @click="goDetail">
+        {{ t('error.monitor.viewAll') }}
+      </el-button>
+    </div>
   </el-popover>
 </template>
 
@@ -84,6 +91,11 @@ function clear(): void {
   errorHub.clear()
 }
 
+/** UX-3：直达前端异常明细页（列表/筛选/设备分桶在该页） */
+function goDetail(): void {
+  void import('@/router').then(({ default: router }) => router.push('/monitor/frontendError'))
+}
+
 function tagType(level: ErrorLevel): 'danger' | 'warning' | 'info' {
   if (level === 'error') return 'danger'
   if (level === 'warning') return 'warning'
@@ -101,6 +113,13 @@ function formatTime(ts: number): string {
 </script>
 
 <style scoped>
+.error-monitor-footer {
+  border-top: 1px solid var(--el-border-color-light, #e4e7ed);
+  margin-top: 8px;
+  padding: 6px 4px 0;
+  text-align: center;
+}
+
 .error-monitor-trigger {
   position: relative;
   display: flex;
