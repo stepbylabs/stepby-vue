@@ -1,4 +1,4 @@
-// stepby-ui/scripts/cdn-warmup.mjs
+// frontend-vue/scripts/cdn-warmup.mjs
 // CDN/源站缓存预热（R102-CDN-010 配套）：读 dist/index.html 与 dist/static 产物清单，
 // 对目标域名逐个发起 GET（受控并发），让 CDN 边缘节点提前回源填充缓存。
 // 发布后执行一次即可；无 CDN 时对源站同样可用（触发 nginx gzip_static/br 缓存）。

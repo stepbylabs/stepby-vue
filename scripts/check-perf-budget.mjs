@@ -1,4 +1,4 @@
-// stepby-ui/scripts/check-perf-budget.mjs
+// frontend-vue/scripts/check-perf-budget.mjs
 // 性能预算门禁（R102-PERF-001~012 / R102-BUNDLE-002/003/004 配套）
 //
 // 用法：

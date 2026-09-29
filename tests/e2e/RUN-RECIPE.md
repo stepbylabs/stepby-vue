@@ -1,6 +1,6 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `stepby-ui/tests/e2e/main.mjs`（75 个功能，套件已并入 stepby-ui 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `frontend-vue/tests/e2e/main.mjs`（75 个功能，套件已并入 frontend-vue 仓库）在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -8,7 +8,7 @@
 
 - **Redis 必须在线**：`docker compose up -d redis`（或 `stepby-redis` 容器 healthy）。
   axum-backend 启动硬依赖 redis，否则接口 500。
-- **两个仓库源码就绪**：`stepby-ui`（前端）与 `axum-backend`（Rust 后端）。
+- **两个仓库源码就绪**：`frontend-vue`（前端）与 `axum-backend`（Rust 后端）。
 - **存量 `data/stepby.db` 可能落后于迁移**：`AppInitializer` 启动**刻意不跑** `Migrator::up`（避免对已有 seed 的存量库重跑导致主键冲突），故新增模块（如 WebHook）的建表/菜单不会自动落到早于该迁移的本地产物库。症状：后端日志每次 `login_success` 刷 `WARN ... no such table: sys_web_hook`、`/system/webHook/*` 页面 404。处置（本地 gitignore 产物，安全）：用 `migration/src/m20260820_000002_web_hook_module.rs` 的 SQLite DDL 幂等补 `CREATE TABLE IF NOT EXISTS` + 菜单/权限 `INSERT OR IGNORE`。全新库经完整 `Migrator::up` 不受影响。
 
 ## 1. 后端：embedded 模式（:8080）
@@ -27,12 +27,12 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
   返回 JSON 404（而非 SPA HTML），e2e 首步即 `locator.fill: Timeout 30000ms`（找 `input[placeholder="账号"]`），
   整套 UI 用例连环假失败——此时先查后端启动命令，而不是改选择器。
 - 其余 feature（除 F24 外）走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
-- **必须先把「嵌入式构建产物」同步进 `axum-backend/frontend-dist/`**：
+- **必须先把「嵌入式构建产物」同步进 `backend-axum/frontend-dist/`**：
   ```bash
   # frontend-dist 已被 .gitignore 的 /frontend-dist 忽略，不会进仓库
   # ⚠️ 必须用 EMBEDDED 模式构建再拷贝（见下方两构建顺序），不能用 prod 构建：
   #    嵌入式前端 baseURL=''（同源），prod 前端 baseURL=/prod-api（跨源代理）。
-  cp -r stepby-ui/dist/. axum-backend/frontend-dist/
+  cp -r frontend-vue/dist/. backend-axum/frontend-dist/
   ```
   ⚠️ 每次重新构建前都要按第 2 节顺序同步 embedded 产物，否则 embedded 后端服务的仍是旧产物。
 
@@ -48,10 +48,10 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 > 命中 SPA fallback 返回 HTML、JSON 解析失败 → 登录后跳 `/500`，所有 UI 页面测试 401 假失败。
 
 ```bash
-cd stepby-ui
+cd frontend-vue
 # 第 1 步：embedded 构建 → 拷入 frontend-dist（供 :8080 内嵌后端）
 NODE_OPTIONS="" sh node_modules/.bin/vite build --mode embedded
-cp -r dist/. ../axum-backend/frontend-dist/
+cp -r dist/. ../backend-axum/frontend-dist/
 # 第 2 步：prod 构建 → 留 dist（供 :4173 preview）
 NODE_OPTIONS="" sh node_modules/.bin/vite build --mode production
 NODE_OPTIONS="" sh node_modules/.bin/vite preview --port 4173
@@ -64,7 +64,7 @@ NODE_OPTIONS="" sh node_modules/.bin/vite preview --port 4173
 ## 3. 跑 e2e
 
 ```bash
-cd stepby-ui/tests/e2e && npm install
+cd frontend-vue/tests/e2e && npm install
 # 权威环境 = embedded :8080（真后端+真数据+SW；见 memory 与 docs 轮2 定案）
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
@@ -135,7 +135,7 @@ node main.mjs --headless
 只在 embed/生产构建才暴露的问题在此才测得到（如 `/tool/swagger` 的 SW `navigateFallback` 拦截）。
 
 ```bash
-cd stepby-ui/tests/e2e
+cd frontend-vue/tests/e2e
 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
@@ -209,8 +209,8 @@ STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
   （服务重启 / 进程异常退出 / 网络闪断时 DECR 未及时执行），导致该用户后续 WS 握手全部 429，
   浏览器控制台出现大量 `WebSocket connection to '.../ws' failed ... 429`，实时通知静默失效。
 - **修复方案**：
-  1. 服务启动时重置 `ws_conn:*` 计数（见 `axum-backend/src/main.rs` → `reset_ws_conn_counts`）；
-  2. 每用户最大并发连接上限 5 → 20（`axum-backend/src/handler/ws_handler.rs`）。
+  1. 服务启动时重置 `ws_conn:*` 计数（见 `backend-axum/src/main.rs` → `reset_ws_conn_counts`）；
+  2. 每用户最大并发连接上限 5 → 20（`backend-axum/src/handler/ws_handler.rs`）。
 - **回归防线**：功能 46 分别验证「页面内 WS 连接全链路」与「Node 直连后端 WS」均能成功建立
   （无 429）。若再次出现上述控制台错误，先检查 `docker exec stepby-redis redis-cli --scan --pattern "ws_conn:*"` 是否残留计数。
 
@@ -328,7 +328,7 @@ STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 
 - **套餐白名单无 CRUD API**：仓库只有只读 `/system/tenant/package/options`，迁移仅种入唯一 `标准版`（`menu_ids=NULL`=不限制）。
   构造"受限白名单套餐"的合法途经是 e2e 用 `node:sqlite`（Node 内置，`DatabaseSync`；不用未安装的 better-sqlite3）
-  直连同一 `axum-backend/data/stepby.db` 注入夹具套餐（后端为 WAL + `busy_timeout=5s`，外部进程写安全），
+  直连同一 `backend-axum/data/stepby.db` 注入夹具套餐（后端为 WAL + `busy_timeout=5s`，外部进程写安全），
   **幂等（按 package_name 先删后插）+ finally 删净**，断言仍全走 HTTP（保真后端契约）。
 - **可证伪前提**：`converge_tenant_role_menus` 在套餐变更时总会把角色菜单收敛到 ⊆ 白名单，故正常路径下 getRouters 剪枝是 no-op。
   证明剪枝必须**绕过收敛**：直接 DB `INSERT OR IGNORE sys_role_menu` 注入一条越界菜单，再用 API 证明"角色确有该菜单"但 getRouters 已剔除。
@@ -371,7 +371,7 @@ DATABASE_URL="sqlite://./data/mig-verify.db?mode=rwc" cargo run -p migration   #
 
 ```js
 // 2) 查证治理结果（落一个临时 .mjs 跑完即删，避免 shell 引号地狱；Node 内置 sqlite 无需额外依赖）
-//    文件名：axum-backend/.mig-verify.mjs
+//    文件名：backend-axum/.mig-verify.mjs
 import { DatabaseSync } from 'node:sqlite'
 const db = new DatabaseSync('data/mig-verify.db')
 const P = ['system:tenant:domain:', 'tool:gen:', 'tool:httpDebug:', 'monitor:cache:',
@@ -443,7 +443,7 @@ rm -f .mig-verify.mjs data/mig-verify.db*
 
 ### 3.15 生成代码「真编译」校验配方（2026-09-26 第六轮；改模板后必跑）
 
-**为什么需要**：`gen_table` 的外置模板（`axum-backend/templates/*.tera`）此前只用**字符串断言**验证
+**为什么需要**：`gen_table` 的外置模板（`backend-axum/templates/*.tera`）此前只用**字符串断言**验证
 （如 `assert!(service.contains("engine_open_round("))`）。字符串断言**无法发现**语义级缺陷——
 第六轮首次把 flow 分类的渲染结果落到 crate 内真实路径并编译，一次暴露 **6 处真实缺陷**
 （`Option<Option<NaiveDateTime>>` 二次包裹、从 `sys_flow_service` 顶层导入 `RoundChain`/`BizTypeRegistration`、
@@ -458,12 +458,12 @@ cd axum-backend
 #      - columns 用 `column_type_to_rust_type()` **真实映射**构造（勿手写 rust_type，
 #        否则会掩盖映射缺陷）；非主键列置 is_insert/is_edit/is_list="1"
 #        （对齐 gen_table_service.rs:794 的 `("1","1","1","0")`，否则 DTO 为空、看不出真实产物）；
-#      - 把 `files` 里以 `.rs` 结尾的项按 key 相对路径写入 `axum-backend/zz-verify/`。
+#      - 把 `files` 里以 `.rs` 结尾的项按 key 相对路径写入 `backend-axum/zz-verify/`。
 cargo test --lib <dump 测试名>
 
 # 2) 拷进 crate 真实路径并临时接线（**校验后必须全部还原**）：
 #    zz-verify/src/{entity,repository,service,handler,router}/<name>*.rs
-#      → axum-backend/src/{entity,repository,service,handler,router}/
+#      → backend-axum/src/{entity,repository,service,handler,router}/
 #    各 mod.rs 追加 `pub mod <name>;`
 #    state.rs 的 AppState 增加字段 `pub zz_flow_verify_doc_service: …Service`
 #      并在 `AppState::new` 初始化（字段名=snake_case 表名+`_service`）
@@ -486,10 +486,10 @@ cargo clippy --lib -- -D warnings     # 期望：Finished，且**生成代码零
 #### 3.15.1 生成**前端**产物同样要落真实路径跑类型检查（2026-09-26 第七轮；改 `api.tera`/`index.tera` 后必跑）
 
 `.tera` 里的 `.ts` / `.vue` 只做字符串断言同样不可信。把渲染出的
-`src/api/<module>/<table>.ts` 与 `src/views/<module>/<table>/index.vue` 落到 **stepby-ui 真实路径**后跑：
+`src/api/<module>/<table>.ts` 与 `src/views/<module>/<table>/index.vue` 落到 **frontend-vue 真实路径**后跑：
 
 ```bash
-cd stepby-ui
+cd frontend-vue
 NODE_OPTIONS="" node node_modules/vue-tsc/bin/vue-tsc.js --noEmit   # 期望 0 错误
 NODE_OPTIONS="" npm run lint                                        # 期望 0 errors
 # 校验后删除落盘文件（勿提交生成物）
@@ -544,7 +544,7 @@ e2e 无法在单次运行内完成"改配置 + 重启 + 断言"。故能力位�
 
 1. **打开平台层开关**（键**含点号必须加引号**，否则 TOML 解析成嵌套表、启动直接失败）：
    ```toml
-   # axum-backend/config/config.toml（本地文件，已 gitignore）
+   # backend-axum/config/config.toml（本地文件，已 gitignore）
    [features]
    "nav.l3" = "full"
    ```
@@ -685,7 +685,7 @@ node scripts/tenant-audit.mjs --matrix
 
 ### 3.20 治理注册表与「按租户筛选」开启态配方（第十四批；改这批必跑）
 
-**(1) 治理项注册表抽出为零依赖共享 crate（`axum-backend/governance`）**
+**(1) 治理项注册表抽出为零依赖共享 crate（`backend-axum/governance`）**
 
 ```bash
 cargo test -p governance --lib     # 注册表自洽 9 例（排序/唯一/默认 off/档位单调/收敛只收窄/值域）
@@ -799,7 +799,7 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
   - 垃圾 finish ⇒ 400；未知用户与无凭据用户 ⇒ 与密码登录失败**全等**（防枚举）；凭据列表与**越权删除 404**；
   - **完整快乐路径（注册 + 无密码登录 + 令牌可用）**：由测试内的**纯 Rust 软件认证器**（ES256/COSE/CBOR）驱动，
     不依赖浏览器，也不需要 Redis 之外的额外服务；同时覆盖**重放/篡改/origin 不符**的负路径。
-- **前端单测/类型**：`cd stepby-ui; npx vue-tsc --noEmit && npx vitest run`（含 `utils/webauthn.ts` 的 base64url 往返用例）。
+- **前端单测/类型**：`cd frontend-vue; npx vue-tsc --noEmit && npx vitest run`（含 `utils/webauthn.ts` 的 base64url 往返用例）。
 - **e2e（浏览器真实凭据）**：如需浏览器级联调，可用 Chromium 的 CDP 虚拟认证器
   （`WebAuthn.enable` + `WebAuthn.addVirtualAuthenticator`）驱动真实 `navigator.credentials`；
   本批未纳入 `main.mjs`（15k 行套件），故以 Rust 软认证器用例作为快乐路径主证据。
@@ -808,7 +808,7 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
   删除凭据后 passkey 登录失败（反枚举同形提示）。运行（后端 embed :8080 + 前端 preview :4173 需在跑，
   且平台能力位 `auth.webauthn=on`、`[webauthn] rp_id=localhost / origin=http://localhost:8080`）：
   ```bash
-  cd stepby-ui/tests/e2e
+  cd frontend-vue/tests/e2e
   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
@@ -891,7 +891,7 @@ consent_ticket_ttl_secs = 300   # 夹取 60..=1800
 | 7 | 把 `consent_ticket` 改回 `off` 复跑 | 不带 ticket 也能成功（**关闭态零行为变更**，与历史行为逐字节一致） |
 
 - 集成测试（主证据，无需手动）：`cd axum-backend; cargo test --lib test_sso_consent_ticket_required`（覆盖 ①无票 ②伪造票 ③改参不消费票 ④一致成功 ⑤同票重放拒绝）；默认档对照见 `test_sso_consent_flow`（不带票也成功）。
-- 前端守卫：`cd stepby-ui; npx vitest run src/views/sso/consent.ticket.test.ts`（断言同意页读取并回传 `ticket`，且不把它渲染到页面上）。
+- 前端守卫：`cd frontend-vue; npx vitest run src/views/sso/consent.ticket.test.ts`（断言同意页读取并回传 `ticket`，且不把它渲染到页面上）。
 
 #### (3) P2-33 双档 e2e 回归脚本 `http-status-convention.mjs`
 
@@ -900,7 +900,7 @@ consent_ticket_ttl_secs = 300   # 夹取 60..=1800
 **不 mock、不替换浏览器 API**。
 
 ```bash
-cd stepby-ui/tests/e2e
+cd frontend-vue/tests/e2e
 # ① 默认档（后端按 config.toml 启动，http_status_convention 缺省 = legacy）
 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
@@ -914,11 +914,11 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
   1. 建临时目录（如 `$env:TEMP\stepby-hsc\`），复制 `config/config.toml` 进去，把
      `[server].http_status_convention` 改为 `"restful"`、`[server].port` 改为**另一个空闲端口**
      （示例用 **8082**；⚠️ 本机 8081 可能被无关项目占用，**先确认端口空闲**再选）；
-  2. **必须同时复制 `axum-backend/.env` 到临时目录**（⚠️ 本轮实测踩坑）：`main.rs` 用
+  2. **必须同时复制 `backend-axum/.env` 到临时目录**（⚠️ 本轮实测踩坑）：`main.rs` 用
      `dotenvy::dotenv()` 从**当前工作目录**加载 `.env`，而 `JWT_SECRET` / `CONFIG_ENC_KEY` /
      `SSO_ENABLED` / `SSO_ISSUER` 都在 `.env` 里 ⇒ 漏拷会依次表现为：SSO 启动校验直接失败退出、
      `CONFIG_ENC_KEY` 未配置导致 `POST /system/user/totp/setup` 返回 **500**（fail-closed）；
-  3. 在该目录下建 `frontend-dist` 目录（**junction** 指向仓库的 `axum-backend/frontend-dist`）
+  3. 在该目录下建 `frontend-dist` 目录（**junction** 指向仓库的 `backend-axum/frontend-dist`）
      与 `data` 目录（**复制** `data/stepby.db`：`[database].url` 是 `./data/stepby.db` 相对路径，
      直接跑会创建一个空库 ⇒ 无表无种子数据），`frontend-dist` 与 `data` 都是相对 CWD 解析的；
   4. 用该 CWD 启动 `axum-backend.exe`（`EMBEDDED_FRONTEND=true`），确认启动日志里
@@ -932,7 +932,7 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
 - **本脚本已抓出并修复的真实缺陷（P0-4 链路断裂）**：`api/login.ts` 与 `store/modules/user.ts` 此前**未透传 `totpCode`**
   ⇒ 已启用 TOTP 的用户进入"动态验证码"步骤后，第二步请求体与第一步完全相同 ⇒ 后端**再次**返回 1003
   （该码按设计**不弹 Toast**，表示"继续输入"）⇒ 用户表现为"点了登录没反应、永远进不去"。修复后守卫见
-  `stepby-ui/src/api/login.totp.test.ts`。**教训**：凡"多步登录/多步提交"链路，断言必须覆盖**最后一步真的带上了新参数**，
+  `frontend-vue/src/api/login.totp.test.ts`。**教训**：凡"多步登录/多步提交"链路，断言必须覆盖**最后一步真的带上了新参数**，
   只断言"进入了第二步"会漏掉这类断链。
 
 ### 3.24 富文本编辑器键盘可达性（U4）配方与验证策略（改 `components/Editor` / `MarkdownEditor` 必跑）
@@ -967,7 +967,7 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
 
 - **浏览器级（主证据）**：`node editor-a11y.mjs`（后端 embedded :8080 在跑）
   ```bash
-  cd stepby-ui/tests/e2e
+  cd frontend-vue/tests/e2e
   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
@@ -1023,14 +1023,14 @@ RATE_LIMIT_MODE=redis <启动后端>   # 开启档：Lua 原子分布式令牌�
   且「编辑不传 secret」「传空串」后 `hasSecret` **仍为 true**（旧代码必红）。
 - 手工核对：`GET /prod-api/monitor/webHook/list`，响应中搜不到密钥明文。
 
-#### (4) nginx 缓存规则（`stepby-ui/nginx.conf` 与 `deploy/helm/stepby/templates/configmap-nginx.yaml` **必须同改**）
+#### (4) nginx 缓存规则（`frontend-vue/nginx.conf` 与 `deploy/helm/stepby/templates/configmap-nginx.yaml` **必须同改**）
 
 真实 nginx 实测手法（本轮据此验收，可复现）：
 
 ```bash
 docker run -d --name stepby-nginx-test --add-host backend:127.0.0.1 -p 18080:80 \
-  -v "<repo>/stepby-ui/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
-  -v "<repo>/stepby-ui/dist:/usr/share/nginx/html:ro" nginx:1.27-alpine
+  -v "<repo>/frontend-vue/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+  -v "<repo>/frontend-vue/dist:/usr/share/nginx/html:ro" nginx:1.27-alpine
 curl.exe -sI http://localhost:18080/index.html              # no-cache, must-revalidate（单条）
 curl.exe -sI http://localhost:18080/static/js/index-*.js    # public, max-age=31536000, immutable（单条）
 curl.exe -sI http://localhost:18080/sw.js                   # no-cache, no-store, must-revalidate + Expires: 0
@@ -1053,7 +1053,7 @@ curl.exe -sI http://localhost:18080/system/user             # SPA fallback 亦 n
 #### (6) 环境：**必须先重启服务进程，跑在最终产物上**（否则"假绿"）
 
 - 旧的 `:8080` 后端进程是**上一批的二进制**、旧 `:4173` preview 也在跑：不重启就测不到本批改动。
-  顺序固定为：`build:embedded` → 拷入 `axum-backend/frontend-dist/` → `build:prod`（留 `dist/`）→ `cargo build`
+  顺序固定为：`build:embedded` → 拷入 `backend-axum/frontend-dist/` → `build:prod`（留 `dist/`）→ `cargo build`
   → 以 `EMBEDDED_FRONTEND=true SSO_ENABLED=true` 启动 `:8080` → `vite preview --port 4173`。
 - 启动方式：**必须在本工具中以「后台任务」方式常驻**（前台 `Start-Process` 曾出现进程随调用结束而消失，
   导致 e2e 首步登录页超时）。启动后先 `curl http://localhost:8080/health` 确认 `db/redis` 双 UP。
@@ -1142,7 +1142,7 @@ curl.exe -F "file=@some.png" http://localhost:8080/common/upload      # ⇒ 200�
 ## 4. source-check 防混淆约定（重要）
 
 Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符串字面量**。
-`stepby-ui/tests/e2e/main.mjs` 中的 source-check 必须断言“稳定字符串”，否则在 prod 包里查不到符号 → 假失败。
+`frontend-vue/tests/e2e/main.mjs` 中的 source-check 必须断言“稳定字符串”，否则在 prod 包里查不到符号 → 假失败。
 
 | 验证点                          | ❌ 不可用（被混淆）                  | ✅ 改用（稳定字面量）                      |
 | ------------------------------- | ------------------------------------ | ------------------------------------------ |
@@ -1168,9 +1168,9 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
   - Windows 下 `node_modules/.bin/vite` 是 sh 脚本，PowerShell 直跑会 `SyntaxError: missing ) after argument list`；
     改用 `node node_modules/vite/bin/vite.js build --mode <mode>` 等价且跨 shell 稳定。
   - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
-- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 **50** 个类型；新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——本轮 `FlowDoneVo` 即因此先漏后补）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="axum-backend"` 消歧义。
-- CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `stepby-ui/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
-- 全部通过后，stepby-ui 与 axum-backend 分别提交；e2e 套件随 stepby-ui 提交（位于 `stepby-ui/tests/e2e/`）。
+- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 **50** 个类型；新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——本轮 `FlowDoneVo` 即因此先漏后补）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="backend-axum"` 消歧义。
+- CI 额外强制：`axum-backend` job 校验 ts-rs 生成的 TS 类型与 `frontend-vue/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
+- 全部通过后，frontend-vue 与 axum-backend 分别提交；e2e 套件随 frontend-vue 提交（位于 `frontend-vue/tests/e2e/`）。
 - 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.7 全 PASS**；
   CI 门禁为 `--full --gate`（与已提交基线 `docs/optimization/tenant-audit.json` 做差集，**新增非 info 候选即 FAIL**）。
   **R9（2026-09-26 新增·调用点复核锁）**：R1 白名单按 `file::fn` **函数级**豁免 ⇒ 被登记的仓储方法

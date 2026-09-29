@@ -252,6 +252,8 @@ async function apiLogin(extraHeaders = {}, username = CONFIG.username, password 
  */
 async function login(page, username = CONFIG.username, password = CONFIG.password) {
   log(`=== 登录流程（用户: ${username}）===`)
+  // 预置引导完成标记（导航前注入，不打断 SSO 深链 302 重定向链）
+  await presetTourDisabled(page)
   // 验证码响应捕获必须在 goto 前注册（与页面显示的验证码图同 uuid 同源）
   const captchaPromise = capturePageCaptcha(page)
   await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle' }).catch(() => {
@@ -311,21 +313,26 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   const isLoggedIn = !page.url().includes('login')
   if (isLoggedIn) {
     log('  ✅ 登录成功')
-    // e2e 无人值守：预置新手引导完成标记，禁用 Tour 遮罩（z-9998 会拦截自动化点击）。
-    // 真实用户仍正常看到引导；仅自动化环境显式关闭（测试基建标准做法）。
-    try {
-      await page.evaluate(() => {
-        localStorage.setItem('stepby-layout-tour', 'completed')
-        localStorage.setItem('workbench-tour', 'completed')
-        localStorage.setItem('home-tour', 'completed')
-      })
-      await page.reload({ waitUntil: 'domcontentloaded' })
-      await sleep(1200)
-    } catch { /* storage 不可用时保持原行为 */ }
   } else {
     log('  ❌ 登录失败')
   }
   return isLoggedIn
+}
+
+/**
+ * 登录前注入：预置新手引导完成标记（e2e 无人值守禁用 Tour 遮罩）。
+ * 必须用 addInitScript（每次导航前执行）而非登录后 reload —— reload 会打断
+ * SSO 深链登录的 302 重定向链，丢失多参查询（功能 51 回归实证）。
+ * 真实用户仍正常看到引导；仅自动化环境显式关闭（测试基建标准做法）。
+ */
+async function presetTourDisabled(page) {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('stepby-layout-tour', 'completed')
+      localStorage.setItem('workbench-tour', 'completed')
+      localStorage.setItem('home-tour', 'completed')
+    } catch { /* localStorage 不可用时保持原行为 */ }
+  })
 }
 
 /**
@@ -8293,11 +8300,11 @@ async function testFeature40(page) {
 async function testFeature41(page) {
   log('=== 功能 41：第五批次 性能优化验证 ===')
 
-  // 工作区根：向上查找同时含前端仓库（yebot-ui，历史名 stepby-ui 兼容）与 axum-backend 的目录
+  // 工作区根：向上查找同时含前端仓库（frontend-vue，历史名 stepby-ui 兼容）与 axum-backend 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'yebot-ui')) || fs.existsSync(path.join(d, 'stepby-ui'))) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if ((fs.existsSync(path.join(d, 'frontend-vue')) || fs.existsSync(path.join(d, 'frontend-vue'))) && fs.existsSync(path.join(d, 'backend-axum'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -8510,11 +8517,11 @@ async function testFeature41(page) {
 async function testFeature42(page) {
   log('=== 功能 42：U5 Dashboard 聚合接口 + U14 用户统计接口验证 ===')
 
-  // 工作区根：向上查找同时含前端仓库（yebot-ui，历史名 stepby-ui 兼容）与 axum-backend 的目录
+  // 工作区根：向上查找同时含前端仓库（frontend-vue，历史名 stepby-ui 兼容）与 axum-backend 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'yebot-ui')) || fs.existsSync(path.join(d, 'stepby-ui'))) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if ((fs.existsSync(path.join(d, 'frontend-vue')) || fs.existsSync(path.join(d, 'frontend-vue'))) && fs.existsSync(path.join(d, 'backend-axum'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -8523,7 +8530,7 @@ async function testFeature42(page) {
   })()
   // UI 源码 = 本仓库根（套件位于 <ui 仓库>/tests/e2e，上两级即仓库根；不依赖外部目录名）
   const uiRoot = path.resolve(__dirname, '..', '..')
-  const backendRoot = path.join(projectRoot, 'axum-backend')
+  const backendRoot = path.join(projectRoot, 'backend-axum')
 
   // ---------- 1. U5 后端 DashboardStatsVo 字段扩展 ----------
   try {
@@ -10557,6 +10564,14 @@ async function testFeature51(page) {
     const deepLink = '/system/user?pageNum=2&deptId=3&tab=staff'
     const BROWSER4 = page.context().browser()
     const ctx4 = await BROWSER4.newContext() // 无登录态、无 SW 控制
+    // Tour 弹出会把回跳路由重置为列表默认查询（丢失多参，回归实证）——预置完成标记
+    await ctx4.addInitScript(() => {
+      try {
+        localStorage.setItem('stepby-layout-tour', 'completed')
+        localStorage.setItem('workbench-tour', 'completed')
+        localStorage.setItem('home-tour', 'completed')
+      } catch { /* ignore */ }
+    })
     const p4 = await ctx4.newPage()
     // 验证码捕获须在 goto 前注册（与登录页显示图同源）
     const captchaPromise4 = capturePageCaptcha(p4)
@@ -10585,6 +10600,7 @@ async function testFeature51(page) {
     await p4.waitForTimeout(1000)
     const finalUrl = p4.url()
     const paramsKept = finalUrl.includes('pageNum=2') && finalUrl.includes('deptId=3') && finalUrl.includes('tab=staff')
+    console.log(`  [diag-5d] finalUrl=${finalUrl}`)
     await ctx4.close()
     record(
       51,
@@ -15892,7 +15908,7 @@ async function testFeature75(page) {
 function e2eDbPath() {
   const custom = process.env.E2E_DB_PATH
   if (custom && custom.trim()) return path.resolve(custom.trim())
-  return path.resolve(__dirname, '../../../axum-backend/data/stepby.db')
+  return path.resolve(__dirname, '../../../backend-axum/data/stepby.db')
 }
 
 /**

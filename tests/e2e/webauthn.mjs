@@ -17,7 +17,7 @@
  *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node webauthn.mjs
  *
- * 依赖：stepby-ui/tests/e2e/node_modules 下的 playwright（与 main.mjs 同源）。
+ * 依赖：frontend-vue/tests/e2e/node_modules 下的 playwright（与 main.mjs 同源）。
  */
 
 import { createRequire } from 'module'
