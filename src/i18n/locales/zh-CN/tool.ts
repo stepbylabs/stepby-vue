@@ -534,6 +534,7 @@ export default {
     layoutComponents: '布局型组件',
     exportVue: '导出vue文件',
     copyCode: '复制代码',
+    mobileTip: '表单构建是三栏桌面设计工具，手机竖屏下无法正常操作。建议平板横屏访问，或使用桌面端获得完整体验。',
     emptyTip: '从左侧拖入或点选组件进行表单设计',
     confirmClear: '确定要清空所有组件吗？',
     copyCodeSuccess: '代码已复制到剪切板，可粘贴。',

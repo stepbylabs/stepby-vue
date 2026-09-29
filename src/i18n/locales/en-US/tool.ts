@@ -535,6 +535,7 @@ export default {
     layoutComponents: 'Layout Components',
     exportVue: 'Export Vue File',
     copyCode: 'Copy Code',
+    mobileTip: 'The form builder is a three-pane desktop tool and cannot be operated in phone portrait mode. Use a tablet in landscape or the desktop for the full experience.',
     emptyTip: 'Drag or click components from the left to design the form',
     confirmClear: 'Are you sure to clear all components?',
     copyCodeSuccess: 'Code has been copied to the clipboard, ready to paste.',

@@ -28,6 +28,12 @@ label {
 html {
   height: 100%;
   box-sizing: border-box;
+  color-scheme: light;
+
+  // Element Plus 暗色类（useDark 挂在 html.dark）——告知 UA/浏览器页面已适配暗色
+  &.dark {
+    color-scheme: dark;
+  }
 }
 
 /* D9（UX-RESPONSIVE-PLAN 阶段三）：safe-area 环境变量（刘海屏/Home Indicator）。
@@ -323,6 +329,11 @@ aside {
     padding-bottom: var(--safe-bottom);
     padding-left: var(--safe-left);
   }
+}
+
+/* D8 真机核查：表单构建页的移动端降级提示横幅 */
+.build-mobile-tip {
+  margin: 12px;
 }
 
 /* D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式。

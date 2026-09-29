@@ -83,7 +83,10 @@ export const DEFAULT_USER_PREFS: UserPrefs = {
   defaultPageSize: 10,
   defaultSortOrder: 'desc',
   autoRefreshInterval: 0,
-  followSystemDark: false,
+  // 真机核查修复：默认跟随系统暗色——页面自适配暗色后，国产浏览器夜间模式检测到
+  // 页面已适配即不再强制反色（亮色页面被 vivo 夜间模式反色成异常蓝黑，实锤）。
+  // 现代应用标准行为（GitHub/VSCode 均默认跟随系统）。
+  followSystemDark: true,
   tableDensity: 'default',
   timezone: 'Asia/Shanghai',
   customHotkeys: {},

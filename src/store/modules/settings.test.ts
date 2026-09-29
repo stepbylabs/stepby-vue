@@ -221,15 +221,17 @@ describe('store/modules/settings', () => {
     expect(removeEventListener).toHaveBeenCalled()
   })
 
-  it('initSystemDarkWatcher only registers when followSystemDark is enabled', async () => {
+  it('initSystemDarkWatcher registers by default (followSystemDark=true) and respects explicit disable', async () => {
     matchMediaMock.mockClear()
     const store = await loadSettingsStore()
     store.initSystemDarkWatcher()
-    expect(matchMediaMock).not.toHaveBeenCalled()
+    // 真机核查修复：默认跟随系统暗色（页面自适配，避免国产浏览器夜间模式强制反色）
+    expect(store.userPrefs.followSystemDark).toBe(true)
+    expect(matchMediaMock).toHaveBeenCalled()
 
-    store.updateUserPrefs({ followSystemDark: true })
+    store.updateUserPrefs({ followSystemDark: false })
     matchMediaMock.mockClear()
     store.initSystemDarkWatcher()
-    expect(matchMediaMock).toHaveBeenCalled()
+    expect(matchMediaMock).not.toHaveBeenCalled()
   })
 })

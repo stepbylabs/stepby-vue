@@ -151,7 +151,22 @@ const useSettingsStore = defineStore('settings', {
     dynamicTitle: storageSetting.dynamicTitle === undefined ? dynamicTitle : storageSetting.dynamicTitle,
     footerVisible: storageSetting.footerVisible === undefined ? footerVisible : storageSetting.footerVisible,
     footerContent: footerContent,
-    userPrefs: { ...DEFAULT_USER_PREFS, ...userPrefs }
+    userPrefs: (() => {
+      const merged = { ...DEFAULT_USER_PREFS, ...userPrefs }
+      // 真机核查存量迁移：followSystemDark 旧默认为 false，系统暗色下亮色页面会被
+      // 国产浏览器夜间模式强制反色（vivo 实锤大片异常蓝背景）。存档中 followSystemDark
+      // 为 false 且用户从未显式设置过（无标记）→ 升级为新默认 true；显式设置过的尊重选择。
+      try {
+        const hasArchive = !!localStorage.getItem('user-prefs')
+        const userExplicit = localStorage.getItem('stepby_fsd_user_set') === '1'
+        if (hasArchive && !userExplicit && merged.followSystemDark === false) {
+          merged.followSystemDark = true
+        }
+      } catch {
+        /* ignore */
+      }
+      return merged
+    })()
   }),
   getters: {
     /** 当前是否为暗色模式（响应式 getter，跟随 useDark() 的 ref 变化） */
@@ -214,8 +229,14 @@ const useSettingsStore = defineStore('settings', {
     updateUserPrefs(prefs: Partial<UserPrefs>) {
       this.userPrefs = { ...this.userPrefs, ...prefs }
       cache.local.setJSON('user-prefs', this.userPrefs)
-      // 如果切换了 followSystemDark，重新注册监听
+      // 存量迁移配套：用户显式设置过 followSystemDark 后写标记，此后升级迁移不再触碰该值
       if (prefs.followSystemDark !== undefined) {
+        try {
+          localStorage.setItem('stepby_fsd_user_set', '1')
+        } catch {
+          /* ignore */
+        }
+        // 如果切换了 followSystemDark，重新注册监听
         if (prefs.followSystemDark) {
           setupSystemDarkWatcher(this)
         } else if (systemDarkUnwatch) {

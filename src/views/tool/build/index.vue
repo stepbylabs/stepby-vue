@@ -1,5 +1,15 @@
 <template>
   <div class="container">
+    <!-- D8 真机核查修复：三栏设计工具（组件面板/画布/属性面板）在手机档无降级空间，
+         逐层叠压不可用——明确告知用户使用平板横屏或桌面端（能力不砍，体验如实提示） -->
+    <el-alert
+      v-if="device === 'mobile'"
+      class="build-mobile-tip"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="t('build.mobileTip')"
+    />
     <div class="left-board">
       <div class="logo-wrapper">
         <div class="logo">
@@ -159,7 +169,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // 表单构建器主页面：drawingList/activeData 等结构由用户拖拽配置动态决定，类型无法静态约束
 const { t } = useI18n()
+import useAppStore from '@/store/modules/app'
 import draggable from 'vuedraggable'
+
+const appStore = useAppStore()
+const device = computed(() => appStore.device)
 //@ts-expect-error js-beautify 默认导出类型缺失
 import beautifier from 'js-beautify'
 import logo from '@/assets/logo/logo.svg'

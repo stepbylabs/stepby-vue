@@ -45,8 +45,41 @@
 const { t } = useI18n()
 // Cookie 同意状态存储键
 const CONSENT_KEY = 'stepby_cookie_consent'
+// 真机修复（UX 真机核查）：部分国产浏览器（实测 vivo）会隔离/清理 localStorage，
+// 导致"同意一次"失效、每页重复弹窗——改为 localStorage + cookie 双写双读互备。
+const CONSENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 年
 // 超时自动采用默认值（30 秒，业界标准 20-60 秒）
 const autoDismissMs = 30000
+
+function readConsent(): string | null {
+  try {
+    const ls = localStorage.getItem(CONSENT_KEY)
+    if (ls === 'accepted' || ls === 'rejected') return ls
+  } catch {
+    /* ignore */
+  }
+  try {
+    const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + CONSENT_KEY + '=([^;]*)'))
+    const v = m ? decodeURIComponent(m[1]) : null
+    if (v === 'accepted' || v === 'rejected') return v
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function writeConsent(value: 'accepted' | 'rejected'): void {
+  try {
+    localStorage.setItem(CONSENT_KEY, value)
+  } catch {
+    /* ignore */
+  }
+  try {
+    document.cookie = `${CONSENT_KEY}=${value}; path=/; max-age=${CONSENT_COOKIE_MAX_AGE}; SameSite=Lax`
+  } catch {
+    /* ignore */
+  }
+}
 
 // 是否显示 Banner
 const visible = ref<boolean>(false)
@@ -67,7 +100,7 @@ onMounted(() => {
   }
 
   try {
-    const consent = localStorage.getItem(CONSENT_KEY)
+    const consent = readConsent()
     if (consent !== 'accepted' && consent !== 'rejected') {
       visible.value = true
       // 超时后静默关闭弹窗（不写入 accepted），等待用户主动选择
@@ -86,15 +119,11 @@ onBeforeUnmount(() => {
 
 // 静默自动同意（测试模式）
 function autoAcceptSilently(): void {
-  try {
-    localStorage.setItem(CONSENT_KEY, 'accepted')
-  } catch {
-    /* ignore */
-  }
+  writeConsent('accepted')
   visible.value = false
 }
 
-// 超时后静默关闭弹窗：不替用户做决定（保持 localStorage 未设置，符合 GDPR 透明度原则）
+// 超时后静默关闭弹窗：不替用户做决定（保持同意状态未设置，符合 GDPR 透明度原则）
 function handleAutoDismiss(): void {
   visible.value = false
 }
@@ -102,22 +131,14 @@ function handleAutoDismiss(): void {
 // 用户点击"同意"
 function handleAccept(): void {
   if (dismissTimer) clearTimeout(dismissTimer)
-  try {
-    localStorage.setItem(CONSENT_KEY, 'accepted')
-  } catch {
-    /* ignore */
-  }
+  writeConsent('accepted')
   visible.value = false
 }
 
 // 用户点击"拒绝"（仅保留必要 Cookie，关闭提示）
 function handleReject(): void {
   if (dismissTimer) clearTimeout(dismissTimer)
-  try {
-    localStorage.setItem(CONSENT_KEY, 'rejected')
-  } catch {
-    /* ignore */
-  }
+  writeConsent('rejected')
   visible.value = false
 }
 </script>

@@ -6,6 +6,13 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="renderer" content="webkit">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- 真机修复：声明页面自身适配明暗两套配色，阻止国产浏览器夜间模式强制反色
+       （实测 vivo 浏览器对暗色页面再叠反色会产生大片异常蓝色背景） -->
+  <meta name="color-scheme" content="dark light">
+  <!-- 国产浏览器（vivo/UC/QQ 等）夜间模式强制反色禁用标记：
+       页面自身已完整适配明暗两套主题，浏览器叠加反色会产生异常配色（真机实锤） -->
+  <meta name="nightmode" content="disable">
+  <meta name="force-dark" content="false">
   <meta name="description" content="Stepby 管理系统 - 基于 Axum + Vue 3 + Element Plus 的企业级后台管理框架">
   <meta name="keywords" content="Stepby,Axum,Vue3,Element Plus,TypeScript,后台管理系统,admin">
   <meta name="author" content="Stepby">
