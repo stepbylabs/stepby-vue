@@ -9,7 +9,7 @@
  * 用于分析"界面警告/错误"的根因，覆盖每一轮 E2E 循环中"可能有用的信息"。
  *
  * 运行：
- *   PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers \
+ *   PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers \
  *   node collect-warnings.mjs
  * 环境变量覆盖：FRONTEND_URL / STEPBY_TEST_USER / STEPBY_TEST_PASS / INTERACT=1。
  */

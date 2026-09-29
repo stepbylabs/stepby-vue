@@ -12,7 +12,7 @@
  *   3. 个人中心删除该凭据 → 列表清空；再用 passkey 登录应失败（无凭据，反枚举同形提示）。
  *
  * 运行（后端 embedded :8080 + 前端 preview :4173 均需在跑；能力位 auth.webauthn=on）：
- *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
  *   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
  *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node webauthn.mjs

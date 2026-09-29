@@ -14,7 +14,7 @@
  * （若本地化被移除即变红）。
  *
  * ── 运行（后端 embedded :8080 在跑；`sys.account.captchaEnabled=false` 时无需读验证码）──
- *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
  *   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
  *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node editor-a11y.mjs      # 期望「总计 N 通过，0 失败」EXIT=0

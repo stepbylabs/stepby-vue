@@ -68,7 +68,7 @@ cd stepby-vue/tests/e2e && npm install
 # 权威环境 = embedded :8080（真后端+真数据+SW；见 memory 与 docs 轮2 定案）
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
-PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
 node main.mjs --headless
 ```
 
@@ -136,10 +136,10 @@ node main.mjs --headless
 
 ```bash
 cd stepby-vue/tests/e2e
-PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
+PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
-INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=<repo>/.pw-browsers FRONTEND_URL=http://localhost:8080 \
+INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers FRONTEND_URL=http://localhost:8080 \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 # 期望（已验证基线）：末行 "有信号的路由数: 0/57" + "交互动作覆盖：…（INTERACT 模式同样 0/57 稳定）
 ```
@@ -194,10 +194,10 @@ STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 - 默认浏览器目录在 `%LOCALAPPDATA%\ms-playwright`，但若 TRAE 沙箱拦截其 `__dirlock` 写入，
   需将浏览器安装到工作区内并通过环境变量指定：
   ```bash
-  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\stepby\.pw-browsers"
+  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\.pw-browsers"
   npx playwright install chromium
   # 运行时同样带上该环境变量（与上述命令一致），否则仍会去默认目录找 1234 版本而失败
-  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\stepby\.pw-browsers"
+  $env:PLAYWRIGHT_BROWSERS_PATH = "D:\Projects\.pw-browsers"
   node main.mjs --headless
   ```
 - `.pw-browsers` 已被根 `.gitignore` 忽略，不入仓库。
@@ -809,7 +809,7 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
   且平台能力位 `auth.webauthn=on`、`[webauthn] rp_id=localhost / origin=http://localhost:8080`）：
   ```bash
   cd stepby-vue/tests/e2e
-  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
   node webauthn.mjs   # 期望「总计 25 通过，0 失败」且 EXIT=0
@@ -902,7 +902,7 @@ consent_ticket_ttl_secs = 300   # 夹取 60..=1800
 ```bash
 cd stepby-vue/tests/e2e
 # ① 默认档（后端按 config.toml 启动，http_status_convention 缺省 = legacy）
-PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
 EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 22 通过，0 失败」EXIT=0
@@ -968,7 +968,7 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
 - **浏览器级（主证据）**：`node editor-a11y.mjs`（后端 embedded :8080 在跑）
   ```bash
   cd stepby-vue/tests/e2e
-  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+  PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
   node editor-a11y.mjs      # 期望「总计 22 通过，0 失败」EXIT=0

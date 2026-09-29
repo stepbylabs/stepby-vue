@@ -24,7 +24,7 @@
  * ── 运行 ──
  *   后端（embedded :8080）+ 前端 preview 需在跑；`sys.account.captchaEnabled=false` 时无需读验证码。
  *   legacy 档：
- *     PLAYWRIGHT_BROWSERS_PATH="D:/Projects/stepby/.pw-browsers" \
+ *     PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
  *     STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
  *     STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *     EXPECT_CONVENTION=legacy node http-status-convention.mjs
