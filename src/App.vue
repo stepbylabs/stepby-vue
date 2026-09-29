@@ -15,6 +15,7 @@ import enUs from 'element-plus/es/locale/lang/en'
 import { useI18n } from 'vue-i18n'
 import Cookies from 'js-cookie'
 import { useRouter } from 'vue-router'
+import { useWindowSize } from '@vueuse/core'
 import useSettingsStore from '@/store/modules/settings'
 import { handleThemeStyle } from '@/utils/theme'
 // Cookie 同意组件需全局展示，显式引入以保证类型与可见性
@@ -28,7 +29,14 @@ const { locale } = useI18n()
 const epLocale = computed(() => (locale.value === 'en-US' ? enUs : zhCn))
 
 // 全局尺寸：large / default / small（与原 app.use(ElementPlus, { size }) 等效）
-const size = computed(() => Cookies.get('size') || 'default')
+// S4（UX-RESPONSIVE-PLAN）：用户显式设置（size Cookie）优先；未设置时手机视口（<768px）
+// 自动升 large（组件 40px 高，满足 ≥44px 级触控目标含边距），响应窗口/旋转变化。
+const { width: winWidth } = useWindowSize()
+const size = computed(() => {
+  const userSize = Cookies.get('size')
+  if (userSize) return userSize
+  return winWidth.value < 768 ? 'large' : 'default'
+})
 
 // TierS-3: 表格密度 - 与全局 size 解耦，仅影响 el-table 单元格内边距
 // 通过 documentElement class 控制，避免影响其他 EP 组件

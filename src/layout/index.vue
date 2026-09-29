@@ -13,7 +13,7 @@
     <a href="#main-content" class="skip-link">{{ safeT('layout.navbar.skipToContent') }}</a>
     <Transition name="fade">
       <div
-        v-if="device === 'mobile' && sidebar.opened"
+        v-if="(device === 'mobile' || device === 'tablet') && sidebar.opened"
         class="drawer-bg w-full h-full absolute top-0"
         @click="handleClickOutside"
       />
@@ -212,11 +212,14 @@ const classObj = computed(() => ({
   hideSidebar: !sidebar.value.opened,
   openSidebar: sidebar.value.opened,
   withoutAnimation: sidebar.value.withoutAnimation,
-  mobile: device.value === 'mobile'
+  mobile: device.value === 'mobile',
+  tablet: device.value === 'tablet'
 }))
 
 const { width } = useWindowSize()
-const WIDTH = 992 // refer to Bootstrap's responsive design
+// S1（UX-RESPONSIVE-PLAN）：三档断点——手机(<768) 抽屉 / 平板(768-991) 折叠图标条 / 桌面(≥992) 常规
+const MOBILE_MAX_WIDTH = 768
+const TABLET_MAX_WIDTH = 992
 
 watch(
   () => device.value,
@@ -228,10 +231,17 @@ watch(
 )
 
 watchEffect(() => {
-  if (width.value - 1 < WIDTH) {
+  // 注意：直接用 innerWidth 比较（iPad 竖屏 768 必须归 tablet 而非 mobile）
+  const w = width.value
+  if (w < MOBILE_MAX_WIDTH) {
     appStore.toggleDevice('mobile')
     appStore.closeSideBar({ withoutAnimation: true })
-  } else {
+  } else if (w < TABLET_MAX_WIDTH) {
+    // 平板档：无条件收起抽屉态（折叠图标条常驻）。用户点汉堡展开后 opened=true
+    // 不在本 effect 依赖中，展开态不会被误收。
+    appStore.toggleDevice('tablet')
+    appStore.closeSideBar({ withoutAnimation: true })
+  } else if (device.value !== 'desktop') {
     appStore.toggleDevice('desktop')
   }
 })
@@ -280,7 +290,9 @@ function setLayout() {
 }
 
 .main-container:has(.fixed-header) {
+  /* S6（UX-RESPONSIVE-PLAN）：dvh 随软键盘收缩，回退 100vh 兼容旧内核 */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -308,5 +320,22 @@ function setLayout() {
 
 .mobile .fixed-header {
   width: 100%;
+}
+
+/* S3（UX-RESPONSIVE-PLAN）：手机/平板抽屉展开时，顶部导航提层常驻可点
+   （修复 U3 实测的「抽屉展开后汉堡按钮被遮罩盖住、无法二次收起」）。
+   侧边栏从导航栏下方滑出的 top/height 规则在 sidebar.scss 全局段（scoped
+   选择器特异性压不过 `#app .sidebar-container` 的 top:0 定位）。 */
+.mobile.openSidebar,
+.tablet.openSidebar {
+  .fixed-header {
+    z-index: 1002;
+    width: 100%;
+  }
+}
+
+/* 平板展开态为 overlay：内容区保持折叠宽度不被挤压 */
+.tablet.openSidebar .fixed-header {
+  width: calc(100% - 54px);
 }
 </style>

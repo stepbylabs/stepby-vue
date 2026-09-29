@@ -286,6 +286,38 @@
     }
   }
 
+  // tablet responsive（S2，UX-RESPONSIVE-PLAN）：平板档（768-991px）——
+  // 折叠图标条（54px）常驻不遮挡内容；展开时侧边栏以 overlay 浮层呈现，
+  // 内容区保持折叠宽度不被挤压（配合 layout 的 .tablet.openSidebar 遮罩/层级规则）。
+  .tablet {
+    .main-container {
+      margin-left: 54px;
+    }
+
+    .sidebar-container {
+      transition: width trans.$transition-duration trans.$transition-easing;
+      width: 54px !important;
+    }
+
+    &.openSidebar {
+      .sidebar-container {
+        width: vars.$base-sidebar-width !important;
+        box-shadow: 0px 0px 12px 0px rgba(0, 0, 0, 0.2);
+      }
+    }
+  }
+
+  // S3（UX-RESPONSIVE-PLAN）：手机/平板抽屉展开时从导航栏（50px）下方滑出，
+  // 避免侧边栏 Logo 与顶部汉堡按钮重叠（须放在 #app 嵌套内以压过
+  // `#app .sidebar-container` 的 top:0/height:100% 默认定位）。
+  .mobile.openSidebar,
+  .tablet.openSidebar {
+    .sidebar-container {
+      top: 50px;
+      height: calc(100% - 50px);
+    }
+  }
+
   .withoutAnimation {
     .main-container,
     .sidebar-container {

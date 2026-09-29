@@ -255,4 +255,35 @@ aside {
       border-radius: 3px;
     }
   }
+
+  // S5（UX-RESPONSIVE-PLAN）：el-message-box 默认 420px，手机视口下溢出——收窄为 92%
+  .el-message-box {
+    width: 92% !important;
+    max-width: 420px;
+  }
+
+  // S5：树面板页（左树右表）在手机上改为上下堆叠，避免树把内容区挤压成窄条
+  .tree-sidebar-manage-wrap {
+    flex-direction: column;
+  }
+
+  .tree-sidebar {
+    width: 100% !important;
+    border-right: none;
+    border-bottom: 1px solid var(--el-border-color-light);
+
+    // 折叠态收为横条；展开态限高，避免树把表格推到首屏之外
+    &.collapsed {
+      max-height: 48px;
+    }
+
+    &:not(.collapsed) {
+      max-height: 240px;
+    }
+
+    // 拖拽调宽手柄在触屏上无意义
+    .resize-handle {
+      display: none;
+    }
+  }
 }

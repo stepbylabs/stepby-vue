@@ -572,6 +572,12 @@ defineExpose({
 
 onMounted(() => {
   isLoadingFromStorage.value = true
+  // S5（UX-RESPONSIVE-PLAN）：手机视口下树面板默认折叠——「左树右表」布局在
+  // 窄屏并排会把内容区挤压到不可用（实测 375px 下搜索框仅 ~40px 宽）。
+  // 折叠为横条后用户仍可点击展开临时查看树。
+  if (window.innerWidth < 768 && !collapsed.value) {
+    collapsed.value = true
+  }
   if (!collapsed.value && props.enableStorage) {
     const savedWidth = getSavedWidth()
     if (savedWidth !== null) {

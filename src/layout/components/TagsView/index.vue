@@ -846,8 +846,10 @@ $tags-bar-height: 34px;
   bottom: 0;
   margin: 0 !important;
   padding: 0 !important;
+  /* S6：dvh 随软键盘收缩（回退 100vh） */
   height: calc(100vh - 34px) !important;
-  min-height: calc(100vh - 34px) !important;
+  height: calc(100dvh - 34px) !important;
+  min-height: calc(100dvh - 34px) !important;
   overflow: auto;
 }
 </style>

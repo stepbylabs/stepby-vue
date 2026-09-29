@@ -359,12 +359,22 @@ function handleNavType(val: number): void {
 watch(
   navType,
   (val: number) => {
+    // S2（UX-RESPONSIVE-PLAN）：手机/平板档的侧边栏开合由响应式布局接管
+    // （layout watchEffect 收起为抽屉/折叠条）——此处不得强制展开覆盖之，
+    // 否则平板/手机首屏会残留全宽侧边栏 + 遮罩（immediate watch 晚于布局层 close）。
+    const responsiveDevice = appStore.device === 'mobile' || appStore.device === 'tablet'
     if (val === 1) {
-      appStore.sidebar.opened = true
+      if (responsiveDevice) {
+        appStore.closeSideBar({ withoutAnimation: true })
+      } else {
+        appStore.sidebar.opened = true
+      }
       appStore.toggleSideBarHide(false)
     }
     if (val === 2) {
-      appStore.sidebar.opened = true
+      if (!responsiveDevice) {
+        appStore.sidebar.opened = true
+      }
     }
     if (val === 3) {
       appStore.sidebar.opened = false

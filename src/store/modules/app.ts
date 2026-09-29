@@ -1,6 +1,9 @@
 import Cookies from 'js-cookie'
 import { defineStore } from 'pinia'
 
+/** 设备三档：手机(<768) 抽屉侧边栏 / 平板(768-991) 折叠图标条 / 桌面(≥992) 常规 */
+export type DeviceType = 'mobile' | 'tablet' | 'desktop'
+
 interface SidebarState {
   opened: boolean
   withoutAnimation: boolean
@@ -9,7 +12,7 @@ interface SidebarState {
 
 interface AppState {
   sidebar: SidebarState
-  device: string
+  device: DeviceType
   size: string
 }
 
@@ -22,7 +25,7 @@ const useAppStore = defineStore(
         withoutAnimation: false,
         hide: false
       },
-      device: 'desktop',
+      device: 'desktop' as DeviceType,
       size: Cookies.get('size') || 'default'
     }),
     actions: {
@@ -43,7 +46,7 @@ const useAppStore = defineStore(
         this.sidebar.opened = false
         this.sidebar.withoutAnimation = withoutAnimation || false
       },
-      toggleDevice(device: string) {
+      toggleDevice(device: DeviceType) {
         this.device = device
       },
       setSize(size: string) {
