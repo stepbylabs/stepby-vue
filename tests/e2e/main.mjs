@@ -311,6 +311,17 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   const isLoggedIn = !page.url().includes('login')
   if (isLoggedIn) {
     log('  ✅ 登录成功')
+    // e2e 无人值守：预置新手引导完成标记，禁用 Tour 遮罩（z-9998 会拦截自动化点击）。
+    // 真实用户仍正常看到引导；仅自动化环境显式关闭（测试基建标准做法）。
+    try {
+      await page.evaluate(() => {
+        localStorage.setItem('stepby-layout-tour', 'completed')
+        localStorage.setItem('workbench-tour', 'completed')
+        localStorage.setItem('home-tour', 'completed')
+      })
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await sleep(1200)
+    } catch { /* storage 不可用时保持原行为 */ }
   } else {
     log('  ❌ 登录失败')
   }
@@ -11773,8 +11784,19 @@ async function testFeature57(page) {
 
   const tErr = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
   record(57, '全程无错误/警告 Toast', tErr === 0, `err=${tErr}`)
+  // UX-5 未保存守卫：cron 已被生成器回填 ⇒ 表单脏 ⇒ 点取消应弹确认框（而非直接关闭）
   await dlg.locator('button:has-text("取 消"), button:has-text("取消")').last().click()
   await sleep(600)
+  const guardVisible = await page.locator('.el-message-box:visible').isVisible().catch(() => false)
+  record(57, '脏表单取消触发确认守卫（UX-5）', guardVisible)
+  if (guardVisible) {
+    // 确认继续关闭（主按钮 = leaveWithoutSaving「离开不保存」）
+    await page
+      .locator('.el-message-box:visible .el-message-box__btns button.el-button--primary')
+      .first()
+      .click()
+    await sleep(600)
+  }
   const dlgClosed = !(await dlg.isVisible().catch(() => false))
   const tOk = await page.evaluate(() => document.querySelectorAll('.el-message--success').length)
   record(57, '取消新增关闭且不提交', dlgClosed && tOk === 0, `closed=${dlgClosed}, ok=${tOk}`)
