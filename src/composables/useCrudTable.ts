@@ -61,7 +61,7 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   /** 查询表单组件 ref（用于 resetFields） */
   queryRef: Ref<FormInstance | null>
   /** 提交前的载荷改写（可选）：用于携带后端「显式清空」声明 `clearFields`
-   * （见 `axum-backend/src/common/clear_fields.rs`——缺省 = 保持现值，清空必须显式声明） */
+   * （见 `stepby-axum/src/common/clear_fields.rs`——缺省 = 保持现值，清空必须显式声明） */
   beforeSubmit?: (payload: T) => T
   /** 提交成功后的回调（可选，如刷新缓存） */
   onAfterSubmit?: () => void

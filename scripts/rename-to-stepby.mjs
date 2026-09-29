@@ -4,8 +4,8 @@ import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const roots = [
-  'D:/Projects/stepby/axum-backend',
-  'D:/Projects/stepby/stepby-ui',
+  'D:/Projects/stepby/stepby-axum',
+  'D:/Projects/stepby/stepby-vue',
   'D:/Projects/stepby/deploy',
   'D:/Projects/stepby/docs'
 ]

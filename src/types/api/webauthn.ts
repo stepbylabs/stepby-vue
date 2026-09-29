@@ -3,7 +3,7 @@
 // 生成类型直接再导出后端 ts-rs 产物（勿在此重复手写字段，以免与后端漂移）；
 // options 类型为后端 `serde_json` 直出（handler 出参为 `AjaxResult<serde_json::Value>`），
 // 无 ts-rs 生成，故在此按后端 serde 实际形状（camelCase）手写，供前端深转换使用。
-// 生成源：axum-backend/src/service/webauthn_service.rs。
+// 生成源：stepby-axum/src/service/webauthn_service.rs。
 
 /** 本人 passkey 凭据（自助列表出参） */
 export type WebauthnCredentialVo = import('@/types/api/generated/WebauthnCredentialVo').WebauthnCredentialVo

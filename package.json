@@ -1,5 +1,5 @@
 {
-  "name": "stepby-ui",
+  "name": "stepby-vue",
   "version": "3.9.2",
   "description": "Stepby管理系统",
   "author": "Stepby",
@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/stepby/stepby-ui.git"
+    "url": "https://github.com/stepby/stepby-vue.git"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",

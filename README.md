@@ -1,6 +1,6 @@
 # Stepby UI
 
-Stepby 管理系统前端，基于 Vue 3 + Element Plus + TypeScript + Pinia + Vite 构建，配套后端为 [Axum (Rust)](../axum-backend)。
+Stepby 管理系统前端，基于 Vue 3 + Element Plus + TypeScript + Pinia + Vite 构建，配套后端为 [Axum (Rust)](../stepby-axum)。
 
 ## 技术栈
 
@@ -84,7 +84,7 @@ npm run test:headless
 # Windows PowerShell
 $env:FRONTEND_URL = "http://localhost:5173"
 $env:BACKEND_URL = "http://localhost:8080"
-# 注意：需在 axum-backend 目录下执行，或使用绝对路径
+# 注意：需在 stepby-axum 目录下执行，或使用绝对路径
 $env:DATABASE_URL = "sqlite://./data/stepby.db?mode=rwc"  # 后端
 $env:REDIS_URL = "redis://127.0.0.1:6379/0"              # 后端
 
@@ -93,7 +93,7 @@ export FRONTEND_URL=http://localhost:5173
 export BACKEND_URL=http://localhost:8080
 ```
 
-> **注意**：首次启动后端前需运行数据库迁移 `cargo run -p migration`（在 axum-backend 目录下），
+> **注意**：首次启动后端前需运行数据库迁移 `cargo run -p migration`（在 stepby-axum 目录下），
 > 否则 `sys_menu.i18n_key` 等新增字段缺失会导致 `/getRouters` 接口 500 错误。
 
 ## 默认登录
@@ -143,7 +143,7 @@ export BACKEND_URL=http://localhost:8080
 ## 项目结构
 
 ```
-stepby-ui/
+stepby-vue/
 ├── src/
 │   ├── api/                  # API 请求层
 │   ├── assets/               # 静态资源（图片、样式、图标）

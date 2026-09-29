@@ -81,7 +81,7 @@ export interface MyOauthBinding {
 
 // ==================== SSO / OIDC Provider（本系统作为授权服务器） ====================
 // 这些是「应用私有 API」出/入参，直接复用后端 ts-rs 生成的 camelCase 类型（勿在此重复手写字段，
-// 以免与后端漂移）。生成源：axum-backend/src/service/sso_service.rs。
+// 以免与后端漂移）。生成源：stepby-axum/src/service/sso_service.rs。
 
 /** SSO 客户端出参（脱敏，不含任何密钥） */
 export type SsoClient = import('@/types/api/generated/SsoClientVo').SsoClientVo

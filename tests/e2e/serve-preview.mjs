@@ -1,7 +1,7 @@
 /**
  * 极简静态资源服务 + /prod-api 代理（替代 vite preview）
  *
- * 用途：frontend-vue 未安装 node_modules（无法直接运行 vite preview）时，
+ * 用途：stepby-vue 未安装 node_modules（无法直接运行 vite preview）时，
  * 用 Node 原生 http 提供：
  *   - 静态资源：从 ../dist 读取（SPA fallback 到 index.html）
  *   - /prod-api、/dev-api、/stage-api 前缀：剥离后转发到后端 BASE

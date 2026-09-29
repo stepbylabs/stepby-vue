@@ -1,4 +1,4 @@
-// frontend-vue/scripts/decode-stack.mjs
+// stepby-vue/scripts/decode-stack.mjs
 // 错误堆栈离线还原（R102-SMAP-004 配套）：把生产 hidden sourcemap + 压缩后
 // 行:列 还原为原始 TS/Vue 源位置。零第三方依赖（自实现 base64-VLQ 解码）。
 /* eslint-disable no-console -- CLI 工具脚本，stdout 即交互界面 */

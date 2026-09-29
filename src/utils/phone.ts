@@ -1,6 +1,6 @@
 // 手机号多地区化工具（基于 libphonenumber-js，G18 前端）
 //
-// 后端 axum-backend 用 Rust `phonenumber` crate 的 validate_phone_by_region 做权威校验；
+// 后端 stepby-axum 用 Rust `phonenumber` crate 的 validate_phone_by_region 做权威校验；
 // 本文件在前端用 libphonenumber-js 做同判据的客户端校验/格式化，与后端 REGION 对齐
 // （均为 ISO 3166-1 alpha-2）。覆盖 200+ 地区，能识别号段合法性与虚构号。
 //

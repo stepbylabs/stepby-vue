@@ -1,7 +1,7 @@
 // 查询数据库 sys_menu 表中 dashboard/workbench 相关记录
 import { DatabaseSync } from 'node:sqlite';
 
-const db = new DatabaseSync('d:/桌面/stepby/backend-axum/data/stepby.db');
+const db = new DatabaseSync('d:/桌面/stepby/stepby-axum/data/stepby.db');
 
 const rows = db.prepare(`
   SELECT menu_id, menu_name, parent_id, order_num, path, component, menu_type, perms, icon, i18n_key, visible, status, del_flag

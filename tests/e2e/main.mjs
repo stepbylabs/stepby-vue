@@ -1,4 +1,4 @@
-﻿/**
+/**
  * stepby 端到端主测试脚本（Playwright）
  *
  * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）（共 75 个功能）
@@ -8300,11 +8300,11 @@ async function testFeature40(page) {
 async function testFeature41(page) {
   log('=== 功能 41：第五批次 性能优化验证 ===')
 
-  // 工作区根：向上查找同时含前端仓库（frontend-vue，历史名 stepby-ui 兼容）与 axum-backend 的目录
+  // 工作区根：向上查找同时含前端仓库（stepby-vue，历史名 stepby-vue 兼容）与 stepby-axum 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'frontend-vue')) || fs.existsSync(path.join(d, 'frontend-vue'))) && fs.existsSync(path.join(d, 'backend-axum'))) return d
+      if ((fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) && fs.existsSync(path.join(d, 'stepby-axum'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -8517,11 +8517,11 @@ async function testFeature41(page) {
 async function testFeature42(page) {
   log('=== 功能 42：U5 Dashboard 聚合接口 + U14 用户统计接口验证 ===')
 
-  // 工作区根：向上查找同时含前端仓库（frontend-vue，历史名 stepby-ui 兼容）与 axum-backend 的目录
+  // 工作区根：向上查找同时含前端仓库（stepby-vue，历史名 stepby-vue 兼容）与 stepby-axum 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'frontend-vue')) || fs.existsSync(path.join(d, 'frontend-vue'))) && fs.existsSync(path.join(d, 'backend-axum'))) return d
+      if ((fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) && fs.existsSync(path.join(d, 'stepby-axum'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -8530,7 +8530,7 @@ async function testFeature42(page) {
   })()
   // UI 源码 = 本仓库根（套件位于 <ui 仓库>/tests/e2e，上两级即仓库根；不依赖外部目录名）
   const uiRoot = path.resolve(__dirname, '..', '..')
-  const backendRoot = path.join(projectRoot, 'backend-axum')
+  const backendRoot = path.join(projectRoot, 'stepby-axum')
 
   // ---------- 1. U5 后端 DashboardStatsVo 字段扩展 ----------
   try {
@@ -15908,7 +15908,7 @@ async function testFeature75(page) {
 function e2eDbPath() {
   const custom = process.env.E2E_DB_PATH
   if (custom && custom.trim()) return path.resolve(custom.trim())
-  return path.resolve(__dirname, '../../../backend-axum/data/stepby.db')
+  return path.resolve(__dirname, '../../../stepby-axum/data/stepby.db')
 }
 
 /**

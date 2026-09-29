@@ -129,7 +129,7 @@ export interface UserAuthRoleResult extends AjaxResult {
 }
 
 /**
- * GDPR 用户匿名化报告（ts-rs 生成，见 `axum-backend/src/bin/export_ts.rs`）。
+ * GDPR 用户匿名化报告（ts-rs 生成，见 `stepby-axum/src/bin/export_ts.rs`）。
  *
  * 预检与执行共用同一结构：预检为 dry-run（`alreadyAnonymized` 等字段反映**当前**状态），
  * 执行后同结构回带"已处理"结果。`fields` 为将被/已被置换的字段清单（单一事实源在后端）。
