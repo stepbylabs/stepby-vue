@@ -18,6 +18,8 @@ import { useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import useSettingsStore from '@/store/modules/settings'
 import { handleThemeStyle } from '@/utils/theme'
+// D8（UX-RESPONSIVE-PLAN）：移动端表格卡片模式运行时增强（开关默认关=横滚）
+import { useMobileTableCards } from '@/composables/useMobileTableCards'
 // Cookie 同意组件需全局展示，显式引入以保证类型与可见性
 import CookieConsent from '@/components/CookieConsent/index.vue'
 
@@ -55,6 +57,8 @@ onMounted(() => {
     // 初始化主题样式
     handleThemeStyle(settingsStore.theme)
   })
+  // D8：移动端表格卡片模式（随 userPrefs.mobileTableCards + 手机视口自动启停）
+  useMobileTableCards()
 })
 
 // P2-34: R18-3.2 全局错误边界 - 捕获后代组件未处理错误，记录并跳转 500 页面

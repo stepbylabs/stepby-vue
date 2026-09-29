@@ -1447,6 +1447,8 @@ export default {
     densityCompact: 'Compact',
     autoRefreshInterval: 'Auto Refresh Interval',
     autoRefreshTip: 'seconds (0 means disabled)',
+    mobileTableCards: 'Mobile Table Cards',
+    mobileTableCardsTip: 'Render tables as stacked cards (labels first) on phones; default off keeps horizontal scrolling',
     appearance: 'Appearance',
     followSystemDark: 'Follow System Dark Mode',
     followSystemDarkTip: 'Automatically follow system theme when enabled',

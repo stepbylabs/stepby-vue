@@ -30,12 +30,21 @@ describe('sanitizeUserPrefs', () => {
       customHotkeys: { search: 'ctrl_k' },
       watermarkEnabled: true,
       sessionTimeout: 15,
-      tableColumns: { 'system:user': ['userName'] }
+      tableColumns: { 'system:user': ['userName'] },
+      mobileTableCards: true
     }
     const result = sanitizeUserPrefs(input)
     expect(result).toEqual(input)
     // 返回结果键集合应等于 USER_PREFS_KEYS
     expect(Object.keys(result).sort()).toEqual([...USER_PREFS_KEYS].sort())
+  })
+
+  it('D8: mobileTableCards 默认为 false（默认安全=横滚策略），白名单可透传开启值', () => {
+    expect(DEFAULT_USER_PREFS.mobileTableCards).toBe(false)
+    const result = sanitizeUserPrefs({ mobileTableCards: true })
+    expect(result.mobileTableCards).toBe(true)
+    const off = sanitizeUserPrefs({ mobileTableCards: false })
+    expect(off.mobileTableCards).toBe(false)
   })
 
   it('含未知键的对象应只保留白名单字段', () => {

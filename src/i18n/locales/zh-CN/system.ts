@@ -1431,6 +1431,8 @@ export default {
     densityCompact: '紧凑',
     autoRefreshInterval: '自动刷新间隔',
     autoRefreshTip: '秒（0 表示禁用）',
+    mobileTableCards: '移动端表格卡片模式',
+    mobileTableCardsTip: '开启后手机上表格按行显示为卡片（列名在前），适合列多的列表；默认关闭为横向滚动',
     appearance: '外观',
     followSystemDark: '跟随系统暗色模式',
     followSystemDarkTip: '开启后自动跟随系统主题切换',

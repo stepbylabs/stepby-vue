@@ -27,6 +27,10 @@
         <el-input-number v-model="form.autoRefreshInterval" :min="0" :max="600" :step="10" class="w-[160px]" />
         <span class="form-tip ml-2 text-text-secondary text-xs">{{ t('userPrefs.autoRefreshTip') }}</span>
       </el-form-item>
+      <el-form-item :label="t('userPrefs.mobileTableCards')">
+        <el-switch v-model="form.mobileTableCards" />
+        <span class="form-tip ml-2 text-text-secondary text-xs">{{ t('userPrefs.mobileTableCardsTip') }}</span>
+      </el-form-item>
 
       <el-divider content-position="left">{{ t('userPrefs.appearance') }}</el-divider>
       <el-form-item :label="t('userPrefs.followSystemDark')">

@@ -27,6 +27,8 @@ export interface UserPrefs {
   sessionTimeout: number
   /** UX-7: 列显隐偏好 —— 页面标识 → 可见列 key 列表（未记录的页面用列定义默认值） */
   tableColumns: Record<string, string[]>
+  /** D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式（手机档表格由横滚切换为逐行卡片；默认关=横滚） */
+  mobileTableCards: boolean
 }
 
 /** 列表列定义（列显隐偏好的输入） */
@@ -72,7 +74,8 @@ export const USER_PREFS_KEYS: (keyof UserPrefs)[] = [
   'customHotkeys',
   'watermarkEnabled',
   'sessionTimeout',
-  'tableColumns'
+  'tableColumns',
+  'mobileTableCards'
 ]
 
 /** 用户偏好默认值 */
@@ -86,7 +89,8 @@ export const DEFAULT_USER_PREFS: UserPrefs = {
   customHotkeys: {},
   watermarkEnabled: false,
   sessionTimeout: 30,
-  tableColumns: {}
+  tableColumns: {},
+  mobileTableCards: false
 }
 
 /**

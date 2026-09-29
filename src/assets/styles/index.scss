@@ -30,6 +30,15 @@ html {
   box-sizing: border-box;
 }
 
+/* D9（UX-RESPONSIVE-PLAN 阶段三）：safe-area 环境变量（刘海屏/Home Indicator）。
+   viewport-fit=cover 后浏览器在无刘海设备返回 0，桌面恒 0，零副作用。
+   说明：顶部（状态栏）联动导航栏高度需真机联调，本批先落左右/底部。 */
+:root {
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 #app {
   height: 100%;
 }
@@ -267,6 +276,21 @@ aside {
     flex-direction: column;
   }
 
+  // D8 附带修复：Dialog 内两列表单（el-col-12）在手机上堆叠为单列——
+  // 375px 下两列各 ~170px，列内说明文字会被挤压成一字一行竖排（截图核查实锤）
+  .el-dialog .el-row {
+    .el-col-12,
+    .el-col-sm-12,
+    .el-col-md-12 {
+      max-width: 100%;
+      flex: 0 0 100%;
+    }
+
+    .el-form-item__content {
+      width: 100%;
+    }
+  }
+
   .tree-sidebar {
     width: 100% !important;
     border-right: none;
@@ -285,5 +309,101 @@ aside {
     .resize-handle {
       display: none;
     }
+  }
+}
+
+/* D9（UX-RESPONSIVE-PLAN 阶段三）：手机档 safe-area——
+   左右（横屏刘海）作用于抽屉/内容边距，底部（Home Indicator）作用于内容区与抽屉菜单。 */
+.app-wrapper.mobile {
+  .app-main {
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .sidebar-container {
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+  }
+}
+
+/* D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式。
+   激活条件（三重 AND，缺一回落横滚）：userPrefs.mobileTableCards 开启（默认关）
+   + 手机档（.app-wrapper.mobile）+ 表格非合并表头（运行时注入 .no-mobile-cards）。
+   实现方式：隐藏表头，行转为卡片，列名经运行时注入的 td[data-label] 由 ::before 显示。 */
+html.mobile-table-cards-on .app-wrapper.mobile {
+  .el-table:not(.no-mobile-cards) {
+    display: block;
+    height: auto !important;
+    overflow: visible;
+
+    .el-table__header-wrapper,
+    colgroup {
+      display: none;
+    }
+
+    .el-scrollbar,
+    .el-scrollbar__wrap,
+    .el-scrollbar__view {
+      display: block;
+      overflow: visible !important;
+    }
+
+    .el-table__body {
+      display: block;
+      width: 100% !important;
+      margin: 0;
+    }
+
+    table,
+    tbody {
+      display: block;
+      width: 100% !important;
+    }
+
+    tbody tr.el-table__row {
+      display: block;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--el-border-color-light);
+      border-radius: 8px;
+      background: var(--el-bg-overlay);
+
+      &:hover > td.el-table__cell {
+        background: transparent;
+      }
+    }
+
+    td.el-table__cell {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 7px 4px;
+      border-bottom: 1px dashed var(--el-border-color-lighter);
+      position: static !important; // 失效 fixed 列的 sticky 定位，卡片内自然流式
+
+      &::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        max-width: 45%;
+        font-weight: 600;
+        color: var(--el-text-color-secondary);
+        font-size: 12px;
+      }
+
+      .cell {
+        white-space: normal;
+        word-break: break-word;
+        text-align: right;
+      }
+
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+  }
+
+  // 合并表头的表格无法可靠映射列名 → 维持横向滚动策略
+  .el-table.no-mobile-cards .cell {
+    white-space: nowrap;
   }
 }
