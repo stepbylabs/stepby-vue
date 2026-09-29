@@ -8282,18 +8282,19 @@ async function testFeature40(page) {
 async function testFeature41(page) {
   log('=== 功能 41：第五批次 性能优化验证 ===')
 
-  // 工作区根：向上查找同时含 stepby-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
+  // 工作区根：向上查找同时含前端仓库（yebot-ui，历史名 stepby-ui 兼容）与 axum-backend 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if (fs.existsSync(path.join(d, 'stepby-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if ((fs.existsSync(path.join(d, 'yebot-ui')) || fs.existsSync(path.join(d, 'stepby-ui'))) && fs.existsSync(path.join(d, 'axum-backend'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
     }
     return path.resolve(__dirname, '..')
   })()
-  const uiRoot = path.join(projectRoot, 'stepby-ui')
+  // UI 源码 = 本仓库根（套件位于 <ui 仓库>/tests/e2e，上两级即仓库根；不依赖外部目录名）
+  const uiRoot = path.resolve(__dirname, '..', '..')
 
   // ---------- 1. echarts 按需导入 ----------
   try {
@@ -8498,18 +8499,19 @@ async function testFeature41(page) {
 async function testFeature42(page) {
   log('=== 功能 42：U5 Dashboard 聚合接口 + U14 用户统计接口验证 ===')
 
-  // 工作区根：向上查找同时含 stepby-ui 与 axum-backend 的目录（套件可置于仓库内 tests/e2e 或同级 tests）
+  // 工作区根：向上查找同时含前端仓库（yebot-ui，历史名 stepby-ui 兼容）与 axum-backend 的目录
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if (fs.existsSync(path.join(d, 'stepby-ui')) && fs.existsSync(path.join(d, 'axum-backend'))) return d
+      if ((fs.existsSync(path.join(d, 'yebot-ui')) || fs.existsSync(path.join(d, 'stepby-ui'))) && fs.existsSync(path.join(d, 'axum-backend'))) return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
     }
     return path.resolve(__dirname, '..')
   })()
-  const uiRoot = path.join(projectRoot, 'stepby-ui')
+  // UI 源码 = 本仓库根（套件位于 <ui 仓库>/tests/e2e，上两级即仓库根；不依赖外部目录名）
+  const uiRoot = path.resolve(__dirname, '..', '..')
   const backendRoot = path.join(projectRoot, 'axum-backend')
 
   // ---------- 1. U5 后端 DashboardStatsVo 字段扩展 ----------
@@ -9882,7 +9884,7 @@ async function testFeature48(page) {
   // ---------- 48-10 监控/PAT 管理页面渲染 ----------
   let adminPageOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/monitor/pat`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/pat`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
     await sleep(2200)
     await skipTour(page)
     const hasTable = await page
@@ -9930,7 +9932,7 @@ async function testFeature49(page) {
   let chartOk = false
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/system/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
       .catch(() => {})
     await sleep(2600)
     await skipTour(page)
@@ -10010,7 +10012,7 @@ async function testFeature49(page) {
   let reloadPersistOk = false
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/system/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
       .catch(() => {})
     await sleep(2400)
     await skipTour(page)
@@ -15876,10 +15878,11 @@ function e2eDbPath() {
  * 物理删除本套件产生的软删（del_flag='2'）测试实体及其关联，与数据库修复脚本同规则。
  * 仅删"已软删"的行 —— 在册（del_flag='0'）数据不受影响。
  */
-function cleanupE2eResidue() {
+async function cleanupE2eResidue() {
   if (process.env.E2E_SKIP_CLEANUP === '1') return
   try {
-    const { DatabaseSync } = importSyncDatabase()
+    const mod = await importSyncDatabase()
+    const DatabaseSync = mod.DatabaseSync
     const db = new DatabaseSync(e2eDbPath())
     db.exec('PRAGMA busy_timeout = 5000')
     const steps = [
@@ -16131,13 +16134,13 @@ async function main() {
     log(`📄 测试报告已保存: ${reportFile}`)
 
     await browser.close()
-    cleanupE2eResidue()
+    await cleanupE2eResidue()
     process.exit(failed === 0 ? 0 : 1)
   } catch (err) {
     log(`💥 测试脚本异常: ${err.message}`)
     console.error(err)
     await browser.close()
-    try { cleanupE2eResidue() } catch { /* best-effort */ }
+    try { await cleanupE2eResidue() } catch { /* best-effort */ }
     process.exit(2)
   }
 }
