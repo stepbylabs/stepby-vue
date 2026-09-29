@@ -162,6 +162,14 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     if (!syncQueryToUrl || !router || !route) return
     const src = queryParams.value as unknown as Record<string, unknown>
     const query: Record<string, string> = {}
+    // KB-51：保留 URL 中「非查询条件」的既有参数（如页签 tab 等页面状态），
+    // 避免深链回跳后被 queryParams 序列化整体覆盖而丢失；查询键仍以当前值为准。
+    const existing = route.query as Record<string, unknown>
+    for (const [k, v] of Object.entries(existing)) {
+      if (!(k in src) && v !== undefined && v !== null && v !== '') {
+        query[k] = String(v)
+      }
+    }
     for (const [k, v] of Object.entries(src)) {
       if (v === undefined || v === null || v === '') continue
       query[k] = String(v)
