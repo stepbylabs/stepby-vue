@@ -1,4 +1,4 @@
-// en-US · 分类：system（系统管理）
+﻿// en-US · 分类：system（系统管理）
 // 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
 
 export default {
@@ -14,6 +14,7 @@ export default {
     dept: 'Departments',
     post: 'Positions',
     tenant: 'Tenant Management',
+    ai: 'AI Assistant',
     myDomain: 'Domain Management',
     myNav: 'My Navigation',
     dict: 'Dictionaries',
@@ -1550,5 +1551,23 @@ export default {
     },
     msgSubmitted: 'Submitted and entered the approval flow',
     msgNoTaskFound: 'No pending task found for this document'
+  },
+  aiPanel: {
+    title: 'AI Data Assistant (natural language queries)',
+    toggleTables: 'Queryable scope',
+    tablesTitle: 'Whitelisted tables',
+    noTables: 'No whitelisted tables fetched',
+    placeholder: 'Describe the data you want in natural language, e.g. new users per day for the last 7 days',
+    ask: 'Ask',
+    hint: 'The AI generates SQL which is security-checked then executed (read-only, tenant-isolated)',
+    resultTitle: 'Query result',
+    rowCount: '{n} rows',
+    exportCsv: 'Export CSV',
+    generatedSql: 'Generated SQL (tables referenced):',
+    emptyResult: 'Query succeeded but returned no rows',
+    askFailed: 'AI query failed, please try again later',
+    tpl1: 'How many enabled users are in the system?',
+    tpl2: 'Show the latest 10 login logs',
+    tpl3: 'How many users does each department have?'
   }
 }

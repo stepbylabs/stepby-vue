@@ -1,4 +1,4 @@
-// zh-CN · 分类：system（系统管理）
+﻿// zh-CN · 分类：system（系统管理）
 // 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
 
 export default {
@@ -14,6 +14,7 @@ export default {
     dept: '部门管理',
     post: '岗位管理',
     tenant: '租户管理',
+    ai: 'AI助手',
     myDomain: '域名管理',
     myNav: '我的导航',
     dict: '字典管理',
@@ -1534,5 +1535,23 @@ export default {
     },
     msgSubmitted: '提交成功，已进入审批流程',
     msgNoTaskFound: '未找到该单据的待办任务'
+  },
+  aiPanel: {
+    title: 'AI 数据助手（自然语言查数据）',
+    toggleTables: '可查询范围',
+    tablesTitle: '可查询的表（白名单）',
+    noTables: '未获取到白名单表',
+    placeholder: '用自然语言描述你要查的数据，例如：最近 7 天每天新增多少用户',
+    ask: '查询',
+    hint: '结果由 AI 生成 SQL 并经安全校验后执行（只读查询，自动按租户隔离）',
+    resultTitle: '查询结果',
+    rowCount: '{n} 行',
+    exportCsv: '导出 CSV',
+    generatedSql: '生成的 SQL（引用表）：',
+    emptyResult: '查询成功，但没有符合条件的数据',
+    askFailed: 'AI 查询失败，请稍后再试',
+    tpl1: '系统里有多少个启用的用户？',
+    tpl2: '最近 10 条登录日志',
+    tpl3: '每个部门各有多少用户？'
   }
 }
