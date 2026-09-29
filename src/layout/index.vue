@@ -31,6 +31,7 @@
         </Transition>
       </div>
       <app-main />
+      <mobile-tab-bar />
       <settings ref="settingRef" />
     </div>
     <!-- 新手引导 Tour -->
@@ -44,6 +45,7 @@
 import { useWindowSize } from '@vueuse/core'
 import Sidebar from './components/Sidebar/index.vue'
 import { AppMain, Navbar, Settings, TagsView } from './components'
+import MobileTabBar from './components/MobileTabBar/index.vue'
 import AnnouncementBanner from '@/components/AnnouncementBanner/index.vue'
 import TaskProgress from '@/components/TaskProgress/index.vue'
 import useAppStore from '@/store/modules/app'

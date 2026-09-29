@@ -180,6 +180,9 @@ export default {
     }
   },
   layout: {
+    tabbar: {
+      mine: '我的'
+    },
     forceLogoutMessage: '您已被管理员强制下线，请重新登录',
     tour: {
       sidebarTitle: '侧边栏菜单',

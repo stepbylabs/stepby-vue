@@ -4,7 +4,7 @@
          逐层叠压不可用——明确告知用户使用平板横屏或桌面端（能力不砍，体验如实提示） -->
     <el-alert
       v-if="device === 'mobile'"
-      class="build-mobile-tip"
+      class="build-mobile-tip m-3"
       type="warning"
       :closable="false"
       show-icon

@@ -322,19 +322,41 @@ aside {
    左右（横屏刘海）作用于抽屉/内容边距，底部（Home Indicator）作用于内容区与抽屉菜单。 */
 .app-wrapper.mobile {
   .app-main {
-    padding-bottom: var(--safe-bottom);
+    padding-bottom: calc(56px + var(--safe-bottom, 0px)); // MobileTabBar 高度留白，防末行被遮
   }
 
   .sidebar-container {
     padding-bottom: var(--safe-bottom);
     padding-left: var(--safe-left);
   }
+
+  /* MOBILE-UX-GUIDELINES 三-3：表单 label 上置（PC/平板不受影响——限定 .mobile 档）。
+     label 块级显示在控件上方、控件全宽，替代左置 label 在窄屏下的挤压。
+     【样式豁免】el-form-item__label/content 为 Element Plus 深层 DOM，无法挂 Tailwind 类，
+     依 AGENTS.md 样式规范第 3 档豁免使用 SCSS 覆盖。 */
+  .el-form-item {
+    display: block;
+
+    > .el-form-item__label {
+      display: block;
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto;
+      line-height: 1.5;
+      padding-bottom: 4px;
+      text-align: left;
+      justify-content: flex-start;
+    }
+
+    > .el-form-item__content {
+      width: 100%;
+      margin-left: 0 !important;
+    }
+  }
 }
 
-/* D8 真机核查：表单构建页的移动端降级提示横幅 */
-.build-mobile-tip {
-  margin: 12px;
-}
+/* D8 真机核查：表单构建页的移动端降级提示横幅
+   （间距已用 Tailwind m-3；此选择器仅为后续豁免样式预留钩子，当前无声明） */
 
 /* D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式。
    激活条件（三重 AND，缺一回落横滚）：userPrefs.mobileTableCards 开启（默认关）
@@ -375,8 +397,9 @@ html.mobile-table-cards-on .app-wrapper.mobile {
       margin: 0 0 12px;
       padding: 10px 12px;
       border: 1px solid var(--el-border-color-light);
-      border-radius: 8px;
-      background: var(--el-bg-overlay);
+      border-radius: 10px;
+      background: var(--el-bg-color-overlay);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); // MOBILE-UX-GUIDELINES：卡片层级
 
       &:hover > td.el-table__cell {
         background: transparent;
@@ -388,7 +411,7 @@ html.mobile-table-cards-on .app-wrapper.mobile {
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      padding: 7px 4px;
+      padding: 8px 4px;
       border-bottom: 1px dashed var(--el-border-color-lighter);
       position: static !important; // 失效 fixed 列的 sticky 定位，卡片内自然流式
 
@@ -405,6 +428,11 @@ html.mobile-table-cards-on .app-wrapper.mobile {
         white-space: normal;
         word-break: break-word;
         text-align: right;
+      }
+
+      // 多选列/无列名单元格：紧凑居左（如行首 checkbox）
+      &:not([data-label]) .cell {
+        text-align: left;
       }
 
       &:last-child {
