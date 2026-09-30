@@ -11,7 +11,7 @@
       v-for="item in tabs"
       :key="item.path"
       type="button"
-      class="flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-none bg-transparent px-1 py-1.5"
+      class="flex min-h-[56px] flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-none bg-transparent px-1 py-1.5 transition-transform duration-150 active:scale-95"
       :class="isActive(item) ? 'text-[var(--el-color-primary)]' : 'text-[var(--el-text-color-secondary)]'"
       @click="go(item)"
     >
