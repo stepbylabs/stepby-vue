@@ -55,7 +55,7 @@
             role="button"
             tabindex="0"
             :aria-label="safeT('layout.tagsView.closeTag', { title: translateTitle(tag.meta) })" >
-            <close class="el-icon-close" />
+            <close class="w-[1em] h-[1em] el-icon-close" />
           </span>
         </router-link>
       </div>
@@ -85,32 +85,32 @@
       <template #dropdown>
         <el-dropdown-menu class="tags-dropdown-menu">
           <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close">
-            <close />
+            <close class="w-[1em] h-[1em]" />
             {{ safeT('layout.tagsView.closeCurrent') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeOthers">
-            <circle-close />
+            <circle-close class="w-[1em] h-[1em]" />
             {{ safeT('layout.tagsView.closeOthers') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeLeft" :disabled="isFirstView()">
-            <back />
+            <back class="w-[1em] h-[1em]" />
             {{ safeT('layout.tagsView.closeLeft') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeRight" :disabled="isLastView()">
-            <right />
+            <right class="w-[1em] h-[1em]" />
             {{ safeT('layout.tagsView.closeRight') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeAll">
-            <circle-close />
+            <circle-close class="w-[1em] h-[1em]" />
             {{ safeT('layout.tagsView.closeAll') }}
           </el-dropdown-item>
           <el-dropdown-item command="fullscreen" divided>
             <template v-if="!isFullscreen">
-              <full-screen />
+              <full-screen class="w-[1em] h-[1em]" />
               {{ safeT('layout.tagsView.fullscreen') }}
             </template>
             <template v-else>
-              <close />
+              <close class="w-[1em] h-[1em]" />
               {{ safeT('layout.tagsView.exitFullscreen') }}
             </template>
           </el-dropdown-item>
@@ -126,7 +126,7 @@
       :aria-label="safeT('layout.tagsView.refreshCurrent')"
       @click="refreshSelectedTag(selectedDropdownTag)"
       @keydown.enter.prevent="refreshSelectedTag(selectedDropdownTag)" >
-      <el-icon><refresh-right /></el-icon>
+      <el-icon><refresh-right class="w-[1em] h-[1em]" /></el-icon>
       {{ safeT('common.refresh') }}
     </span>
 

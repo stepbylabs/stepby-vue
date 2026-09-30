@@ -2,27 +2,27 @@
   <Transition name="fade-slide">
     <ul v-show="visible" :style="{ left: left + 'px', top: top + 'px' }" class="contextmenu" role="menu">
       <li role="menuitem" tabindex="-1" @click="emit('refresh')">
-        <refresh-right />
+        <refresh-right class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.refreshPage') }}
       </li>
       <li v-if="!isAffixFn(selectedTag)" role="menuitem" tabindex="-1" @click="emit('close')">
-        <close />
+        <close class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.closeCurrent') }}
       </li>
       <li role="menuitem" tabindex="-1" @click="emit('closeOthers')">
-        <circle-close />
+        <circle-close class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.closeOthers') }}
       </li>
       <li v-if="!isFirstFn()" role="menuitem" tabindex="-1" @click="emit('closeLeft')">
-        <back />
+        <back class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.closeLeft') }}
       </li>
       <li v-if="!isLastFn()" role="menuitem" tabindex="-1" @click="emit('closeRight')">
-        <right />
+        <right class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.closeRight') }}
       </li>
       <li role="menuitem" tabindex="-1" @click="emit('closeAll')">
-        <circle-close />
+        <circle-close class="w-[1em] h-[1em]" />
         {{ safeT('layout.tagsView.closeAll') }}
       </li>
     </ul>

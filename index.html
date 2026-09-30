@@ -24,10 +24,8 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <!-- 登录/注册/SSO 同意页共用的首屏背景图（public/ 原名直出，无 hash）：
-       提前 preload + fetchpriority=high，与 CSS 解析并行拉取，降低 LCP（R102-PRELOAD-006 / R102-CRP-010）。
-       换源为 WebP（较原 JPG 减约 60% 体积），全部现代浏览器支持。 -->
-  <link rel="preload" as="image" href="/bg-login.webp" fetchpriority="high">
+  <!-- 登录/注册/SSO 同意页背景已改为纯 CSS Aurora 渐变（无图片请求，LCP 天然最优）——
+       原 bg-login.webp 的 preload 已随 UI 升级移除（R102-PRELOAD 的图片项不再适用）。 -->
   <!-- 注：不要手写 modulepreload 指向 /src/main.ts —— vite build 会把它当静态资源
        原样复制进产物（static/ts/main-*.ts），浏览器按 video/mp2t MIME 拒载并每页报错；
        生产构建时 vite 会自动为入口 chunk 注入正确的 modulepreload。 -->

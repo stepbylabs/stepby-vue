@@ -15,7 +15,7 @@
               <el-col :span="24" class="card-box">
                 <el-card>
                   <template #header>
-                    <Monitor class="align-middle" />
+                    <Monitor class="align-middle w-[1em] h-[1em]"/>
                     <span class="align-middle">{{ t('cache.info.basicInfo') }}</span>
                   </template>
                   <el-descriptions :column="4" border size="small">
@@ -58,7 +58,7 @@
               <el-col :xs="24" :sm="24" :md="12" class="card-box">
                 <el-card>
                   <template #header>
-                    <PieChart class="align-middle" />
+                    <PieChart class="align-middle w-[1em] h-[1em]"/>
                     <span class="align-middle">{{ t('cache.info.commandStats') }}</span>
                   </template>
                   <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -77,7 +77,7 @@
               <el-col :xs="24" :sm="24" :md="12" class="card-box">
                 <el-card>
                   <template #header>
-                    <Odometer class="align-middle" />
+                    <Odometer class="align-middle w-[1em] h-[1em]"/>
                     <span class="align-middle">{{ t('cache.info.memoryInfo') }}</span>
                   </template>
                   <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -95,7 +95,7 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card class="h-[calc(100vh-180px)]">
               <template #header>
-                <Collection class="align-middle" />
+                <Collection class="align-middle w-[1em] h-[1em]"/>
                 <span class="align-middle">{{ t('cache.list.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"
@@ -151,7 +151,7 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card class="h-[calc(100vh-180px)]">
               <template #header>
-                <Key class="align-middle" />
+                <Key class="align-middle w-[1em] h-[1em]"/>
                 <span class="align-middle">{{ t('cache.list.keyListTitle') }}</span>
                 <Transition name="fade">
                   <el-button
@@ -203,7 +203,7 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card :bordered="false" class="h-[calc(100vh-180px)]">
               <template #header>
-                <Document class="align-middle" />
+                <Document class="align-middle w-[1em] h-[1em]"/>
                 <span class="align-middle">{{ t('cache.list.contentTitle') }}</span>
               </template>
               <Transition mode="out-in" name="fade">
@@ -245,7 +245,7 @@
           <el-col :xs="24" :sm="24" :md="12" class="card-box">
             <el-card>
               <template #header>
-                <Histogram class="align-middle" />
+                <Histogram class="align-middle w-[1em] h-[1em]"/>
                 <span class="align-middle">{{ t('cache.prefix.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"
@@ -287,7 +287,7 @@
           <el-col :xs="24" :sm="24" :md="12" class="card-box">
             <el-card>
               <template #header>
-                <Warning class="align-middle" />
+                <Warning class="align-middle w-[1em] h-[1em]"/>
                 <span class="align-middle">{{ t('cache.hot.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"

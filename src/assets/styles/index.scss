@@ -358,6 +358,67 @@ aside {
 /* D8 真机核查：表单构建页的移动端降级提示横幅
    （间距已用 Tailwind m-3；此选择器仅为后续豁免样式预留钩子，当前无声明） */
 
+/* Auth 页 Aurora 科技背景（login/register/oauthlogin/consent 四页共用）。
+   【样式豁免】keyframes 漂浮动画 + 暗色主题级联（AGENTS.md 样式规范第 3 档合法场景）。
+   结构：深空渐变底 + 两枚 blur 光斑缓慢漂浮 + 细网格纹理（mask 渐隐）。
+   性能：移动端光斑静止（blur 大面积动画耗电）；prefers-reduced-motion 由全局规则接管。 */
+.auth-aurora {
+  background: radial-gradient(ellipse at 28% 18%, #1d2a4e 0%, #0b1020 62%);
+
+  .aurora-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.5;
+    pointer-events: none;
+
+    &.aurora-1 {
+      width: 520px;
+      height: 520px;
+      background: #4f6ef7;
+      top: -12%;
+      left: -6%;
+      animation: aurora-drift-1 22s ease-in-out infinite alternate;
+    }
+
+    &.aurora-2 {
+      width: 440px;
+      height: 440px;
+      background: #22d3ee;
+      bottom: -16%;
+      right: -8%;
+      animation: aurora-drift-2 26s ease-in-out infinite alternate;
+    }
+  }
+
+  .aurora-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 28%, transparent 74%);
+  }
+}
+
+@keyframes aurora-drift-1 {
+  to {
+    transform: translate(130px, 90px) scale(1.15);
+  }
+}
+
+@keyframes aurora-drift-2 {
+  to {
+    transform: translate(-110px, -70px) scale(0.9);
+  }
+}
+
+.app-wrapper.mobile .aurora-blob {
+  animation: none; // 移动端光斑静止，省电防卡
+}
+
 /* D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式。
    激活条件（三重 AND，缺一回落横滚）：userPrefs.mobileTableCards 开启（默认关）
    + 手机档（.app-wrapper.mobile）+ 表格非合并表头（运行时注入 .no-mobile-cards）。

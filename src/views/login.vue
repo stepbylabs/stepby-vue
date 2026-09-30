@@ -1,5 +1,9 @@
 <template>
-  <div class="login flex justify-center items-center h-full bg-cover">
+  <div class="login auth-aurora relative flex justify-center items-center h-full overflow-hidden">
+    <!-- Aurora 科技背景：光斑 + 网格（纯 CSS，reduced-motion 由全局规则接管） -->
+    <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+    <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+    <div class="aurora-grid" aria-hidden="true"></div>
     <el-form
       ref="loginRef"
       :model="loginForm"
@@ -447,13 +451,11 @@ loadOauthProviders()
 </script>
 
 <style lang="scss" scoped>
-.login {
-  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%）；index.html 对其 preload + fetchpriority=high */
-  background-image: url('/bg-login.webp');
-}
-
 .login-form {
-  background: var(--el-bg-color-overlay);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 24px 64px rgba(2, 6, 23, 0.35);
   transition:
     box-shadow 0.3s ease,
     transform 0.3s ease;
@@ -502,10 +504,9 @@ loadOauthProviders()
 }
 
 html.dark .login {
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url('/bg-login.webp');
   .login-form {
-    background: var(--el-bg-color-overlay) !important;
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.18);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   }
 }

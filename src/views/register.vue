@@ -1,5 +1,9 @@
 <template>
-  <div class="register flex justify-center items-center h-full bg-cover">
+<div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
+  <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
+  <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+  <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+  <div class="aurora-grid" aria-hidden="true"></div>
     <el-form
       ref="registerRef"
       :model="registerForm"
@@ -239,12 +243,12 @@ getCode()
 
 <style lang="scss" scoped>
 .register {
-  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%） */
-  background-image: url('/bg-login.webp');
 }
 
 .register-form {
-  background: var(--el-bg-color-overlay);
+  background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
   .el-input {
     height: 40px;
     input {

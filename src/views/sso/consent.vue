@@ -1,5 +1,9 @@
 <template>
-  <div class="sso-consent flex justify-center items-center h-full bg-cover">
+<div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
+  <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
+  <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+  <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+  <div class="aurora-grid" aria-hidden="true"></div>
     <div class="panel rounded-md w-[440px] max-w-[calc(100vw-20px)] pt-[28px] px-[28px] pb-[28px] z-[1]">
       <template v-if="valid">
         <div class="app-head flex flex-col items-center">
@@ -142,11 +146,11 @@ function toHome(): void {
 
 <style lang="scss" scoped>
 .sso-consent {
-  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%） */
-  background-image: url('/bg-login.webp');
 }
 .panel {
-  background: var(--el-bg-color-overlay);
+  background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .title {
   font-size: 17px;
@@ -194,10 +198,9 @@ function toHome(): void {
   }
 }
 html.dark .sso-consent {
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url('/bg-login.webp');
+  
   .panel {
-    background: var(--el-bg-color-overlay) !important;
+    background: rgba(15, 23, 42, 0.72);
   }
 }
 </style>

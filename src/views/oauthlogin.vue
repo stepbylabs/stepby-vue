@@ -1,5 +1,9 @@
 <template>
-  <div class="oauth-login flex justify-center items-center h-full bg-cover">
+<div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
+  <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
+  <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+  <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+  <div class="aurora-grid" aria-hidden="true"></div>
     <div class="panel rounded-md w-[400px] max-w-[calc(100vw-20px)] pt-[25px] px-[25px] pb-[25px] z-[1] text-center">
       <el-icon v-if="!showLoginLink" class="is-loading spin-icon"><Loading /></el-icon>
       <h3 class="title mt20 text-text-regular">{{ t('login.oauthTitle') }}</h3>
@@ -105,11 +109,11 @@ onMounted(land)
 
 <style lang="scss" scoped>
 .oauth-login {
-  /* public/bg-login.webp：75KB（原 JPG 509KB，省 85%） */
-  background-image: url('/bg-login.webp');
 }
 .panel {
-  background: var(--el-bg-color-overlay);
+  background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .spin-icon {
   font-size: 42px;
@@ -122,10 +126,9 @@ onMounted(land)
   font-family: Arial;
 }
 html.dark .oauth-login {
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url('/bg-login.webp');
+  
   .panel {
-    background: var(--el-bg-color-overlay) !important;
+    background: rgba(15, 23, 42, 0.72);
   }
 }
 </style>
