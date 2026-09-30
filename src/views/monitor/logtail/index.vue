@@ -8,7 +8,7 @@
           <el-select
             v-model="currentFile"
             :placeholder="t('logTail.selectFile')"
-            style="width: 260px"
+            class="w-[260px]"
             clearable
             filterable
             @change="onFileChange"
@@ -24,7 +24,7 @@
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.level') }}</span>
-          <el-select v-model="level" style="width: 130px" @change="loadTail">
+          <el-select v-model="level" class="w-[130px]" @change="loadTail">
             <el-option :label="t('logTail.levels.all')" value="" />
             <el-option :label="t('logTail.levels.error')" value="ERROR" />
             <el-option :label="t('logTail.levels.warn')" value="WARN" />
@@ -38,7 +38,7 @@
           <el-input
             v-model="keyword"
             :placeholder="t('logTail.keyword')"
-            style="width: 180px"
+            class="w-[180px]"
             clearable
             @keyup.enter="loadTail"
             @clear="loadTail"
@@ -47,7 +47,7 @@
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.lineCount') }}</span>
-          <el-select v-model="lines" style="width: 90px" @change="loadTail">
+          <el-select v-model="lines" class="w-[90px]" @change="loadTail">
             <el-option label="500" value="500" />
             <el-option label="1000" value="1000" />
             <el-option label="2000" value="2000" />

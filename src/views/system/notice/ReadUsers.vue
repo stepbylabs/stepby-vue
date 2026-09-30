@@ -25,7 +25,7 @@
         <el-button type="primary" icon="Search" size="small" @click="handleQuery">{{ t('common.search') }}</el-button>
         <el-button icon="Refresh" size="small" @click="resetQuery">{{ t('common.reset') }}</el-button>
       </el-form-item>
-      <el-form-item class="float-right mr-0">
+      <el-form-item class="ml-auto">
         <span class="read-stat">
           {{ t('notice.readUsers.totalReaders', { count: total }) }}
         </span>

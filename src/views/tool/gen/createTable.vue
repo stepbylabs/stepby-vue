@@ -43,7 +43,7 @@
       </el-row>
 
       <el-divider content-position="left">
-        <span style="font-weight: 600">{{ t('gen.createTable.fieldDef') }}</span>
+        <span class="font-semibold">{{ t('gen.createTable.fieldDef') }}</span>
         <el-button type="primary" link icon="Plus" class="ml-[12px]" @click="handleAddColumn">
           {{ t('gen.createTable.addField') }}
         </el-button>

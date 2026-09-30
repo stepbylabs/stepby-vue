@@ -3,7 +3,7 @@
     <!-- 自定义标题 -->
     <template #header>
       <div class="flex items-center">
-        <el-icon class="mr-2" style="color: var(--el-color-primary)"><List /></el-icon>
+        <el-icon class="mr-2 text-[var(--el-color-primary)]"><List /></el-icon>
         <span class="drawer-head-name text-base font-semibold mr-2">{{ row?.dictName }}</span>
         <span class="drawer-head-type text-sm font-mono">{{ row?.dictType }}</span>
       </div>

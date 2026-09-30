@@ -2,8 +2,7 @@
   <div
     id="tags-view-container"
     class="tags-view-container"
-    :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }"
-  >
+    :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }">
     <!-- 左切换箭头 -->
     <span
       class="tags-nav-btn tags-nav-btn--left"
@@ -12,8 +11,7 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollLeft')"
       @click="scrollLeft"
-      @keydown.enter.prevent="scrollLeft"
-    >
+      @keydown.enter.prevent="scrollLef" >
       <el-icon><arrow-left /></el-icon>
     </span>
 
@@ -41,8 +39,7 @@
           @dragover.prevent="onDragOver($event, idx)"
           @dragleave="onDragLeave(idx)"
           @drop.prevent="onDrop(idx)"
-          @dragend="onDragEnd"
-        >
+          @dragend="onDragEn" >
           <svg-icon
             v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'"
             :icon-class="tag.meta.icon"
@@ -57,8 +54,7 @@
             class="tags-close-btn inline-flex items-center justify-center w-5 h-5 ml-1 rounded-full cursor-pointer p-0.5 box-border"
             role="button"
             tabindex="0"
-            :aria-label="safeT('layout.tagsView.closeTag', { title: translateTitle(tag.meta) })"
-          >
+            :aria-label="safeT('layout.tagsView.closeTag', { title: translateTitle(tag.meta) })" >
             <close class="el-icon-close" />
           </span>
         </router-link>
@@ -73,8 +69,7 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollRight')"
       @click="scrollRight"
-      @keydown.enter.prevent="scrollRight"
-    >
+      @keydown.enter.prevent="scrollRigh" >
       <el-icon><arrow-right /></el-icon>
     </span>
 
@@ -83,40 +78,39 @@
       class="tags-action-dropdown shrink-0 flex items-center"
       trigger="click"
       placement="bottom-end"
-      @command="handleDropdownCommand"
-    >
+      @command="handleDropdownComman" >
       <span class="tags-action-btn">
         <el-icon><arrow-down /></el-icon>
       </span>
       <template #dropdown>
         <el-dropdown-menu class="tags-dropdown-menu">
           <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close">
-            <close style="width: 1em; height: 1em" />
+            <close />
             {{ safeT('layout.tagsView.closeCurrent') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeOthers">
-            <circle-close style="width: 1em; height: 1em" />
+            <circle-close />
             {{ safeT('layout.tagsView.closeOthers') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeLeft" :disabled="isFirstView()">
-            <back style="width: 1em; height: 1em" />
+            <back />
             {{ safeT('layout.tagsView.closeLeft') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeRight" :disabled="isLastView()">
-            <right style="width: 1em; height: 1em" />
+            <right />
             {{ safeT('layout.tagsView.closeRight') }}
           </el-dropdown-item>
           <el-dropdown-item command="closeAll">
-            <circle-close style="width: 1em; height: 1em" />
+            <circle-close />
             {{ safeT('layout.tagsView.closeAll') }}
           </el-dropdown-item>
           <el-dropdown-item command="fullscreen" divided>
             <template v-if="!isFullscreen">
-              <full-screen style="width: 1em; height: 1em" />
+              <full-screen />
               {{ safeT('layout.tagsView.fullscreen') }}
             </template>
             <template v-else>
-              <close style="width: 1em; height: 1em" />
+              <close />
               {{ safeT('layout.tagsView.exitFullscreen') }}
             </template>
           </el-dropdown-item>
@@ -131,8 +125,7 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.refreshCurrent')"
       @click="refreshSelectedTag(selectedDropdownTag)"
-      @keydown.enter.prevent="refreshSelectedTag(selectedDropdownTag)"
-    >
+      @keydown.enter.prevent="refreshSelectedTag(selectedDropdownTag)" >
       <el-icon><refresh-right /></el-icon>
       {{ safeT('common.refresh') }}
     </span>

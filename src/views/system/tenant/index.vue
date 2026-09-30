@@ -8,7 +8,7 @@
               v-model.trim="queryForm.tenantName"
               :placeholder="t('common.inputText')"
               clearable
-              style="width: 180px"
+              class="w-[180px]"
               @keyup.enter="handleQuery"
             />
           </el-form-item>
@@ -17,7 +17,7 @@
               v-model.trim="queryForm.tenantCode"
               :placeholder="t('tenant.codePlaceholder')"
               clearable
-              style="width: 160px"
+              class="w-[160px]"
               @keyup.enter="handleQuery"
             />
           </el-form-item>

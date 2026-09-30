@@ -15,7 +15,7 @@
               <el-col :span="24" class="card-box">
                 <el-card>
                   <template #header>
-                    <Monitor style="width: 1em; height: 1em; vertical-align: middle" />
+                    <Monitor class="align-middle" />
                     <span class="align-middle">{{ t('cache.info.basicInfo') }}</span>
                   </template>
                   <el-descriptions :column="4" border size="small">
@@ -58,7 +58,7 @@
               <el-col :xs="24" :sm="24" :md="12" class="card-box">
                 <el-card>
                   <template #header>
-                    <PieChart style="width: 1em; height: 1em; vertical-align: middle" />
+                    <PieChart class="align-middle" />
                     <span class="align-middle">{{ t('cache.info.commandStats') }}</span>
                   </template>
                   <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -77,7 +77,7 @@
               <el-col :xs="24" :sm="24" :md="12" class="card-box">
                 <el-card>
                   <template #header>
-                    <Odometer style="width: 1em; height: 1em; vertical-align: middle" />
+                    <Odometer class="align-middle" />
                     <span class="align-middle">{{ t('cache.info.memoryInfo') }}</span>
                   </template>
                   <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -95,17 +95,16 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card class="h-[calc(100vh-180px)]">
               <template #header>
-                <Collection style="width: 1em; height: 1em; vertical-align: middle" />
+                <Collection class="align-middle" />
                 <span class="align-middle">{{ t('cache.list.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"
-                  class="float-right py-[3px]"
+                  class="ml-auto py-[3px]"
                   link
                   type="primary"
                   icon="Refresh"
                   :aria-label="t('common.refresh')"
-                  @click="refreshCacheNames()"
-                ></el-button>
+                  @click="refreshCacheNames()" ></el-button>
               </template>
               <el-table
                 v-loading="listLoading"
@@ -113,16 +112,14 @@
                 :height="listTableHeight"
                 highlight-current-row
                 @row-click="getCacheKeys"
-                class="w-full"
-              >
+                class="w-ful" >
                 <el-table-column :label="t('cache.list.column.id')" width="60" type="index"></el-table-column>
                 <el-table-column
                   :label="t('cache.list.column.name')"
                   align="center"
                   prop="cacheName"
                   show-overflow-tooltip
-                  :formatter="nameFormatter"
-                ></el-table-column>
+                  :formatter="nameFormatte" ></el-table-column>
                 <el-table-column
                   :label="t('cache.list.column.remark')"
                   align="center"
@@ -133,8 +130,7 @@
                   :label="t('cache.list.column.operation')"
                   width="60"
                   align="center"
-                  class-name="small-padding fixed-width"
-                >
+                  class-name="small-padding fixed-widt" >
                   <template #default="scope">
                     <el-button
                       v-hasPermi="['monitor:cache:clearName']"
@@ -142,8 +138,7 @@
                       type="primary"
                       icon="Delete"
                       :aria-label="t('common.delete')"
-                      @click.stop="handleClearCacheName(scope.row)"
-                    ></el-button>
+                      @click.stop="handleClearCacheName(scope.row)" ></el-button>
                   </template>
                 </el-table-column>
                 <template #empty>
@@ -156,19 +151,18 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card class="h-[calc(100vh-180px)]">
               <template #header>
-                <Key style="width: 1em; height: 1em; vertical-align: middle" />
+                <Key class="align-middle" />
                 <span class="align-middle">{{ t('cache.list.keyListTitle') }}</span>
                 <Transition name="fade">
                   <el-button
                     v-if="nowCacheName"
                     v-hasPermi="['monitor:cache:list']"
-                    class="float-right py-[3px]"
+                    class="ml-auto py-[3px]"
                     link
                     type="primary"
                     icon="Refresh"
                     :aria-label="t('common.refresh')"
-                    @click="refreshCacheKeys()"
-                  ></el-button>
+                    @click="refreshCacheKeys()" ></el-button>
                 </Transition>
               </template>
               <el-table
@@ -177,21 +171,18 @@
                 :height="listTableHeight"
                 highlight-current-row
                 @row-click="handleCacheValue"
-                class="w-full"
-              >
+                class="w-ful" >
                 <el-table-column :label="t('cache.list.keyColumn.id')" width="60" type="index"></el-table-column>
                 <el-table-column
                   :label="t('cache.list.keyColumn.key')"
                   align="center"
                   show-overflow-tooltip
-                  :formatter="keyFormatter"
-                ></el-table-column>
+                  :formatter="keyFormatte" ></el-table-column>
                 <el-table-column
                   :label="t('cache.list.keyColumn.operation')"
                   width="60"
                   align="center"
-                  class-name="small-padding fixed-width"
-                >
+                  class-name="small-padding fixed-widt" >
                   <template #default="scope">
                     <el-button
                       v-hasPermi="['monitor:cache:clearKey']"
@@ -199,8 +190,7 @@
                       type="primary"
                       icon="Delete"
                       :aria-label="t('common.delete')"
-                      @click.stop="handleClearCacheKey(scope.row)"
-                    ></el-button>
+                      @click.stop="handleClearCacheKey(scope.row)" ></el-button>
                   </template>
                 </el-table-column>
                 <template #empty>
@@ -213,7 +203,7 @@
           <el-col :xs="24" :sm="24" :md="8">
             <el-card :bordered="false" class="h-[calc(100vh-180px)]">
               <template #header>
-                <Document style="width: 1em; height: 1em; vertical-align: middle" />
+                <Document class="align-middle" />
                 <span class="align-middle">{{ t('cache.list.contentTitle') }}</span>
               </template>
               <Transition mode="out-in" name="fade">
@@ -255,17 +245,16 @@
           <el-col :xs="24" :sm="24" :md="12" class="card-box">
             <el-card>
               <template #header>
-                <Histogram style="width: 1em; height: 1em; vertical-align: middle" />
+                <Histogram class="align-middle" />
                 <span class="align-middle">{{ t('cache.prefix.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"
-                  class="float-right py-[3px]"
+                  class="ml-auto py-[3px]"
                   link
                   type="primary"
                   icon="Refresh"
                   :aria-label="t('cache.prefix.refresh')"
-                  @click="loadStats()"
-                ></el-button>
+                  @click="loadStats()" ></el-button>
               </template>
               <el-table v-loading="prefixLoading" :data="prefixStats" :height="statsTableHeight" class="w-full">
                 <el-table-column
@@ -298,17 +287,16 @@
           <el-col :xs="24" :sm="24" :md="12" class="card-box">
             <el-card>
               <template #header>
-                <Warning style="width: 1em; height: 1em; vertical-align: middle" />
+                <Warning class="align-middle" />
                 <span class="align-middle">{{ t('cache.hot.title') }}</span>
                 <el-button
                   v-hasPermi="['monitor:cache:list']"
-                  class="float-right py-[3px]"
+                  class="ml-auto py-[3px]"
                   link
                   type="primary"
                   icon="Refresh"
                   :aria-label="t('cache.hot.refresh')"
-                  @click="loadStats()"
-                ></el-button>
+                  @click="loadStats()" ></el-button>
               </template>
               <el-table v-loading="hotLoading" :data="hotKeys" :height="statsTableHeight" class="w-full">
                 <el-table-column :label="t('cache.hot.column.key')" align="center" prop="key" show-overflow-tooltip />
@@ -328,8 +316,7 @@
                   :label="t('cache.list.column.operation')"
                   width="60"
                   align="center"
-                  class-name="small-padding fixed-width"
-                >
+                  class-name="small-padding fixed-widt" >
                   <template #default="scope">
                     <el-button
                       v-hasPermi="['monitor:cache:clearKey']"
@@ -337,8 +324,7 @@
                       type="primary"
                       icon="Delete"
                       :aria-label="t('common.delete')"
-                      @click="handleClearHotKey(scope.row)"
-                    ></el-button>
+                      @click="handleClearHotKey(scope.row)" ></el-button>
                   </template>
                 </el-table-column>
                 <template #empty>

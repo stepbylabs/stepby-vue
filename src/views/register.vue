@@ -106,7 +106,7 @@
             <span v-else key="loading">{{ t('common.registering') }}</span>
           </Transition>
         </el-button>
-        <div class="float-right">
+        <div class="ml-auto">
           <router-link class="link-type" :to="'/login'">{{ t('login.signIn') }}</router-link>
         </div>
       </el-form-item>

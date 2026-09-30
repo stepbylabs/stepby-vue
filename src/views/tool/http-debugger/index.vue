@@ -14,7 +14,7 @@
       <!-- 请求面板 -->
       <div class="request-panel">
         <div class="flex items-center gap-2 mb-4">
-          <el-select v-model="form.method" class="method-select" style="width: 130px">
+          <el-select v-model="form.method" class="method-select w-[130px]">
             <el-option v-for="m in ALLOWED_METHODS" :key="m" :value="m" :label="m" />
           </el-select>
           <el-input v-model="form.url" :placeholder="t('httpDebug.urlPlaceholder')" clearable />

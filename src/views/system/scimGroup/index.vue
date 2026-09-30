@@ -8,7 +8,7 @@
               v-model.trim="queryForm.displayName"
               :placeholder="t('common.inputText')"
               clearable
-              style="width: 200px"
+              class="w-[200px]"
               @keyup.enter="handleQuery"
             />
           </el-form-item>
@@ -17,7 +17,7 @@
               v-model="queryForm.mappingType"
               :placeholder="t('common.all')"
               clearable
-              style="width: 160px"
+              class="w-[160px]"
             >
               <el-option label="role" value="role" />
               <el-option label="dept" value="dept" />

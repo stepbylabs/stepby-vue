@@ -86,9 +86,9 @@
         <div class="detail-item">
           <span class="detail-value break-all mono">{{ form.pageUrl || '-' }}</span>
         </div>
-        <div class="detail-item" style="margin-top: 8px">
+        <div class="detail-item mt-2">
           <span class="detail-label">{{ t('frontendError.detail.userAgent') }}</span>
-          <span class="detail-value break-all" style="font-size: 12px">{{ form.userAgent || '-' }}</span>
+          <span class="detail-value break-all text-xs">{{ form.userAgent || '-' }}</span>
         </div>
       </div>
 

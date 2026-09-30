@@ -122,10 +122,12 @@
                       :label="dict.dictName"
                       :value="dict.dictType"
                     >
-                      <span class="float-left">{{ dict.dictName }}</span>
-                      <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">
-                        {{ dict.dictType }}
-                      </span>
+                      <div class="flex w-full items-center justify-between gap-3">
+                        <span>{{ dict.dictName }}</span>
+                        <span class="shrink-0 text-[13px] text-[var(--el-text-color-secondary)]">
+                          {{ dict.dictType }}
+                        </span>
+                      </div>
                     </el-option>
                   </el-select>
                 </template>

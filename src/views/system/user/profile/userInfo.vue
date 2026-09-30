@@ -4,9 +4,9 @@
       <el-input v-model.trim="form.nickName" maxlength="30" />
     </el-form-item>
     <el-form-item :label="t('profile.label.phone')" prop="phonenumber">
-      <el-input v-model.trim="form.phonenumber" maxlength="20" style="width: 70%">
+      <el-input v-model.trim="form.phonenumber" maxlength="20" class="w-[70%]">
         <template #prepend>
-          <el-select v-model="form.countryCode" placeholder="区号" style="width: 120px">
+          <el-select v-model="form.countryCode" placeholder="区号" class="w-[120px]">
             <el-option v-for="opt in regionOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </template>

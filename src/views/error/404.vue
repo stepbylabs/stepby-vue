@@ -1,13 +1,13 @@
 <template>
   <div class="wscn-http404-container absolute top-[40%] left-1/2 w-full max-w-[1200px] px-5 box-border">
-    <div class="wscn-http404 relative w-full max-w-[1200px] px-[50px] box-border overflow-hidden">
-      <div class="pic-404 relative float-left w-[600px] max-w-[60%] overflow-hidden">
+    <div class="wscn-http404 relative flex w-full max-w-[1200px] items-center px-[50px] box-border overflow-hidden">
+      <div class="pic-404 relative w-[600px] max-w-[60%] shrink-0 overflow-hidden">
         <img class="w-full" src="@/assets/404_images/404.webp" alt="404" loading="lazy" />
         <img class="pic-404__child left" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
         <img class="pic-404__child mid" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
         <img class="pic-404__child right" src="@/assets/404_images/404_cloud.webp" alt="404" loading="lazy" />
       </div>
-      <div class="bullshit relative float-left w-[300px] py-[30px] overflow-hidden">
+      <div class="bullshit relative w-[300px] py-[30px] pl-10 overflow-hidden">
         <div class="bullshit__oops text-[32px] font-bold leading-10 text-primary opacity-0 mb-5">
           {{ t('error.e404.title') }}
         </div>
@@ -19,11 +19,11 @@
         </div>
         <router-link
           to="/index"
-          class="bullshit__return-home block float-left w-[110px] h-9 rounded-full text-center text-white opacity-0 text-sm leading-9 cursor-pointer"
+          class="bullshit__return-home inline-block w-[110px] h-9 rounded-full text-center text-white opacity-0 text-sm leading-9 cursor-pointer"
         >
           {{ t('error.e404.backHome') }}
         </router-link>
-        <div class="bullshit__countdown text-[13px] leading-[21px] text-text-secondary opacity-0 mt-3 clear-left">
+        <div class="bullshit__countdown text-[13px] leading-[21px] text-text-secondary opacity-0 mt-3">
           {{ t('error.e404.autoBack', { seconds: countdown }) }}
         </div>
       </div>

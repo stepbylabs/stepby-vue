@@ -6,8 +6,7 @@
         effect="dark"
         :content="showSearch ? t('rightToolbar.hideSearch') : t('rightToolbar.showSearch')"
         placement="top"
-        v-if="search"
-      >
+        v-if="searc" >
         <el-button
           circle
           icon="Search"
@@ -27,8 +26,7 @@
         effect="dark"
         :content="t('rightToolbar.columns')"
         placement="top"
-        v-if="Object.keys(columns).length > 0"
-      >
+        v-if="Object.keys(columns).length > 0" >
         <el-button
           circle
           icon="Menu"
@@ -39,9 +37,8 @@
         <el-dropdown
           trigger="click"
           :hide-on-click="false"
-          style="padding-left: 12px"
-          v-if="showColumnsType === 'checkbox'"
-        >
+          class="pl-3"
+          v-if="showColumnsType === 'checkbox'" >
           <el-button circle icon="Menu" :aria-label="t('rightToolbar.columns')" />
           <template #dropdown>
             <el-dropdown-menu>
@@ -67,8 +64,7 @@
         :titles="[t('rightToolbar.show'), t('rightToolbar.hide')]"
         v-model="value"
         :data="transferData"
-        @change="dataChange"
-      ></el-transfer>
+        @change="dataChang" ></el-transfer>
     </el-dialog>
   </div>
 </template>

@@ -17,8 +17,7 @@
       :headers="headers"
       :file-list="fileList"
       :on-preview="handlePictureCardPreview"
-      :class="{ hide: fileList.length >= limit }"
-    >
+      :class="{ hide: fileList.length >= limit }">
       <el-icon class="avatar-uploader-icon"><plus /></el-icon>
     </el-upload>
     <!-- 上传提示 -->
@@ -26,11 +25,11 @@
       {{ t('fileUpload.uploadTip') }}
       <template v-if="fileSize">
         {{ t('fileUpload.maxSize') }}
-        <b style="color: var(--el-color-danger)">{{ fileSize }}MB</b>
+        <b class="text-[var(--el-color-danger)]">{{ fileSize }}MB</b>
       </template>
       <template v-if="fileType">
         {{ t('fileUpload.format') }}
-        <b style="color: var(--el-color-danger)">{{ fileType.join('/') }}</b>
+        <b class="text-[var(--el-color-danger)]">{{ fileType.join('/') }}</b>
       </template>
       {{ t('fileUpload.fileSuffix') }}
     </div>

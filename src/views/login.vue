@@ -120,7 +120,7 @@
           </Transition>
         </el-button>
         <Transition name="fade">
-          <div class="float-right" v-if="register">
+          <div class="ml-auto" v-if="register">
             <router-link class="link-type" :to="'/register'">{{ t('login.registerNow') }}</router-link>
           </div>
         </Transition>

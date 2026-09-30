@@ -10,9 +10,9 @@
                 <div class="stat-skeleton__content flex items-center gap-[14px]">
                   <el-skeleton-item variant="circle" class="!w-12 !h-12 shrink-0" />
                   <div class="flex-1 min-w-0 space-y-1">
-                    <el-skeleton-item variant="h3" style="width: 55%" />
-                    <el-skeleton-item variant="text" style="width: 80%" />
-                    <el-skeleton-item variant="text" style="width: 65%" />
+                    <el-skeleton-item variant="h3" class="w-[55%]" />
+                    <el-skeleton-item variant="text" class="w-[80%]" />
+                    <el-skeleton-item variant="text" class="w-[65%]" />
                   </div>
                 </div>
               </template>

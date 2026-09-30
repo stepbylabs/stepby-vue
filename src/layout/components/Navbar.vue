@@ -29,8 +29,7 @@
             :aria-label="safeT('layout.navbar.commandPalette')"
             @click="cmdVisible = true"
             @keydown.enter.prevent="cmdVisible = true"
-            @keydown.space.prevent="cmdVisible = true"
-          >
+            @keydown.space.prevent="cmdVisible = tru" >
             <el-icon><Operation /></el-icon>
           </div>
         </el-tooltip>
@@ -42,8 +41,7 @@
               class="right-menu-item hover-effect fav-trigger"
               role="button"
               tabindex="0"
-              :aria-label="safeT('layout.navbar.favorites')"
-            >
+              :aria-label="safeT('layout.navbar.favorites')" >
               <el-icon><StarFilled /></el-icon>
               <Transition name="fade">
                 <!-- 注：fav.favorites 是 useMenuFavorites 返回的 Ref，模板中作为对象属性访问不会自动解包，故显式 .value -->
@@ -58,7 +56,7 @@
                   <div class="fav-tip">{{ safeT('layout.navbar.favTip') }}</div>
                 </div>
                 <el-dropdown-item v-for="item in fav.favorites.value" :key="item.path" :command="item.path">
-                  <svg-icon v-if="item.icon" :icon-class="item.icon" style="margin-right: 6px" />
+                  <svg-icon v-if="item.icon" :icon-class="item.icon" class="mr-1.5" />
                   {{ translateFavoriteTitle(item) }}
                 </el-dropdown-item>
                 <el-dropdown-item v-if="fav.favorites.value.length > 0" divided command="__clear__">
@@ -77,8 +75,7 @@
               class="right-menu-item hover-effect recent-trigger"
               role="button"
               tabindex="0"
-              :aria-label="safeT('layout.navbar.recent')"
-            >
+              :aria-label="safeT('layout.navbar.recent')" >
               <el-icon><Clock /></el-icon>
             </div>
             <template #dropdown>
@@ -90,10 +87,9 @@
                 <el-dropdown-item
                   v-for="(item, idx) in recent.recentViews.value"
                   :key="item.path"
-                  :command="item.fullPath"
-                >
+                  :command="item.fullPat" >
                   <span class="recent-idx">{{ Number(idx) + 1 }}</span>
-                  <svg-icon v-if="item.icon" :icon-class="item.icon" style="margin-right: 6px" />
+                  <svg-icon v-if="item.icon" :icon-class="item.icon" class="mr-1.5" />
                   {{ translateRecentTitle(item) }}
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -117,8 +113,7 @@
             :aria-label="safeT('layout.navbar.themeMode')"
             @click="toggleTheme"
             @keydown.enter.prevent="toggleTheme"
-            @keydown.space.prevent="toggleTheme"
-          >
+            @keydown.space.prevent="toggleThem" >
             <Transition name="fade" mode="out-in">
               <svg-icon v-if="settingsStore.isDark" key="dark" icon-class="sunny" />
               <svg-icon v-else key="light" icon-class="moon" />
@@ -154,8 +149,7 @@
           class="avatar-wrapper"
           role="button"
           tabindex="0"
-          :aria-label="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })"
-        >
+          :aria-label="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })" >
           <img
             :src="userStore.avatar"
             class="user-avatar"

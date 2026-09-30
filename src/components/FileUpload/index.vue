@@ -14,8 +14,7 @@
       :headers="headers"
       class="upload-file-uploader mb-[5px]"
       ref="fileUpload"
-      v-if="!disabled"
-    >
+      v-if="!disable" >
       <!-- 上传按钮 -->
       <el-button type="primary">{{ t('fileUpload.selectFile') }}</el-button>
     </el-upload>
@@ -24,11 +23,11 @@
       {{ t('fileUpload.uploadTip') }}
       <template v-if="fileSize">
         {{ t('fileUpload.maxSize') }}
-        <b style="color: var(--el-color-danger)">{{ fileSize }}MB</b>
+        <b class="text-[var(--el-color-danger)]">{{ fileSize }}MB</b>
       </template>
       <template v-if="fileType">
         {{ t('fileUpload.format') }}
-        <b style="color: var(--el-color-danger)">{{ fileType.join('/') }}</b>
+        <b class="text-[var(--el-color-danger)]">{{ fileType.join('/') }}</b>
       </template>
       {{ t('fileUpload.fileSuffix') }}
     </div>
@@ -37,8 +36,7 @@
       ref="uploadFileList"
       class="upload-file-list el-upload-list el-upload-list--text"
       name="el-fade-in-linear"
-      tag="ul"
-    >
+      tag="u" >
       <li :key="file.uid" class="el-upload-list__item ele-upload-list__item-content" v-for="(file, index) in fileList">
         <el-link :href="`${baseUrl}${file.url}`" underline="never" target="_blank">
           <span class="el-icon-document">{{ getFileName(file.name) }}</span>
