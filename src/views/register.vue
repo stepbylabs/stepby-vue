@@ -65,34 +65,37 @@
       </el-form-item>
       <Transition name="expand-fade">
         <el-form-item prop="code" v-if="captchaEnabled">
-          <el-input
-            size="large"
-            v-model="registerForm.code"
-            auto-complete="off"
-            :placeholder="t('register.code')"
-            :aria-label="t('register.code')"
-            :maxlength="10"
-            class="w-[63%]"
-            @keyup.enter="handleRegister"
-          >
-            <template #prefix><svg-icon icon-class="validCode" class="el-input__icon input-icon" /></template>
-          </el-input>
-          <div
-            class="w-[33%] h-10 float-right"
-            role="button"
-            tabindex="0"
-            :aria-label="t('register.clickRefreshCaptcha')"
-            @click="getCode"
-            @keydown.enter.prevent="getCode"
-          >
-            <Transition name="fade" mode="out-in">
-              <img
-                v-if="codeUrl"
-                :src="codeUrl"
-                class="h-10 pl-3 cursor-pointer align-middle"
-                :alt="t('register.clickRefreshCaptcha')"
-              />
-            </Transition>
+          <!-- 成熟后台标准布局：验证码输入框与图片同行 flex（与 login.vue 一致） -->
+          <div class="flex w-full items-center gap-2.5">
+            <el-input
+              size="large"
+              v-model="registerForm.code"
+              auto-complete="off"
+              :placeholder="t('register.code')"
+              :aria-label="t('register.code')"
+              :maxlength="10"
+              class="flex-1 min-w-0"
+              @keyup.enter="handleRegister"
+            >
+              <template #prefix><svg-icon icon-class="validCode" class="el-input__icon input-icon" /></template>
+            </el-input>
+            <div
+              class="h-10 w-[110px] shrink-0 flex items-center justify-center overflow-hidden rounded border border-[var(--el-border-color-lighter)] bg-[var(--el-fill-color-light)]"
+              role="button"
+              tabindex="0"
+              :aria-label="t('register.clickRefreshCaptcha')"
+              @click="getCode"
+              @keydown.enter.prevent="getCode"
+            >
+              <Transition name="fade" mode="out-in">
+                <img
+                  v-if="codeUrl"
+                  :src="codeUrl"
+                  class="h-10 w-full cursor-pointer object-cover align-middle"
+                  :alt="t('register.clickRefreshCaptcha')"
+                />
+              </Transition>
+            </div>
           </div>
         </el-form-item>
       </Transition>

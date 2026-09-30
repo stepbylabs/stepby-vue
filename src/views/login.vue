@@ -59,37 +59,40 @@
       </Transition>
       <Transition name="expand-fade">
         <el-form-item prop="code" v-if="captchaEnabled">
-          <el-input
-            v-model="loginForm.code"
-            size="large"
-            name="captcha"
-            autocomplete="one-time-code"
-            :placeholder="t('login.code')"
-            :aria-label="t('login.code')"
-            :maxlength="10"
-            class="w-[63%]"
-            @keyup.enter="handleLogin"
-          >
-            <template #prefix><svg-icon icon-class="validCode" class="el-input__icon input-icon" /></template>
-          </el-input>
-          <div
-            class="w-[33%] h-10 float-right flex items-center justify-center"
-            role="button"
-            tabindex="0"
-            :aria-label="t('login.clickRefreshCaptcha')"
-            @click="getCode"
-            @keydown.enter.prevent="getCode"
-          >
-            <Transition mode="out-in" name="fade">
-              <el-icon v-if="codeLoading" key="loading" class="is-loading text-2xl text-primary"><Loading /></el-icon>
-              <img
-                v-else-if="codeUrl"
-                key="img"
-                :src="codeUrl"
-                class="h-10 pl-3 cursor-pointer align-middle transition-opacity duration-300"
-                :alt="t('login.clickRefreshCaptcha')"
-              />
-            </Transition>
+          <!-- 成熟后台标准布局：验证码输入框与图片同行 flex，图片等高输入框贴右侧（点击刷新） -->
+          <div class="flex w-full items-center gap-2.5">
+            <el-input
+              v-model="loginForm.code"
+              size="large"
+              name="captcha"
+              autocomplete="one-time-code"
+              :placeholder="t('login.code')"
+              :aria-label="t('login.code')"
+              :maxlength="10"
+              class="flex-1 min-w-0"
+              @keyup.enter="handleLogin"
+            >
+              <template #prefix><svg-icon icon-class="validCode" class="el-input__icon input-icon" /></template>
+            </el-input>
+            <div
+              class="h-10 w-[110px] shrink-0 flex items-center justify-center overflow-hidden rounded border border-[var(--el-border-color-lighter)] bg-[var(--el-fill-color-light)]"
+              role="button"
+              tabindex="0"
+              :aria-label="t('login.clickRefreshCaptcha')"
+              @click="getCode"
+              @keydown.enter.prevent="getCode"
+            >
+              <Transition mode="out-in" name="fade">
+                <el-icon v-if="codeLoading" key="loading" class="is-loading text-2xl text-primary"><Loading /></el-icon>
+                <img
+                  v-else-if="codeUrl"
+                  key="img"
+                  :src="codeUrl"
+                  class="h-10 w-full cursor-pointer object-cover align-middle transition-opacity duration-300"
+                  :alt="t('login.clickRefreshCaptcha')"
+                />
+              </Transition>
+            </div>
           </div>
         </el-form-item>
       </Transition>
