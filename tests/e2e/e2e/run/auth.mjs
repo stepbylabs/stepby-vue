@@ -27,17 +27,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  */
 export async function readCaptchaCodeFromRedis(uuid) {
   const pattern = `captcha:${uuid}:*`
+  // redis 密码：本机容器由 compose REDIS_PASSWORD 注入（默认 stepby123）；可经环境变量覆盖。
+  // 缺密码会在受保护实例上 NOAUTH（历史段 3 实测崩溃点）。
+  const pass = process.env.REDIS_PASSWORD || 'stepby123'
+  const auth = ['-a', pass, '--no-auth-warning']
   try {
     await sleep(300) // 键写入兜底等待
     const key = execSync(
-      `docker exec stepby-redis redis-cli --raw --scan --pattern "${pattern}"`,
+      `docker exec stepby-redis redis-cli ${auth.join(' ')} --raw --scan --pattern "${pattern}"`,
       { encoding: 'utf-8', timeout: 10000 }
     )
       .trim()
       .split('\n')[0]
     if (!key) throw new Error('redis 无匹配键（可能已过期或 ip 段异常）')
     const code = execSync(
-      `docker exec stepby-redis redis-cli --raw GET "${key}"`,
+      `docker exec stepby-redis redis-cli ${auth.join(' ')} --raw GET "${key}"`,
       { encoding: 'utf-8', timeout: 10000 }
     ).trim()
     if (!code) throw new Error(`redis 键 ${key} 值为空`)
@@ -45,7 +49,7 @@ export async function readCaptchaCodeFromRedis(uuid) {
   } catch (e) {
     throw new Error(
       `验证码已启用且无法经 stepby-redis 读取真码（${String(e.message).slice(0, 100)}）。` +
-        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，并清除 redis config: 前缀的对应缓存键，或确保 stepby-redis 容器在运行`
+        `处理：将 sys_config 的 sys.account.captchaEnabled 设为 false，并清除 redis config: 前缀的对应缓存键，或确保 stepby-redis 容器在运行（REDIS_PASSWORD 环境变量可覆盖默认密码）`
     )
   }
 }

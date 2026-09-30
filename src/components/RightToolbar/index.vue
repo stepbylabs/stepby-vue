@@ -6,7 +6,8 @@
         effect="dark"
         :content="showSearch ? t('rightToolbar.hideSearch') : t('rightToolbar.showSearch')"
         placement="top"
-        v-if="searc" >
+        v-if="search" >
+        <!-- search 为 prop 名（是否显示检索图标），此前误写为 "searc" 导致按钮永不渲染 -->
         <el-button
           circle
           icon="Search"

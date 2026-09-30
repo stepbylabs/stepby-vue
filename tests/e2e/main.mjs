@@ -69,7 +69,8 @@ import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import {
   capturePageCaptcha,
   fillCaptchaOnPage,
-  fetchCaptchaForApi
+  fetchCaptchaForApi,
+  readCaptchaCodeFromRedis
 } from './e2e/run/auth.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
@@ -99,7 +100,8 @@ const CONFIG = {
   // 普通角色账户（common 角色，用于多角色和权限隔离测试）
   // P2 修复: 支持环境变量覆盖，避免硬编码 'ry' 用户名和假设与主账号同密码
   secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'ry',
-  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || TEST_PASS,
+  // ry 密码独立于 admin（新建用户接口拒绝弱口令 admin123——密码黑名单），预建强密码
+  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || 'Ry@Test12345',
   screenshotDir: path.resolve('screenshots'),
   slowMo: 100,
   // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
@@ -445,7 +447,15 @@ async function testFeature3(page) {
   if (hasCreateBtn) {
     // 点击创建备份
     await createBtn.click().catch(() => {})
-    await sleep(3000)
+    await sleep(1000)
+    // 处理 ElMessageBox.confirm 确认弹窗（前端 backup/index.vue:262 confirmCreate）——
+    // 不点确认则请求根本不会发出（此前表格 0 行的根因）
+    const confirmBtn = page.locator('.el-message-box__btns button.el-button--primary').first()
+    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await confirmBtn.click().catch(() => {})
+      log('  已确认创建备份弹窗')
+    }
+    await sleep(2000)
     await screenshot(page, 'feat3_backup_creating')
 
     // 等待备份完成（最多 30 秒）
@@ -1345,10 +1355,60 @@ async function testFeature12(page) {
 
 // ==================== 功能 13：多角色登录（ry 普通角色） ====================
 
+/**
+ * ry 测试用户前置自建（自愈，R-TEST-13）：
+ * ry 可能因库重建 / SEED_DEMO 未开启 / e2e 自清理而缺失（缺失时功能 13-19 全链 401 连锁失败）。
+ * admin API 查询 sys_user，不存在则以 common 角色（role_id=2）创建；
+ * 建号接口有密码黑名单（拒绝 admin123），故固定强密码 `Ry@Test12345`。
+ * 幂等：已存在则跳过；任何失败仅 log 不抛出（让后续用例以自然结果呈现）。
+ */
+async function ensureSecondaryUser() {
+  const base = CONFIG.backendUrl
+  try {
+    const loginRes = await fetch(`${base}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: CONFIG.username, password: CONFIG.password })
+    })
+    const loginJson = await loginRes.json()
+    if (loginJson.code !== 200 || !loginJson.token) {
+      log(`  ⚠ ensureSecondaryUser: admin 登录失败（code=${loginJson.code}），跳过自建`)
+      return
+    }
+    const auth = { Authorization: `Bearer ${loginJson.token}` }
+    const listRes = await fetch(`${base}/system/user/list?pageNum=1&pageSize=20&userName=${CONFIG.secondaryUsername}`, { headers: auth })
+    const listJson = await listRes.json()
+    const exists = (listJson.rows || []).some(u => u.userName === CONFIG.secondaryUsername)
+    if (exists) {
+      log(`  ✅ ry 测试用户已存在（自建检查通过）`)
+      return
+    }
+    const createRes = await fetch(`${base}/system/user`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userName: CONFIG.secondaryUsername,
+        nickName: '测试普通角色',
+        password: CONFIG.secondaryPassword,
+        deptId: 103,
+        status: '0',
+        roleIds: [2],
+        postIds: []
+      })
+    })
+    const createJson = await createRes.json()
+    log(`  ${createJson.code === 200 ? '✅ 已自建' : '⚠ 自建失败'} ry 用户: code=${createJson.code} msg=${createJson.msg}`)
+  } catch (e) {
+    log(`  ⚠ ensureSecondaryUser 异常（不影响后续用例的独立判定）: ${e.message}`)
+  }
+}
+
 async function testFeature13(page) {
   log('=== 功能 13：多角色登录（ry 普通角色）===')
 
-  // 步骤 1：先注销 admin 登录
+  // 步骤 0：前置自建（自愈）——ry 测试用户可能因库重建/SEED_DEMO 未开启而缺失：
+  // admin API 查询 sys_user，不存在则创建（common 角色 role_id=2 + 强密码，建号接口拒绝弱口令）
+  await ensureSecondaryUser()
   await logout(page)
 
   // 步骤 2：使用 ry 账户登录
@@ -8833,11 +8893,17 @@ async function testFeature42(page) {
 
   // ---------- 9. 运行时验证：API 直接调用验证聚合字段完整性 ----------
   try {
-    // 登录获取 token
+    // 登录获取 token（后端已开启验证码：API 自取 uuid 并经 redis 读真码，与页面同源逻辑一致）
+    const { code: captchaCode, uuid: captchaUuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
     const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: CONFIG.username, password: CONFIG.password, code: '', uuid: '' })
+      body: JSON.stringify({
+        username: CONFIG.username,
+        password: CONFIG.password,
+        code: captchaCode,
+        uuid: captchaUuid
+      })
     })
     const loginJson = await loginResp.json()
     const token = loginJson.token
@@ -10560,8 +10626,11 @@ async function testFeature51(page) {
   // 未登录直达带多个查询参数的受保护路由：守卫 302 到 /login 时 redirect 必须**整体编码**，
   // 否则 `&deptId=…` 会漏成 /login 自身的顶层 query，登录后目标只剩第一个参数。
   // 断言链：redirect 解码后完整含三参 → 真实登录 → 落回原路由且三个查询参数全部保留。
+  // 注意：三个参数均为 /system/user 页面 queryParams 真实支持的查询键——页面 UX-6 的
+  // syncUrlQuery() 会按设计把 URL 收敛为查询条件集合（丢弃未知键，如虚构的 tab 参数），
+  // 因此深链必须用真实查询键才能验证"多参保留"本身，而非与 UX-6 设计冲突。
   try {
-    const deepLink = '/system/user?pageNum=2&deptId=3&tab=staff'
+    const deepLink = '/system/user?pageNum=2&deptId=3&status=0'
     const BROWSER4 = page.context().browser()
     const ctx4 = await BROWSER4.newContext() // 无登录态、无 SW 控制
     // Tour 弹出会把回跳路由重置为列表默认查询（丢失多参，回归实证）——预置完成标记
@@ -10599,7 +10668,7 @@ async function testFeature51(page) {
     await p4.waitForURL((u) => u.toString().includes('/system/user'), { timeout: 20000 }).catch(() => {})
     await p4.waitForTimeout(1000)
     const finalUrl = p4.url()
-    const paramsKept = finalUrl.includes('pageNum=2') && finalUrl.includes('deptId=3') && finalUrl.includes('tab=staff')
+    const paramsKept = finalUrl.includes('pageNum=2') && finalUrl.includes('deptId=3') && finalUrl.includes('status=0')
     console.log(`  [diag-5d] finalUrl=${finalUrl}`)
     await ctx4.close()
     record(
@@ -10865,10 +10934,12 @@ async function testFeature51(page) {
     // 备用会话：API 登录一枚新 JWT（end_session 用例会拉黑当前登录态，清理用它）
     // 注意：/login 响应 token 在顶层（与 apiLogin 解析一致）；旧代码误读 lg.data.token
     // 恒为空 → 清理段退回被拉黑的旧 auth → 401。
+    // 验证码开启时必须取真码登录，否则备用会话自身 400，清理必然 401。
+    const { code: freshCaptcha, uuid: freshUuid } = await fetchCaptchaForApi(B)
     const lg = await fetch(`${B}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: 'admin123' })
+      body: JSON.stringify({ username: 'admin', password: 'admin123', code: freshCaptcha, uuid: freshUuid })
     }).then((r) => r.json())
     const freshToken = lg?.token || lg?.data?.token
     if (freshToken) freshAuth = { Authorization: `Bearer ${freshToken}` }
@@ -10952,7 +11023,8 @@ async function testFeature51(page) {
       const chk = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
         headers: freshAuth || auth
       }).then((r) => r.json())
-      gone = chk?.code !== 200 && chk?.code !== 0 && !chk?.data?.clientId
+      // 401 不算"已消失"：认证失败无法证明客户端已删除，必须拿到明确业务非存在响应
+      gone = chk?.code !== 401 && chk?.code !== 200 && chk?.code !== 0 && !chk?.data?.clientId
     } catch {
       gone = true
     }
@@ -11421,13 +11493,31 @@ async function testFeature55(page) {
     .filter({ has: page.locator('input[placeholder="密码"]') })
     .first()
   const pwdInput = pwdItem.locator('input')
-  const captchaVisible = await form
-    .locator('input[placeholder="验证码"]')
-    .first()
-    .isVisible({ timeout: 500 })
-    .catch(() => false)
+  const captchaInput = form.locator('input[placeholder="验证码"]').first()
+  const captchaVisible = await captchaInput.isVisible({ timeout: 500 }).catch(() => false)
   // 必填错误条数随环境开关（captchaEnabled）变化，按可见字段数精确断言，不做猜测性放宽
   const requiredErrs = captchaVisible ? 3 : 2
+
+  /**
+   * 点击验证码图片刷新，并经 redis 读取页面同源真码填入输入框。
+   * 后端 captchaEnabled=true 时所有 POST /login 用例都必须带真码，
+   * 否则提交被前端必填校验拦截（不发请求）或被后端以"验证码已过期"拒绝。
+   * @returns {Promise<boolean>} 是否成功取到真码并填入
+   */
+  const refreshCaptchaFill = async () => {
+    if (!captchaVisible) return true
+    const capResp = page
+      .waitForResponse((r) => r.url().includes('/captchaImage') && r.status() === 200, { timeout: 10000 })
+      .catch(() => null)
+    await form.locator('img[src^="data:image"]').first().click().catch(() => {})
+    const resp = await capResp
+    if (!resp) return false
+    const data = await resp.json().catch(() => null)
+    if (!data?.captchaEnabled || !data?.uuid) return false
+    const code = await readCaptchaCodeFromRedis(data.uuid)
+    await captchaInput.fill(code)
+    return true
+  }
 
   // (1) 空提交：用户名+密码（+验证码若启用）全部报必填
   await userInput.fill('')
@@ -11442,15 +11532,22 @@ async function testFeature55(page) {
     `is-error=${emptyErrs}, expected=${requiredErrs}, captcha=${captchaVisible}`
   )
 
-  // (2) 正确填写两字段提交：必填错误全部清除（登录规则仅 required/trigger:blur，
-  //     长度强度门槛属后端职责——(4) 用错误凭据验证后端拒绝路径）
+  // (2) 正确填写全部字段（验证码启用时填页面同源真码）提交：必填错误全部清除
+  //     密码用非常用凭据——后端会拒绝登录，但前端表单校验应全部通过（不停留 is-error）
   await userInput.fill(CONFIG.username)
   await pwdInput.fill('SomePwd@123')
+  const captchaFilled = await refreshCaptchaFill()
   await submit.click()
   await sleep(600)
   const shortErrs = await isErrCount()
   const userOk = (await userItem.locator('.el-form-item__error').count()) === 0
-  record(55, '正确填写提交后校验错误全部清除', shortErrs === 0 && userOk, `is-error=${shortErrs}, userOk=${userOk}`)
+  const pwdOk = (await pwdItem.locator('.el-form-item__error').count()) === 0
+  record(
+    55,
+    '正确填写提交后校验错误全部清除',
+    (!captchaVisible || captchaFilled) && shortErrs === 0 && userOk && pwdOk,
+    `is-error=${shortErrs}, userOk=${userOk}, pwdOk=${pwdOk}, captchaFilled=${captchaFilled}`
+  )
 
   // (3) 密码显隐切换：自定义 suffix el-icon（View/Hide）翻转 input type，再点翻回
   const toggle = pwdItem.locator('.el-input__suffix .el-icon').first()
@@ -11471,12 +11568,15 @@ async function testFeature55(page) {
   }
 
   // (4) 错误凭据：≥1错误/警告Toast、0成功、停留在 /login（不产生半登录态跳转）
+  //     验证码启用时必须填真码：空码提交会被前端必填校验拦截（POST 都不会发出）
   await userInput.fill(CONFIG.username)
   await pwdInput.fill('Wrong@98765')
-  await submit.click()
-  const resp = await page
+  await refreshCaptchaFill()
+  const respPromise = page
     .waitForResponse((r) => r.url().includes('/login') && ['POST'].includes(r.request().method()), { timeout: 8000 })
     .catch(() => null)
+  await submit.click()
+  const resp = await respPromise
   await sleep(1200)
   const t = await page.evaluate(() => ({
     err: document.querySelectorAll('.el-message--error, .el-message--warning, .el-notification--error').length,
@@ -13327,10 +13427,17 @@ async function testFeature69(page) {
   // ---------- 步骤 1：admin 登录 ----------
   let adminToken = null
   try {
+    // 后端已开启验证码：与 apiLogin 同源策略，先取真码再登录（自取 uuid 自用，天然同源）
+    const { code: captchaCode, uuid: captchaUuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
     const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: CONFIG.username, password: CONFIG.password, code: '', uuid: '' })
+      body: JSON.stringify({
+        username: CONFIG.username,
+        password: CONFIG.password,
+        code: captchaCode,
+        uuid: captchaUuid
+      })
     })
       .then((r) => r.json())
       .catch(() => null)
@@ -13597,10 +13704,12 @@ async function testFeature69(page) {
   // ---------- 步骤 5：租户用户登录 ----------
   let uBToken = null
   try {
+    // 后端已开启验证码：自取真码登录（与 apiLogin 同源策略）
+    const { code: ubCaptcha, uuid: ubUuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
     const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+      body: JSON.stringify({ username: uBName, password: uBPassword, code: ubCaptcha, uuid: ubUuid })
     })
       .then((r) => r.json())
       .catch(() => null)
@@ -13677,10 +13786,12 @@ async function testFeature69(page) {
       .catch(() => null)
     let deniedOk = false
     if (disableResp?.code === 200) {
+      // 停用后用真码登录：确保被拒归因于"租户停用"而非验证码缺失（语义等价，不靠配置巧合通过）
+      const { code: deniedCaptcha, uuid: deniedUuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
       const denied = await fetch(`${CONFIG.backendUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+        body: JSON.stringify({ username: uBName, password: uBPassword, code: deniedCaptcha, uuid: deniedUuid })
       })
         .then((r) => r.json())
         .catch(() => null)
@@ -13700,10 +13811,12 @@ async function testFeature69(page) {
       .catch(() => null)
     let reloginOk = false
     if (restoreResp?.code === 200) {
+      // 恢复后用真码重登：确保成功归因于"租户恢复"而非验证码缺失
+      const { code: reCaptcha, uuid: reUuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
       const relogin = await fetch(`${CONFIG.backendUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: uBName, password: uBPassword, code: '', uuid: '' })
+        body: JSON.stringify({ username: uBName, password: uBPassword, code: reCaptcha, uuid: reUuid })
       })
         .then((r) => r.json())
         .catch(() => null)
