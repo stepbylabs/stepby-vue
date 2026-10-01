@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#409EFF"/>
+      <stop offset="100%" stop-color="#1E88E5"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E3F2FD"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角背景 -->
+  <rect x="8" y="8" width="112" height="112" rx="24" ry="24" fill="url(#bg)"/>
+  <!-- 天线 -->
+  <line x1="64" y1="20" x2="64" y2="34" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="64" cy="18" r="5" fill="#FFFFFF"/>
+  <!-- 机器人头部屏幕 -->
+  <rect x="28" y="38" width="72" height="60" rx="12" ry="12" fill="url(#screen)"/>
+  <!-- 眼睛 -->
+  <circle cx="50" cy="64" r="7" fill="#1E88E5"/>
+  <circle cx="78" cy="64" r="7" fill="#1E88E5"/>
+  <!-- 嘴巴/语音条 -->
+  <rect x="44" y="80" width="40" height="6" rx="3" ry="3" fill="#409EFF"/>
+  <rect x="48" y="80" width="4" height="6" fill="#FFFFFF" opacity="0.6"/>
+  <rect x="58" y="80" width="4" height="6" fill="#FFFFFF" opacity="0.6"/>
+  <rect x="68" y="80" width="4" height="6" fill="#FFFFFF" opacity="0.6"/>
+  <!-- 底部装饰：底座 -->
+  <rect x="40" y="104" width="48" height="6" rx="3" ry="3" fill="#FFFFFF" opacity="0.85"/>
+</svg>

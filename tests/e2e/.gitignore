@@ -1,0 +1,18 @@
+# 运行时产物 / 调试脚本（不入库）
+*.log
+*.txt
+node_modules/
+.pw-browsers/
+screenshots/
+archive/
+debug-*.mjs
+diagnose-*.mjs
+e2e_*.log
+e2e-run.log
+e2e-full*.log
+full-run*.log
+full-run-log*
+deep-e2e-report.json
+test-run-*.log
+test-upload-*.txt
+verify-m68-m69.txt

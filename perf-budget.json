@@ -1,0 +1,18 @@
+{
+  "$comment": "性能预算门禁（R102-PERF-001~012 / R102-BUNDLE-002~006 配套）。runtime 段 = Web Vitals 预算阈值：与 deploy/prometheus/rules.yml 的前端退化告警、tests/e2e/perf-throttle-check.mjs 的节流断言共用单一事实源；build 段 = 构建产物体积预算（gzip 后 KB），由 scripts/check-perf-budget.mjs 在 CI 强制执行（超限 exit 1）。首次落地以 2026-09-28 实测基线 +10% 余量设定，后续优化应同步收紧预算而非放宽。",
+  "runtime": {
+    "lcpMs": 2500,
+    "fcpMs": 1800,
+    "inpMs": 200,
+    "cls": 0.1,
+    "ttfbMs": 800
+  },
+  "build": {
+    "jsTotalGzipKb": 1800,
+    "cssTotalGzipKb": 85,
+    "singleJsChunkGzipKb": 1800,
+    "imageMaxGzipKb": 140,
+    "fontTotalGzipKb": 100,
+    "thirdPartyScriptCount": 0
+  }
+}
