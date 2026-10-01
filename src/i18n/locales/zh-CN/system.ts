@@ -776,7 +776,7 @@ export default {
       pathHelp: '访问的路由地址，如：`user`，如外网地址需内链访问则以`http(s)://`开头',
       componentHelp: '访问的组件路径，如：`system/user/index`，默认在`views`目录下',
       permsHelp: "控制器中定义的权限字符，如：＠PreAuthorize(`＠ss.hasPermi('system:user:list')`)",
-      queryHelp: '访问路由的默认传递参数，如：`｛"id": 1, "name": "ry"｝`',
+      queryHelp: '访问路由的默认传递参数，如：`｛"id": 1, "name": "stepby"｝`',
       cacheHelp: '选择是则会被`keep-alive`缓存，需要匹配组件的`name`和地址保持一致',
       visibleHelp: '选择隐藏则路由将不会出现在侧边栏，但仍然可以访问',
       statusHelp: '选择停用则路由将不会出现在侧边栏，也不能被访问',

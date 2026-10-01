@@ -126,7 +126,7 @@ export default {
       phJobName: '请输入任务名称',
       invokeTargetLabel: '调用方法',
       invokeTargetTip:
-        "Bean调用示例：ryTask.ryParams('ry')<br />Class类调用示例：com.stepby.quartz.task.RyTask.ryParams('ry')<br />参数说明：支持字符串，布尔类型，长整型，浮点型，整型",
+        "Bean调用示例：demoTask.demoParams('demo')<br />Class类调用示例：com.stepby.quartz.task.DemoTask.demoParams('demo')<br />参数说明：支持字符串，布尔类型，长整型，浮点型，整型",
       phInvokeTarget: '请输入调用目标字符串',
       cronExpressionLabel: 'cron表达式',
       phCronExpression: '请输入cron执行表达式',

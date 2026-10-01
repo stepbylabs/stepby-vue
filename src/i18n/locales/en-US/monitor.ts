@@ -126,7 +126,7 @@ export default {
       phJobName: 'Enter job name',
       invokeTargetLabel: 'Invoke Method',
       invokeTargetTip:
-        "Bean example: ryTask.ryParams('ry')<br />Class example: com.stepby.quartz.task.RyTask.ryParams('ry')<br />Parameter description: supports string, boolean, long, float, integer",
+        "Bean example: demoTask.demoParams('demo')<br />Class example: com.stepby.quartz.task.DemoTask.demoParams('demo')<br />Parameter description: supports string, boolean, long, float, integer",
       phInvokeTarget: 'Enter invoke target string',
       cronExpressionLabel: 'Cron Expression',
       phCronExpression: 'Enter cron expression',

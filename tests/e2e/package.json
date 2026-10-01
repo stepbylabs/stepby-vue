@@ -1,6 +1,6 @@
 {
   "name": "stepby-e2e-tests",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "stepby 端到端主测试脚本（Playwright）",
   "type": "module",
   "scripts": {

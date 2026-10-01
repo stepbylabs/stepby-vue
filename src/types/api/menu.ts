@@ -20,7 +20,7 @@ export interface AppRouteRecord {
   redirect?: RouteRecordRedirect | string
   /** 组件（经 filterAsyncRouter 解析后为实际组件，原始数据中为字符串路径） */
   component?: RouteComponent | string
-  /** 路由参数：如 {"id": 1, "name": "ry"} */
+  /** 路由参数：如 {"id": 1, "name": "stepby"} */
   query?: string
   /** 当你一个路由下面的 children 声明的路由大于1个时，自动会变成嵌套的模式--如组件页面 */
   alwaysShow?: boolean
@@ -50,7 +50,7 @@ export interface RouterVo {
   redirect?: string
   /** 组件地址 */
   component?: string
-  /** 路由参数：如 {"id": 1, "name": "ry"} */
+  /** 路由参数：如 {"id": 1, "name": "stepby"} */
   query?: string
   /** 当你一个路由下面的 children 声明的路由大于1个时，自动会变成嵌套的模式--如组件页面 */
   alwaysShow?: boolean

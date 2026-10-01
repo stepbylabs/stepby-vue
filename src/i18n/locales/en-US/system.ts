@@ -790,7 +790,7 @@ export default {
         'The route path to access, e.g.: `user`. For external links that need internal access, start with `http(s)://`',
       componentHelp: 'The component path to access, e.g.: `system/user/index`, under the `views` directory by default',
       permsHelp: "Permission key defined in the controller, e.g.: ＠PreAuthorize(`＠ss.hasPermi('system:user:list')`)",
-      queryHelp: 'Default parameters for the route, e.g.: `｛"id": 1, "name": "ry"｝`',
+      queryHelp: 'Default parameters for the route, e.g.: `｛"id": 1, "name": "stepby"｝`',
       cacheHelp: 'If set to yes, it will be cached by `keep-alive`. The component `name` must match the route path',
       visibleHelp: 'If set to hidden, the route will not appear in the sidebar but can still be accessed',
       statusHelp: 'If set to disabled, the route will not appear in the sidebar and cannot be accessed',
