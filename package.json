@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/stepby/stepby-vue.git"
+    "url": "https://github.com/stepbylabs/stepby-vue.git"
   },
   "dependencies": {
     "@element-plus/icons-vue": "2.3.2",
