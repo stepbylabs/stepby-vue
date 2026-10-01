@@ -14,11 +14,11 @@
  *  10. 审计追踪（oper_log.oper_before 字段 + capture_before_snapshot）
  *  11. 审计合规报告 PDF 导出（audit-dashboard 导出按钮）
  *  12. i18n 完整化（语言切换 + 业务页面 label 翻译）
- *  13. 多角色登录（ry 普通角色账户登录 + 角色 key 验证）
- *  14. 权限隔离验证（ry 用户访问受限菜单应被拒绝或隐藏）
+ *  13. 多角色登录（stepby 普通角色账户登录 + 角色 key 验证）
+ *  14. 权限隔离验证（stepby 用户访问受限菜单应被拒绝或隐藏）
  *  15. 注册功能测试（注册页可访问性 + 表单完整性）
  *  16. i18n 完整性扫描（遍历主要页面检测硬编码中文残留）
- *  17. 菜单权限修复验证（ry 用户能见恢复按钮 + 审计大屏 API 不返回 403）
+ *  17. 菜单权限修复验证（stepby 用户能见恢复按钮 + 审计大屏 API 不返回 403）
  *  18. IP 归属地库后台管理（/monitor/ip-location 页面 + 状态/配置/热加载 API + 权限验证）
  *  19. scheduler mmdb_auto_update + ip2region 双库（autoUpdateCron + reloadXdb + 权限隔离）
  *  20. TOTP 多因子认证（setup/verify/status/disable + 无 token 鉴权 + RFC 6238 验证码生成）
@@ -32,8 +32,8 @@
  *  28. 审计日志写操作覆盖（POST/PUT/DELETE 被 oper_log_middleware 记录 + GET 不记录 + businessType 映射）
  *  29. 数据字典国际化（dict_label_en 字段 CRUD + /dict/data/type/{dictType} + /dict/data/{dictCode} 详情）
  *  30. 限流可视化查询参数（routePattern 模糊/精确过滤 + enabled 布尔过滤 + 详情接口 + 401 鉴权）
- *  31. 备份恢复权限（ry 的 list/query/download/add/edit 均期望 403 —— system:backup: 平台专属已从 role2 剔除；admin 侧同接口对照 200）
- *   32. 审计大屏权限 monitor:audit:list（stats/compliance-report 响应结构 + days 边界 + ry 权限 + 401 + 前端 i18n 资源加载）
+ *  31. 备份恢复权限（stepby 的 list/query/download/add/edit 均期望 403 —— system:backup: 平台专属已从 role2 剔除；admin 侧同接口对照 200）
+ *   32. 审计大屏权限 monitor:audit:list（stats/compliance-report 响应结构 + days 边界 + stepby 权限 + 401 + 前端 i18n 资源加载）
  *   33. 未覆盖前端路由页面（/401 /403 /500 /network-error /privacy /lock /404 兜底 SPA fallback）
  *   34. 低成本高价值功能（我的登录历史 + 关于系统 + Dashboard 快捷入口 + 菜单注册 + 权限过滤 + 点击跳转）
  *   35. 低成本高价值功能 V2（通知中心 + 会话管理 + 主题切换三态选择器 + i18n 完整化）
@@ -98,10 +98,11 @@ const CONFIG = {
   username: TEST_USER,
   password: TEST_PASS,
   // 普通角色账户（common 角色，用于多角色和权限隔离测试）
-  // P2 修复: 支持环境变量覆盖，避免硬编码 'ry' 用户名和假设与主账号同密码
-  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'ry',
-  // ry 密码独立于 admin（新建用户接口拒绝弱口令 admin123——密码黑名单），预建强密码
-  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || 'Ry@Test12345',
+  // P2 修复: 支持环境变量覆盖，避免硬编码旧用户名（项目改名前为 'stepby'）和假设与主账号同密码
+  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'stepby',
+  // 普通角色测试账号：stepby（种子用户，密码同 admin123）——项目改名后 stepby 已废，
+  // 与后端 integration_tests（flow.rs 等以 "stepby" 登录）保持同源
+  secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || 'admin123',
   screenshotDir: path.resolve('screenshots'),
   slowMo: 100,
   // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
@@ -1353,14 +1354,13 @@ async function testFeature12(page) {
   }
 }
 
-// ==================== 功能 13：多角色登录（ry 普通角色） ====================
+// ==================== 功能 13：多角色登录（stepby 普通角色） ====================
 
 /**
- * ry 测试用户前置自建（自愈，R-TEST-13）：
- * ry 可能因库重建 / SEED_DEMO 未开启 / e2e 自清理而缺失（缺失时功能 13-19 全链 401 连锁失败）。
- * admin API 查询 sys_user，不存在则以 common 角色（role_id=2）创建；
- * 建号接口有密码黑名单（拒绝 admin123），故固定强密码 `Ry@Test12345`。
- * 幂等：已存在则跳过；任何失败仅 log 不抛出（让后续用例以自然结果呈现）。
+ * stepby 测试用户前置自检（自愈，R-TEST-13）：
+ * 普通角色测试账号 = `stepby`（种子用户，admin123；项目改名后 stepby 已废）。
+ * admin API 查询 sys_user，不存在时按 integration_tests 同源口径补种
+ * （common 角色 role_id=2）。幂等：已存在则跳过；失败仅 log 不抛出。
  */
 async function ensureSecondaryUser() {
   const base = CONFIG.backendUrl
@@ -1372,7 +1372,7 @@ async function ensureSecondaryUser() {
     })
     const loginJson = await loginRes.json()
     if (loginJson.code !== 200 || !loginJson.token) {
-      log(`  ⚠ ensureSecondaryUser: admin 登录失败（code=${loginJson.code}），跳过自建`)
+      log(`  ⚠ ensureSecondaryUser: admin 登录失败（code=${loginJson.code}），跳过自检`)
       return
     }
     const auth = { Authorization: `Bearer ${loginJson.token}` }
@@ -1380,7 +1380,7 @@ async function ensureSecondaryUser() {
     const listJson = await listRes.json()
     const exists = (listJson.rows || []).some(u => u.userName === CONFIG.secondaryUsername)
     if (exists) {
-      log(`  ✅ ry 测试用户已存在（自建检查通过）`)
+      log(`  ✅ stepby 测试用户已存在（自检通过）`)
       return
     }
     const createRes = await fetch(`${base}/system/user`, {
@@ -1388,7 +1388,7 @@ async function ensureSecondaryUser() {
       headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userName: CONFIG.secondaryUsername,
-        nickName: '测试普通角色',
+        nickName: 'Stepby科技',
         password: CONFIG.secondaryPassword,
         deptId: 103,
         status: '0',
@@ -1397,34 +1397,34 @@ async function ensureSecondaryUser() {
       })
     })
     const createJson = await createRes.json()
-    log(`  ${createJson.code === 200 ? '✅ 已自建' : '⚠ 自建失败'} ry 用户: code=${createJson.code} msg=${createJson.msg}`)
+    log(`  ${createJson.code === 200 ? '✅ 已自建' : '⚠ 自建失败'} stepby 用户: code=${createJson.code} msg=${createJson.msg}`)
   } catch (e) {
     log(`  ⚠ ensureSecondaryUser 异常（不影响后续用例的独立判定）: ${e.message}`)
   }
 }
 
 async function testFeature13(page) {
-  log('=== 功能 13：多角色登录（ry 普通角色）===')
+  log('=== 功能 13：多角色登录（stepby 普通角色）===')
 
-  // 步骤 0：前置自建（自愈）——ry 测试用户可能因库重建/SEED_DEMO 未开启而缺失：
+  // 步骤 0：前置自建（自愈）——stepby 测试用户可能因库重建/SEED_DEMO 未开启而缺失：
   // admin API 查询 sys_user，不存在则创建（common 角色 role_id=2 + 强密码，建号接口拒绝弱口令）
   await ensureSecondaryUser()
   await logout(page)
 
-  // 步骤 2：使用 ry 账户登录
+  // 步骤 2：使用 stepby 账户登录
   const loggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  record(13, 'ry 用户登录', loggedIn)
+  record(13, 'stepby 用户登录', loggedIn)
 
   if (!loggedIn) {
-    record(13, 'ry 用户角色信息', false, '依赖前置步骤失败')
+    record(13, 'stepby 用户角色信息', false, '依赖前置步骤失败')
     return
   }
 
   await skipTour(page)
   await sleep(1500)
-  await screenshot(page, 'feat13_ry_dashboard')
+  await screenshot(page, 'feat13_stepby_dashboard')
 
-  // 步骤 3：通过后端 API 验证 ry 用户的角色信息
+  // 步骤 3：通过后端 API 验证 stepby 用户的角色信息
   try {
     const token = await getAdminToken(page)
     // 调用 getInfo 接口获取用户信息和角色
@@ -1438,23 +1438,23 @@ async function testFeature13(page) {
     // 兼容字符串数组（["common"]）和对象数组（[{roleKey:"common"}]）两种格式
     const roleKeys = roles.map((r) => (typeof r === 'string' ? r : r?.roleKey)).filter(Boolean)
     const hasCommonRole = roleKeys.includes('common')
-    record(13, 'ry 用户角色信息', hasCommonRole, `roles=${roleKeys.join(',') || 'empty'}`)
+    record(13, 'stepby 用户角色信息', hasCommonRole, `roles=${roleKeys.join(',') || 'empty'}`)
   } catch (err) {
-    record(13, 'ry 用户角色信息', false, `异常: ${err.message.slice(0, 80)}`)
+    record(13, 'stepby 用户角色信息', false, `异常: ${err.message.slice(0, 80)}`)
   }
 }
 
 // ==================== 功能 14：权限隔离验证 ====================
 
 async function testFeature14(page) {
-  log('=== 功能 14：权限隔离验证（ry 用户访问受限菜单）===')
+  log('=== 功能 14：权限隔离验证（stepby 用户访问受限菜单）===')
 
-  // 前置：确保当前是 ry 用户登录（独立运行时也需切换到 ry）
-  // 先注销当前用户（可能是 admin），再用 ry 登录
+  // 前置：确保当前是 stepby 用户登录（独立运行时也需切换到 stepby）
+  // 先注销当前用户（可能是 admin），再用 stepby 登录
   await logout(page)
-  const ryLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  if (!ryLoggedIn) {
-    record(14, 'ry 用户登录', false, '无法登录 ry 账户')
+  const stepbyLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  if (!stepbyLoggedIn) {
+    record(14, 'stepby 用户登录', false, '无法登录 stepby 账户')
     record(14, '用户管理页面权限隔离', false, '依赖前置步骤失败')
     record(14, '角色管理页面权限隔离', false, '依赖前置步骤失败')
     record(14, '限流配置页面权限隔离', false, '依赖前置步骤失败')
@@ -1463,7 +1463,7 @@ async function testFeature14(page) {
   }
   await sleep(2000)
 
-  // ry（common 角色）在 deep-e2e M9 前置中被声明式收紧为"全部页面 + 只读按钮"（无任何写权限，
+  // stepby（common 角色）在 deep-e2e M9 前置中被声明式收紧为"全部页面 + 只读按钮"（无任何写权限，
   // 见 deep-e2e.mjs ensureGenTableImported 旁的 M9 前置与专题文档 §8.2 安全发现）。
   // 因此真实的按钮级权限隔离体现为：新增与删除按钮均被 v-hasPermi 移除（无 add 无 remove）。
   // helper：返回页面上"新增/Add""删除/Delete"按钮的可见状态（v-hasPermi 无权限时移除 DOM 节点）
@@ -1481,49 +1481,49 @@ async function testFeature14(page) {
       })
       .catch(() => ({ add: false, del: false }))
 
-  // 步骤 1：用户管理页面（ry 无 system:user:add / system:user:remove）
+  // 步骤 1：用户管理页面（stepby 无 system:user:add / system:user:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
-  await screenshot(page, 'feat14_ry_user_page')
+  await screenshot(page, 'feat14_stepby_user_page')
   const userBtns = await visibleBtnState()
   const userIsolated = !userBtns.add && !userBtns.del
   record(
     14,
     '用户管理页面权限隔离',
     userIsolated,
-    `新增可见=${userBtns.add}, 删除可见=${userBtns.del}（ry 只读：均应隐藏）`
+    `新增可见=${userBtns.add}, 删除可见=${userBtns.del}（stepby 只读：均应隐藏）`
   )
 
-  // 步骤 2：角色管理页面（ry 无 system:role:add / system:role:remove）
+  // 步骤 2：角色管理页面（stepby 无 system:role:add / system:role:remove）
   await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
-  await screenshot(page, 'feat14_ry_role_page')
+  await screenshot(page, 'feat14_stepby_role_page')
   const roleBtns = await visibleBtnState()
   const roleIsolated = !roleBtns.add && !roleBtns.del
   record(14, '角色管理页面权限隔离', roleIsolated, `新增可见=${roleBtns.add}, 删除可见=${roleBtns.del}（均应隐藏）`)
 
-  // 步骤 3：限流配置页面（ry 无 system:rateLimit:add / system:rateLimit:remove）
+  // 步骤 3：限流配置页面（stepby 无 system:rateLimit:add / system:rateLimit:remove）
   await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
-  await screenshot(page, 'feat14_ry_ratelimit_page')
+  await screenshot(page, 'feat14_stepby_ratelimit_page')
   const rateLimitBtns = await visibleBtnState()
   const rateLimitIsolated = !rateLimitBtns.add && !rateLimitBtns.del
   record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除可见=${rateLimitBtns.del}（均应隐藏）`)
 
-  // 步骤 4：访问审计大屏（ry 用户可能无权限）
+  // 步骤 4：访问审计大屏（stepby 用户可能无权限）
   await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
-  await screenshot(page, 'feat14_ry_audit_dashboard')
+  await screenshot(page, 'feat14_stepby_audit_dashboard')
 
   // 综合判断：按钮级"新增可见、删除隐藏"的页面数
   const isolationWorkingCount = [userIsolated, roleIsolated, rateLimitIsolated].filter(Boolean).length
   record(14, '权限隔离综合验证', isolationWorkingCount === 3, `生效页面数: ${isolationWorkingCount}/3`)
 
-  // 步骤 5：注销 ry 用户，重新登录 admin（恢复测试环境）
+  // 步骤 5：注销 stepby 用户，重新登录 admin（恢复测试环境）
   await logout(page)
   await login(page, CONFIG.username, CONFIG.password)
   await sleep(2000)
@@ -1828,13 +1828,13 @@ async function testFeature16(page) {
 // ==================== 功能 17：菜单权限修复验证 ====================
 
 async function testFeature17(page) {
-  log('=== 功能 17：菜单权限修复验证（ry 普通角色）===')
+  log('=== 功能 17：菜单权限修复验证（stepby 普通角色）===')
 
-  // 前置：切换到 ry 用户登录
+  // 前置：切换到 stepby 用户登录
   await logout(page)
-  const ryLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  if (!ryLoggedIn) {
-    record(17, 'ry 用户登录', false, '无法登录 ry 账户')
+  const stepbyLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  if (!stepbyLoggedIn) {
+    record(17, 'stepby 用户登录', false, '无法登录 stepby 账户')
     record(17, '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）', false, '依赖前置步骤失败')
     record(17, 'admin 备份页可达（对照）', false, '依赖前置步骤失败')
     record(17, '审计大屏数据加载', false, '依赖前置步骤失败')
@@ -1845,15 +1845,15 @@ async function testFeature17(page) {
   }
   await sleep(2000)
 
-  // 步骤 1：验证平台普通角色 ry 对备份页不可达（安全策略，强于"仅隐藏恢复按钮"）
+  // 步骤 1：验证平台普通角色 stepby 对备份页不可达（安全策略，强于"仅隐藏恢复按钮"）
   // system:backup: 前缀在 common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 中列为平台专属
   // （理由：整库 dump/恢复、下载面即全库数据）。initialize::ensure_tenant_role_menu_governance
   // 治理 SQL 修复补上 perms LIKE 列名后首次真正生效：菜单 118(system:backup:list)/1200(system:backup:query)
-  // 授权已从 role_id=2（ry）删除，故前端路由 /monitor/backup 对 ry 不可达（404）。
+  // 授权已从 role_id=2（stepby）删除，故前端路由 /monitor/backup 对 stepby 不可达（404）。
   await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
-  await screenshot(page, 'feat17_ry_backup_page')
+  await screenshot(page, 'feat17_stepby_backup_page')
 
   const is404_backup = await is404Page(page, { timeout: 1000 })
   record(
@@ -1863,13 +1863,13 @@ async function testFeature17(page) {
     is404_backup ? `页面 404（不可达），URL=${page.url()}` : `未 404，URL=${page.url()}（期望不可达）`
   )
 
-  // 步骤 2：验证 ry 用户能正常访问审计大屏（API 不返回 403）
+  // 步骤 2：验证 stepby 用户能正常访问审计大屏（API 不返回 403）
   // 这验证 permission.rs 中 /monitor/operlog/stats 权限已改为 monitor:audit:list，
   // role_id=2 拥有此权限（通过菜单 120 关联）
   await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
   await sleep(3500) // 给 ECharts 充足渲染时间
   await skipTour(page)
-  await screenshot(page, 'feat17_ry_audit_dashboard')
+  await screenshot(page, 'feat17_stepby_audit_dashboard')
 
   // 检查统计卡片是否加载了数据（不是 0 或 N/A）
   const statsLoaded = await page
@@ -1893,9 +1893,9 @@ async function testFeature17(page) {
 
   record(17, '审计大屏数据加载', statsLoaded && hasCharts, `统计数据加载=${statsLoaded}, 图表渲染=${hasCharts}`)
 
-  // 步骤 3：直接调用后端 API 验证 ry 用户权限通过（不返回 403）
+  // 步骤 3：直接调用后端 API 验证 stepby 用户权限通过（不返回 403）
   try {
-    // 使用 ry 凭证登录获取 token，确保测试的是 ry 权限而非 admin
+    // 使用 stepby 凭证登录获取 token，确保测试的是 stepby 权限而非 admin
     const loginResp = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1908,13 +1908,13 @@ async function testFeature17(page) {
     })
       .then((r) => r.json())
       .catch(() => null)
-    const ryToken = loginResp?.token
+    const stepbyToken = loginResp?.token
 
-    if (!ryToken) {
-      record(17, '审计大屏 API 权限', false, '无法获取 ry token')
+    if (!stepbyToken) {
+      record(17, '审计大屏 API 权限', false, '无法获取 stepby token')
     } else {
       const statsResp = await fetch(`${CONFIG.backendUrl}/monitor/operlog/stats?days=7`, {
-        headers: { Authorization: `Bearer ${ryToken}` }
+        headers: { Authorization: `Bearer ${stepbyToken}` }
       })
         .then((r) => ({ status: r.status, ok: r.ok }))
         .catch(() => null)
@@ -1970,7 +1970,7 @@ async function testFeature17(page) {
 // ==================== 功能 18：IP 归属地库后台管理 ====================
 
 async function testFeature18(page) {
-  log('=== 功能 18：IP 归属地库后台管理（admin + ry 权限验证）===')
+  log('=== 功能 18：IP 归属地库后台管理（admin + stepby 权限验证）===')
 
   // ---------- 步骤 1：admin 用户访问 IP 库管理页面 ----------
   await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'networkidle' })
@@ -1986,7 +1986,7 @@ async function testFeature18(page) {
     record(18, 'admin 操作按钮可见', false, '依赖前置步骤失败')
     record(18, 'admin 配置对话框', false, '依赖前置步骤失败')
     record(18, 'admin API 状态接口', false, '依赖前置步骤失败')
-    record(18, 'ry 权限验证', false, '依赖前置步骤失败')
+    record(18, 'stepby 权限验证', false, '依赖前置步骤失败')
     record(18, '无 token 鉴权', false, '依赖前置步骤失败')
     record(18, 'IP 库管理综合验证', false, '依赖前置步骤失败')
     return
@@ -2131,50 +2131,50 @@ async function testFeature18(page) {
   record(18, 'admin API 状态接口', adminApiStatusOk, 'GET /system/ipLocation/status')
   record(18, 'admin API 配置接口', adminApiConfigOk, 'GET /system/ipLocation/config')
 
-  // ---------- 步骤 4：切换到 ry 用户验证权限 ----------
+  // ---------- 步骤 4：切换到 stepby 用户验证权限 ----------
   await logout(page)
-  const ryLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  let ryPageOk = false
-  let ryButtonsOk = false
-  let ryApiOk = false
+  const stepbyLoggedIn = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  let stepbyPageOk = false
+  let stepbyButtonsOk = false
+  let stepbyApiOk = false
 
-  if (!ryLoggedIn) {
-    record(18, 'ry 权限验证', false, '无法登录 ry 账户')
+  if (!stepbyLoggedIn) {
+    record(18, 'stepby 权限验证', false, '无法登录 stepby 账户')
   } else {
     await sleep(2000)
     await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'networkidle' })
     await sleep(2500)
     await skipTour(page)
-    await screenshot(page, 'feat18_ry_ip_location_page')
+    await screenshot(page, 'feat18_stepby_ip_location_page')
 
     // 验证页面非 404
     const ry404 = await is404Page(page, { timeout: 1000 })
-    ryPageOk = !ry404
+    stepbyPageOk = !ry404
 
-    // 安全策略：ry 仅拥有 monitor:iplocation:list（只读），不具备 monitor:iplocation:edit
+    // 安全策略：stepby 仅拥有 monitor:iplocation:list（只读），不具备 monitor:iplocation:edit
     // IP 库的写操作（热加载/立即更新/配置保存）属于敏感管理操作，应仅限管理员
-    // 此处验证：ry 能访问页面（list 权限），但操作按钮被 v-hasPermi 隐藏（无 edit 权限）
-    const ryReloadBtn = await page
+    // 此处验证：stepby 能访问页面（list 权限），但操作按钮被 v-hasPermi 隐藏（无 edit 权限）
+    const stepbyReloadBtn = await page
       .locator('button:has-text("热加载")')
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    const ryUpdateBtn = await page
+    const stepbyUpdateBtn = await page
       .locator('button:has-text("立即更新")')
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    const ryConfigBtn = await page
+    const stepbyConfigBtn = await page
       .locator('button:has-text("配置")')
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    // ry 不应看到任何写操作按钮（安全策略）
-    ryButtonsOk = !ryReloadBtn && !ryUpdateBtn && !ryConfigBtn
+    // stepby 不应看到任何写操作按钮（安全策略）
+    stepbyButtonsOk = !stepbyReloadBtn && !stepbyUpdateBtn && !stepbyConfigBtn
 
-    // 调用后端 API 验证 ry token 权限隔离：只读接口 200，写接口 403
+    // 调用后端 API 验证 stepby token 权限隔离：只读接口 200，写接口 403
     try {
-      const ryLoginResp = await fetch(`${CONFIG.backendUrl}/login`, {
+      const stepbyLoginResp = await fetch(`${CONFIG.backendUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2186,29 +2186,29 @@ async function testFeature18(page) {
       })
         .then((r) => r.json())
         .catch(() => null)
-      const ryToken = ryLoginResp?.token
+      const stepbyToken = stepbyLoginResp?.token
 
-      if (!ryToken) {
-        log('  无法获取 ry token')
+      if (!stepbyToken) {
+        log('  无法获取 stepby token')
       } else {
-        const ryStatusResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/status`, {
-          headers: { Authorization: `Bearer ${ryToken}` }
+        const stepbyStatusResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/status`, {
+          headers: { Authorization: `Bearer ${stepbyToken}` }
         })
           .then((r) => ({ status: r.status, ok: r.ok }))
           .catch(() => null)
 
-        const ryConfigResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/config`, {
-          headers: { Authorization: `Bearer ${ryToken}` }
+        const stepbyConfigResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/config`, {
+          headers: { Authorization: `Bearer ${stepbyToken}` }
         })
           .then((r) => ({ status: r.status, ok: r.ok }))
           .catch(() => null)
 
-        // PUT 保存配置（ry 应被拒绝 403）
-        const rySaveResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/config`, {
+        // PUT 保存配置（stepby 应被拒绝 403）
+        const stepbySaveResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/config`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${ryToken}`
+            Authorization: `Bearer ${stepbyToken}`
           },
           body: JSON.stringify({
             updateSource: 'p3terx',
@@ -2221,34 +2221,34 @@ async function testFeature18(page) {
           .then((r) => ({ status: r.status, ok: r.ok }))
           .catch(() => null)
 
-        // POST 热加载（ry 应被拒绝 403）
-        const ryReloadResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/reload`, {
+        // POST 热加载（stepby 应被拒绝 403）
+        const stepbyReloadResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/reload`, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${ryToken}` }
+          headers: { Authorization: `Bearer ${stepbyToken}` }
         })
           .then((r) => ({ status: r.status, ok: r.ok }))
           .catch(() => null)
 
         // 安全策略验证：只读 200 + 写 403
-        ryApiOk =
-          ryStatusResp?.status === 200 &&
-          ryConfigResp?.status === 200 &&
-          rySaveResp?.status === 403 &&
-          ryReloadResp?.status === 403
+        stepbyApiOk =
+          stepbyStatusResp?.status === 200 &&
+          stepbyConfigResp?.status === 200 &&
+          stepbySaveResp?.status === 403 &&
+          stepbyReloadResp?.status === 403
 
         log(
-          `  ry API: status=${ryStatusResp?.status}, config=${ryConfigResp?.status}, save=${rySaveResp?.status}(应403), reload=${ryReloadResp?.status}(应403)`
+          `  stepby API: status=${stepbyStatusResp?.status}, config=${stepbyConfigResp?.status}, save=${stepbySaveResp?.status}(应403), reload=${stepbyReloadResp?.status}(应403)`
         )
       }
     } catch (err) {
-      log(`  ry API 异常: ${err.message.slice(0, 80)}`)
+      log(`  stepby API 异常: ${err.message.slice(0, 80)}`)
     }
   }
   record(
     18,
-    'ry 权限验证',
-    ryPageOk && ryButtonsOk && ryApiOk,
-    `页面=${ryPageOk}, 写按钮已隐藏=${ryButtonsOk}, 只读200/写403=${ryApiOk}`
+    'stepby 权限验证',
+    stepbyPageOk && stepbyButtonsOk && stepbyApiOk,
+    `页面=${stepbyPageOk}, 写按钮已隐藏=${stepbyButtonsOk}, 只读200/写403=${stepbyApiOk}`
   )
 
   // 恢复 admin 登录
@@ -2283,7 +2283,7 @@ async function testFeature18(page) {
     results.find((r) => r.feature === 18 && r.name === 'admin 配置对话框')?.passed || false,
     results.find((r) => r.feature === 18 && r.name === 'admin API 状态接口')?.passed || false,
     results.find((r) => r.feature === 18 && r.name === 'admin API 配置接口')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'ry 权限验证')?.passed || false,
+    results.find((r) => r.feature === 18 && r.name === 'stepby 权限验证')?.passed || false,
     results.find((r) => r.feature === 18 && r.name === '无 token 鉴权')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -2479,10 +2479,10 @@ async function testFeature19(page) {
   }
   record(19, 'reloadXdb 无 token 鉴权', noTokenOk, '应返回 401')
 
-  // ---------- 步骤 8：ry 用户权限验证 reloadXdb（ry 已被分配 monitor:iplocation:edit 权限） ----------
-  let ryPermissionOk = false
+  // ---------- 步骤 8：stepby 用户权限验证 reloadXdb（stepby 已被分配 monitor:iplocation:edit 权限） ----------
+  let stepbyPermissionOk = false
   try {
-    const ryLogin = await fetch(`${CONFIG.backendUrl}/login`, {
+    const stepbyLogin = await fetch(`${CONFIG.backendUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2494,33 +2494,33 @@ async function testFeature19(page) {
     })
       .then((r) => r.json())
       .catch(() => null)
-    const ryToken = ryLogin?.token
+    const stepbyToken = stepbyLogin?.token
 
-    if (ryToken) {
-      // ry 用户已被分配 monitor:iplocation:list + monitor:iplocation:edit（菜单 122 + 1213）
+    if (stepbyToken) {
+      // stepby 用户已被分配 monitor:iplocation:list + monitor:iplocation:edit（菜单 122 + 1213）
       // 因此 reloadXdb 应返回 200（与 reload 行为一致）
-      const ryStatusResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/status`, {
-        headers: { Authorization: `Bearer ${ryToken}` }
+      const stepbyStatusResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/status`, {
+        headers: { Authorization: `Bearer ${stepbyToken}` }
       })
         .then((r) => r.status)
         .catch(() => 0)
 
-      const ryReloadXdbResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/reloadXdb`, {
+      const stepbyReloadXdbResp = await fetch(`${CONFIG.backendUrl}/system/ipLocation/reloadXdb`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${ryToken}` }
+        headers: { Authorization: `Bearer ${stepbyToken}` }
       })
         .then((r) => r.status)
         .catch(() => 0)
 
-      // 验证权限一致性：ry 应能访问 status 和 reloadXdb（均有权限）
+      // 验证权限一致性：stepby 应能访问 status 和 reloadXdb（均有权限）
       // 关键检查：不应返回 401（鉴权失败）或 404（路由未注册）
-      ryPermissionOk = ryStatusResp === 200 && (ryReloadXdbResp === 200 || ryReloadXdbResp === 403)
-      log(`  ry: status=${ryStatusResp}, reloadXdb=${ryReloadXdbResp}`)
+      stepbyPermissionOk = stepbyStatusResp === 200 && (stepbyReloadXdbResp === 200 || stepbyReloadXdbResp === 403)
+      log(`  stepby: status=${stepbyStatusResp}, reloadXdb=${stepbyReloadXdbResp}`)
     }
   } catch (err) {
-    log(`  ry 权限测试异常: ${err.message.slice(0, 80)}`)
+    log(`  stepby 权限测试异常: ${err.message.slice(0, 80)}`)
   }
-  record(19, 'ry 用户 reloadXdb 权限一致', ryPermissionOk, 'ry 已分配权限，应可访问（200）或被拒（403），不应 401/404')
+  record(19, 'stepby 用户 reloadXdb 权限一致', stepbyPermissionOk, 'stepby 已分配权限，应可访问（200）或被拒（403），不应 401/404')
 
   // ---------- 步骤 9：前端 IP 库管理页面可访问 ----------
   let pageOk = false
@@ -2551,7 +2551,7 @@ async function testFeature19(page) {
     results.find((r) => r.feature === 19 && r.name === 'xdb 状态字段一致性')?.passed || false,
     results.find((r) => r.feature === 19 && r.name === 'autoUpdateEnabled 开关可读写')?.passed || false,
     results.find((r) => r.feature === 19 && r.name === 'reloadXdb 无 token 鉴权')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'ry 用户 reloadXdb 权限一致')?.passed || false,
+    results.find((r) => r.feature === 19 && r.name === 'stepby 用户 reloadXdb 权限一致')?.passed || false,
     results.find((r) => r.feature === 19 && r.name === '前端 IP 库管理页面')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -5273,10 +5273,10 @@ async function testFeature30(page) {
   )
 }
 
-// ==================== 功能 31：备份恢复权限 system:backup:edit（ry 实际 API 调用验证）====================
+// ==================== 功能 31：备份恢复权限 system:backup:edit（stepby 实际 API 调用验证）====================
 
 async function testFeature31(page) {
-  log('=== 功能 31：备份恢复权限 system:backup:edit（ry 实际 API 验证）===')
+  log('=== 功能 31：备份恢复权限 system:backup:edit（stepby 实际 API 验证）===')
 
   // ---------- 步骤 1：admin 登录获取 token，先创建一个备份 ----------
   let backupId = null
@@ -5317,34 +5317,34 @@ async function testFeature31(page) {
     return
   }
 
-  // ---------- 步骤 2：ry 登录获取 token ----------
-  const ryLoginResult31 = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  const ryToken = ryLoginResult31.token
-  record(31, 'ry 登录获取 token', !!ryToken, ryLoginResult31.detail)
+  // ---------- 步骤 2：stepby 登录获取 token ----------
+  const stepbyLoginResult31 = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  const stepbyToken = stepbyLoginResult31.token
+  record(31, 'stepby 登录获取 token', !!stepbyToken, stepbyLoginResult31.detail)
 
-  if (!ryToken) {
+  if (!stepbyToken) {
     for (let i = 0; i < 4; i++) record(31, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
 
-  const ryHeaders = { Authorization: `Bearer ${ryToken}` }
+  const stepbyHeaders = { Authorization: `Bearer ${stepbyToken}` }
 
-  // ---------- 步骤 3：ry 调用 GET /system/backup/list（system:backup:list，平台专属，期望 403） ----------
+  // ---------- 步骤 3：stepby 调用 GET /system/backup/list（system:backup:list，平台专属，期望 403） ----------
   // 设计：system:backup: 前缀在 common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 中列为平台专属
   // （整库 dump/恢复、下载面即全库数据）。迁移 m20260926_000005 / m20260926_000006 显式剔除 role_id=2，
-  // 故平台普通角色 ry（role_id=2）不再持有 system:backup:list，接口应返回 403。
-  let ryListOk = false
-  let ryListDetail = ''
+  // 故平台普通角色 stepby（role_id=2）不再持有 system:backup:list，接口应返回 403。
+  let stepbyListOk = false
+  let stepbyListDetail = ''
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, { headers: ryHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, { headers: stepbyHeaders })
     const data = await resp.json().catch(() => null)
     // 期望 403：权限按设计收紧（修复前误判为 200）
-    ryListOk = resp.status === 403
-    ryListDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
+    stepbyListOk = resp.status === 403
+    stepbyListDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
   } catch (err) {
-    ryListDetail = `异常: ${err.message.slice(0, 80)}`
+    stepbyListDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry GET /system/backup/list（system:backup:list 平台专属，期望 403）', ryListOk, ryListDetail)
+  record(31, 'stepby GET /system/backup/list（system:backup:list 平台专属，期望 403）', stepbyListOk, stepbyListDetail)
 
   // ---------- 步骤 3b：admin 对照：同一接口仍应为 200（证明备份功能本身正常，收紧仅针对平台普通角色） ----------
   let adminListOk = false
@@ -5361,19 +5361,19 @@ async function testFeature31(page) {
   }
   record(31, 'admin GET /system/backup/list（对照，期望 200）', adminListOk, adminListDetail)
 
-  // ---------- 步骤 4：ry 调用 GET /system/backup/{backupId}（system:backup:query，平台专属，期望 403） ----------
-  let ryQueryOk = false
-  let ryQueryDetail = ''
+  // ---------- 步骤 4：stepby 调用 GET /system/backup/{backupId}（system:backup:query，平台专属，期望 403） ----------
+  let stepbyQueryOk = false
+  let stepbyQueryDetail = ''
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/${backupId}`, { headers: ryHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/${backupId}`, { headers: stepbyHeaders })
     const data = await resp.json().catch(() => null)
     // 期望 403：system:backup:query 平台专属，已从 role_id=2 可授集合剔除
-    ryQueryOk = resp.status === 403
-    ryQueryDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
+    stepbyQueryOk = resp.status === 403
+    stepbyQueryDetail = `status=${resp.status}, code=${data?.code}（期望 403）`
   } catch (err) {
-    ryQueryDetail = `异常: ${err.message.slice(0, 80)}`
+    stepbyQueryDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry GET /system/backup/{id}（system:backup:query 平台专属，期望 403）', ryQueryOk, ryQueryDetail)
+  record(31, 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）', stepbyQueryOk, stepbyQueryDetail)
 
   // ---------- 步骤 4b：admin 对照：同一接口仍应为 200 ----------
   let adminQueryOk = false
@@ -5390,24 +5390,24 @@ async function testFeature31(page) {
   }
   record(31, 'admin GET /system/backup/{id}（对照，期望 200）', adminQueryOk, adminQueryDetail)
 
-  // ---------- 步骤 5：ry 调用 GET /system/backup/download/{backupId}（system:backup:query，平台专属，期望 403） ----------
-  let ryDownloadOk = false
-  let ryDownloadDetail = ''
+  // ---------- 步骤 5：stepby 调用 GET /system/backup/download/{backupId}（system:backup:query，平台专属，期望 403） ----------
+  let stepbyDownloadOk = false
+  let stepbyDownloadDetail = ''
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/download/${backupId}`, { headers: ryHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/backup/download/${backupId}`, { headers: stepbyHeaders })
     // 期望 403：system:backup:query 平台专属，已从 role_id=2 可授集合剔除
-    ryDownloadOk = resp.status === 403
-    ryDownloadDetail = `status=${resp.status}（期望 403）`
+    stepbyDownloadOk = resp.status === 403
+    stepbyDownloadDetail = `status=${resp.status}（期望 403）`
     // 消费响应体以释放连接
     await resp.text().catch(() => '')
   } catch (err) {
-    ryDownloadDetail = `异常: ${err.message.slice(0, 80)}`
+    stepbyDownloadDetail = `异常: ${err.message.slice(0, 80)}`
   }
   record(
     31,
-    'ry GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）',
-    ryDownloadOk,
-    ryDownloadDetail
+    'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）',
+    stepbyDownloadOk,
+    stepbyDownloadDetail
   )
 
   // ---------- 步骤 5b：admin 对照：同一接口仍应为 200 ----------
@@ -5425,80 +5425,80 @@ async function testFeature31(page) {
   }
   record(31, 'admin GET /system/backup/download/{id}（对照，期望 200）', adminDownloadOk, adminDownloadDetail)
 
-  // ---------- 步骤 6：ry 调用 POST /system/backup/restore/{backupId}（system:backup:edit，关键权限验证） ----------
+  // ---------- 步骤 6：stepby 调用 POST /system/backup/restore/{backupId}（system:backup:edit，关键权限验证） ----------
   // 安全策略（m20260729_000001 + m20260803_000001）：
   //   common 角色不应具备备份恢复权限（恢复备份会覆盖现库，属高危操作）。
   //   m20260729_000001 已移除 system:backup:edit(1211)，
   //   m20260803_000001 进一步收紧备份写权限（add/remove/edit 全部移除）。
   // 期望：返回 403（权限拒绝），验证权限隔离正确。
   // 为避免数据被实际恢复破坏，使用一个不存在的 backupId。
-  let ryRestorePermOk = false
-  let ryRestorePermDetail = ''
+  let stepbyRestorePermOk = false
+  let stepbyRestorePermDetail = ''
   try {
     // 使用不存在的 backupId=999999999，期望返回 403（权限拒绝，不会实际触达 backupId 校验）
     const resp = await fetch(`${CONFIG.backendUrl}/system/backup/restore/999999999`, {
       method: 'POST',
-      headers: ryHeaders
+      headers: stepbyHeaders
     })
     const data = await resp.json().catch(() => null)
     // 权限隔离正确：状态码为 403（普通角色不应恢复备份）
-    ryRestorePermOk = resp.status === 403
-    ryRestorePermDetail = `status=${resp.status}, code=${data?.code}, msg=${data?.msg?.slice(0, 60)}`
+    stepbyRestorePermOk = resp.status === 403
+    stepbyRestorePermDetail = `status=${resp.status}, code=${data?.code}, msg=${data?.msg?.slice(0, 60)}`
   } catch (err) {
-    ryRestorePermDetail = `异常: ${err.message.slice(0, 80)}`
+    stepbyRestorePermDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry POST /system/backup/restore/{id}（system:backup:edit 权限隔离）', ryRestorePermOk, ryRestorePermDetail)
+  record(31, 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）', stepbyRestorePermOk, stepbyRestorePermDetail)
 
-  // ---------- 步骤 7：ry 调用 POST /system/backup（system:backup:add） ----------
-  // 设计意图：ry 普通角色不应有 system:backup:add 权限（备份创建是敏感操作），
+  // ---------- 步骤 7：stepby 调用 POST /system/backup（system:backup:add） ----------
+  // 设计意图：stepby 普通角色不应有 system:backup:add 权限（备份创建是敏感操作），
   // 期望返回 403（权限拒绝），验证权限隔离正确。
   // m20260803_000001_restrict_backup_write_perms 已幂等移除 (2, 1201)，
   // 确保备份写权限（add/remove/edit）对 common 角色完全收紧。
-  let ryAddOk = false
-  let ryAddDetail = ''
+  let stepbyAddOk = false
+  let stepbyAddDetail = ''
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/backup`, {
       method: 'POST',
-      headers: ryHeaders
+      headers: stepbyHeaders
     })
     const data = await resp.json().catch(() => null)
     // 权限隔离正确：状态码为 403（普通角色不应创建备份）
-    ryAddOk = resp.status === 403
-    ryAddDetail = `status=${resp.status}, code=${data?.code}`
+    stepbyAddOk = resp.status === 403
+    stepbyAddDetail = `status=${resp.status}, code=${data?.code}`
   } catch (err) {
-    ryAddDetail = `异常: ${err.message.slice(0, 80)}`
+    stepbyAddDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'ry POST /system/backup（system:backup:add 权限隔离）', ryAddOk, ryAddDetail)
+  record(31, 'stepby POST /system/backup（system:backup:add 权限隔离）', stepbyAddOk, stepbyAddDetail)
 
   // ---------- 步骤 8：综合判断 ----------
-  // ry 侧：system:backup:list/query 平台专属（期望 403）；add/edit 写权限亦为 403。
+  // stepby 侧：system:backup:list/query 平台专属（期望 403）；add/edit 写权限亦为 403。
   // admin 侧对照：list/query/download 仍为 200，证明收紧仅针对平台普通角色而非备份功能损坏。
   const allChecks = [
     results.find((r) => r.feature === 31 && r.name === 'admin 登录获取 token')?.passed || false,
     results.find((r) => r.feature === 31 && r.name === 'admin 创建备份')?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'ry 登录获取 token')?.passed || false,
+    results.find((r) => r.feature === 31 && r.name === 'stepby 登录获取 token')?.passed || false,
     results.find(
-      (r) => r.feature === 31 && r.name === 'ry GET /system/backup/list（system:backup:list 平台专属，期望 403）'
+      (r) => r.feature === 31 && r.name === 'stepby GET /system/backup/list（system:backup:list 平台专属，期望 403）'
     )?.passed || false,
     results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/list（对照，期望 200）')?.passed ||
       false,
     results.find(
-      (r) => r.feature === 31 && r.name === 'ry GET /system/backup/{id}（system:backup:query 平台专属，期望 403）'
+      (r) => r.feature === 31 && r.name === 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）'
     )?.passed || false,
     results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/{id}（对照，期望 200）')?.passed ||
       false,
     results.find(
       (r) =>
         r.feature === 31 &&
-        r.name === 'ry GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）'
+        r.name === 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）'
     )?.passed || false,
     results.find(
       (r) => r.feature === 31 && r.name === 'admin GET /system/backup/download/{id}（对照，期望 200）'
     )?.passed || false,
     results.find(
-      (r) => r.feature === 31 && r.name === 'ry POST /system/backup/restore/{id}（system:backup:edit 权限隔离）'
+      (r) => r.feature === 31 && r.name === 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）'
     )?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'ry POST /system/backup（system:backup:add 权限隔离）')
+    results.find((r) => r.feature === 31 && r.name === 'stepby POST /system/backup（system:backup:add 权限隔离）')
       ?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -5597,47 +5597,47 @@ async function testFeature32(page) {
   }
   record(32, 'days 参数边界（1/365/1000）', daysBoundaryOk, daysBoundaryDetail)
 
-  // ---------- 步骤 5：ry 登录验证 monitor:audit:list 权限 ----------
-  const ryLoginResult32 = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  const ryToken = ryLoginResult32.token
-  record(32, 'ry 登录获取 token', !!ryToken, ryLoginResult32.detail)
+  // ---------- 步骤 5：stepby 登录验证 monitor:audit:list 权限 ----------
+  const stepbyLoginResult32 = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  const stepbyToken = stepbyLoginResult32.token
+  record(32, 'stepby 登录获取 token', !!stepbyToken, stepbyLoginResult32.detail)
 
-  let ryStatsOk = false
-  let ryStatsDetail = ''
-  if (ryToken) {
+  let stepbyStatsOk = false
+  let stepbyStatsDetail = ''
+  if (stepbyToken) {
     try {
       const resp = await fetch(`${CONFIG.backendUrl}/monitor/operlog/stats?days=7`, {
-        headers: { Authorization: `Bearer ${ryToken}` }
+        headers: { Authorization: `Bearer ${stepbyToken}` }
       })
       const data = await resp.json().catch(() => null)
-      // ry 应有 monitor:audit:list 权限（通过菜单 120 关联），不应返回 403
-      ryStatsOk = resp.status !== 403 && data?.code === 200
-      ryStatsDetail = `status=${resp.status}, code=${data?.code}`
+      // stepby 应有 monitor:audit:list 权限（通过菜单 120 关联），不应返回 403
+      stepbyStatsOk = resp.status !== 403 && data?.code === 200
+      stepbyStatsDetail = `status=${resp.status}, code=${data?.code}`
     } catch (err) {
-      ryStatsDetail = `异常: ${err.message.slice(0, 80)}`
+      stepbyStatsDetail = `异常: ${err.message.slice(0, 80)}`
     }
   } else {
-    ryStatsDetail = '依赖前置步骤失败'
+    stepbyStatsDetail = '依赖前置步骤失败'
   }
-  record(32, 'ry GET /operlog/stats（monitor:audit:list）', ryStatsOk, ryStatsDetail)
+  record(32, 'stepby GET /operlog/stats（monitor:audit:list）', stepbyStatsOk, stepbyStatsDetail)
 
-  let ryReportOk = false
-  let ryReportDetail = ''
-  if (ryToken) {
+  let stepbyReportOk = false
+  let stepbyReportDetail = ''
+  if (stepbyToken) {
     try {
       const resp = await fetch(`${CONFIG.backendUrl}/monitor/operlog/compliance-report?days=7`, {
-        headers: { Authorization: `Bearer ${ryToken}` }
+        headers: { Authorization: `Bearer ${stepbyToken}` }
       })
       const data = await resp.json().catch(() => null)
-      ryReportOk = resp.status !== 403 && data?.code === 200
-      ryReportDetail = `status=${resp.status}, code=${data?.code}`
+      stepbyReportOk = resp.status !== 403 && data?.code === 200
+      stepbyReportDetail = `status=${resp.status}, code=${data?.code}`
     } catch (err) {
-      ryReportDetail = `异常: ${err.message.slice(0, 80)}`
+      stepbyReportDetail = `异常: ${err.message.slice(0, 80)}`
     }
   } else {
-    ryReportDetail = '依赖前置步骤失败'
+    stepbyReportDetail = '依赖前置步骤失败'
   }
-  record(32, 'ry GET /operlog/compliance-report（monitor:audit:list）', ryReportOk, ryReportDetail)
+  record(32, 'stepby GET /operlog/compliance-report（monitor:audit:list）', stepbyReportOk, stepbyReportDetail)
 
   // ---------- 步骤 6：无 token 鉴权 ----------
   let noTokenOk = false
@@ -5679,9 +5679,9 @@ async function testFeature32(page) {
     results.find((r) => r.feature === 32 && r.name === 'admin GET /operlog/compliance-report 响应结构')?.passed ||
       false,
     results.find((r) => r.feature === 32 && r.name === 'days 参数边界（1/365/1000）')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'ry 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'ry GET /operlog/stats（monitor:audit:list）')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'ry GET /operlog/compliance-report（monitor:audit:list）')
+    results.find((r) => r.feature === 32 && r.name === 'stepby 登录获取 token')?.passed || false,
+    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/stats（monitor:audit:list）')?.passed || false,
+    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/compliance-report（monitor:audit:list）')
       ?.passed || false,
     results.find((r) => r.feature === 32 && r.name === '无 token 鉴权 401')?.passed || false
   ]
@@ -15824,15 +15824,15 @@ async function testFeature75(page) {
     if (!csUid) return
 
     // ---------- B. 提交示例单据（管理员自提交会触发全链自审拒绝，故用普通角色提交） ----------
-    const { token: ryToken } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-    if (!ryToken) {
-      record(75, 'B1 ry 登录获取 token', false, '登录失败')
+    const { token: stepbyToken } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+    if (!stepbyToken) {
+      record(75, 'B1 stepby 登录获取 token', false, '登录失败')
       return
     }
-    const ryHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${ryToken}` }
+    const stepbyHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${stepbyToken}` }
     const submit = await api('/system/flow/demo/submit', {
       method: 'POST',
-      headers: ryHeaders,
+      headers: stepbyHeaders,
       body: JSON.stringify({
         title: docTitle,
         leaveType: 'annual',
@@ -15876,7 +15876,7 @@ async function testFeature75(page) {
       headers: jsonHeaders,
       body: JSON.stringify({ action: 'approve', comment: 'e2e75-1' })
     })
-    const mine1 = await api('/system/flow/mine?pageNum=1&pageSize=50', { headers: ryHeaders })
+    const mine1 = await api('/system/flow/mine?pageNum=1&pageSize=50', { headers: stepbyHeaders })
     const docAfter1 = mine1.rows?.find((r) => Number(r.docId) === docId)
     record(
       75,
@@ -15988,15 +15988,15 @@ async function testFeature75(page) {
     // ---------- Z. 清理（写路径闭环自清理） ----------
     // 撤回单据（撤回后 pending 待办转 cancelled，不残留待办）
     if (docId) {
-      const { token: ryToken2 } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-      if (ryToken2) {
+      const { token: stepbyToken2 } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+      if (stepbyToken2) {
         await api(
           `/system/flow/demo/${docId}/withdraw`,
-          { method: 'POST', headers: { Authorization: `Bearer ${ryToken2}` } }
+          { method: 'POST', headers: { Authorization: `Bearer ${stepbyToken2}` } }
         ).catch(() => {})
       }
       const mineAfter = await api('/system/flow/mine?pageNum=1&pageSize=50', {
-        headers: { Authorization: `Bearer ${ryToken2}` }
+        headers: { Authorization: `Bearer ${stepbyToken2}` }
       })
       const st = mineAfter.rows?.find((r) => Number(r.docId) === docId)?.status
       log(`  清理复核：单据 ${docId} 终态=${st}`)
