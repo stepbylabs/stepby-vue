@@ -42,8 +42,6 @@ export default {
     wechat: '微信：',
     alipay: '支付宝：',
     changelog: '更新日志',
-    donate: '捐赠支持',
-    donateTip: '你可以请作者喝杯咖啡表示鼓励',
     weekNew: '本周新增',
     failIpCount: '失败 IP 数',
     quickEntry: {

@@ -42,8 +42,6 @@ export default {
     wechat: 'WeChat:',
     alipay: 'Alipay:',
     changelog: 'Changelog',
-    donate: 'Donate',
-    donateTip: 'You can buy the author a coffee to show support',
     weekNew: 'New this week',
     failIpCount: 'Failed IPs',
     quickEntry: {
