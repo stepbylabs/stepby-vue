@@ -180,6 +180,9 @@ export default {
     }
   },
   layout: {
+    tabbar: {
+      mine: 'Mine'
+    },
     forceLogoutMessage: 'You have been forced offline by an administrator. Please log in again.',
     tour: {
       sidebarTitle: 'Sidebar Menu',

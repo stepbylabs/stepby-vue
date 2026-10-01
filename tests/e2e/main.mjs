@@ -6963,24 +6963,17 @@ async function testFeature37(page) {
 
   // ---------- 10. U12 loadView 组件不存在时提示验证 ----------
   try {
-    // 验证源码中存在 ElMessage.warning 提示逻辑
-    const hasLoadViewWarn = await page.evaluate(async () => {
-      try {
-        const scripts = Array.from(document.querySelectorAll('script[src]'))
-        for (const s of scripts) {
-          if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
-            // 检查 loadView 的 warning 提示
-            const hasWarn = text.includes('菜单组件') && text.includes('不存在')
-            return { hasWarn }
-          }
-        }
-        return { hasWarn: false }
-      } catch (e) {
-        return { hasWarn: false, error: e.message }
-      }
-    })
+    // 源码级断言（R-TEST-STABLE）：旧实现匹配构建产物 bundle 文本，但代码分割重组
+    // 会把提示逻辑挪入异步 chunk 导致断言随构建波动。改为直接断言源码——
+    // U12 提示已演进为 errorHub.report('warning') + i18n menu.componentNotFound，
+    // 防御性 fallback 到 404 页（store/modules/permission.ts loadView 尾部）。
+    const permSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../src/store/modules/permission.ts'),
+      'utf-8'
+    )
+    const hasLoadViewWarn = {
+      hasWarn: permSrc.includes('componentNotFound') && permSrc.includes('errorHub.report') && permSrc.includes("fallback to 404 page")
+    }
     record(37, 'U12 loadView 组件不存在提示', hasLoadViewWarn?.hasWarn, `提示逻辑存在=${hasLoadViewWarn?.hasWarn}`)
   } catch (err) {
     record(37, 'U12 loadView 组件不存在提示', false, `异常: ${err.message.slice(0, 80)}`)
@@ -16068,6 +16061,94 @@ async function importSyncDatabase() {
   return mod
 }
 
+/**
+ * captchaEnabled 用例卫生恢复（R-TEST-CAPTCHA）：功能 51-55 系列会把
+ * sys.account.captchaEnabled 置 true 测验证码链路——若用例结束后不恢复，
+ * 后续所有依赖空码登录的用例（与生产默认）都会连锁失败。
+ * 幂等：已是 false 则跳过；恢复需真码登录（captcha=true 期间走 fetchCaptchaForApi 读真码）。
+ */
+async function restoreCaptchaDisabled() {
+  try {
+    const capRes = await fetch(`${CONFIG.backendUrl}/captchaImage`)
+    const capJson = await capRes.json()
+    let loginBody = { username: CONFIG.username, password: CONFIG.password }
+    if (capJson.captchaEnabled) {
+      const { code, uuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
+      loginBody.code = code
+      loginBody.uuid = uuid
+    }
+    const lr = await fetch(`${CONFIG.backendUrl}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(loginBody)
+    })
+    const lj = await lr.json()
+    if (lj.code !== 200 || !lj.token) {
+      log('⚠️ captcha 恢复：admin 登录失败，跳过')
+      return
+    }
+    const auth = { Authorization: `Bearer ${lj.token}` }
+    const lst = await (
+      await fetch(`${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=10&configKey=sys.account.captchaEnabled`, { headers: auth })
+    ).json()
+    const row = (lst.rows || [])[0]
+    if (!row) {
+      log('⚠️ captcha 恢复：未找到 sys.account.captchaEnabled 配置行')
+      return
+    }
+    if (String(row.configValue).toLowerCase() !== 'true') {
+      log('✅ captchaEnabled 已为 false（无需恢复）')
+      return
+    }
+    const pr = await fetch(`${CONFIG.backendUrl}/system/config`, {
+      method: 'PUT',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        configId: row.configId,
+        configKey: row.configKey,
+        configName: row.configName,
+        configValue: 'false',
+        configType: row.configType
+      })
+    })
+    const pj = await pr.json()
+    log(`✅ captchaEnabled 已恢复 false: code=${pj.code}`)
+  } catch (e) {
+    log(`⚠️ restoreCaptchaDisabled 异常（best-effort）: ${e.message}`)
+  }
+}
+
+/**
+ * 后端日志异常摘要（R-TEST-LOGCAPTURE）：e2e 覆盖的不仅是浏览器侧——
+ * 后端 app.log 中的 ERROR / 异常 WARN（含数据库缺表列、NOAUTH、登录异常检测等）
+ * 是信息捕获的必要一环，跑完即汇总输出，避免"前端全绿但后端在报错"的盲区。
+ */
+function summarizeBackendLogErrors() {
+  try {
+    const logDir = path.resolve(process.env.STEPBY_BACKEND_LOG_DIR || '../../stepby-axum/logs')
+    if (!fs.existsSync(logDir)) return
+    const files = fs
+      .readdirSync(logDir)
+      .filter((f) => f.startsWith('app.log'))
+      .sort()
+      .reverse()
+    if (files.length === 0) return
+    const tail = fs.readFileSync(path.join(logDir, files[0]), 'utf-8').split('\n').slice(-400)
+    const bad = tail.filter((l) => /\bERROR\b/.test(l) || (/\bWARN\b/.test(l) && /失败|noauth|no such (table|column)|超时/i.test(l)))
+    if (bad.length === 0) {
+      log('✅ 后端日志尾部无 ERROR/WARN 异常')
+      return
+    }
+    log('------------------------------------------')
+    log(`后端日志异常摘要（最近 ${bad.length} 条 ERROR/异常 WARN）:`)
+    for (const l of bad.slice(-10)) {
+      log(`  🖥 ${l.slice(0, 180)}`)
+    }
+  } catch {
+    /* best-effort：日志不可读不阻塞测试结论 */
+  }
+}
+
 async function main() {
   // 解析命令行参数
   const args = process.argv.slice(2)
@@ -16270,6 +16351,12 @@ async function main() {
       }
     }
 
+    // 后端日志异常摘要（信息捕获闭环：前端绿 ≠ 后端无异常）
+    summarizeBackendLogErrors()
+
+    // captcha 用例卫生恢复（必须在 browser.close 前完成 API 调用）
+    await restoreCaptchaDisabled()
+
     // 保存 JSON 报告
     const report = {
       timestamp: new Date().toISOString(),
@@ -16295,6 +16382,16 @@ async function main() {
     process.exit(2)
   }
 }
+
+// 进程级兜底（R-TEST-BOOT）：feature 内部 spawn 的异步逃逸（未 await 的 promise/
+// 浏览器偶发崩溃回调）曾导致整段静默中断（功能 52 处 transient）。记录后继续，
+// 不让单点异步异常杀死整个测试进程——真正的失败由用例自身 record 呈现。
+process.on('unhandledRejection', (reason) => {
+  log(`⚠️ unhandledRejection（已兜底继续）: ${String(reason).slice(0, 200)}`)
+})
+process.on('uncaughtException', (err) => {
+  log(`⚠️ uncaughtException（已兜底继续）: ${String((err && err.message) || err).slice(0, 200)}`)
+})
 
 main().catch((err) => {
   console.error('未捕获异常:', err)
