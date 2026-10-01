@@ -1,0 +1,509 @@
+@use './mixin.scss';
+@use './transition.scss';
+@use './element-ui.scss';
+@use './sidebar.scss';
+@use './btn.scss';
+@use './stepby.scss';
+
+body {
+  height: 100%;
+  margin: 0;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-family:
+    Helvetica Neue,
+    Helvetica,
+    PingFang SC,
+    Hiragino Sans GB,
+    Microsoft YaHei,
+    Arial,
+    sans-serif;
+}
+
+label {
+  font-weight: 700;
+}
+
+html {
+  height: 100%;
+  box-sizing: border-box;
+  color-scheme: light;
+
+  // Element Plus 暗色类（useDark 挂在 html.dark）——告知 UA/浏览器页面已适配暗色
+  &.dark {
+    color-scheme: dark;
+  }
+}
+
+/* D9（UX-RESPONSIVE-PLAN 阶段三）：safe-area 环境变量（刘海屏/Home Indicator）。
+   viewport-fit=cover 后浏览器在无刘海设备返回 0，桌面恒 0，零副作用。
+   说明：顶部（状态栏）联动导航栏高度需真机联调，本批先落左右/底部。 */
+:root {
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#app {
+  height: 100%;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+// 遗留工具类：新代码优先使用 Tailwind 工具类（如 p-0 / float-right / float-left / block / cursor-pointer / text-center）
+// 以下类名保留是为了向后兼容现有模板引用
+.no-padding {
+  padding: 0px !important;
+}
+
+.padding-content {
+  padding: 4px 0;
+}
+
+a,
+a:focus,
+a:hover {
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+
+// 键盘可访问性：保留 :focus-visible 焦点样式，不全局移除 outline
+:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+.fr {
+  float: right;
+}
+
+.fl {
+  float: left;
+}
+
+.block {
+  display: block;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.inlineBlock {
+  display: block;
+}
+
+.clearfix {
+  &:after {
+    visibility: hidden;
+    display: block;
+    font-size: 0;
+    content: ' ';
+    clear: both;
+    height: 0;
+  }
+}
+
+aside {
+  background: var(--el-fill-color-light);
+  padding: 8px 24px;
+  margin-bottom: 20px;
+  border-radius: 2px;
+  display: block;
+  line-height: 32px;
+  font-size: 16px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans',
+    'Helvetica Neue', sans-serif;
+  color: var(--el-text-color-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  a {
+    color: var(--el-color-primary);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--el-color-primary-light-3);
+    }
+  }
+}
+
+//main-container全局样式
+.app-container {
+  padding: 20px;
+}
+
+.components-container {
+  margin: 30px 50px;
+  position: relative;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.sub-navbar {
+  height: 50px;
+  line-height: 50px;
+  position: relative;
+  width: 100%;
+  text-align: right;
+  padding-right: 20px;
+  transition: 600ms ease position;
+  background: linear-gradient(
+    90deg,
+    rgba(32, 182, 249, 1) 0%,
+    rgba(32, 182, 249, 1) 0%,
+    rgba(33, 120, 241, 1) 100%,
+    rgba(33, 120, 241, 1) 100%
+  );
+
+  .subtitle {
+    font-size: 20px;
+    color: var(--el-color-white);
+  }
+
+  &.draft {
+    background: var(--el-fill-color-dark);
+  }
+
+  &.deleted {
+    background: var(--el-fill-color-dark);
+  }
+}
+
+.link-type,
+.link-type:focus {
+  color: var(--el-color-primary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--el-color-primary-light-3);
+  }
+}
+
+.filter-container {
+  padding-bottom: 10px;
+
+  .filter-item {
+    display: inline-block;
+    vertical-align: middle;
+    margin-bottom: 10px;
+  }
+}
+
+/**
+ * 响应式优化：移动端适配
+ * 以下规则通过媒体查询在小屏幕上优化 Element Plus 组件的显示，
+ * 因 el-dialog/el-form 等组件通过 teleport 渲染或深层 DOM 结构，
+ * Tailwind 的响应式前缀无法直接作用，故使用全局 CSS 媒体查询。
+ */
+@media (max-width: 768px) {
+  // el-dialog 在移动端全屏显示，避免固定宽度超出屏幕
+  .el-dialog {
+    width: 95% !important;
+    margin: 5vh auto !important;
+  }
+
+  // el-dialog 的 body 内边距缩小
+  .el-dialog__body {
+    padding: 16px 16px;
+  }
+
+  // 内联搜索表单在移动端垂直排列
+  .el-form--inline .el-form-item {
+    display: flex;
+    margin-right: 0;
+    margin-bottom: 12px;
+    width: 100%;
+  }
+
+  // app-container 内边距缩小
+  .app-container {
+    padding: 12px;
+  }
+
+  // el-table 在移动端缩小字体
+  .el-table {
+    font-size: 12px;
+
+    .el-button {
+      padding: 7px 10px;
+    }
+  }
+
+  // el-card body 内边距缩小
+  .el-card__body {
+    padding: 12px;
+  }
+
+  // UX-10：窄屏表格改为「横向滚动」而非挤压列宽
+  // 挤压会把多列内容换行成高耸行、按钮重叠难以点击；改为单元格不换行 +
+  // 容器横向滚动，用户可左右滑动查看完整列（配合已有的 fixed 操作列）。
+  .el-table {
+    // 单元格内容不换行，保证列宽稳定、行高可控
+    .cell {
+      white-space: nowrap;
+    }
+
+    // 表体/表头允许横向滚动（el-table 默认会自行计算宽度，此处补触摸滚动体验）
+    .el-table__body-wrapper,
+    .el-table__header-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    // 滚动条在移动端更明显，便于发现可横滑
+    .el-table__body-wrapper::-webkit-scrollbar {
+      height: 6px;
+    }
+
+    .el-table__body-wrapper::-webkit-scrollbar-thumb {
+      background-color: var(--el-border-color-darker, #c0c4cc);
+      border-radius: 3px;
+    }
+  }
+
+  // S5（UX-RESPONSIVE-PLAN）：el-message-box 默认 420px，手机视口下溢出——收窄为 92%
+  .el-message-box {
+    width: 92% !important;
+    max-width: 420px;
+  }
+
+  // S5：树面板页（左树右表）在手机上改为上下堆叠，避免树把内容区挤压成窄条
+  .tree-sidebar-manage-wrap {
+    flex-direction: column;
+  }
+
+  // D8 附带修复：Dialog 内两列表单（el-col-12）在手机上堆叠为单列——
+  // 375px 下两列各 ~170px，列内说明文字会被挤压成一字一行竖排（截图核查实锤）
+  .el-dialog .el-row {
+    .el-col-12,
+    .el-col-sm-12,
+    .el-col-md-12 {
+      max-width: 100%;
+      flex: 0 0 100%;
+    }
+
+    .el-form-item__content {
+      width: 100%;
+    }
+  }
+
+  .tree-sidebar {
+    width: 100% !important;
+    border-right: none;
+    border-bottom: 1px solid var(--el-border-color-light);
+
+    // 折叠态收为横条；展开态限高，避免树把表格推到首屏之外
+    &.collapsed {
+      max-height: 48px;
+    }
+
+    &:not(.collapsed) {
+      max-height: 240px;
+    }
+
+    // 拖拽调宽手柄在触屏上无意义
+    .resize-handle {
+      display: none;
+    }
+  }
+}
+
+/* D9（UX-RESPONSIVE-PLAN 阶段三）：手机档 safe-area——
+   左右（横屏刘海）作用于抽屉/内容边距，底部（Home Indicator）作用于内容区与抽屉菜单。 */
+.app-wrapper.mobile {
+  .app-main {
+    padding-bottom: calc(56px + var(--safe-bottom, 0px)); // MobileTabBar 高度留白，防末行被遮
+  }
+
+  .sidebar-container {
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+  }
+
+  /* MOBILE-UX-GUIDELINES 三-3：表单 label 上置（PC/平板不受影响——限定 .mobile 档）。
+     label 块级显示在控件上方、控件全宽，替代左置 label 在窄屏下的挤压。
+     【样式豁免】el-form-item__label/content 为 Element Plus 深层 DOM，无法挂 Tailwind 类，
+     依 AGENTS.md 样式规范第 3 档豁免使用 SCSS 覆盖。 */
+  .el-form-item {
+    display: block;
+
+    > .el-form-item__label {
+      display: block;
+      width: 100% !important;
+      max-width: 100% !important;
+      height: auto;
+      line-height: 1.5;
+      padding-bottom: 4px;
+      text-align: left;
+      justify-content: flex-start;
+    }
+
+    > .el-form-item__content {
+      width: 100%;
+      margin-left: 0 !important;
+    }
+  }
+}
+
+/* D8 真机核查：表单构建页的移动端降级提示横幅
+   （间距已用 Tailwind m-3；此选择器仅为后续豁免样式预留钩子，当前无声明） */
+
+/* Auth 页 Aurora 科技背景（login/register/oauthlogin/consent 四页共用）。
+   【样式豁免】keyframes 漂浮动画 + 暗色主题级联（AGENTS.md 样式规范第 3 档合法场景）。
+   结构：深空渐变底 + 两枚 blur 光斑缓慢漂浮 + 细网格纹理（mask 渐隐）。
+   性能：移动端光斑静止（blur 大面积动画耗电）；prefers-reduced-motion 由全局规则接管。 */
+.auth-aurora {
+  background: radial-gradient(ellipse at 28% 18%, #1d2a4e 0%, #0b1020 62%);
+
+  .aurora-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.5;
+    pointer-events: none;
+
+    &.aurora-1 {
+      width: 520px;
+      height: 520px;
+      background: #4f6ef7;
+      top: -12%;
+      left: -6%;
+      animation: aurora-drift-1 22s ease-in-out infinite alternate;
+    }
+
+    &.aurora-2 {
+      width: 440px;
+      height: 440px;
+      background: #22d3ee;
+      bottom: -16%;
+      right: -8%;
+      animation: aurora-drift-2 26s ease-in-out infinite alternate;
+    }
+  }
+
+  .aurora-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, black 28%, transparent 74%);
+  }
+}
+
+@keyframes aurora-drift-1 {
+  to {
+    transform: translate(130px, 90px) scale(1.15);
+  }
+}
+
+@keyframes aurora-drift-2 {
+  to {
+    transform: translate(-110px, -70px) scale(0.9);
+  }
+}
+
+.app-wrapper.mobile .aurora-blob {
+  animation: none; // 移动端光斑静止，省电防卡
+}
+
+/* D8（UX-RESPONSIVE-PLAN 阶段三）：移动端表格卡片模式。
+   激活条件（三重 AND，缺一回落横滚）：userPrefs.mobileTableCards 开启（默认关）
+   + 手机档（.app-wrapper.mobile）+ 表格非合并表头（运行时注入 .no-mobile-cards）。
+   实现方式：隐藏表头，行转为卡片，列名经运行时注入的 td[data-label] 由 ::before 显示。 */
+html.mobile-table-cards-on .app-wrapper.mobile {
+  .el-table:not(.no-mobile-cards) {
+    display: block;
+    height: auto !important;
+    overflow: visible;
+
+    .el-table__header-wrapper,
+    colgroup {
+      display: none;
+    }
+
+    .el-scrollbar,
+    .el-scrollbar__wrap,
+    .el-scrollbar__view {
+      display: block;
+      overflow: visible !important;
+    }
+
+    .el-table__body {
+      display: block;
+      width: 100% !important;
+      margin: 0;
+    }
+
+    table,
+    tbody {
+      display: block;
+      width: 100% !important;
+    }
+
+    tbody tr.el-table__row {
+      display: block;
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--el-border-color-light);
+      border-radius: 10px;
+      background: var(--el-bg-color-overlay);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); // MOBILE-UX-GUIDELINES：卡片层级
+
+      &:hover > td.el-table__cell {
+        background: transparent;
+      }
+    }
+
+    td.el-table__cell {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 4px;
+      border-bottom: 1px dashed var(--el-border-color-lighter);
+      position: static !important; // 失效 fixed 列的 sticky 定位，卡片内自然流式
+
+      &::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        max-width: 45%;
+        font-weight: 600;
+        color: var(--el-text-color-secondary);
+        font-size: 12px;
+      }
+
+      .cell {
+        white-space: normal;
+        word-break: break-word;
+        text-align: right;
+      }
+
+      // 多选列/无列名单元格：紧凑居左（如行首 checkbox）
+      &:not([data-label]) .cell {
+        text-align: left;
+      }
+
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+  }
+
+  // 合并表头的表格无法可靠映射列名 → 维持横向滚动策略
+  .el-table.no-mobile-cards .cell {
+    white-space: nowrap;
+  }
+}
