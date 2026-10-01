@@ -1,6 +1,6 @@
 /**
  * 通用js方法封装处理
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  */
 
 import i18n from '@/i18n'

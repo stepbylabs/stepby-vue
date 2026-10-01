@@ -1,6 +1,6 @@
 /**
  * 动效预设 composable
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  *
  * 用途：封装 @vueuse/motion 常用动效预设，统一管理入场/交互动效
  * 配合 v-motion 指令使用，提供声明式动效

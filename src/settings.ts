@@ -64,5 +64,5 @@ export default {
   /**
    * 底部版权文本内容
    */
-  footerContent: 'Copyright © 2024-2026 Stepby. All Rights Reserved.'
+  footerContent: 'Copyright © 2026 Stepby. All Rights Reserved.'
 }

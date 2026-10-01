@@ -1,6 +1,6 @@
 /**
  * v-hasPermi 操作权限处理
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  */
 import useUserStore from '@/store/modules/user'
 

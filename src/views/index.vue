@@ -159,7 +159,7 @@ import { useChart, readCssVar } from '@/composables/useChart'
 import useSettingsStore from '@/store/modules/settings'
 import request from '@/utils/request'
 
-const version = ref<string>(__APP_VERSION__ || '3.9.2')
+const version = ref<string>(__APP_VERSION__ || '0.1.0')
 const chartRef = ref<HTMLElement | null>(null)
 const loading = ref(false)
 // U20 优化：图表加载错误状态

@@ -1,6 +1,6 @@
 /**
  * 菜单收藏夹 composable
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  *
  * 用途：在侧边栏右键收藏常用菜单，顶栏快速跳转
  * 存储：localStorage，按用户 ID 隔离

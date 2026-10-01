@@ -1,6 +1,6 @@
 /**
  * 全局快捷键组合式函数
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  *
  * 基于 @vueuse/core 的 useMagicKeys，无需新增依赖
  *

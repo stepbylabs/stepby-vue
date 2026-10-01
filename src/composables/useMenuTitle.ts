@@ -1,6 +1,6 @@
 /**
  * 菜单标题翻译 composable
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  *
  * 用途：统一处理菜单标题的 i18n 翻译
  * - 优先使用 meta.i18nKey 调用 t() 翻译（响应式跟随 locale）

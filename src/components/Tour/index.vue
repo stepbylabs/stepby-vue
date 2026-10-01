@@ -43,7 +43,7 @@
 <script setup lang="ts">
 /**
  * 新手引导 Tour 组件
- * Copyright (c) 2024-2026 Stepby
+ * Copyright (c) 2026 Stepby
  *
  * 轻量级实现（无外部依赖），通过 selector 定位元素并展示引导提示
  *
