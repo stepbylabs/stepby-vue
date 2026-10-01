@@ -57,8 +57,8 @@ const CONFIG = {
   backendUrl: process.env.BACKEND_URL || BASE_URL,
   username: TEST_USER,
   password: TEST_PASS,
-  // P2 修复: 次要账号支持环境变量覆盖，避免硬编码 'ry' 用户名
-  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'ry',
+  // P2 修复: 次要账号支持环境变量覆盖，避免硬编码 'stepby' 用户名
+  secondaryUsername: process.env.STEPBY_TEST_USER_SECONDARY || 'stepby',
   secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || TEST_PASS,
   screenshotDir: path.resolve(__dirname, 'screenshots'),
   // P2 修复: headless 默认开启（无人值守安全默认，避免弹有头窗口挂机）；
@@ -3164,11 +3164,11 @@ async function testModule8(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
-// ==================== 模块 9: 权限隔离深度测试（ry 用户）====================
+// ==================== 模块 9: 权限隔离深度测试（stepby 用户）====================
 
 async function testModule9(page, consoleErrors, pageErrors) {
   const M = 9
-  log(`\n=== 模块 ${M}: 权限隔离深度测试（ry 用户）===`)
+  log(`\n=== 模块 ${M}: 权限隔离深度测试（stepby 用户）===`)
 
   // 先登出当前用户（避免已登录状态导致 /login 重定向）
   try {
@@ -3191,7 +3191,7 @@ async function testModule9(page, consoleErrors, pageErrors) {
   // 9.0 测试前置：通过角色管理 API 将 common(role_id=2) 收紧为"仅页面可见"（剔除全部 F 按钮权限）
   // 背景：初始迁移（m20250711_000001_init.rs）把全部菜单关联给普通角色（含全站写权限），
   // 与"普通角色只读"的隔离测试预期不符（详见专题文档安全发现登记）。
-  // 此处真实调用角色重分配 API（幂等），把 ry 恢复为纯只读后，再验证前端/后端隔离机制本身。
+  // 此处真实调用角色重分配 API（幂等），把 stepby 恢复为纯只读后，再验证前端/后端隔离机制本身。
   try {
     const adminToken = await getApiToken()
     if (adminToken) {
@@ -3215,38 +3215,38 @@ async function testModule9(page, consoleErrors, pageErrors) {
         const putBody = await putResp.json().catch(() => ({}))
         record(
           M,
-          '测试前置: ry 权限收紧为只读',
+          '测试前置: stepby 权限收紧为只读',
           putResp.status === 200 && putBody.code === 200,
           `HTTP ${putResp.status} code=${putBody.code}, 目标 ${newIds.length} 项（全部页面+只读按钮）`
         )
       } else {
-        record(M, '测试前置: ry 权限收紧为只读', false, `menu=${menuResp.status}`)
+        record(M, '测试前置: stepby 权限收紧为只读', false, `menu=${menuResp.status}`)
       }
     } else {
-      record(M, '测试前置: ry 权限收紧为只读', false, 'admin token 获取失败')
+      record(M, '测试前置: stepby 权限收紧为只读', false, 'admin token 获取失败')
     }
   } catch (e) {
-    record(M, '测试前置: ry 权限收紧为只读', false, `异常: ${e.message.slice(0, 80)}`)
+    record(M, '测试前置: stepby 权限收紧为只读', false, `异常: ${e.message.slice(0, 80)}`)
   }
 
-  // 登录 ry 用户
+  // 登录 stepby 用户
   const loginSuccess = await login(page, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
   if (!loginSuccess) {
-    record(M, '模块执行', false, 'ry 用户登录失败')
+    record(M, '模块执行', false, 'stepby 用户登录失败')
     return
   }
 
-  // 9.1 ry 用户菜单可见性验证
-  // ry 用户拥有 "common" 角色，具有只读系统权限（system:*:list, system:*:query），
+  // 9.1 stepby 用户菜单可见性验证
+  // stepby 用户拥有 "common" 角色，具有只读系统权限（system:*:list, system:*:query），
   // 但不应有写权限（system:*:add, system:*:edit, system:*:remove）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M })
   const sidebarMenus = await page.locator('.el-menu .el-sub-menu__title, .el-menu .el-menu-item').allInnerTexts()
   const menuText = sidebarMenus.join(' ')
-  // ry 用户应能看到部分菜单（如系统管理列表页），但菜单数量应少于 admin
+  // stepby 用户应能看到部分菜单（如系统管理列表页），但菜单数量应少于 admin
   const hasAnyMenu = sidebarMenus.length > 0
-  record(M, 'ry 用户: 菜单加载', hasAnyMenu, `${sidebarMenus.length} 个菜单项`)
+  record(M, 'stepby 用户: 菜单加载', hasAnyMenu, `${sidebarMenus.length} 个菜单项`)
 
-  // 9.2 ry 用户访问有权限的页面（list 权限）
+  // 9.2 stepby 用户访问有权限的页面（list 权限）
   const allowedPages = [
     { url: '/system/config', name: '参数设置', checkWrite: true },
     { url: '/system/dict', name: '字典管理', checkWrite: true },
@@ -3255,7 +3255,7 @@ async function testModule9(page, consoleErrors, pageErrors) {
   ]
   for (const p of allowedPages) {
     const ok = await safeGoto(page, `${CONFIG.frontendUrl}${p.url}`, { moduleName: M })
-    record(M, `ry 用户访问 ${p.name}`, ok)
+    record(M, `stepby 用户访问 ${p.name}`, ok)
     // 对于有 list 权限但无写权限的页面，验证新增按钮是否被隐藏
     if (ok && p.checkWrite) {
       const hasAddBtn = await page
@@ -3265,14 +3265,14 @@ async function testModule9(page, consoleErrors, pageErrors) {
         .catch(() => false)
       record(
         M,
-        `ry 用户 ${p.name}: 新增按钮隐藏`,
+        `stepby 用户 ${p.name}: 新增按钮隐藏`,
         !hasAddBtn,
         hasAddBtn ? '新增按钮可见（权限隔离失败）' : '新增按钮已隐藏'
       )
     }
   }
 
-  // 9.3 ry 用户访问无权限的写操作应被拒绝
+  // 9.3 stepby 用户访问无权限的写操作应被拒绝
   // 通过 API 验证写操作权限隔离
   // 注意：嵌入式模式下 VITE_APP_BASE_API=''（同源访问），开发模式下为 '/dev-api'
   // 通过 window.__APP_BASE_API__ 或从 cookie 读取 token 后直接请求根路径
@@ -3305,13 +3305,13 @@ async function testModule9(page, consoleErrors, pageErrors) {
       }
       return { status: 0, body: {} }
     })
-    // 权限隔离：ry 用户无 system:user:add 权限，应返回 403（已认证但无权限）
+    // 权限隔离：stepby 用户无 system:user:add 权限，应返回 403（已认证但无权限）
     // 401 也算隔离生效（token 未正确传递或已过期），但不是理想情况
     const isRejected =
       writeResp.status === 403 ||
       writeResp.status === 401 ||
       (writeResp.body && (writeResp.body.code === 403 || writeResp.body.code === 401))
-    record(M, 'ry 用户: 写操作权限隔离', isRejected, `status=${writeResp.status}, code=${writeResp.body?.code}`)
+    record(M, 'stepby 用户: 写操作权限隔离', isRejected, `status=${writeResp.status}, code=${writeResp.body?.code}`)
 
     // M-1 验证：权限拒绝事件应写入 sys_oper_log 审计日志
     // 等待 1.5s 让后端 spawn 的审计日志写入完成（best-effort，不阻断 403 响应）
@@ -3339,7 +3339,7 @@ async function testModule9(page, consoleErrors, pageErrors) {
       })
       const rows = auditResp?.body?.rows || auditResp?.body?.data?.rows || []
       // 检查是否存在权限拒绝的审计记录（error_msg 包含 "permission denied" 或 "权限拒绝"）
-      // 注意：ry 用户查询 operlog 也需要权限，可能返回 403，此时跳过验证
+      // 注意：stepby 用户查询 operlog 也需要权限，可能返回 403，此时跳过验证
       const hasAudit = rows.some((r) => {
         const errMsg = r.errorMsg || r.error_msg || ''
         return /permission denied|权限拒绝/i.test(errMsg)
@@ -3348,32 +3348,32 @@ async function testModule9(page, consoleErrors, pageErrors) {
       if (auditAccessible) {
         record(
           M,
-          'ry 用户: 权限拒绝审计日志写入',
+          'stepby 用户: 权限拒绝审计日志写入',
           hasAudit || rows.length === 0,
           hasAudit
             ? '找到权限拒绝审计记录'
             : rows.length === 0
-              ? 'ry 无 operlog 查询权限（预期）'
+              ? 'stepby 无 operlog 查询权限（预期）'
               : `最近日志无权限拒绝记录: ${rows
                   .slice(0, 2)
                   .map((r) => r.errorMsg || '')
                   .join('; ')}`
         )
       } else {
-        // ry 用户无 operlog 查询权限，跳过此验证（不记为失败）
+        // stepby 用户无 operlog 查询权限，跳过此验证（不记为失败）
         record(
           M,
-          'ry 用户: 权限拒绝审计日志写入',
+          'stepby 用户: 权限拒绝审计日志写入',
           true,
-          `ry 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`
+          `stepby 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`
         )
       }
     } catch (err) {
       // 审计日志验证为 best-effort，失败不记为失败
-      record(M, 'ry 用户: 权限拒绝审计日志写入', true, `验证异常（跳过）: ${err.message.slice(0, 80)}`)
+      record(M, 'stepby 用户: 权限拒绝审计日志写入', true, `验证异常（跳过）: ${err.message.slice(0, 80)}`)
     }
   } catch (err) {
-    record(M, 'ry 用户: 写操作权限隔离', false, `异常: ${err.message.slice(0, 80)}`)
+    record(M, 'stepby 用户: 写操作权限隔离', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -3554,7 +3554,7 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
   const M = 12
   log(`\n=== 模块 ${M}: CRUD 操作深度测试 ===`)
 
-  // M9 会登录 ry 用户，M12 需要重新登录 admin 以获得写权限
+  // M9 会登录 stepby 用户，M12 需要重新登录 admin 以获得写权限
   // 先清除 session 确保登录页可正常加载
   try {
     await page.goto(`${CONFIG.frontendUrl}/logout`, { waitUntil: 'networkidle', timeout: 10000 }).catch(() => {})
@@ -6354,125 +6354,125 @@ async function testModule29(browser, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 权限矩阵完整测试 ===`)
 
   // 29.1 admin 用户权限矩阵（已登录的 admin）
-  // 在新 context 中测试 ry 用户权限
-  const ryContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
-  const ryPage = await ryContext.newPage()
+  // 在新 context 中测试 stepby 用户权限
+  const stepbyContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const stepbyPage = await stepbyContext.newPage()
 
-  const ryConsoleErrors = []
-  ryPage.on('console', (msg) => {
+  const stepbyConsoleErrors = []
+  stepbyPage.on('console', (msg) => {
     if (msg.type() === 'error') {
       const text = msg.text()
       if (text.includes('favicon') || text.includes('manifest')) return
       if (text.includes('chrome-extension')) return
-      ryConsoleErrors.push(text)
+      stepbyConsoleErrors.push(text)
     }
   })
 
-  // 29.2 ry 用户登录（验证码捕获须在 goto 前注册，与页面显示图同源）
-  let ryLoggedIn = false
+  // 29.2 stepby 用户登录（验证码捕获须在 goto 前注册，与页面显示图同源）
+  let stepbyLoggedIn = false
   try {
-    const ryCaptchaPromise = capturePageCaptcha(ryPage)
-    await ryPage.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
-    await ryPage.waitForSelector('input', { timeout: 20000 }).catch(() => {})
+    const stepbyCaptchaPromise = capturePageCaptcha(stepbyPage)
+    await stepbyPage.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+    await stepbyPage.waitForSelector('input', { timeout: 20000 }).catch(() => {})
     await sleep(1000)
 
     // 关闭 Cookie 同意横幅
-    const cookieBtn = ryPage.locator('button:has-text("同意")').first()
+    const cookieBtn = stepbyPage.locator('button:has-text("同意")').first()
     if (await cookieBtn.isVisible({ timeout: 500 }).catch(() => false)) {
       await cookieBtn.click({ timeout: 2000 }).catch(() => {})
       await sleep(300)
     }
 
-    const userInput = ryPage
+    const userInput = stepbyPage
       .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
       .first()
     await userInput.fill(CONFIG.secondaryUsername)
-    const passInput = ryPage
+    const passInput = stepbyPage
       .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
       .first()
     await passInput.fill(CONFIG.secondaryPassword)
     // 后端启用验证码时填页面同源真码（未启用跳过）
-    await fillCaptchaOnPage(ryPage, await ryCaptchaPromise)
-    const loginBtn = ryPage.locator('button:has-text("登 录"), button:has-text("登录"), button[type="submit"]').first()
+    await fillCaptchaOnPage(stepbyPage, await stepbyCaptchaPromise)
+    const loginBtn = stepbyPage.locator('button:has-text("登 录"), button:has-text("登录"), button[type="submit"]').first()
     await loginBtn.click()
-    await ryPage.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
+    await stepbyPage.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
     await sleep(2500)
-    ryLoggedIn = !ryPage.url().includes('login')
-    record(M, 'ry 用户登录', ryLoggedIn)
+    stepbyLoggedIn = !stepbyPage.url().includes('login')
+    record(M, 'stepby 用户登录', stepbyLoggedIn)
   } catch (err) {
-    record(M, 'ry 用户登录', false, `异常: ${err.message.slice(0, 80)}`)
+    record(M, 'stepby 用户登录', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  if (ryLoggedIn) {
+  if (stepbyLoggedIn) {
     // 禁用新手引导
-    await ryPage.evaluate(() => {
+    await stepbyPage.evaluate(() => {
       try {
         localStorage.setItem('stepby-layout-tour', 'completed')
       } catch (e) {}
     })
 
-    // 29.3 ry 用户菜单可见性（仅能看到部分菜单）
-    await safeGoto(ryPage, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
-    const ryMenuItemCount = await ryPage.locator('.el-menu-item, .sidebar-item, .el-sub-menu__title').count()
-    record(M, 'ry 用户: 菜单项数量', ryMenuItemCount > 0, `${ryMenuItemCount} 个菜单项`)
+    // 29.3 stepby 用户菜单可见性（仅能看到部分菜单）
+    await safeGoto(stepbyPage, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
+    const stepbyMenuItemCount = await stepbyPage.locator('.el-menu-item, .sidebar-item, .el-sub-menu__title').count()
+    record(M, 'stepby 用户: 菜单项数量', stepbyMenuItemCount > 0, `${stepbyMenuItemCount} 个菜单项`)
 
-    // 29.4 ry 用户访问系统管理页面（部分页面应可访问）
+    // 29.4 stepby 用户访问系统管理页面（部分页面应可访问）
     const pagesToTest = [
-      { url: '/system/user', name: '用户管理', expectAccess: true }, // ry 可能可访问
+      { url: '/system/user', name: '用户管理', expectAccess: true }, // stepby 可能可访问
       { url: '/system/role', name: '角色管理', expectAccess: true },
-      { url: '/system/menu', name: '菜单管理', expectAccess: false }, // ry 无权限
+      { url: '/system/menu', name: '菜单管理', expectAccess: false }, // stepby 无权限
       { url: '/system/dict', name: '字典管理', expectAccess: true },
       { url: '/monitor/online', name: '在线用户', expectAccess: true },
       { url: '/monitor/logininfor', name: '登录日志', expectAccess: true },
-      { url: '/monitor/job', name: '定时任务', expectAccess: false }, // ry 可能无权限
-      { url: '/tool/gen', name: '代码生成', expectAccess: false } // ry 无权限
+      { url: '/monitor/job', name: '定时任务', expectAccess: false }, // stepby 可能无权限
+      { url: '/tool/gen', name: '代码生成', expectAccess: false } // stepby 无权限
     ]
 
     for (const p of pagesToTest) {
       try {
-        await ryPage.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'networkidle', timeout: 15000 })
+        await stepbyPage.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'networkidle', timeout: 15000 })
         await sleep(1500)
-        const currentUrl = ryPage.url()
+        const currentUrl = stepbyPage.url()
         // 检查是否被重定向到 403/404 或停留在首页
         const blocked =
           currentUrl.includes('/403') ||
           currentUrl.includes('/404') ||
           currentUrl.endsWith('/index') ||
           currentUrl.endsWith('/')
-        const hasContent = await ryPage
+        const hasContent = await stepbyPage
           .locator('.el-table, .app-container, .el-card')
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false)
-        record(M, `ry 用户访问: ${p.name}`, true, blocked ? '被拦截（无权限）' : hasContent ? '可访问' : '页面加载中')
+        record(M, `stepby 用户访问: ${p.name}`, true, blocked ? '被拦截（无权限）' : hasContent ? '可访问' : '页面加载中')
       } catch (err) {
-        record(M, `ry 用户访问: ${p.name}`, true, `访问异常（可能无权限）: ${err.message.slice(0, 60)}`)
+        record(M, `stepby 用户访问: ${p.name}`, true, `访问异常（可能无权限）: ${err.message.slice(0, 60)}`)
       }
     }
 
-    // 29.5 ry 用户新增按钮可见性（应隐藏）
-    await safeGoto(ryPage, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
-    const ryAddBtn = ryPage.locator('button:has-text("新增")').first()
-    const ryAddVisible = await ryAddBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    // 29.5 stepby 用户新增按钮可见性（应隐藏）
+    await safeGoto(stepbyPage, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
+    const stepbyAddBtn = stepbyPage.locator('button:has-text("新增")').first()
+    const stepbyAddVisible = await stepbyAddBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(
       M,
-      'ry 用户: 新增按钮隐藏',
-      !ryAddVisible,
-      ryAddVisible ? '新增按钮可见（ry 有新增权限）' : '新增按钮已隐藏（无权限）'
+      'stepby 用户: 新增按钮隐藏',
+      !stepbyAddVisible,
+      stepbyAddVisible ? '新增按钮可见（stepby 有新增权限）' : '新增按钮已隐藏（无权限）'
     )
 
-    // 29.6 ry 用户导出按钮可见性
-    const ryExportBtn = ryPage.locator('button:has-text("导出")').first()
-    const ryExportVisible = await ryExportBtn.isVisible({ timeout: 2000 }).catch(() => false)
-    record(M, 'ry 用户: 导出按钮隐藏', !ryExportVisible, ryExportVisible ? '导出按钮可见' : '导出按钮已隐藏')
+    // 29.6 stepby 用户导出按钮可见性
+    const stepbyExportBtn = stepbyPage.locator('button:has-text("导出")').first()
+    const stepbyExportVisible = await stepbyExportBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    record(M, 'stepby 用户: 导出按钮隐藏', !stepbyExportVisible, stepbyExportVisible ? '导出按钮可见' : '导出按钮已隐藏')
 
-    // 29.7 ry 用户删除按钮可见性
-    const ryDelBtn = ryPage.locator('.el-table__row button:has-text("删除")').first()
-    const ryDelVisible = await ryDelBtn.isVisible({ timeout: 2000 }).catch(() => false)
-    record(M, 'ry 用户: 删除按钮隐藏', !ryDelVisible, ryDelVisible ? '删除按钮可见' : '删除按钮已隐藏')
+    // 29.7 stepby 用户删除按钮可见性
+    const stepbyDelBtn = stepbyPage.locator('.el-table__row button:has-text("删除")').first()
+    const stepbyDelVisible = await stepbyDelBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    record(M, 'stepby 用户: 删除按钮隐藏', !stepbyDelVisible, stepbyDelVisible ? '删除按钮可见' : '删除按钮已隐藏')
   }
 
-  await ryContext.close().catch(() => {})
+  await stepbyContext.close().catch(() => {})
 
   // 29.8 admin 用户权限完整性验证（在主 page 中已登录）
   // 注：此处仅记录权限矩阵测试完成，实际访问验证已在其他模块完成
@@ -6489,17 +6489,17 @@ async function testModule29(browser, consoleErrors, pageErrors) {
   record(M, 'v-hasRole 指令: 系统性验证', true, '已在 M25 中验证角色管理行数')
 
   // 29.12 越权访问测试（直接 URL 访问无权限页面）
-  record(M, '越权访问: URL 直接访问', true, 'ry 用户访问 /tool/gen 已在 29.4 中验证')
+  record(M, '越权访问: URL 直接访问', true, 'stepby 用户访问 /tool/gen 已在 29.4 中验证')
 
-  if (ryConsoleErrors.length > 0) {
+  if (stepbyConsoleErrors.length > 0) {
     record(
       M,
-      'ry 用户: 无控制台错误',
+      'stepby 用户: 无控制台错误',
       false,
-      `${ryConsoleErrors.length} 个错误: ${ryConsoleErrors.slice(0, 2).join(' || ').slice(0, 300)}`
+      `${stepbyConsoleErrors.length} 个错误: ${stepbyConsoleErrors.slice(0, 2).join(' || ').slice(0, 300)}`
     )
   } else {
-    record(M, 'ry 用户: 无控制台错误', true)
+    record(M, 'stepby 用户: 无控制台错误', true)
   }
 }
 
