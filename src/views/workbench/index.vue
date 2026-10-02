@@ -137,7 +137,7 @@
                 @click="goTo(item.fullPath)"
               >
                 <span
-                  class="recent-idx inline-block w-5 h-5 leading-5 text-center rounded text-[11px] text-text-secondary shrink-0"
+                  class="recent-idx inline-block w-5 h-5 leading-5 text-center rounded text-[12px] text-text-secondary shrink-0"
                 >
                   {{ Number(idx) + 1 }}
                 </span>
@@ -148,7 +148,7 @@
                 >
                   {{ translateItemTitle(item) }}
                 </span>
-                <span class="recent-time shrink-0 text-[11px] text-text-placeholder">
+                <span class="recent-time shrink-0 text-[12px] text-text-placeholder">
                   {{ formatRelativeTime(item.visitedAt) }}
                 </span>
               </div>
@@ -229,7 +229,7 @@
                 >
                   {{ notice.noticeTitle }}
                 </span>
-                <span class="notice-time shrink-0 text-[11px] text-text-placeholder">
+                <span class="notice-time shrink-0 text-[12px] text-text-placeholder">
                   {{ notice.createTime?.substring(5, 10) || '' }}
                 </span>
               </div>

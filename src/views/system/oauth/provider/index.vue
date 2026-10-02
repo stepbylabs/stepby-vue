@@ -127,6 +127,7 @@
       >
         <template #default="scope">
           <el-switch
+            :aria-label="`${scope.row.providerName} ${t('oauth.enabled')}`"
             :model-value="scope.row.enabled === '1'"
             :disabled="toggleLoading !== scope.row.providerId"
             @change="(val: string | number | boolean) => handleToggle(scope.row, val)"

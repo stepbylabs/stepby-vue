@@ -229,7 +229,8 @@ export default {
       fullscreen: 'Fullscreen',
       exitFullscreen: 'Exit Fullscreen',
       refreshCurrent: 'Refresh current page',
-      refreshPage: 'Refresh Page'
+      refreshPage: 'Refresh Page',
+      tagActions: 'Tab actions'
     },
     settings: {
       menuNavSetting: 'Menu Navigation Settings',
@@ -333,13 +334,15 @@ export default {
     simplifiedChinese: 'Simplified Chinese',
     english: 'English',
     switchingLanguage: 'Switching language, please wait...',
-    switchSuccess: 'Language switched successfully'
+    switchSuccess: 'Language switched successfully',
+    triggerAriaLabel: 'Switch language'
   },
   sizeSelect: {
     large: 'Large',
     default: 'Default',
     small: 'Small',
-    settingLayoutSize: 'Setting layout size, please wait...'
+    settingLayoutSize: 'Setting layout size, please wait...',
+    triggerAriaLabel: 'Switch component size'
   },
   editableCell: {
     empty: '(empty)',

@@ -24,6 +24,7 @@
 import fs from 'fs'
 import path from 'path'
 import { createRequire } from 'module'
+import { summarizeBackendLogErrors } from '../../capture-kit.mjs'
 
 let chromium
 try {
@@ -69,8 +70,10 @@ function moduleSelected(id, config) {
 }
 
 export async function runMain({ testFns, config, helpers, state }) {
-  const { log, ensureDir, login, createPage, getApiToken, record } = helpers
+  const { log, ensureDir, login, createPage, getApiToken, record, setHub, createCaptureHub } = helpers
   const { results, getPassCount, getFailCount } = state
+  /** 各模块的捕获中枢，汇总阶段统一输出被吞异常与网络失败 */
+  const hubs = []
 
   log('==========================================')
   log('stepby 深度端到端测试（deep-e2e）')
@@ -123,6 +126,14 @@ export async function runMain({ testFns, config, helpers, state }) {
           loginFailStreak = 0
         } else {
           const { page, consoleErrors, pageErrors } = await createPage(browser)
+          // 注入统一信息捕获中枢：失败断言自动附带 Toast / 失败请求 / console 证据
+          let hub = null
+          if (typeof createCaptureHub === 'function' && typeof setHub === 'function') {
+            hub = createCaptureHub(page, { tag: `M${id}`, shotDir: config.screenshotDir })
+            hubs.push(hub)
+            setHub(hub)
+            await hub.initPromise.catch(() => {})
+          }
           const loggedIn = await login(page)
           if (!loggedIn) {
             loginFailStreak += 1
@@ -139,6 +150,9 @@ export async function runMain({ testFns, config, helpers, state }) {
               await fn(page, consoleErrors, pageErrors)
             }
           }
+          // 模块结束：补写失败条目的 URL / 页面文本 / 截图（须在关闭页面前）
+          if (hub) await hub.flush(`M${id}`).catch(() => {})
+          if (typeof setHub === 'function') setHub(null)
           // 单模块页面即用即弃，防句柄泄漏
           const ctx = page.context()
           await ctx.close().catch(() => {})
@@ -178,12 +192,28 @@ export async function runMain({ testFns, config, helpers, state }) {
   // ==================== 汇总 ====================
   const totalPass = getPassCount()
   const totalFail = getFailCount()
+  // SKIP 第三态：passed === null，既不计 pass 也不计 fail（不影响退出码，但不再伪装成通过）
+  const totalSkip = results.filter((r) => r.passed === null).length
   const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1)
 
   log('\n==========================================')
   log('深度端到端测试汇总')
   log('==========================================')
   log(`耗时: ${durationSec}s | 模块: ${moduleStats.length} | 检查: ✅ ${totalPass} / ❌ ${totalFail}`)
+  log(`跳过(SKIP): ${totalSkip}`)
+
+  // 按模块分组统计 SKIP，输出最多的前 5 个模块：SKIP 集中处往往是「页面打不开/功能未启用」的真实缺口
+  const skipByModule = new Map()
+  for (const r of results) {
+    if (r.passed !== null) continue
+    skipByModule.set(r.module, (skipByModule.get(r.module) || 0) + 1)
+  }
+  if (skipByModule.size > 0) {
+    const topSkip = [...skipByModule.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 5)
+    log(`SKIP 最多的模块 TOP5: ${topSkip.map(([id, n]) => `M${id}(${n})`).join(', ')}`)
+  } else {
+    log('SKIP 最多的模块 TOP5: 无')
+  }
 
   const failedModules = moduleStats.filter((s) => s.fail > 0 || s.error)
   if (failedModules.length > 0) {
@@ -191,14 +221,14 @@ export async function runMain({ testFns, config, helpers, state }) {
     for (const s of failedModules) {
       log(
         `  M${s.id}: ❌ ${s.fail}${s.error ? '（执行异常）' : ''} — ${results
-          .filter((r) => r.module === s.id && !r.passed)
+          .filter((r) => r.module === s.id && r.passed === false)
           .slice(0, 5)
           .map((r) => r.name)
           .join(' | ')}`
       )
     }
-    // 失败检查全量清单落盘，便于复盘
-    const failDump = results.filter((r) => !r.passed)
+    // 失败检查全量清单落盘，便于复盘（用 === false 排除 SKIP 第三态，避免跳过项混进失败清单）
+    const failDump = results.filter((r) => r.passed === false)
     const dumpPath = path.join(config.screenshotDir, `deep-e2e-failures-${Date.now()}.json`)
     try {
       fs.writeFileSync(dumpPath, JSON.stringify(failDump, null, 2), 'utf-8')
@@ -208,6 +238,36 @@ export async function runMain({ testFns, config, helpers, state }) {
     }
   } else {
     log('✅ 全部模块通过')
+  }
+
+  // ==================== 信息捕获汇总（被吞异常 / 网络失败 / 后端日志）====================
+  // 目的：把 .catch(() => {}) 掩盖的错误、失败请求、后端 ERROR 显式暴露，
+  // 避免「断言全绿但底层已经报错」的假绿。
+  const swallowedLines = []
+  let netFailTotal = 0
+  for (const h of hubs) {
+    swallowedLines.push(...(h.swallowedReport?.() || []))
+    netFailTotal += h.netFails?.length || 0
+  }
+  log('\n---- 信息捕获汇总 ----')
+  log(`失败请求（HTTP>=400）总数: ${netFailTotal}`)
+  if (netFailTotal > 0) {
+    const samples = []
+    for (const h of hubs) {
+      for (const n of (h.netFails || []).slice(-2)) {
+        samples.push(`    · ${n.method} ${n.status} ${n.url}${n.body ? ` :: ${n.body.slice(0, 120)}` : ''}`)
+      }
+    }
+    for (const s of samples.slice(0, 12)) log(s)
+  }
+  log(`被吞掉的异常种类: ${swallowedLines.length}`)
+  for (const s of swallowedLines.slice(0, 20)) log(s)
+  try {
+    const backendLines = summarizeBackendLogErrors()
+    log(`后端日志 ERROR/WARN 种类: ${backendLines.length}`)
+    for (const s of backendLines.slice(0, 20)) log(s)
+  } catch {
+    log('后端日志摘要不可用（跳过）')
   }
 
   return totalFail > 0 ? 1 : 0

@@ -10,6 +10,7 @@
         class="document-link absolute flex w-[26px] h-[26px] top-0 left-0 cursor-pointer bg-primary z-[1] rounded-br-md justify-center items-center text-white text-lg"
         target="_blank"
         :href="documentLink"
+        :aria-label="t('build.rightPanel.docLink')"
         :title="t('build.rightPanel.docLink')"
       >
         <el-icon>

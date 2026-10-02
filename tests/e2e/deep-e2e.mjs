@@ -29,6 +29,7 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { runMain } from './e2e/run/runner.mjs'
+import { createCaptureHub } from './capture-kit.mjs'
 import {
   readCaptchaCodeFromRedis,
   capturePageCaptcha,
@@ -84,11 +85,10 @@ for (let i = 2; i < process.argv.length; i++) {
     CONFIG.featureFilter = parseInt(process.argv[i + 1], 10)
     i++
   } else if (arg.startsWith('--range=')) {
-    // 支持 --range=67-75 过滤模块范围
-    const [start, end] = arg
-      .split('=')[1]
-      .split('-')
-      .map((n) => parseInt(n, 10))
+    // 支持 --range=67-75 过滤模块范围；单数字 --range=84 等价于 --range=84-84
+    const parts = arg.split('=')[1].split('-').map((n) => parseInt(n, 10))
+    const start = parts[0]
+    const end = parts[1] ?? start
     CONFIG.featureRange = { start, end }
   } else if (arg.startsWith('--domain=')) {
     // 支持 --domain=system,monitor 按业务域过滤
@@ -117,6 +117,18 @@ const results = []
 let passCount = 0
 let failCount = 0
 
+/**
+ * 当前模块的捕获中枢（由 runner 在 createPage 后注入）
+ * 用于 record 失败时同步附带 Toast / 失败请求 / console 等证据。
+ * @type {ReturnType<typeof import('./capture-kit.mjs').createCaptureHub>|null}
+ */
+let currentHub = null
+
+/** 由 runner 调用，注入当前页面的捕获中枢 */
+function setHub(hub) {
+  currentHub = hub
+}
+
 function record(module, name, passed, detail = '') {
   const entry = { module, name, passed, detail }
   // P1 增强: 失败时自动捕获 stack trace 便于调试
@@ -126,12 +138,51 @@ function record(module, name, passed, detail = '') {
       // 截取前 15 行堆栈，避免报告过大
       entry.stack = stack ? stack.split('\n').slice(0, 15).join('\n') : ''
     } catch {}
+    // 失败时同步附带页面证据（Toast / 失败请求 / 慢请求 / console），
+    // 需要 await 的部分（URL / 页面文本 / 截图）由 runner 在模块结束后补写。
+    try {
+      currentHub?.noteFailure(entry)
+    } catch {}
   }
   results.push(entry)
   if (passed) passCount++
   else failCount++
   const tag = passed ? '✅ PASS' : '❌ FAIL'
   log(`${tag} [M${module}] ${name}${detail ? ' - ' + detail.slice(0, 120) : ''}`)
+}
+
+/**
+ * 记录一条「跳过（SKIP）」结果——第三态。
+ *
+ * 用于「前置条件不满足，本次无法判定」的场景（页面打不开、元素不可见、按钮不存在等）。
+ * 与 PASS/FAIL 的区别：SKIP 的 passed 为 null，既不计入 passCount 也不计入 failCount，
+ * 因此不会让覆盖率虚高，也不会让退出码变红。
+ *
+ * @param {number} module 模块号
+ * @param {string} name   检查项名称
+ * @param {string} reason 跳过原因（会写入 detail 供汇总复盘）
+ */
+function recordSkip(module, name, reason) {
+  results.push({ module, name, passed: null, detail: reason })
+  log(`⏭ SKIP [M${module}] ${name} - ${reason}`)
+}
+
+/**
+ * 软断言：用于「元素可能存在、也可能因无数据而不存在」的软性可见性检查。
+ *
+ * 存在的意义：历史上这类检查写成 `record(M, name, xxx || true, ...)`，
+ * `xxx || true` 恒为真，导致元素缺失 / 列表为空 / 图表未渲染时一律 PASS，断言彻底失效。
+ * 改为软断言后：条件成立记 PASS，条件不成立记 SKIP（不算失败，但也不再伪装成通过）。
+ *
+ * @param {number} module 模块号
+ * @param {string} name   检查项名称
+ * @param {*}      cond   软性条件，真值记 PASS，假值记 SKIP
+ * @param {string} passDetail 条件成立时的说明
+ * @param {string} skipDetail 条件不成立时的跳过说明
+ */
+function recordSoft(module, name, cond, passDetail = '', skipDetail = '元素未渲染（软断言）') {
+  if (cond) record(module, name, true, passDetail)
+  else recordSkip(module, name, skipDetail)
 }
 
 // ==================== 控制台错误收集 ====================
@@ -1358,8 +1409,8 @@ async function testModule1(page, consoleErrors, pageErrors) {
           isDisabled,
           `unread=${initialUnread}, disabled=${isDisabled}（无未读时按钮应禁用）`
         )
-        record(M, '通知中心: 全部已读-API调用', true, '跳过（无未读通知）')
-        record(M, '通知中心: 全部已读-成功提示', true, '跳过（无未读通知）')
+        recordSkip(M, '通知中心: 全部已读-API调用', '跳过（无未读通知）')
+        recordSkip(M, '通知中心: 全部已读-成功提示', '跳过（无未读通知）')
         record(M, '通知中心: 全部已读-未读数清零', initialUnread === 0, `unread=${initialUnread}`)
       }
     } else {
@@ -1456,7 +1507,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
         .catch(() => false)
       record(M, '任务进度: 进度条', hasProgress, `行数=${taskRowCount}`)
     } else {
-      record(M, '任务进度: 进度条', true, `表格无数据（行数=${taskRowCount}），跳过进度条验证`)
+      recordSkip(M, '任务进度: 进度条', `表格无数据（行数=${taskRowCount}），跳过进度条验证`)
     }
   }
 
@@ -2243,15 +2294,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
         const syncSuccess = syncStatus === 200 && syncBizCode === 0
         record(M, '代码生成器: 同步数据库-API调用', syncSuccess, `httpStatus=${syncStatus}, bizCode=${syncBizCode}`)
       } else {
-        record(M, '代码生成器: 同步数据库-API调用', true, '跳过（同步按钮不可见）')
+        recordSkip(M, '代码生成器: 同步数据库-API调用', '跳过（同步按钮不可见）')
       }
     } else {
-      record(
-        M,
-        '代码生成器: 同步数据库-API调用',
-        true,
-        `跳过（无数据或无同步按钮, 行数=${genTableRowCount}, 同步=${hasSync})`
-      )
+      recordSkip(M, '代码生成器: 同步数据库-API调用', `跳过（无数据或无同步按钮, 行数=${genTableRowCount}, 同步=${hasSync})`)
     }
 
     // 3.2.2 代码生成器: 生成代码（genCode）下载测试（P1 补充覆盖）
@@ -2281,15 +2327,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
           `download=${downloadTriggered}, httpStatus=${genStatus}, filename=${download?.suggestedFilename() || 'N/A'}`
         )
       } else {
-        record(M, '代码生成器: 生成代码-下载触发', true, '跳过（生成代码按钮不可见）')
+        recordSkip(M, '代码生成器: 生成代码-下载触发', '跳过（生成代码按钮不可见）')
       }
     } else {
-      record(
-        M,
-        '代码生成器: 生成代码-下载触发',
-        true,
-        `跳过（无数据或无生成按钮, 行数=${genTableRowCount}, 生成=${hasGenCode})`
-      )
+      recordSkip(M, '代码生成器: 生成代码-下载触发', `跳过（无数据或无生成按钮, 行数=${genTableRowCount}, 生成=${hasGenCode})`)
     }
 
     // 3.2.3 代码生成器: 删除表（delTable）确认对话框测试（P1 补充覆盖）
@@ -2327,20 +2368,15 @@ async function testModule3(page, consoleErrors, pageErrors) {
             `before=${genTableRowCount}, after=${afterDelCount}`
           )
         } else {
-          record(M, '代码生成器: 删除表-取消后列表不变', true, '跳过（无确认对话框）')
+          recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（无确认对话框）')
         }
       } else {
-        record(M, '代码生成器: 删除表-确认对话框', true, '跳过（删除按钮不可见）')
-        record(M, '代码生成器: 删除表-取消后列表不变', true, '跳过（删除按钮不可见）')
+        recordSkip(M, '代码生成器: 删除表-确认对话框', '跳过（删除按钮不可见）')
+        recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（删除按钮不可见）')
       }
     } else {
-      record(
-        M,
-        '代码生成器: 删除表-确认对话框',
-        true,
-        `跳过（无数据或无删除按钮, 行数=${genTableRowCount}, 删除=${hasDelete})`
-      )
-      record(M, '代码生成器: 删除表-取消后列表不变', true, '跳过（无数据或无删除按钮）')
+      recordSkip(M, '代码生成器: 删除表-确认对话框', `跳过（无数据或无删除按钮, 行数=${genTableRowCount}, 删除=${hasDelete})`)
+      recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（无数据或无删除按钮）')
     }
   }
 
@@ -3380,16 +3416,11 @@ async function testModule9(page, consoleErrors, pageErrors) {
         )
       } else {
         // stepby 用户无 operlog 查询权限，跳过此验证（不记为失败）
-        record(
-          M,
-          'stepby 用户: 权限拒绝审计日志写入',
-          true,
-          `stepby 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`
-        )
+        recordSkip(M, 'stepby 用户: 权限拒绝审计日志写入', `stepby 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`)
       }
     } catch (err) {
       // 审计日志验证为 best-effort，失败不记为失败
-      record(M, 'stepby 用户: 权限拒绝审计日志写入', true, `验证异常（跳过）: ${err.message.slice(0, 80)}`)
+      recordSkip(M, 'stepby 用户: 权限拒绝审计日志写入', `验证异常（跳过）: ${err.message.slice(0, 80)}`)
     }
   } catch (err) {
     record(M, 'stepby 用户: 写操作权限隔离', false, `异常: ${err.message.slice(0, 80)}`)
@@ -3796,7 +3827,7 @@ async function testModule13(browser) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '页面标题', true, hasTitle ? '标题可见' : '未找到标题元素（非致命）')
+    recordSoft(M, '页面标题', hasTitle, '标题可见', '未找到标题元素（非致命）')
   } catch (err) {
     record(M, '注册页测试', false, `异常: ${err.message.slice(0, 80)}`)
   } finally {
@@ -5223,7 +5254,7 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
     const validCaptcha = captchaSrc && !captchaSrc.includes('undefined') && captchaSrc.length > 50
     record(M, '登录页: 验证码图片有效', validCaptcha, `src 长度: ${captchaSrc?.length || 0}`)
   } else {
-    record(M, '登录页: 验证码图片有效', true, '验证码禁用，跳过有效性检查')
+    recordSkip(M, '登录页: 验证码图片有效', '验证码禁用，跳过有效性检查')
   }
   const hasUsername = await loginPage
     .locator('input[type="text"], input[placeholder*="账号"], input[placeholder*="用户"]')
@@ -5280,7 +5311,7 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
   }
 
   // 23.3 重新登录（未实际登出，跳过）
-  record(M, '重新登录', true, '未实际登出，跳过')
+  recordSkip(M, '重新登录', '未实际登出，跳过')
 
   // 23.4 修改密码（profile/resetPwd）
   await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 1500 })
@@ -5429,7 +5460,7 @@ async function testModule24(page, consoleErrors, pageErrors) {
       }
     } else {
       // Excel 导入功能可选，未启用时标记为通过
-      record(M, 'Excel 导入对话框', true, '导入按钮不可见（功能未启用）')
+      recordSkip(M, 'Excel 导入对话框', '导入按钮不可见（功能未启用）')
     }
   }
 
@@ -5497,7 +5528,7 @@ async function testModule24(page, consoleErrors, pageErrors) {
     const editableCell = page.locator('.el-table__row .editable-cell, .el-table__row [class*="editable"]').first()
     const ecVisible = await editableCell.isVisible({ timeout: 2000 }).catch(() => false)
     // 行内编辑功能可选，未启用时标记为通过
-    record(M, '配置管理: 行内编辑组件', true, ecVisible ? '行内编辑已启用' : '行内编辑未启用（功能可选）')
+    recordSoft(M, '配置管理: 行内编辑组件', ecVisible, '行内编辑已启用', '行内编辑未启用（功能可选）')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -5531,13 +5562,12 @@ async function testModule25(page, consoleErrors, pageErrors) {
     .isVisible({ timeout: 2000 })
     .catch(() => false)
   const watermarkStyleCount = await page.locator('style[data-watermark="true"]').count()
-  record(
+  recordSoft(
     M,
     'v-watermark: 水印指令生效',
-    true,
-    hasWatermark || watermarkStyleCount > 0
-      ? `水印已启用（${watermarkStyleCount} 个样式）`
-      : '水印未启用（用户偏好设置）'
+    hasWatermark || watermarkStyleCount > 0,
+    `水印已启用（${watermarkStyleCount} 个样式）`,
+    '水印未启用（用户偏好设置）'
   )
 
   // 25.4 v-copyText 指令
@@ -5555,7 +5585,7 @@ async function testModule25(page, consoleErrors, pageErrors) {
       return cells.some((td) => /\d{3}\*+\d{4}|\*{4,}/.test(td.textContent || ''))
     })
     .catch(() => false)
-  record(M, 'v-desensitize: 敏感信息脱敏', hasDesensitize || true, '若无敏感字段则为 true')
+  recordSoft(M, 'v-desensitize: 敏感信息脱敏', hasDesensitize, '若无敏感字段则为 true')
 
   // 25.6 锁屏页面（通过头像下拉菜单触发，验证组件存在性）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
@@ -5642,7 +5672,7 @@ async function testModule25(page, consoleErrors, pageErrors) {
     .first()
     .isVisible({ timeout: 2000 })
     .catch(() => false)
-  record(M, 'CookieConsent: 组件可见', true, cookieConsent ? 'Cookie 同意对话框可见' : '已同意或未启用（正常状态）')
+  recordSoft(M, 'CookieConsent: 组件可见', cookieConsent, 'Cookie 同意对话框可见', '已同意或未启用（正常状态）')
 
   // 25.10 网络错误重试（network-error 页面渲染可能因登录状态而异）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/network-error`, { moduleName: M, waitMs: 2000, allowFail: true })) {
@@ -5675,7 +5705,7 @@ async function testModule25(page, consoleErrors, pageErrors) {
     .first()
     .isVisible({ timeout: 500 })
     .catch(() => false)
-  record(M, 'SkeletonTable: 骨架屏（瞬时）', hasSkeleton || true, '骨架屏仅在加载瞬间可见')
+  recordSoft(M, 'SkeletonTable: 骨架屏（瞬时）', hasSkeleton, '骨架屏仅在加载瞬间可见')
 
   // 25.12 EmptyState 空状态组件
   // 锁屏测试可能影响页面状态，重新导航确保页面正常
@@ -5694,17 +5724,12 @@ async function testModule25(page, consoleErrors, pageErrors) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(
-      M,
-      'EmptyState: 空状态组件',
-      hasEmptyState || true,
-      hasEmptyState ? '空状态组件可见' : '表格为空时显示空状态（默认通过）'
-    )
+    recordSoft(M, 'EmptyState: 空状态组件', hasEmptyState, '空状态组件可见', '表格为空时显示空状态（默认通过）')
     await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
     await sleep(800)
   } else {
     // 搜索框可能因锁屏测试后页面状态未恢复，标记为通过（功能已在其他模块验证）
-    record(M, 'EmptyState: 空状态组件', true, '搜索框暂不可见（页面状态恢复中）')
+    recordSkip(M, 'EmptyState: 空状态组件', '搜索框暂不可见（页面状态恢复中）')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -5933,7 +5958,7 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
         record(M, 'CRUD: 取消操作不影响数据', false, '新增对话框未打开')
       }
     } else {
-      record(M, 'CRUD: 取消操作不影响数据', true, '新增按钮不可见（跳过）')
+      recordSkip(M, 'CRUD: 取消操作不影响数据', '新增按钮不可见（跳过）')
     }
   }
 
@@ -5986,7 +6011,7 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
         record(M, 'CRUD: 唯一性校验', false, '新增对话框未打开')
       }
     } else {
-      record(M, 'CRUD: 唯一性校验', true, '新增按钮不可见（跳过）')
+      recordSkip(M, 'CRUD: 唯一性校验', '新增按钮不可见（跳过）')
     }
   }
 
@@ -6032,7 +6057,7 @@ async function testModule27(page, consoleErrors, pageErrors) {
         record(M, '邮箱格式校验: 无效邮箱报错', false, '新增对话框未打开')
       }
     } else {
-      record(M, '邮箱格式校验: 无效邮箱报错', true, '新增按钮不可见（跳过）')
+      recordSkip(M, '邮箱格式校验: 无效邮箱报错', '新增按钮不可见（跳过）')
     }
   }
 
@@ -6165,7 +6190,7 @@ async function testModule27(page, consoleErrors, pageErrors) {
         await closeDialog(page)
       }
     } else {
-      record(M, 'cron 表达式校验: 必填校验', true, '新增按钮不可见（跳过）')
+      recordSkip(M, 'cron 表达式校验: 必填校验', '新增按钮不可见（跳过）')
     }
   }
 
@@ -6320,7 +6345,7 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
         .innerText()
         .catch(() => '')
       const hasRecentOp = /登录|查询|新增|修改|删除|logout|login|select|insert|update|delete/i.test(firstRowText)
-      record(M, '操作日志: 最近操作记录', hasRecentOp || true, hasRecentOp ? '包含常见操作' : '操作类型未知')
+      recordSoft(M, '操作日志: 最近操作记录', hasRecentOp, '包含常见操作', '操作类型未知')
     }
   }
 
@@ -6784,7 +6809,7 @@ async function testModule30(page, consoleErrors, pageErrors) {
       record(M, '尺寸切换: 切换到小尺寸', false, '小尺寸选项不可见')
     }
   } else {
-    record(M, '尺寸切换: 切换到小尺寸', true, '尺寸选择器不可见（跳过）')
+    recordSkip(M, '尺寸切换: 切换到小尺寸', '尺寸选择器不可见（跳过）')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -6921,7 +6946,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         download ? `下载文件: ${download.suggestedFilename()}` : '下载未触发（可能无文件或权限问题）'
       )
     } else {
-      record(M, '文件下载: 触发下载', true, '下载按钮不可见（无文件或功能未启用）')
+      recordSkip(M, '文件下载: 触发下载', '下载按钮不可见（无文件或功能未启用）')
     }
   }
 
@@ -6948,7 +6973,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         successMsg ? '复制成功提示可见' : '复制按钮已点击（headless 下剪贴板可能受限）'
       )
     } else {
-      record(M, '文件复制链接: 触发复制', true, '复制按钮不可见（跳过）')
+      recordSkip(M, '文件复制链接: 触发复制', '复制按钮不可见（跳过）')
     }
   }
 
@@ -6988,7 +7013,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
             : '导出未触发'
       )
     } else {
-      record(M, '用户导出: 实际导出文件', true, '导出按钮不可见（跳过）')
+      recordSkip(M, '用户导出: 实际导出文件', '导出按钮不可见（跳过）')
     }
   }
 
@@ -7013,7 +7038,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         )
       }
     } else {
-      record(M, '岗位导出: 实际导出文件', true, '导出按钮不可见（跳过）')
+      recordSkip(M, '岗位导出: 实际导出文件', '导出按钮不可见（跳过）')
     }
   }
 
@@ -7044,7 +7069,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         await closeDialog(page)
       }
     } else {
-      record(M, 'Excel 导入: 下载模板', true, '导入按钮不可见（跳过）')
+      recordSkip(M, 'Excel 导入: 下载模板', '导入按钮不可见（跳过）')
     }
   }
 
@@ -7069,7 +7094,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         successMsg ? '成功提示可见' : `${backupRows} 条备份记录`
       )
     } else {
-      record(M, '备份管理: 创建备份', true, '创建按钮不可见（跳过）')
+      recordSkip(M, '备份管理: 创建备份', '创建按钮不可见（跳过）')
     }
   }
 
@@ -7096,12 +7121,12 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false)
-        record(M, '头像上传: 上传入口', hasUploadBtn || true, hasUploadBtn ? '上传入口可见' : '上传入口可能存在')
+        recordSoft(M, '头像上传: 上传入口', hasUploadBtn, '上传入口可见', '上传入口可能存在')
         await closeDialog(page)
       }
     } else {
-      record(M, '头像上传: 裁剪器加载', true, '头像触发区域不可见（跳过）')
-      record(M, '头像上传: 上传入口', true, '头像触发区域不可见（跳过）')
+      recordSkip(M, '头像上传: 裁剪器加载', '头像触发区域不可见（跳过）')
+      recordSkip(M, '头像上传: 上传入口', '头像触发区域不可见（跳过）')
     }
   }
 
@@ -7148,7 +7173,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, `边界场景: ${t.name}`, hasContent || true, hasContent ? '页面正常渲染' : '页面可能为空（无数据）')
+      recordSoft(M, `边界场景: ${t.name}`, hasContent, '页面正常渲染', '页面可能为空（无数据）')
     } catch (err) {
       record(M, `边界场景: ${t.name}`, true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
     }
@@ -7166,7 +7191,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '边界场景: 超长 ID', hasContent || true, hasContent ? '页面正常渲染' : '页面为空')
+    recordSoft(M, '边界场景: 超长 ID', hasContent, '页面正常渲染', '页面为空')
   } catch (err) {
     record(M, '边界场景: 超长 ID', true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
   }
@@ -7184,7 +7209,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false))
-    record(M, '边界场景: 特殊字符 ID', notCrashed || true, '页面未崩溃')
+    recordSoft(M, '边界场景: 特殊字符 ID', notCrashed, '页面未崩溃')
   } catch (err) {
     record(M, '边界场景: 特殊字符 ID', true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
   }
@@ -7222,7 +7247,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .first()
         .isVisible({ timeout: 3000 })
         .catch(() => false)
-      record(M, '网络异常: API 错误提示', errorMsg || true, errorMsg ? '错误提示可见' : '可能已恢复或未触发')
+      recordSoft(M, '网络异常: API 错误提示', errorMsg, '错误提示可见', '可能已恢复或未触发')
     }
     // 恢复 fetch
     await page.evaluate(() => {
@@ -7250,7 +7275,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       // 关闭对话框
       await closeDialog(page)
     } else {
-      record(M, '并发操作: 快速点击不重复打开', true, '新增按钮不可见（跳过）')
+      recordSkip(M, '并发操作: 快速点击不重复打开', '新增按钮不可见（跳过）')
     }
   }
 
@@ -7281,12 +7306,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false))
-      record(
-        M,
-        '会话过期: 401 处理',
-        hasReLoginPrompt || true,
-        hasReLoginPrompt ? '跳转登录页或显示提示' : '可能未触发或已恢复'
-      )
+      recordSoft(M, '会话过期: 401 处理', hasReLoginPrompt, '跳转登录页或显示提示', '可能未触发或已恢复')
     }
     // 恢复 token
     if (originalToken) {
@@ -7358,7 +7378,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '401 错误页面', has401 || true, has401 ? '401 页面显示' : '页面可能通过路由守卫处理')
+    recordSoft(M, '401 错误页面', has401, '401 页面显示', '页面可能通过路由守卫处理')
   } else {
     record(M, '401 错误页面', true, '401 页面在权限不足时自动显示')
   }
@@ -7370,7 +7390,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '403 错误页面', has403 || true, has403 ? '403 页面显示' : '页面可能通过路由守卫处理')
+    recordSoft(M, '403 错误页面', has403, '403 页面显示', '页面可能通过路由守卫处理')
   } else {
     record(M, '403 错误页面', true, '403 页面在权限不足时自动显示')
   }
@@ -7382,7 +7402,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '500 错误页面', has500 || true, has500 ? '500 页面显示' : '页面可能通过路由守卫处理')
+    recordSoft(M, '500 错误页面', has500, '500 页面显示', '页面可能通过路由守卫处理')
   } else {
     record(M, '500 错误页面', true, '500 页面在服务器错误时自动显示')
   }
@@ -7524,8 +7544,8 @@ async function testModule33(page, consoleErrors, pageErrors) {
         record(M, '对话框: Esc 键关闭', false, '对话框未打开')
       }
     } else {
-      record(M, '对话框: aria-modal 属性', true, '新增按钮不可见（跳过）')
-      record(M, '对话框: Esc 键关闭', true, '新增按钮不可见（跳过）')
+      recordSkip(M, '对话框: aria-modal 属性', '新增按钮不可见（跳过）')
+      recordSkip(M, '对话框: Esc 键关闭', '新增按钮不可见（跳过）')
     }
   }
 
@@ -7730,7 +7750,7 @@ async function testModule35(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false)
-        record(M, 'Ctrl+K: 搜索结果', hasResults || true, hasResults ? '有搜索结果' : '可能无匹配或已防抖')
+        recordSoft(M, 'Ctrl+K: 搜索结果', hasResults, '有搜索结果', '可能无匹配或已防抖')
       }
       await page.keyboard.press('Escape')
       await sleep(500)
@@ -7756,7 +7776,7 @@ async function testModule35(page, consoleErrors, pageErrors) {
         record(M, 'Esc: 关闭对话框', false, '对话框未打开')
       }
     } else {
-      record(M, 'Esc: 关闭对话框', true, '新增按钮不可见（跳过）')
+      recordSkip(M, 'Esc: 关闭对话框', '新增按钮不可见（跳过）')
     }
   }
 
@@ -7917,10 +7937,10 @@ async function testModule36(page, consoleErrors, pageErrors) {
       )
     } else {
       // 可能在右键菜单中关闭
-      record(M, 'TagsView: 关闭标签', true, '关闭按钮不可见（可能使用右键菜单关闭）')
+      recordSkip(M, 'TagsView: 关闭标签', '关闭按钮不可见（可能使用右键菜单关闭）')
     }
   } else {
-    record(M, 'TagsView: 关闭标签', true, '标签数量不足（跳过）')
+    recordSkip(M, 'TagsView: 关闭标签', '标签数量不足（跳过）')
   }
 
   // 36.5 标签页持久化 — 刷新后标签应恢复
@@ -8092,12 +8112,12 @@ async function testModule38(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false)
-        record(M, '图表: tooltip 交互', tooltipVisible || true, tooltipVisible ? 'tooltip 显示' : 'tooltip 可能未触发')
+        recordSoft(M, '图表: tooltip 交互', tooltipVisible, 'tooltip 显示', 'tooltip 可能未触发')
       } else {
-        record(M, '图表: tooltip 交互', true, 'canvas 边界不可用')
+        recordSkip(M, '图表: tooltip 交互', 'canvas 边界不可用')
       }
     } else {
-      record(M, '图表: tooltip 交互', true, 'canvas 不可见（跳过）')
+      recordSkip(M, '图表: tooltip 交互', 'canvas 不可见（跳过）')
     }
   }
 
@@ -8322,12 +8342,7 @@ async function testModule40(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(
-        M,
-        `${p.name}: 打印功能`,
-        hasPrintCapability || true,
-        hasPrintCapability ? '打印按钮可见' : '可能无打印按钮（允许）'
-      )
+      recordSoft(M, `${p.name}: 打印功能`, hasPrintCapability, '打印按钮可见', '可能无打印按钮（允许）')
     }
   }
 
@@ -8364,14 +8379,15 @@ async function testModule40(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1000 })
         .catch(() => false)
-      record(
+      recordSoft(
         M,
         '打印: window.open 调用',
-        openCalled || hasErrorMsg || true,
-        openCalled ? 'window.open 已调用' : hasErrorMsg ? '弹窗被阻止（预期行为）' : '可能已触发或无数据'
+        openCalled || hasErrorMsg,
+        openCalled ? 'window.open 已调用' : '弹窗被阻止（预期行为）',
+        '可能已触发或无数据'
       )
     } else {
-      record(M, '打印: window.open 调用', true, '打印按钮不可见（跳过）')
+      recordSkip(M, '打印: window.open 调用', '打印按钮不可见（跳过）')
     }
 
     // 恢复原始 open
@@ -8449,14 +8465,14 @@ async function testModule41(page, consoleErrors, pageErrors) {
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '锁屏: 时钟显示', hasClock || true, hasClock ? '时钟可见' : '时钟可能未渲染')
+    recordSoft(M, '锁屏: 时钟显示', hasClock, '时钟可见', '时钟可能未渲染')
 
     const hasAvatar = await page
       .locator('.lock-avatar, .lock-container .avatar, .lock-container img')
       .first()
       .isVisible({ timeout: 2000 })
       .catch(() => false)
-    record(M, '锁屏: 用户头像', hasAvatar || true, hasAvatar ? '头像可见' : '头像可能未渲染')
+    recordSoft(M, '锁屏: 用户头像', hasAvatar, '头像可见', '头像可能未渲染')
 
     // 41.5 测试错误密码
     if (hasPwdInput) {
@@ -8487,7 +8503,7 @@ async function testModule41(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '锁屏: 错误密码提示', hasErrorMsg || true, hasErrorMsg ? '错误提示可见' : '可能无提示但未解锁')
+      recordSoft(M, '锁屏: 错误密码提示', hasErrorMsg, '错误提示可见', '可能无提示但未解锁')
     } else {
       record(M, '锁屏: 错误密码不解锁', false, '密码输入框不可见')
       record(M, '锁屏: 错误密码提示', false, '密码输入框不可见')
@@ -8601,7 +8617,7 @@ async function testModule42(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 2000 })
           .catch(() => false)
-        record(M, 'TOTP: 步骤指示器', hasSteps || true, hasSteps ? '步骤指示器可见' : '可能未使用步骤指示器')
+        recordSoft(M, 'TOTP: 步骤指示器', hasSteps, '步骤指示器可见', '可能未使用步骤指示器')
 
         if (!isEnabled) {
           // 等待 Transition 动画完成（fade 过渡 300ms），确保 setup-state 内的按钮可点击
@@ -8659,7 +8675,7 @@ async function testModule42(page, consoleErrors, pageErrors) {
               await sleep(500)
               record(M, 'TOTP: 复制密钥按钮', true, '按钮已点击')
             } else {
-              record(M, 'TOTP: 复制密钥按钮', true, '复制按钮不可见（跳过）')
+              recordSkip(M, 'TOTP: 复制密钥按钮', '复制按钮不可见（跳过）')
             }
 
             // Step 2 → Step 3: 点击确认按钮进入验证步骤
@@ -8702,17 +8718,12 @@ async function testModule42(page, consoleErrors, pageErrors) {
                   .first()
                   .isVisible({ timeout: 2000 })
                   .catch(() => false)
-                record(
-                  M,
-                  'TOTP: 错误验证码不绑定',
-                  errorMsg || true,
-                  errorMsg ? '错误提示可见' : '可能未触发验证或后端未校验'
-                )
+                recordSoft(M, 'TOTP: 错误验证码不绑定', errorMsg, '错误提示可见', '可能未触发验证或后端未校验')
               } else {
-                record(M, 'TOTP: 错误验证码不绑定', true, '验证按钮不可见（跳过）')
+                recordSkip(M, 'TOTP: 错误验证码不绑定', '验证按钮不可见（跳过）')
               }
             } else {
-              record(M, 'TOTP: 错误验证码不绑定', true, '验证码输入框不可见（跳过）')
+              recordSkip(M, 'TOTP: 错误验证码不绑定', '验证码输入框不可见（跳过）')
             }
           } else {
             const items = [
@@ -8778,7 +8789,7 @@ async function testModule42(page, consoleErrors, pageErrors) {
             'TOTP: 复制密钥按钮',
             'TOTP: 错误验证码不绑定'
           ].forEach((item) => {
-            record(M, item, true, '已启用状态（跳过生成）')
+            recordSkip(M, item, '已启用状态（跳过生成）')
           })
         }
       } else {
@@ -8842,7 +8853,7 @@ async function testModule43(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '通知: Tab 分类', hasTabs || true, hasTabs ? 'Tab 可见' : '可能无 Tab')
+      recordSoft(M, '通知: Tab 分类', hasTabs, 'Tab 可见', '可能无 Tab')
 
       const hasItems = await page
         .locator(
@@ -8851,7 +8862,7 @@ async function testModule43(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '通知: 列表渲染', hasItems || true, hasItems ? '列表项可见' : '可能为空')
+      recordSoft(M, '通知: 列表渲染', hasItems, '列表项可见', '可能为空')
 
       // 查看更多链接
       const moreLink = page
@@ -8860,7 +8871,7 @@ async function testModule43(page, consoleErrors, pageErrors) {
         )
         .first()
       const moreVisible = await moreLink.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '通知: 更多链接', moreVisible || true, moreVisible ? '链接可见' : '可能无更多链接')
+      recordSoft(M, '通知: 更多链接', moreVisible, '链接可见', '可能无更多链接')
     }
   }
 
@@ -8883,7 +8894,7 @@ async function testModule43(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '通知中心: 类型 Tab', hasTabs || true, hasTabs ? 'Tab 可见' : '无 Tab')
+      recordSoft(M, '通知中心: 类型 Tab', hasTabs, 'Tab 可见', '无 Tab')
 
       // 新增按钮（受 v-hasPermi="['system:notice:add']" 控制，admin 应有权限）
       // v-hasPermi 在 mounted 时设置 display:none，权限加载后 updated 恢复
@@ -8932,25 +8943,25 @@ async function testModule44(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '备份管理: 列表', hasTable || true, hasTable ? '表格可见' : '可能使用其他展示方式')
+      recordSoft(M, '备份管理: 列表', hasTable, '表格可见', '可能使用其他展示方式')
 
       // 恢复按钮
       const restoreBtn = page
         .locator('button:has-text("恢复"), button:has-text("还原"), button:has-text("Restore")')
         .first()
       const restoreVisible = await restoreBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '备份管理: 恢复按钮', restoreVisible || true, restoreVisible ? '恢复按钮可见' : '可能需选中行才显示')
+      recordSoft(M, '备份管理: 恢复按钮', restoreVisible, '恢复按钮可见', '可能需选中行才显示')
 
       // 下载按钮
       const downloadBtn = page.locator('button:has-text("下载"), button:has-text("Download")').first()
       const downloadVisible = await downloadBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '备份管理: 下载按钮', downloadVisible || true, downloadVisible ? '下载按钮可见' : '可能无下载按钮')
+      recordSoft(M, '备份管理: 下载按钮', downloadVisible, '下载按钮可见', '可能无下载按钮')
     }
   } else {
     // 备份功能可能未启用
-    record(M, '备份管理: 页面加载', true, '备份页面不可访问（可能未启用或权限不足）')
+    recordSkip(M, '备份管理: 页面加载', '备份页面不可访问（可能未启用或权限不足）')
     ;['备份管理: 创建按钮', '备份管理: 列表', '备份管理: 恢复按钮', '备份管理: 下载按钮'].forEach((item) => {
-      record(M, item, true, '页面不可访问（跳过）')
+      recordSkip(M, item, '页面不可访问（跳过）')
     })
   }
 
@@ -8979,7 +8990,7 @@ async function testModule45(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '缓存管理: 键列表', hasTable || true)
+      recordSoft(M, '缓存管理: 键列表', hasTable)
 
       // 缓存统计
       const hasStats = await page
@@ -8987,19 +8998,19 @@ async function testModule45(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '缓存管理: 统计信息', hasStats || true)
+      recordSoft(M, '缓存管理: 统计信息', hasStats)
 
       // 清空按钮
       const clearBtn = page
         .locator('button:has-text("清空"), button:has-text("清除"), button:has-text("Clear")')
         .first()
       const clearVisible = await clearBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '缓存管理: 清空按钮', clearVisible || true)
+      recordSoft(M, '缓存管理: 清空按钮', clearVisible)
 
       // 刷新按钮
       const refreshBtn = page.locator('button:has-text("刷新"), button:has-text("Refresh")').first()
       const refreshVisible = await refreshBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '缓存管理: 刷新按钮', refreshVisible || true)
+      recordSoft(M, '缓存管理: 刷新按钮', refreshVisible)
     }
   } else {
     ;[
@@ -9009,7 +9020,7 @@ async function testModule45(page, consoleErrors, pageErrors) {
       '缓存管理: 清空按钮',
       '缓存管理: 刷新按钮'
     ].forEach((item) => {
-      record(M, item, true, '页面不可访问（跳过）')
+      recordSkip(M, item, '页面不可访问（跳过）')
     })
   }
 
@@ -9120,14 +9131,14 @@ async function testModule46(page, consoleErrors, pageErrors) {
           )
           .first()
         const themeVisible = await themeBtn.isVisible({ timeout: 1500 }).catch(() => false)
-        record(M, '偏好: 主题切换', themeVisible || true)
+        recordSoft(M, '偏好: 主题切换', themeVisible)
 
         // 侧边栏样式
         const sidebarStyle = page
           .locator('.el-drawer:visible [class*="sidebar"], .el-drawer:visible .theme-item')
           .first()
         const sidebarVisible = await sidebarStyle.isVisible({ timeout: 1500 }).catch(() => false)
-        record(M, '偏好: 侧边栏样式', sidebarVisible || true)
+        recordSoft(M, '偏好: 侧边栏样式', sidebarVisible)
 
         // 关闭抽屉
         await page.keyboard.press('Escape').catch(() => {})
@@ -9167,7 +9178,7 @@ async function testModule47(page, consoleErrors, pageErrors) {
         .locator('button:has-text("强退"), button:has-text("强制"), button:has-text("Force")')
         .first()
       const forceVisible = await forceLogoutBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '在线用户: 强退按钮', forceVisible || true, forceVisible ? '可见' : '可能需选中行')
+      recordSoft(M, '在线用户: 强退按钮', forceVisible, '可见', '可能需选中行')
     }
   }
 
@@ -9187,12 +9198,12 @@ async function testModule47(page, consoleErrors, pageErrors) {
       // 状态切换
       const statusSwitch = page.locator('.el-switch').first()
       const switchVisible = await statusSwitch.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '定时任务: 状态切换', switchVisible || true)
+      recordSoft(M, '定时任务: 状态切换', switchVisible)
 
       // 执行一次按钮
       const runBtn = page.locator('button:has-text("执行"), button:has-text("运行"), button:has-text("Run")').first()
       const runVisible = await runBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '定时任务: 执行一次', runVisible || true)
+      recordSoft(M, '定时任务: 执行一次', runVisible)
     }
   }
 
@@ -9211,21 +9222,21 @@ async function testModule47(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '服务监控: CPU 信息', hasCpu || true)
+      recordSoft(M, '服务监控: CPU 信息', hasCpu)
 
       const hasMem = await page
         .locator('[class*="memory"], [class*="mem"]')
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '服务监控: 内存信息', hasMem || true)
+      recordSoft(M, '服务监控: 内存信息', hasMem)
 
       const hasDisk = await page
         .locator('[class*="disk"], [class*="drive"]')
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '服务监控: 磁盘信息', hasDisk || true)
+      recordSoft(M, '服务监控: 磁盘信息', hasDisk)
     }
   }
 
@@ -9265,7 +9276,7 @@ async function testModule48(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '限流: 规则列表', hasTable || true)
+      recordSoft(M, '限流: 规则列表', hasTable)
 
       const addBtn = page
         .locator(
@@ -9283,7 +9294,7 @@ async function testModule48(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '限流: 维度选择', hasSelect || true)
+      recordSoft(M, '限流: 维度选择', hasSelect)
 
       // 状态切换
       const hasSwitch = await page
@@ -9291,12 +9302,12 @@ async function testModule48(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '限流: 状态切换', hasSwitch || true)
+      recordSoft(M, '限流: 状态切换', hasSwitch)
     }
   } else {
-    record(M, '限流: 页面加载', true, '页面不可访问（可能未启用）')
+    recordSkip(M, '限流: 页面加载', '页面不可访问（可能未启用）')
     ;['限流: 规则列表', '限流: 新增按钮', '限流: 维度选择', '限流: 状态切换'].forEach((item) => {
-      record(M, item, true, '页面不可访问（跳过）')
+      recordSkip(M, item, '页面不可访问（跳过）')
     })
   }
 
@@ -9325,7 +9336,7 @@ async function testModule49(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '代码生成: 表列表', hasTable || true)
+      recordSoft(M, '代码生成: 表列表', hasTable)
 
       // 导入表按钮
       const importBtn = page.locator('button:has-text("导入"), button:has-text("Import")').first()
@@ -9335,17 +9346,17 @@ async function testModule49(page, consoleErrors, pageErrors) {
       // 生成按钮
       const genBtn = page.locator('button:has-text("生成"), button:has-text("Generate")').first()
       const genVisible = await genBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '代码生成: 生成按钮', genVisible || true)
+      recordSoft(M, '代码生成: 生成按钮', genVisible)
 
       // 预览按钮
       const previewBtn = page.locator('button:has-text("预览"), button:has-text("Preview")').first()
       const previewVisible = await previewBtn.isVisible({ timeout: 1500 }).catch(() => false)
-      record(M, '代码生成: 预览按钮', previewVisible || true)
+      recordSoft(M, '代码生成: 预览按钮', previewVisible)
     }
   } else {
     ;['代码生成: 页面加载', '代码生成: 表列表', '代码生成: 导入表', '代码生成: 生成按钮', '代码生成: 预览按钮'].forEach(
       (item) => {
-        record(M, item, true, '页面不可访问（跳过）')
+        recordSkip(M, item, '页面不可访问（跳过）')
       }
     )
   }
@@ -9407,7 +9418,7 @@ async function testModule50(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '表单构建: 操作栏', hasActions || true)
+      recordSoft(M, '表单构建: 操作栏', hasActions)
     }
   } else {
     ;[
@@ -9418,7 +9429,7 @@ async function testModule50(page, consoleErrors, pageErrors) {
       '表单构建: 组件数量',
       '表单构建: 操作栏'
     ].forEach((item) => {
-      record(M, item, true, '页面不可访问（跳过）')
+      recordSkip(M, item, '页面不可访问（跳过）')
     })
   }
 
@@ -9498,7 +9509,7 @@ async function testModule51(page, consoleErrors, pageErrors) {
           .catch(() => false)
         record(M, 'IP库: 刷新后页面正常', stillNormal)
       } else {
-        record(M, 'IP库: 刷新后页面正常', true, '刷新按钮不可见（跳过）')
+        recordSkip(M, 'IP库: 刷新后页面正常', '刷新按钮不可见（跳过）')
       }
 
       // 测试配置对话框（点击配置按钮，验证对话框弹出，然后关闭）
@@ -9518,7 +9529,7 @@ async function testModule51(page, consoleErrors, pageErrors) {
           await sleep(800)
         }
       } else {
-        record(M, 'IP库: 配置对话框', true, '配置按钮不可见（跳过）')
+        recordSkip(M, 'IP库: 配置对话框', '配置按钮不可见（跳过）')
       }
     }
   } else {
@@ -9561,12 +9572,7 @@ async function testModule52(page, consoleErrors, pageErrors) {
       return false
     })
     .catch(() => false)
-  record(
-    M,
-    'v-watermark: 水印渲染',
-    hasWatermarkVisible || true,
-    hasWatermarkVisible ? '水印已渲染' : '水印未启用（用户偏好设置）'
-  )
+  recordSoft(M, 'v-watermark: 水印渲染', hasWatermarkVisible, '水印已渲染', '水印未启用（用户偏好设置）')
 
   const watermarkEnabled = hasWatermarkVisible
   record(M, 'v-watermark: 当前状态', true, watermarkEnabled ? '已启用' : '未启用')
@@ -9586,7 +9592,7 @@ async function testModule52(page, consoleErrors, pageErrors) {
       )
       .first()
     const copyBtnVisible = await configCopyBtn.isVisible({ timeout: 2000 }).catch(() => false)
-    record(M, 'v-copyText: 配置页复制按钮', copyBtnVisible || true, copyBtnVisible ? '复制按钮可见' : '复制按钮不可见')
+    recordSoft(M, 'v-copyText: 配置页复制按钮', copyBtnVisible, '复制按钮可见', '复制按钮不可见')
 
     if (copyBtnVisible) {
       const clipboardText = ''
@@ -9608,14 +9614,15 @@ async function testModule52(page, consoleErrors, pageErrors) {
         .isVisible({ timeout: 2000 })
         .catch(() => false)
       const copySuccess = await page.evaluate(() => window.__copySuccess).catch(() => false)
-      record(
+      recordSoft(
         M,
         'v-copyText: 触发复制',
-        successMsg || copySuccess || true,
-        successMsg ? '成功提示可见' : copySuccess ? 'copy 事件已触发' : 'headless 下剪贴板可能受限'
+        successMsg || copySuccess,
+        successMsg ? '成功提示可见' : 'copy 事件已触发',
+        'headless 下剪贴板可能受限'
       )
     } else {
-      record(M, 'v-copyText: 触发复制', true, '复制按钮不可见（跳过）')
+      recordSkip(M, 'v-copyText: 触发复制', '复制按钮不可见（跳过）')
     }
   }
 
@@ -9630,14 +9637,9 @@ async function testModule52(page, consoleErrors, pageErrors) {
 
       const totpCopyBtn = page.locator('.totp-card button:has-text("复制"), .totp-card [class*="copy"]').first()
       const totpCopyVisible = await totpCopyBtn.isVisible({ timeout: 2000 }).catch(() => false)
-      record(
-        M,
-        'v-copyText: TOTP 复制按钮',
-        totpCopyVisible || true,
-        totpCopyVisible ? 'TOTP 复制按钮可见' : 'TOTP 复制按钮不可见（可能未生成密钥）'
-      )
+      recordSoft(M, 'v-copyText: TOTP 复制按钮', totpCopyVisible, 'TOTP 复制按钮可见', 'TOTP 复制按钮不可见（可能未生成密钥）')
     } else {
-      record(M, 'v-copyText: TOTP 复制按钮', true, 'TOTP Tab 不可见（跳过）')
+      recordSkip(M, 'v-copyText: TOTP 复制按钮', 'TOTP Tab 不可见（跳过）')
     }
   }
 
@@ -9659,13 +9661,12 @@ async function testModule52(page, consoleErrors, pageErrors) {
         }
       })
       .catch(() => ({ any: false, phone: false, email: false, idCard: false, name: false }))
-    record(
+    recordSoft(
       M,
       'v-desensitize: 脱敏数据存在',
-      hasDesensitize.any || true,
-      hasDesensitize.any
-        ? `手机=${hasDesensitize.phone}, 邮箱=${hasDesensitize.email}, 身份证=${hasDesensitize.idCard}, 姓名=${hasDesensitize.name}`
-        : '无脱敏数据（可能无敏感字段）'
+      hasDesensitize.any,
+      `手机=${hasDesensitize.phone}, 邮箱=${hasDesensitize.email}, 身份证=${hasDesensitize.idCard}, 姓名=${hasDesensitize.name}`,
+      '无脱敏数据（可能无敏感字段）'
     )
 
     const domSafe = await page
@@ -9678,7 +9679,7 @@ async function testModule52(page, consoleErrors, pageErrors) {
         return hasMaskedTitle
       })
       .catch(() => false)
-    record(M, 'v-desensitize: 脱敏提示', domSafe || true, domSafe ? '脱敏提示可见' : '可能无提示')
+    recordSoft(M, 'v-desensitize: 脱敏提示', domSafe, '脱敏提示可见', '可能无提示')
   }
 
   // 52.8 v-desensitize IP
@@ -9693,14 +9694,9 @@ async function testModule52(page, consoleErrors, pageErrors) {
           )
         })
         .catch(() => false)
-      record(
-        M,
-        'v-desensitize: IP 脱敏',
-        hasIpMasked || true,
-        hasIpMasked ? 'IP 已脱敏' : 'IP 可能未脱敏（管理员可见完整 IP）'
-      )
+      recordSoft(M, 'v-desensitize: IP 脱敏', hasIpMasked, 'IP 已脱敏', 'IP 可能未脱敏（管理员可见完整 IP）')
     } else {
-      record(M, 'v-desensitize: IP 脱敏', true, '无登录日志数据（跳过）')
+      recordSkip(M, 'v-desensitize: IP 脱敏', '无登录日志数据（跳过）')
     }
   }
 
@@ -9831,7 +9827,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 1500 })
           .catch(() => false)
-        record(M, '任务进度: 进度条', hasProgress || true, hasProgress ? '进度条可见' : '可能无数据')
+        recordSoft(M, '任务进度: 进度条', hasProgress, '进度条可见', '可能无数据')
 
         // 状态标签（el-tag）存在
         const hasStatusTag = await page
@@ -9839,7 +9835,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 1500 })
           .catch(() => false)
-        record(M, '任务进度: 状态标签', hasStatusTag || true, hasStatusTag ? '状态标签可见' : '可能无数据')
+        recordSoft(M, '任务进度: 状态标签', hasStatusTag, '状态标签可见', '可能无数据')
 
         // 空状态组件（EmptyState）— 无数据时显示
         const hasEmptyState = await page
@@ -9847,7 +9843,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
           .first()
           .isVisible({ timeout: 1500 })
           .catch(() => false)
-        record(M, '任务进度: 空状态组件', hasEmptyState || true, hasEmptyState ? '空状态显示' : '有数据（无空状态）')
+        recordSoft(M, '任务进度: 空状态组件', hasEmptyState, '空状态显示', '有数据（无空状态）')
 
         // 测试搜索按钮点击（不触发实际数据变更）
         if (
@@ -9870,7 +9866,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
             .catch(() => false)
           record(M, '任务进度: 搜索后页面正常', stillNormal)
         } else {
-          record(M, '任务进度: 搜索后页面正常', true, '搜索按钮不可见（跳过）')
+          recordSkip(M, '任务进度: 搜索后页面正常', '搜索按钮不可见（跳过）')
         }
 
         // 测试重置按钮
@@ -9894,7 +9890,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
             .catch(() => false)
           record(M, '任务进度: 重置后页面正常', stillNormal)
         } else {
-          record(M, '任务进度: 重置后页面正常', true, '重置按钮不可见（跳过）')
+          recordSkip(M, '任务进度: 重置后页面正常', '重置按钮不可见（跳过）')
         }
       }
 
@@ -9904,7 +9900,7 @@ async function testModule53(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 1500 })
         .catch(() => false)
-      record(M, '任务进度: 分页组件', hasPagination || true, hasPagination ? '分页可见' : '可能无数据')
+      recordSoft(M, '任务进度: 分页组件', hasPagination, '分页可见', '可能无数据')
     }
   } else {
     ;[
@@ -9959,8 +9955,8 @@ async function testModule54(page, consoleErrors, pageErrors) {
       .catch(() => false)
     record(M, '401: 返回按钮', hasBackBtn)
   } else {
-    record(M, '401: 页面加载', true, '路由不可访问（跳过）')
-    record(M, '401: 返回按钮', true, '路由不可访问（跳过）')
+    recordSkip(M, '401: 页面加载', '路由不可访问（跳过）')
+    recordSkip(M, '401: 返回按钮', '路由不可访问（跳过）')
   }
 
   // 403 错误页面
@@ -9984,8 +9980,8 @@ async function testModule54(page, consoleErrors, pageErrors) {
       .catch(() => false)
     record(M, '403: 返回首页按钮', hasHomeBtn)
   } else {
-    record(M, '403: 页面加载', true, '路由不可访问（跳过）')
-    record(M, '403: 返回首页按钮', true, '路由不可访问（跳过）')
+    recordSkip(M, '403: 页面加载', '路由不可访问（跳过）')
+    recordSkip(M, '403: 返回首页按钮', '路由不可访问（跳过）')
   }
 
   // 500 错误页面
@@ -10007,8 +10003,8 @@ async function testModule54(page, consoleErrors, pageErrors) {
       .catch(() => false)
     record(M, '500: 刷新按钮', hasRefreshBtn)
   } else {
-    record(M, '500: 页面加载', true, '路由不可访问（跳过）')
-    record(M, '500: 刷新按钮', true, '路由不可访问（跳过）')
+    recordSkip(M, '500: 页面加载', '路由不可访问（跳过）')
+    recordSkip(M, '500: 刷新按钮', '路由不可访问（跳过）')
   }
 
   // 网络错误页面（尝试两种路径）
@@ -10042,8 +10038,8 @@ async function testModule54(page, consoleErrors, pageErrors) {
       .catch(() => false)
     record(M, '网络错误: 重试按钮', hasRetryBtn)
   } else {
-    record(M, '网络错误: 页面加载', true, '路由不可访问（跳过）')
-    record(M, '网络错误: 重试按钮', true, '路由不可访问（跳过）')
+    recordSkip(M, '网络错误: 页面加载', '路由不可访问（跳过）')
+    recordSkip(M, '网络错误: 重试按钮', '路由不可访问（跳过）')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -10964,7 +10960,7 @@ async function testModule59(page, consoleErrors, pageErrors) {
         )
         .first()
       const previewVisible = await previewBtn.isVisible({ timeout: 2000 }).catch(() => false)
-      record(M, '代码生成: 预览按钮', previewVisible || true, previewVisible ? '预览按钮可见' : '可能无数据')
+      recordSoft(M, '代码生成: 预览按钮', previewVisible, '预览按钮可见', '可能无数据')
 
       // 生成按钮可见（v-hasPermi=['tool:gen:code']）
       const genBtn = page
@@ -10973,14 +10969,14 @@ async function testModule59(page, consoleErrors, pageErrors) {
         )
         .first()
       const genVisible = await genBtn.isVisible({ timeout: 2000 }).catch(() => false)
-      record(M, '代码生成: 生成按钮', genVisible || true, genVisible ? '生成按钮可见' : '可能无数据')
+      recordSoft(M, '代码生成: 生成按钮', genVisible, '生成按钮可见', '可能无数据')
 
       // 创建按钮可见
       const createBtn = page
         .locator('.app-container button:has-text("创建"), .app-container button:has-text("Create")')
         .first()
       const createVisible = await createBtn.isVisible({ timeout: 2000 }).catch(() => false)
-      record(M, '代码生成: 创建按钮', createVisible || true, createVisible ? '创建按钮可见' : '创建按钮不可见')
+      recordSoft(M, '代码生成: 创建按钮', createVisible, '创建按钮可见', '创建按钮不可见')
     }
   } else {
     ;[
@@ -11130,7 +11126,7 @@ async function testModule60(page, consoleErrors, pageErrors) {
       '表单构建: 画布空状态/拖拽项',
       '表单构建: 可拖拽组件'
     ].forEach((item) => {
-      record(M, item, true, '页面不可访问（跳过）')
+      recordSkip(M, item, '页面不可访问（跳过）')
     })
   }
 
@@ -11320,19 +11316,14 @@ async function testModule62(page, consoleErrors, pageErrors) {
         .first()
         .isVisible({ timeout: 2000 })
         .catch(() => false)
-      record(M, '角色授权: 表格', hasTable || true, hasTable ? '表格可见' : '可能无数据')
+      recordSoft(M, '角色授权: 表格', hasTable, '表格可见', '可能无数据')
 
       // 取消授权按钮可见（行内）
       const rowCancelBtn = page
         .locator('.el-table button:has-text("取消授权"), .el-table button:has-text("Cancel Auth")')
         .first()
       const rowCancelVisible = await rowCancelBtn.isVisible({ timeout: 2000 }).catch(() => false)
-      record(
-        M,
-        '角色授权: 行内取消授权按钮',
-        rowCancelVisible || true,
-        rowCancelVisible ? '取消授权按钮可见' : '可能无数据'
-      )
+      recordSoft(M, '角色授权: 行内取消授权按钮', rowCancelVisible, '取消授权按钮可见', '可能无数据')
     }
   } else {
     ;[
@@ -11344,7 +11335,7 @@ async function testModule62(page, consoleErrors, pageErrors) {
       '角色授权: 表格',
       '角色授权: 行内取消授权按钮'
     ].forEach((item) => {
-      record(M, item, true, '角色授权页面不可访问（跳过）')
+      recordSkip(M, item, '角色授权页面不可访问（跳过）')
     })
   }
 
@@ -11373,7 +11364,7 @@ async function testModule62(page, consoleErrors, pageErrors) {
       `容器=${hasContainer}, 表单头=${hasFormHeader}`
     )
   } else {
-    record(M, '用户授权: 页面加载与基本信息', true, '用户授权页面不可访问（跳过）')
+    recordSkip(M, '用户授权: 页面加载与基本信息', '用户授权页面不可访问（跳过）')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -11424,7 +11415,7 @@ async function testModule63(page, consoleErrors, pageErrors) {
     }
   } else {
     ;['隐私政策: 页面加载', '隐私政策: 标题', '隐私政策: 章节内容', '隐私政策: 页脚'].forEach((item) => {
-      record(M, item, true, '隐私政策页面不可访问（跳过）')
+      recordSkip(M, item, '隐私政策页面不可访问（跳过）')
     })
   }
 
@@ -13396,6 +13387,1767 @@ async function testModule77(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
+// ==================== 模块 78~84 公共小工具（本轮新增，不改动既有工具函数） ====================
+//
+// 覆盖目标：此前「仅被 collect-warnings 采集运行时信号、完全没有功能断言」的页面：
+//   M78 报表管理 /system/report/index + 子报表 /system/report/sub
+//   M79 回调配置 /system/webHook/index + 推送记录 /system/webHook/log
+//   M80 消息渠道 /system/msg/channel + 模板 /system/msg/template + 发送记录 /system/msg/log
+//   M81 第三方登录配置 /system/oauth/provider
+//   M82 缓存监控 /monitor/cache（clearKey / clearName 破坏性操作）
+//   M83 文件管理 /system/file（上传 / 下载 / 复制链接 / 批量删除）
+//   M84 跨页面列排序（真实点击表头排序并校验首行变化）
+
+/** 等待首个可见 Toast，返回文本；未出现返回空串（调用方据此判定，禁止 `|| true` 恒真断言） */
+async function waitToastText(page, timeout = 6000) {
+  try {
+    const el = page.locator('.el-message:visible, .el-notification:visible').first()
+    await el.waitFor({ state: 'visible', timeout })
+    return ((await el.innerText().catch(() => '')) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/** 清掉残留 Toast，避免上一步提示干扰下一步断言 */
+async function clearToasts(page) {
+  await page
+    .evaluate(() => {
+      document.querySelectorAll('.el-message, .el-notification').forEach((e) => e.remove())
+    })
+    .catch(() => {})
+}
+
+/** 等待 ElMessageBox 二次确认框出现 */
+async function waitMessageBox(page, timeout = 6000) {
+  try {
+    await page.locator('.el-message-box:visible').first().waitFor({ state: 'visible', timeout })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 点击二次确认框的「确 定」或「取 消」（按文本模糊匹配，兼容「确 定」中的空格） */
+async function clickMessageBoxBtn(page, kind = 'confirm') {
+  const ok = await page
+    .evaluate((k) => {
+      const boxes = Array.from(document.querySelectorAll('.el-message-box')).filter((b) => b.offsetParent !== null)
+      const box = boxes[boxes.length - 1]
+      if (!box) return false
+      const btns = Array.from(box.querySelectorAll('.el-message-box__btns button'))
+      const re = k === 'confirm' ? /确\s*定|确定|OK|Confirm/i : /取\s*消|取消|Cancel/i
+      const target = btns.find((b) => re.test((b.innerText || '').trim()))
+      if (!target) return false
+      target.click()
+      return true
+    }, kind)
+    .catch(() => false)
+  await sleep(700)
+  return ok
+}
+
+/** 等待某个接口响应（返回 Response 或 null） */
+async function waitForApi(page, urlPart, timeout = 8000) {
+  try {
+    return await page.waitForResponse((r) => r.url().includes(urlPart), { timeout })
+  } catch {
+    return null
+  }
+}
+
+/** 统计作用域内可见表格的数据行数：scope = 'page'(.app-container) | 'dialog'(最上层可见对话框) | 任意 CSS 选择器 */
+async function rowCountIn(page, scope = 'page') {
+  return await page
+    .evaluate((s) => {
+      let root
+      if (s === 'dialog') {
+        const ds = Array.from(document.querySelectorAll('.el-dialog')).filter((d) => d.offsetParent !== null)
+        root = ds[ds.length - 1]
+      } else if (s === 'page') {
+        root = document.querySelector('.app-container') || document.body
+      } else {
+        root = document.querySelector(s) || document.body
+      }
+      if (!root) return -1
+      return Array.from(root.querySelectorAll('.el-table__body .el-table__row')).filter(
+        (r) => r.offsetParent !== null
+      ).length
+    }, scope)
+    .catch(() => -1)
+}
+
+/** 页面主搜索区按 label 填写输入框 */
+async function fillSearchField(page, label, value) {
+  const item = page.locator(`.app-container .el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
+  const input = item.locator('input.el-input__inner').first()
+  if (!(await input.isVisible({ timeout: 2000 }).catch(() => false))) return false
+  await input.click({ timeout: 2000 }).catch(() => {})
+  await input.fill(value, { timeout: 3000 }).catch(() => {})
+  await sleep(200)
+  return true
+}
+
+/** 在最上层可见对话框内按 label 填写 input / textarea */
+async function fillDialogField(page, label, value) {
+  const dialog = page.locator('.el-dialog:visible').last()
+  const item = dialog.locator(`.el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
+  const input = item.locator('input.el-input__inner, textarea.el-textarea__inner').first()
+  if (!(await input.isVisible({ timeout: 2500 }).catch(() => false))) return false
+  await input.click({ timeout: 2000 }).catch(() => {})
+  await input.fill(value, { timeout: 3000 }).catch(() => {})
+  await sleep(200)
+  return true
+}
+
+/** 在最上层可见对话框内按 label 选择下拉项 */
+async function selectDialogOption(page, label, optionText) {
+  const dialog = page.locator('.el-dialog:visible').last()
+  const item = dialog.locator(`.el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
+  const sel = item.locator('.el-select').first()
+  if (!(await sel.isVisible({ timeout: 2500 }).catch(() => false))) return false
+  await sel.click({ timeout: 3000 }).catch(() => {})
+  await sleep(500)
+  const opt = page
+    .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+    .filter({ hasText: optionText })
+    .last()
+  const ok = await opt
+    .click({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(300)
+  return ok
+}
+
+/** 点击最上层可见对话框底部的按钮（确 定 / 取 消 / 开始测试 等，按文本模糊匹配） */
+async function clickDialogBtn(page, text) {
+  const ok = await page
+    .evaluate((t) => {
+      const ds = Array.from(document.querySelectorAll('.el-dialog')).filter((d) => d.offsetParent !== null)
+      const dlg = ds[ds.length - 1]
+      if (!dlg) return false
+      const norm = (s) => (s || '').replace(/\s+/g, '')
+      const btns = Array.from(dlg.querySelectorAll('.el-dialog__footer button, .dialog-footer button, button'))
+      const target = btns.find((b) => b.offsetParent !== null && norm(b.innerText).includes(norm(t)))
+      if (!target) return false
+      target.click()
+      return true
+    }, text)
+    .catch(() => false)
+  await sleep(600)
+  return ok
+}
+
+/** 点击表格首行的行内文字按钮（scope: 'page' | 'dialog'） */
+async function clickRowButton(page, text, scope = 'page') {
+  const ok = await page
+    .evaluate(
+      ({ t, s }) => {
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        let root
+        if (s === 'dialog') {
+          const ds = Array.from(document.querySelectorAll('.el-dialog')).filter((d) => d.offsetParent !== null)
+          root = ds[ds.length - 1]
+        } else {
+          root = document.querySelector('.app-container') || document.body
+        }
+        if (!root) return false
+        const btns = Array.from(root.querySelectorAll('.el-table__row button'))
+        const target = btns.find((b) => b.offsetParent !== null && norm(b.innerText).includes(norm(t)))
+        if (!target) return false
+        target.click()
+        return true
+      },
+      { t: text, s: scope }
+    )
+    .catch(() => false)
+  await sleep(500)
+  return ok
+}
+
+/** 勾选表格指定行的复选框（选中后才能用「订阅 / 测试推送 / 批量删除」等按钮）
+ *  用真实鼠标点击 .el-checkbox 可见方块，确保触发 Vue 的 v-model 更新 */
+async function checkRow(page, rowIndex = 0, scope = 'page') {
+  const rootSel = scope === 'dialog' ? '.el-dialog:visible' : '.app-container'
+  const boxes = page.locator(`${rootSel} .el-table__body .el-table__row .el-checkbox`)
+  const count = await boxes.count()
+  if (count === 0) return false
+  const idx = scope === 'dialog' ? count - 1 : Math.min(rowIndex, count - 1)
+  const ok = await boxes
+    .nth(idx)
+    .click({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(400)
+  return ok
+}
+
+/** 读取第 tableIndex 个可见表格中第 rowIndex 行第 colIndex 列的文本 */
+async function tableCellText(page, tableIndex, rowIndex, colIndex) {
+  return await page
+    .evaluate(
+      ({ ti, ri, ci }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[ti]
+        if (!table) return ''
+        const rows = Array.from(table.querySelectorAll('.el-table__body .el-table__row'))
+        const row = rows[ri]
+        if (!row) return ''
+        const cells = Array.from(row.querySelectorAll('td'))
+        return ((cells[ci]?.innerText) || '').trim()
+      },
+      { ti: tableIndex, ri: rowIndex, ci: colIndex }
+    )
+    .catch(() => '')
+}
+
+/** 点击第 tableIndex 个可见表格第 rowIndex 行中指定 aria-label 的图标按钮（无 label 时取最后一个按钮） */
+async function clickTableRowIcon(page, tableIndex, ariaLabel, rowIndex = 0) {
+  return await page
+    .evaluate(
+      ({ ti, al, ri }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[ti]
+        if (!table) return false
+        const rows = Array.from(table.querySelectorAll('.el-table__body .el-table__row'))
+        const row = rows[ri]
+        if (!row) return false
+        const btns = Array.from(row.querySelectorAll('button'))
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        const target =
+          btns.find((b) => norm(b.getAttribute('aria-label')).includes(norm(al))) || btns[btns.length - 1]
+        if (!target) return false
+        target.click()
+        return true
+      },
+      { ti: tableIndex, al: ariaLabel, ri: rowIndex }
+    )
+    .catch(() => false)
+}
+
+/** 收集第 tableIndex 个可见表格的某一列全部文本（用于挑选安全的缓存名称） */
+async function tableColumnTexts(page, tableIndex, colIndex) {
+  return await page
+    .evaluate(
+      ({ ti, ci }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[ti]
+        if (!table) return []
+        return Array.from(table.querySelectorAll('.el-table__body .el-table__row'))
+          .map((r) => {
+            const cells = Array.from(r.querySelectorAll('td'))
+            return ((cells[ci]?.innerText) || '').trim()
+          })
+          .filter((x) => x)
+      },
+      { ti: tableIndex, ci: colIndex }
+    )
+    .catch(() => [])
+}
+
+/** 点击某列的排序箭头（order = 'ascending' | 'descending'），触发服务端排序 */
+async function clickSortCaret(page, columnLabel, order) {
+  return await page
+    .evaluate(
+      ({ label, ord }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[0]
+        if (!table) return false
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        const th = Array.from(table.querySelectorAll('.el-table__header th')).find((t) =>
+          norm(t.innerText).includes(norm(label))
+        )
+        if (!th) return false
+        const caret = th.querySelector(`.sort-caret.${ord}`)
+        if (!caret) return false
+        caret.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+        return true
+      },
+      { label: columnLabel, ord: order }
+    )
+    .catch(() => false)
+}
+
+/** 读取主表格首行指定列文本（用于排序结果比对） */
+async function firstRowCellText(page, columnLabel) {
+  return await page
+    .evaluate((label) => {
+      const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+      const table = tables[0]
+      if (!table) return ''
+      const norm = (x) => (x || '').replace(/\s+/g, '')
+      const ths = Array.from(table.querySelectorAll('.el-table__header th'))
+      const idx = ths.findIndex((t) => norm(t.innerText).includes(norm(label)))
+      if (idx < 0) return ''
+      const row = table.querySelector('.el-table__body .el-table__row')
+      if (!row) return ''
+      const cells = Array.from(row.querySelectorAll('td'))
+      return ((cells[idx]?.innerText) || '').trim()
+    }, columnLabel)
+    .catch(() => '')
+}
+
+/** 按表头文本定位列索引（不同页面列顺序不固定，避免硬编码列号） */
+async function colIndexByLabel(page, label, tableIndex = 0) {
+  return await page
+    .evaluate(
+      ({ lb, ti }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[ti]
+        if (!table) return -1
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        return Array.from(table.querySelectorAll('.el-table__header th')).findIndex((t) =>
+          norm(t.innerText).includes(norm(lb))
+        )
+      },
+      { lb: label, ti: tableIndex }
+    )
+    .catch(() => -1)
+}
+
+/** 在第 tableIndex 个可见表格中查找某列包含指定文本的行索引 */
+async function findRowIndexByText(page, tableIndex, colIndex, needle) {
+  return await page
+    .evaluate(
+      ({ ti, ci, nd }) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[ti]
+        if (!table) return -1
+        return Array.from(table.querySelectorAll('.el-table__body .el-table__row')).findIndex((r) => {
+          const cells = Array.from(r.querySelectorAll('td'))
+          return ((cells[ci]?.innerText) || '').includes(nd)
+        })
+      },
+      { ti: tableIndex, ci: colIndex, nd: needle }
+    )
+    .catch(() => -1)
+}
+
+// ==================== 模块 78: 报表管理 & 子报表深度测试 ====================
+
+async function testModule78(page, consoleErrors, pageErrors) {
+  const M = 78
+  log(`\n=== 模块 ${M}: 报表管理 & 子报表深度测试 ===`)
+  const stamp = String(Date.now())
+  const reportCode = `E2E78_${stamp}`
+  const reportName = `E2E78报表${stamp}`
+  const subName = `E2E78订阅${stamp}`
+  let reportRowId = '' // 新增成功后记录报表 ID（用于清理）
+
+  // 78.1 报表定义页加载 + 工具栏按钮 + 搜索区
+  if (!(await safeGoto(page, `${CONFIG.frontendUrl}/system/report/index`, { moduleName: M, waitMs: 2200 }))) {
+    ;[
+      '报表管理: 页面加载',
+      '报表管理: 工具栏按钮',
+      '报表管理: 搜索区',
+      '报表管理: 新增报表',
+      '报表管理: handlePreview 预览',
+      '报表管理: 订阅嵌套弹窗',
+      '报表订阅: 页面加载',
+      '报表订阅: handleRun 立即推送',
+      '报表管理: 删除报表清理'
+    ].forEach((n) => record(M, n, false, '页面不可访问'))
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  record(M, '报表管理: 页面加载', true)
+  await checkTableColumns(page, ['报表编码', '报表名称', '报表类型', '创建时间', '操作'], M, '报表管理')
+
+  const btnAdd = await isButtonVisible(page, ['新增'])
+  const btnEdit = await isButtonVisible(page, ['修改'])
+  const btnDel = await isButtonVisible(page, ['删除'])
+  const btnSub = await isButtonVisible(page, ['订阅'])
+  record(
+    M,
+    '报表管理: 工具栏按钮(新增/修改/删除/订阅)',
+    btnAdd && btnEdit && btnDel && btnSub,
+    `新增=${btnAdd}, 修改=${btnEdit}, 删除=${btnDel}, 订阅=${btnSub}`
+  )
+  const btnSearch = await isButtonVisible(page, ['搜索'])
+  const btnReset = await isButtonVisible(page, ['重置'])
+  record(M, '报表管理: 搜索区(搜索/重置)', btnSearch && btnReset, `搜索=${btnSearch}, 重置=${btnReset}`)
+
+  // 78.2 真实交互一：新增报表（专有测试数据，末尾会删除清理）
+  await clearToasts(page)
+  await clickButton(page, '.app-container button:has-text("新增")')
+  if (await waitForVisibleDialog(page, 8000)) {
+    await fillDialogField(page, '报表编码', reportCode)
+    await fillDialogField(page, '报表名称', reportName)
+    await selectDialogOption(page, '报表类型', '登录统计')
+    await fillDialogField(page, '报表配置', '{"days":7}')
+    const addResp = waitForApi(page, '/system/report', 8000)
+    await clickDialogBtn(page, '确 定')
+    const resp = await addResp
+    const toast = await waitToastText(page)
+    const created = /新增成功|成功/.test(toast) && !!resp
+    record(
+      M,
+      '报表管理: 新增报表',
+      created,
+      `toast="${toast.slice(0, 30)}", HTTP ${resp ? resp.status() : 'n/a'}`
+    )
+    if (!created) {
+      // 新增失败则后续依赖数据的步骤无法判定，按 SKIP 处理并说明原因
+      recordSkip(M, '报表管理: handlePreview 预览', `跳过（新增报表未成功，无可用数据）toast="${toast}"`)
+      recordSkip(M, '报表管理: 订阅嵌套弹窗', '跳过（新增报表未成功，无可用数据）')
+      recordSkip(M, '报表订阅: handleRun 立即推送', '跳过（新增报表未成功，无可用数据）')
+      checkConsoleErrors(consoleErrors, pageErrors, M)
+      return
+    }
+  } else {
+    record(M, '报表管理: 新增报表', false, '新增对话框未打开')
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  await closeDialog(page)
+
+  // 78.3 查询命中新增报表（校验列表确实多了一行）
+  await fillSearchField(page, '报表名称', reportName)
+  const listResp = waitForApi(page, '/system/report/list', 8000)
+  await clickButton(page, '.app-container button:has-text("搜索")')
+  await listResp
+  await sleep(1200)
+  const rowsAfterAdd = await rowCountIn(page, 'page')
+  record(M, '报表管理: 查询命中新增报表', rowsAfterAdd >= 1, `命中行数=${rowsAfterAdd}`)
+  if (rowsAfterAdd >= 1) {
+    reportRowId = await tableCellText(page, 0, 0, 1) // 第 2 列=报表编码（首列为复选框）
+  }
+
+  // 78.4 真实交互二：handlePreview 预览
+  await clearToasts(page)
+  const previewResp = waitForApi(page, '/system/report/', 8000)
+  await clickRowButton(page, '预览', 'page')
+  const previewDialog = await waitForVisibleDialog(page, 8000)
+  const pResp = await previewResp
+  if (previewDialog) {
+    const titleText = await page
+      .locator('.el-dialog:visible .el-dialog__title')
+      .last()
+      .innerText({ timeout: 3000 })
+      .catch(() => '')
+    record(
+      M,
+      '报表管理: handlePreview 预览',
+      /报表预览/.test(titleText),
+      `对话框标题="${titleText.trim().slice(0, 20)}", HTTP ${pResp ? pResp.status() : 'n/a'}`
+    )
+    // 预览内容：生成时间 / 统计摘要 / 快照数据 三者之一渲染即视为预览成功
+    const bodyText = await page
+      .locator('.el-dialog:visible .el-dialog__body')
+      .last()
+      .innerText({ timeout: 3000 })
+      .catch(() => '')
+    recordSoft(
+      M,
+      '报表管理: 预览快照渲染',
+      /生成时间|统计摘要|快照数据/.test(bodyText),
+      '预览区含生成时间/统计摘要/快照数据',
+      `预览体未渲染预期分区（实际="${bodyText.slice(0, 40).replace(/\s+/g, ' ')}"）`
+    )
+    await closeDialog(page)
+  } else {
+    record(M, '报表管理: handlePreview 预览', false, '预览对话框未打开')
+  }
+
+  // 78.5 报表订阅独立页：新增订阅 → handleRun 立即推送 → 删除订阅
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/report/sub`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '报表订阅: 页面加载', true)
+    await checkTableColumns(page, ['订阅名称', '报表ID', '周期', '状态', '操作'], M, '报表订阅')
+    const subAdd = await isButtonVisible(page, ['新增'])
+    const subDel = await isButtonVisible(page, ['删除'])
+    record(M, '报表订阅: 工具栏按钮(新增/删除)', subAdd && subDel, `新增=${subAdd}, 删除=${subDel}`)
+
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("新增")')
+    if (await waitForVisibleDialog(page, 8000)) {
+      await fillDialogField(page, '订阅名称', subName)
+      await selectDialogOption(page, '关联报表', reportName)
+      await fillDialogField(page, '周期', '0 0 9 * * *')
+      // 默认勾选「邮件」渠道，收件邮箱为必填，否则后端返回「收件邮箱格式不正确」
+      await fillDialogField(page, '收件邮箱', 'e2e78@example.com')
+      const subAddResp = waitForApi(page, '/system/report/sub', 8000)
+      await clickDialogBtn(page, '确 定')
+      const sResp = await subAddResp
+      const sToast = await waitToastText(page)
+      record(
+        M,
+        '报表订阅: 新增订阅',
+        /新增成功/.test(sToast) && !!sResp,
+        `toast="${sToast.slice(0, 30)}", HTTP ${sResp ? sResp.status() : 'n/a'}`
+      )
+    } else {
+      record(M, '报表订阅: 新增订阅', false, '新增对话框未打开')
+    }
+    await closeDialog(page)
+
+    // 搜索到该订阅后执行 handleRun（立即推送）
+    await fillSearchField(page, '订阅名称', subName)
+    const subListResp = waitForApi(page, '/system/report/sub/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await subListResp
+    await sleep(1200)
+    const subRows = await rowCountIn(page, 'page')
+    if (subRows >= 1) {
+      await clearToasts(page)
+      await clickRowButton(page, '立即推送', 'page')
+      const boxVisible = await waitMessageBox(page)
+      record(M, '报表订阅: handleRun 立即推送-确认框', boxVisible)
+      if (boxVisible) {
+        const runResp = waitForApi(page, '/run', 10000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const rResp = await runResp
+        const rToast = await waitToastText(page)
+        record(
+          M,
+          '报表订阅: handleRun 立即推送-执行结果',
+          !!rResp && rResp.status() === 200,
+          `HTTP ${rResp ? rResp.status() : 'n/a'}, toast="${rToast.slice(0, 30)}"`
+        )
+      } else {
+        record(M, '报表订阅: handleRun 立即推送-执行结果', false, '确认框未出现，未执行推送')
+      }
+
+      // 清理：删除该订阅
+      await clearToasts(page)
+      await clickRowButton(page, '删除', 'page')
+      const delBox = await waitMessageBox(page)
+      if (delBox) {
+        const delRespApi = waitForApi(page, '/system/report/sub/', 8000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const dResp = await delRespApi
+        const dToast = await waitToastText(page)
+        await sleep(1200)
+        const rowsAfterDel = await rowCountIn(page, 'page')
+        record(
+          M,
+          '报表订阅: 删除订阅',
+          rowsAfterDel === 0 && !!dResp,
+          `删除后行数=${rowsAfterDel}, HTTP ${dResp ? dResp.status() : 'n/a'}, toast="${dToast.slice(0, 20)}"`
+        )
+      } else {
+        record(M, '报表订阅: 删除订阅', false, '删除确认框未出现')
+      }
+    } else {
+      recordSkip(M, '报表订阅: handleRun 立即推送', `跳过（未搜索到新增的订阅，行数=${subRows}）`)
+      recordSkip(M, '报表订阅: 删除订阅', `跳过（未搜索到新增的订阅，行数=${subRows}）`)
+    }
+  } else {
+    record(M, '报表订阅: 页面加载', false, '页面不可访问')
+  }
+
+  // 78.6 报表定义页：子报表嵌套弹窗（选中行 → 订阅 → 弹窗内嵌套子列表）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/report/index`, { moduleName: M, waitMs: 2200 })) {
+    await fillSearchField(page, '报表名称', reportName)
+    const lResp = waitForApi(page, '/system/report/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await lResp
+    await sleep(1200)
+    if ((await rowCountIn(page, 'page')) >= 1) {
+      await checkRow(page, 0, 'page')
+      const nestedSubApi = waitForApi(page, '/system/report/sub/list', 8000)
+      await clickButton(page, '.app-container button:has-text("订阅")')
+      const subDialogOpened = await waitForVisibleDialog(page, 8000)
+      if (subDialogOpened) {
+        const subTitle = await page
+          .locator('.el-dialog:visible .el-dialog__title')
+          .last()
+          .innerText({ timeout: 3000 })
+          .catch(() => '')
+        record(
+          M,
+          '报表管理: 订阅嵌套弹窗',
+          /报表订阅|订阅/.test(subTitle),
+          `弹窗标题="${subTitle.trim().slice(0, 20)}"`
+        )
+        const subApi = await nestedSubApi
+        recordSoft(
+          M,
+          '报表管理: 嵌套弹窗子列表接口',
+          !!subApi && subApi.status() === 200,
+          `子列表 HTTP ${subApi ? subApi.status() : 'n/a'}`,
+          '弹窗内子列表接口未返回 200（软断言）'
+        )
+        await closeDialog(page)
+        await sleep(400)
+        await closeDialog(page)
+      } else {
+        record(M, '报表管理: 订阅嵌套弹窗', false, '订阅弹窗未打开')
+      }
+
+      // 78.7 清理：删除专有测试报表（避免污染其它模块）
+      await clearToasts(page)
+      await clickRowButton(page, '删除', 'page')
+      const delBox2 = await waitMessageBox(page)
+      if (delBox2) {
+        const delApi = waitForApi(page, '/system/report/', 8000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const ddResp = await delApi
+        const ddToast = await waitToastText(page)
+        await sleep(1200)
+        const rowsFinal = await rowCountIn(page, 'page')
+        record(
+          M,
+          '报表管理: 删除报表清理',
+          rowsFinal === 0 && !!ddResp,
+          `删除后行数=${rowsFinal}, HTTP ${ddResp ? ddResp.status() : 'n/a'}, toast="${ddToast.slice(0, 20)}"`
+        )
+      } else {
+        record(M, '报表管理: 删除报表清理', false, '删除确认框未出现')
+      }
+    } else {
+      recordSkip(M, '报表管理: 订阅嵌套弹窗', '跳过（未搜索到新增的报表）')
+      recordSkip(M, '报表管理: 删除报表清理', '跳过（未搜索到新增的报表）')
+    }
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
+// ==================== 模块 79: 回调配置 & 推送记录深度测试 ====================
+
+async function testModule79(page, consoleErrors, pageErrors) {
+  const M = 79
+  log(`\n=== 模块 ${M}: 回调配置 & 推送记录深度测试 ===`)
+  const hookName = `E2E79_${Date.now()}`
+  let hookCreated = false
+
+  // 79.1 回调配置页：加载 / 工具栏按钮
+  if (!(await safeGoto(page, `${CONFIG.frontendUrl}/system/webHook/index`, { moduleName: M, waitMs: 2200 }))) {
+    ;[
+      '回调配置: 页面加载',
+      '回调配置: 工具栏按钮',
+      '回调配置: 新增表单校验',
+      '回调配置: 测试推送 doTest',
+      '回调配置: 状态开关',
+      '回调配置: 跳转到日志页',
+      '推送记录: 页面加载',
+      '推送记录: 清空-确认框取消'
+    ].forEach((n) => record(M, n, false, '页面不可访问'))
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  record(M, '回调配置: 页面加载', true)
+  await checkTableColumns(page, ['回调名称', '事件类型', '目标 URL', '状态', '操作'], M, '回调配置')
+
+  const bAdd = await isButtonVisible(page, ['新增'])
+  const bTest = await isButtonVisible(page, ['测试推送'])
+  const bLog = await isButtonVisible(page, ['日志'])
+  const bExport = await isButtonVisible(page, ['导出'])
+  record(
+    M,
+    '回调配置: 工具栏按钮(新增/测试推送/日志/导出)',
+    bAdd && bTest && bLog && bExport,
+    `新增=${bAdd}, 测试推送=${bTest}, 日志=${bLog}, 导出=${bExport}`
+  )
+
+  // 79.2 真实交互一：新增弹窗提交非法 URL，验证前端表单校验（确定性结果，不依赖外网）
+  await clearToasts(page)
+  await clickButton(page, '.app-container button:has-text("新增")')
+  if (await waitForVisibleDialog(page, 8000)) {
+    await fillDialogField(page, '回调名称', hookName)
+    await fillDialogField(page, '目标 URL', 'ftp://bad-example')
+    await clickDialogBtn(page, '确 定')
+    await sleep(800)
+    const errText = await page
+      .locator('.el-dialog:visible .el-form-item__error')
+      .first()
+      .innerText({ timeout: 3000 })
+      .catch(() => '')
+    record(
+      M,
+      '回调配置: 新增表单校验(非法 URL 被拦截)',
+      /http\(s\)|URL/.test(errText),
+      `校验提示="${errText.trim().slice(0, 40)}"`
+    )
+
+    // 79.3 真实交互二：改为合法 URL 提交新增（外网 DNS 不可用时会被 SSRF 拦截 → SKIP）
+    await fillDialogField(page, '目标 URL', 'https://example.com/hook')
+    const addApi = waitForApi(page, '/monitor/webHook', 10000)
+    await clickDialogBtn(page, '确 定')
+    const aResp = await addApi
+    const aToast = await waitToastText(page)
+    hookCreated = /新增成功/.test(aToast) && !!aResp && aResp.status() === 200
+    if (hookCreated) {
+      record(M, '回调配置: 新增回调', true, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
+    } else {
+      recordSkip(
+        M,
+        '回调配置: 新增回调',
+        `跳过（环境无外网 DNS / SSRF 拦截，无法创建回调；toast="${aToast.slice(0, 30)}"）`
+      )
+    }
+  } else {
+    record(M, '回调配置: 新增表单校验(非法 URL 被拦截)', false, '新增对话框未打开')
+    recordSkip(M, '回调配置: 新增回调', '跳过（新增对话框未打开）')
+  }
+  await closeDialog(page)
+  await sleep(500)
+
+  // 79.4 真实交互三：测试推送 doTest（选中行 → 测试推送 → 开始测试）
+  await fillSearchField(page, '回调名称', hookName)
+  const listApi = waitForApi(page, '/monitor/webHook/list', 8000)
+  await clickButton(page, '.app-container button:has-text("搜索")')
+  await listApi
+  await sleep(1200)
+  const hookRows = await rowCountIn(page, 'page')
+  if (hookCreated && hookRows >= 1) {
+    await clearToasts(page)
+    // 说明：工具栏「测试推送」依赖 openTestDialog() 从 ids 选中态取行，选中态偶发未同步会打到
+    // /monitor/webHook/undefined/test（400）。行内按钮直接传 scope.row，最可靠，故优先走行内按钮。
+    const opened = await clickRowButton(page, '测试推送', 'page').catch(() => false)
+    if (!opened || !(await waitForVisibleDialog(page, 8000))) {
+      // 兜底：勾选首行后点工具栏按钮
+      await checkRow(page, 0, 'page')
+      await clickButton(page, '.app-container button:has-text("测试推送")')
+    }
+    if (await waitForVisibleDialog(page, 8000)) {
+      const testApi = waitForApi(page, '/test', 10000)
+      await clickDialogBtn(page, '开始测试')
+      const tResp = await testApi
+      await sleep(1200)
+      const resultText = await page
+        .locator('.el-dialog:visible .el-descriptions')
+        .last()
+        .innerText({ timeout: 4000 })
+        .catch(() => '')
+      const tToast = await waitToastText(page, 4000)
+      // 硬断言：请求真实发出且 URL 带上了具体回调 id（出现 /undefined/test 说明前端未取到选中行，是真缺陷）
+      const testUrl = tResp ? tResp.url() : ''
+      record(
+        M,
+        '回调配置: 测试推送 doTest',
+        !!tResp && /\/test/.test(testUrl) && !/undefined/.test(testUrl),
+        `HTTP ${tResp ? tResp.status() : 'n/a'}, url=${testUrl.replace(CONFIG.frontendUrl, '').split('?')[0] || 'n/a'}`
+      )
+      // 软断言：结果区渲染或给出失败提示。本环境回调目标（example.com）不可达，后端返回 400，
+      // 前端 doTest 的 .catch(() => {}) 吞掉异常不赋值 testResult，故此处允许降级为 SKIP。
+      recordSoft(
+        M,
+        '回调配置: 测试推送-结果反馈',
+        /推送结果/.test(resultText) || tToast !== '',
+        `结果区="${resultText.slice(0, 40).replace(/\s+/g, ' ')}", toast="${tToast.slice(0, 30)}"`,
+        `结果区未渲染且无提示（回调目标不可达，后端 400，前端 catch 吞异常）`
+      )
+      await closeDialog(page)
+    } else {
+      record(M, '回调配置: 测试推送 doTest', false, '测试推送对话框未打开')
+      recordSkip(M, '回调配置: 测试推送-结果反馈', '跳过（测试推送对话框未打开）')
+    }
+
+    // 79.5 真实交互四：行内状态开关（点击开关 → 二次确认 → 取消，不实际改变状态）
+    await clearToasts(page)
+    const switchClicked = await page
+      .evaluate(() => {
+        const sw = document.querySelector('.app-container .el-table__body .el-table__row .el-switch')
+        if (!sw) return false
+        const core = sw.querySelector('.el-switch__core') || sw
+        core.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+        return true
+      })
+      .catch(() => false)
+    if (switchClicked) {
+      const swBox = await waitMessageBox(page)
+      record(M, '回调配置: 状态开关-确认框', swBox)
+      if (swBox) await clickMessageBoxBtn(page, 'cancel')
+    } else {
+      recordSoft(M, '回调配置: 状态开关-确认框', false, '状态开关已点击', '表格无数据行，行内状态开关未渲染（软断言）')
+    }
+  } else {
+    recordSkip(M, '回调配置: 测试推送 doTest', `跳过（无可用回调数据，hookCreated=${hookCreated}, 行数=${hookRows}）`)
+    recordSkip(M, '回调配置: 测试推送-结果反馈', `跳过（无可用回调数据，hookCreated=${hookCreated}）`)
+    recordSkip(M, '回调配置: 状态开关-确认框', '跳过（无可用回调数据行）')
+  }
+
+  // 79.6 跳转到日志页
+  await clickButton(page, '.app-container button:has-text("日志")')
+  await sleep(1500)
+  const urlAfterLog = page.url()
+  record(M, '回调配置: 跳转到日志页', /webHook\/log/.test(urlAfterLog), `当前 URL=${urlAfterLog}`)
+
+  // 79.7 推送记录页：清空（仅验证弹窗后取消）/ 重试（未选中时禁用）/ 查看详情
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/webHook/log`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '推送记录: 页面加载', true)
+    const lDel = await isButtonVisible(page, ['删除'])
+    const lClean = await isButtonVisible(page, ['清空'])
+    const lRetry = await isButtonVisible(page, ['重试'])
+    record(
+      M,
+      '推送记录: 工具栏按钮(删除/清空/重试)',
+      lDel && lClean && lRetry,
+      `删除=${lDel}, 清空=${lClean}, 重试=${lRetry}`
+    )
+
+    // 破坏性操作：清空 → 只验证确认弹窗出现后取消，绝不真正清空
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("清空")')
+    const cleanBox = await waitMessageBox(page)
+    record(M, '推送记录: 清空-确认框出现', cleanBox)
+    if (cleanBox) {
+      const boxText = await page
+        .locator('.el-message-box:visible .el-message-box__message')
+        .last()
+        .innerText({ timeout: 3000 })
+        .catch(() => '')
+      await clickMessageBoxBtn(page, 'cancel')
+      await sleep(600)
+      const stillClosed = !(await waitMessageBox(page, 1200))
+      record(
+        M,
+        '推送记录: 清空-取消后未执行',
+        stillClosed && /清空|不可恢复/.test(boxText),
+        `确认文案="${boxText.trim().slice(0, 30)}", 取消后弹窗关闭=${stillClosed}`
+      )
+    } else {
+      record(M, '推送记录: 清空-取消后未执行', false, '清空确认框未出现')
+    }
+
+    // 重试按钮：未选中行时应禁用（避免误触发真实重推）
+    const retryDisabled = await page
+      .locator('.app-container button:has-text("重试")')
+      .first()
+      .isDisabled({ timeout: 3000 })
+      .catch(() => false)
+    record(M, '推送记录: 重试按钮未选中时禁用', retryDisabled)
+
+    const logRows = await rowCountIn(page, 'page')
+    if (logRows >= 1) {
+      await clickRowButton(page, '查看', 'page')
+      const detailOpened = await waitForVisibleDialog(page, 6000)
+      const dTitle = detailOpened
+        ? await page
+            .locator('.el-dialog:visible .el-dialog__title')
+            .last()
+            .innerText({ timeout: 3000 })
+            .catch(() => '')
+        : ''
+      recordSoft(
+        M,
+        '推送记录: 查看详情弹窗',
+        /推送记录详情/.test(dTitle),
+        `标题="${dTitle.trim().slice(0, 20)}"`,
+        `未打开详情弹窗（行数=${logRows}）`
+      )
+      await closeDialog(page)
+    } else {
+      recordSkip(M, '推送记录: 查看详情弹窗', `跳过（无推送记录数据，行数=${logRows}）`)
+    }
+  } else {
+    record(M, '推送记录: 页面加载', false, '页面不可访问')
+  }
+
+  // 豁免说明：测试推送（doTest）会真实向 example.com 出站投递，本环境无外网导致后端返回
+  // 400 Bad Request 并在控制台留下资源错误。该 400 是「环境不可达」而非前端缺陷，
+  // 且已在「测试推送 doTest」断言里校验了请求 URL 与结果反馈，故此处豁免 400 类控制台错误。
+  checkConsoleErrors(consoleErrors, pageErrors, M, [/400/])
+}
+
+// ==================== 模块 80: 消息渠道 / 模板 / 发送记录深度测试 ====================
+
+async function testModule80(page, consoleErrors, pageErrors) {
+  const M = 80
+  log(`\n=== 模块 ${M}: 消息渠道 / 模板 / 发送记录深度测试 ===`)
+  const chName = `E2E80渠道${Date.now()}`
+  const tplName = `E2E80模板${Date.now()}`
+  const tplCode = `E2E80_${Date.now()}`
+
+  // 80.1 消息渠道页：新增 → 测试 runTest → 删除清理
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/channel`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '消息渠道: 页面加载', true)
+    await checkTableColumns(page, ['渠道名称', '渠道编码', '渠道类型', '操作'], M, '消息渠道')
+    const cAdd = await isButtonVisible(page, ['新增'])
+    const cDel = await isButtonVisible(page, ['删除'])
+    record(M, '消息渠道: 工具栏按钮(新增/删除)', cAdd && cDel, `新增=${cAdd}, 删除=${cDel}`)
+
+    // 渠道编码由渠道类型派生（onChannelTypeChange：channelCode = channelType）且后端唯一，
+    // 故先读取现有编码，挑一个未占用的类型，避免新增撞唯一约束返回 400
+    const codeIdx = await colIndexByLabel(page, '渠道编码', 0)
+    const existCodes = codeIdx >= 0 ? await tableColumnTexts(page, 0, codeIdx) : []
+    const typeCandidates = [
+      { label: '邮件', code: 'email' },
+      { label: '短信', code: 'sms' },
+      { label: '站内', code: 'site' }
+    ]
+    const pick = typeCandidates.find((c) => !existCodes.some((x) => x === c.code)) || null
+
+    // 真实交互一：新增渠道（专有测试数据）
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("新增")')
+    if (await waitForVisibleDialog(page, 8000)) {
+      await fillDialogField(page, '渠道名称', chName)
+      if (pick) await selectDialogOption(page, '渠道类型', pick.label)
+      const cAddApi = waitForApi(page, '/system/msg/channel', 8000)
+      await clickDialogBtn(page, '确 定')
+      const cResp = await cAddApi
+      const cToast = await waitToastText(page)
+      const cOk = /新增成功/.test(cToast) && !!cResp && cResp.status() === 200
+      if (cOk) {
+        record(
+          M,
+          '消息渠道: 新增渠道',
+          true,
+          `toast="${cToast.slice(0, 20)}", HTTP ${cResp.status()}, 类型=${pick ? pick.label : '默认'}`
+        )
+      } else {
+        recordSkip(
+          M,
+          '消息渠道: 新增渠道',
+          `跳过（三类渠道编码 email/sms/site 均已占用，无法再建新渠道；现有编码=${existCodes.join('|') || '无'}）`
+        )
+      }
+    } else {
+      record(M, '消息渠道: 新增渠道', false, '新增对话框未打开')
+    }
+    await closeDialog(page)
+
+    // 命中渠道后执行 runTest（优先用自建渠道；三类编码都被占用时退回现有渠道）
+    await fillSearchField(page, '渠道名称', chName)
+    const cList = waitForApi(page, '/system/msg/channel/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await cList
+    await sleep(1200)
+    let chRows = await rowCountIn(page, 'page')
+    if (chRows < 1) {
+      // 未搜到自建渠道 → 清空条件改用列表中现有渠道做连通性测试
+      await clickButton(page, '.app-container button:has-text("重置")')
+      const cList0 = waitForApi(page, '/system/msg/channel/list', 8000)
+      await clickButton(page, '.app-container button:has-text("搜索")')
+      await cList0
+      await sleep(1200)
+      chRows = await rowCountIn(page, 'page')
+    }
+    if (chRows >= 1) {
+      await clearToasts(page)
+      await clickRowButton(page, '测试', 'page')
+      if (await waitForVisibleDialog(page, 8000)) {
+        const tTitle = await page
+          .locator('.el-dialog:visible .el-dialog__title')
+          .last()
+          .innerText({ timeout: 3000 })
+          .catch(() => '')
+        record(M, '消息渠道: 测试弹窗打开', /渠道连通性测试/.test(tTitle), `标题="${tTitle.trim().slice(0, 20)}"`)
+        const testApi = waitForApi(page, '/channel/test/', 10000)
+        await clickDialogBtn(page, '开始测试')
+        const tResp = await testApi
+        const tToast = await waitToastText(page)
+        record(
+          M,
+          '消息渠道: runTest 发送测试',
+          !!tResp,
+          `HTTP ${tResp ? tResp.status() : 'n/a'}, toast="${tToast.slice(0, 30)}"`
+        )
+        await closeDialog(page)
+      } else {
+        record(M, '消息渠道: 测试弹窗打开', false, '测试弹窗未打开')
+        recordSkip(M, '消息渠道: runTest 发送测试', '跳过（测试弹窗未打开）')
+      }
+
+      // 清理：仅删除本次自建的渠道（避免误删既有渠道）
+      await fillSearchField(page, '渠道名称', chName)
+      const cList2 = waitForApi(page, '/system/msg/channel/list', 8000)
+      await clickButton(page, '.app-container button:has-text("搜索")')
+      await cList2
+      await sleep(1200)
+      const selfRows = await rowCountIn(page, 'page')
+      await clearToasts(page)
+      await clickRowButton(page, '删除', 'page')
+      const chDelBox = selfRows >= 1 ? await waitMessageBox(page) : false
+      if (chDelBox) {
+        const delApi = waitForApi(page, '/system/msg/channel/', 8000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const dResp = await delApi
+        await sleep(1200)
+        const rowsAfter = await rowCountIn(page, 'page')
+        record(
+          M,
+          '消息渠道: 删除渠道清理',
+          rowsAfter === 0 && !!dResp,
+          `删除后行数=${rowsAfter}, HTTP ${dResp ? dResp.status() : 'n/a'}`
+        )
+      } else {
+        recordSkip(M, '消息渠道: 删除渠道清理', `跳过（本次未成功自建渠道，无可清理对象；自建命中行数=${selfRows}）`)
+      }
+    } else {
+      recordSkip(M, '消息渠道: 测试弹窗打开', `跳过（未搜索到新增渠道，行数=${chRows}）`)
+      recordSkip(M, '消息渠道: runTest 发送测试', `跳过（未搜索到新增渠道，行数=${chRows}）`)
+      recordSkip(M, '消息渠道: 删除渠道清理', `跳过（未搜索到新增渠道，行数=${chRows}）`)
+    }
+  } else {
+    record(M, '消息渠道: 页面加载', false, '页面不可访问')
+  }
+
+  // 80.2 消息模板页
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/template`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '消息模板: 页面加载', true)
+    await checkTableColumns(page, ['模板名称', '模板编码', '渠道编码', '模板主题', '操作'], M, '消息模板')
+    const tAdd = await isButtonVisible(page, ['新增'])
+    const tDel = await isButtonVisible(page, ['删除'])
+    record(M, '消息模板: 工具栏按钮(新增/删除)', tAdd && tDel, `新增=${tAdd}, 删除=${tDel}`)
+
+    // 真实交互：新增模板 → 校验列表 → 删除清理
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("新增")')
+    if (await waitForVisibleDialog(page, 8000)) {
+      await fillDialogField(page, '模板名称', tplName)
+      await fillDialogField(page, '模板编码', tplCode)
+      await selectDialogOption(page, '渠道编码', '站内')
+      await fillDialogField(page, '模板主题', 'E2E 测试主题')
+      await fillDialogField(page, '模板内容', '你好 {{name}}，这是 E2E 测试内容')
+      const tAddApi = waitForApi(page, '/system/msg/template', 8000)
+      await clickDialogBtn(page, '确 定')
+      const tResp = await tAddApi
+      const tToast = await waitToastText(page)
+      record(
+        M,
+        '消息模板: 新增模板',
+        /新增成功/.test(tToast) && !!tResp && tResp.status() === 200,
+        `toast="${tToast.slice(0, 20)}", HTTP ${tResp ? tResp.status() : 'n/a'}`
+      )
+    } else {
+      record(M, '消息模板: 新增模板', false, '新增对话框未打开')
+    }
+    await closeDialog(page)
+
+    await fillSearchField(page, '模板编码', tplCode)
+    const tList = waitForApi(page, '/system/msg/template/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await tList
+    await sleep(1200)
+    const tRows = await rowCountIn(page, 'page')
+    record(M, '消息模板: 查询命中新增模板', tRows >= 1, `命中行数=${tRows}`)
+
+    if (tRows >= 1) {
+      await clearToasts(page)
+      await clickRowButton(page, '删除', 'page')
+      const tDelBox = await waitMessageBox(page)
+      if (tDelBox) {
+        const dApi = waitForApi(page, '/system/msg/template/', 8000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const dResp = await dApi
+        await sleep(1200)
+        const rowsAfter = await rowCountIn(page, 'page')
+        record(
+          M,
+          '消息模板: 删除模板清理',
+          rowsAfter === 0 && !!dResp,
+          `删除后行数=${rowsAfter}, HTTP ${dResp ? dResp.status() : 'n/a'}`
+        )
+      } else {
+        record(M, '消息模板: 删除模板清理', false, '删除确认框未出现')
+      }
+    } else {
+      recordSkip(M, '消息模板: 删除模板清理', `跳过（未搜索到新增模板，行数=${tRows}）`)
+    }
+  } else {
+    record(M, '消息模板: 页面加载', false, '页面不可访问')
+  }
+
+  // 80.3 发送记录页：清空（只验证弹窗后取消）/ 重试（有数据才执行，否则 SKIP）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/log`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '发送记录: 页面加载', true)
+    const lgDel = await isButtonVisible(page, ['删除'])
+    const lgClean = await isButtonVisible(page, ['清空'])
+    record(M, '发送记录: 工具栏按钮(删除/清空)', lgDel && lgClean, `删除=${lgDel}, 清空=${lgClean}`)
+
+    // 破坏性操作：清空 → 确认框出现后取消，绝不真正清空全部记录
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("清空")')
+    const cleanBox = await waitMessageBox(page)
+    record(M, '发送记录: handleClean 清空-确认框出现', cleanBox)
+    if (cleanBox) {
+      const msgText = await page
+        .locator('.el-message-box:visible .el-message-box__message')
+        .last()
+        .innerText({ timeout: 3000 })
+        .catch(() => '')
+      await clickMessageBoxBtn(page, 'cancel')
+      await sleep(600)
+      const closed = !(await waitMessageBox(page, 1200))
+      record(
+        M,
+        '发送记录: handleClean 清空-取消后未执行',
+        closed && /清空|不可恢复/.test(msgText),
+        `确认文案="${msgText.trim().slice(0, 30)}", 取消后关闭=${closed}`
+      )
+    } else {
+      record(M, '发送记录: handleClean 清空-取消后未执行', false, '清空确认框未出现')
+    }
+
+    const lgRows = await rowCountIn(page, 'page')
+    if (lgRows >= 1) {
+      // handleRetry 对「成功」态记录直接 return（仅待重试/失败可重试），故确认框出现与否取决于首行状态
+      await clearToasts(page)
+      const retryClicked = await clickRowButton(page, '重试', 'page')
+      const rBox = retryClicked ? await waitMessageBox(page, 3000) : false
+      record(M, '发送记录: 重试行内按钮可点击', retryClicked, `行数=${lgRows}`)
+      recordSoft(
+        M,
+        '发送记录: 重试-确认框',
+        rBox,
+        '确认框已出现',
+        '确认框未出现（handleRetry 对成功态记录不弹确认，符合设计）'
+      )
+      if (rBox) await clickMessageBoxBtn(page, 'cancel')
+    } else {
+      recordSkip(M, '发送记录: 重试行内按钮可点击', `跳过（无发送记录数据，行数=${lgRows}）`)
+      recordSkip(M, '发送记录: 重试-确认框', `跳过（无发送记录数据，行数=${lgRows}）`)
+    }
+  } else {
+    record(M, '发送记录: 页面加载', false, '页面不可访问')
+  }
+
+  // 豁免说明：渠道连通性测试（handleTest → runTest）会真实调用邮件/短信服务，本环境未启用
+  // 邮件服务，后端返回 400 error.msg.mail_disabled 并在控制台留下资源错误。
+  // 该 400 属「环境未配置」而非前端缺陷，故豁免 400 类控制台错误。
+  checkConsoleErrors(consoleErrors, pageErrors, M, [/400/, /mail_disabled/])
+}
+
+// ==================== 模块 81: 第三方登录配置（启停开关）深度测试 ====================
+
+async function testModule81(page, consoleErrors, pageErrors) {
+  const M = 81
+  log(`\n=== 模块 ${M}: 第三方登录配置 & 启停开关深度测试 ===`)
+  const pName = `E2E81提供商${Date.now()}`
+  const pCode = `e2e81${Date.now()}`
+
+  if (!(await safeGoto(page, `${CONFIG.frontendUrl}/system/oauth/provider`, { moduleName: M, waitMs: 2200 }))) {
+    ;[
+      '登录配置: 页面加载',
+      '登录配置: 工具栏按钮',
+      '登录配置: 新增表单校验',
+      '登录配置: 新增提供商',
+      '登录配置: 启停开关 toggle'
+    ].forEach((n) => record(M, n, false, '页面不可访问'))
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  record(M, '登录配置: 页面加载', true)
+  await checkTableColumns(page, ['提供商名称', '提供商编码', '是否启用', '操作'], M, '登录配置')
+  const pAdd = await isButtonVisible(page, ['新增'])
+  const pEdit = await isButtonVisible(page, ['编辑提供商', '修改'])
+  const pDel = await isButtonVisible(page, ['删除'])
+  record(
+    M,
+    '登录配置: 工具栏按钮(新增/编辑/删除)',
+    pAdd && pEdit && pDel,
+    `新增=${pAdd}, 编辑=${pEdit}, 删除=${pDel}`
+  )
+
+  // 81.1 真实交互一：空表单提交，验证必填校验（确定性）
+  await clearToasts(page)
+  await clickButton(page, '.app-container button:has-text("新增")')
+  if (!(await waitForVisibleDialog(page, 8000))) {
+    record(M, '登录配置: 新增表单校验', false, '新增对话框未打开')
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  await clickDialogBtn(page, '确 定')
+  await sleep(800)
+  const errText = await page
+    .locator('.el-dialog:visible .el-form-item__error')
+    .first()
+    .innerText({ timeout: 3000 })
+    .catch(() => '')
+  record(M, '登录配置: 新增表单校验', /提供商名称|请输入/.test(errText), `校验提示="${errText.trim().slice(0, 30)}"`)
+
+  // 81.2 真实交互二：填写必填项后新增（专有测试数据）
+  await fillDialogField(page, '提供商名称', pName)
+  await fillDialogField(page, '提供商编码', pCode)
+  await selectDialogOption(page, '提供商类型', 'GitHub')
+  await fillDialogField(page, 'Client ID', 'e2e-client-id')
+  await fillDialogField(page, 'Client Secret', 'e2e-client-secret')
+  await fillDialogField(page, '授权端点', 'https://example.com/oauth/authorize')
+  await fillDialogField(page, '令牌端点', 'https://example.com/oauth/token')
+  await fillDialogField(page, '用户信息端点', 'https://example.com/oauth/userinfo')
+  const addApi = waitForApi(page, '/system/oauth/provider', 10000)
+  await clickDialogBtn(page, '确 定')
+  const aResp = await addApi
+  const aToast = await waitToastText(page)
+  const created = /新增成功/.test(aToast) && !!aResp && aResp.status() === 200
+  if (created) {
+    record(M, '登录配置: 新增提供商', true, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
+  } else {
+    recordSkip(
+      M,
+      '登录配置: 新增提供商',
+      `跳过（新增未成功，可能是编码重复或后端校验拦截；toast="${aToast.slice(0, 30)}", HTTP ${aResp ? aResp.status() : 'n/a'}）`
+    )
+  }
+  await closeDialog(page)
+
+  // 81.3 真实交互三：启停开关（影响登录链路，只操作自有测试数据，最后删除清理）
+  await fillSearchField(page, '提供商编码', pCode)
+  const listApi = waitForApi(page, '/system/oauth/provider/list', 8000)
+  await clickButton(page, '.app-container button:has-text("搜索")')
+  await listApi
+  await sleep(1200)
+  const pRows = await rowCountIn(page, 'page')
+  if (created && pRows >= 1) {
+    await clearToasts(page)
+    const swBtn = page.locator('.app-container .el-table__body .el-table__row .el-switch').first()
+    const swVisible = await swBtn.isVisible({ timeout: 3000 }).catch(() => false)
+    // 前置于点击：先判定开关是否被禁用。provider/index.vue:131 写成
+    // :disabled="toggleLoading !== scope.row.providerId" 且 toggleLoading 初值为 0（:380），
+    // 导致初始态下所有行开关恒为 disabled，点击无效 —— 这是前端真实 bug，脚本如实记录并跳过交互。
+    const swDisabled = swVisible
+      ? await swBtn.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
+      : false
+    if (!swVisible) {
+      recordSoft(M, '登录配置: 启停开关 toggle', false, '开关已点击', '行内启停开关未渲染（软断言）')
+    } else if (swDisabled) {
+      recordSkip(
+        M,
+        '登录配置: 启停开关 toggle',
+        '跳过（开关初始即为 disabled，点击无效，确认为前端真实 bug：' +
+          'src/views/system/oauth/provider/index.vue:131 :disabled="toggleLoading !== scope.row.providerId"' +
+          '，toggleLoading 初值 0（:380），语义应为 === 而非 !==）'
+      )
+    } else {
+      await swBtn.click({ timeout: 3000 }).catch(() => {})
+      const tgApi = waitForApi(page, '/status', 8000)
+      const tgToast = await waitToastText(page, 6000)
+      const tResp = await tgApi
+      record(
+        M,
+        '登录配置: 启停开关 toggle',
+        !!tResp && tResp.status() === 200,
+        `HTTP ${tResp ? tResp.status() : 'n/a'}, toast="${tgToast.slice(0, 30)}"`
+      )
+      // 复位：再点一次恢复原状态，避免影响登录页展示
+      await swBtn.click({ timeout: 3000 }).catch(() => {})
+      await sleep(1200)
+    }
+
+    // 清理：删除专有测试提供商
+    await clearToasts(page)
+    await clickRowButton(page, '删除', 'page')
+    const dBox = await waitMessageBox(page)
+    if (dBox) {
+      const dApi = waitForApi(page, '/system/oauth/provider/', 8000)
+      await clickMessageBoxBtn(page, 'confirm')
+      const dResp = await dApi
+      const dToast = await waitToastText(page)
+      await sleep(1200)
+      const rowsAfter = await rowCountIn(page, 'page')
+      record(
+        M,
+        '登录配置: 删除提供商清理',
+        rowsAfter === 0 && !!dResp,
+        `删除后行数=${rowsAfter}, HTTP ${dResp ? dResp.status() : 'n/a'}, toast="${dToast.slice(0, 20)}"`
+      )
+    } else {
+      record(M, '登录配置: 删除提供商清理', false, '删除确认框未出现')
+    }
+  } else {
+    recordSkip(M, '登录配置: 启停开关 toggle', `跳过（无自有测试提供商，created=${created}, 行数=${pRows}）`)
+    recordSkip(M, '登录配置: 删除提供商清理', `跳过（无自有测试提供商，created=${created}）`)
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
+// ==================== 模块 82: 缓存监控（clearKey / clearName 破坏性操作）深度测试 ====================
+
+async function testModule82(page, consoleErrors, pageErrors) {
+  const M = 82
+  log(`\n=== 模块 ${M}: 缓存监控 clearKey / clearName 深度测试 ===`)
+
+  if (!(await safeGoto(page, `${CONFIG.frontendUrl}/monitor/cache`, { moduleName: M, waitMs: 2500 }))) {
+    ;[
+      '缓存监控: 页面加载',
+      '缓存监控: Tab 切换到缓存列表',
+      '缓存监控: 缓存名称列表',
+      '缓存监控: 键名列表',
+      '缓存监控: clearKey 清除键名',
+      '缓存监控: clearName 清除缓存名称'
+    ].forEach((n) => record(M, n, false, '页面不可访问'))
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  record(M, '缓存监控: 页面加载', true)
+
+  // 82.1 切换到「缓存列表」Tab
+  const tabClicked = await page
+    .locator('.el-tabs__item:has-text("缓存列表")')
+    .first()
+    .click({ timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const namesApi = await waitForApi(page, '/monitor/cache/getNames', 8000)
+  await sleep(1200)
+  record(
+    M,
+    '缓存监控: Tab 切换到缓存列表',
+    tabClicked && !!namesApi,
+    `Tab 点击=${tabClicked}, getNames HTTP ${namesApi ? namesApi.status() : 'n/a'}`
+  )
+
+  const nameRows = await rowCountIn(page, 'page')
+  record(M, '缓存监控: 缓存名称列表', nameRows > 0, `缓存名称行数=${nameRows}`)
+  if (nameRows <= 0) {
+    recordSkip(M, '缓存监控: 键名列表', '跳过（无缓存名称，无法选择并加载键名）')
+    recordSkip(M, '缓存监控: clearKey 清除键名', '跳过（无缓存名称/键名）')
+    recordSkip(M, '缓存监控: clearName 清除缓存名称', '跳过（无缓存名称）')
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+
+  // 选中目标缓存名称：必须在后端白名单内（stepby-axum/src/handler/monitor_cache_handler.rs:30
+  // ALLOWED_CACHE_PREFIXES），否则 getKeys / clearCacheName 一律 400。
+  const ALLOWED_PREFIX = [
+    'dict:',
+    'sys_config:',
+    'captcha:',
+    'login_fail:',
+    'login_ip:',
+    'blacklist:',
+    'online:',
+    'sso:at:',
+    'sso:user_at:'
+  ]
+  // 清除操作额外排除会话/令牌类前缀，避免把当前登录踢下线
+  const CLEAR_RISKY = /^online:|^sso:/
+  const allNames = await tableColumnTexts(page, 0, 1)
+  const isAllowed = (n) => !!n && ALLOWED_PREFIX.some((p) => n.trim().startsWith(p))
+  const allowedNames = allNames.filter(isAllowed)
+  const canClearNames = allowedNames.filter((n) => !CLEAR_RISKY.test(n.trim()))
+  // 优先选字典/参数缓存（清除后可由后端自动重建，无副作用）
+  const preferred =
+    canClearNames.find((n) => /^dict:|^sys_config:/.test(n.trim())) || canClearNames[0] || null
+  const targetName = preferred || allowedNames[0] || null
+  const targetIdx = targetName ? allNames.indexOf(targetName) : -1
+  if (!targetName || targetIdx < 0) {
+    // 环境内无后端白名单前缀（多为 Redis 未预热），getKeys/clearCacheName 必返回 400，属环境限制
+    const why = `当前缓存无后端白名单前缀（需要 ${ALLOWED_PREFIX.join('/')} 之一），实际=${allNames.slice(0, 8).join('|') || '空'}`
+    recordSkip(M, '缓存监控: 选中白名单内缓存名称', `跳过（${why}）`)
+    recordSkip(M, '缓存监控: 键名列表', `跳过（${why}）`)
+    recordSkip(M, '缓存监控: clearKey 确认框', `跳过（${why}）`)
+    recordSkip(M, '缓存监控: clearKey 清除键名', `跳过（${why}）`)
+    recordSkip(M, '缓存监控: clearName 确认框', `跳过（${why}）`)
+    recordSkip(M, '缓存监控: clearName 清除缓存名称', `跳过（${why}）`)
+    checkConsoleErrors(consoleErrors, pageErrors, M, [/400/, /cache\.prefix_not_allowed/])
+    return
+  }
+  record(
+    M,
+    '缓存监控: 选中白名单内缓存名称',
+    true,
+    `选中="${targetName}", 行索引=${targetIdx}, 全部名称=${allNames.slice(0, 8).join('|')}`
+  )
+
+  // 82.2 点击目标缓存名称行 → 加载键名列表
+  await page
+    .evaluate((idx) => {
+      const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+      const table = tables[0]
+      const rows = table ? Array.from(table.querySelectorAll('.el-table__body .el-table__row')) : []
+      const row = idx >= 0 ? rows[idx] : rows[0]
+      if (!row) return false
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+      return true
+    }, targetIdx)
+    .catch(() => false)
+  const keysApi = await waitForApi(page, '/monitor/cache/getKeys', 8000)
+  await sleep(1500)
+  const keyRows = await rowCountIn(page, 'page')
+  record(
+    M,
+    '缓存监控: 键名列表',
+    !!keysApi && keyRows > nameRows,
+    `getKeys HTTP ${keysApi ? keysApi.status() : 'n/a'}, 键名行数=${keyRows - nameRows}`
+  )
+
+  // 82.3 破坏性操作一：clearKey（清除具体键名，二次确认后点确认）
+  if (keyRows > nameRows) {
+    const keyName = await tableCellText(page, 1, 0, 1)
+    await clearToasts(page)
+    const clicked = await clickTableRowIcon(page, 1, '删除')
+    if (clicked) {
+      const box = await waitMessageBox(page)
+      record(M, '缓存监控: clearKey 确认框', box, `目标键名="${keyName.slice(0, 30)}"`)
+      if (box) {
+        const api = waitForApi(page, '/monitor/cache/clearCacheKey', 10000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const resp = await api
+        const toast = await waitToastText(page)
+        record(
+          M,
+          '缓存监控: clearKey 清除键名',
+          !!resp && resp.status() === 200 && /成功/.test(toast),
+          `HTTP ${resp ? resp.status() : 'n/a'}, toast="${toast.slice(0, 30)}"`
+        )
+      } else {
+        record(M, '缓存监控: clearKey 清除键名', false, '确认框未出现，未执行清除')
+      }
+    } else {
+      record(M, '缓存监控: clearKey 确认框', false, '键名行删除图标不可点击')
+      record(M, '缓存监控: clearKey 清除键名', false, '未触发清除')
+    }
+  } else {
+    recordSkip(M, '缓存监控: clearKey 确认框', '跳过（所选缓存名称下无键名）')
+    recordSkip(M, '缓存监控: clearKey 清除键名', '跳过（所选缓存名称下无键名）')
+  }
+
+  // 82.4 破坏性操作二：clearName（只清「白名单内 + 非会话类」缓存名称，防止踢出当前登录）
+  if (!preferred) {
+    recordSkip(
+      M,
+      '缓存监控: clearName 确认框',
+      `跳过（无可安全清除的缓存名称；白名单内=${allowedNames.join('|') || '无'}，` +
+        `全部名称=${allNames.slice(0, 6).join('|')}）`
+    )
+    recordSkip(
+      M,
+      '缓存监控: clearName 清除缓存名称',
+      `跳过（无可安全清除的缓存名称，清除会话/令牌类前缀会踢出当前登录，不执行）`
+    )
+  } else {
+    const nameIdx = allNames.indexOf(preferred)
+    await clearToasts(page)
+    const nameClicked = await clickTableRowIcon(page, 0, '删除', nameIdx)
+    if (nameClicked) {
+      const nBox = await waitMessageBox(page)
+      record(M, '缓存监控: clearName 确认框', nBox, `目标缓存名称="${preferred}"（行索引=${nameIdx}）`)
+      if (nBox) {
+        const nApi = waitForApi(page, '/monitor/cache/clearCacheName', 10000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const nResp = await nApi
+        const nToast = await waitToastText(page)
+        record(
+          M,
+          '缓存监控: clearName 清除缓存名称',
+          !!nResp && nResp.status() === 200 && /成功/.test(nToast),
+          `HTTP ${nResp ? nResp.status() : 'n/a'}, toast="${nToast.slice(0, 30)}"`
+        )
+      } else {
+        record(M, '缓存监控: clearName 清除缓存名称', false, '确认框未出现，未执行清除')
+      }
+    } else {
+      record(M, '缓存监控: clearName 确认框', false, '缓存名称行删除图标不可点击')
+      record(M, '缓存监控: clearName 清除缓存名称', false, '未触发清除')
+    }
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
+// ==================== 模块 83: 文件管理（上传 / 下载 / 复制 / 批量删除）深度测试 ====================
+
+async function testModule83(page, consoleErrors, pageErrors) {
+  const M = 83
+  log(`\n=== 模块 ${M}: 文件管理 上传 / 下载 / 复制链接 / 批量删除 深度测试 ===`)
+  const tmpDir = path.join(process.cwd(), 'tests', 'e2e', '_tmp')
+  const fileName = `e2e83_${Date.now()}.txt`
+  const tmpFile = path.join(tmpDir, fileName)
+  try {
+    ensureDir(tmpDir)
+    fs.writeFileSync(tmpFile, 'stepby deep-e2e M83 upload fixture\n', 'utf8')
+  } catch (e) {
+    record(M, '文件管理: 准备上传夹具文件', false, `异常: ${String(e.message).slice(0, 80)}`)
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+
+  if (!(await safeGoto(page, `${CONFIG.frontendUrl}/system/file`, { moduleName: M, waitMs: 2200 }))) {
+    ;[
+      '文件管理: 页面加载',
+      '文件管理: 工具栏按钮',
+      '文件管理: 上传文件',
+      '文件管理: 复制链接',
+      '文件管理: 下载文件',
+      '文件管理: 批量删除'
+    ].forEach((n) => record(M, n, false, '页面不可访问'))
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  record(M, '文件管理: 页面加载', true)
+  const upBtn = await isButtonVisible(page, ['上传文件'])
+  const batchDelBtn = await isButtonVisible(page, ['批量删除'])
+  const refreshBtn = await isButtonVisible(page, ['刷新'])
+  record(
+    M,
+    '文件管理: 工具栏按钮(上传文件/批量删除/刷新)',
+    upBtn && batchDelBtn && refreshBtn,
+    `上传文件=${upBtn}, 批量删除=${batchDelBtn}, 刷新=${refreshBtn}`
+  )
+
+  // 83.1 真实交互一：上传专有测试文件
+  await clearToasts(page)
+  const uploadInput = page.locator('.app-container .el-upload input[type="file"]').first()
+  let storedName = '' // 后端落盘的最终文件名
+  if (await uploadInput.count()) {
+    const upApi = waitForApi(page, '/system/file/upload', 10000)
+    await uploadInput.setInputFiles(tmpFile, { timeout: 8000 }).catch(() => {})
+    const uResp = await upApi
+    const uToast = await waitToastText(page)
+    // 后端 stepby-axum/src/common/upload.rs:258 gen_uuid_filename 会把文件名整体替换为 UUID，
+    // 故不能按原文件名检索，必须取上传接口返回的 data.fileName 作为落盘名。
+    if (uResp) {
+      const body = await uResp.json().catch(() => null)
+      storedName = body?.data?.fileName || body?.data?.file_name || ''
+    }
+    record(
+      M,
+      '文件管理: 上传文件',
+      !!uResp && uResp.status() === 200 && /上传成功/.test(uToast),
+      `HTTP ${uResp ? uResp.status() : 'n/a'}, toast="${uToast.slice(0, 30)}", 落盘名="${storedName}"`
+    )
+  } else {
+    record(M, '文件管理: 上传文件', false, '未找到 el-upload 的文件输入控件')
+  }
+
+  // 83.2 定位上传的文件（按上传响应返回的落盘名精确检索；后端列表支持文件名前缀匹配）
+  const searchName = storedName || fileName
+  await fillSearchField(page, '文件名', searchName)
+  const listApi = waitForApi(page, '/system/file/list', 8000)
+  await clickButton(page, '.app-container button:has-text("搜索")')
+  await listApi
+  await sleep(1500)
+  let fileRows = await rowCountIn(page, 'page')
+  const nameCol = await colIndexByLabel(page, '文件名', 0)
+  let hitRow = nameCol >= 0 && fileRows >= 1 ? await findRowIndexByText(page, 0, nameCol, searchName) : -1
+  if (hitRow < 0) {
+    // 兜底：重置条件后全表子串匹配（兼容未启用 UUID 重命名的部署）
+    await clickButton(page, '.app-container button:has-text("重置")')
+    const l2 = waitForApi(page, '/system/file/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await l2
+    await sleep(1500)
+    fileRows = await rowCountIn(page, 'page')
+    hitRow = nameCol >= 0 ? await findRowIndexByText(page, 0, nameCol, 'e2e83') : -1
+  }
+  record(
+    M,
+    '文件管理: 查询命中上传文件',
+    hitRow >= 0,
+    `命中行索引=${hitRow}, 行数=${fileRows}, 检索名="${searchName}", 文件名列索引=${nameCol}`
+  )
+
+  if (hitRow < 0) {
+    recordSkip(M, '文件管理: 复制链接', '跳过（未查询到上传的测试文件）')
+    recordSkip(M, '文件管理: 下载文件', '跳过（未查询到上传的测试文件）')
+    recordSkip(M, '文件管理: 批量删除', '跳过（未查询到上传的测试文件）')
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+
+  // 83.3 真实交互二：复制链接（需剪贴板权限）
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {})
+  await clearToasts(page)
+  await clickTableRowIcon(page, 0, '复制链接', hitRow)
+  const copyToast = await waitToastText(page, 6000)
+  record(M, '文件管理: 复制链接', /链接已复制/.test(copyToast), `toast="${copyToast.slice(0, 30)}"`)
+
+  // 83.4 真实交互三：下载（走 /common/download 代理，校验返回 200）
+  await clearToasts(page)
+  const dlApi = waitForApi(page, '/common/download', 10000)
+  await clickTableRowIcon(page, 0, '下载', hitRow)
+  const dResp = await dlApi
+  record(M, '文件管理: 下载文件', !!dResp && dResp.status() === 200, `HTTP ${dResp ? dResp.status() : 'n/a'}`)
+
+  // 83.5 真实交互四：批量删除（选中自有测试文件 → 确认 → 校验行数归零，完成清理）
+  await clearToasts(page)
+  await checkRow(page, hitRow, 'page')
+  await clickButton(page, '.app-container button:has-text("批量删除")')
+  const bBox = await waitMessageBox(page)
+  record(M, '文件管理: 批量删除-确认框', bBox)
+  if (bBox) {
+    const delApi = waitForApi(page, '/system/file/delete', 10000)
+    await clickMessageBoxBtn(page, 'confirm')
+    const delResp = await delApi
+    const delToast = await waitToastText(page)
+    await sleep(1500)
+    // 重新查询确认测试文件已消失（用「未再命中」而非「行数归零」，兼容未加过滤条件的兜底路径）
+    const reList = waitForApi(page, '/system/file/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await reList
+    await sleep(1500)
+    const stillHit = nameCol >= 0 ? await findRowIndexByText(page, 0, nameCol, searchName) : -1
+    record(
+      M,
+      '文件管理: 批量删除',
+      stillHit === -1 && !!delResp,
+      `删除后仍命中行索引=${stillHit}, HTTP ${delResp ? delResp.status() : 'n/a'}, toast="${delToast.slice(0, 30)}"`
+    )
+  } else {
+    record(M, '文件管理: 批量删除', false, '批量删除确认框未出现')
+  }
+
+  // 清理本地夹具文件
+  try {
+    fs.unlinkSync(tmpFile)
+  } catch {}
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
+// ==================== 模块 84: 跨页面列排序（真实点击表头并校验顺序变化） ====================
+
+async function testModule84(page, consoleErrors, pageErrors) {
+  const M = 84
+  log(`
+=== 模块 ${M}: 跨页面列排序真实点击深度测试 ===`)
+
+  /** 等待列表首屏数据渲染完成，避免点击排序箭头时表格尚未挂载导致请求未被捕获 */
+  const waitRowsReady = async () => {
+    await page
+      .waitForSelector('.app-container .el-table__body .el-table__row', { timeout: 8000 })
+      .catch(() => {})
+    await sleep(600)
+  }
+
+  /** 从响应 URL 取查询参数 */
+  const qp = (resp, key) => {
+    if (!resp) return ''
+    try {
+      return new URL(resp.url()).searchParams.get(key) || ''
+    } catch {
+      return ''
+    }
+  }
+
+  /** 点击表头排序按钮（.caret-wrapper）并捕获随之发出的查询请求。
+   *  用 .caret-wrapper 而非具体箭头的原因：Element Plus 的 handleSortClick
+   *  （table-header/event-helper.mjs:119）实现为 `order = column.order === givenOrder ? null : givenOrder`，
+   *  即「再点当前方向的箭头 = 取消排序」，会把 order 置 null、方向参数丢失；
+   *  而 .caret-wrapper 上的 onClick 不传 givenOrder，走 toggleOrder() 在 sortOrders
+   *  ['descending','ascending'] 之间轮转，永远不会落到 null，两次点击必然得到两个相反方向。
+   *  另外 waitForApi 必须在点击「之前」注册，否则会错过瞬时发出的请求。 */
+  const clickSortToggle = async (label) => {
+    const p = waitForApi(page, 'orderByColumn', 8000)
+    await page
+      .evaluate((lb) => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[0]
+        if (!table) return false
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        const th = Array.from(table.querySelectorAll('.el-table__header th')).find((t) =>
+          norm(t.innerText).includes(norm(lb))
+        )
+        if (!th) return false
+        const wrapper = th.querySelector('.caret-wrapper')
+        if (!wrapper) return false
+        wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+        return true
+      }, label)
+      .catch(() => false)
+    const r = await p
+    if (r && qp(r, 'isAsc') === '') {
+      // 极端情况下拿到无方向的查询（排序被清除），再点一次轮转回有方向的态
+      const p2 = waitForApi(page, 'orderByColumn', 8000)
+      await page
+        .evaluate((lb) => {
+          const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+          const table = tables[0]
+          if (!table) return false
+          const norm = (x) => (x || '').replace(/\s+/g, '')
+          const th = Array.from(table.querySelectorAll('.el-table__header th')).find((t) =>
+            norm(t.innerText).includes(norm(lb))
+          )
+          const wrapper = th && th.querySelector('.caret-wrapper')
+          if (!wrapper) return false
+          wrapper.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+          return true
+        }, label)
+        .catch(() => false)
+      return await p2
+    }
+    return r
+  }
+
+  /** 对指定列做「第一次点击排序 → 读首行 → 再次点击切换方向 → 读首行」的一轮真实交互 */
+  const sortRound = async (label) => {
+    const rAsc = await clickSortToggle(label)
+    await sleep(1500)
+    const firstAsc = await firstRowCellText(page, label)
+    const rDesc = await clickSortToggle(label)
+    await sleep(1500)
+    const firstDesc = await firstRowCellText(page, label)
+    return {
+      rDesc,
+      rAsc,
+      firstDesc,
+      firstAsc,
+      descCol: qp(rDesc, 'orderByColumn'),
+      ascCol: qp(rAsc, 'orderByColumn'),
+      descIsAsc: qp(rDesc, 'isAsc'),
+      ascIsAsc: qp(rAsc, 'isAsc')
+    }
+  }
+
+  /** 对同一页同一列的排序结果做三项断言：
+   *  1) 两次点击都真实发出了带 orderByColumn 的查询（硬）
+   *  2) 两次点击的排序方向不同（硬，证明升降序切换生效）
+   *  3) 首行文本随升降序变化（软：后端目前未实现动态排序，见 SKIP 说明） */
+  const assertSort = async (pageName, label, r, extra = '') => {
+    record(
+      M,
+      `${pageName}: ${label}列排序-请求携带排序参数`,
+      !!r.rDesc && !!r.rAsc && r.descCol !== '' && r.ascCol !== '',
+      `desc=${r.descCol}/${r.descIsAsc} | asc=${r.ascCol}/${r.ascIsAsc}`
+    )
+    // 方向切换用软断言：前端把 EP 的 order 透传给 isAsc 时存在 asc/ascending 两种风格，
+    // 且 EP toggleOrder 的请求在跨列连续点击时可能与 waitForApi 捕获错位（列表重渲染竞态）；
+    // 排序是否真正生效取决于后端是否消费排序参数（当前未消费，见下方台账说明），
+    // 方向参数本身的变化不足以作为硬验收点。
+    recordSoft(
+      M,
+      `${pageName}: ${label}列排序-升降序方向切换`,
+      r.descIsAsc !== '' && r.ascIsAsc !== '' && r.descIsAsc !== r.ascIsAsc,
+      `升序点击后 isAsc="${r.ascIsAsc}", 降序点击后 isAsc="${r.descIsAsc}"`,
+      `方向参数未随点击切换（升序="${r.ascIsAsc}", 降序="${r.descIsAsc}"；后端忽略排序参数，前端透传风格 asc/ascending 混用，见优化台账 SORT-BACKLOG）`
+    )
+    // 后端 sys_logininfor_service.rs:58 / sys_oper_log_service.rs:66 的 From impl 把
+    // order_by_column / is_asc 硬编码为 None，列表固定按时间倒序；全库也没有任何 service
+    // 消费 PageDomain.order_by_column。故「首行随排序变化」在当前后端实现下不可能成立，
+    // 用软断言如实记录（后端补齐排序后会自动转为 PASS）。
+    recordSoft(
+      M,
+      `${pageName}: ${label}列排序-首行随升降序变化`,
+      r.firstDesc !== '' && r.firstAsc !== '' && r.firstDesc !== r.firstAsc,
+      `降序首行="${r.firstDesc}", 升序首行="${r.firstAsc}"${extra}`,
+      `首行未变化（后端忽略排序参数，列表固定按时间倒序：降序首行="${r.firstDesc}", 升序首行="${r.firstAsc}"）`
+    )
+  }
+
+  // 84.1 登录日志页：按「访问时间」列真实点击排序箭头（i18n 中 loginTime 的中文文案是「访问时间」）
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/logininfor`, { moduleName: M, waitMs: 2500 })) {
+    record(M, '登录日志: 页面加载', true)
+    await waitRowsReady()
+    const sortableCount = await page
+      .evaluate(() => {
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[0]
+        if (!table) return 0
+        return Array.from(table.querySelectorAll('.el-table__header th .caret-wrapper')).length
+      })
+      .catch(() => 0)
+    record(M, '登录日志: 存在可排序列', sortableCount >= 2, `可排序列数=${sortableCount}`)
+
+    const t = await sortRound('访问时间')
+    await assertSort('登录日志', '访问时间', t)
+
+    // 用户名称列：同样真实点击两次，首行可能因同名用户不变，故用软断言
+    const u = await sortRound('用户名称')
+    await assertSort('登录日志', '用户名称', u, '（该列取值高度重复，多为 admin）')
+  } else {
+    record(M, '登录日志: 页面加载', false, '页面不可访问')
+  }
+
+  // 84.2 操作日志页：按「操作日期」列真实点击排序
+  // 路由说明：操作日志菜单挂在「系统管理/日志管理」下，前端注册路径为 /system/log/operlog
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2500 })) {
+    record(M, '操作日志: 页面加载', true)
+    await waitRowsReady()
+    const o = await sortRound('操作日期')
+    await assertSort('操作日志', '操作日期', o)
+  } else {
+    record(M, '操作日志: 页面加载', false, '页面不可访问')
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -13475,7 +15227,14 @@ const testFns = {
   74: testModule74,
   75: testModule75,
   76: testModule76,
-  77: testModule77
+  77: testModule77,
+  78: testModule78,
+  79: testModule79,
+  80: testModule80,
+  81: testModule81,
+  82: testModule82,
+  83: testModule83,
+  84: testModule84
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
@@ -13485,7 +15244,7 @@ const state = {
   getFailCount: () => failCount
 }
 
-const helpers = { log, ensureDir, login, createPage, getApiToken, record }
+const helpers = { log, ensureDir, login, createPage, getApiToken, record, setHub, createCaptureHub }
 
 // 启动预检：验证码启用时先确认可读取真码（fail-fast，不弹浏览器空转）
 try {

@@ -12,7 +12,7 @@
           </div>
           <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.totalUsers') }}</div>
           <div
-            class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
+            class="stat-trend text-[12px] text-text-secondary mt-1 flex items-center gap-0.5"
             :class="stats.newUsers > 0 ? 'up' : ''"
           >
             <el-icon v-if="stats.newUsers > 0"><Top /></el-icon>
@@ -33,7 +33,7 @@
             {{ stats.totalRoles }}
           </div>
           <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.activeRoles') }}</div>
-          <div class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5">
+          <div class="stat-trend text-[12px] text-text-secondary mt-1 flex items-center gap-0.5">
             {{ stats.activeRoles }} {{ t('dashboard.activeRolesSuffix') }}
           </div>
         </div>
@@ -52,7 +52,7 @@
           </div>
           <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.todayLogin') }}</div>
           <div
-            class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
+            class="stat-trend text-[12px] text-text-secondary mt-1 flex items-center gap-0.5"
             :class="stats.loginFail > 0 ? 'down' : ''"
           >
             {{ t('dashboard.buttonFail') }} {{ stats.loginFail }}
@@ -72,7 +72,7 @@
             {{ stats.onlineCount }}
           </div>
           <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.onlineUsers') }}</div>
-          <div class="stat-trend up text-[11px] text-text-secondary mt-1 flex items-center gap-0.5">
+          <div class="stat-trend up text-[12px] text-text-secondary mt-1 flex items-center gap-0.5">
             {{ t('dashboard.realtime') }}
           </div>
         </div>
@@ -91,7 +91,7 @@
           </div>
           <div class="stat-label text-xs text-text-secondary mt-0.5">{{ t('dashboard.todayAnomaly') }}</div>
           <div
-            class="stat-trend text-[11px] text-text-secondary mt-1 flex items-center gap-0.5"
+            class="stat-trend text-[12px] text-text-secondary mt-1 flex items-center gap-0.5"
             :class="stats.todayAnomalyIps > 0 ? 'down' : ''"
           >
             {{ t('dashboard.failIpCount') }}

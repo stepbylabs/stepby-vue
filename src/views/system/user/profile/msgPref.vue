@@ -38,7 +38,7 @@
       <el-form-item>
         <div class="dnd-box">
           <div class="flex items-center gap-[12px]">
-            <el-switch v-model="form.dndEnabled" active-value="1" inactive-value="0" />
+            <el-switch v-model="form.dndEnabled" :aria-label="t('profile.pref.dnd')" active-value="1" inactive-value="0" />
             <span>{{ t('profile.pref.dnd') }}</span>
           </div>
           <div v-if="form.dndEnabled === '1'" class="dnd-times">

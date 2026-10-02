@@ -46,7 +46,7 @@ const ROUTES = [
   '/system/notice',
   '/system/notice-center',
   '/system/file',
-  '/system/dashboard',
+  // '/system/dashboard' 已移除（2026-10-02）：sys_menu 中不存在该路由，goto 必命中 404
   '/system/log/operlog',
   '/system/msg/channel',
   '/system/msg/template',
@@ -71,7 +71,8 @@ const ROUTES = [
   '/monitor/backup',
   '/monitor/task',
   '/monitor/frontendError',
-  '/monitor/pat',
+  // API 令牌真实路由为 /tool/pat（sys_menu menu_id=3560 挂在 tool 目录下），2026-10-02 修正
+  '/tool/pat',
   '/monitor/server',
   // 审批中心（2026-09-26 补捕：W-8 已办 / W-11 导出 / W-17 移动端 都落在此页，此前未纳入采集面）
   '/system/flow/todo',

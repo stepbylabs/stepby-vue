@@ -1,7 +1,8 @@
 <template>
   <div>
     <el-dropdown trigger="click" @command="handleSetSize">
-      <div class="size-icon--style">
+      <!-- 无障碍：下拉触发器为纯图标按钮，必须有可读名称（a11y 全站扫描暴露） -->
+      <div class="size-icon--style" :aria-label="t('sizeSelect.triggerAriaLabel')">
         <svg-icon class-name="size-icon" icon-class="size" />
       </div>
       <template #dropdown>

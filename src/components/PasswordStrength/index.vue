@@ -19,7 +19,7 @@
         <span class="strength-label font-semibold" :class="strengthClass">{{ strengthText }}</span>
         <span
           v-if="suggestions.length"
-          class="strength-suggestions text-text-secondary text-[11px] max-w-[60%] text-right truncate"
+          class="strength-suggestions text-text-secondary text-[12px] max-w-[60%] text-right truncate"
         >
           {{ suggestions[0] }}
         </span>

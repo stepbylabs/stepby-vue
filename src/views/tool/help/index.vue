@@ -46,7 +46,7 @@
                 @click="scrollToSection(section.id)"
               >
                 <span
-                  class="toc-idx inline-block w-5 h-5 leading-5 text-center rounded text-[11px] text-text-secondary shrink-0"
+                  class="toc-idx inline-block w-5 h-5 leading-5 text-center rounded text-[12px] text-text-secondary shrink-0"
                 >
                   {{ Number(idx) + 1 }}
                 </span>
@@ -376,7 +376,7 @@ function openContact(url: string): void {
       border-bottom-width: 2px;
       border-radius: 4px;
       font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 11px;
+      font-size: 12px; /* a11y: 正文字号下限 12px（原 11px），键帽拟物设计保留 */
       font-weight: 600;
       color: var(--el-text-color-primary);
     }

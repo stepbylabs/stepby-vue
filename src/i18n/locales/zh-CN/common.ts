@@ -228,7 +228,8 @@ export default {
       fullscreen: '全屏显示',
       exitFullscreen: '退出全屏',
       refreshCurrent: '刷新当前页面',
-      refreshPage: '刷新页面'
+      refreshPage: '刷新页面',
+      tagActions: '标签页操作'
     },
     settings: {
       menuNavSetting: '菜单导航设置',
@@ -332,13 +333,15 @@ export default {
     simplifiedChinese: '简体中文',
     english: 'English',
     switchingLanguage: '正在切换语言，请稍候...',
-    switchSuccess: '语言切换成功'
+    switchSuccess: '语言切换成功',
+    triggerAriaLabel: '切换语言'
   },
   sizeSelect: {
     large: '较大',
     default: '默认',
     small: '稍小',
-    settingLayoutSize: '正在设置布局大小，请稍候...'
+    settingLayoutSize: '正在设置布局大小，请稍候...',
+    triggerAriaLabel: '切换组件尺寸'
   },
   editableCell: {
     empty: '（空）',

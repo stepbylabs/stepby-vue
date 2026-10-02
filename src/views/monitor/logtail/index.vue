@@ -59,7 +59,7 @@
 
         <div class="flex-1" />
 
-        <el-switch v-model="autoRefresh" :active-text="t('logTail.autoRefresh')" />
+        <el-switch v-model="autoRefresh" :aria-label="t('logTail.autoRefresh')" :active-text="t('logTail.autoRefresh')" />
         <span v-if="total" class="total text-text-secondary text-xs">{{ t('logTail.total', { total }) }}</span>
       </div>
     </el-card>

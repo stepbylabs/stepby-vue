@@ -104,6 +104,7 @@
         <el-table-column :label="t('role.column.status')" align="center" width="100" v-if="columns.status.visible">
           <template #default="scope">
             <el-switch
+              :aria-label="`${scope.row.roleName} ${t('role.column.status')}`"
               v-hasPermi="['system:role:edit']"
               v-model="scope.row.status"
               active-value="0"

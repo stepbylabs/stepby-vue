@@ -218,6 +218,12 @@ const useSettingsStore = defineStore('settings', {
     },
     // 切换暗黑模式
     toggleTheme() {
+      // 用户手动切换 = 显式接管主题：退出"跟随系统暗色"。
+      // 否则 followSystemDark=true 时，整页刷新后 setupSystemDarkWatcher 的初始
+      // handler 会按系统偏好强制回切，覆盖用户的手动选择（2026-10-02 M11 根因）。
+      if (this.userPrefs.followSystemDark) {
+        this.updateUserPrefs({ followSystemDark: false })
+      }
       // useDark() 返回的 isDark 是响应式 ref，toggleDark() 内部会反转其值
       // 不能手动设置 this.isDark（会导致双重反转）
       toggleDark()

@@ -103,6 +103,7 @@
           <el-switch
             v-hasPermi="['monitor:job:changeStatus']"
             v-model="scope.row.status"
+            :aria-label="`${scope.row.jobName} ${t('job.column.status')}`"
             active-value="0"
             inactive-value="1"
             @change="handleStatusChange(scope.row)"

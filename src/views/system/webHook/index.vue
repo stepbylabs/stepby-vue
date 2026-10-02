@@ -141,6 +141,7 @@
       <el-table-column :label="t('webHook.column.status')" align="center" width="90">
         <template #default="scope">
           <el-switch
+            :aria-label="`${scope.row.hookName} ${t('webHook.column.status')}`"
             v-model="scope.row.status"
             active-value="0"
             inactive-value="1"

@@ -119,6 +119,7 @@
               <div class="card-header-actions flex items-center gap-3">
                 <el-switch
                   v-model="autoRefresh"
+                  :aria-label="t('server.chart.autoRefresh')"
                   :active-text="t('server.chart.autoRefresh')"
                   @change="toggleAutoRefresh"
                 />

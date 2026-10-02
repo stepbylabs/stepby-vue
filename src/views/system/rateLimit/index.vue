@@ -104,6 +104,7 @@
           <template #default="scope">
             <el-switch
               v-model="scope.row.enabled"
+              :aria-label="`${scope.row.routePattern} ${t('rateLimit.column.enabled')}`"
               :active-value="true"
               :inactive-value="false"
               @change="handleStatusChange(scope.row)"

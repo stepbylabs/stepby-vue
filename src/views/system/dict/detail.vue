@@ -36,19 +36,19 @@
             <el-col :span="disabledCount > 0 ? 8 : 12">
               <div class="stat-card rounded-md py-2.5 px-3.5 text-center">
                 <div class="stat-num text-[22px] font-bold">{{ dataList.length }}</div>
-                <div class="stat-label text-[11px] mt-1">{{ t('dict.detail.total') }}</div>
+                <div class="stat-label text-[12px] mt-1">{{ t('dict.detail.total') }}</div>
               </div>
             </el-col>
             <el-col :span="disabledCount > 0 ? 8 : 12">
               <div class="stat-card rounded-md py-2.5 px-3.5 text-center">
                 <div class="stat-num success text-[22px] font-bold">{{ normalCount }}</div>
-                <div class="stat-label text-[11px] mt-1">{{ t('dict.detail.normal') }}</div>
+                <div class="stat-label text-[12px] mt-1">{{ t('dict.detail.normal') }}</div>
               </div>
             </el-col>
             <el-col v-if="disabledCount > 0" :span="8">
               <div class="stat-card rounded-md py-2.5 px-3.5 text-center">
                 <div class="stat-num danger text-[22px] font-bold">{{ disabledCount }}</div>
-                <div class="stat-label text-[11px] mt-1">{{ t('dict.detail.disabled') }}</div>
+                <div class="stat-label text-[12px] mt-1">{{ t('dict.detail.disabled') }}</div>
               </div>
             </el-col>
           </el-row>

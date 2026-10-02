@@ -78,8 +78,9 @@
       class="tags-action-dropdown shrink-0 flex items-center"
       trigger="click"
       placement="bottom-end"
-      @command="handleDropdownComman" >
-      <span class="tags-action-btn">
+      @command="handleDropdownCommand" >
+      <!-- 无障碍：触发器必须有可读名称（a11y 全站扫描暴露）；role/tabindex/键盘触发由 el-dropdown 自动处理 -->
+      <span class="tags-action-btn" :aria-label="safeT('layout.tagsView.tagActions')">
         <el-icon><arrow-down /></el-icon>
       </span>
       <template #dropdown>

@@ -60,7 +60,13 @@
       <el-table-column prop="deptName" :label="t('dept.column.name')" width="260"></el-table-column>
       <el-table-column prop="orderNum" :label="t('dept.column.order')" width="120">
         <template #default="scope">
-          <el-input-number v-model="scope.row.orderNum" controls-position="right" :min="0" class="w-[88px]" />
+          <el-input-number
+            :aria-label="`${scope.row.deptName} ${t('dept.column.order')}`"
+            v-model="scope.row.orderNum"
+            controls-position="right"
+            :min="0"
+            class="w-[88px]"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="status" :label="t('common.column.status')" width="100">

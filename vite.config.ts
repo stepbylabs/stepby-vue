@@ -45,6 +45,12 @@ function buildProxy(target: string): Record<string, ProxyOptions> {
     '^/v3/api-docs/(.*)': {
       target,
       changeOrigin: true
+    },
+    // Swagger UI 静态页面（接口文档 iframe）：与 /v3/api-docs 同属 springdoc，
+    // 同样需要代理到后端才能在 dev/preview 下工作（生产为同源直出，无需代理）
+    '/swagger-ui': {
+      target,
+      changeOrigin: true
     }
   }
 }

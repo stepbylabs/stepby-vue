@@ -1,6 +1,7 @@
 <template>
   <el-dropdown trigger="click" @command="handleSetLang">
-    <div class="lang-icon--style">
+    <!-- 无障碍：下拉触发器为纯图标按钮，必须有可读名称（a11y 全站扫描暴露） -->
+    <div class="lang-icon--style" :aria-label="t('langSelect.triggerAriaLabel')">
       <svg-icon class-name="lang-icon" icon-class="language" />
     </div>
     <template #dropdown>

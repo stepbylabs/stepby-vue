@@ -16,7 +16,7 @@
       @click="go(item)"
     >
       <svg-icon :icon-class="item.icon" class="text-[20px]" />
-      <span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] leading-[1.2]">
+      <span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[12px] leading-[1.2]">
         {{ item.label }}
       </span>
     </button>

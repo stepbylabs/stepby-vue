@@ -200,7 +200,7 @@
 
     <!-- 自动刷新 -->
     <div class="auto-refresh mt-5 flex items-center gap-5 justify-end">
-      <el-switch v-model="autoRefresh" :active-text="t('health.form.autoRefresh')" @change="toggleAutoRefresh" />
+      <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" @change="toggleAutoRefresh" />
       <span v-if="lastUpdate" class="last-update text-text-secondary text-xs">
         {{ t('health.form.lastUpdate') }}{{ lastUpdate }}
       </span>

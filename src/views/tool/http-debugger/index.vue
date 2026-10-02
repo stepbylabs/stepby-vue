@@ -43,7 +43,7 @@
           </el-table-column>
           <el-table-column :label="t('httpDebug.action')" width="90" align="center">
             <template #default="{ $index }">
-              <el-button link type="danger" icon="Delete" @click="headers.splice($index, 1)" />
+              <el-button link type="danger" icon="Delete" :aria-label="t('common.delete')" @click="headers.splice($index, 1)" />
             </template>
           </el-table-column>
           <template #append>

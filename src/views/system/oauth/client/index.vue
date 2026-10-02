@@ -113,6 +113,7 @@
       <el-table-column :label="t('sso.enabled')" align="center" width="90" v-hasPermi="['system:oauth:client:toggle']">
         <template #default="scope">
           <el-switch
+            :aria-label="`${scope.row.clientName} ${t('sso.enabled')}`"
             :model-value="scope.row.enabled === '1'"
             :disabled="toggleLoading !== 0 && toggleLoading !== scope.row.ssoClientId"
             @change="(val: string | number | boolean) => handleToggle(scope.row, val)"

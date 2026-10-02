@@ -94,7 +94,13 @@
       </el-table-column>
       <el-table-column prop="orderNum" :label="t('menuModule.column.sort')" width="120">
         <template #default="scope">
-          <el-input-number v-model="scope.row.orderNum" controls-position="right" :min="0" class="w-[88px]" />
+          <el-input-number
+            :aria-label="`${scope.row.menuName} ${t('menuModule.column.sort')}`"
+            v-model="scope.row.orderNum"
+            controls-position="right"
+            :min="0"
+            class="w-[88px]"
+          />
         </template>
       </el-table-column>
       <el-table-column prop="perms" :label="t('menuModule.column.perms')" show-overflow-tooltip width="180" />

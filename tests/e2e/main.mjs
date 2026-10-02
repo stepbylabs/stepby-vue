@@ -66,6 +66,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
+import { createCaptureHub } from './capture-kit.mjs'
 import {
   capturePageCaptcha,
   fillCaptchaOnPage,
@@ -174,10 +175,36 @@ async function is404Page(page, options = {}) {
 
 const results = []
 
+/**
+ * 全局捕获中枢（在 main() 中创建页面后注入）
+ * @type {ReturnType<typeof import('./capture-kit.mjs').createCaptureHub>|null}
+ */
+let captureHub = null
+
 function record(feature, name, passed, detail = '') {
-  results.push({ feature, name, passed, detail })
+  const entry = { feature, name, passed, detail }
+  // 失败时同步附带页面证据（Toast / 失败请求 / 慢请求 / console）；
+  // 需要 await 的部分（URL / 页面文本 / 截图）由 flushFailureEvidence() 在功能结束后补写。
+  if (!passed) {
+    try {
+      captureHub?.noteFailure(entry)
+    } catch {}
+  }
+  results.push(entry)
   const tag = passed ? '✅ PASS' : '❌ FAIL'
   log(`${tag} [功能${feature}] ${name}${detail ? ' - ' + detail : ''}`)
+}
+
+/**
+ * 补写失败条目的异步证据（URL / 页面文本 / 登录态 / 截图）
+ * 在每个功能测试结束后调用（此时页面仍处于该功能的最终状态）。
+ *
+ * @param {import('playwright').Page} page - 页面对象
+ * @param {number|string} featureId - 功能编号，用于截图命名
+ */
+async function flushFailureEvidence(page, featureId) {
+  if (!captureHub) return
+  await captureHub.flush(`F${featureId}`).catch(() => {})
 }
 
 /**
@@ -6925,10 +6952,9 @@ async function testFeature37(page) {
     const afterUrl = page.url()
     const noCrash = afterUrl === beforeUrl && !afterUrl.includes('error')
 
-    // 检查图表是否仍存在
-    const chartsExist = await page.evaluate(() => {
-      return document.querySelectorAll('.chart-box').length > 0 || true // 非首页也通过
-    })
+    // 说明：此处原有一段 `querySelectorAll('.chart-box').length > 0 || true` 的恒真死代码
+    // （结果未被任何断言使用，且 `|| true` 恒为真），已删除。U18 的验收点是视口切换后
+    // 页面不崩溃且 URL 稳定，由下面的 noCrash 断言真实覆盖。
 
     record(37, 'U18 ECharts resize 防抖', noCrash, `URL 稳定=${noCrash}, 视口切换无崩溃`)
   } catch (err) {
@@ -16215,6 +16241,11 @@ async function main() {
     }
   })
 
+  // 统一信息捕获中枢：断言失败时自动附带 Toast / 失败请求体 / 慢请求 / 截图 / 页面文本
+  // （解决「失败只有一句话、无法定位」的问题；与 deep-e2e 共用 capture-kit）
+  captureHub = createCaptureHub(page, { tag: 'main', shotDir: CONFIG.screenshotDir })
+  await captureHub.initPromise.catch(() => {})
+
   try {
     // 登录
     const loggedIn = await login(page)
@@ -16323,6 +16354,8 @@ async function main() {
       } catch (err) {
         record(f.id, '测试执行', false, `异常: ${err.message}`)
       } finally {
+        // 补写本功能失败条目的异步证据（截图 / URL / 页面文本 / 登录态）
+        await flushFailureEvidence(page, f.id)
         featureDurations.push({ id: f.id, ms: Date.now() - t0 })
       }
     }

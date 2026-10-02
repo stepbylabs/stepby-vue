@@ -136,6 +136,7 @@
         <el-table-column :label="t('common.status')" width="90" align="center">
           <template #default="{ row }">
             <el-switch
+              :aria-label="`${row.tenantName} ${t('common.status')}`"
               v-model="row.status"
               active-value="0"
               inactive-value="1"

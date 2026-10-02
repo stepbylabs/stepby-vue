@@ -32,7 +32,7 @@
               <div class="entry-title text-sm font-semibold text-text-primary leading-[1.2]">
                 {{ t(entry.titleKey) }}
               </div>
-              <div class="entry-desc text-[11px] text-text-secondary mt-1 truncate">{{ t(entry.descKey) }}</div>
+              <div class="entry-desc text-[12px] text-text-secondary mt-1 truncate">{{ t(entry.descKey) }}</div>
             </div>
           </div>
         </div>
