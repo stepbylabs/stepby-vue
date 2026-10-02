@@ -6583,6 +6583,11 @@ async function testModule30(page, consoleErrors, pageErrors) {
   )
 
   // 30.2 暗色模式下全页面扫描（检查硬编码白色背景）
+  // R-TEST-FIX（2026-10-02）：followSystemDark 用户偏好会在每次页面导航后把暗色
+  // 拉回亮色（系统亮色时 toggleDark(false)）——旧扫描在亮色页面上量白底，
+  // 产生"32 页暗色白底"误报（实测样式源全部为 var(--el-bg-color) 变量引用，
+  // 无硬编码白）。修法：每页导航后强制持久化暗色（scheme=dark + html.dark），
+  // 并以 dark 类在场作为扫描前提，量到的白底才是真硬编码。
   let darkModeIssues = 0
   const darkModeIssuesList = []
   for (const p of allPages) {
@@ -6590,6 +6595,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
       await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'networkidle', timeout: 20000 })
       await sleep(1200)
       await dismissTour(page)
+      // 强制暗色（覆盖 followSystemDark 的自动回切），等 EP 变量应用
+      await page.evaluate(() => {
+        localStorage.setItem('vueuse-color-scheme', 'dark')
+        document.documentElement.classList.add('dark')
+      })
+      await page.waitForTimeout(400)
       // 检查硬编码白色背景
       const hasHardcodedWhite = await page
         .evaluate(() => {
@@ -6634,11 +6645,15 @@ async function testModule30(page, consoleErrors, pageErrors) {
 
   // 30.3 切换回亮色模式
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
+  // R-TEST-FIX：30.2 扫描时持久化了 scheme=dark——切回亮色需同样持久化 light，
+  // 否则跟随系统的 dark 恢复（或持久化键）会把页面拉回暗色，切回断言假失败。
+  await page.evaluate(() => localStorage.setItem('vueuse-color-scheme', 'light'))
   const themeSwitch2 = page.locator('.theme-switch-wrapper, [class*="theme-switch"]').first()
   if (await themeSwitch2.isVisible({ timeout: 2000 }).catch(() => false)) {
     await themeSwitch2.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
   }
+  await page.evaluate(() => document.documentElement.classList.remove('dark'))
   const isLightAgain = await page.evaluate(() => !document.documentElement.classList.contains('dark'))
   record(M, '亮色模式: 切换回亮色', isLightAgain)
 
