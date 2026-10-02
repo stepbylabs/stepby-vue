@@ -3203,9 +3203,28 @@ async function testModule9(page, consoleErrors, pageErrors) {
         // 不基于 roleMenuTreeselect 的 checkedKeys 过滤——若库已被旧策略污染（写权限已收、只读也丢），
         // checkedKeys 无法还原目标集合；直接按菜单清单生成目标 menuIds 幂等重分配。
         // 页面内子资源 API 依赖 :query，若连只读按钮权限一并剔除，页面会 403 加载不出数据。
+        // R-TEST-SEC（2026-10-02）：**平台专属 perms 必须排除**——旧规则把 118(备份管理 C)/1200(:query F)
+        // 授权回 role2，导致功能 17"备份页对普通角色不可达"回归（对齐后端
+        // common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 单一事实源）。
+        const PLATFORM_ONLY_PREFIXES = [
+          'system:tenant:domain:',
+          'system:tenantMenu:',
+          'tool:gen:',
+          'tool:httpDebug:',
+          'monitor:cache:',
+          'monitor:log:',
+          'monitor:slowSql:',
+          'monitor:health:',
+          'system:backup:',
+          'system:rateLimit:'
+        ]
+        const isPlatformOnly = (perms) => PLATFORM_ONLY_PREFIXES.some((p) => (perms || '').startsWith(p))
         const readOnlyPerms = /:(list|query|view|center)$/
         const newIds = menus
-          .filter((m) => m.menuType !== 'F' || readOnlyPerms.test(m.perms || ''))
+          .filter((m) => {
+            if (isPlatformOnly(m.perms)) return false
+            return m.menuType !== 'F' || readOnlyPerms.test(m.perms || '')
+          })
           .map((m) => m.menuId)
         const putResp = await fetch(`${CONFIG.backendUrl}/system/role`, {
           method: 'PUT',
