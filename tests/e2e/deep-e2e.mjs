@@ -13339,8 +13339,10 @@ async function testModule77(page, consoleErrors, pageErrors) {
       const columns = [
         ['租户 ID', 'tenantId'],
         ['租户名称', 'tenantName'],
-        ['负责人', 'leader'],
-        ['用户数', 'userCount'],
+        ['租户短码', 'tenantCode'],
+        ['联系人', 'contactName'],
+        ['租户套餐', 'package'],
+        ['已用/上限', 'accountUsage'],
         ['状态', 'status'],
         ['创建时间', 'createTime']
       ]
