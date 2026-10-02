@@ -283,7 +283,8 @@ export default {
     userName: '用户名称',
     nickName: '用户昵称',
     memberReadonly: '组成员由 SCIM IdP 侧管理，此处只读；如需移除成员请在 IdP 侧操作后同步',
-    deleteConfirm: '确认删除组「{0}」？删除后该组的授权/兼职联动将被撤销，组数据软删除'
+    deleteConfirm: '确认删除组「{0}」？删除后该组的授权/兼职联动将被撤销，组数据软删除',
+    batchDeleteConfirm: '确认删除选中的 {0} 个组？删除后其授权/兼职联动将被撤销，组数据软删除'
   },
   tenant: {
     tenantId: '租户 ID',
@@ -559,6 +560,8 @@ export default {
   },
   config: {
     title: '参数设置',
+    configTomlTip:
+      '部分系统参数持久化于 config.toml（如数据库、Redis 连接等），此类参数修改后需重启服务才能生效；界面参数修改后实时生效。',
     search: {
       configName: '参数名称',
       phConfigName: '请输入参数名称',
@@ -947,7 +950,8 @@ export default {
         phTemplateCode: '模板编码',
         channelCode: '渠道编码',
         phChannelCode: '渠道编码',
-        phStatus: '状态'
+        phStatus: '状态',
+        sendTime: '发送时间'
       },
       column: {
         templateCode: '模板编码',
@@ -1280,7 +1284,8 @@ export default {
         eventType: '事件类型',
         phEventType: '请输入事件类型',
         status: '状态',
-        phStatus: '状态'
+        phStatus: '状态',
+        createTime: '创建时间'
       },
       column: {
         id: '记录ID',
@@ -1502,6 +1507,7 @@ export default {
     formReason: '事由',
     formComment: '审批意见',
     formToUser: '目标用户（用户 ID）',
+    phToUser: '输入用户名远程搜索',
     actTitle: {
       approve: '同意审批',
       reject: '驳回审批',
@@ -1510,7 +1516,8 @@ export default {
     },
     rules: {
       title: '请输入单据标题',
-      days: '请输入请假天数'
+      days: '请输入请假天数',
+      toUserRequired: '请选择目标用户'
     },
     leave: {
       annual: '年假',

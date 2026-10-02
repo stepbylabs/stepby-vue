@@ -80,32 +80,77 @@
       <SkeletonTable v-if="loading" :columns="8" :rows="8" />
       <el-table
         v-else
+        ref="noticeTableRef"
         v-loading="loading"
         :data="dataList"
         :row-key="(row: SysNotice) => row.noticeId"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
-        <el-table-column :label="t('notice.readUsers.column.id')" align="center" prop="noticeId" width="100" />
-        <el-table-column :label="t('notice.column.title')" align="center" show-overflow-tooltip min-width="200">
+        <el-table-column
+          :label="t('notice.readUsers.column.id')"
+          align="center"
+          prop="noticeId"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('notice.column.title')"
+          align="center"
+          prop="noticeTitle"
+          show-overflow-tooltip
+          min-width="200"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-link type="primary" underline="never" @click="handleViewData(scope.row)">
               {{ scope.row.noticeTitle }}
             </el-link>
           </template>
         </el-table-column>
-        <el-table-column :label="t('notice.column.type')" align="center" prop="noticeType" width="100">
+        <el-table-column
+          :label="t('notice.column.type')"
+          align="center"
+          prop="noticeType"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <dict-tag :options="sys_notice_type" :value="scope.row.noticeType" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.column.status')" align="center" prop="status" width="100">
+        <el-table-column
+          :label="t('common.column.status')"
+          align="center"
+          prop="status"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <dict-tag :options="sys_notice_status" :value="scope.row.status" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('notice.column.createBy')" align="center" prop="createBy" width="100" />
-        <el-table-column :label="t('notice.column.createTime')" align="center" prop="createTime" width="100">
+        <el-table-column
+          :label="t('notice.column.createBy')"
+          align="center"
+          prop="createBy"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('notice.column.createTime')"
+          align="center"
+          prop="createTime"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ parseTime(scope.row.createTime, '{y}-{m}-{d}') }}</span>
           </template>
@@ -241,6 +286,7 @@ const noticeRefRef = useTemplateRef('noticeRef')
 const queryRefRef = useTemplateRef('queryRef')
 const noticeViewRefRef = useTemplateRef('noticeViewRef')
 const readUsersRefRef = useTemplateRef('readUsersRef')
+const noticeTableRef = useTemplateRef('noticeTableRef')
 const { sys_notice_status, sys_notice_type } = useDict('sys_notice_status', 'sys_notice_type')
 // P1 修复: 公告 CRUD 后同步刷新 HeaderNotice 铃铛未读数
 // 否则新增/修改/删除公告后，顶部铃铛列表和未读数不会更新
@@ -253,7 +299,9 @@ const data = reactive({
     pageSize: 10,
     noticeTitle: undefined,
     createBy: undefined,
-    status: undefined
+    status: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as NoticeQueryParams,
   rules: {
     noticeTitle: [{ required: true, message: t('notice.validate.noticeTitleRequired'), trigger: 'blur' }],
@@ -283,7 +331,7 @@ const {
   beforeDialogClose,
   cancel,
   handleQuery,
-  resetQuery,
+  resetQuery: resetQueryBase,
   handleSelectionChange,
   handleAdd,
   handleUpdate,
@@ -326,6 +374,21 @@ const {
 /** 查看公告详情 */
 function handleViewData(row: SysNotice) {
   noticeViewRefRef.value?.open(row)
+}
+
+/** 重置（含排序状态清除） */
+function resetQuery() {
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
+  resetQueryBase()
+  noticeTableRef.value?.clearSort()
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 /** 查看已读用户 */

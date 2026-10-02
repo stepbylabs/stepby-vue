@@ -22,6 +22,19 @@
       </el-col>
       <el-col :span="1.5">
         <el-button
+          type="success"
+          plain
+          icon="RefreshRight"
+          :loading="reloadingXdb"
+          :disabled="!status?.xdbLoaded"
+          @click="handleReloadXdb"
+          v-hasPermi="['monitor:iplocation:edit']"
+        >
+          {{ t('ipLocation.btn.reloadXdb') }}
+        </el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
           type="warning"
           plain
           icon="Download"
@@ -256,7 +269,8 @@ import {
   getIpLocationConfig,
   saveIpLocationConfig,
   updateIpLocationNow,
-  reloadIpLocation
+  reloadIpLocation,
+  reloadIpXdb
 } from '@/api/monitor/ipLocation'
 import modal from '@/plugins/modal'
 
@@ -276,6 +290,7 @@ const config = ref<IpLocationConfigVo>({
 const loading = ref(false)
 const refreshing = ref(false)
 const reloading = ref(false)
+const reloadingXdb = ref(false)
 const updating = ref(false)
 const saving = ref(false)
 
@@ -348,6 +363,25 @@ async function handleReload() {
     .catch(() => {})
     .finally(() => {
       reloading.value = false
+    })
+}
+
+// ==================== xdb 热加载 ====================
+
+async function handleReloadXdb() {
+  modal
+    .confirm(t('ipLocation.tip.confirmReloadXdb'))
+    .then(() => {
+      reloadingXdb.value = true
+      return reloadIpXdb()
+    })
+    .then(() => {
+      modal.msgSuccess(t('ipLocation.tip.reloadXdbSuccess'))
+      return loadStatus()
+    })
+    .catch(() => {})
+    .finally(() => {
+      reloadingXdb.value = false
     })
 }
 

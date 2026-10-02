@@ -65,7 +65,7 @@
         :titles="[t('rightToolbar.show'), t('rightToolbar.hide')]"
         v-model="value"
         :data="transferData"
-        @change="dataChang" ></el-transfer>
+        @change="dataChange" ></el-transfer>
     </el-dialog>
   </div>
 </template>

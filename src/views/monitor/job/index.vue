@@ -216,6 +216,22 @@
                   </el-button>
                 </template>
               </el-input>
+              <!-- Cron 预览：合法表达式 debounce 后展示未来 5 次触发时间（辅助提示，不阻塞提交） -->
+              <div v-if="cronPreviewInvalid" class="cron-preview cron-preview-invalid">
+                <el-icon><WarningFilled /></el-icon>
+                <span>{{ t('job.cronPreview.invalid') }}</span>
+              </div>
+              <div v-else-if="cronPreviewNone" class="cron-preview cron-preview-invalid">
+                <el-icon><WarningFilled /></el-icon>
+                <span>{{ t('job.cronPreview.none') }}</span>
+              </div>
+              <div v-else-if="cronPreviewTimes.length" class="cron-preview">
+                <div class="cron-preview-title">{{ t('job.cronPreview.title') }}</div>
+                <div v-for="(time, idx) in cronPreviewTimes" :key="time" class="cron-preview-row">
+                  <span class="cron-preview-idx">{{ Number(idx) + 1 }}</span>
+                  <span>{{ time }}</span>
+                </div>
+              </div>
             </el-form-item>
           </el-col>
           <Transition name="expand-fade">
@@ -268,7 +284,9 @@
 <script setup lang="ts" name="Job">
 import JobDetail from './detail.vue'
 import Crontab from '@/components/Crontab/index.vue'
-import { Clock } from '@element-plus/icons-vue'
+import { Clock, WarningFilled } from '@element-plus/icons-vue'
+import dayjs from 'dayjs'
+import { nextFireTimes } from '@/utils/cronPreview'
 import { listJob, getJob, delJob, addJob, updateJob, runJob, changeJobStatus } from '@/api/monitor/job'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
@@ -397,6 +415,40 @@ function crontabFill(value: string) {
   form.value.cronExpression = value
 }
 
+// ---- Cron 预览（未来 5 次触发时间，debounce 400ms，纯提示不阻塞提交） ----
+const cronPreviewTimes = ref<string[]>([])
+const cronPreviewInvalid = ref(false)
+const cronPreviewNone = ref(false)
+let cronPreviewTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  () => form.value.cronExpression,
+  (expr?: string) => {
+    if (cronPreviewTimer) clearTimeout(cronPreviewTimer)
+    const val = (expr || '').trim()
+    if (!val) {
+      cronPreviewTimes.value = []
+      cronPreviewInvalid.value = false
+      cronPreviewNone.value = false
+      return
+    }
+    cronPreviewTimer = setTimeout(() => {
+      const times = nextFireTimes(val, 5)
+      cronPreviewInvalid.value = times === null
+      cronPreviewNone.value = times !== null && times.length === 0
+      cronPreviewTimes.value = (times ?? []).map((d) => dayjs(d).format('YYYY-MM-DD HH:mm:ss'))
+    }, 400)
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (cronPreviewTimer) {
+    clearTimeout(cronPreviewTimer)
+    cronPreviewTimer = null
+  }
+})
+
 /** 任务日志列表查询 */
 function handleJobLog(row?: SysJob) {
   const jobId = row?.jobId || 0
@@ -480,5 +532,40 @@ getList()
 <style scoped lang="scss">
 :deep(.el-table__row) {
   transition: background-color 0.2s ease;
+}
+
+/* Cron 预览块（跟随暗色模式：EP CSS 变量自动适配） */
+.cron-preview {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+
+  &.cron-preview-invalid {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--el-color-warning);
+  }
+
+  .cron-preview-title {
+    margin-bottom: 4px;
+    font-weight: 600;
+    color: var(--el-text-color-secondary);
+  }
+
+  .cron-preview-row {
+    display: flex;
+    gap: 8px;
+    line-height: 20px;
+  }
+
+  .cron-preview-idx {
+    color: var(--el-text-color-secondary);
+  }
 }
 </style>

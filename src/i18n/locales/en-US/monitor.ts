@@ -77,10 +77,14 @@ export default {
       phTenantId: 'Tenant ID (0 = platform)'
     },
     btn: {
-      forceLogout: 'Force Logout'
+      forceLogout: 'Force Logout',
+      batchForceLogout: 'Batch Force Logout'
     },
     tip: {
-      confirmForceLogout: 'Are you sure to force logout user "{name}"?'
+      confirmForceLogout: 'Are you sure to force logout user "{name}"?',
+      confirmBatchForceLogout: 'Are you sure to force logout the {count} selected sessions?',
+      batchForceLogoutDone: '{count} sessions force logged out successfully',
+      batchForceLogoutPartial: 'Batch force logout finished: {ok} succeeded, {failed} failed'
     },
     column: {
       tokenId: 'Session ID',
@@ -131,6 +135,11 @@ export default {
       cronExpressionLabel: 'Cron Expression',
       phCronExpression: 'Enter cron expression',
       genExpression: 'Generate Expression'
+    },
+    cronPreview: {
+      title: 'Next 5 trigger times',
+      invalid: 'Cannot parse this expression, please check the cron format',
+      none: 'No trigger time within the next 5 years'
     },
     btn: {
       log: 'Log'
@@ -391,7 +400,16 @@ export default {
     redisOk: 'Cache connection normal',
     redisFail: 'Cache connection failed',
     version: 'Version v',
-    uptimeFormat: '{days}d {hours}h {minutes}m {secs}s'
+    uptimeFormat: '{days}d {hours}h {minutes}m {secs}s',
+    metricsTitle: 'Backend Runtime Metrics (/metrics)',
+    metricsDesc: 'Live process and database metrics from the Prometheus text endpoint',
+    metricsUnavailable: 'Metrics unavailable (/metrics is closed or token-protected)',
+    dbBackend: 'Database Backend',
+    dbConnected: 'DB Connection',
+    dbConnectedOk: 'Connected',
+    dbConnectedFail: 'Disconnected',
+    processRss: 'Resident Memory (RSS)',
+    processVms: 'Virtual Memory (VMS)'
   },
   logTail: {
     title: 'Real-time Logs',
@@ -592,6 +610,7 @@ export default {
     },
     btn: {
       reload: 'Hot Reload',
+      reloadXdb: 'Update xDB',
       updateNow: 'Update Now',
       config: 'Config',
       confirmUpdate: 'Start Update'
@@ -622,6 +641,8 @@ export default {
     tip: {
       confirmReload: 'Confirm to reload mmdb file? Useful after manually replacing the file.',
       reloadSuccess: 'Hot reload successful',
+      confirmReloadXdb: 'Confirm to reload ip2region xdb file? Useful after manually replacing the file.',
+      reloadXdbSuccess: 'xdb hot reload successful',
       updateSuccess: 'Update successful, new file size {size}, elapsed {elapsed} seconds'
     }
   },

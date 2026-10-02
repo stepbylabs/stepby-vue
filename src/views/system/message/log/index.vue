@@ -39,6 +39,17 @@
             <el-option v-for="opt in logStatusOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('msg.log.search.sendTime')" class="w-[308px]">
+          <el-date-picker
+            v-model="dateRange"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            type="daterange"
+            range-separator="-"
+            :start-placeholder="t('common.form.startDate')"
+            :end-placeholder="t('common.form.endDate')"
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
           <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
@@ -68,10 +79,13 @@
     </el-row>
 
     <el-table
+      ref="tableRef"
       v-loading="loading"
       :data="dataList"
       :row-key="(row: SysMsgSendLog) => row.logId"
       @selection-change="handleSelectionChange"
+      :default-sort="defaultSort"
+      @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="55" align="center" />
       <el-table-column
@@ -80,8 +94,17 @@
         prop="templateCode"
         width="120"
         show-overflow-tooltip
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
       />
-      <el-table-column :label="t('msg.log.column.channelCode')" align="center" prop="channelCode" width="100">
+      <el-table-column
+        :label="t('msg.log.column.channelCode')"
+        align="center"
+        prop="channelCode"
+        width="100"
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
+      >
         <template #default="scope">
           <dict-tag :options="channelTypeOptions" :value="scope.row.channelCode" />
         </template>
@@ -92,6 +115,8 @@
         prop="toAddr"
         min-width="150"
         show-overflow-tooltip
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
       />
       <el-table-column
         :label="t('msg.log.column.subject')"
@@ -100,12 +125,26 @@
         min-width="180"
         show-overflow-tooltip
       />
-      <el-table-column :label="t('msg.log.column.status')" align="center" prop="status" width="90">
+      <el-table-column
+        :label="t('msg.log.column.status')"
+        align="center"
+        prop="status"
+        width="90"
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
+      >
         <template #default="scope">
           <dict-tag :options="logStatusOptions" :value="scope.row.status" />
         </template>
       </el-table-column>
-      <el-table-column :label="t('msg.log.column.retry')" align="center" width="110">
+      <el-table-column
+        :label="t('msg.log.column.retry')"
+        align="center"
+        prop="retryCount"
+        width="110"
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
+      >
         <template #default="scope">
           <span v-if="scope.row.status !== '0'">
             {{ scope.row.retryCount ?? 0 }} / {{ scope.row.maxRetryCount ?? '∞' }}
@@ -120,7 +159,14 @@
         min-width="180"
         show-overflow-tooltip
       />
-      <el-table-column :label="t('msg.log.column.sendTime')" align="center" prop="sendTime" width="170" />
+      <el-table-column
+        :label="t('msg.log.column.sendTime')"
+        align="center"
+        prop="sendTime"
+        width="170"
+        sortable="custom"
+        :sort-orders="['descending', 'ascending']"
+      />
       <el-table-column
         :label="t('common.column.operation')"
         align="center"
@@ -159,9 +205,11 @@
 import { listSendLog, delSendLog, cleanSendLog, retrySendLog } from '@/api/system/msg'
 import type { SysMsgSendLog, SendLogQueryParams } from '@/types/api/system/msg'
 import modal from '@/plugins/modal'
+import { addDateRange } from '@/utils/stepby'
 
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
+const tableRef = useTemplateRef('tableRef')
 
 const dataList = shallowRef<SysMsgSendLog[]>([])
 const loading = ref(true)
@@ -169,6 +217,8 @@ const showSearch = ref(true)
 const total = ref(0)
 const ids = ref<Array<string | number>>([])
 const multiple = ref(true)
+const dateRange = ref<string[]>([])
+const defaultSort = ref({ prop: 'sendTime', order: 'descending' })
 
 const queryParams = reactive<SendLogQueryParams>({
   pageNum: 1,
@@ -176,7 +226,9 @@ const queryParams = reactive<SendLogQueryParams>({
   toAddr: undefined,
   templateCode: undefined,
   channelCode: undefined,
-  status: undefined
+  status: undefined,
+  orderByColumn: undefined,
+  isAsc: undefined
 })
 
 // 渠道类型选项（email/sms/site）
@@ -196,7 +248,7 @@ const logStatusOptions = [
 /** 查询列表 */
 function getList(): void {
   loading.value = true
-  listSendLog(queryParams)
+  listSendLog(addDateRange({ ...queryParams } as Record<string, unknown>, dateRange.value) as SendLogQueryParams)
     .then((resp) => {
       dataList.value = resp.rows
       total.value = resp.total
@@ -212,10 +264,21 @@ function handleQuery(): void {
   getList()
 }
 
-/** 重置 */
+/** 重置（含时间范围与排序状态） */
 function resetQuery(): void {
+  dateRange.value = []
+  queryParams.orderByColumn = undefined
+  queryParams.isAsc = undefined
   queryRefRef.value?.resetFields()
   handleQuery()
+  tableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
+function handleSortChange(column: { prop: string | null; order: string | null }): void {
+  queryParams.orderByColumn = column.prop ?? undefined
+  queryParams.isAsc = column.order ?? undefined
+  getList()
 }
 
 /** 多选 */

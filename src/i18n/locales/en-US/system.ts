@@ -283,7 +283,8 @@ export default {
     userName: 'Username',
     nickName: 'Nickname',
     memberReadonly: 'Group members are managed on the SCIM IdP side and are read-only here; remove members on the IdP side to sync',
-    deleteConfirm: 'Delete group "{0}"? Its role/department grants will be revoked and the group will be soft-deleted'
+    deleteConfirm: 'Delete group "{0}"? Its role/department grants will be revoked and the group will be soft-deleted',
+    batchDeleteConfirm: 'Delete the {0} selected groups? Their role/department grants will be revoked and the groups will be soft-deleted'
   },
   tenant: {
     tenantId: 'Tenant ID',
@@ -572,6 +573,8 @@ export default {
   },
   config: {
     title: 'Config',
+    configTomlTip:
+      'Some system parameters are persisted in config.toml (e.g. database and Redis connections). Such parameters require a service restart after modification; parameters edited in the UI take effect immediately.',
     search: {
       configName: 'Config Name',
       phConfigName: 'Enter config name',
@@ -961,7 +964,8 @@ export default {
         phTemplateCode: 'Template Code',
         channelCode: 'Channel Code',
         phChannelCode: 'Channel Code',
-        phStatus: 'Status'
+        phStatus: 'Status',
+        sendTime: 'Send Time'
       },
       column: {
         templateCode: 'Template Code',
@@ -1296,7 +1300,8 @@ export default {
         eventType: 'Event Type',
         phEventType: 'Enter event type',
         status: 'Status',
-        phStatus: 'Status'
+        phStatus: 'Status',
+        createTime: 'Create Time'
       },
       column: {
         id: 'Record ID',
@@ -1518,6 +1523,7 @@ export default {
     formReason: 'Reason',
     formComment: 'Comment',
     formToUser: 'Target user (User ID)',
+    phToUser: 'Type a username to search remotely',
     actTitle: {
       approve: 'Approve',
       reject: 'Reject',
@@ -1526,7 +1532,8 @@ export default {
     },
     rules: {
       title: 'Please enter the title',
-      days: 'Please enter the days'
+      days: 'Please enter the days',
+      toUserRequired: 'Please select a target user'
     },
     leave: {
       annual: 'Annual Leave',

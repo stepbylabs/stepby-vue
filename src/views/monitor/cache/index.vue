@@ -726,16 +726,6 @@ function handleClearCacheKey(cacheKey: string): void {
     .catch(() => {})
 }
 
-function nameFormatter(row: SysCache): string {
-  if (!row?.cacheName) return ''
-  return row.cacheName.replace(':', '')
-}
-
-function keyFormatter(cacheKey: string): string {
-  // 使用正则 /g 全局替换，避免 cacheName 在 key 中多次出现时只替换首个
-  return cacheKey.replace(new RegExp(nowCacheName.value, 'g'), '')
-}
-
 function handleCacheValue(cacheKey: string): void {
   getCacheValue(nowCacheName.value, cacheKey)
     .then((response) => {

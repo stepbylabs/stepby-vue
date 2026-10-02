@@ -104,3 +104,11 @@ export function reloadIpLocation(): Promise<AjaxResult> {
     method: 'post'
   })
 }
+
+/** 仅热加载 ip2region xdb 文件（不下载，用于手动替换文件后触发） */
+export function reloadIpXdb(): Promise<AjaxResult> {
+  return request({
+    url: '/system/ipLocation/reloadXdb',
+    method: 'post'
+  })
+}

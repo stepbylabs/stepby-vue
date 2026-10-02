@@ -254,7 +254,8 @@ export default {
       refreshPage: 'Refresh Current Page',
       lockScreen: 'Lock Screen',
       profile: 'Open Profile',
-      logout: 'Log Out'
+      logout: 'Log Out',
+      githubRepo: 'Open GitHub Repository'
     },
     close: 'Close',
     confirmLogout: 'Are you sure you want to log out?',

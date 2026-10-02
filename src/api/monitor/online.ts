@@ -18,6 +18,15 @@ export function forceLogout(tokenId: string): Promise<AjaxResult> {
   })
 }
 
+// 批量强退（后端复用单个强退吊销逻辑，逐项返回结果）
+export function batchForceLogout(tokenHashes: string[]): Promise<AjaxResult<{ successCount: number; failed: Array<{ tokenHash: string; code: number; msg: string }> }>> {
+  return request({
+    url: '/monitor/online/batchLogout',
+    method: 'post',
+    data: { tokenHashes }
+  })
+}
+
 // v5-N5：自助会话列表（后端强制按当前登录用户过滤，仅登录权限）
 export function listMySessions(query: OnlineQueryParams): Promise<TableDataInfo<SysUserOnline>> {
   return request({

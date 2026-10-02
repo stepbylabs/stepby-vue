@@ -77,10 +77,14 @@ export default {
       phTenantId: '租户 ID（0=平台）'
     },
     btn: {
-      forceLogout: '强退'
+      forceLogout: '强退',
+      batchForceLogout: '批量强退'
     },
     tip: {
-      confirmForceLogout: '是否确认强退名称为"{name}"的用户？'
+      confirmForceLogout: '是否确认强退名称为"{name}"的用户？',
+      confirmBatchForceLogout: '是否确认强退选中的 {count} 个会话？',
+      batchForceLogoutDone: '已成功强退 {count} 个会话',
+      batchForceLogoutPartial: '强退完成：成功 {ok} 个，失败 {failed} 个'
     },
     column: {
       tokenId: '会话编号',
@@ -131,6 +135,11 @@ export default {
       cronExpressionLabel: 'cron表达式',
       phCronExpression: '请输入cron执行表达式',
       genExpression: '生成表达式'
+    },
+    cronPreview: {
+      title: '未来 5 次触发时间',
+      invalid: '无法解析该表达式，请检查 cron 格式',
+      none: '未来 5 年内没有触发时间'
     },
     btn: {
       log: '日志'
@@ -391,7 +400,16 @@ export default {
     redisOk: '缓存连接正常',
     redisFail: '缓存连接失败',
     version: '版本 v',
-    uptimeFormat: '{days}天 {hours}时 {minutes}分 {secs}秒'
+    uptimeFormat: '{days}天 {hours}时 {minutes}分 {secs}秒',
+    metricsTitle: '后端运行时指标（/metrics）',
+    metricsDesc: '来自 Prometheus 文本指标端点的实时进程与数据库指标',
+    metricsUnavailable: '指标暂不可用（/metrics 未开放或已配置访问令牌）',
+    dbBackend: '数据库后端',
+    dbConnected: '数据库连接',
+    dbConnectedOk: '已连接',
+    dbConnectedFail: '未连接',
+    processRss: '常驻内存（RSS）',
+    processVms: '虚拟内存（VMS）'
   },
   logTail: {
     title: '实时日志',
@@ -591,6 +609,7 @@ export default {
     },
     btn: {
       reload: '热加载',
+      reloadXdb: '更新 xdb 库',
       updateNow: '立即更新',
       config: '配置',
       confirmUpdate: '开始更新'
@@ -620,6 +639,8 @@ export default {
     tip: {
       confirmReload: '确认重新加载 mmdb 文件？适用于手动替换文件后触发。',
       reloadSuccess: '热加载成功',
+      confirmReloadXdb: '确认重新加载 ip2region xdb 文件？适用于手动替换文件后触发。',
+      reloadXdbSuccess: 'xdb 热加载成功',
       updateSuccess: '更新成功，新文件大小 {size}，耗时 {elapsed} 秒'
     }
   },

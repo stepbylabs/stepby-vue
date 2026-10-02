@@ -29,7 +29,7 @@
             :aria-label="safeT('layout.navbar.commandPalette')"
             @click="cmdVisible = true"
             @keydown.enter.prevent="cmdVisible = true"
-            @keydown.space.prevent="cmdVisible = tru" >
+            @keydown.space.prevent="cmdVisible = true">
             <el-icon><Operation /></el-icon>
           </div>
         </el-tooltip>
@@ -87,7 +87,7 @@
                 <el-dropdown-item
                   v-for="(item, idx) in recent.recentViews.value"
                   :key="item.path"
-                  :command="item.fullPat" >
+                  :command="item.fullPath">
                   <span class="recent-idx">{{ Number(idx) + 1 }}</span>
                   <svg-icon v-if="item.icon" :icon-class="item.icon" class="mr-1.5" />
                   {{ translateRecentTitle(item) }}
@@ -113,7 +113,7 @@
             :aria-label="safeT('layout.navbar.themeMode')"
             @click="toggleTheme"
             @keydown.enter.prevent="toggleTheme"
-            @keydown.space.prevent="toggleThem" >
+            @keydown.space.prevent="toggleTheme">
             <Transition name="fade" mode="out-in">
               <svg-icon v-if="settingsStore.isDark" key="dark" icon-class="sunny" />
               <svg-icon v-else key="light" icon-class="moon" />

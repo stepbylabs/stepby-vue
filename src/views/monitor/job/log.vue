@@ -89,32 +89,76 @@
       <SkeletonTable v-if="loading" :columns="9" :rows="8" />
       <el-table
         v-else
+        ref="jobLogTableRef"
         v-loading="loading"
         :data="jobLogList"
         :row-key="(row: SysJobLog) => row.jobLogId"
         @selection-change="handleSelectionChange"
+        :default-sort="defaultSort"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
-        <el-table-column :label="t('jobLog.column.jobLogId')" width="80" align="center" prop="jobLogId" />
-        <el-table-column :label="t('job.column.name')" align="center" prop="jobName" show-overflow-tooltip />
-        <el-table-column :label="t('job.column.group')" align="center" prop="jobGroup" show-overflow-tooltip>
+        <el-table-column
+          :label="t('jobLog.column.jobLogId')"
+          width="80"
+          align="center"
+          prop="jobLogId"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('job.column.name')"
+          align="center"
+          prop="jobName"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('job.column.group')"
+          align="center"
+          prop="jobGroup"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <dict-tag :options="sys_job_group" :value="scope.row.jobGroup" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('job.column.target')" align="center" prop="invokeTarget" show-overflow-tooltip />
+        <el-table-column
+          :label="t('job.column.target')"
+          align="center"
+          prop="invokeTarget"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
         <el-table-column
           :label="t('jobLog.column.jobMessage')"
           align="center"
           prop="jobMessage"
           show-overflow-tooltip
         />
-        <el-table-column :label="t('jobLog.column.status')" align="center" prop="status">
+        <el-table-column
+          :label="t('jobLog.column.status')"
+          align="center"
+          prop="status"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <dict-tag :options="sys_common_status" :value="scope.row.status" />
           </template>
         </el-table-column>
-        <el-table-column :label="t('jobLog.column.createTime')" align="center" prop="createTime" width="180">
+        <el-table-column
+          :label="t('jobLog.column.createTime')"
+          align="center"
+          prop="createTime"
+          width="180"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ parseTime(scope.row.createTime) }}</span>
           </template>
@@ -164,6 +208,7 @@ import type { SysJobLog, JobLogQueryParams } from '@/types/api/monitor/jobLog'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
+const jobLogTableRef = useTemplateRef('jobLogTableRef')
 const { sys_common_status, sys_job_group } = useDict('sys_common_status', 'sys_job_group')
 
 const jobLogList = shallowRef<SysJobLog[]>([])
@@ -176,6 +221,7 @@ const multiple = ref<boolean>(true)
 const total = ref<number>(0)
 const dateRange = ref<string[]>([])
 const route = useRoute()
+const defaultSort = ref({ prop: 'createTime', order: 'descending' })
 
 const data = reactive({
   form: {} as SysJobLog,
@@ -184,7 +230,9 @@ const data = reactive({
     pageSize: 10,
     jobName: undefined,
     jobGroup: undefined,
-    status: undefined
+    status: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as JobLogQueryParams
 })
 
@@ -222,8 +270,18 @@ function handleQuery() {
 /** 重置按钮操作 */
 function resetQuery() {
   dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
   handleQuery()
+  jobLogTableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 // 多选框选中数据

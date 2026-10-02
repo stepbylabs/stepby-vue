@@ -64,9 +64,11 @@ export function useGlobalHotkeys() {
     passive: false,
     onEventFired(e) {
       // 防止默认行为仅在命中的组合键时触发
-      // Ctrl+K 在 Chrome 中会触发地址栏搜索，需要 preventDefault
+      // Ctrl+K（macOS 下 Cmd+K）在 Chrome 中会触发地址栏搜索，需要 preventDefault
       const searchKey = hotkeys.value.search
-      if (searchKey === 'ctrl_k' && e.ctrlKey && (e.key === 'k' || e.key === 'K') && e.type === 'keydown') {
+      const isSearchCombo =
+        (e.key === 'k' || e.key === 'K') && e.type === 'keydown' && (e.ctrlKey || e.metaKey)
+      if (searchKey === 'ctrl_k' && isSearchCombo) {
         e.preventDefault()
       }
     }
@@ -79,6 +81,23 @@ export function useGlobalHotkeys() {
     whenever(keys[keyName as keyof typeof keys] as Ref<boolean>, handler)
   }
 
+  // macOS 平台检测（jsdom/SSR 下 navigator 可能缺失，做安全兜底）
+  const isMac =
+    typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent || '')
+
+  // macOS 下 Cmd 等效 Ctrl：useMagicKeys 不做平台映射（ctrl_k 只匹配左 Ctrl），
+  // 故对 ctrl_* 快捷键额外绑定同名的 meta_* 变体（Cmd+K / Cmd+Shift+D 等）
+  function bindWithMeta(action: string, handler: () => void) {
+    bind(action, handler)
+    if (!isMac) return
+    const keyName = hotkeys.value[action]
+    if (!keyName || !keyName.startsWith('ctrl_')) return
+    const metaName = 'meta_' + keyName.slice('ctrl_'.length)
+    const metaRef = keys[metaName as keyof typeof keys]
+    if (!metaRef) return
+    whenever(metaRef as Ref<boolean>, handler)
+  }
+
   // ?：显示快捷键帮助面板
   bind('help', () => {
     ElMessageBox.alert(getHotkeyHelp(), i18n.global.t('shortcuts.keyboardShortcuts'), {
@@ -88,13 +107,10 @@ export function useGlobalHotkeys() {
     }).catch(() => {})
   })
 
-  // Ctrl+K：打开命令面板（通过自定义事件触发）
-  bind('search', () => {
-    // 优先触发命令面板
+  // Ctrl+K（macOS 为 Cmd+K）：打开命令面板（通过自定义事件触发，
+  // 命令面板组件监听该事件；不再兜底点击 HeaderSearch，避免两者同时弹出）
+  bindWithMeta('search', () => {
     window.dispatchEvent(new CustomEvent('stepby:open-command-palette'))
-    // 兜底：触发顶部搜索
-    const searchBtn = document.querySelector('.header-search-trigger, #header-search, .HeaderSearch') as HTMLElement
-    if (searchBtn) searchBtn.click()
   })
 
   // Ctrl+Shift+F：切换全屏

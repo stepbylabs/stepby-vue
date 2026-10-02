@@ -91,17 +91,56 @@
       <SkeletonTable v-if="loading" :columns="8" :rows="8" />
       <el-table
         v-else
+        ref="roleTableRef"
         v-loading="loading"
         :data="dataList"
         :row-key="(row: SysRole) => row.roleId"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
-        <el-table-column :label="t('role.column.id')" prop="roleId" width="80" />
-        <el-table-column :label="t('role.column.roleName')" prop="roleName" show-overflow-tooltip width="150" v-if="columns.roleName.visible" />
-        <el-table-column :label="t('role.column.roleKey')" prop="roleKey" show-overflow-tooltip width="150" v-if="columns.roleKey.visible" />
-        <el-table-column :label="t('role.column.sort')" prop="roleSort" width="100" v-if="columns.roleSort.visible" />
-        <el-table-column :label="t('role.column.status')" align="center" width="100" v-if="columns.status.visible">
+        <el-table-column
+          :label="t('role.column.id')"
+          prop="roleId"
+          width="80"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('role.column.roleName')"
+          prop="roleName"
+          show-overflow-tooltip
+          width="150"
+          v-if="columns.roleName.visible"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('role.column.roleKey')"
+          prop="roleKey"
+          show-overflow-tooltip
+          width="150"
+          v-if="columns.roleKey.visible"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('role.column.sort')"
+          prop="roleSort"
+          width="100"
+          v-if="columns.roleSort.visible"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('role.column.status')"
+          align="center"
+          prop="status"
+          width="100"
+          v-if="columns.status.visible"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-switch
               :aria-label="`${scope.row.roleName} ${t('role.column.status')}`"
@@ -113,7 +152,13 @@
             ></el-switch>
           </template>
         </el-table-column>
-        <el-table-column :label="t('role.column.createTime')" align="center" prop="createTime">
+        <el-table-column
+          :label="t('role.column.createTime')"
+          align="center"
+          prop="createTime"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ parseTime(scope.row.createTime) }}</span>
           </template>
@@ -331,6 +376,7 @@ const router = useRouter()
 const { t } = useI18n()
 const roleRefRef = useTemplateRef('roleRef')
 const queryRefRef = useTemplateRef('queryRef')
+const roleTableRef = useTemplateRef('roleTableRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
 // UX-7：列显隐偏好持久化（与用户管理页同一模式：RightToolbar 面板 + userPrefs 存储）
@@ -390,7 +436,9 @@ const data = reactive({
     pageSize: 10,
     roleName: undefined,
     roleKey: undefined,
-    status: undefined
+    status: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as RoleQueryParams
 })
 
@@ -457,8 +505,18 @@ const {
 /** 重置按钮操作 - 覆盖以清空 dateRange */
 function resetQuery() {
   dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRefRef.value?.resetFields()
   handleQuery()
+  roleTableRef.value?.clearSort()
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 /** 角色状态修改 */

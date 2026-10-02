@@ -147,27 +147,70 @@
         :data="dataList"
         :row-key="(row: SysFrontendError) => row.id"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="50" align="center" />
-        <el-table-column :label="t('frontendError.column.id')" align="center" prop="id" width="80" />
+        <el-table-column
+          :label="t('frontendError.column.id')"
+          align="center"
+          prop="id"
+          width="80"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
         <TenantColumn />
-        <el-table-column :label="t('frontendError.column.level')" align="center" prop="level" width="90">
+        <el-table-column
+          :label="t('frontendError.column.level')"
+          align="center"
+          prop="level"
+          width="90"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-tag :type="levelTagType(scope.row.level)" size="small">{{ levelLabel(scope.row.level) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('frontendError.column.source')" align="center" prop="source" width="120">
+        <el-table-column
+          :label="t('frontendError.column.source')"
+          align="center"
+          prop="source"
+          width="120"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ sourceLabel(scope.row.source) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('frontendError.column.name')" align="center" prop="name" show-overflow-tooltip />
-        <el-table-column :label="t('frontendError.column.message')" align="center" prop="message" show-overflow-tooltip>
+        <el-table-column
+          :label="t('frontendError.column.name')"
+          align="center"
+          prop="name"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('frontendError.column.message')"
+          align="center"
+          prop="message"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span class="msg-cell">{{ scope.row.message }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('frontendError.column.value')" align="center" prop="value" width="100">
+        <el-table-column
+          :label="t('frontendError.column.value')"
+          align="center"
+          prop="value"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ scope.row.value != null ? formatVital(scope.row) : '-' }}</span>
           </template>
@@ -178,8 +221,17 @@
           prop="userName"
           width="120"
           show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
         />
-        <el-table-column :label="t('frontendError.column.createTime')" align="center" prop="createTime" width="180">
+        <el-table-column
+          :label="t('frontendError.column.createTime')"
+          align="center"
+          prop="createTime"
+          width="180"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ parseTime(scope.row.createTime) }}</span>
           </template>
@@ -290,7 +342,9 @@ const data = reactive({
     level: undefined,
     source: undefined,
     name: undefined,
-    deviceType: undefined
+    deviceType: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as FrontendErrorQueryParams
 })
 const { queryParams, form } = toRefs(data)
@@ -317,9 +371,19 @@ const { dataList, loading, showSearch, multiple, total, getList, handleQuery, ha
 function resetQuery() {
   dateRange.value = []
   queryParams.value.tenantId = undefined
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
   handleQuery()
   loadStats()
+  tableRef.value?.clearSort()
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 function handleDetail(row: SysFrontendError) {

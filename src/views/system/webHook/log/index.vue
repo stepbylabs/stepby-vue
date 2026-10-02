@@ -21,6 +21,17 @@
             <el-option v-for="dict in sys_common_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('webHook.log.search.createTime')" class="w-[308px]">
+          <el-date-picker
+            v-model="dateRange"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            type="daterange"
+            range-separator="-"
+            :start-placeholder="t('common.form.startDate')"
+            :end-placeholder="t('common.form.endDate')"
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
           <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
@@ -80,24 +91,38 @@
       <SkeletonTable v-if="loading" :columns="8" :rows="8" />
       <el-table
         v-else
+        ref="logTableRef"
         v-loading="loading"
         :data="logList"
         :row-key="(row: SysWebHookLog) => row.id"
         @selection-change="handleSelectionChange"
+        :default-sort="defaultSort"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
-        <el-table-column :label="t('webHook.log.column.id')" width="90" align="center" prop="id" />
+        <el-table-column
+          :label="t('webHook.log.column.id')"
+          width="90"
+          align="center"
+          prop="id"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
         <el-table-column
           :label="t('webHook.log.column.hookName')"
           align="center"
           prop="hookName"
           show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
         />
         <el-table-column
           :label="t('webHook.log.column.eventType')"
           align="center"
           prop="eventType"
           show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
         />
         <el-table-column
           :label="t('webHook.log.column.targetUrl')"
@@ -105,17 +130,47 @@
           prop="targetUrl"
           min-width="220"
           show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
         />
-        <el-table-column :label="t('webHook.log.column.statusCode')" align="center" prop="statusCode" width="90" />
-        <el-table-column :label="t('webHook.log.column.costMs')" align="center" prop="costMs" width="100" />
-        <el-table-column :label="t('webHook.log.column.status')" align="center" width="90">
+        <el-table-column
+          :label="t('webHook.log.column.statusCode')"
+          align="center"
+          prop="statusCode"
+          width="90"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('webHook.log.column.costMs')"
+          align="center"
+          prop="costMs"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('webHook.log.column.status')"
+          align="center"
+          prop="status"
+          width="90"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-tag :type="scope.row.status === '0' ? 'success' : 'danger'" size="small">
               {{ statusLabel(scope.row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('webHook.log.column.createTime')" align="center" prop="createTime" width="180">
+        <el-table-column
+          :label="t('webHook.log.column.createTime')"
+          align="center"
+          prop="createTime"
+          width="180"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ scope.row.createTime }}</span>
           </template>
@@ -197,10 +252,12 @@ import { listWebHookLog, delWebHookLog, cleanWebHookLog, retryWebHookLog, export
 import type { SysWebHookLog } from '@/types/api/system/webHook'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
+import { addDateRange } from '@/utils/stepby'
 import type { WebHookLogQueryParams } from '@/types/api/system/webHook'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
+const logTableRef = useTemplateRef('logTableRef')
 const { sys_common_status } = useDict('sys_common_status')
 
 const logList = shallowRef<SysWebHookLog[]>([])
@@ -212,13 +269,17 @@ const multiple = ref<boolean>(true)
 const total = ref<number>(0)
 const detailOpen = ref(false)
 const currentLog = ref<SysWebHookLog | null>(null)
+const dateRange = ref<string[]>([])
+const defaultSort = ref({ prop: 'createTime', order: 'descending' })
 
 const data = reactive({
   queryParams: {
     pageNum: 1,
     pageSize: 10,
     eventType: undefined,
-    status: undefined
+    status: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as WebHookLogQueryParams & { pageNum: number; pageSize: number }
 })
 
@@ -240,7 +301,7 @@ function formatPayload(payload: string | null | undefined): string {
 /** 查询推送记录列表 */
 function getList() {
   loading.value = true
-  listWebHookLog(queryParams.value)
+  listWebHookLog(addDateRange(queryParams.value as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams)
     .then((response) => {
       logList.value = response.rows
       total.value = response.total
@@ -265,10 +326,21 @@ function handleQuery() {
   getList()
 }
 
-/** 重置按钮操作 */
+/** 重置按钮操作（含时间范围与排序状态） */
 function resetQuery() {
+  dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
   handleQuery()
+  logTableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 // 多选框选中数据
@@ -325,7 +397,9 @@ function handleRetry() {
 
 /** 导出按钮操作 */
 function handleExport() {
-  exportWebHookLog({ ...queryParams.value })
+  exportWebHookLog(
+    addDateRange({ ...queryParams.value } as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams
+  )
 }
 
 getList()

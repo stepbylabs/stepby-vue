@@ -23,6 +23,8 @@
     </Transition>
     <div :class="{ hasTagsView: needTagsView, sidebarHide: sidebar.hide }" class="main-container">
       <div :class="{ 'fixed-header': fixedHeader }">
+        <!-- 环境标识横幅（仅非生产环境渲染） -->
+        <EnvBanner />
         <!-- 系统公告横幅 -->
         <announcement-banner />
         <navbar @setLayout="setLayout" />
@@ -47,6 +49,7 @@ import Sidebar from './components/Sidebar/index.vue'
 import { AppMain, Navbar, Settings, TagsView } from './components'
 import MobileTabBar from './components/MobileTabBar/index.vue'
 import AnnouncementBanner from '@/components/AnnouncementBanner/index.vue'
+import EnvBanner from '@/components/EnvBanner/index.vue'
 import TaskProgress from '@/components/TaskProgress/index.vue'
 import useAppStore from '@/store/modules/app'
 import useSettingsStore from '@/store/modules/settings'
@@ -91,7 +94,8 @@ watch(
 const watermarkValue = computed(() => {
   if (!settingsStore.userPrefs.watermarkEnabled) return ''
   const userStore = useUserStore()
-  return `${userStore.name}\n${new Date().toLocaleDateString()}`
+  // 携带日期+时间（精确到秒）：截图溯源时可定位到具体时刻
+  return `${userStore.name}\n${new Date().toLocaleString()}`
 })
 
 // 启用全局快捷键（Ctrl+K 搜索、Ctrl+Shift+F 全屏、Ctrl+Shift+L 锁屏等）

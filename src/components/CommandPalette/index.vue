@@ -86,7 +86,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import type { Component } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Search, Moon, Sunny, FullScreen, Lock, Fold, Expand, RefreshRight, User } from '@element-plus/icons-vue'
+import { Search, Moon, Sunny, FullScreen, Lock, Fold, Expand, RefreshRight, User, Link } from '@element-plus/icons-vue'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
 import useAppStore from '@/store/modules/app'
@@ -231,6 +231,13 @@ const commands = computed<Command[]>(() => {
       action: () => router.push('/user/profile')
     },
     {
+      id: 'cmd-github',
+      title: t('commandPalette.cmd.githubRepo'),
+      category: t('commandPalette.category.systemAction'),
+      icon: Link,
+      action: () => window.open('https://github.com/stepbylabs/stepby-vue', '_blank', 'noopener,noreferrer')
+    },
+    {
       id: 'cmd-logout',
       title: t('commandPalette.cmd.logout'),
       category: t('commandPalette.category.systemAction'),
@@ -336,16 +343,14 @@ function close() {
   emit('update:visible', false)
 }
 
-// 全局键盘事件兜底
-function onGlobalKeydown(e: KeyboardEvent) {
-  if (e.ctrlKey && (e.key === 'k' || e.key === 'K') && !e.shiftKey) {
-    e.preventDefault()
-    emit('update:visible', !props.visible)
-  }
+// Ctrl+K / Cmd+K 统一由 useGlobalHotkeys 触发 stepby:open-command-palette 事件
+// （本组件只监听事件，避免与 useGlobalHotkeys 的快捷键绑定双重响应）
+function onOpenPaletteEvent() {
+  emit('update:visible', true)
 }
 
-onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+onMounted(() => window.addEventListener('stepby:open-command-palette', onOpenPaletteEvent))
+onBeforeUnmount(() => window.removeEventListener('stepby:open-command-palette', onOpenPaletteEvent))
 </script>
 
 <style lang="scss" scoped>

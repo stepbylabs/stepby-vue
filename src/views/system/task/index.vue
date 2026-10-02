@@ -70,27 +70,64 @@
       <SkeletonTable v-if="loading" :columns="9" :rows="8" />
       <el-table
         v-else
+        ref="taskTableRef"
         v-loading="loading"
         :data="taskList"
         :row-key="(row: SysTask) => row.taskId"
         @selection-change="handleSelectionChange"
+        @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
-        <el-table-column :label="t('task.column.id')" align="center" prop="taskId" width="80" />
-        <el-table-column :label="t('task.column.name')" align="center" prop="taskName" show-overflow-tooltip />
-        <el-table-column :label="t('task.column.type')" align="center" prop="taskType" width="140">
+        <el-table-column
+          :label="t('task.column.id')"
+          align="center"
+          prop="taskId"
+          width="80"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('task.column.name')"
+          align="center"
+          prop="taskName"
+          show-overflow-tooltip
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
+        <el-table-column
+          :label="t('task.column.type')"
+          align="center"
+          prop="taskType"
+          width="140"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-tag size="small">{{ scope.row.taskType }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('task.column.status')" align="center" width="100">
+        <el-table-column
+          :label="t('task.column.status')"
+          align="center"
+          prop="status"
+          width="100"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-tag :type="statusTagType(scope.row.status)" size="small">
               {{ statusText(scope.row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('task.column.progress')" align="center" width="180">
+        <el-table-column
+          :label="t('task.column.progress')"
+          align="center"
+          prop="progress"
+          width="180"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <el-progress
               :percentage="scope.row.progress"
@@ -104,9 +141,23 @@
             <span>{{ scope.row.current }} / {{ scope.row.total }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('task.column.operator')" align="center" prop="operator" width="120" />
+        <el-table-column
+          :label="t('task.column.operator')"
+          align="center"
+          prop="operator"
+          width="120"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        />
         <el-table-column :label="t('task.column.resultMsg')" align="center" prop="resultMsg" show-overflow-tooltip />
-        <el-table-column :label="t('task.column.createTime')" align="center" prop="createTime" width="180">
+        <el-table-column
+          :label="t('task.column.createTime')"
+          align="center"
+          prop="createTime"
+          width="180"
+          sortable="custom"
+          :sort-orders="['descending', 'ascending']"
+        >
           <template #default="scope">
             <span>{{ parseTime(scope.row.createTime) }}</span>
           </template>
@@ -174,6 +225,7 @@ import EmptyState from '@/components/EmptyState/index.vue'
 const { t } = useI18n()
 const router = useRouter()
 const queryRef = useTemplateRef('queryRef')
+const taskTableRef = useTemplateRef('taskTableRef')
 
 const taskList = shallowRef<SysTask[]>([])
 const loading = ref(true)
@@ -189,7 +241,9 @@ const queryParams = ref<TaskQueryParams>({
   pageSize: 10,
   taskType: undefined,
   status: undefined,
-  operator: undefined
+  operator: undefined,
+  orderByColumn: undefined,
+  isAsc: undefined
 })
 
 const hasQueryFilter = computed(() => {
@@ -247,6 +301,7 @@ function getList() {
     .then((res) => {
       taskList.value = res.rows
       total.value = res.total
+      syncRunningPoll()
     })
     .catch(() => {})
     .finally(() => {
@@ -259,10 +314,21 @@ function handleQuery() {
   getList()
 }
 
+/** 重置（含排序状态清除） */
 function resetQuery() {
   dateRange.value = []
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
   handleQuery()
+  taskTableRef.value?.clearSort()
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 function handleSelectionChange(selection: SysTask[]) {
@@ -292,6 +358,49 @@ function handleDelete(row?: SysTask) {
 function handleViewBackups() {
   router.push('/monitor/backup')
 }
+
+// ==================== running 任务自动刷新 ====================
+// 存在 running 状态任务时以 5s 间隔静默轮询（不闪 loading），任务结束自动停止；
+// onBeforeUnmount 清理定时器，避免内存泄漏。
+const RUNNING_POLL_INTERVAL = 5000
+let runningPollTimer: ReturnType<typeof setInterval> | null = null
+
+const hasRunningTask = computed(() => taskList.value.some((t: SysTask) => t.status === 'running'))
+
+/** 静默刷新：仅更新数据，不触发全页 loading（避免轮询闪烁） */
+function silentRefresh() {
+  const params = addDateRange({ ...queryParams.value } as Record<string, unknown>, dateRange.value) as TaskQueryParams
+  listTask(params)
+    .then((res) => {
+      taskList.value = res.rows
+      total.value = res.total
+      syncRunningPoll()
+    })
+    .catch(() => {})
+}
+
+/** 按列表中是否存在 running 任务启停轮询 */
+function syncRunningPoll() {
+  if (hasRunningTask.value) {
+    if (!runningPollTimer) {
+      runningPollTimer = setInterval(() => {
+        // 标签页隐藏时跳过请求，回到前台后下一个周期恢复
+        if (document.hidden) return
+        silentRefresh()
+      }, RUNNING_POLL_INTERVAL)
+    }
+  } else if (runningPollTimer) {
+    clearInterval(runningPollTimer)
+    runningPollTimer = null
+  }
+}
+
+onBeforeUnmount(() => {
+  if (runningPollTimer) {
+    clearInterval(runningPollTimer)
+    runningPollTimer = null
+  }
+})
 
 getList()
 </script>

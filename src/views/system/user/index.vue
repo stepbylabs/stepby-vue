@@ -127,6 +127,7 @@
             :data="userList"
             :row-key="(row: SysUser) => row.userId"
             @selection-change="handleSelectionChange"
+            @sort-change="handleSortChange"
           >
             <el-table-column type="selection" width="50" align="center" />
             <el-table-column
@@ -136,15 +137,20 @@
               prop="userId"
               v-if="columns.userId.visible"
               width="80"
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
             />
             <TenantColumn />
             <el-table-column
               :label="t('user.column.username')"
               align="center"
               key="userName"
+              prop="userName"
               v-if="columns.userName.visible"
               min-width="120"
               show-overflow-tooltip
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
             >
               <template #default="scope">
                 <el-link type="primary" underline="never" @click="handleViewData(scope.row)">
@@ -160,6 +166,8 @@
               v-if="columns.nickName.visible"
               min-width="120"
               show-overflow-tooltip
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
             />
             <el-table-column
               :label="t('user.column.dept')"
@@ -187,12 +195,22 @@
               prop="phonenumber"
               v-if="columns.phonenumber.visible"
               width="120"
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
             >
               <template #default="scope">
                 <span v-desensitize="'phone'" :data-value="scope.row.phonenumber">{{ scope.row.phonenumber }}</span>
               </template>
             </el-table-column>
-            <el-table-column :label="t('user.column.status')" align="center" key="status" v-if="columns.status.visible">
+            <el-table-column
+              :label="t('user.column.status')"
+              align="center"
+              key="status"
+              prop="status"
+              v-if="columns.status.visible"
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
+            >
               <template #default="scope">
                 <el-switch
                   :aria-label="`${scope.row.userName} ${t('user.column.status')}`"
@@ -224,6 +242,8 @@
               prop="createTime"
               v-if="columns.createTime.visible"
               width="160"
+              sortable="custom"
+              :sort-orders="['descending', 'ascending']"
             >
               <template #default="scope">
                 <span>{{ parseTime(scope.row.createTime) }}</span>
@@ -469,7 +489,9 @@ const data = reactive({
     userName: undefined,
     phonenumber: undefined,
     status: undefined,
-    deptId: undefined
+    deptId: undefined,
+    orderByColumn: undefined,
+    isAsc: undefined
   } as UserQueryParams
 })
 
@@ -590,10 +612,20 @@ function resetQuery() {
   queryRefRef.value?.resetFields()
   queryParams.value.tenantId = undefined
   queryParams.value.deptId = undefined
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   deptTreeRefRef.value?.setCurrentKey(null)
   // TierB-3: 清除持久化的搜索条件
   clearPersistedQuery()
   handleQuery()
+  userTableRef.value?.clearSort()
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
+  getList()
 }
 
 /** 删除按钮操作 */

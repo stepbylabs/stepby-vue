@@ -1,5 +1,6 @@
 <template>
   <div class="app-container">
+    <el-alert type="info" :closable="false" show-icon class="mb-2" :title="t('config.configTomlTip')" />
     <Transition name="expand-fade">
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
         <el-form-item :label="t('config.search.configName')" prop="configName">

@@ -357,5 +357,9 @@ export default {
   iconSelect: {
     placeholder: '请输入图标名称',
     selectIcon: '选择图标 {name}'
+  },
+  envBanner: {
+    tip: '当前为非生产环境，数据与操作仅用于测试',
+    ariaLabel: '当前运行环境标识'
   }
 }

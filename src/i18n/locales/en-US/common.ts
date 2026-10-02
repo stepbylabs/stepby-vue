@@ -358,5 +358,9 @@ export default {
   iconSelect: {
     placeholder: 'Enter icon name',
     selectIcon: 'Select icon {name}'
+  },
+  envBanner: {
+    tip: 'Non-production environment: data and actions are for testing only',
+    ariaLabel: 'Current runtime environment banner'
   }
 }

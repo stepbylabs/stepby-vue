@@ -107,7 +107,7 @@ describe('composables/useGlobalHotkeys', () => {
     expect(options.dangerouslyUseHTMLString).toBe(true)
   })
 
-  it('bind("search") dispatches the command-palette event and clicks a trigger', () => {
+  it('bind("search") dispatches the command-palette event only (no HeaderSearch fallback)', () => {
     const btn = document.createElement('button')
     btn.className = 'header-search-trigger'
     const clickSpy = vi.spyOn(btn, 'click')
@@ -121,7 +121,7 @@ describe('composables/useGlobalHotkeys', () => {
     handlers[H.search]()
 
     expect(dispatched).toBe(1)
-    expect(clickSpy).toHaveBeenCalled()
+    expect(clickSpy).not.toHaveBeenCalled()
     window.removeEventListener('stepby:open-command-palette', listener)
   })
 

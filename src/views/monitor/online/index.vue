@@ -41,11 +41,27 @@
           </el-form-item>
         </el-form>
         <!-- 前端 slice 分页：在线用户列表通常数据量小，全量拉取后前端分页即可，避免每页请求 -->
+        <el-row :gutter="10" class="mb8">
+          <el-col :span="1.5">
+            <el-button
+              v-hasPermi="['monitor:online:batchLogout']"
+              type="danger"
+              plain
+              icon="Delete"
+              :disabled="selectedTokenIds.length === 0"
+              @click="handleBatchForceLogout"
+            >
+              {{ t('online.btn.batchForceLogout') }}
+            </el-button>
+          </el-col>
+        </el-row>
         <el-table
           v-loading="loading"
           :data="onlineList.slice((pageNum - 1) * pageSize, pageNum * pageSize)"
           class="w-full"
+          @selection-change="handleSelectionChange"
         >
+          <el-table-column type="selection" width="55" align="center" />
           <el-table-column :label="t('common.column.sort')" width="50" type="index" align="center">
             <template #default="scope">
               <span>{{ (pageNum - 1) * pageSize + scope.$index + 1 }}</span>
@@ -164,7 +180,7 @@
 </template>
 
 <script setup lang="ts" name="Online">
-import { forceLogout, list as initData } from '@/api/monitor/online'
+import { forceLogout, batchForceLogout, list as initData } from '@/api/monitor/online'
 import type { FormInstance } from 'element-plus'
 import type { SysUserOnline, OnlineQueryParams } from '@/types/api/monitor/online'
 import modal from '@/plugins/modal'
@@ -183,6 +199,7 @@ const pageSize = ref<number>(10)
 
 const form = ref<SysUserOnline>({} as SysUserOnline)
 const formRef = ref<FormInstance | null>(null)
+const selectedTokenIds = ref<string[]>([])
 
 const queryParams = ref<OnlineQueryParams>({
   ipaddr: undefined,
@@ -257,6 +274,29 @@ function handleForceLogout(row: SysUserOnline) {
       modal.msgSuccess(t('common.deleteSuccess'))
     })
     .catch(() => {})
+}
+
+/** 多选变化（批量强退用） */
+function handleSelectionChange(rows: SysUserOnline[]) {
+  selectedTokenIds.value = rows.map((r) => r.tokenId!)
+}
+
+/** 批量强退：复用单个强退的后端吊销逻辑，逐项返回结果 */
+async function handleBatchForceLogout() {
+  try {
+    await modal.confirm(t('online.tip.confirmBatchForceLogout', { count: selectedTokenIds.value.length }))
+    const res = await batchForceLogout(selectedTokenIds.value)
+    const successCount = res.data?.successCount ?? 0
+    const failedCount = res.data?.failed?.length ?? 0
+    getList()
+    if (failedCount > 0) {
+      modal.msgWarning(t('online.tip.batchForceLogoutPartial', { ok: successCount, failed: failedCount }))
+    } else {
+      modal.msgSuccess(t('online.tip.batchForceLogoutDone', { count: successCount }))
+    }
+  } catch {
+    // 用户取消或请求失败（失败已由拦截器提示）
+  }
 }
 
 // TierS-7: 接入自动刷新（读取 userPrefs.autoRefreshInterval，0 表示禁用）

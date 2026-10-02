@@ -189,7 +189,7 @@ const tagsViewPersist = computed(() => useSettingsStore().tagsViewPersist)
 const tagsViewStyle = computed(() => useSettingsStore().tagsViewStyle)
 
 // 拖拽排序（affix 标签禁止拖拽，逻辑封装于 useTagsViewDrag）
-const { draggingIdx, dragOverIdx, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd } = useTagsViewDrag({
+const { draggingIdx, dragOverIdx, onDragStart, onDragOver, onDragLeave, onDrop } = useTagsViewDrag({
   isAffix,
   visitedViews
 })

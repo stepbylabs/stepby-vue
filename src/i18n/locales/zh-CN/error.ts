@@ -251,7 +251,8 @@ export default {
       refreshPage: '刷新当前页面',
       lockScreen: '锁定屏幕',
       profile: '打开个人中心',
-      logout: '退出登录'
+      logout: '退出登录',
+      githubRepo: '打开 GitHub 仓库'
     },
     close: '关闭',
     confirmLogout: '确定退出登录吗？',

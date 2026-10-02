@@ -120,9 +120,18 @@
         >
           <template #default="{ row }">{{ row.domain || t('tenant.domainEmpty') }}</template>
         </el-table-column>
-        <el-table-column :label="t('tenant.accountUsage')" width="110" align="center">
+        <el-table-column :label="t('tenant.accountUsage')" width="130" align="center">
           <template #default="{ row }">
-            {{ row.userCount }} / {{ row.accountCount > 0 ? row.accountCount : t('tenant.accountUnlimited') }}
+            <div>{{ row.userCount }} / {{ row.accountCount > 0 ? row.accountCount : t('tenant.accountUnlimited') }}</div>
+            <!-- 配额用量进度条：上限 >0 时展示已用占比，接近上限变色；上限 0（不限）不展示 -->
+            <el-progress
+              v-if="row.accountCount > 0"
+              :percentage="Math.min((row.userCount / row.accountCount) * 100, 100)"
+              :stroke-width="6"
+              :show-text="false"
+              :status="row.userCount / row.accountCount >= 0.9 ? 'warning' : undefined"
+              class="mt-1"
+            />
           </template>
         </el-table-column>
         <el-table-column :label="t('tenant.expireTime')" width="180" align="center">
@@ -193,6 +202,9 @@
             >
               {{ t('tenant.exportPackage') }}
             </el-button>
+            <!-- 注：导出接口 POST /system/backup/tenant-export/{tenantId} 在后端
+                 PERM_ROUTE_TABLE 校验的就是 system:backup:export（走备份链路落盘登记），
+                 菜单种子无 system:tenant:export，属有意的跨模块权限复用，前端与后端保持一致 -->
             <el-button
               v-if="row.delFlag !== '2' && isPlatform"
               v-hasPermi="['system:tenant:remove']"

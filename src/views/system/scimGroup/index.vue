@@ -36,6 +36,18 @@
     <el-card shadow="never">
       <template #header>
         <el-row :gutter="10" class="mb8">
+          <el-col :span="1.5">
+            <el-button
+              v-hasPermi="['system:scimgroup:remove']"
+              type="danger"
+              plain
+              icon="Delete"
+              :disabled="selectedIds.length === 0"
+              @click="handleBatchDelete"
+            >
+              {{ t('common.batchDelete') }}
+            </el-button>
+          </el-col>
           <right-toolbar v-model:show-search="showSearch" @query-table="getList" />
         </el-row>
         <el-alert
@@ -46,7 +58,8 @@
         />
       </template>
 
-      <el-table v-loading="loading" :data="groupList">
+      <el-table v-loading="loading" :data="groupList" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" align="center" />
         <el-table-column :label="t('scimGroup.displayName')" prop="displayName" min-width="160" show-overflow-tooltip />
         <el-table-column :label="t('scimGroup.externalId')" prop="externalId" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">
@@ -182,6 +195,7 @@ const loading = ref(false)
 const saving = ref(false)
 const groupList = ref<ScimGroupAdminRow[]>([])
 const total = ref(0)
+const selectedIds = ref<number[]>([])
 const queryForm = reactive({
   pageNum: 1,
   pageSize: 10,
@@ -275,6 +289,20 @@ async function handleDelete(row: ScimGroupAdminRow) {
   if (!ok) return
   await delScimGroup(row.groupId)
   proxy?.$modal.msgSuccess(t('common.success'))
+  getList()
+}
+
+/** 多选变化（批量删除用） */
+function handleSelectionChange(rows: ScimGroupAdminRow[]) {
+  selectedIds.value = rows.map((r) => r.groupId)
+}
+
+/** 批量删除：后端 DELETE /system/scimGroup/{id} 支持逗号分隔多 id */
+async function handleBatchDelete() {
+  const ok = await proxy?.$modal.confirm(t('scimGroup.batchDeleteConfirm', [selectedIds.value.length]))
+  if (!ok) return
+  await delScimGroup(selectedIds.value.join(','))
+  proxy?.$modal.msgSuccess(t('common.batchDeleteSuccess'))
   getList()
 }
 

@@ -225,7 +225,23 @@
           <el-input v-model="actComment" type="textarea" :rows="3" :maxlength="500" />
         </el-form-item>
         <el-form-item v-else :label="t('flow.formToUser')">
-          <el-input-number v-model="actToUserId" :min="1" class="!w-full" />
+          <el-select
+            v-model="actToUserId"
+            remote
+            filterable
+            clearable
+            :remote-method="searchUsers"
+            :loading="userSearching"
+            :placeholder="t('flow.phToUser')"
+            class="!w-full"
+          >
+            <el-option
+              v-for="u in userOptions"
+              :key="u.userId"
+              :label="`${u.nickName}(${u.userName})`"
+              :value="u.userId!"
+            />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -296,6 +312,8 @@ import {
   type FlowTaskDetail,
   type FlowPageQuery
 } from '@/api/flow'
+import { listUser } from '@/api/system/user'
+import type { SysUser } from '@/types'
 import type { FlowActionForm } from '@/api/flow'
 
 const { t } = useI18n()
@@ -467,18 +485,38 @@ const acting = ref(false)
 const actAction = ref<FlowActionForm['action'] | 'countersign'>('approve')
 const actTaskId = ref(0)
 const actComment = ref('')
-const actToUserId = ref(1)
+const actToUserId = ref<number | undefined>(undefined)
 const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
+
+// 加签/转办用户选择：复用既有用户列表 API（userName 模糊搜索），选项显示 昵称(用户名)
+const userSearching = ref(false)
+const userOptions = ref<SysUser[]>([])
+
+async function searchUsers(keyword: string) {
+  userSearching.value = true
+  try {
+    const res = await listUser({ pageNum: 1, pageSize: 50, userName: keyword || undefined })
+    userOptions.value = res.rows
+  } finally {
+    userSearching.value = false
+  }
+}
 
 function openAct(row: SysFlowTask, action: FlowActionForm['action'] | 'countersign') {
   actTaskId.value = row.taskId
   actAction.value = action
   actComment.value = ''
-  actToUserId.value = 1
+  actToUserId.value = undefined
+  userOptions.value = []
+  searchUsers('')
   actOpen.value = true
 }
 
 async function handleAct() {
+  if ((actAction.value === 'countersign' || actAction.value === 'transfer') && !actToUserId.value) {
+    ElMessage.warning(t('flow.rules.toUserRequired'))
+    return
+  }
   acting.value = true
   try {
     if (actAction.value === 'countersign') {

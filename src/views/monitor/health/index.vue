@@ -198,6 +198,57 @@
       </el-col>
     </el-row>
 
+    <!-- 后端运行时指标（/metrics：db_backend / db_connected / 进程内存） -->
+    <el-row :gutter="20" class="mb-5">
+      <el-col v-motion="fadeInUp" :xs="24" :lg="12">
+        <el-card shadow="hover">
+          <template #header>
+            <span>
+              <el-icon><Coin /></el-icon>
+              {{ t('health.metricsTitle') }}
+            </span>
+          </template>
+          <el-descriptions v-if="metricsData.available" :column="1" border>
+            <el-descriptions-item :label="t('health.dbBackend')">
+              <el-tag v-if="metricsData.dbBackend" size="small">{{ metricsData.dbBackend }}</el-tag>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('health.dbConnected')">
+              <el-tag v-if="metricsData.dbConnected === true" type="success" size="small">
+                {{ t('health.dbConnectedOk') }}
+              </el-tag>
+              <el-tag v-else-if="metricsData.dbConnected === false" type="danger" size="small">
+                {{ t('health.dbConnectedFail') }}
+              </el-tag>
+              <span v-else>-</span>
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('health.processRss')">
+              {{ metricsData.rssBytes != null ? formatBytes(metricsData.rssBytes) : '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('health.processVms')">
+              {{ metricsData.vmsBytes != null ? formatBytes(metricsData.vmsBytes) : '-' }}
+            </el-descriptions-item>
+          </el-descriptions>
+          <el-empty v-else :description="t('health.metricsUnavailable')" :image-size="72" />
+        </el-card>
+      </el-col>
+      <el-col v-motion="fadeInUp" :xs="24" :lg="12">
+        <el-card shadow="hover">
+          <template #header>
+            <span class="text-text-secondary">{{ t('health.metricsDesc') }}</span>
+          </template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item :label="t('health.column.runTime')">
+              {{ formattedUptime }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('health.version')">
+              {{ healthData.version || '-' }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 自动刷新 -->
     <div class="auto-refresh mt-5 flex items-center gap-5 justify-end">
       <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" @change="toggleAutoRefresh" />
@@ -267,6 +318,16 @@ interface DiskItem {
   usage: string
 }
 
+/** /metrics（Prometheus 文本格式）解析结果（best-effort） */
+interface MetricsSnapshot {
+  available: boolean
+  dbBackend: string
+  dbConnected: boolean | null
+  uptimeSeconds: number | null
+  rssBytes: number | null
+  vmsBytes: number | null
+}
+
 interface ServerRawData {
   cpu?: { cpuUsage?: string; used?: string; cpuNum?: number; sys?: string; free?: string }
   mem?: { usage?: string; total?: string; used?: string; free?: string }
@@ -281,6 +342,14 @@ const serverData = ref<ServerInfo>({})
 const sysData = ref<SysInfo>({})
 const runtimeData = ref<RuntimeInfo>({})
 const diskList = ref<DiskItem[]>([])
+const metricsData = ref<MetricsSnapshot>({
+  available: false,
+  dbBackend: '',
+  dbConnected: null,
+  uptimeSeconds: null,
+  rssBytes: null,
+  vmsBytes: null
+})
 const autoRefresh = ref(false)
 const lastUpdate = ref('')
 const uptimeSeconds = ref(0)
@@ -344,8 +413,62 @@ const formattedUptime = computed(() => {
   return t('health.uptimeFormat', { days, hours, minutes, secs })
 })
 
+/**
+ * 拉取 /metrics（Prometheus 文本格式）并解析关键指标。
+ * 使用原生 fetch 而非 request 封装：/metrics 在配置了 metrics_token 时对
+ * 未携带令牌的请求返回 401，走 axios 拦截器会误触发"重新登录"对话框；
+ * 指标展示属 best-effort，失败时置 available=false 即可。
+ */
+async function loadMetrics(): Promise<void> {
+  try {
+    const base = String(import.meta.env.VITE_APP_BASE_API || '')
+    const resp = await fetch(`${base}/metrics`, { method: 'GET' })
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const text = await resp.text()
+    let dbBackend = ''
+    const gauges = new Map<string, number>()
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+      const m = line.match(/^(stepby_[a-z_]+)(\{[^}]*\})?\s+(-?[\d.eE+]+)$/)
+      if (!m) continue
+      const value = Number(m[3])
+      if (Number.isNaN(value)) continue
+      gauges.set(m[1], value)
+      if (m[1] === 'stepby_db_backend' && m[2]) {
+        dbBackend = m[2].match(/backend="([^"]+)"/)?.[1] ?? ''
+      }
+    }
+    metricsData.value = {
+      available: gauges.size > 0,
+      dbBackend,
+      dbConnected: gauges.has('stepby_db_connected') ? gauges.get('stepby_db_connected') === 1 : null,
+      uptimeSeconds: gauges.get('stepby_uptime_seconds') ?? null,
+      rssBytes: gauges.get('stepby_process_resident_memory_bytes') ?? null,
+      vmsBytes: gauges.get('stepby_process_virtual_memory_bytes') ?? null
+    }
+  } catch {
+    metricsData.value.available = false
+  }
+}
+
+/** 字节数 → 可读格式（B/KB/MB/GB/TB） */
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = bytes
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
 async function loadHealth(): Promise<void> {
   loading.value = true
+  // /metrics 与主请求并发拉取（best-effort，内部自行吞错）
+  const metricsPromise = loadMetrics()
   try {
     const [healthRes, serverRes] = (await Promise.all([
       request({ url: '/health', method: 'get' }),
@@ -392,6 +515,12 @@ async function loadHealth(): Promise<void> {
       }))
     }
     lastUpdate.value = new Date().toLocaleTimeString()
+    // 等待 /metrics 解析完成后再校准运行时长（loadMetrics 内部自行吞错，不会抛出）
+    await metricsPromise
+    // 用 /metrics 的 stepby_uptime_seconds 校准运行时长（页面本地自增仅作刷新间隔内的近似值）
+    if (metricsData.value.uptimeSeconds != null) {
+      uptimeSeconds.value = Math.max(0, Math.round(metricsData.value.uptimeSeconds))
+    }
     // 不重置 uptimeSeconds：uptimeTimer 每秒自增，重置会导致运行时长永远不超过刷新间隔
   } catch (err) {
     if (import.meta.env.DEV) console.error('[HealthDashboard] Failed to load:', err)
