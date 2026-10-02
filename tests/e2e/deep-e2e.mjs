@@ -7861,10 +7861,18 @@ async function testModule36(page, consoleErrors, pageErrors) {
   // 36.4 关闭当前标签
   if (multiTagCount > 1) {
     const tagCountBefore = await page.locator('.tags-view-item').count()
-    // 点击标签上的关闭按钮（如果有）
-    const closeBtn = page.locator('.tags-view-item .el-icon-close').last()
+    // 点击标签上的关闭按钮（如果有）。
+    // R-TEST-DEBUG：关闭按钮 .tags-close-btn 仅 hover 时可见（opacity 过渡）——
+    // 直接 click 会命中透明区域导致事件不触发（实测 6→6 假失败）；
+    // 先 hover 使按钮可见，再点击 span 本体（内层 svg 会吞点击坐标）。
+    // R-TEST-DEBUG 终版：①关闭钮仅 hover 可见 ②span 中心被内层 svg path 覆盖需 force
+    // ③6 标签时 last 可能被滚动容器裁剪（force 落空）——改点第一个带关闭钮的标签
+    // （必在可视区），hover + force click。
+    const closeBtn = page.locator('.tags-view-item .tags-close-btn').first()
     if (await closeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await closeBtn.click({ timeout: 3000 }).catch(() => {})
+      await closeBtn.hover().catch(() => {})
+      await page.waitForTimeout(300)
+      await closeBtn.click({ timeout: 3000, force: true }).catch(() => {})
       await sleep(1000)
       const tagCountAfter = await page.locator('.tags-view-item').count()
       record(

@@ -16313,12 +16313,27 @@ async function main() {
       }
     }
 
+    const featureDurations = [] // R-TEST-PERF：每功能耗时（性能可见性，暴露慢页面/慢接口）
+
     for (const f of features) {
       if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) continue
+      const t0 = Date.now()
       try {
         await f.fn(page)
       } catch (err) {
         record(f.id, '测试执行', false, `异常: ${err.message}`)
+      } finally {
+        featureDurations.push({ id: f.id, ms: Date.now() - t0 })
+      }
+    }
+
+    // 慢用例 Top5（>15s 视为可疑：networkidle 等待/接口慢/选择器超时）
+    const slowest = [...featureDurations].sort((a, b) => b.ms - a.ms).slice(0, 5)
+    if (slowest.length > 0 && slowest[0].ms > 5000) {
+      log('------------------------------------------')
+      log('慢用例 Top5（性能可见性）:')
+      for (const s of slowest) {
+        log(`  ⏱ [功能${s.id}] ${(s.ms / 1000).toFixed(1)}s${s.ms > 15000 ? '  ⚠️ 可疑慢' : ''}`)
       }
     }
 
