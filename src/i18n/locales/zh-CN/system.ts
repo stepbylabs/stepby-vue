@@ -482,6 +482,20 @@ export default {
       title: '选择用户',
       selectUser: '请选择要分配的用户'
     },
+    // M3 字段级权限：角色字段授权矩阵
+    fieldPerm: {
+      title: '字段权限',
+      colFieldName: '字段名称',
+      colFieldKey: '字段键',
+      colHidden: '隐藏',
+      fields: {
+        phonenumber: '手机号码',
+        email: '邮箱'
+      },
+      tipHidden: '勾选"隐藏"后，该字段将在 {table} 表的列表页对该角色所有用户隐藏',
+      confirmSave: '保存将全量覆盖该角色的字段隐藏配置，影响该角色所有用户的列表可见性，是否继续？',
+      saveSuccess: '保存成功'
+    },
     dataScope: '数据权限',
     tip: {
       roleKeyHelp: "控制器中定义的权限字符，如：＠PreAuthorize(`＠ss.hasRole('admin')`)",

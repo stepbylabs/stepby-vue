@@ -495,6 +495,20 @@ export default {
       title: 'Select User',
       selectUser: 'Please select users to assign'
     },
+    // M3 field-level permission: role field authorization matrix
+    fieldPerm: {
+      title: 'Field Permission',
+      colFieldName: 'Field Name',
+      colFieldKey: 'Field Key',
+      colHidden: 'Hidden',
+      fields: {
+        phonenumber: 'Phone Number',
+        email: 'Email'
+      },
+      tipHidden: 'Once checked as "Hidden", the field will be hidden on the {table} list page for all users of this role',
+      confirmSave: 'Saving will fully overwrite the field hidden config of this role and affect list visibility for all its users. Continue?',
+      saveSuccess: 'Saved successfully'
+    },
     dataScope: 'Data Permission',
     tip: {
       roleKeyHelp: "Permission key defined in the controller, e.g.: ＠PreAuthorize(`＠ss.hasRole('admin')`)",

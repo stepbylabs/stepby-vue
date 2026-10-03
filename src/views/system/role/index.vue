@@ -166,7 +166,7 @@
         <el-table-column
           :label="t('common.column.operation')"
           align="center"
-          width="180"
+          width="220"
           class-name="small-padding fixed-width"
         >
           <template #default="scope">
@@ -208,6 +208,17 @@
                 :aria-label="t('role.selectUser.title')"
                 @click="handleAuthUser(scope.row)"
                 v-hasPermi="['system:role:edit']"
+              ></el-button>
+            </el-tooltip>
+            <!-- M3 字段级权限：打开该角色的字段授权矩阵（独立读权限位） -->
+            <el-tooltip :content="t('role.fieldPerm.title')" placement="top" v-if="scope.row.roleId !== 1">
+              <el-button
+                link
+                type="primary"
+                icon="Hide"
+                :aria-label="t('role.fieldPerm.title')"
+                @click="handleFieldPerm(scope.row)"
+                v-hasPermi="['system:role:fieldPerm']"
               ></el-button>
             </el-tooltip>
           </template>
@@ -346,6 +357,41 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- M3 字段级权限：角色字段授权矩阵对话框（首期 tableKey 固定 sys_user，tableKey 参数已预留多表） -->
+    <el-dialog
+      :title="`${t('role.fieldPerm.title')} - ${fieldPermRole?.roleName ?? ''}`"
+      v-model="openFieldPerm"
+      width="min(90%, 560px)"
+      append-to-body
+      destroy-on-close
+    >
+      <el-table v-loading="fieldPermLoading" :data="fieldPermFields" :empty-text="t('common.noData')">
+        <el-table-column :label="t('role.fieldPerm.colFieldName')" min-width="140">
+          <template #default="scope">
+            <span>{{ t(scope.row.labelKey) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('role.fieldPerm.colFieldKey')" prop="fieldKey" min-width="130" show-overflow-tooltip />
+        <el-table-column :label="t('role.fieldPerm.colHidden')" align="center" width="90">
+          <template #default="scope">
+            <!-- 勾选 = 对该角色隐藏该字段 -->
+            <el-checkbox
+              :model-value="fieldPermChecked[scope.row.fieldKey] ?? false"
+              :aria-label="`${t(scope.row.labelKey)} ${t('role.fieldPerm.colHidden')}`"
+              @change="handleFieldPermCheck(scope.row.fieldKey, $event)"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="mt-2 text-xs text-text-secondary">{{ t('role.fieldPerm.tipHidden', { table: fieldPermTableKey }) }}</div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button type="primary" :loading="fieldPermSaving" @click="submitFieldPerm">{{ t('common.confirm') }}</el-button>
+          <el-button @click="openFieldPerm = false">{{ t('common.cancel') }}</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -362,7 +408,10 @@ import {
   deptTreeSelect
 } from '@/api/system/role'
 import { roleMenuTreeselect, treeselect as menuTreeselect } from '@/api/system/menu'
+import { getFieldPerm, saveFieldPerm } from '@/api/system/fieldPerm'
+import { FIELD_PERM_TABLES, toCheckedMap, buildHiddenFields } from '@/utils/fieldPerm'
 import type { SysRole, RoleQueryParams } from '@/types/api/system/role'
+import type { FieldPermFieldDef } from '@/utils/fieldPerm'
 import type { TreeSelect, TableShowColumns } from '@/types/api/common'
 import type { RoleDeptTreeResult } from '@/types/api/system/role'
 import type { RoleMenuTreeselectResult } from '@/types/api/system/menu'
@@ -781,6 +830,72 @@ function submitDataScope() {
 function cancelDataScope() {
   openDataScope.value = false
   reset()
+}
+
+// ===== M3 字段级权限：角色字段授权矩阵 =====
+// 首期 tableKey 固定 sys_user；结构上保留 tableKey 参数，后续多表只需加切换 UI
+const FIELD_PERM_TABLE_KEY = 'sys_user'
+const fieldPermTableKey = FIELD_PERM_TABLE_KEY
+/** 矩阵对话框可见性 */
+const openFieldPerm = ref<boolean>(false)
+/** 矩阵加载态 */
+const fieldPermLoading = ref<boolean>(false)
+/** 保存按钮独立 loading，防重复提交 */
+const fieldPermSaving = ref<boolean>(false)
+/** 当前操作的目标角色（矩阵标题 + 保存参数） */
+const fieldPermRole = ref<SysRole | undefined>(undefined)
+/** 勾选状态映射（fieldKey → 是否勾选隐藏），来自后端 hidden 态初始化 */
+const fieldPermChecked = ref<Record<string, boolean>>({})
+/** 白名单字段定义（fieldKey + 中文名 i18n key），首期固定 sys_user */
+const fieldPermFields = computed<FieldPermFieldDef[]>(() => FIELD_PERM_TABLES[fieldPermTableKey] ?? [])
+
+/** 打开字段权限矩阵：加载该角色当前隐藏态（开关未开启时接口报业务错误，由全局拦截器提示） */
+function handleFieldPerm(row: SysRole) {
+  fieldPermRole.value = row
+  fieldPermChecked.value = {}
+  openFieldPerm.value = true
+  fieldPermLoading.value = true
+  getFieldPerm(row.roleId!, fieldPermTableKey)
+    .then((res) => {
+      fieldPermChecked.value = toCheckedMap(res.data?.fields)
+    })
+    .catch(() => {
+      // 失败（含"字段级权限未启用"）时关闭对话框，避免在空矩阵上误保存；错误提示由拦截器完成
+      openFieldPerm.value = false
+    })
+    .finally(() => {
+      fieldPermLoading.value = false
+    })
+}
+
+/** 矩阵勾选变更（el-checkbox change 事件转发；勾选 = 隐藏） */
+function handleFieldPermCheck(fieldKey: string, val: unknown) {
+  fieldPermChecked.value[fieldKey] = val === true
+}
+
+/** 保存字段权限：全量覆盖，二次确认影响范围（该角色所有用户的列表可见性） */
+function submitFieldPerm() {
+  const roleId = fieldPermRole.value?.roleId
+  if (roleId == undefined) return
+  const hiddenFields = buildHiddenFields(
+    fieldPermFields.value.map((f: FieldPermFieldDef) => f.fieldKey),
+    fieldPermChecked.value
+  )
+  modal
+    .confirm(t('role.fieldPerm.confirmSave'))
+    .then(() => {
+      fieldPermSaving.value = true
+      saveFieldPerm(roleId, fieldPermTableKey, { hiddenFields })
+        .then(() => {
+          modal.msgSuccess(t('role.fieldPerm.saveSuccess'))
+          openFieldPerm.value = false
+        })
+        .catch(() => {}) // 保存失败由全局拦截器提示，保持对话框打开可重试
+        .finally(() => {
+          fieldPermSaving.value = false
+        })
+    })
+    .catch(() => {}) // 用户取消二次确认
 }
 
 getList()

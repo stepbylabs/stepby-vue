@@ -120,7 +120,7 @@
         </el-row>
 
         <Transition name="fade" mode="out-in">
-          <SkeletonTable v-if="loading" :columns="9" :rows="8" />
+          <SkeletonTable v-if="loading || !fieldHiddenReady" :columns="9" :rows="8" />
           <el-table
             v-else
             ref="userTableRef"
@@ -189,12 +189,13 @@
                 </el-tooltip>
               </template>
             </el-table-column>
+            <!-- M3 字段级权限：手机号列受字段隐藏集控制（列显隐偏好 + field-hidden 双条件） -->
             <el-table-column
               :label="t('user.column.phone')"
               align="center"
               key="phonenumber"
               prop="phonenumber"
-              v-if="columns.phonenumber.visible"
+              v-if="isColumnVisible('phonenumber', columns.phonenumber.visible, fieldHidden)"
               width="120"
               sortable="custom"
               :sort-orders="['descending', 'ascending']"
@@ -403,6 +404,8 @@ import UserViewDrawer from './view.vue'
 import UserFormDialog from './UserFormDialog.vue'
 import { usePasswordRule } from '@/utils/passwordRule'
 import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, deptTreeSelect, anonymizeUserPrecheck, anonymizeUser } from '@/api/system/user'
+import { getFieldHidden } from '@/api/system/fieldPerm'
+import { isColumnVisible } from '@/utils/fieldPerm'
 import type { SysUser, UserQueryParams, UserErasureReport } from '@/types/api/system/user'
 import type { SysRole } from '@/types/api/system/role'
 import type { SysPost } from '@/types/api/system/post'
@@ -482,6 +485,29 @@ watch(
   },
   { deep: true }
 )
+
+// ===== M3 字段级权限：当前操作者生效的隐藏字段（动态隐藏列） =====
+// 首期 tableKey 固定 sys_user；后端按当前用户的角色配置聚合算好下发（如 ["phonenumber","email"]）
+const FIELD_HIDDEN_TABLE_KEY = 'sys_user'
+/** 隐藏字段数组（空数组 = 无隐藏）；请求失败时回落为空，不阻塞列表 */
+const fieldHidden = ref<string[]>([])
+/** 隐藏集是否已就绪：就绪前列表继续展示骨架屏，避免隐藏列闪现 */
+const fieldHiddenReady = ref<boolean>(false)
+
+/** 加载当前操作者的字段隐藏集（页面加载时与列表请求并行） */
+function loadFieldHidden() {
+  getFieldHidden(FIELD_HIDDEN_TABLE_KEY)
+    .then((res) => {
+      fieldHidden.value = res.data ?? []
+    })
+    .catch(() => {
+      // 失败回落为不隐藏（如开关未开启/无权限），错误提示由全局拦截器完成
+      fieldHidden.value = []
+    })
+    .finally(() => {
+      fieldHiddenReady.value = true
+    })
+}
 
 const data = reactive({
   queryParams: {
@@ -832,6 +858,8 @@ function handleUpdate(row?: SysUser) {
 onMounted(() => {
   getDeptTree()
   getList()
+  // M3 字段级权限：与列表/部门树并行加载当前操作者的隐藏字段集
+  loadFieldHidden()
   getConfigKey('sys.user.initPassword')
     .then((response: AjaxResult) => {
       initPassword.value = response.msg
