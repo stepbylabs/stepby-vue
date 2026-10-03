@@ -16,3 +16,9 @@ deep-e2e-report.json
 test-run-*.log
 test-upload-*.txt
 verify-m68-m69.txt
+
+_r10.pid
+_rounds_done.json
+_rounds_out.log
+_rounds_err.log
+r10_*.log
