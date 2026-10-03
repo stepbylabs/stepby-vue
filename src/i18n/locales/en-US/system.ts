@@ -51,6 +51,7 @@ export default {
     help: 'Usage Help',
     helpCenter: 'Help Center',
     changelog: 'Changelog',
+    reportBoard: 'Report Board',
     dashboard: 'Dashboard',
     tenantSpace: 'Tenant Services',
     website: 'Stepby Website',

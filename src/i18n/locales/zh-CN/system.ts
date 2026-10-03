@@ -51,6 +51,7 @@ export default {
     help: '使用帮助',
     helpCenter: '帮助中心',
     changelog: '更新日志',
+    reportBoard: '报表看板',
     dashboard: '数据看板',
     tenantSpace: '租户服务',
     website: 'Stepby官网',

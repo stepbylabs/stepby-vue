@@ -22,3 +22,4 @@ _rounds_done.json
 _rounds_out.log
 _rounds_err.log
 r10_*.log
+_*-probe.mjs
