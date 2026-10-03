@@ -245,23 +245,8 @@
         <el-form-item :label="t('webHook.form.hookName')" prop="hookName">
           <el-input v-model.trim="form.hookName" :placeholder="t('webHook.form.phHookName')" :maxlength="64" />
         </el-form-item>
-        <el-form-item :label="t('webHook.form.eventTypes')" prop="eventTypes">
-          <div class="w-full">
-            <el-select
-              :aria-label="t('webHook.form.eventTypes')"
-              v-model="formEventTypes"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              :placeholder="t('webHook.form.phEventTypes')"
-              class="w-full"
-            >
-              <el-option v-for="opt in eventTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
-            <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.eventTypesTip') }}</div>
-          </div>
-        </el-form-item>
+        <!-- 方案 C：订阅口径收敛为事件目录 subscribed_events（旧 eventTypes 输入已移除，
+             存量配置由后端迁移 m20261003_000004 收敛并回显在新列） -->
         <el-form-item :label="t('webHook.form.subscribedEvents')" prop="subscribedEvents">
           <div class="w-full">
             <el-select
@@ -596,36 +581,33 @@ const {
   queryRef
 })
 
-// 表单内事件类型（数组）
-const formEventTypes = ref<string[]>([])
-// 表单内订阅事件目录键（数组；空 = 订阅全部）
+// 表单内订阅事件目录键（数组；空 = 订阅全部）。
+// 方案 C：旧 eventTypes 表单数组已随输入框移除，订阅只经新字段提交
 const formSubscribedEvents = ref<string[]>([])
 
-// 打开对话框时同步事件类型与订阅事件数组，并确保目录下拉可用
+// 打开对话框时同步订阅事件数组，并确保目录下拉可用
 function onFormDialogOpen() {
-  formEventTypes.value = splitEventTypes(form.value.eventTypes || '')
   formSubscribedEvents.value = parseSubscribedEvents(form.value.subscribedEvents)
   loadEventCatalog()
 }
 
-/** 解析后端 subscribed_events JSON 数组字符串；失败/为空回退为空数组（= 订阅全部） */
-function parseSubscribedEvents(json: string | null | undefined): string[] {
-  if (!json) return []
+/** 解析后端 subscribed_events（JSON 数组串；数组形态直接用）；失败/为空回退为空数组（= 订阅全部） */
+function parseSubscribedEvents(value: string | string[] | null | undefined): string[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value.map(String)
   try {
-    const parsed = JSON.parse(json)
+    const parsed = JSON.parse(value)
     return Array.isArray(parsed) ? parsed.map(String) : []
   } catch {
     return []
   }
 }
 
-// 提交前处理：事件类型逗号串；订阅事件键 JSON 数组串；编辑时 secret 留空表示不改变
+// 提交前处理：订阅事件键以**数组形态**只写新字段 subscribedEvents（空数组 = 订阅全部，
+// 后端归一为 NULL）；旧字段 eventTypes 不再由前端提交（后端保留兼容转换，供存量调用方）。
+// 编辑时 secret 留空表示不改变。
 function submitForm() {
-  form.value.eventTypes = formEventTypes.value.join(',') || ''
-  // 空数组 = 订阅全部，存空串以显式覆盖（避免残留旧值）
-  form.value.subscribedEvents = formSubscribedEvents.value.length
-    ? JSON.stringify(formSubscribedEvents.value)
-    : ''
+  form.value.subscribedEvents = formSubscribedEvents.value
   const f = form.value as { secret?: string | null }
   if (form.value.id != null && !f.secret) {
     f.secret = undefined

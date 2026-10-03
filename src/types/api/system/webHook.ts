@@ -31,6 +31,9 @@ export interface WebHookLogQueryParams extends PageDomain {
 export type SysWebHook = import('@/types/api/generated/WebHookVo').WebHookVo & {
   /** 仅表单输入用：签名密钥明文；后端永不回传 */
   secret?: string | null
+  /** 仅表单输入用：订阅事件键数组（方案 C 提交路径只写新字段，空数组 = 订阅全部）；
+   *  列表/详情回传仍为 JSON 数组字符串（generated 类型） */
+  subscribedEvents?: string | null | string[]
 }
 
 /** 推送记录（后端生成类型） */
