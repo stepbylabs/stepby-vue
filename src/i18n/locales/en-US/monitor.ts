@@ -409,7 +409,18 @@ export default {
     dbConnectedOk: 'Connected',
     dbConnectedFail: 'Disconnected',
     processRss: 'Resident Memory (RSS)',
-    processVms: 'Virtual Memory (VMS)'
+    processVms: 'Virtual Memory (VMS)',
+    dbPool: {
+      title: 'Database Connection Pool',
+      dbKind: 'Database Type',
+      poolSize: 'Pool Size',
+      maxConn: 'DB Max Connections',
+      connections: 'Connections',
+      busyIdle: 'Busy {busy} / Idle {idle}',
+      busy: 'Busy connections',
+      idle: 'Idle connections',
+      unavailable: 'Connection pool status unavailable'
+    }
   },
   logTail: {
     title: 'Real-time Logs',
@@ -487,7 +498,15 @@ export default {
     btn: {
       detail: 'Detail',
       exportPdf: 'Export PDF',
-      exportFieldSelect: 'Select Export Fields'
+      exportFieldSelect: 'Select Export Fields',
+      verifyChain: 'Verify Chain'
+    },
+    verify: {
+      title: 'Operation Log Chain Integrity Verification',
+      validTitle: 'Chain intact, not tampered',
+      brokenTitle: 'Chain break detected',
+      checkedCount: 'Verified {count} chain nodes',
+      brokenAt: 'First broken node: operation log #{operId}. Data after this log may have been tampered with or deleted; investigate immediately'
     },
     tip: {
       confirmDelete: 'Are you sure to delete the log with ID "{ids}"?',
@@ -729,6 +748,83 @@ export default {
       confirmClear: 'Confirm to clean frontend error records? All records beyond the retention period will be deleted.',
       clearSuccess: 'Clean successful',
       noSelection: 'Please select records to delete first'
+    }
+  },
+  alert: {
+    title: 'Alert Rules',
+    search: {
+      name: 'Rule Name',
+      phName: 'Enter rule name',
+      metric: 'Metric',
+      phMetric: 'Select metric',
+      enabled: 'Enabled',
+      phEnabled: 'Select enabled state'
+    },
+    column: {
+      id: 'Rule ID',
+      name: 'Rule Name',
+      metric: 'Metric',
+      trigger: 'Trigger Condition',
+      silentMinutes: 'Silent Period',
+      notifyChannel: 'Notify Channel',
+      enabled: 'Enabled',
+      lastFiredAt: 'Last Fired'
+    },
+    metric: {
+      login_failed_5m: 'Login failures in 5 min',
+      http_5xx_5m: 'HTTP 5xx count in 5 min',
+      job_failed_24h: 'Job failures in 24 h',
+      online_users: 'Online users',
+      cpu_usage: 'CPU usage',
+      mem_usage: 'Memory usage',
+      disk_usage: 'Disk usage'
+    },
+    comparator: {
+      gt: 'Greater than',
+      lt: 'Less than',
+      ge: 'Greater or equal',
+      le: 'Less or equal'
+    },
+    unit: {
+      minutes: 'min'
+    },
+    notifyNone: 'Record only',
+    form: {
+      name: 'Rule Name',
+      phName: 'Enter rule name',
+      metric: 'Metric',
+      phMetric: 'Select metric',
+      comparator: 'Comparator',
+      threshold: 'Threshold',
+      silentMinutes: 'Silent Period (min)',
+      silentMinutesTip: 'No repeated notification within this window after firing',
+      notifyChannelId: 'Notify Channel',
+      phNotifyChannel: 'Select notify channel',
+      notifyChannelTip: 'Leave empty to record only without sending notifications',
+      notifyTemplateId: 'Notify Template',
+      phNotifyTemplate: 'Select notify template',
+      enabled: 'Enabled'
+    },
+    rule: {
+      nameRequired: 'Please enter rule name',
+      metricRequired: 'Please select metric',
+      comparatorRequired: 'Please select comparator',
+      thresholdRequired: 'Please enter threshold'
+    },
+    tip: {
+      confirmDelete: 'Are you sure to delete the alert rule with ID "{ids}"?',
+      confirmChange: 'Are you sure to set alert rule "{name}" {text}?'
+    },
+    btn: {
+      evaluate: 'Evaluate Now'
+    },
+    evaluate: {
+      title: 'Evaluation Result',
+      metricValue: 'Current Metric Value',
+      fired: 'Fired',
+      firedYes: 'Fired',
+      firedNo: 'Not fired',
+      reason: 'Reason'
     }
   }
 }

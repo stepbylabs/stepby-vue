@@ -409,7 +409,18 @@ export default {
     dbConnectedOk: '已连接',
     dbConnectedFail: '未连接',
     processRss: '常驻内存（RSS）',
-    processVms: '虚拟内存（VMS）'
+    processVms: '虚拟内存（VMS）',
+    dbPool: {
+      title: '数据库连接池',
+      dbKind: '数据库类型',
+      poolSize: '连接池大小',
+      maxConn: '数据库最大连接数',
+      connections: '连接分布',
+      busyIdle: '忙碌 {busy} / 空闲 {idle}',
+      busy: '忙碌连接占比',
+      idle: '空闲连接占比',
+      unavailable: '连接池状态暂不可用'
+    }
   },
   logTail: {
     title: '实时日志',
@@ -486,7 +497,15 @@ export default {
     btn: {
       detail: '详细',
       exportPdf: '导出 PDF',
-      exportFieldSelect: '选择导出字段'
+      exportFieldSelect: '选择导出字段',
+      verifyChain: '链完整性校验'
+    },
+    verify: {
+      title: '操作日志链完整性校验',
+      validTitle: '链完整，未被篡改',
+      brokenTitle: '检测到链断裂',
+      checkedCount: '共校验 {count} 条链节点',
+      brokenAt: '首个断裂节点：操作日志 #{operId}，该日志之后的数据可能被篡改或删除，请立即排查'
     },
     tip: {
       confirmDelete: '是否确认删除日志编号为"{ids}"的数据项？',
@@ -727,6 +746,83 @@ export default {
       confirmClear: '确认清空前端异常记录？将删除保留期之外的全部记录。',
       clearSuccess: '清空成功',
       noSelection: '请先选择要删除的记录'
+    }
+  },
+  alert: {
+    title: '告警规则',
+    search: {
+      name: '规则名称',
+      phName: '请输入规则名称',
+      metric: '监控指标',
+      phMetric: '请选择监控指标',
+      enabled: '启用状态',
+      phEnabled: '请选择启用状态'
+    },
+    column: {
+      id: '规则编号',
+      name: '规则名称',
+      metric: '监控指标',
+      trigger: '触发条件',
+      silentMinutes: '静默期',
+      notifyChannel: '通知渠道',
+      enabled: '启用状态',
+      lastFiredAt: '上次触发'
+    },
+    metric: {
+      login_failed_5m: '5分钟内登录失败次数',
+      http_5xx_5m: '5分钟内 HTTP 5xx 次数',
+      job_failed_24h: '24小时内任务失败次数',
+      online_users: '在线用户数',
+      cpu_usage: 'CPU 使用率',
+      mem_usage: '内存使用率',
+      disk_usage: '磁盘使用率'
+    },
+    comparator: {
+      gt: '大于',
+      lt: '小于',
+      ge: '大于等于',
+      le: '小于等于'
+    },
+    unit: {
+      minutes: '分钟'
+    },
+    notifyNone: '仅记录',
+    form: {
+      name: '规则名称',
+      phName: '请输入规则名称',
+      metric: '监控指标',
+      phMetric: '请选择监控指标',
+      comparator: '比较器',
+      threshold: '阈值',
+      silentMinutes: '静默期(分钟)',
+      silentMinutesTip: '触发后在该窗口内不重复通知',
+      notifyChannelId: '通知渠道',
+      phNotifyChannel: '请选择通知渠道',
+      notifyChannelTip: '留空表示仅记录不发送通知',
+      notifyTemplateId: '通知模板',
+      phNotifyTemplate: '请选择通知模板',
+      enabled: '是否启用'
+    },
+    rule: {
+      nameRequired: '请输入规则名称',
+      metricRequired: '请选择监控指标',
+      comparatorRequired: '请选择比较器',
+      thresholdRequired: '请输入阈值'
+    },
+    tip: {
+      confirmDelete: '是否确认删除告警规则编号为"{ids}"的数据项？',
+      confirmChange: '是否将告警规则"{name}"{text}？'
+    },
+    btn: {
+      evaluate: '立即评估'
+    },
+    evaluate: {
+      title: '立即评估结果',
+      metricValue: '指标当前值',
+      fired: '是否触发',
+      firedYes: '已触发',
+      firedNo: '未触发',
+      reason: '结果说明'
     }
   }
 }

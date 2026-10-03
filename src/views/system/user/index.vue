@@ -34,6 +34,7 @@
             </el-form-item>
             <el-form-item :label="t('user.search.status')" prop="status">
               <el-select
+                :aria-label="t('user.search.status')"
                 v-model="queryParams.status"
                 :placeholder="t('user.search.phStatus')"
                 clearable

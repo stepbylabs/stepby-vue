@@ -14,11 +14,11 @@
       <!-- 请求面板 -->
       <div class="request-panel">
         <div class="flex items-center gap-2 mb-4">
-          <el-select v-model="form.method" class="method-select w-[130px]">
+          <el-select :aria-label="t('httpDebug.method')" v-model="form.method" class="method-select w-[130px]">
             <el-option v-for="m in ALLOWED_METHODS" :key="m" :value="m" :label="m" />
           </el-select>
           <el-input v-model="form.url" :placeholder="t('httpDebug.urlPlaceholder')" clearable />
-          <el-select v-model="form.timeoutSecs" style="width: 150px">
+          <el-select :aria-label="t('httpDebug.timeout')" v-model="form.timeoutSecs" style="width: 150px">
             <el-option v-for="s in [5, 10, 20, 30]" :key="s" :value="s" :label="`${s}s`" />
           </el-select>
           <el-button type="primary" :loading="loading" @click="send">

@@ -191,7 +191,9 @@
           <el-input v-model="submitForm.title" :maxlength="200" />
         </el-form-item>
         <el-form-item :label="t('flow.formLeaveType')" prop="leaveType">
-          <el-select v-model="submitForm.leaveType" class="w-full">
+          <el-select
+            :aria-label="t('flow.formLeaveType')"
+            v-model="submitForm.leaveType" class="w-full">
             <el-option :label="t('flow.leave.annual')" value="annual" />
             <el-option :label="t('flow.leave.sick')" value="sick" />
             <el-option :label="t('flow.leave.personal')" value="personal" />
@@ -226,6 +228,7 @@
         </el-form-item>
         <el-form-item v-else :label="t('flow.formToUser')">
           <el-select
+            :aria-label="t('flow.formToUser')"
             v-model="actToUserId"
             remote
             filterable

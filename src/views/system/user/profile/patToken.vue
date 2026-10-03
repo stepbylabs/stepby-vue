@@ -60,20 +60,22 @@
       </el-table-column>
       <el-table-column
         :label="t('pat.column.operation')"
-        width="90"
+        width="260"
         align="center"
         class-name="small-padding fixed-width"
       >
         <template #default="scope">
-          <el-button
-            v-if="!isRevoked(scope.row.status)"
-            link
-            type="danger"
-            icon="Delete"
-            @click="handleRevoke(scope.row)"
-          >
-            {{ t('pat.btn.revoke') }}
-          </el-button>
+          <template v-if="!isRevoked(scope.row.status)">
+            <el-button link type="primary" icon="RefreshLeft" @click="handleRotateAk(scope.row)">
+              {{ t('pat.btn.rotateAk') }}
+            </el-button>
+            <el-button link type="danger" icon="Delete" @click="handleRevokeAk(scope.row)">
+              {{ t('pat.btn.revokeAk') }}
+            </el-button>
+            <el-button link type="danger" icon="Delete" @click="handleRevoke(scope.row)">
+              {{ t('pat.btn.revoke') }}
+            </el-button>
+          </template>
         </template>
       </el-table-column>
       <template #empty>
@@ -96,13 +98,19 @@
           <el-input v-model="form.name" :placeholder="t('pat.form.namePh')" :maxlength="100" />
         </el-form-item>
         <el-form-item :label="t('pat.form.scopes')" prop="scopes">
-          <el-select v-model="form.scopes" multiple filterable :placeholder="t('pat.form.scopesPh')" class="w-full">
+          <el-select :aria-label="t('pat.form.scopes')" v-model="form.scopes" multiple filterable :placeholder="t('pat.form.scopesPh')" class="w-full">
             <el-option v-for="opt in scopeOptions" :key="opt" :label="scopeLabel(opt)" :value="opt" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('pat.form.expireDays')" prop="expireDays">
           <el-input-number v-model="form.expireDays" :min="0" :max="3650" controls-position="right" />
           <span class="form-tip">{{ t('pat.form.expireDaysTip') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('pat.form.withAk')" prop="withAk">
+          <div class="w-full">
+            <el-switch v-model="form.withAk" />
+            <div class="form-tip-block">{{ t('pat.form.withAkTip') }}</div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -111,7 +119,7 @@
       </template>
     </el-dialog>
 
-    <!-- 一次性明文令牌展示对话框 -->
+    <!-- 一次性明文令牌展示对话框（含开通 AK/SK 时的 AK/SK 明文，均仅展示一次） -->
     <el-dialog
       v-model="revealVisible"
       :title="t('pat.token.title')"
@@ -124,6 +132,23 @@
         <code class="token-plain">{{ plainToken }}</code>
         <el-button type="primary" link icon="DocumentCopy" @click="copyToken">{{ t('pat.btn.copy') }}</el-button>
       </div>
+      <template v-if="plainAccessKey || plainSecretKey">
+        <el-alert :title="t('pat.akSk.warning')" type="warning" :closable="false" show-icon class="mt-3 mb15" />
+        <div class="token-reveal">
+          <span class="ak-label">{{ t('pat.akSk.accessKey') }}</span>
+          <code class="token-plain">{{ plainAccessKey }}</code>
+          <el-button type="primary" link icon="DocumentCopy" @click="copyText(plainAccessKey)">
+            {{ t('pat.btn.copy') }}
+          </el-button>
+        </div>
+        <div class="token-reveal mt-2">
+          <span class="ak-label">{{ t('pat.akSk.secretKey') }}</span>
+          <code class="token-plain">{{ plainSecretKey }}</code>
+          <el-button type="primary" link icon="DocumentCopy" @click="copyText(plainSecretKey)">
+            {{ t('pat.btn.copy') }}
+          </el-button>
+        </div>
+      </template>
       <template #footer>
         <el-button type="primary" @click="finishReveal">{{ t('pat.btn.done') }}</el-button>
       </template>
@@ -133,7 +158,8 @@
 
 <script setup lang="ts" name="PatToken">
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { listMyTokens, getScopeOptions, createToken, revokeMyToken } from '@/api/system/patToken'
+import { listMyTokens, getScopeOptions, createToken, revokeMyToken, rotateAk, revokeAk } from '@/api/system/patToken'
+import type { AjaxResult, RotateAkResult } from '@/types'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 
@@ -149,10 +175,11 @@ const scopeOptions = ref<string[]>([])
 const createVisible = ref(false)
 const creating = ref(false)
 const formRef = useTemplateRef<FormInstance>('formRef')
-const form = reactive<{ name: string; scopes: string[]; expireDays: number }>({
+const form = reactive<{ name: string; scopes: string[]; expireDays: number; withAk: boolean }>({
   name: '',
   scopes: [],
-  expireDays: 90
+  expireDays: 90,
+  withAk: false
 })
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: t('pat.rule.nameRequired'), trigger: 'blur' }],
@@ -161,6 +188,9 @@ const rules = computed<FormRules>(() => ({
 
 const revealVisible = ref(false)
 const plainToken = ref('')
+// 开通 AK/SK 时的一次性明文（仅创建响应返回，展示一次）
+const plainAccessKey = ref('')
+const plainSecretKey = ref('')
 
 function getList(): void {
   loading.value = true
@@ -204,6 +234,7 @@ function openCreate(): void {
   form.name = ''
   form.scopes = []
   form.expireDays = 90
+  form.withAk = false
   formRef.value?.clearValidate()
   loadScopes()
   createVisible.value = true
@@ -213,9 +244,17 @@ function submitCreate(): void {
   formRef.value?.validate((valid: boolean) => {
     if (!valid) return
     creating.value = true
-    createToken({ name: form.name.trim(), scopes: form.scopes, expireDays: form.expireDays })
+    createToken({
+      name: form.name.trim(),
+      scopes: form.scopes,
+      expireDays: form.expireDays,
+      // 同时开通开放 API AK/SK：响应携带 accessKey/secretKey 明文（仅此一次）
+      withAk: form.withAk
+    })
       .then((res) => {
         plainToken.value = res.data?.token || ''
+        plainAccessKey.value = res.data?.accessKey || ''
+        plainSecretKey.value = res.data?.secretKey || ''
         revealVisible.value = true
         getList()
       })
@@ -226,9 +265,10 @@ function submitCreate(): void {
   })
 }
 
-function copyToken(): void {
-  const text = plainToken.value
+function copyText(text: string): void {
   if (!text) return
+  const done = () => ElMessage.success(t('pat.msg.copied'))
+  const fail = () => ElMessage.error(t('pat.msg.copyFailed'))
   const fallback = () => {
     const ta = document.createElement('textarea')
     ta.value = text
@@ -248,21 +288,27 @@ function copyToken(): void {
   if (navigator.clipboard?.writeText) {
     navigator.clipboard
       .writeText(text)
-      .then(() => ElMessage.success(t('pat.msg.copied')))
+      .then(done)
       .catch(() => {
-        if (fallback()) ElMessage.success(t('pat.msg.copied'))
-        else ElMessage.error(t('pat.msg.copyFailed'))
+        if (fallback()) done()
+        else fail()
       })
   } else if (fallback()) {
-    ElMessage.success(t('pat.msg.copied'))
+    done()
   } else {
-    ElMessage.error(t('pat.msg.copyFailed'))
+    fail()
   }
+}
+
+function copyToken(): void {
+  copyText(plainToken.value)
 }
 
 function finishReveal(): void {
   revealVisible.value = false
   plainToken.value = ''
+  plainAccessKey.value = ''
+  plainSecretKey.value = ''
 }
 
 function handleRevoke(row: SysPat): void {
@@ -274,6 +320,41 @@ function handleRevoke(row: SysPat): void {
     .then(() => revokeMyToken(row.patId))
     .then(() => {
       ElMessage.success(t('pat.msg.revoked'))
+      getList()
+    })
+    .catch(() => {})
+}
+
+// ==================== 开放 API AK/SK ====================
+
+/** 轮换 SK：二次确认后调用，新 AK/SK 明文弹窗展示（仅此一次） */
+function handleRotateAk(row: SysPat): void {
+  ElMessageBox.confirm(t('pat.akSk.rotateConfirm', { name: row.name }), t('common.warning'), {
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
+    type: 'warning'
+  })
+    .then(() => rotateAk(row.patId))
+    .then((res: AjaxResult<RotateAkResult>) => {
+      plainToken.value = ''
+      plainAccessKey.value = res.data?.accessKey || ''
+      plainSecretKey.value = res.data?.secretKey || ''
+      revealVisible.value = true
+      getList()
+    })
+    .catch(() => {})
+}
+
+/** 吊销 AK：二次确认（后端幂等，重复吊销安全） */
+function handleRevokeAk(row: SysPat): void {
+  ElMessageBox.confirm(t('pat.akSk.revokeConfirm', { name: row.name }), t('common.warning'), {
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
+    type: 'warning'
+  })
+    .then(() => revokeAk(row.patId))
+    .then(() => {
+      ElMessage.success(t('pat.akSk.revoked'))
       getList()
     })
     .catch(() => {})
@@ -308,5 +389,19 @@ onMounted(getList)
   font-family: var(--el-font-family-mono, monospace);
   font-size: 13px;
   word-break: break-all;
+}
+/* SCSS 豁免：AK/SK 明文行的标签宽度对齐，限定本组件作用域 */
+.ak-label {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.form-tip-block {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary);
 }
 </style>

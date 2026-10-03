@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('job.search.jobGroup')" prop="jobGroup">
           <el-select
+            :aria-label="t('job.search.jobGroup')"
             v-model="queryParams.jobGroup"
             :placeholder="t('job.search.phJobGroup')"
             clearable
@@ -22,7 +23,7 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('job.search.status')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('job.search.phStatus')" clearable class="w-[200px]">
+          <el-select :aria-label="t('job.search.status')" v-model="queryParams.status" :placeholder="t('job.search.phStatus')" clearable class="w-[200px]">
             <el-option v-for="dict in sys_job_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -180,7 +181,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('job.form.jobGroup')" prop="jobGroup">
-              <el-select v-model="form.jobGroup" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('job.form.jobGroup')" v-model="form.jobGroup" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="dict in sys_job_group"
                   :key="dict.value"

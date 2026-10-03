@@ -7,6 +7,8 @@ export default {
     ssrfTag: '服务端转发 · SSRF 防护',
     urlPlaceholder: '请输入目标 URL（http/https），如 https://httpbin.org/get',
     send: '发送请求',
+    method: '请求方法',
+    timeout: '超时时间',
     headers: '请求头',
     key: '请求头名称',
     value: '请求头值',
@@ -148,6 +150,14 @@ export default {
       year: '年'
     },
     multiSelectPlaceholder: '可多选',
+    aria: {
+      cycleStart: '{field}周期起始值',
+      cycleEnd: '{field}周期结束值',
+      averageStep: '{field}步长值',
+      nthWeekday: '第几周的星期值',
+      lastWeekday: '本月最后一个星期值',
+      specifyValues: '{field}指定值'
+    },
     radio: {
       wildcardSecond: '秒，允许的通配符[, - * /]',
       wildcardMin: '分钟，允许的通配符[, - * /]',
@@ -582,6 +592,7 @@ export default {
         fileName: '文件字段名',
         fileType: '文件类型',
         fileSize: '文件大小',
+        sizeUnit: '文件大小单位',
         action: '上传地址',
         listType: '列表类型',
         buttonText: '按钮文字',
@@ -749,6 +760,7 @@ export default {
       title: '添加选项',
       label: '选项名',
       value: '选项值',
+      valueType: '选项值类型',
       phOptionName: '请输入选项名',
       phOptionValue: '请输入选项值',
       validate: {

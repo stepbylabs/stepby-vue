@@ -6,7 +6,7 @@
     <el-form-item :label="t('profile.label.phone')" prop="phonenumber">
       <el-input v-model.trim="form.phonenumber" maxlength="20" class="w-[70%]">
         <template #prepend>
-          <el-select v-model="form.countryCode" placeholder="区号" class="w-[120px]">
+          <el-select :aria-label="t('profile.label.country')" v-model="form.countryCode" placeholder="区号" class="w-[120px]">
             <el-option v-for="opt in regionOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </template>

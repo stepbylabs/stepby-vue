@@ -22,7 +22,7 @@
           />
         </el-form-item>
         <el-form-item :label="t('post.search.status')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('post.search.status')" clearable class="w-[200px]">
+          <el-select :aria-label="t('post.search.status')" v-model="queryParams.status" :placeholder="t('post.search.status')" clearable class="w-[200px]">
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>

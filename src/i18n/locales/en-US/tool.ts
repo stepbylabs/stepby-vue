@@ -7,6 +7,8 @@ export default {
     ssrfTag: 'Server-side proxy · SSRF protected',
     urlPlaceholder: 'Enter target URL (http/https), e.g. https://httpbin.org/get',
     send: 'Send',
+    method: 'HTTP Method',
+    timeout: 'Timeout',
     headers: 'Request Headers',
     key: 'Header Name',
     value: 'Header Value',
@@ -147,6 +149,14 @@ export default {
       year: 'Year'
     },
     multiSelectPlaceholder: 'Multiple select',
+    aria: {
+      cycleStart: '{field} cycle start value',
+      cycleEnd: '{field} cycle end value',
+      averageStep: '{field} interval step value',
+      nthWeekday: 'Weekday of the nth week',
+      lastWeekday: 'Weekday of the last week of month',
+      specifyValues: 'Specified {field} values'
+    },
     radio: {
       wildcardSecond: 'Second, allowed wildcards [, - * /]',
       wildcardMin: 'Minute, allowed wildcards [, - * /]',
@@ -583,6 +593,7 @@ export default {
         fileName: 'File Field Name',
         fileType: 'File Type',
         fileSize: 'File Size',
+        sizeUnit: 'File Size Unit',
         action: 'Upload URL',
         listType: 'List Type',
         buttonText: 'Button Text',
@@ -750,6 +761,7 @@ export default {
       title: 'Add Option',
       label: 'Option Name',
       value: 'Option Value',
+      valueType: 'Value Type',
       phOptionName: 'Enter option name',
       phOptionValue: 'Enter option value',
       validate: {

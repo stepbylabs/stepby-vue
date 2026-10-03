@@ -3,7 +3,7 @@
     <el-form :model="form" label-width="140px" label-position="right">
       <el-divider content-position="left">{{ t('userPrefs.listDisplay') }}</el-divider>
       <el-form-item :label="t('userPrefs.defaultPageSize')">
-        <el-select v-model="form.defaultPageSize" class="w-[160px]">
+        <el-select :aria-label="t('userPrefs.defaultPageSize')" v-model="form.defaultPageSize" class="w-[160px]">
           <el-option :value="10" :label="`10 ${t('userPrefs.pageSizeUnit')}`" />
           <el-option :value="20" :label="`20 ${t('userPrefs.pageSizeUnit')}`" />
           <el-option :value="50" :label="`50 ${t('userPrefs.pageSizeUnit')}`" />
@@ -50,7 +50,7 @@
 
       <el-divider content-position="left">{{ t('userPrefs.timezoneSection') }}</el-divider>
       <el-form-item :label="t('userPrefs.timezone')">
-        <el-select v-model="form.timezone" filterable class="w-[240px]">
+        <el-select :aria-label="t('userPrefs.timezone')" v-model="form.timezone" filterable class="w-[240px]">
           <el-option v-for="tz in timezoneOptions" :key="tz.value" :value="tz.value" :label="tz.label" />
         </el-select>
       </el-form-item>

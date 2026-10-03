@@ -51,6 +51,7 @@
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
         <el-form-item :label="t('frontendError.search.level')" prop="level">
           <el-select
+            :aria-label="t('frontendError.search.level')"
             v-model="queryParams.level"
             :placeholder="t('frontendError.search.phLevel')"
             clearable
@@ -61,6 +62,7 @@
         </el-form-item>
         <el-form-item :label="t('frontendError.search.source')" prop="source">
           <el-select
+            :aria-label="t('frontendError.search.source')"
             v-model="queryParams.source"
             :placeholder="t('frontendError.search.phSource')"
             clearable
@@ -81,6 +83,7 @@
         </el-form-item>
         <el-form-item :label="t('frontendError.search.deviceType')" prop="deviceType">
           <el-select
+            :aria-label="t('frontendError.search.deviceType')"
             v-model="queryParams.deviceType"
             :placeholder="t('frontendError.search.phDeviceType')"
             clearable

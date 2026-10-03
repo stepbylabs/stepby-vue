@@ -4,6 +4,7 @@
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
         <el-form-item :label="t('backup.search.type')" prop="backupType">
           <el-select
+            :aria-label="t('backup.search.type')"
             v-model="queryParams.backupType"
             :placeholder="t('backup.search.phType')"
             clearable
@@ -16,6 +17,7 @@
         </el-form-item>
         <el-form-item :label="t('backup.search.status')" prop="status">
           <el-select
+            :aria-label="t('backup.search.status')"
             v-model="queryParams.status"
             :placeholder="t('backup.search.phStatus')"
             clearable

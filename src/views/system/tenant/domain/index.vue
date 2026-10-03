@@ -11,6 +11,7 @@
       <el-form v-if="isPlatform" inline class="mb-2" @submit.prevent>
         <el-form-item :label="t('tenantDomain.targetTenant')">
           <el-select
+            :aria-label="t('tenantDomain.targetTenant')"
             v-model="selectedTenantId"
             filterable
             :placeholder="t('tenantDomain.targetTenantPlaceholder')"

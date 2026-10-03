@@ -45,6 +45,7 @@
         </el-form-item>
         <el-form-item :label="t('file.search.type')" prop="ext">
           <el-select
+            :aria-label="t('file.search.type')"
             v-model="queryParams.ext"
             :placeholder="t('file.search.phType')"
             clearable

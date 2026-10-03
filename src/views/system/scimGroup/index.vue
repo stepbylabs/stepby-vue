@@ -14,6 +14,7 @@
           </el-form-item>
           <el-form-item :label="t('scimGroup.mappingType')">
             <el-select
+              :aria-label="t('scimGroup.mappingType')"
               v-model="queryForm.mappingType"
               :placeholder="t('common.all')"
               clearable
@@ -136,7 +137,7 @@
           </div>
         </el-form-item>
         <el-form-item v-if="editForm.mappingType === 'role'" :label="t('scimGroup.bindRoles')">
-          <el-select v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
+          <el-select :aria-label="t('scimGroup.bindRoles')" v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
             <el-option
               v-for="r in roleOptions"
               :key="r.roleId"
@@ -147,7 +148,7 @@
           <div class="el-form-item__tip">{{ t('scimGroup.bindRoleTip') }}</div>
         </el-form-item>
         <el-form-item v-else :label="t('scimGroup.bindDept')">
-          <el-select v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
+          <el-select :aria-label="t('scimGroup.bindDept')" v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
             <el-option
               v-for="d in deptOptions"
               :key="d.deptId"

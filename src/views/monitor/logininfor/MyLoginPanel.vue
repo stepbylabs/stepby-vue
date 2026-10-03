@@ -96,7 +96,7 @@
         class="query-form px-4 pt-4 rounded mb-3"
       >
         <el-form-item :label="t('myLogin.searchStatus')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('myLogin.allStatus')" clearable class="w-[160px]">
+          <el-select :aria-label="t('myLogin.searchStatus')" v-model="queryParams.status" :placeholder="t('myLogin.allStatus')" clearable class="w-[160px]">
             <el-option v-for="dict in sys_common_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>

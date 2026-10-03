@@ -3,7 +3,7 @@
     <Transition name="expand-fade">
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
         <el-form-item :label="t('dict.search.dictName')" prop="dictType">
-          <el-select v-model="queryParams.dictType" class="w-[200px]">
+          <el-select :aria-label="t('dict.search.dictName')" v-model="queryParams.dictType" class="w-[200px]">
             <el-option v-for="item in typeOptions" :key="item.dictId" :label="item.dictName" :value="item.dictType" />
           </el-select>
         </el-form-item>
@@ -17,7 +17,7 @@
           />
         </el-form-item>
         <el-form-item :label="t('dict.search.status')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('dict.search.phStatus')" clearable class="w-[200px]">
+          <el-select :aria-label="t('dict.search.status')" v-model="queryParams.status" :placeholder="t('dict.search.phStatus')" clearable class="w-[200px]">
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -175,7 +175,7 @@
           <el-input-number v-model="form.dictSort" controls-position="right" :min="0" />
         </el-form-item>
         <el-form-item :label="t('dict.data.listClass')" prop="listClass">
-          <el-select v-model="form.listClass">
+          <el-select :aria-label="t('dict.data.listClass')" v-model="form.listClass">
             <el-option
               v-for="item in listClassOptions"
               :key="item.value"

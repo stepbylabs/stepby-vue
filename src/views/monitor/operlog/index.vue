@@ -34,6 +34,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.type')" prop="businessType">
           <el-select
+            :aria-label="t('common.column.type')"
             v-model="queryParams.businessType"
             :placeholder="t('operlog.search.phBusinessType')"
             clearable
@@ -44,6 +45,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
+            :aria-label="t('common.column.status')"
             v-model="queryParams.status"
             :placeholder="t('operlog.search.phStatus')"
             clearable
@@ -113,6 +115,18 @@
           v-hasPermi="['monitor:operlog:export']"
         >
           PDF
+        </el-button>
+      </el-col>
+      <el-col :span="1.5">
+        <el-button
+          type="success"
+          plain
+          icon="Lock"
+          :loading="verifyLoading"
+          @click="handleVerifyChain"
+          v-hasPermi="['monitor:operlog:query']"
+        >
+          {{ t('operlog.btn.verifyChain') }}
         </el-button>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
@@ -227,6 +241,38 @@
       :title="t('operlog.btn.exportFieldSelect')"
       @export="handleExportWithFields"
     />
+
+    <!-- 链完整性校验结果对话框 -->
+    <el-dialog
+      :title="t('operlog.verify.title')"
+      v-model="verifyVisible"
+      width="min(90%, 480px)"
+      append-to-body
+      destroy-on-close
+    >
+      <el-result v-if="verifyResult?.valid" icon="success" :title="t('operlog.verify.validTitle')">
+        <template #sub-title>
+          <span>{{ t('operlog.verify.checkedCount', { count: verifyResult.checked }) }}</span>
+        </template>
+      </el-result>
+      <el-result v-else-if="verifyResult" icon="error" :title="t('operlog.verify.brokenTitle')">
+        <template #sub-title>
+          <div class="flex flex-col items-center gap-2">
+            <span>{{ t('operlog.verify.checkedCount', { count: verifyResult.checked }) }}</span>
+            <el-alert
+              v-if="verifyResult.brokenAtOperId != null"
+              :title="t('operlog.verify.brokenAt', { operId: verifyResult.brokenAtOperId })"
+              type="error"
+              :closable="false"
+              show-icon
+            />
+          </div>
+        </template>
+      </el-result>
+      <template #footer>
+        <el-button type="primary" @click="verifyVisible = false">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -237,7 +283,7 @@ import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
-import { list, delOperlog, cleanOperlog } from '@/api/monitor/operlog'
+import { list, delOperlog, cleanOperlog, verifyChain, type ChainVerifyResult } from '@/api/monitor/operlog'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
@@ -419,6 +465,25 @@ async function handlePrintPdf() {
   } finally {
     printLoading.value = false
   }
+}
+
+// ----- 链完整性校验（GET /monitor/operlog/verify-chain） -----
+const verifyLoading = ref(false)
+const verifyVisible = ref(false)
+const verifyResult = ref<ChainVerifyResult | null>(null)
+
+/** 校验操作日志防篡改 HMAC 链完整性，弹窗展示结果 */
+function handleVerifyChain() {
+  verifyLoading.value = true
+  verifyChain()
+    .then((res) => {
+      verifyResult.value = res.data ?? null
+      verifyVisible.value = true
+    })
+    .catch(() => {})
+    .finally(() => {
+      verifyLoading.value = false
+    })
 }
 
 getList()

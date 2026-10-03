@@ -4,4 +4,12 @@ import type { PatVo } from "./SysPat";
 /**
  * 新建令牌结果：明文 `token` 仅此一次返回
  */
-export type CreatePatResult = { token: string, pat: PatVo, };
+export type CreatePatResult = { token: string, pat: PatVo, 
+/**
+ * 开放 API access_key（"ak" + 24 位 hex；开通 AK 时返回）
+ */
+accessKey?: string, 
+/**
+ * 开放 API secret_key 明文（仅创建/轮换响应返回一次，绝不落库）
+ */
+secretKey?: string, };

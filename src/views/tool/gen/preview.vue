@@ -13,6 +13,7 @@
         <div class="flex items-center justify-between gap-3 mb-3">
           <div class="flex items-center gap-3 flex-1 min-w-0">
             <el-select
+              :aria-label="t('gen.preview.file')"
               v-model="activeFile"
               :placeholder="t('gen.preview.file')"
               clearable

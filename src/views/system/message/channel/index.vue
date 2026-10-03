@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
+            :aria-label="t('common.column.status')"
             v-model="queryParams.status"
             :placeholder="t('msg.channel.search.phStatus')"
             clearable
@@ -155,6 +156,7 @@
         </el-form-item>
         <el-form-item :label="t('msg.channel.form.channelType')" prop="channelType">
           <el-select
+            :aria-label="t('msg.channel.form.channelType')"
             v-model="form.channelType"
             :placeholder="t('common.form.selectPlaceholder')"
             @change="onChannelTypeChange"

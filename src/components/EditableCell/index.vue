@@ -34,6 +34,7 @@
           size="small"
           ref="inputRef"
           :filterable="filterable"
+          :aria-label="cellAriaLabel"
           @blur="commit"
           @change="commit"
         >
@@ -100,6 +101,8 @@ const props = withDefaults(
     inactiveValue?: TValue
     /** 显示值格式化函数 */
     formatter?: (val: TValue) => string
+    /** 无障碍标签：select 类型编辑时的 aria-label（建议调用方传入列头语义） */
+    ariaLabel?: string
     /** 提交前校验函数，返回 string(错误信息) 或 true(通过) */
     validate?: (val: TValue) => string | true
   }>(),
@@ -133,6 +136,9 @@ watch(
 const isEmpty = computed(() => {
   return localValue.value === null || localValue.value === undefined || localValue.value === ''
 })
+
+// select 类型编辑框的无障碍标签：优先用调用方传入的列语义，兜底用通用文案
+const cellAriaLabel = computed(() => props.ariaLabel ?? t('common.form.selectPlaceholder'))
 
 const displayText = computed(() => {
   const val = props.modelValue

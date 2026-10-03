@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('menuModule.search.status')" prop="status">
           <el-select
+            :aria-label="t('menuModule.search.status')"
             v-model="queryParams.status"
             :placeholder="t('menuModule.search.phStatus')"
             clearable

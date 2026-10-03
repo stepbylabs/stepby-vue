@@ -42,3 +42,21 @@ export function getAlarmStatus(params?: Record<string, unknown>): Promise<AjaxRe
     params
   })
 }
+
+// 操作日志链完整性校验结果（GET /monitor/operlog/verify-chain）
+export interface ChainVerifyResult {
+  /** 参与校验的链节点数 */
+  checked: number
+  /** 首个校验失败节点的 oper_id（valid=true 时为 null） */
+  brokenAtOperId: number | null
+  /** 链是否完整 */
+  valid: boolean
+}
+
+// 校验操作日志防篡改 HMAC 链完整性（全量，跨租户）
+export function verifyChain(): Promise<AjaxResult<ChainVerifyResult>> {
+  return request({
+    url: '/monitor/operlog/verify-chain',
+    method: 'get'
+  })
+}

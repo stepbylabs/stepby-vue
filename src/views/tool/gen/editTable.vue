@@ -36,7 +36,7 @@
                   <!-- 值必须是**后端 `column_type_to_rust_type` 实际产出的 Rust 类型**：
                        模板会把该值原样写进实体/DTO 字段声明，填 Java 类型（Long/BigDecimal/Date）
                        会生成无法编译的 Rust。下拉项与 gen_table_service.rs 的映射逐一对应。 -->
-                  <el-select v-model="scope.row.rustType">
+                  <el-select :aria-label="t('gen.editTable.column.rustType')" v-model="scope.row.rustType">
                     <el-option label="i64" value="i64" />
                     <el-option label="i8" value="i8" />
                     <el-option label="i16" value="i16" />
@@ -76,7 +76,7 @@
               </el-table-column>
               <el-table-column :label="t('gen.editTable.column.queryType')" min-width="10%">
                 <template #default="scope">
-                  <el-select v-model="scope.row.queryType">
+                  <el-select :aria-label="t('gen.editTable.column.queryType')" v-model="scope.row.queryType">
                     <el-option label="=" value="EQ" />
                     <el-option label="!=" value="NE" />
                     <el-option label=">" value="GT" />
@@ -95,7 +95,7 @@
               </el-table-column>
               <el-table-column :label="t('gen.editTable.column.htmlType')" min-width="12%">
                 <template #default="scope">
-                  <el-select v-model="scope.row.htmlType">
+                  <el-select :aria-label="t('gen.editTable.column.htmlType')" v-model="scope.row.htmlType">
                     <el-option :label="t('gen.editTable.htmlType.input')" value="input" />
                     <el-option :label="t('gen.editTable.htmlType.textarea')" value="textarea" />
                     <el-option :label="t('gen.editTable.htmlType.select')" value="select" />
@@ -111,6 +111,7 @@
               <el-table-column :label="t('gen.editTable.column.dictType')" min-width="12%">
                 <template #default="scope">
                   <el-select
+                    :aria-label="t('gen.editTable.column.dictType')"
                     v-model="scope.row.dictType"
                     clearable
                     filterable

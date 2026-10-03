@@ -249,6 +249,56 @@
       </el-col>
     </el-row>
 
+    <!-- 数据库连接池监控卡片（GET /monitor/db-pool：忙/闲占比展示） -->
+    <el-row :gutter="20" class="mb-5">
+      <el-col v-motion="fadeInUp" :span="24">
+        <el-card shadow="hover">
+          <template #header>
+            <span>
+              <el-icon><Coin /></el-icon>
+              {{ t('health.dbPool.title') }}
+            </span>
+          </template>
+          <template v-if="dbPool">
+            <el-descriptions :column="2" border class="mb-4">
+              <el-descriptions-item :label="t('health.dbPool.dbKind')">
+                <el-tag size="small">{{ dbPool.dbKind || '-' }}</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('health.dbPool.poolSize')">
+                {{ dbPool.poolSize ?? '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('health.dbPool.maxConn')">
+                {{ dbPool.maxConn ?? '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('health.dbPool.connections')">
+                {{ t('health.dbPool.busyIdle', { busy: dbPool.busy ?? 0, idle: dbPool.numIdle ?? 0 }) }}
+              </el-descriptions-item>
+            </el-descriptions>
+            <!-- 忙/闲占比：以连接池总大小为分母 -->
+            <div class="pool-bar-row">
+              <span class="pool-bar-label">{{ t('health.dbPool.busy') }}</span>
+              <el-progress
+                :percentage="busyPercent"
+                :stroke-width="14"
+                :color="poolProgressColor"
+                class="flex-1"
+              />
+            </div>
+            <div class="pool-bar-row">
+              <span class="pool-bar-label">{{ t('health.dbPool.idle') }}</span>
+              <el-progress
+                :percentage="idlePercent"
+                :stroke-width="14"
+                color="var(--el-color-success)"
+                class="flex-1"
+              />
+            </div>
+          </template>
+          <el-empty v-else :description="t('health.dbPool.unavailable')" :image-size="72" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 自动刷新 -->
     <div class="auto-refresh mt-5 flex items-center gap-5 justify-end">
       <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" @change="toggleAutoRefresh" />
@@ -271,6 +321,7 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+import { getDbPool, type DbPoolInfo } from '@/api/monitor/server'
 import { useMotionPresets } from '@/composables/useMotion'
 import type { AjaxResult } from '@/types/api/common'
 
@@ -353,6 +404,26 @@ const metricsData = ref<MetricsSnapshot>({
 const autoRefresh = ref(false)
 const lastUpdate = ref('')
 const uptimeSeconds = ref(0)
+// 数据库连接池状态（GET /monitor/db-pool；拉取失败置 null 展示空态）
+const dbPool = ref<DbPoolInfo | null>(null)
+const busyPercent = computed(() => {
+  const size = dbPool.value?.poolSize
+  const busy = dbPool.value?.busy ?? 0
+  if (!size || size <= 0) return 0
+  return Math.min(100, Math.round((busy / size) * 100))
+})
+const idlePercent = computed(() => {
+  const size = dbPool.value?.poolSize
+  const idle = dbPool.value?.numIdle ?? 0
+  if (!size || size <= 0) return 0
+  return Math.min(100, Math.round((idle / size) * 100))
+})
+// 忙碌占比进度条颜色（与内存/磁盘占用一致的阈值梯度）
+const poolProgressColor = computed(() => {
+  if (busyPercent.value > 80) return 'var(--el-color-danger)'
+  if (busyPercent.value > 60) return 'var(--el-color-warning)'
+  return 'var(--el-color-primary)'
+})
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 let uptimeTimer: ReturnType<typeof setInterval> | null = null
 
@@ -465,10 +536,21 @@ function formatBytes(bytes: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
 }
 
+/** 拉取数据库连接池状态（best-effort：失败置 null 展示空态，不打断主流程） */
+async function loadDbPool(): Promise<void> {
+  try {
+    const res = await getDbPool()
+    dbPool.value = res.data ?? null
+  } catch {
+    dbPool.value = null
+  }
+}
+
 async function loadHealth(): Promise<void> {
   loading.value = true
-  // /metrics 与主请求并发拉取（best-effort，内部自行吞错）
+  // /metrics 与连接池状态并发拉取（best-effort，内部自行吞错）
   const metricsPromise = loadMetrics()
+  const dbPoolPromise = loadDbPool()
   try {
     const [healthRes, serverRes] = (await Promise.all([
       request({ url: '/health', method: 'get' }),
@@ -515,8 +597,8 @@ async function loadHealth(): Promise<void> {
       }))
     }
     lastUpdate.value = new Date().toLocaleTimeString()
-    // 等待 /metrics 解析完成后再校准运行时长（loadMetrics 内部自行吞错，不会抛出）
-    await metricsPromise
+    // 等待 /metrics 与连接池解析完成（两者内部自行吞错，不会抛出）
+    await Promise.all([metricsPromise, dbPoolPromise])
     // 用 /metrics 的 stepby_uptime_seconds 校准运行时长（页面本地自增仅作刷新间隔内的近似值）
     if (metricsData.value.uptimeSeconds != null) {
       uptimeSeconds.value = Math.max(0, Math.round(metricsData.value.uptimeSeconds))
@@ -622,6 +704,21 @@ onBeforeUnmount(() => {
 /* 进度条填充动画 */
 :deep(.el-progress-bar__outer) {
   transition: width 0.6s ease;
+}
+
+/* 连接池忙/闲占比行：标签定宽 + 进度条弹性填充 */
+.pool-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  .pool-bar-label {
+    width: 64px;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
 }
 
 /* 状态标签过渡 */

@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('webHook.search.eventTypes')" prop="eventTypes">
           <el-select
+            :aria-label="t('webHook.search.eventTypes')"
             v-model="searchEventTypes"
             :placeholder="t('webHook.search.phEventTypes')"
             multiple
@@ -27,6 +28,7 @@
         </el-form-item>
         <el-form-item :label="t('webHook.search.status')" prop="status">
           <el-select
+            :aria-label="t('webHook.search.status')"
             v-model="queryParams.status"
             :placeholder="t('webHook.search.phStatus')"
             clearable
@@ -101,6 +103,11 @@
           {{ t('webHook.btn.log') }}
         </el-button>
       </el-col>
+      <el-col :span="1.5">
+        <el-button type="info" plain icon="Files" @click="openEventCatalog" v-hasPermi="['system:webhook:event:list']">
+          {{ t('webHook.btn.eventCatalog') }}
+        </el-button>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -154,7 +161,7 @@
       <el-table-column
         :label="t('common.column.operation')"
         align="center"
-        width="220"
+        width="280"
         class-name="small-padding fixed-width"
       >
         <template #default="scope">
@@ -167,6 +174,31 @@
           >
             {{ t('webHook.btn.test') }}
           </el-button>
+          <!-- 按事件目录测试发送：下拉选事件，点击即以该事件样例投递 -->
+          <el-dropdown
+            v-hasPermi="['system:webhook:test-send']"
+            class="mr5"
+            @command="(eventKey: string) => handleTestSendByEvent(scope.row, eventKey)"
+          >
+            <el-button link type="primary" icon="Position" :loading="testSendLoadingId === scope.row.id">
+              {{ t('webHook.btn.testSend') }}
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="opt in eventCatalogOptions"
+                  :key="opt.value"
+                  :command="opt.value"
+                  :disabled="opt.disabled"
+                >
+                  {{ opt.label }}
+                </el-dropdown-item>
+                <el-dropdown-item v-if="eventCatalogOptions.length === 0" disabled>
+                  {{ t('webHook.eventCatalog.empty') }}
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button
             link
             type="primary"
@@ -216,6 +248,7 @@
         <el-form-item :label="t('webHook.form.eventTypes')" prop="eventTypes">
           <div class="w-full">
             <el-select
+              :aria-label="t('webHook.form.eventTypes')"
               v-model="formEventTypes"
               multiple
               filterable
@@ -227,6 +260,22 @@
               <el-option v-for="opt in eventTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
             <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.eventTypesTip') }}</div>
+          </div>
+        </el-form-item>
+        <el-form-item :label="t('webHook.form.subscribedEvents')" prop="subscribedEvents">
+          <div class="w-full">
+            <el-select
+              :aria-label="t('webHook.form.subscribedEvents')"
+              v-model="formSubscribedEvents"
+              multiple
+              filterable
+              :loading="eventCatalogLoading"
+              :placeholder="t('webHook.form.phSubscribedEvents')"
+              class="w-full"
+            >
+              <el-option v-for="opt in eventCatalogOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+            <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.subscribedEventsTip') }}</div>
           </div>
         </el-form-item>
         <el-form-item :label="t('webHook.form.targetUrl')" prop="targetUrl">
@@ -295,6 +344,7 @@
         </el-form-item>
         <el-form-item :label="t('webHook.test.eventType')">
           <el-select
+            :aria-label="t('webHook.test.eventType')"
             v-model="testForm.eventType"
             :placeholder="t('webHook.test.phEventType')"
             clearable
@@ -302,7 +352,8 @@
             allow-create
             class="w-full"
           >
-            <el-option v-for="opt in eventTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            <el-option v-for="opt in eventCatalogOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            <el-option v-for="opt in eventTypeOptions" :key="'legacy-' + opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('webHook.test.payload')">
@@ -336,6 +387,51 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 事件目录对话框：展示可订阅事件清单（event_key/名称/说明/负载样例/状态） -->
+    <el-dialog
+      :title="t('webHook.eventCatalog.title')"
+      v-model="eventCatalogOpen"
+      width="min(92%, 860px)"
+      append-to-body
+      destroy-on-close
+      @open="loadEventCatalog(true)"
+    >
+      <el-table v-loading="eventCatalogLoading" :data="eventCatalog" :row-key="(row: WebhookEventVo) => row.id">
+        <el-table-column :label="t('webHook.eventCatalog.eventKey')" prop="eventKey" min-width="160" show-overflow-tooltip />
+        <el-table-column :label="t('webHook.eventCatalog.name')" prop="name" min-width="140" show-overflow-tooltip />
+        <el-table-column :label="t('webHook.eventCatalog.description')" min-width="200" show-overflow-tooltip>
+          <template #default="scope">
+            <span>{{ scope.row.description || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('webHook.eventCatalog.payloadExample')" min-width="220">
+          <template #default="scope">
+            <pre class="result-pre">{{ scope.row.payloadExample || '-' }}</pre>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('webHook.column.status')" align="center" width="90">
+          <template #default="scope">
+            <el-tag :type="scope.row.enabled === '1' ? 'success' : 'info'" size="small">
+              {{ scope.row.enabled === '1' ? t('common.enabled') : t('common.disabled') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty :description="t('common.empty')" />
+        </template>
+      </el-table>
+      <pagination
+        v-show="eventCatalogTotal > 0"
+        :total="eventCatalogTotal"
+        v-model:page="eventCatalogQuery.pageNum"
+        v-model:limit="eventCatalogQuery.pageSize"
+        @pagination="loadEventCatalog()"
+      />
+      <template #footer>
+        <el-button @click="eventCatalogOpen = false">{{ t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -347,9 +443,11 @@ import {
   addWebHook,
   updateWebHook,
   changeWebHookStatus,
-  testWebHook
+  testWebHook,
+  listWebhookEvents,
+  testSendByEvent
 } from '@/api/system/webHook'
-import type { SysWebHook, DeliveryResult } from '@/types/api/system/webHook'
+import type { SysWebHook, DeliveryResult, WebhookEventVo } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 import { useRouter } from 'vue-router'
@@ -370,6 +468,46 @@ const eventTypeOptions = computed(() => [
 
 // 请求体格式
 const contentTypeOptions = ['json', 'form-urlencoded']
+
+// ==================== 事件目录（GET /system/webhook/event/list） ====================
+const eventCatalogOpen = ref(false)
+const eventCatalogLoading = ref(false)
+const eventCatalog = ref<WebhookEventVo[]>([])
+const eventCatalogTotal = ref(0)
+// 目录是否已加载过（多选下拉/测试发送复用，避免重复请求）
+const eventCatalogLoaded = ref(false)
+const eventCatalogQuery = reactive({ pageNum: 1, pageSize: 10 })
+
+/** 加载事件目录（force=true 时重新拉取，如目录对话框分页） */
+function loadEventCatalog(force = false): void {
+  if (eventCatalogLoading.value) return
+  if (eventCatalogLoaded.value && !force) return
+  eventCatalogLoading.value = true
+  listWebhookEvents({ ...eventCatalogQuery })
+    .then((res) => {
+      eventCatalog.value = res.rows || []
+      eventCatalogTotal.value = res.total || 0
+      eventCatalogLoaded.value = true
+    })
+    .catch(() => {})
+    .finally(() => {
+      eventCatalogLoading.value = false
+    })
+}
+
+/** 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示） */
+const eventCatalogOptions = computed(() =>
+  eventCatalog.value.map((e: WebhookEventVo) => ({
+    value: e.eventKey,
+    label: e.name ? `${e.name} (${e.eventKey})` : e.eventKey,
+    disabled: e.enabled !== '1'
+  }))
+)
+
+/** 打开事件目录对话框 */
+function openEventCatalog(): void {
+  eventCatalogOpen.value = true
+}
 
 // 搜索区：事件类型多选（UI 用数组，请求时 join 为逗号串）
 const searchEventTypes = ref<string[]>([])
@@ -442,6 +580,7 @@ const {
       id: undefined,
       hookName: undefined,
       eventTypes: undefined,
+      subscribedEvents: undefined,
       targetUrl: undefined,
       secret: undefined,
       contentType: 'json',
@@ -459,15 +598,34 @@ const {
 
 // 表单内事件类型（数组）
 const formEventTypes = ref<string[]>([])
+// 表单内订阅事件目录键（数组；空 = 订阅全部）
+const formSubscribedEvents = ref<string[]>([])
 
-// 打开对话框时同步事件类型数组
+// 打开对话框时同步事件类型与订阅事件数组，并确保目录下拉可用
 function onFormDialogOpen() {
   formEventTypes.value = splitEventTypes(form.value.eventTypes || '')
+  formSubscribedEvents.value = parseSubscribedEvents(form.value.subscribedEvents)
+  loadEventCatalog()
 }
 
-// 提交前处理：事件类型逗号串；编辑时 secret 留空表示不改变
+/** 解析后端 subscribed_events JSON 数组字符串；失败/为空回退为空数组（= 订阅全部） */
+function parseSubscribedEvents(json: string | null | undefined): string[] {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+// 提交前处理：事件类型逗号串；订阅事件键 JSON 数组串；编辑时 secret 留空表示不改变
 function submitForm() {
   form.value.eventTypes = formEventTypes.value.join(',') || ''
+  // 空数组 = 订阅全部，存空串以显式覆盖（避免残留旧值）
+  form.value.subscribedEvents = formSubscribedEvents.value.length
+    ? JSON.stringify(formSubscribedEvents.value)
+    : ''
   const f = form.value as { secret?: string | null }
   if (form.value.id != null && !f.secret) {
     f.secret = undefined
@@ -512,6 +670,8 @@ function openTestDialog(row?: SysWebHook) {
   const target = row ?? dataList.value.find((r: SysWebHook) => r.id === ids.value[0]) ?? null
   if (!target) return
   currentHook.value = target
+  // 事件下拉优先展示事件目录，未加载时按需拉取
+  loadEventCatalog()
   testForm.eventType = target.eventTypes ? splitEventTypes(target.eventTypes)[0] : undefined
   testForm.payload = ''
   testResult.value = null
@@ -544,6 +704,27 @@ function doTest() {
     .catch(() => {})
     .finally(() => {
       testLoading.value = false
+    })
+}
+
+// ----- 按事件目录测试发送（POST /system/webhook/{id}/test-send） -----
+const testSendLoadingId = ref<number | string | null>(null)
+
+/** 行内"测试发送"下拉：选中事件后以该事件的 payload_example 真实投递 */
+function handleTestSendByEvent(row: SysWebHook, eventKey: string): void {
+  if (!eventKey) return
+  testSendLoadingId.value = row.id
+  testSendByEvent(row.id, eventKey)
+    .then((res) => {
+      if (res.data?.ok) {
+        modal.msgSuccess(t('webHook.tip.testSendSuccess', { event: eventKey }))
+      } else {
+        modal.msgError(t('webHook.tip.testSendFail', { event: eventKey }))
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      testSendLoadingId.value = null
     })
 }
 

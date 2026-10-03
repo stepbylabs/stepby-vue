@@ -67,7 +67,9 @@ export default {
       create: 'New Token',
       revoke: 'Revoke',
       copy: 'Copy',
-      done: 'I have saved it'
+      done: 'I have saved it',
+      rotateAk: 'Rotate SK',
+      revokeAk: 'Revoke AK'
     },
     column: {
       name: 'Name',
@@ -98,7 +100,9 @@ export default {
       scopes: 'Scopes',
       scopesPh: 'Select permissions to grant',
       expireDays: 'Validity',
-      expireDaysTip: 'Days; 0 means never expires'
+      expireDaysTip: 'Days; 0 means never expires',
+      withAk: 'Enable AK/SK',
+      withAkTip: 'Also issue open API access keys (AK/SK) for signed open API calls; the SK plaintext is shown only once'
     },
     rule: {
       nameRequired: 'Please enter a token name',
@@ -113,6 +117,14 @@ export default {
       copyFailed: 'Copy failed, please copy manually',
       revokeConfirm: 'Revoke token "{name}"? Requests using it will stop working immediately.',
       revoked: 'Token revoked'
+    },
+    akSk: {
+      accessKey: 'Access Key',
+      secretKey: 'Secret Key',
+      warning: 'Open API AK/SK generated. Copy and store them now; the SK plaintext is shown only once and cannot be viewed again after closing.',
+      rotateConfirm: 'Rotate the open API SK of token "{name}"? The old SK stops working immediately and all requests signed with it will be rejected.',
+      revokeConfirm: 'Revoke the open API AK/SK of token "{name}"? AK/SK signed requests will stop working immediately.',
+      revoked: 'AK/SK revoked'
     },
     admin: {
       tip: 'This page manages personal access tokens for all users. Admins may revoke any token, but a token itself cannot manage tokens (prevents self-escalation).',
@@ -1238,6 +1250,9 @@ export default {
       eventTypes: 'Event Types',
       phEventTypes: 'Select event types',
       eventTypesTip: 'Leave empty to subscribe to all events',
+      subscribedEvents: 'Subscribed Events',
+      phSubscribedEvents: 'Select events to subscribe',
+      subscribedEventsTip: 'Options come from the event catalog; leave empty to subscribe to all events',
       targetUrl: 'Target URL',
       phTargetUrl: 'Enter outbound target URL, e.g. https://example.com/hook',
       secret: 'Signing Secret',
@@ -1254,14 +1269,18 @@ export default {
     btn: {
       log: 'Logs',
       test: 'Test Push',
-      export: 'Export'
+      export: 'Export',
+      eventCatalog: 'Event Catalog',
+      testSend: 'Test Send'
     },
     tip: {
       confirmDelete: 'Are you sure to delete webhook #{ids}?',
       confirmChange: 'Are you sure to set webhook "{name}" {text}?',
       testTitle: 'Test Push',
       testSuccess: 'Push succeeded',
-      testFail: 'Push failed'
+      testFail: 'Push failed',
+      testSendSuccess: 'Test push sent for event "{event}"',
+      testSendFail: 'Test push failed for event "{event}"'
     },
     validate: {
       hookNameRequired: 'Hook name is required',
@@ -1337,6 +1356,43 @@ export default {
       },
       cleanSuccess: 'Push records cleaned',
       retrySuccess: 'Retry succeeded'
+    },
+    eventCatalog: {
+      title: 'Webhook Event Catalog',
+      eventKey: 'Event Key',
+      name: 'Event Name',
+      description: 'Description',
+      payloadExample: 'Payload Example',
+      empty: 'No events'
+    }
+  },
+  auditChange: {
+    title: 'Change Audit Trail',
+    search: {
+      tableName: 'Table Name',
+      phTableName: 'Enter the changed table name',
+      rowPk: 'Row PK',
+      phRowPk: 'Enter the row primary key',
+      action: 'Action',
+      phAction: 'Select change action',
+      operatorName: 'Operator',
+      phOperatorName: 'Enter operator name',
+      operatedAt: 'Operated At'
+    },
+    column: {
+      id: 'Record ID',
+      tableName: 'Table Name',
+      rowPk: 'Row PK',
+      action: 'Action',
+      changedFields: 'Changed Fields',
+      operatorName: 'Operator',
+      operatedAt: 'Operated At'
+    },
+    diff: {
+      before: 'Before',
+      after: 'After',
+      changedFields: 'Changed fields',
+      noChangedField: 'This record carries no field diff info'
     }
   },
   profile: {

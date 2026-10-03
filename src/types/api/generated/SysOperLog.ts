@@ -20,4 +20,12 @@ operBefore: string | null,
 /**
  * 字段级变更差异（JSON 数组 [{field,old,new}]，仅 PUT 成功记录）
  */
-operDiff: string | null, jsonResult: string | null, status: string | null, errorMsg: string | null, operTime: string | null, costTime: number | null, };
+operDiff: string | null, jsonResult: string | null, status: string | null, errorMsg: string | null, operTime: string | null, costTime: number | null, 
+/**
+ * 操作日志防篡改链哈希（HMAC-SHA256，hex 64 字符）。
+ *
+ * 迁移 m20261003_000001 新增列。写入时在分布式锁内基于上一条非 NULL
+ * chain_hash 计算链接哈希；锁竞争超限/共享态后端异常时降级为 NULL，
+ * 校验端对称跳过 NULL 行，保证链在非 NULL 子序列上连续可验证。
+ */
+chainHash: string | null, };

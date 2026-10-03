@@ -7,4 +7,9 @@ export type PatVo = { patId: string, userId: number,
 /**
  * 属主用户名（管理员列表展示；自助列表可空）
  */
-userName: string, name: string, tokenPrefix: string, scopes: Array<string>, status: string, expiresAt: string | null, lastUsedAt: string | null, createTime: string | null, };
+userName: string, name: string, tokenPrefix: string, scopes: Array<string>, status: string, expiresAt: string | null, lastUsedAt: string | null, createTime: string | null, 
+/**
+ * 是否已开通开放 API AK/SK 凭据（access_key 与 secret_key 均非空；
+ * 前端轮换/吊销按钮恒常显——后端操作幂等，本字段供后续优化展示态）
+ */
+hasAk: boolean, };

@@ -30,7 +30,7 @@
               clearable
             >
               <template #append>
-                <el-select v-model="dataType" :style="{ width: '100px' }">
+                <el-select :aria-label="t('build.treeNodeDialog.valueType')" v-model="dataType" :style="{ width: '100px' }">
                   <el-option
                     v-for="item in dataTypeOptions"
                     :key="item.value"

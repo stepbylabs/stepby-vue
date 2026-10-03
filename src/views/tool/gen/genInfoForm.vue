@@ -5,7 +5,7 @@
       <el-col :span="12">
         <el-form-item prop="tplCategory">
           <template #label>{{ t('gen.genInfo.tplCategory') }}</template>
-          <el-select v-model="info.tplCategory" @change="tplSelectChange">
+          <el-select :aria-label="t('gen.genInfo.tplCategory')" v-model="info.tplCategory" @change="tplSelectChange">
             <el-option :label="t('gen.genInfo.tplCrud')" value="crud" />
             <el-option :label="t('gen.genInfo.tplTree')" value="tree" />
             <el-option :label="t('gen.genInfo.tplSub')" value="sub" />
@@ -17,7 +17,7 @@
       <el-col :span="12">
         <el-form-item prop="tplWebType">
           <template #label>{{ t('gen.genInfo.tplWebType') }}</template>
-          <el-select v-model="info.tplWebType">
+          <el-select :aria-label="t('gen.genInfo.tplWebType')" v-model="info.tplWebType">
             <el-option :label="t('gen.genInfo.tplWebVue2')" value="element-ui" />
             <el-option :label="t('gen.genInfo.tplWebVue3')" value="element-plus" />
             <el-option :label="t('gen.genInfo.tplWebVue3Ts')" value="element-plus-typescript" />
@@ -81,7 +81,7 @@
               <el-icon><question-filled /></el-icon>
             </el-tooltip>
           </template>
-          <el-select v-model="info.formColNum">
+          <el-select :aria-label="t('gen.genInfo.formColNum')" v-model="info.formColNum">
             <el-option :label="t('gen.genInfo.formColNumOne')" :value="1" />
             <el-option :label="t('gen.genInfo.formColNumTwo')" :value="2" />
             <el-option :label="t('gen.genInfo.formColNumThree')" :value="3" />
@@ -170,7 +170,7 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select v-model="info.treeCode" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('gen.genInfo.treeCode')" v-model="info.treeCode" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -188,7 +188,7 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select v-model="info.treeParentCode" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('gen.genInfo.treeParentCode')" v-model="info.treeParentCode" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -206,7 +206,7 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select v-model="info.treeName" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('gen.genInfo.treeName')" v-model="info.treeName" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -233,6 +233,7 @@
                 </el-tooltip>
               </template>
               <el-select
+                :aria-label="t('gen.genInfo.subTableName')"
                 v-model="info.subTableName"
                 :placeholder="t('common.form.selectPlaceholder')"
                 @change="subSelectChange"
@@ -254,7 +255,7 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select v-model="info.subTableFkName" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('gen.genInfo.subTableFkName')" v-model="info.subTableFkName" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="column in subColumns"
                   :key="column.columnName"

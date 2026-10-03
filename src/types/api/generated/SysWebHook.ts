@@ -14,6 +14,11 @@ hookName: string,
  */
 eventTypes: string, 
 /**
+ * 订阅的事件目录键（JSON 数组字符串，如 `["user.created","login.success"]`；
+ * NULL 或空 = 订阅全部事件（兼容存量行为）。emit_event 派发按本列过滤。
+ */
+subscribedEvents: string | null, 
+/**
  * 出站目标 URL
  */
 targetUrl: string, 

@@ -64,6 +64,7 @@
         <el-table-column :label="t('common.column.type')" width="140" align="center">
           <template #default="scope">
             <el-select
+              :aria-label="t('gen.createTable.column.dataType')"
               v-model="scope.row.dataType"
               :placeholder="t('gen.createTable.column.phDataType')"
               size="small"

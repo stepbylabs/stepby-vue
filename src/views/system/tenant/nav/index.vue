@@ -13,6 +13,7 @@
       <el-form v-if="isPlatform" inline class="mb-2" @submit.prevent>
         <el-form-item :label="t('tenantNav.targetTenant')">
           <el-select
+            :aria-label="t('tenantNav.targetTenant')"
             v-model="selectedTenantId"
             filterable
             :placeholder="t('tenantNav.targetTenantPlaceholder')"
@@ -157,6 +158,7 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" @submit.prevent>
         <el-form-item :label="t('tenantNav.refMenu')" prop="refMenuId">
           <el-select
+            :aria-label="t('tenantNav.refMenu')"
             v-model="form.refMenuId"
             :disabled="isEdit"
             filterable
@@ -182,7 +184,7 @@
           <div class="text-xs text-text-placeholder">{{ t('tenantNav.refMenuTip') }}</div>
         </el-form-item>
         <el-form-item :label="t('tenantNav.parent')" prop="parentId">
-          <el-select v-model="form.parentId" class="w-full">
+          <el-select :aria-label="t('tenantNav.parent')" v-model="form.parentId" class="w-full">
             <el-option :value="0" :label="t('tenantNav.parentTop')" />
             <el-option
               v-for="row in parentCandidates"

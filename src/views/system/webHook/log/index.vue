@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('webHook.log.search.status')" prop="status">
           <el-select
+            :aria-label="t('webHook.log.search.status')"
             v-model="queryParams.status"
             :placeholder="t('webHook.log.search.phStatus')"
             clearable

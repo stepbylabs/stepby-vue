@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
+            :aria-label="t('common.column.status')"
             v-model="queryParams.status"
             :placeholder="t('report.sub.search.phStatus')"
             clearable
@@ -161,7 +162,7 @@
           <el-input v-model.trim="form.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" />
         </el-form-item>
         <el-form-item :label="t('report.sub.form.report')" prop="reportId">
-          <el-select v-model="form.reportId" :placeholder="t('common.form.selectPlaceholder')" filterable>
+          <el-select :aria-label="t('report.sub.form.report')" v-model="form.reportId" :placeholder="t('common.form.selectPlaceholder')" filterable>
             <el-option v-for="opt in reportOptions" :key="opt.reportId" :label="opt.reportName" :value="opt.reportId" />
           </el-select>
         </el-form-item>

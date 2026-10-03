@@ -24,6 +24,7 @@
         </el-form-item>
         <el-form-item :label="t('oauth.search.enabled')" prop="enabled">
           <el-select
+            :aria-label="t('oauth.search.enabled')"
             v-model="queryParams.enabled"
             :placeholder="t('common.form.selectPlaceholder')"
             clearable
@@ -204,7 +205,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('oauth.providerType')" prop="providerType">
-              <el-select v-model="form.providerType" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('oauth.providerType')" v-model="form.providerType" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option v-for="(label, key) in typeOptions" :key="key" :label="label" :value="key" />
               </el-select>
             </el-form-item>

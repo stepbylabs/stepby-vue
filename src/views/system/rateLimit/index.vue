@@ -13,6 +13,7 @@
         </el-form-item>
         <el-form-item :label="t('rateLimit.search.enabled')" prop="enabled">
           <el-select
+            :aria-label="t('rateLimit.search.enabled')"
             v-model="queryParams.enabled"
             :placeholder="t('rateLimit.search.enabled')"
             clearable

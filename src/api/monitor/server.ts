@@ -93,3 +93,26 @@ export function getServer(): Promise<AjaxResult<ServerInfo>> {
     method: 'get'
   })
 }
+
+// ====== 数据库连接池监控（GET /monitor/db-pool）======
+
+export interface DbPoolInfo {
+  /** 数据库类型（如 postgres / mysql） */
+  dbKind: string
+  /** 连接池总大小 */
+  poolSize: number
+  /** 空闲连接数 */
+  numIdle: number
+  /** 忙碌连接数 */
+  busy: number
+  /** 数据库最大允许连接数 */
+  maxConn: number
+}
+
+// 获取数据库连接池状态
+export function getDbPool(): Promise<AjaxResult<DbPoolInfo>> {
+  return request({
+    url: '/monitor/db-pool',
+    method: 'get'
+  })
+}

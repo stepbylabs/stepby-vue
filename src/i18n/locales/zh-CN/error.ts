@@ -257,7 +257,18 @@ export default {
     close: '关闭',
     confirmLogout: '确定退出登录吗？',
     executeFail: '命令执行失败',
-    ariaLabel: '命令面板'
+    ariaLabel: '命令面板',
+    searching: '搜索中…',
+    noSearchResult: '未找到相关内容',
+    searchType: {
+      menu: '菜单',
+      user: '用户',
+      role: '角色',
+      job: '定时任务',
+      config: '参数',
+      dict: '字典',
+      operlog: '操作日志'
+    }
   },
   tour: {
     prev: '上一步',

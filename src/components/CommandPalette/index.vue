@@ -57,11 +57,15 @@
               <div class="palette-item-cat">{{ cmd.category }}</div>
             </div>
           </TransitionGroup>
+          <div v-else-if="searchLoading" class="palette-empty">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>{{ t('commandPalette.searching') }}</span>
+          </div>
           <div v-else class="palette-empty">
             <el-icon><Search /></el-icon>
-            <span>{{ t('commandPalette.noMatch') }}</span>
+            <span>{{ isSearchMode ? t('commandPalette.noSearchResult') : t('commandPalette.noMatch') }}</span>
           </div>
-          <div class="palette-footer">
+          <div class="palette-footer" v-if="filteredCommands.length > 0">
             <span>
               <kbd>↑</kbd>
               <kbd>↓</kbd>
@@ -86,7 +90,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import type { Component } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Search, Moon, Sunny, FullScreen, Lock, Fold, Expand, RefreshRight, User, Link } from '@element-plus/icons-vue'
+import { Search, Moon, Sunny, FullScreen, Lock, Fold, Expand, RefreshRight, User, Link, Loading } from '@element-plus/icons-vue'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
 import useAppStore from '@/store/modules/app'
@@ -95,6 +99,8 @@ import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import modal from '@/plugins/modal'
 import { translateTitle } from '@/composables/useMenuTitle'
+import { globalSearch } from '@/api/common'
+import type { GlobalSearchItem } from '@/api/common'
 import type { AppRouteRecord } from '@/types'
 
 interface Command {
@@ -111,7 +117,7 @@ interface Command {
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const permissionStore = usePermissionStore()
@@ -150,6 +156,7 @@ watch(
 
 watch(query, () => {
   activeIndex.value = 0
+  scheduleGlobalSearch()
 })
 
 // 收集所有可执行命令
@@ -265,6 +272,8 @@ const commands = computed<Command[]>(() => {
 
 // 按查询过滤
 const filteredCommands = computed<Command[]>(() => {
+  // 搜索模式：输入 >= 2 字符时展示全局搜索结果（分组 type 标签展示在 category 位）
+  if (isSearchMode.value) return searchResults.value.slice(0, 30)
   const q = query.value.trim().toLowerCase()
   if (!q) return commands.value.slice(0, 30)
   return commands.value
@@ -276,6 +285,79 @@ const filteredCommands = computed<Command[]>(() => {
       )
     })
     .slice(0, 30)
+})
+
+// ==================== 全局搜索模式（GET /common/global-search） ====================
+const searchLoading = ref(false)
+const searchResults = ref<Command[]>([])
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+// 请求序号：丢弃防抖窗口外过期响应，避免竞态覆盖
+let searchSeq = 0
+
+// 输入 >= 2 字符进入搜索模式
+const isSearchMode = computed(() => query.value.trim().length >= 2)
+
+/** 输入防抖 300ms 触发全局搜索 */
+function scheduleGlobalSearch(): void {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  const q = query.value.trim()
+  if (q.length < 2) {
+    searchResults.value = []
+    searchLoading.value = false
+    return
+  }
+  searchLoading.value = true
+  searchTimer = setTimeout(() => {
+    runGlobalSearch(q)
+  }, 300)
+}
+
+/** 执行全局搜索：结果按类型转为可执行命令（回车/点击跳 url） */
+async function runGlobalSearch(q: string): Promise<void> {
+  const seq = ++searchSeq
+  try {
+    const res = await globalSearch(q, 20)
+    // 过期响应丢弃（期间用户可能已修改输入）
+    if (seq !== searchSeq) return
+    searchResults.value = (res.data || []).map(toSearchCommand)
+  } catch {
+    if (seq === searchSeq) searchResults.value = []
+  } finally {
+    if (seq === searchSeq) searchLoading.value = false
+  }
+}
+
+/** 结果项 → 命令：应用内路由跳转，http(s) 外链新窗口打开 */
+function toSearchCommand(item: GlobalSearchItem): Command {
+  return {
+    id: `search-${item.type}-${item.id}`,
+    title: item.title,
+    description: item.subtitle,
+    category: searchTypeLabel(item.type),
+    action: () => {
+      if (/^https?:\/\//i.test(item.url)) {
+        window.open(item.url, '_blank', 'noopener,noreferrer')
+      } else {
+        router.push(item.url)
+      }
+    }
+  }
+}
+
+/** 结果类型 → 分组标签：命中 i18n key 则翻译，否则原样展示（te 回退兼容未知类型） */
+function searchTypeLabel(type: string): string {
+  const key = `commandPalette.searchType.${type}`
+  return te(key) ? t(key) : type
+}
+
+onBeforeUnmount(() => {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
 })
 
 function handleKeydown(e: KeyboardEvent) {

@@ -4,6 +4,7 @@
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
         <el-form-item :label="t('task.search.taskType')" prop="taskType">
           <el-select
+            :aria-label="t('task.search.taskType')"
             v-model="queryParams.taskType"
             :placeholder="t('task.search.phTaskType')"
             clearable
@@ -15,7 +16,7 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('task.search.status')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('task.search.phStatus')" clearable class="w-[140px]">
+          <el-select :aria-label="t('task.search.status')" v-model="queryParams.status" :placeholder="t('task.search.phStatus')" clearable class="w-[140px]">
             <el-option :label="t('task.form.statusWaiting')" value="pending" />
             <el-option :label="t('task.form.statusRunning')" value="running" />
             <el-option :label="t('task.form.statusCompleted')" value="success" />

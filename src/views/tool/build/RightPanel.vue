@@ -29,6 +29,7 @@
           >
             <el-form-item v-if="activeData.changeTag" :label="t('build.rightPanel.label.componentType')">
               <el-select
+                :aria-label="t('build.rightPanel.label.componentType')"
                 v-model="activeData.tagIcon"
                 :placeholder="t('build.rightPanel.ph.componentType')"
                 :style="{ width: '100%' }"
@@ -82,6 +83,7 @@
 
             <el-form-item v-if="activeData.justify !== undefined" :label="t('build.rightPanel.label.justify')">
               <el-select
+                :aria-label="t('build.rightPanel.label.justify')"
                 v-model="activeData.justify"
                 :placeholder="t('build.rightPanel.ph.justify')"
                 :style="{ width: '100%' }"
@@ -261,6 +263,7 @@
               :label="t('build.rightPanel.label.dateType')"
             >
               <el-select
+                :aria-label="t('build.rightPanel.label.dateType')"
                 v-model="activeData.type"
                 :placeholder="t('build.rightPanel.ph.dateType')"
                 :style="{ width: '100%' }"
@@ -274,6 +277,7 @@
             </el-form-item>
             <el-form-item v-if="activeData.accept !== undefined" :label="t('build.rightPanel.label.fileType')">
               <el-select
+                :aria-label="t('build.rightPanel.label.fileType')"
                 v-model="activeData.accept"
                 :placeholder="t('build.rightPanel.ph.fileType')"
                 :style="{ width: '100%' }"
@@ -291,7 +295,7 @@
             <el-form-item v-if="activeData.fileSize !== undefined" :label="t('build.rightPanel.label.fileSize')">
               <el-input v-model.number="activeData.fileSize" :placeholder="t('build.rightPanel.ph.fileSize')">
                 <template #append>
-                  <el-select v-model="activeData.sizeUnit" :style="{ width: '66px' }">
+                  <el-select :aria-label="t('build.rightPanel.label.sizeUnit')" v-model="activeData.sizeUnit" :style="{ width: '66px' }">
                     <el-option label="KB" value="KB" />
                     <el-option label="MB" value="MB" />
                     <el-option label="GB" value="GB" />
@@ -470,6 +474,7 @@
             </el-form-item>
             <el-form-item v-if="activeData.tag === 'el-color-picker'" :label="t('build.rightPanel.label.colorFormat')">
               <el-select
+                :aria-label="t('build.rightPanel.label.colorFormat')"
                 v-model="activeData['color-format']"
                 :placeholder="t('build.rightPanel.ph.colorFormat')"
                 :style="{ width: '100%' }"

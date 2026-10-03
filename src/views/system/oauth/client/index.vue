@@ -26,6 +26,7 @@
         </el-form-item>
         <el-form-item :label="t('sso.enabled')" prop="enabled">
           <el-select
+            :aria-label="t('sso.enabled')"
             v-model="queryParams.enabled"
             :placeholder="t('common.form.selectPlaceholder')"
             clearable
@@ -225,6 +226,7 @@
           <el-col :span="24">
             <el-form-item :label="t('sso.scopes')" prop="scopes">
               <el-select
+                :aria-label="t('sso.scopes')"
                 v-model="form.scopes"
                 multiple
                 :placeholder="t('common.form.selectPlaceholder')"
@@ -237,6 +239,7 @@
           <el-col :span="24">
             <el-form-item :label="t('sso.grantTypes')" prop="grantTypes">
               <el-select
+                :aria-label="t('sso.grantTypes')"
                 v-model="form.grantTypes"
                 multiple
                 :placeholder="t('common.form.selectPlaceholder')"
@@ -250,7 +253,7 @@
           <el-col :span="12">
             <!-- v5-D2：ID Token 签名算法（新增默认 RS256；HS256 用对称密钥，互操作兼容） -->
             <el-form-item :label="t('sso.idTokenAlg')" prop="idTokenAlg">
-              <el-select v-model="form.idTokenAlg" class="w-full">
+              <el-select :aria-label="t('sso.idTokenAlg')" v-model="form.idTokenAlg" class="w-full">
                 <el-option label="RS256" value="RS256" />
                 <el-option label="HS256" value="HS256" />
               </el-select>
@@ -260,7 +263,7 @@
           <el-col :span="12">
             <!-- v5-D5：subject 标识类型（pairwise 切换会使已发令牌 sub 变化，RP 视为新用户） -->
             <el-form-item :label="t('sso.subjectType')" prop="subjectType">
-              <el-select v-model="form.subjectType" class="w-full">
+              <el-select :aria-label="t('sso.subjectType')" v-model="form.subjectType" class="w-full">
                 <el-option label="public" value="public" />
                 <el-option label="pairwise" value="pairwise" />
               </el-select>

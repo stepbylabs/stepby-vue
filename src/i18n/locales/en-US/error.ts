@@ -260,7 +260,18 @@ export default {
     close: 'Close',
     confirmLogout: 'Are you sure you want to log out?',
     executeFail: 'Command execution failed',
-    ariaLabel: 'Command Palette'
+    ariaLabel: 'Command Palette',
+    searching: 'Searching…',
+    noSearchResult: 'No related content found',
+    searchType: {
+      menu: 'Menu',
+      user: 'User',
+      role: 'Role',
+      job: 'Scheduled Job',
+      config: 'Config',
+      dict: 'Dictionary',
+      operlog: 'Operation Log'
+    }
   },
   tour: {
     prev: 'Previous',

@@ -31,6 +31,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
+            :aria-label="t('common.column.status')"
             v-model="queryParams.status"
             :placeholder="t('msg.log.search.phStatus')"
             clearable

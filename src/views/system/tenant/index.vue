@@ -247,6 +247,7 @@
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.package')" prop="packageId">
           <el-select
+            :aria-label="t('tenant.package')"
             v-model="form.packageId"
             :placeholder="t('tenant.packagePlaceholder')"
             clearable
@@ -329,6 +330,7 @@
         <el-table-column :label="t('tenant.capabilityMode')" min-width="220">
           <template #default="{ row }">
             <el-select
+              :aria-label="t('tenant.capabilityMode')"
               v-model="capabilityForm[row.key]"
               size="small"
               class="w-full"

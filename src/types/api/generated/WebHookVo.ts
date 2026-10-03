@@ -23,6 +23,10 @@ hookName: string,
  */
 eventTypes: string, 
 /**
+ * 订阅的事件目录键（JSON 数组字符串；空/缺省 = 订阅全部）
+ */
+subscribedEvents: string | null, 
+/**
  * 出站目标 URL
  */
 targetUrl: string, 

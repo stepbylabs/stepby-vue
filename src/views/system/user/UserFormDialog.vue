@@ -93,7 +93,7 @@
       <el-row>
         <el-col :span="12">
           <el-form-item :label="t('user.form.sex')">
-            <el-select v-model="form.sex" :placeholder="t('common.form.selectPlaceholder')">
+            <el-select :aria-label="t('user.form.sex')" v-model="form.sex" :placeholder="t('common.form.selectPlaceholder')">
               <el-option
                 v-for="dict in sys_user_sex"
                 :key="dict.value"
@@ -116,7 +116,7 @@
       <el-row>
         <el-col :span="12">
           <el-form-item :label="t('user.form.post')">
-            <el-select v-model="form.postIds" multiple :placeholder="t('common.form.selectPlaceholder')">
+            <el-select :aria-label="t('user.form.post')" v-model="form.postIds" multiple :placeholder="t('common.form.selectPlaceholder')">
               <el-option
                 v-for="item in postOptions"
                 :key="item.postId"
@@ -129,7 +129,7 @@
         </el-col>
         <el-col :span="12">
           <el-form-item :label="t('user.form.role')">
-            <el-select v-model="form.roleIds" multiple :placeholder="t('common.form.selectPlaceholder')">
+            <el-select :aria-label="t('user.form.role')" v-model="form.roleIds" multiple :placeholder="t('common.form.selectPlaceholder')">
               <el-option
                 v-for="item in roleOptions"
                 :key="item.roleId"

@@ -36,6 +36,19 @@ export type SysWebHook = import('@/types/api/generated/WebHookVo').WebHookVo & {
 /** 推送记录（后端生成类型） */
 export type SysWebHookLog = import('@/types/api/generated/SysWebHookLog').SysWebHookLog
 
+/** 事件目录出参（后端生成类型） */
+export type WebhookEventVo = import('@/types/api/generated/WebhookEventVo').WebhookEventVo
+
+/** 事件目录分页查询参数（对应后端 WebhookEventQueryDto） */
+export interface WebhookEventQueryParams extends PageDomain {
+  /** 事件键（模糊） */
+  eventKey?: string
+  /** 事件名称（模糊） */
+  name?: string
+  /** 状态（'1' 启用 / '0' 停用） */
+  enabled?: string
+}
+
 /** 手动测试推送结果 */
 export interface DeliveryResult {
   /** 是否投递成功 */

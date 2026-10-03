@@ -6,6 +6,7 @@
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.file') }}</span>
           <el-select
+            :aria-label="t('logTail.file')"
             v-model="currentFile"
             :placeholder="t('logTail.selectFile')"
             class="w-[260px]"
@@ -24,7 +25,7 @@
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.level') }}</span>
-          <el-select v-model="level" class="w-[130px]" @change="loadTail">
+          <el-select :aria-label="t('logTail.level')" v-model="level" class="w-[130px]" @change="loadTail">
             <el-option :label="t('logTail.levels.all')" value="" />
             <el-option :label="t('logTail.levels.error')" value="ERROR" />
             <el-option :label="t('logTail.levels.warn')" value="WARN" />
@@ -47,7 +48,7 @@
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.lineCount') }}</span>
-          <el-select v-model="lines" class="w-[90px]" @change="loadTail">
+          <el-select :aria-label="t('logTail.lineCount')" v-model="lines" class="w-[90px]" @change="loadTail">
             <el-option label="500" value="500" />
             <el-option label="1000" value="1000" />
             <el-option label="2000" value="2000" />

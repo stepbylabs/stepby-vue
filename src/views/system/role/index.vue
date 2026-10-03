@@ -21,7 +21,7 @@
           />
         </el-form-item>
         <el-form-item :label="t('role.search.status')" prop="status">
-          <el-select v-model="queryParams.status" :placeholder="t('role.search.phStatus')" clearable class="w-[240px]">
+          <el-select :aria-label="t('role.search.status')" v-model="queryParams.status" :placeholder="t('role.search.phStatus')" clearable class="w-[240px]">
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -303,7 +303,7 @@
           <el-input v-model="form.roleKey" :disabled="true" />
         </el-form-item>
         <el-form-item :label="t('role.form.dataScope')">
-          <el-select v-model="form.dataScope" @change="dataScopeSelectChange">
+          <el-select :aria-label="t('role.form.dataScope')" v-model="form.dataScope" @change="dataScopeSelectChange">
             <el-option
               v-for="item in dataScopeOptions"
               :key="item.value"

@@ -14,6 +14,7 @@
         </el-form-item>
         <el-form-item :label="t('job.search.jobGroup')" prop="jobGroup">
           <el-select
+            :aria-label="t('job.search.jobGroup')"
             v-model="queryParams.jobGroup"
             :placeholder="t('jobLog.search.phJobGroup')"
             clearable
@@ -24,6 +25,7 @@
         </el-form-item>
         <el-form-item :label="t('jobLog.search.execStatus')" prop="status">
           <el-select
+            :aria-label="t('jobLog.search.execStatus')"
             v-model="queryParams.status"
             :placeholder="t('jobLog.search.phExecStatus')"
             clearable

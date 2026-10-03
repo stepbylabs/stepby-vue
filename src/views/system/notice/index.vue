@@ -22,6 +22,7 @@
         </el-form-item>
         <el-form-item :label="t('notice.search.type')" prop="noticeType">
           <el-select
+            :aria-label="t('notice.search.type')"
             v-model="queryParams.noticeType"
             :placeholder="t('notice.column.type')"
             clearable
@@ -224,7 +225,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('notice.form.type')" prop="noticeType">
-              <el-select v-model="form.noticeType" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select :aria-label="t('notice.form.type')" v-model="form.noticeType" :placeholder="t('common.form.selectPlaceholder')">
                 <el-option
                   v-for="dict in sys_notice_type"
                   :key="dict.value"

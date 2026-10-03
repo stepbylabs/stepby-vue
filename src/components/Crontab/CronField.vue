@@ -26,7 +26,11 @@
       <el-radio v-model="radioValue" :value="3">
         {{ t(c.i18n.cycleFrom) }}
         <template v-if="c.cycleUseSelect">
-          <el-select clearable v-model="cycle01">
+          <el-select
+            clearable
+            :aria-label="t('crontab.aria.cycleStart', { field: t(`crontab.tabs.${c.field}`) })"
+            v-model="cycle01"
+          >
             <el-option
               v-for="item of namedOptions"
               :key="item.key"
@@ -36,7 +40,11 @@
             />
           </el-select>
           -
-          <el-select clearable v-model="cycle02">
+          <el-select
+            clearable
+            :aria-label="t('crontab.aria.cycleEnd', { field: t(`crontab.tabs.${c.field}`) })"
+            v-model="cycle02"
+          >
             <el-option
               v-for="item of namedOptions"
               :key="item.key"
@@ -61,7 +69,12 @@
         {{ t(c.i18n.rangeFrom) }}
         <el-input-number v-model="average01" :min="c.cycleMin" :max="c.avgMax1" />
         {{ t(c.i18n.avgStart ?? '') }}
-        <el-select v-if="c.avgSecondUseSelect" clearable v-model="average02">
+        <el-select
+          v-if="c.avgSecondUseSelect"
+          clearable
+          :aria-label="t('crontab.aria.averageStep', { field: t(`crontab.tabs.${c.field}`) })"
+          v-model="average02"
+        >
           <el-option v-for="item in namedOptions" :key="item.key" :label="item.value" :value="item.key" />
         </el-select>
         <el-input-number v-else v-model="average02" :min="1" :max="c.cycleMax2 - average01" />
@@ -91,7 +104,11 @@
         {{ t(c.i18n.nthWeekPrefix ?? '') }}
         <el-input-number v-model="average01" :min="1" :max="4" />
         {{ t(c.i18n.nthWeekSuffix ?? '') }}
-        <el-select clearable v-model="average02">
+        <el-select
+          clearable
+          :aria-label="t('crontab.aria.nthWeekday')"
+          v-model="average02"
+        >
           <el-option v-for="item in namedOptions" :key="item.key" :label="item.value" :value="item.key" />
         </el-select>
       </el-radio>
@@ -101,7 +118,11 @@
     <el-form-item v-if="c.allowLastWeek">
       <el-radio v-model="radioValue" :value="8">
         {{ t(c.i18n.lastWeekOfMonth ?? '') }}
-        <el-select clearable v-model="weekday">
+        <el-select
+          clearable
+          :aria-label="t('crontab.aria.lastWeekday')"
+          v-model="weekday"
+        >
           <el-option v-for="item in namedOptions" :key="item.key" :label="item.value" :value="item.key" />
         </el-select>
       </el-radio>
@@ -114,6 +135,7 @@
         <el-select
           clearable
           v-model="checkboxList"
+          :aria-label="t('crontab.aria.specifyValues', { field: t(`crontab.tabs.${c.field}`) })"
           :placeholder="t(c.i18n.multiPlaceholder)"
           multiple
           :multiple-limit="c.multipleLimit"

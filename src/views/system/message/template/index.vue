@@ -22,6 +22,7 @@
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
+            :aria-label="t('common.column.status')"
             v-model="queryParams.status"
             :placeholder="t('msg.template.search.phStatus')"
             clearable
@@ -173,7 +174,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('msg.template.form.channelCode')" prop="channelCode">
-              <el-select v-model="form.channelCode" :placeholder="t('common.form.selectPlaceholder')" clearable>
+              <el-select :aria-label="t('msg.template.form.channelCode')" v-model="form.channelCode" :placeholder="t('common.form.selectPlaceholder')" clearable>
                 <el-option
                   v-for="dict in channelTypeOptions"
                   :key="dict.value"

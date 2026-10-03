@@ -28,6 +28,7 @@ export * from './system/task'
 export * from './system/msg'
 export * from './system/report'
 export * from './system/webHook'
+export * from './system/auditChange'
 export * from './system/scimGroup'
 export * from './system/pref'
 
@@ -40,6 +41,7 @@ export * from './monitor/operlog'
 export * from './monitor/online'
 export * from './monitor/frontendError'
 export * from './monitor/pat'
+export * from './monitor/alert'
 
 // 代码生成模块
 export * from './tool/gen'

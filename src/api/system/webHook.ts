@@ -7,7 +7,9 @@ import type {
   SysWebHookLog,
   DeliveryResult,
   AjaxResult,
-  TableDataInfo
+  TableDataInfo,
+  WebhookEventVo,
+  WebhookEventQueryParams
 } from '@/types'
 
 // 分页查询回调配置
@@ -71,6 +73,26 @@ export function testWebHook(
     url: '/monitor/webHook/' + id + '/test',
     method: 'post',
     data: data
+  })
+}
+
+// ==================== 事件目录 ====================
+
+// 分页查询事件目录（event_key/name/description/payload_example/enabled）
+export function listWebhookEvents(query: WebhookEventQueryParams): Promise<TableDataInfo<WebhookEventVo>> {
+  return request({
+    url: '/system/webhook/event/list',
+    method: 'get',
+    params: query
+  })
+}
+
+// 按事件目录键构造真实测试发送（以该事件的 payload_example 投递，含 HMAC 签名）
+export function testSendByEvent(id: number | string, eventKey: string): Promise<AjaxResult<DeliveryResult>> {
+  return request({
+    url: '/system/webhook/' + id + '/test-send',
+    method: 'post',
+    data: { eventKey: eventKey }
   })
 }
 

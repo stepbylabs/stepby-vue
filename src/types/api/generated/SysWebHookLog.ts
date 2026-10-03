@@ -44,4 +44,8 @@ errorMsg: string | null,
 /**
  * 耗时（毫秒）
  */
-costMs: number, createTime: string | null, };
+costMs: number, 
+/**
+ * 投递来源（NULL=业务事件派发，'test'=手动测试发送；迁移 m20261003_000002）
+ */
+source: string | null, createTime: string | null, };

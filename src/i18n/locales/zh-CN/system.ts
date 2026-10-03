@@ -67,7 +67,9 @@ export default {
       create: '新建令牌',
       revoke: '吊销',
       copy: '复制',
-      done: '我已保存'
+      done: '我已保存',
+      rotateAk: '轮换 SK',
+      revokeAk: '吊销 AK'
     },
     column: {
       name: '名称',
@@ -98,7 +100,9 @@ export default {
       scopes: '权限范围',
       scopesPh: '选择授予该令牌的权限',
       expireDays: '有效期',
-      expireDaysTip: '天数，0 表示永不过期'
+      expireDaysTip: '天数，0 表示永不过期',
+      withAk: '开通 AK/SK',
+      withAkTip: '同时开通开放 API 访问密钥（AK/SK），用于 AK/SK 签名调用开放接口；SK 明文仅展示一次'
     },
     rule: {
       nameRequired: '请输入令牌名称',
@@ -113,6 +117,14 @@ export default {
       copyFailed: '复制失败，请手动复制',
       revokeConfirm: '确认吊销令牌「{name}」？吊销后使用该令牌的请求将立即失效。',
       revoked: '令牌已吊销'
+    },
+    akSk: {
+      accessKey: 'Access Key',
+      secretKey: 'Secret Key',
+      warning: '开放 API AK/SK 已生成，请立即复制并妥善保存，SK 明文仅展示一次，关闭后无法再次查看。',
+      rotateConfirm: '确认轮换令牌「{name}」的开放 API SK？旧 SK 将立即失效，使用旧 SK 的签名请求将全部拒绝。',
+      revokeConfirm: '确认吊销令牌「{name}」的开放 API AK/SK？吊销后 AK/SK 签名请求将立即失效。',
+      revoked: 'AK/SK 已吊销'
     },
     admin: {
       tip: '此页面管理所有用户的个人访问令牌。管理员可吊销任意令牌，但访问令牌本身不得用于管理令牌（防止自我扩权）。',
@@ -1222,6 +1234,9 @@ export default {
       eventTypes: '事件类型',
       phEventTypes: '请选择事件类型',
       eventTypesTip: '留空表示订阅全部事件',
+      subscribedEvents: '订阅事件',
+      phSubscribedEvents: '请选择要订阅的事件',
+      subscribedEventsTip: '选项来自事件目录；留空表示订阅全部事件',
       targetUrl: '目标 URL',
       phTargetUrl: '请输入出站目标 URL，如 https://example.com/hook',
       secret: '签名密钥',
@@ -1238,14 +1253,18 @@ export default {
     btn: {
       log: '日志',
       test: '测试推送',
-      export: '导出'
+      export: '导出',
+      eventCatalog: '事件目录',
+      testSend: '测试发送'
     },
     tip: {
       confirmDelete: '是否确认删除回调编号为"{ids}"的数据项？',
       confirmChange: '是否将该回调"{name}"{text}？',
       testTitle: '测试推送',
       testSuccess: '推送成功',
-      testFail: '推送失败'
+      testFail: '推送失败',
+      testSendSuccess: '已按事件「{event}」发送测试推送',
+      testSendFail: '事件「{event}」测试推送失败'
     },
     validate: {
       hookNameRequired: '回调名称不能为空',
@@ -1321,6 +1340,43 @@ export default {
       },
       cleanSuccess: '推送记录已清空',
       retrySuccess: '重试成功'
+    },
+    eventCatalog: {
+      title: 'Webhook 事件目录',
+      eventKey: '事件键',
+      name: '事件名称',
+      description: '事件说明',
+      payloadExample: '负载样例',
+      empty: '暂无事件'
+    }
+  },
+  auditChange: {
+    title: '变更留痕',
+    search: {
+      tableName: '表名',
+      phTableName: '请输入被变更的表名',
+      rowPk: '行主键',
+      phRowPk: '请输入行主键',
+      action: '变更动作',
+      phAction: '请选择变更动作',
+      operatorName: '操作人',
+      phOperatorName: '请输入操作人',
+      operatedAt: '变更时间'
+    },
+    column: {
+      id: '记录ID',
+      tableName: '表名',
+      rowPk: '行主键',
+      action: '变更动作',
+      changedFields: '变更字段',
+      operatorName: '操作人',
+      operatedAt: '变更时间'
+    },
+    diff: {
+      before: '变更前',
+      after: '变更后',
+      changedFields: '发生变更的字段',
+      noChangedField: '该记录未携带字段差异信息'
     }
   },
   profile: {

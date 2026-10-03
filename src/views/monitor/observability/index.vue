@@ -98,6 +98,7 @@
           </el-form-item>
           <el-form-item :label="t('observability.error.level')">
             <el-select
+              :aria-label="t('observability.error.level')"
               v-model="errorQuery.level"
               :placeholder="t('observability.error.phLevel')"
               clearable

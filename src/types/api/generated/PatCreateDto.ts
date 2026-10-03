@@ -7,4 +7,9 @@ export type CreatePatDto = { name: string, scopes: Array<string>,
 /**
  * 有效期（天）：省略 → 使用配置默认；0 → 永不过期；正数 → 按天（受上限裁剪）
  */
-expireDays?: number, };
+expireDays?: number, 
+/**
+ * 是否同时开通开放 API 的 AK/SK 凭据（true → 生成 access_key/secret_key；
+ * SK 明文仅创建响应返回一次，落库为信封密文）
+ */
+withAk?: boolean, };

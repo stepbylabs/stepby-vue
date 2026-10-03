@@ -24,6 +24,7 @@
         </el-form-item>
         <el-form-item :label="t('config.search.configType')" prop="configType">
           <el-select
+            :aria-label="t('config.search.configType')"
             v-model="queryParams.configType"
             :placeholder="t('config.search.phConfigType')"
             clearable
