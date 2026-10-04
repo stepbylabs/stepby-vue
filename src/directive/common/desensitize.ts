@@ -94,7 +94,12 @@ export default {
     // 保存原始内容（仅内存，不写入 DOM 避免泄漏）
     const raw = el.textContent || ''
     dEl._rawContent = raw
-    el.textContent = desensitize(raw, opts)
+    const masked = desensitize(raw, opts)
+    // 记录已脱敏基线：updated 以此判断 textContent 是否为"新原文"。
+    // 缺陷修复：此前 beforeMount 未写 _desensitized，首次 updated 会把已脱敏
+    // 结果当原文二次脱敏——email/address 规则非幂等（星号逐次增多），数据被破坏。
+    dEl._desensitized = masked
+    el.textContent = masked
     // 提示：hover 显示脱敏提示文案（i18n）
     el.setAttribute('title', i18n.global.t('desensitize.maskedData'))
   },

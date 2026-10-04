@@ -480,14 +480,38 @@ function loadEventCatalog(force = false): void {
     })
 }
 
-/** 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示） */
+// 缺陷修复：下拉数据源与目录对话框脱钩——此前订阅/测试发送下拉复用第一页
+// 分页数据（pageSize=10），事件目录超过一页时下拉选项缺失。事件目录为系统级
+// 枚举（量级有限），下拉统一全量拉取（pageSize: 500 覆盖足够）。
+const eventOptionsFull = ref<WebhookEventVo[]>([])
+const eventOptionsLoading = ref(false)
+
+/** 全量加载事件目录（供订阅/测试发送下拉；防重入） */
+function loadEventOptionsFull(): void {
+  if (eventOptionsLoading.value) return
+  eventOptionsLoading.value = true
+  listWebhookEvents({ pageNum: 1, pageSize: 500 })
+    .then((res) => {
+      eventOptionsFull.value = res.rows || []
+    })
+    .catch(() => {})
+    .finally(() => {
+      eventOptionsLoading.value = false
+    })
+}
+
+// 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示）
 const eventCatalogOptions = computed(() =>
-  eventCatalog.value.map((e: WebhookEventVo) => ({
+  eventOptionsFull.value.map((e: WebhookEventVo) => ({
     value: e.eventKey,
     label: e.name ? `${e.name} (${e.eventKey})` : e.eventKey,
     disabled: e.enabled !== '1'
   }))
 )
+
+// 组件创建即拉取一次（表格行内测试发送下拉直接可用）；对话框打开时再次调用
+// 会因防重入跳过，若首次因瞬时失败为空则重拉兜底
+loadEventOptionsFull()
 
 /** 打开事件目录对话框 */
 function openEventCatalog(): void {
@@ -588,7 +612,7 @@ const formSubscribedEvents = ref<string[]>([])
 // 打开对话框时同步订阅事件数组，并确保目录下拉可用
 function onFormDialogOpen() {
   formSubscribedEvents.value = parseSubscribedEvents(form.value.subscribedEvents)
-  loadEventCatalog()
+  loadEventOptionsFull()
 }
 
 /** 解析后端 subscribed_events（JSON 数组串；数组形态直接用）；失败/为空回退为空数组（= 订阅全部） */
@@ -652,8 +676,8 @@ function openTestDialog(row?: SysWebHook) {
   const target = row ?? dataList.value.find((r: SysWebHook) => r.id === ids.value[0]) ?? null
   if (!target) return
   currentHook.value = target
-  // 事件下拉优先展示事件目录，未加载时按需拉取
-  loadEventCatalog()
+  // 事件下拉数据源（全量目录；防重入，瞬时失败后可重拉）
+  loadEventOptionsFull()
   testForm.eventType = target.eventTypes ? splitEventTypes(target.eventTypes)[0] : undefined
   testForm.payload = ''
   testResult.value = null
