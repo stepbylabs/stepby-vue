@@ -112,7 +112,6 @@
             v-model:showSearch="showSearch"
             @queryTable="getList"
             :columns="columns"
-            storage-key="user-list-columns"
             :show-print="true"
             :print-data="userList"
             :print-title="t('user.title')"
