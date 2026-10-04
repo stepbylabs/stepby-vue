@@ -95,9 +95,12 @@ export default {
     const raw = el.textContent || ''
     dEl._rawContent = raw
     const masked = desensitize(raw, opts)
-    // 记录已脱敏基线：updated 以此判断 textContent 是否为"新原文"。
-    // 缺陷修复：此前 beforeMount 未写 _desensitized，首次 updated 会把已脱敏
-    // 结果当原文二次脱敏——email/address 规则非幂等（星号逐次增多），数据被破坏。
+    // 记录已脱敏基线：updated 以此区分「文本未变（textContent 仍是已脱敏
+    // 结果，短路跳过）」与「数据更新（新原文，重新脱敏并刷新基线）」。
+    // 缺陷修复：此前基线缺失，每次 updated（父组件任意重渲染触发）都把已
+    // 脱敏结果当新原文重跑脱敏——显示值因各规则对自身输出幂等而侥幸不变，
+    // 但 _rawContent（原始内容仅存内存契约）被污染、每次 patch 冗余重算，
+    // 且行为依赖规则幂等巧合（规则一旦调整立即劣化为数据破坏）。
     dEl._desensitized = masked
     el.textContent = masked
     // 提示：hover 显示脱敏提示文案（i18n）
