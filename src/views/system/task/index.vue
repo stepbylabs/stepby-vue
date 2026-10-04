@@ -64,7 +64,7 @@
           {{ t('common.delete') }}
         </el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+      <right-toolbar v-model:showSearch="showSearch" :columns="columns" @queryTable="getList"></right-toolbar>
     </el-row>
 
     <Transition name="fade" mode="out-in">
@@ -80,6 +80,7 @@
       >
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column
+          v-if="columns.taskId.visible"
           :label="t('task.column.id')"
           align="center"
           prop="taskId"
@@ -88,6 +89,7 @@
           :sort-orders="['descending', 'ascending']"
         />
         <el-table-column
+          v-if="columns.taskName.visible"
           :label="t('task.column.name')"
           align="center"
           prop="taskName"
@@ -96,6 +98,7 @@
           :sort-orders="['descending', 'ascending']"
         />
         <el-table-column
+          v-if="columns.taskType.visible"
           :label="t('task.column.type')"
           align="center"
           prop="taskType"
@@ -108,6 +111,7 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.status.visible"
           :label="t('task.column.status')"
           align="center"
           prop="status"
@@ -122,6 +126,7 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.progress.visible"
           :label="t('task.column.progress')"
           align="center"
           prop="progress"
@@ -137,12 +142,18 @@
             />
           </template>
         </el-table-column>
-        <el-table-column :label="t('task.column.currentTotal')" align="center" width="120">
+        <el-table-column
+          v-if="columns.currentTotal.visible"
+          :label="t('task.column.currentTotal')"
+          align="center"
+          width="120"
+        >
           <template #default="scope">
             <span>{{ scope.row.current }} / {{ scope.row.total }}</span>
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.operator.visible"
           :label="t('task.column.operator')"
           align="center"
           prop="operator"
@@ -150,8 +161,15 @@
           sortable="custom"
           :sort-orders="['descending', 'ascending']"
         />
-        <el-table-column :label="t('task.column.resultMsg')" align="center" prop="resultMsg" show-overflow-tooltip />
         <el-table-column
+          v-if="columns.resultMsg.visible"
+          :label="t('task.column.resultMsg')"
+          align="center"
+          prop="resultMsg"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          v-if="columns.createTime.visible"
           :label="t('task.column.createTime')"
           align="center"
           prop="createTime"
@@ -222,11 +240,78 @@ import { addDateRange } from '@/utils/stepby'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import EmptyState from '@/components/EmptyState/index.vue'
+import useSettingsStore from '@/store/modules/settings'
+import { useTableColumns } from '@/composables/useTableColumns'
+import type { TableColumnDef } from '@/utils/userPrefs'
+import type { TableShowColumns } from '@/types/api/common'
 
 const { t } = useI18n()
 const router = useRouter()
 const queryRef = useTemplateRef('queryRef')
 const taskTableRef = useTemplateRef('taskTableRef')
+
+// UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
+// 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
+const settingsStore = useSettingsStore()
+const TASK_TABLE_KEY = 'monitor:task'
+// 列定义顺序即设置面板展示顺序；多选列/操作列不参与显隐偏好（常驻）
+const TASK_COLUMN_DEFS: TableColumnDef[] = [
+  { key: 'taskId' },
+  { key: 'taskName' },
+  { key: 'taskType' },
+  { key: 'status' },
+  { key: 'progress' },
+  { key: 'currentTotal' },
+  { key: 'operator' },
+  { key: 'resultMsg' },
+  { key: 'createTime' }
+]
+const { visibleKeys: taskVisibleKeys, toggle: toggleTaskColumn } = useTableColumns({
+  pageKey: TASK_TABLE_KEY,
+  columns: TASK_COLUMN_DEFS,
+  getSaved: () => settingsStore.userPrefs.tableColumns?.[TASK_TABLE_KEY],
+  save: (visible) =>
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [TASK_TABLE_KEY]: visible }
+    })
+})
+
+// M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
+// 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
+const columns = ref<Record<string, TableShowColumns>>({
+  taskId: { label: t('task.column.id'), visible: true },
+  taskName: { label: t('task.column.name'), visible: true },
+  taskType: { label: t('task.column.type'), visible: true },
+  status: { label: t('task.column.status'), visible: true },
+  progress: { label: t('task.column.progress'), visible: true },
+  currentTotal: { label: t('task.column.currentTotal'), visible: true },
+  operator: { label: t('task.column.operator'), visible: true },
+  resultMsg: { label: t('task.column.resultMsg'), visible: true },
+  createTime: { label: t('task.column.createTime'), visible: true }
+})
+
+// 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
+watch(
+  taskVisibleKeys,
+  (keys: string[]) => {
+    for (const key of Object.keys(columns.value)) {
+      columns.value[key].visible = keys.includes(key)
+    }
+  },
+  { immediate: true }
+)
+// RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
+watch(
+  columns,
+  (v: Record<string, TableShowColumns>) => {
+    for (const key of Object.keys(v)) {
+      if (taskVisibleKeys.value.includes(key) !== v[key].visible) {
+        toggleTaskColumn(key, v[key].visible)
+      }
+    }
+  },
+  { deep: true }
+)
 
 const taskList = shallowRef<SysTask[]>([])
 const loading = ref(true)

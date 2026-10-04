@@ -109,7 +109,7 @@
               {{ t('common.export') }}
             </el-button>
           </el-col>
-          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+          <right-toolbar v-model:showSearch="showSearch" :columns="columns" @queryTable="getList"></right-toolbar>
         </el-row>
 
         <Transition name="fade" mode="out-in">
@@ -125,9 +125,15 @@
             @sort-change="handleSortChange"
           >
             <el-table-column type="selection" width="55" align="center" />
-            <el-table-column :label="t('logininfor.column.infoId')" align="center" prop="infoId" />
+            <el-table-column
+              v-if="columns.infoId.visible"
+              :label="t('logininfor.column.infoId')"
+              align="center"
+              prop="infoId"
+            />
             <TenantColumn />
             <el-table-column
+              v-if="columns.userName.visible"
               :label="t('logininfor.column.userName')"
               align="center"
               prop="userName"
@@ -136,31 +142,47 @@
               :sort-orders="['descending', 'ascending']"
             />
             <el-table-column
+              v-if="columns.ipaddr.visible"
               :label="t('logininfor.column.ipaddr')"
               align="center"
               prop="ipaddr"
               show-overflow-tooltip
             />
             <el-table-column
+              v-if="columns.loginLocation.visible"
               :label="t('logininfor.column.loginLocation')"
               align="center"
               prop="loginLocation"
               show-overflow-tooltip
             />
-            <el-table-column :label="t('logininfor.column.os')" align="center" prop="os" show-overflow-tooltip />
             <el-table-column
+              v-if="columns.os.visible"
+              :label="t('logininfor.column.os')"
+              align="center"
+              prop="os"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              v-if="columns.browser.visible"
               :label="t('logininfor.column.browser')"
               align="center"
               prop="browser"
               show-overflow-tooltip
             />
-            <el-table-column :label="t('logininfor.column.status')" align="center" prop="status">
+            <el-table-column v-if="columns.status.visible" :label="t('logininfor.column.status')" align="center" prop="status">
               <template #default="scope">
                 <dict-tag :options="sys_common_status" :value="scope.row.status" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('common.column.description')" align="center" prop="msg" show-overflow-tooltip />
             <el-table-column
+              v-if="columns.msg.visible"
+              :label="t('common.column.description')"
+              align="center"
+              prop="msg"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              v-if="columns.loginTime.visible"
               :label="t('logininfor.column.loginTime')"
               align="center"
               prop="loginTime"
@@ -209,12 +231,79 @@ import { useCrudTable } from '@/composables/useCrudTable'
 import type { SysLogininfor, LogininforQueryParams } from '@/types/api/monitor/logininfor'
 import MyLoginPanel from './MyLoginPanel.vue'
 import useUserStore from '@/store/modules/user'
+import useSettingsStore from '@/store/modules/settings'
+import { useTableColumns } from '@/composables/useTableColumns'
+import type { TableColumnDef } from '@/utils/userPrefs'
+import type { TableShowColumns } from '@/types/api/common'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
 const logininforRef = useTemplateRef('logininforRef')
 const userStore = useUserStore()
 const { sys_common_status } = useDict('sys_common_status')
+
+// UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
+// 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
+const settingsStore = useSettingsStore()
+const LOGININFOR_TABLE_KEY = 'monitor:logininfor'
+// 列定义顺序即设置面板展示顺序；多选列/租户列不参与显隐偏好（常驻）
+const LOGININFOR_COLUMN_DEFS: TableColumnDef[] = [
+  { key: 'infoId' },
+  { key: 'userName' },
+  { key: 'ipaddr' },
+  { key: 'loginLocation' },
+  { key: 'os' },
+  { key: 'browser' },
+  { key: 'status' },
+  { key: 'msg' },
+  { key: 'loginTime' }
+]
+const { visibleKeys: logininforVisibleKeys, toggle: toggleLogininforColumn } = useTableColumns({
+  pageKey: LOGININFOR_TABLE_KEY,
+  columns: LOGININFOR_COLUMN_DEFS,
+  getSaved: () => settingsStore.userPrefs.tableColumns?.[LOGININFOR_TABLE_KEY],
+  save: (visible) =>
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [LOGININFOR_TABLE_KEY]: visible }
+    })
+})
+
+// M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
+// 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
+const columns = ref<Record<string, TableShowColumns>>({
+  infoId: { label: t('logininfor.column.infoId'), visible: true },
+  userName: { label: t('logininfor.column.userName'), visible: true },
+  ipaddr: { label: t('logininfor.column.ipaddr'), visible: true },
+  loginLocation: { label: t('logininfor.column.loginLocation'), visible: true },
+  os: { label: t('logininfor.column.os'), visible: true },
+  browser: { label: t('logininfor.column.browser'), visible: true },
+  status: { label: t('logininfor.column.status'), visible: true },
+  msg: { label: t('common.column.description'), visible: true },
+  loginTime: { label: t('logininfor.column.loginTime'), visible: true }
+})
+
+// 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
+watch(
+  logininforVisibleKeys,
+  (keys: string[]) => {
+    for (const key of Object.keys(columns.value)) {
+      columns.value[key].visible = keys.includes(key)
+    }
+  },
+  { immediate: true }
+)
+// RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
+watch(
+  columns,
+  (v: Record<string, TableShowColumns>) => {
+    for (const key of Object.keys(v)) {
+      if (logininforVisibleKeys.value.includes(key) !== v[key].visible) {
+        toggleLogininforColumn(key, v[key].visible)
+      }
+    }
+  },
+  { deep: true }
+)
 
 const selectName = ref<string[]>([])
 const dateRange = ref<string[]>([])

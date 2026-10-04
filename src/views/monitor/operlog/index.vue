@@ -129,7 +129,7 @@
           {{ t('operlog.btn.verifyChain') }}
         </el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
+      <right-toolbar v-model:showSearch="showSearch" :columns="columns" @queryTable="getList"></right-toolbar>
     </el-row>
 
     <Transition name="fade" mode="out-in">
@@ -146,20 +146,37 @@
         @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="50" align="center" />
-        <el-table-column :label="t('operlog.column.operId')" align="center" prop="operId" />
+        <el-table-column
+          v-if="columns.operId.visible"
+          :label="t('operlog.column.operId')"
+          align="center"
+          prop="operId"
+        />
         <TenantColumn />
-        <el-table-column :label="t('operlog.column.title')" align="center" prop="title" show-overflow-tooltip>
+        <el-table-column
+          v-if="columns.title.visible"
+          :label="t('operlog.column.title')"
+          align="center"
+          prop="title"
+          show-overflow-tooltip
+        >
           <template #default="scope">
             <!-- T-11：title 新数据存 i18n key（module.*），旧数据为中文原文；te() 回退兼容 -->
             <span>{{ formatModuleTitle(scope.row.title) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('operlog.column.businessType')" align="center" prop="businessType">
+        <el-table-column
+          v-if="columns.businessType.visible"
+          :label="t('operlog.column.businessType')"
+          align="center"
+          prop="businessType"
+        >
           <template #default="scope">
             <dict-tag :options="sys_oper_type" :value="scope.row.businessType" />
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.operName.visible"
           :label="t('operlog.column.operName')"
           align="center"
           width="110"
@@ -169,18 +186,20 @@
           :sort-orders="['descending', 'ascending']"
         />
         <el-table-column
+          v-if="columns.operIp.visible"
           :label="t('operlog.column.operIp')"
           align="center"
           prop="operIp"
           width="130"
           show-overflow-tooltip
         />
-        <el-table-column :label="t('operlog.column.status')" align="center" prop="status">
+        <el-table-column v-if="columns.status.visible" :label="t('operlog.column.status')" align="center" prop="status">
           <template #default="scope">
             <dict-tag :options="sys_common_status" :value="scope.row.status" />
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.operTime.visible"
           :label="t('operlog.column.operTime')"
           align="center"
           prop="operTime"
@@ -193,6 +212,7 @@
           </template>
         </el-table-column>
         <el-table-column
+          v-if="columns.costTime.visible"
           :label="t('common.column.duration')"
           align="center"
           prop="costTime"
@@ -291,6 +311,10 @@ import { addDateRange } from '@/utils/stepby'
 import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
+import useSettingsStore from '@/store/modules/settings'
+import { useTableColumns } from '@/composables/useTableColumns'
+import type { TableColumnDef } from '@/utils/userPrefs'
+import type { TableShowColumns } from '@/types/api/common'
 import type { SysOperLog, OperlogQueryParams } from '@/types/api/monitor/operlog'
 
 const { t, te } = useI18n()
@@ -302,6 +326,67 @@ function formatModuleTitle(title: string | undefined): string {
 const queryRef = useTemplateRef('queryRef')
 const operlogRef = useTemplateRef('operlogRef')
 const { sys_oper_type, sys_common_status } = useDict('sys_oper_type', 'sys_common_status')
+
+// UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
+// 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
+const settingsStore = useSettingsStore()
+const OPERLOG_TABLE_KEY = 'monitor:operlog'
+// 列定义顺序即设置面板展示顺序；多选列/租户列/操作列不参与显隐偏好（常驻）
+const OPERLOG_COLUMN_DEFS: TableColumnDef[] = [
+  { key: 'operId' },
+  { key: 'title' },
+  { key: 'businessType' },
+  { key: 'operName' },
+  { key: 'operIp' },
+  { key: 'status' },
+  { key: 'operTime' },
+  { key: 'costTime' }
+]
+const { visibleKeys: operlogVisibleKeys, toggle: toggleOperlogColumn } = useTableColumns({
+  pageKey: OPERLOG_TABLE_KEY,
+  columns: OPERLOG_COLUMN_DEFS,
+  getSaved: () => settingsStore.userPrefs.tableColumns?.[OPERLOG_TABLE_KEY],
+  save: (visible) =>
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [OPERLOG_TABLE_KEY]: visible }
+    })
+})
+
+// M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
+// 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
+const columns = ref<Record<string, TableShowColumns>>({
+  operId: { label: t('operlog.column.operId'), visible: true },
+  title: { label: t('operlog.column.title'), visible: true },
+  businessType: { label: t('operlog.column.businessType'), visible: true },
+  operName: { label: t('operlog.column.operName'), visible: true },
+  operIp: { label: t('operlog.column.operIp'), visible: true },
+  status: { label: t('operlog.column.status'), visible: true },
+  operTime: { label: t('operlog.column.operTime'), visible: true },
+  costTime: { label: t('common.column.duration'), visible: true }
+})
+
+// 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
+watch(
+  operlogVisibleKeys,
+  (keys: string[]) => {
+    for (const key of Object.keys(columns.value)) {
+      columns.value[key].visible = keys.includes(key)
+    }
+  },
+  { immediate: true }
+)
+// RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
+watch(
+  columns,
+  (v: Record<string, TableShowColumns>) => {
+    for (const key of Object.keys(v)) {
+      if (operlogVisibleKeys.value.includes(key) !== v[key].visible) {
+        toggleOperlogColumn(key, v[key].visible)
+      }
+    }
+  },
+  { deep: true }
+)
 
 const detailVisible = ref<boolean>(false)
 const detailRow = ref<SysOperLog>({})
