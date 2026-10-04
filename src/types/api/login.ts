@@ -64,6 +64,28 @@ export interface UserInfoResult extends AjaxResult {
    * 避免造出「页签可见但请求 404」的假入口。
    */
   showPasskey?: boolean
+  /**
+   * 个人中心是否显示「API 访问令牌（PAT）」页签
+   *
+   * 由后端按 `[pat].enabled` 算好后下发：关闭态鉴权层对 `ybt_` 令牌一律 401，
+   * PAT 自助端点失去意义。前端只消费不推断，避免「页签可见但请求 401」的假入口。
+   */
+  showPat?: boolean
+  /**
+   * 个人中心是否显示「已授权应用（SSO Grants）」页签
+   *
+   * 由后端按 `[sso].enabled` 算好后下发：SSO Provider 关闭时 OIDC 端点不注册。
+   * 前端只消费不推断。
+   */
+  showSsoGrants?: boolean
+  /**
+   * 角色管理是否显示「字段权限」按钮
+   *
+   * 由后端按 fieldperm 开关链（平台 `sys_config` 开关 + 租户能力位 `role.field_perm`）
+   * **与矩阵接口守卫同源**判定后下发：任一层关闭 ⇒ false。前端只消费不推断，
+   * 避免「按钮可见但点击 403」。
+   */
+  showFieldPerm?: boolean
 }
 
 /** 验证码响应 */

@@ -58,6 +58,28 @@ interface UserState {
    */
   showPasskey: boolean
   /**
+   * 个人中心是否显示「API 访问令牌（PAT）」页签。
+   *
+   * 后端按 `[pat].enabled` 算好后随 `getInfo` 下发：关闭态 PAT 自助端点失去意义
+   * （鉴权层对 ybt_ 令牌一律 401），显示即假入口。
+   * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
+   */
+  showPat: boolean
+  /**
+   * 个人中心是否显示「已授权应用（SSO Grants）」页签。
+   *
+   * 后端按 `[sso].enabled` 算好后随 `getInfo` 下发：SSO 关闭时 OIDC 端点不注册。
+   * 默认 `false`（fail-safe）。
+   */
+  showSsoGrants: boolean
+  /**
+   * 角色管理是否显示「字段权限」按钮。
+   *
+   * 后端按 fieldperm 开关链（平台 sys_config 开关 + 租户能力位，与矩阵接口守卫同源）
+   * 算好后随 `getInfo` 下发。默认 `false`（fail-safe）。
+   */
+  showFieldPerm: boolean
+  /**
    * B4 强制改密（路由守卫拦截依据）。
    *
    * 后端按强改开关 `sys.user.forceFirstLoginChangePwd`（默认 false）+（初始密码未改 ||
@@ -82,6 +104,9 @@ const useUserStore = defineStore('user', {
     showTenantFilter: false,
     showUserErasure: false,
     showPasskey: false,
+    showPat: false,
+    showSsoGrants: false,
+    showFieldPerm: false,
     mustChangePassword: false
   }),
   actions: {
@@ -158,6 +183,13 @@ const useUserStore = defineStore('user', {
       // 「通行密钥（Passkey）」页签开关：由后端按能力位 auth.webauthn 算好（与端点守卫同一判据），
       // 前端只落库（缺字段视为 false，fail-safe ⇒ 默认不显示页签、不探测端点）
       this.showPasskey = res.showPasskey === true
+      // 「API 访问令牌（PAT）」页签开关：由后端按 [pat].enabled 算好，前端只落库
+      // （缺字段视为 false，fail-safe ⇒ 默认不显示页签）
+      this.showPat = res.showPat === true
+      // 「已授权应用（SSO Grants）」页签开关：由后端按 [sso].enabled 算好，前端只落库
+      this.showSsoGrants = res.showSsoGrants === true
+      // 「字段权限」按钮开关：由后端按 fieldperm 开关链（与矩阵接口守卫同源）算好，前端只落库
+      this.showFieldPerm = res.showFieldPerm === true
       // B4 强制改密标志：后端按强改开关 +（初始密码未改 || 密码过期）算好下发，
       // 前端只落库（缺字段视为 false，fail-safe ⇒ 开关关闭时零行为变化）
       this.mustChangePassword = res.mustChangePassword === true
@@ -237,6 +269,9 @@ const useUserStore = defineStore('user', {
         this.showTenantFilter = false
         this.showUserErasure = false
         this.showPasskey = false
+        this.showPat = false
+        this.showSsoGrants = false
+        this.showFieldPerm = false
         // 清理字典缓存
         useDictStore().cleanDict()
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）

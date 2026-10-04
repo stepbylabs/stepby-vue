@@ -210,8 +210,14 @@
                 v-hasPermi="['system:role:edit']"
               ></el-button>
             </el-tooltip>
-            <!-- M3 字段级权限：打开该角色的字段授权矩阵（独立读权限位） -->
-            <el-tooltip :content="t('role.fieldPerm.title')" placement="top" v-if="scope.row.roleId !== 1">
+            <!-- M3 字段级权限：打开该角色的字段授权矩阵（独立读权限位）。
+                 v-if 额外消费后端 showFieldPerm（getInfo 下发，与矩阵接口开关链同源）：
+                 平台开关或租户能力位关闭时矩阵接口 403，按钮必须同步隐藏（防假入口）。 -->
+            <el-tooltip
+              :content="t('role.fieldPerm.title')"
+              placement="top"
+              v-if="scope.row.roleId !== 1 && userStore.showFieldPerm"
+            >
               <el-button
                 link
                 type="primary"
@@ -417,12 +423,14 @@ import type { RoleDeptTreeResult } from '@/types/api/system/role'
 import type { RoleMenuTreeselectResult } from '@/types/api/system/menu'
 import type { TreeInstance } from 'element-plus'
 import useSettingsStore from '@/store/modules/settings'
+import useUserStore from '@/store/modules/user'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 
 const router = useRouter()
 const { t } = useI18n()
+const userStore = useUserStore()
 const roleRefRef = useTemplateRef('roleRef')
 const queryRefRef = useTemplateRef('queryRef')
 const roleTableRef = useTemplateRef('roleTableRef')

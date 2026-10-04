@@ -75,13 +75,17 @@
             <el-tab-pane :label="t('oauth.bindings')" name="oauth">
               <oauth />
             </el-tab-pane>
-            <el-tab-pane :label="t('sso.grants.title')" name="ssoGrants">
+            <!-- 已授权应用页签：**[sso].enabled 关闭时不渲染**（关闭态 OIDC 端点不注册，
+                 onMounted 即请求必然失败）。用 v-if 同 passkeys 页签口径（防 EP 渲染触发请求）。 -->
+            <el-tab-pane v-if="userStore.showSsoGrants" :label="t('sso.grants.title')" name="ssoGrants">
               <sso-grants />
             </el-tab-pane>
             <el-tab-pane :label="t('profile.msgPref')" name="pref">
               <msg-pref />
             </el-tab-pane>
-            <el-tab-pane :label="t('pat.tab')" name="pat">
+            <!-- API 访问令牌页签：**[pat].enabled 关闭时不渲染**（关闭态鉴权层对 ybt_
+                 令牌一律 401，自助端点失去意义）。用 v-if 同 passkeys 页签口径。 -->
+            <el-tab-pane v-if="userStore.showPat" :label="t('pat.tab')" name="pat">
               <pat-token />
             </el-tab-pane>
           </el-tabs>
