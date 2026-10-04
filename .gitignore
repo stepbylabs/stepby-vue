@@ -14,6 +14,9 @@ tests/e2e/reports
 /screenshots/
 selenium-debug.log
 
+# e2e 轮次批跑运行时产物（进度 JSON + runner 自身日志），不入库
+tests/e2e/_rounds2026*
+
 # Editor directories and files
 .idea
 .vscode
