@@ -300,9 +300,7 @@ const data = reactive({
     pageSize: 10,
     noticeTitle: undefined,
     createBy: undefined,
-    status: undefined,
-    orderByColumn: undefined,
-    isAsc: undefined
+    status: undefined
   } as NoticeQueryParams,
   rules: {
     noticeTitle: [{ required: true, message: t('notice.validate.noticeTitleRequired'), trigger: 'blur' }],
@@ -333,6 +331,7 @@ const {
   cancel,
   handleQuery,
   resetQuery: resetQueryBase,
+  handleSortChange,
   handleSelectionChange,
   handleAdd,
   handleUpdate,
@@ -356,6 +355,8 @@ const {
   }),
   titleKey: 'notice.title',
   deleteTipKey: 'notice.tip.confirmDelete',
+  // P1a：排序并入 queryParams（URL 同步 + reset 联动），替代页内手写排序透传
+  supportsSort: true,
   queryParams,
   form,
   formRef: noticeRefRef,
@@ -377,19 +378,10 @@ function handleViewData(row: SysNotice) {
   noticeViewRefRef.value?.open(row)
 }
 
-/** 重置（含排序状态清除） */
+/** 重置（排序由 resetQueryBase 清空；此处仅清 el-table 表头排序指示器） */
 function resetQuery() {
-  queryParams.value.orderByColumn = undefined
-  queryParams.value.isAsc = undefined
   resetQueryBase()
   noticeTableRef.value?.clearSort()
-}
-
-/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
-function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop ?? undefined
-  queryParams.value.isAsc = column.order ?? undefined
-  getList()
 }
 
 /** 查看已读用户 */

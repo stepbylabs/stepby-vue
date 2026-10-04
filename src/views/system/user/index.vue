@@ -467,9 +467,20 @@ const USER_COLUMN_DEFS: TableColumnDef[] = [
   { key: 'status' },
   { key: 'createTime' }
 ]
-const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn } = useTableColumns({
+// P2a：label 工厂——locale 切换时由 composable 重建 columns label（visible 偏好保留）
+const USER_COLUMN_LABELS = () => ({
+  userId: t('user.column.id'),
+  userName: t('user.column.username'),
+  nickName: t('user.column.nickName'),
+  deptName: t('user.column.dept'),
+  phonenumber: t('user.column.phone'),
+  status: t('user.column.status'),
+  createTime: t('user.column.createTime')
+})
+const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn, bindLabels: bindUserLabels } = useTableColumns({
   pageKey: USER_TABLE_KEY,
   columns: USER_COLUMN_DEFS,
+  labels: USER_COLUMN_LABELS,
   getSaved: () => settingsStore.userPrefs.tableColumns?.[USER_TABLE_KEY],
   save: (visible) =>
     settingsStore.updateUserPrefs({
@@ -479,7 +490,7 @@ const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn } = useTableColum
 
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
 // 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
-// label 不响应语言切换是已知限制，可通过 watch locale 更新 label 优化（当前影响较小）。
+// P2a 已修复 label 不响应语言切换的已知限制（bindLabels 随 locale 重建 label）。
 const columns = ref<Record<string, TableShowColumns>>({
   userId: { label: t('user.column.id'), visible: true },
   userName: { label: t('user.column.username'), visible: true },
@@ -489,6 +500,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   status: { label: t('user.column.status'), visible: true },
   createTime: { label: t('user.column.createTime'), visible: true }
 })
+// P2a：locale 切换 → columns label 自动更新（labelMap immediate 应用 + watch 跟随）
+bindUserLabels(columns)
 
 // 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
 watch(

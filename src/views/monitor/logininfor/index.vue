@@ -258,9 +258,26 @@ const LOGININFOR_COLUMN_DEFS: TableColumnDef[] = [
   { key: 'msg' },
   { key: 'loginTime' }
 ]
-const { visibleKeys: logininforVisibleKeys, toggle: toggleLogininforColumn } = useTableColumns({
+// P2a：label 工厂——locale 切换时由 composable 重建 columns label（visible 偏好保留）
+const LOGININFOR_COLUMN_LABELS = () => ({
+  infoId: t('logininfor.column.infoId'),
+  userName: t('logininfor.column.userName'),
+  ipaddr: t('logininfor.column.ipaddr'),
+  loginLocation: t('logininfor.column.loginLocation'),
+  os: t('logininfor.column.os'),
+  browser: t('logininfor.column.browser'),
+  status: t('logininfor.column.status'),
+  msg: t('common.column.description'),
+  loginTime: t('logininfor.column.loginTime')
+})
+const {
+  visibleKeys: logininforVisibleKeys,
+  toggle: toggleLogininforColumn,
+  bindLabels: bindLogininforLabels
+} = useTableColumns({
   pageKey: LOGININFOR_TABLE_KEY,
   columns: LOGININFOR_COLUMN_DEFS,
+  labels: LOGININFOR_COLUMN_LABELS,
   getSaved: () => settingsStore.userPrefs.tableColumns?.[LOGININFOR_TABLE_KEY],
   save: (visible) =>
     settingsStore.updateUserPrefs({
@@ -281,6 +298,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   msg: { label: t('common.column.description'), visible: true },
   loginTime: { label: t('logininfor.column.loginTime'), visible: true }
 })
+// P2a：locale 切换 → columns label 自动更新（labelMap immediate 应用 + watch 跟随）
+bindLogininforLabels(columns)
 
 // 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
 watch(

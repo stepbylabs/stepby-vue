@@ -266,9 +266,22 @@ const TASK_COLUMN_DEFS: TableColumnDef[] = [
   { key: 'resultMsg' },
   { key: 'createTime' }
 ]
-const { visibleKeys: taskVisibleKeys, toggle: toggleTaskColumn } = useTableColumns({
+// P2a：label 工厂——locale 切换时由 composable 重建 columns label（visible 偏好保留）
+const TASK_COLUMN_LABELS = () => ({
+  taskId: t('task.column.id'),
+  taskName: t('task.column.name'),
+  taskType: t('task.column.type'),
+  status: t('task.column.status'),
+  progress: t('task.column.progress'),
+  currentTotal: t('task.column.currentTotal'),
+  operator: t('task.column.operator'),
+  resultMsg: t('task.column.resultMsg'),
+  createTime: t('task.column.createTime')
+})
+const { visibleKeys: taskVisibleKeys, toggle: toggleTaskColumn, bindLabels: bindTaskLabels } = useTableColumns({
   pageKey: TASK_TABLE_KEY,
   columns: TASK_COLUMN_DEFS,
+  labels: TASK_COLUMN_LABELS,
   getSaved: () => settingsStore.userPrefs.tableColumns?.[TASK_TABLE_KEY],
   save: (visible) =>
     settingsStore.updateUserPrefs({
@@ -289,6 +302,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   resultMsg: { label: t('task.column.resultMsg'), visible: true },
   createTime: { label: t('task.column.createTime'), visible: true }
 })
+// P2a：locale 切换 → columns label 自动更新（labelMap immediate 应用 + watch 跟随）
+bindTaskLabels(columns)
 
 // 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
 watch(

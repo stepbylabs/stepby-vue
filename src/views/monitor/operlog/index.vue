@@ -342,9 +342,25 @@ const OPERLOG_COLUMN_DEFS: TableColumnDef[] = [
   { key: 'operTime' },
   { key: 'costTime' }
 ]
-const { visibleKeys: operlogVisibleKeys, toggle: toggleOperlogColumn } = useTableColumns({
+// P2a：label 工厂——locale 切换时由 composable 重建 columns label（visible 偏好保留）
+const OPERLOG_COLUMN_LABELS = () => ({
+  operId: t('operlog.column.operId'),
+  title: t('operlog.column.title'),
+  businessType: t('operlog.column.businessType'),
+  operName: t('operlog.column.operName'),
+  operIp: t('operlog.column.operIp'),
+  status: t('operlog.column.status'),
+  operTime: t('operlog.column.operTime'),
+  costTime: t('common.column.duration')
+})
+const {
+  visibleKeys: operlogVisibleKeys,
+  toggle: toggleOperlogColumn,
+  bindLabels: bindOperlogLabels
+} = useTableColumns({
   pageKey: OPERLOG_TABLE_KEY,
   columns: OPERLOG_COLUMN_DEFS,
+  labels: OPERLOG_COLUMN_LABELS,
   getSaved: () => settingsStore.userPrefs.tableColumns?.[OPERLOG_TABLE_KEY],
   save: (visible) =>
     settingsStore.updateUserPrefs({
@@ -364,6 +380,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   operTime: { label: t('operlog.column.operTime'), visible: true },
   costTime: { label: t('common.column.duration'), visible: true }
 })
+// P2a：locale 切换 → columns label 自动更新（labelMap immediate 应用 + watch 跟随）
+bindOperlogLabels(columns)
 
 // 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
 watch(

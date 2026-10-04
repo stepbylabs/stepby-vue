@@ -21,6 +21,15 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t }) }))
 // （该文件整体禁真实加载 element-plus，confirm 行为由用例内 spy 控制）
 const { elMessageBoxConfirm } = vi.hoisted(() => ({ elMessageBoxConfirm: vi.fn() }))
 vi.mock('element-plus', () => ({ ElMessageBox: { confirm: elMessageBoxConfirm } }))
+// UX-6 URL 同步：可控 route/router，supportsSort 排序进 URL 的断言基建
+const { routerReplace, routeState } = vi.hoisted(() => ({
+  routerReplace: vi.fn(() => Promise.resolve()),
+  routeState: { query: {} as Record<string, unknown> }
+}))
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ replace: routerReplace }),
+  useRoute: () => ({ query: routeState.query })
+}))
 
 import { useCrudTable } from './useCrudTable'
 
@@ -110,6 +119,7 @@ let consoleError: ReturnType<typeof vi.spyOn>
 describe('composables/useCrudTable', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    routeState.query = {}
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
   afterEach(() => {
@@ -425,37 +435,71 @@ describe('composables/useCrudTable', () => {
     })
   })
 
-  // ===== 可选排序（supportsSort） =====
+  // ===== 可选排序（supportsSort）：直接写入 queryParams =====
   describe('supportsSort', () => {
-    it('开启时 ascending → isAsc=asc 并合入请求参数、重置第一页', async () => {
+    it('开启时 ascending → queryParams.orderByColumn/isAsc 写入并随请求透传、重置第一页', async () => {
       const { ctx, listApi, queryParams } = makeCtx({ supportsSort: true })
       ctx.handleSortChange({ prop: 'postName', order: 'ascending' })
       await flush()
       expect(queryParams.value.pageNum).toBe(1)
-      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a', orderByColumn: 'postName', isAsc: 'asc' })
+      expect(queryParams.value).toMatchObject({ orderByColumn: 'postName', isAsc: 'asc' })
+      expect(listApi).toHaveBeenLastCalledWith(queryParams.value)
     })
 
-    it('开启时 descending → isAsc=desc', async () => {
-      const { ctx, listApi } = makeCtx({ supportsSort: true })
+    it('开启时 descending → isAsc=desc 写入 queryParams', async () => {
+      const { ctx, listApi, queryParams } = makeCtx({ supportsSort: true })
       ctx.handleSortChange({ prop: 'postId', order: 'descending' })
       await flush()
-      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a', orderByColumn: 'postId', isAsc: 'desc' })
+      expect(queryParams.value).toMatchObject({ orderByColumn: 'postId', isAsc: 'desc', pageNum: 1 })
+      expect(listApi).toHaveBeenLastCalledWith(queryParams.value)
     })
 
-    it('开启时取消排序（order=null）→ 清空排序参数并重置第一页', async () => {
-      const { ctx, listApi } = makeCtx({ supportsSort: true })
+    it('开启时取消排序（order=null）→ 排序参数置 undefined 并重置第一页', async () => {
+      const { ctx, listApi, queryParams } = makeCtx({ supportsSort: true })
       ctx.handleSortChange({ prop: 'postId', order: 'descending' })
       await flush()
       ctx.handleSortChange({ prop: 'postId', order: null })
       await flush()
-      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a' })
+      expect(queryParams.value).toMatchObject({ pageNum: 1 })
+      expect((queryParams.value as Record<string, unknown>).orderByColumn).toBeUndefined()
+      expect((queryParams.value as Record<string, unknown>).isAsc).toBeUndefined()
+      expect(listApi).toHaveBeenLastCalledWith(queryParams.value)
     })
 
     it('开启时 prop 缺失视同取消排序（不产生空排序参数）', async () => {
-      const { ctx, listApi } = makeCtx({ supportsSort: true })
+      const { ctx, queryParams } = makeCtx({ supportsSort: true })
       ctx.handleSortChange({ prop: undefined, order: 'ascending' })
       await flush()
-      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a' })
+      expect((queryParams.value as Record<string, unknown>).orderByColumn).toBeUndefined()
+      expect((queryParams.value as Record<string, unknown>).isAsc).toBeUndefined()
+    })
+
+    it('开启时排序同步进 URL（UX-6，刷新不丢排序）', async () => {
+      routeState.query = {}
+      const { ctx } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: 'postName', order: 'descending' })
+      await flush()
+      expect(routerReplace).toHaveBeenLastCalledWith({
+        query: expect.objectContaining({ orderByColumn: 'postName', isAsc: 'desc' })
+      })
+    })
+
+    it('开启时进入页面从 URL 恢复排序参数（刷新不丢）', () => {
+      routeState.query = { orderByColumn: 'postName', isAsc: 'desc' }
+      const { queryParams } = makeCtx({ supportsSort: true })
+      expect(queryParams.value).toMatchObject({ orderByColumn: 'postName', isAsc: 'desc' })
+    })
+
+    it('开启时 resetQuery 连带清空排序参数', async () => {
+      const { ctx, queryParams } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: 'postId', order: 'descending' })
+      await flush()
+      expect((queryParams.value as Record<string, unknown>).orderByColumn).toBe('postId')
+      ctx.resetQuery()
+      await flush()
+      expect((queryParams.value as Record<string, unknown>).orderByColumn).toBeUndefined()
+      expect((queryParams.value as Record<string, unknown>).isAsc).toBeUndefined()
+      expect(queryParams.value.pageNum).toBe(1)
     })
 
     it('未开启（默认）时 handleSortChange 不触发请求、不影响查询参数', async () => {
