@@ -46,6 +46,17 @@ router.beforeEach(async (to, _from) => {
     if (isWhiteList(to.path)) {
       return true
     }
+    // B4 强制改密拦截：标志置位时仅放行个人资料页（改密页签）。
+    // 改密成功 → 旧 token 失效（pwd_ver）→ 强制重登 → getInfo 标志已清 → 自然放行。
+    // 仅在用户信息已加载（roles 非空）时判定，避免冷加载 getInfo 前误拦。
+    const userStore = useUserStore()
+    if (userStore.roles.length > 0 && userStore.mustChangePassword) {
+      const profilePath = '/user/profile'
+      if (to.path !== profilePath) {
+        doneProgress()
+        return { path: profilePath, query: { activeTab: 'resetPwd' } }
+      }
+    }
     if (useUserStore().roles.length === 0) {
       isRelogin.show = true
       try {

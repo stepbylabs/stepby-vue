@@ -23,7 +23,13 @@ deptIds: Array<number>, userId: number, deptId: number | null, userName: string,
  * 手机号国家/地区代码（ISO 3166-1 alpha-2，如 CN/HK/US）。
  * 方案 D（G18）手机号多地区化：None 视为回退 CN。
  */
-countryCode: string | null, sex: string | null, avatar: string | null, status: string | null, delFlag: string | null, loginIp: string | null, loginDate: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, 
+countryCode: string | null, sex: string | null, avatar: string | null, status: string | null, delFlag: string | null, 
+/**
+ * 强制首登改密标志（B4，m20261004_000003）：'1' = 初始密码未修改；
+ * 个人中心改密成功即清除；仅当 config 开关 `sys.user.forceFirstLoginChangePwd`
+ * 开启时驱动前端强制改密流程（标志计算见 auth_service.is_default_modify_pwd）
+ */
+mustChangePwd: string | null, loginIp: string | null, loginDate: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, 
 /**
  * v5-N2 Phase 2（第一步）：租户 ID（登录 JWT 的 tid 数据源；默认 0 = 平台单租户，
  * 多租户立项后由租户管理功能维护；Phase 2 后续：Repository 过滤层按 tid 注入条件）

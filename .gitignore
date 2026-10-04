@@ -38,6 +38,7 @@ components.d.ts
 # 本地 agent 工作目录与临时提交信息（不应入库）
 .workbuddy/
 commit_msg.txt
+_cm.txt
 
 # 沙箱隔离的本地 pnpm store/cache（避免与全局 store 冲突；不应入库）
 .pnpm-store/

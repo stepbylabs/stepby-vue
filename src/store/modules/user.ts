@@ -57,6 +57,15 @@ interface UserState {
    * 默认 `false`（fail-safe：未取到用户信息时宁可不显示）。
    */
   showPasskey: boolean
+  /**
+   * B4 强制改密（路由守卫拦截依据）。
+   *
+   * 后端按强改开关 `sys.user.forceFirstLoginChangePwd`（默认 false）+（初始密码未改 ||
+   * 密码过期）算好后随 `getInfo` 下发，前端只消费不推断。`false`/缺省 = 零行为变化。
+   * 为 true 时路由守卫仅放行个人资料页（改密），改密成功后旧 token 失效强制重登，
+   * 重登后 getInfo 标志已清除 → 自然放行（闭环无需额外状态清理）。
+   */
+  mustChangePassword: boolean
 }
 
 const useUserStore = defineStore('user', {
@@ -72,7 +81,8 @@ const useUserStore = defineStore('user', {
     showTenantColumn: false,
     showTenantFilter: false,
     showUserErasure: false,
-    showPasskey: false
+    showPasskey: false,
+    mustChangePassword: false
   }),
   actions: {
     // 登录
@@ -148,32 +158,48 @@ const useUserStore = defineStore('user', {
       // 「通行密钥（Passkey）」页签开关：由后端按能力位 auth.webauthn 算好（与端点守卫同一判据），
       // 前端只落库（缺字段视为 false，fail-safe ⇒ 默认不显示页签、不探测端点）
       this.showPasskey = res.showPasskey === true
+      // B4 强制改密标志：后端按强改开关 +（初始密码未改 || 密码过期）算好下发，
+      // 前端只落库（缺字段视为 false，fail-safe ⇒ 开关关闭时零行为变化）
+      this.mustChangePassword = res.mustChangePassword === true
       cache.session.set('pwdChrtype', res.pwdChrtype || '0')
       // P1 修复: 同步更新 passwordRule 模块级 ref，确保登录后规则实时生效
       setPwdChrType(res.pwdChrtype || '0')
-      /* 初始密码提示 */
-      if (res.isDefaultModifyPwd) {
-        ElMessageBox.confirm(i18n.global.t('user.initialPasswordWarning'), i18n.global.t('user.securityTip'), {
+      /* B4 强制改密：开关开启时不可跳过（区别于下方软提示 confirm），只引导到改密页 */
+      if (this.mustChangePassword) {
+        ElMessageBox.alert(i18n.global.t('user.forcePasswordChangeWarning'), i18n.global.t('user.securityTip'), {
           confirmButtonText: i18n.global.t('common.confirm'),
-          cancelButtonText: i18n.global.t('common.cancel'),
-          type: 'warning'
+          type: 'warning',
+          showClose: false
         })
           .then(() => {
             router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
           })
           .catch(() => {})
-      }
-      /* 过期密码提示 */
-      if (!res.isDefaultModifyPwd && res.isPasswordExpired) {
-        ElMessageBox.confirm(i18n.global.t('user.passwordExpiredWarning'), i18n.global.t('user.securityTip'), {
-          confirmButtonText: i18n.global.t('common.confirm'),
-          cancelButtonText: i18n.global.t('common.cancel'),
-          type: 'warning'
-        })
-          .then(() => {
-            router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
+      } else {
+        /* 初始密码提示（开关未开启时的软提示，保持历史行为） */
+        if (res.isDefaultModifyPwd) {
+          ElMessageBox.confirm(i18n.global.t('user.initialPasswordWarning'), i18n.global.t('user.securityTip'), {
+            confirmButtonText: i18n.global.t('common.confirm'),
+            cancelButtonText: i18n.global.t('common.cancel'),
+            type: 'warning'
           })
-          .catch(() => {})
+            .then(() => {
+              router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
+            })
+            .catch(() => {})
+        }
+        /* 过期密码提示 */
+        if (!res.isDefaultModifyPwd && res.isPasswordExpired) {
+          ElMessageBox.confirm(i18n.global.t('user.passwordExpiredWarning'), i18n.global.t('user.securityTip'), {
+            confirmButtonText: i18n.global.t('common.confirm'),
+            cancelButtonText: i18n.global.t('common.cancel'),
+            type: 'warning'
+          })
+            .then(() => {
+              router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
+            })
+            .catch(() => {})
+        }
       }
       return res
       // P2 修复: 不再 try/catch 吞错。request.ts 拦截器已统一弹错误提示，

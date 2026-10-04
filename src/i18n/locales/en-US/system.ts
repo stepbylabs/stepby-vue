@@ -273,6 +273,7 @@ export default {
       done: 'User "{user}" has been anonymized (irreversible)'
     },
     initialPasswordWarning: 'Your password is still the initial password. Please change it!',
+    forcePasswordChangeWarning: 'Force password change policy is enabled: you are using the initial password or your password has expired. You must change your password before accessing other features.',
     passwordExpiredWarning: 'Your password has expired. Please change it as soon as possible!',
     securityTip: 'Security Tip'
   },

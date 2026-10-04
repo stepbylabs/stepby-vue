@@ -274,6 +274,7 @@ export default {
     },
     initialPasswordWarning: '您的密码还是初始密码，请修改密码！',
     passwordExpiredWarning: '您的密码已过期，请尽快修改密码！',
+    forcePasswordChangeWarning: '系统已开启强制改密策略：您正在使用初始密码或密码已过期，必须先修改密码后才能使用其他功能。',
     securityTip: '安全提示'
   },
   scimGroup: {

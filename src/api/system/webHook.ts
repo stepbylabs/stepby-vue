@@ -96,6 +96,15 @@ export function testSendByEvent(id: number | string, eventKey: string): Promise<
   })
 }
 
+// 事件目录停用/启用（停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断）
+export function changeWebhookEventEnabled(id: number | string, enabled: string): Promise<AjaxResult<null>> {
+  return request({
+    url: '/system/webhook/event/' + id + '/enabled',
+    method: 'put',
+    data: { enabled: enabled }
+  })
+}
+
 // 导出回调配置
 export function exportWebHook(query: WebHookQueryParams): void {
   download('/monitor/webHook/export', { ...query }, `web_hook_${new Date().getTime()}.xlsx`)

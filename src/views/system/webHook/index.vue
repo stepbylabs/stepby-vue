@@ -395,9 +395,16 @@
             <pre class="result-pre">{{ scope.row.payloadExample || '-' }}</pre>
           </template>
         </el-table-column>
-        <el-table-column :label="t('webHook.column.status')" align="center" width="90">
+        <el-table-column :label="t('webHook.column.status')" align="center" width="120">
           <template #default="scope">
-            <el-tag :type="scope.row.enabled === '1' ? 'success' : 'info'" size="small">
+            <!-- 停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断 -->
+            <el-switch
+              v-if="checkPermi(['system:webhook:event:edit'])"
+              :model-value="scope.row.enabled === '1'"
+              :loading="eventEnabledLoadingId === scope.row.id"
+              @change="(val: string | number | boolean) => handleEventEnabledChange(scope.row, val)"
+            />
+            <el-tag v-else :type="scope.row.enabled === '1' ? 'success' : 'info'" size="small">
               {{ scope.row.enabled === '1' ? t('common.enabled') : t('common.disabled') }}
             </el-tag>
           </template>
@@ -430,10 +437,12 @@ import {
   changeWebHookStatus,
   testWebHook,
   listWebhookEvents,
-  testSendByEvent
+  testSendByEvent,
+  changeWebhookEventEnabled
 } from '@/api/system/webHook'
 import type { SysWebHook, DeliveryResult, WebhookEventVo } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
 import { useRouter } from 'vue-router'
 
@@ -516,6 +525,30 @@ loadEventOptionsFull()
 /** 打开事件目录对话框 */
 function openEventCatalog(): void {
   eventCatalogOpen.value = true
+}
+
+// ==================== 事件目录停用/启用（system:webhook:event:edit） ====================
+// 语义：停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断
+const eventEnabledLoadingId = ref<number | string | null>(null)
+
+async function handleEventEnabledChange(
+  row: WebhookEventVo,
+  val: string | number | boolean
+): Promise<void> {
+  const target = val === true || val === '1' ? '1' : '0'
+  const prev = row.enabled
+  eventEnabledLoadingId.value = row.id
+  try {
+    await changeWebhookEventEnabled(row.id, target)
+    row.enabled = target
+    // 目录状态变化影响测试发送下拉的可用项，重新拉取
+    await loadEventOptionsFull()
+    modal.msgSuccess(t('common.success'))
+  } catch {
+    row.enabled = prev
+  } finally {
+    eventEnabledLoadingId.value = null
+  }
 }
 
 // 搜索区：事件类型多选（UI 用数组，请求时 join 为逗号串）

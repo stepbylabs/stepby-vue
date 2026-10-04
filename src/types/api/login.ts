@@ -22,6 +22,12 @@ export interface UserInfoResult extends AjaxResult {
   /** 密码是否过期 */
   isPasswordExpired?: boolean
   /**
+   * B4 强制改密判定（后端算好下发，前端只消费不推断）：
+   * 强改开关 `sys.user.forceFirstLoginChangePwd`（默认 false）开启 **且**
+   * （初始密码未修改 || 密码过期）。开关关闭时恒 false/缺省，前端零行为变化。
+   */
+  mustChangePassword?: boolean
+  /**
    * 业务列表页是否显示「所属租户」归属列
    *
    * 由后端按 `[ui].show_tenant_column`（`auto` | `always` | `never`）结合操作者租户上下文
