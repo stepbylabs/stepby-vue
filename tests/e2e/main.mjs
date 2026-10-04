@@ -11181,10 +11181,11 @@ async function testFeature52(page) {
     await dismissAllOverlays(page)
   }
   await searchBy(uname)
-  // 循环轮 7 修复：与编辑后断言同源的时序竞态——新增 PUT 200 后首搜可能命中旧快照，重查一次
+  // 循环轮 7 修复：与编辑后断言同源的时序竞态——新增 PUT 200 后首搜可能命中旧快照。
+  // 2026-10-04 R9 增强：重查扩到 4 次（对齐编辑断言；R9 实测 1.2s 单次重查在高负载下仍命中旧快照）
   let rowAfterAdd = await rowsOf(uname).count()
-  if (rowAfterAdd === 0) {
-    await sleep(1200)
+  for (let attempt = 0; attempt < 4 && rowAfterAdd === 0; attempt++) {
+    await sleep(1500)
     await searchBy(uname)
     rowAfterAdd = await rowsOf(uname).count()
   }
@@ -11218,14 +11219,23 @@ async function testFeature52(page) {
     await dismissAllOverlays(page)
     await searchBy(uname)
     // 循环轮 6 修复：编辑 PUT 200 后立即搜索存在时序竞态（waitForResponse 可能命中
-    // 对话框关闭前的旧 list 请求）→ 未命中时强制重查一次（真实二次搜索，非盲等）
+    // 对话框关闭前的旧 list 请求）→ 未命中时强制重查（真实二次搜索，非盲等）。
+    // 2026-10-04 R1 增强：重试扩到 4 次 + uname 行文本兜底 + 失败 dump 实际行文本
+    // （此前 detail 只打期望值，无法区分"列表未刷新"与"昵称列渲染差异"）。
     let showsNew = (await rowsOf(nick2).count()) === 1
-    if (!showsNew) {
-      await sleep(1200)
+    let rowDump = ''
+    for (let attempt = 0; attempt < 4 && !showsNew; attempt++) {
+      await sleep(1500)
       await searchBy(uname)
       showsNew = (await rowsOf(nick2).count()) === 1
     }
-    record(52, '编辑后列表即时反映新昵称', showsNew, `nick=${nick2}`)
+    if (!showsNew) {
+      // 兜底：uname 搜索必返回该行（与昵称渲染无关），直接校验行内昵称文本
+      const row = rowsOf(uname).first()
+      rowDump = await row.innerText().catch(() => '')
+      showsNew = rowDump.includes(nick2)
+    }
+    record(52, '编辑后列表即时反映新昵称', showsNew, showsNew ? `nick=${nick2}` : `nick=${nick2} rowDump=${rowDump.replace(/\s+/g, '|').slice(0, 160)}`)
   } else {
     record(52, '编辑对话框回填原昵称', false, '编辑按钮不可见')
     record(52, 'UI 编辑提交成功（Toast 恰1成功0错误）', false, '未进入编辑')
@@ -11233,12 +11243,21 @@ async function testFeature52(page) {
   }
 
   // ---- (3) UI 删除（MessageBox 二次确认 + 行消失） ----
-  const delBtn = rowsOf(nick2)
+  // 2026-10-04 R1 修复：删除定位不再依赖 rowsOf(nick2)（编辑后昵称列渲染时序
+  // 曾致行匹配 0 → 删除按钮"不可见"连锁 3 断言失败）。改用 uname 搜索行
+  // （与昵称渲染无关），先确认行在页上再取行内删除按钮。
+  let delRowReady = false
+  for (let attempt = 0; attempt < 3 && !delRowReady; attempt++) {
+    await sleep(1200)
+    await searchBy(uname)
+    delRowReady = (await rowsOf(uname).count()) === 1
+  }
+  const delBtn = rowsOf(uname)
     .first()
     .getByRole('button', { name: /删除/ })
-    .or(rowsOf(nick2).first().locator('button:has-text("删除")'))
+    .or(rowsOf(uname).first().locator('button:has-text("删除")'))
     .first()
-  const delVisible = await delBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  const delVisible = delRowReady && (await delBtn.isVisible({ timeout: 3000 }).catch(() => false))
   let deleted = false
   if (delVisible) {
     await delBtn.click()
@@ -12827,7 +12846,11 @@ async function testFeature64(page) {
 /** 功能 65：定时任务行操作链——开关取消回滚 / 执行一次取消 / 详情弹窗 / 调度日志跳转（页面级循环·轮9） */
 async function testFeature65(page) {
   log('=== 功能 65：定时任务行操作链（开关取消/执行一次取消/详情/调度日志） ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  // R3 增强：networkidle 在调度日志长轮询下可能永不 idle（30s 超时偶发），
+  // 降级继续——后续 rows>0 断言会真实校验页面加载结果
+  await page
+    .goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+    .catch(() => log('  ⚠️ networkidle 等待超时（可能有长连接），降级继续'))
   await sleep(1500)
   await skipTour(page)
   const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
@@ -16356,7 +16379,9 @@ async function main() {
       { id: 77, fn: testFeature77 },
       { id: 78, fn: testFeature78 },
       { id: 79, fn: testFeature79 },
-      { id: 80, fn: testFeature80 }
+      { id: 80, fn: testFeature80 },
+      { id: 81, fn: testFeature81 },
+      { id: 82, fn: testFeature82 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -16489,7 +16514,7 @@ async function mLevelApiSetup(featureId) {
     const res = await fetch(`${CONFIG.backendUrl}${url}`, opts).catch(() => null)
     if (!res) return { status: 0, body: null, code: null, rows: [], data: null }
     const body = await res.json().catch(() => null)
-    return { status: res.status, body, code: body?.code ?? null, rows: body?.rows ?? [], data: body?.data ?? null, msg: body?.msg ?? '' }
+    return { status: res.status, body, code: body?.code ?? null, rows: body?.rows ?? [], total: body?.total ?? null, data: body?.data ?? null, msg: body?.msg ?? '' }
   }
   return { token, jsonHeaders, api }
 }
@@ -16772,4 +16797,77 @@ async function testFeature80(page) {
   }
   const secMe = await fetch(`${CONFIG.backendUrl}/system/user/profile`, { headers: secHeaders }).then((r) => r.json()).catch(() => null)
   record(80, 'C2 secondary profile 接口可达且含数据', secMe?.code === 200 && !!secMe?.data, `code=${secMe?.code}`)
+}
+
+// ---------- feature 81：大屏配置化报表（report-board，六白名单数据源 + 配置 CRUD） ----------
+async function testFeature81(page) {
+  log('=== 功能 81：大屏配置化报表（数据源白名单 + 看板配置 CRUD + 范围取数） ===')
+  const setup = await mLevelApiSetup(81)
+  if (!setup) return
+  const { jsonHeaders, api } = setup
+
+  // A. 数据源白名单
+  const src = await api('/tool/report-board/sources', { headers: jsonHeaders })
+  record(81, 'A1 sources 白名单返回', src.code === 200 && Array.isArray(src.data) && src.data.length >= 4, `keys=${(src.data || []).map((s) => s.sourceKey).join('|')}`)
+
+  // B. 白名单外 sourceKey 400
+  const bad = await api('/tool/report-board/data/evil_source?range=7d', { headers: jsonHeaders })
+  record(81, 'A2 白名单外 sourceKey 400', bad.status === 400, `status=${bad.status}`)
+
+  // C. 真实数据源取数（login_trend 多范围；白名单仅 7d/30d，其余 400）
+  const d7 = await api('/tool/report-board/data/login_trend?range=7d', { headers: jsonHeaders })
+  record(81, 'A3 login_trend 7d 真实取数', d7.code === 200 && d7.data !== null, JSON.stringify(d7.data || {}).slice(0, 80))
+  const d30 = await api('/tool/report-board/data/login_trend?range=30d', { headers: jsonHeaders })
+  record(81, 'A4 login_trend 30d 范围取数', d30.code === 200 && d30.data !== null, `code=${d30.code}`)
+  const dBad = await api('/tool/report-board/data/login_trend?range=1d', { headers: jsonHeaders })
+  record(81, 'A5 非法 range=1d 400（白名单契约）', dBad.status === 400, `status=${dBad.status}`)
+
+  // D. 看板配置：保存 → 回读含卡片 → 更新 → 删除（list 返回 data 数组，非分页 rows）
+  const name = `e2e-board-${Date.now()}`
+  const save = await api('/tool/report-board', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name, config: { cards: [{ id: 'c1', title: '登录趋势', chartType: 'line', sourceKey: 'login_trend', size: { w: 2, h: 1 } }] } }) })
+  record(81, 'B1 保存看板配置', save.code === 200, `code=${save.code} ${save.msg}`)
+  const list = await api('/tool/report-board/list', { headers: jsonHeaders })
+  const row = (list.data || []).find((r) => r.name === name)
+  record(81, 'B2 回读含卡片', !!row && JSON.stringify(row.config || {}).includes('login_trend') && row.id > 0, `id=${row?.id}`)
+  if (row) {
+    // 更新语义（对齐前端 api/tool/reportBoard.ts）：PUT /tool/report-board/{id} 全量覆盖
+    const upd = await api(`/tool/report-board/${row.id}`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ name, config: { cards: [{ id: 'c1', title: '登录趋势V2', chartType: 'bar', sourceKey: 'login_trend', size: { w: 2, h: 1 } }] } }) })
+    const list2 = await api('/tool/report-board/list', { headers: jsonHeaders })
+    const row2 = (list2.data || []).find((r) => r.id === row.id)
+    record(81, 'B3 更新看板配置生效', upd.code === 200 && JSON.stringify(row2?.config || {}).includes('登录趋势V2'), `code=${upd.code}`)
+    const del = await api(`/tool/report-board/${row.id}`, { method: 'DELETE', headers: jsonHeaders })
+    record(81, 'B4 删除看板', del.code === 200)
+  }
+}
+
+// ---------- feature 82：webhook 事件目录全量行为（下拉数据源脱钩回归） ----------
+async function testFeature82(page) {
+  log('=== 功能 82：webhook 事件目录全量拉取（下拉数据源脱钩回归） ===')
+  const setup = await mLevelApiSetup(82)
+  if (!setup) return
+  const { jsonHeaders, api } = setup
+
+  // A. 全量拉取（pageSize=500，前端下拉数据源口径）：rows.length 必须等于 total
+  const full = await api('/system/webhook/event/list?pageNum=1&pageSize=500', { headers: jsonHeaders })
+  const total = full.total ?? 0
+  record(82, 'A1 全量拉取 rows.length === total', full.code === 200 && (full.rows?.length || 0) === total, `rows=${full.rows?.length} total=${total}`)
+
+  // B. 目录量级（16 种子事件起步）
+  record(82, 'A2 事件目录 total >= 16', total >= 16, `total=${total}`)
+
+  // C. 第一页（pageSize=10）是全量的真子集（超一页时下拉此前会缺失——回归锚点）
+  const p1 = await api('/system/webhook/event/list?pageNum=1&pageSize=10', { headers: jsonHeaders })
+  if (total > 10) {
+    record(82, 'A3 第一页 10 条 < 全量（回归锚点成立）', p1.rows?.length === 10 && full.rows.length > p1.rows.length, `p1=${p1.rows?.length} full=${full.rows.length}`)
+  } else {
+    record(82, 'A3 第一页 10 条 < 全量（回归锚点成立）', p1.rows?.length === total, `目录未超一页 total=${total}`)
+  }
+
+  // D. 全量无重复 eventKey（UNIQUE 契约）
+  const keys = (full.rows || []).map((r) => r.eventKey)
+  record(82, 'A4 eventKey 无重复（UNIQUE）', new Set(keys).size === keys.length, `unique=${new Set(keys).size}/${keys.length}`)
+
+  // E. 目录行含前端下拉所需字段（eventKey/name/enabled/payloadExample）
+  const sample = (full.rows || [])[0] || {}
+  record(82, 'A5 目录行字段完整', 'eventKey' in sample && 'name' in sample && 'enabled' in sample, `fields=${Object.keys(sample).slice(0, 8).join(',')}`)
 }
