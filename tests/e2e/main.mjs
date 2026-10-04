@@ -16382,7 +16382,9 @@ async function main() {
       { id: 80, fn: testFeature80 },
       { id: 81, fn: testFeature81 },
       { id: 82, fn: testFeature82 },
-      { id: 83, fn: testFeature83 }
+      { id: 83, fn: testFeature83 },
+      { id: 84, fn: testFeature84 },
+      { id: 85, fn: testFeature85 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -16931,4 +16933,229 @@ async function testFeature83(page) {
       await api(`/monitor/webHook/${h.id}`, { method: 'DELETE', headers: jsonHeaders })
     }
   }
+}
+
+// ==================== 2026-10-04 feature 84/85 ====================
+// 84：列显隐偏好持久化 UI 链（定时任务页 useTableColumns pageKey='monitor:task' → user-prefs）
+// 85：强制首登改密全链路（B4，开关式默认关；测试用户，绝不动 admin 密码）
+
+// ---------- feature 84：列显隐偏好持久化（UI 级） ----------
+// 链路：登录（main 已登录）→ /monitor/task → RightToolbar 列设置面板取消勾选一列 →
+//       th 消失 → reload → user-prefs.tableColumns['monitor:task'] 恢复链 → 重新勾选恢复
+async function testFeature84(page) {
+  log('=== 功能 84：列显隐偏好持久化（定时任务页 useTableColumns + user-prefs） ===')
+  // 1. 导航到定时任务页（路由 /monitor/task，同 feature 6 先例；组件 src/views/system/task/index.vue）
+  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'networkidle' }).catch(() => log('  ⚠️ networkidle 等待超时，降级继续'))
+  await sleep(2000)
+  await skipTour(page)
+  const tableVisible = await page.locator('.el-table').first().isVisible({ timeout: 5000 }).catch(() => false)
+  record(84, 'A1 定时任务页加载且 el-table 渲染', tableVisible, `url=${page.url()}`)
+  if (!tableVisible) return
+
+  const headerTexts = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.el-table__header-wrapper th')]
+        .map((th) => (th.innerText || '').trim())
+        .filter((t) => t.length > 0)
+    )
+  const h0 = await headerTexts()
+  // 9 业务列 + 操作列（选择列无文本被过滤）
+  record(84, 'A2 初始表头渲染（≥10 列：9 业务列+操作列）', h0.length >= 10, `cols=${h0.length}`)
+
+  // 2. 打开 RightToolbar 列设置下拉（el-dropdown trigger=click，hide-on-click=false）
+  const colsBtn = page.locator('.top-right-btn .el-dropdown button').first()
+  const btnOk = await colsBtn.isVisible({ timeout: 3000 }).catch(() => false)
+  record(84, 'A3 RightToolbar 列设置按钮可见', btnOk)
+  if (!btnOk) return
+  await colsBtn.click()
+  await sleep(600)
+  const dd = page.locator('.el-dropdown-menu:visible')
+  const ddItems = await dd.locator('.el-checkbox').count()
+  // 全选 checkbox + 9 个业务列 checkbox = 10
+  record(84, 'A4 列设置下拉打开：全选+9 列复选框', ddItems >= 10, `items=${ddItems}`)
+  if (ddItems < 2) return
+
+  // 3. 取消勾选第一个数据列（nth(0)=全选/列显示，nth(1)=taskId）→ 断言对应 th 消失
+  await dd.locator('.el-checkbox').nth(1).click()
+  await sleep(800)
+  const h1 = await headerTexts()
+  const lost = h0.filter((t) => !h1.includes(t))
+  record(84, 'B1 取消勾选一列 → 表头恰好少 1 列（th 消失）', lost.length === 1, `lost=${JSON.stringify(lost)}`)
+
+  // 4. reload → 偏好恢复链：该列仍隐藏 + user-prefs 已持久化
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  await page.reload({ waitUntil: 'networkidle' }).catch(() => log('  ⚠️ reload networkidle 超时，降级继续'))
+  await sleep(2500)
+  await skipTour(page)
+  const h2 = await headerTexts()
+  record(84, 'C1 reload 后该列仍隐藏（偏好恢复链生效）', lost.length === 1 && !h2.includes(lost[0]), `cols=${h2.length}, lost=${JSON.stringify(lost)}`)
+  const savedKeys = await page.evaluate(() => {
+    try {
+      const prefs = JSON.parse(localStorage.getItem('user-prefs') || '{}')
+      const tc = (prefs.tableColumns || {})['monitor:task']
+      return Array.isArray(tc) ? tc : null
+    } catch {
+      return null
+    }
+  })
+  record(
+    84,
+    "C2 localStorage user-prefs.tableColumns['monitor:task'] 持久化（缺该列 key）",
+    Array.isArray(savedKeys) && lost.length === 1 && !savedKeys.includes('taskId'),
+    `keys=${JSON.stringify(savedKeys)}`
+  )
+
+  // 5. 重新勾选恢复 → 列回来，偏好回写全量 key
+  const colsBtn2 = page.locator('.top-right-btn .el-dropdown button').first()
+  await colsBtn2.click()
+  await sleep(600)
+  await page.locator('.el-dropdown-menu:visible .el-checkbox').nth(1).click()
+  await sleep(800)
+  const h3 = await headerTexts()
+  record(84, 'D1 重新勾选 → 列恢复且表头数回到初始水平', h3.includes(lost[0]) && h3.length === h0.length, `len0=${h0.length}, len3=${h3.length}`)
+  const savedKeys2 = await page.evaluate(() => {
+    try {
+      const prefs = JSON.parse(localStorage.getItem('user-prefs') || '{}')
+      const tc = (prefs.tableColumns || {})['monitor:task']
+      return Array.isArray(tc) ? tc : null
+    } catch {
+      return null
+    }
+  })
+  record(84, 'D2 恢复后偏好含全部 9 个业务列 key（不留残留）', Array.isArray(savedKeys2) && savedKeys2.length === 9, `keys=${savedKeys2 ? savedKeys2.length : 'null'}`)
+  await page.keyboard.press('Escape')
+}
+
+// ---------- feature 85：强制首登改密全链路（B4，开关式默认关） ----------
+// 后端机制：sys_user.must_change_pwd（'1'=待改）；config sys.user.forceFirstLoginChangePwd（默认 false）；
+//          /getInfo.mustChangePassword = 开关 && 标志；个人改密 PUT /system/user/profile/updatePwd 清标志；
+//          管理员重置 PUT /system/user/resetPwd（body userId/password）置回 '1'。
+// 全程用测试用户，绝不动 admin 密码。
+/** 85 专用：任意用户独立登录（绕过 apiLogin 的 admin token 缓存）+ getInfo */
+async function forcePwdLogin(username, password) {
+  const maxRetries = 3
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const { code, uuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
+      const resp = await fetch(`${CONFIG.backendUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, code, uuid })
+      })
+      const data = await resp.json().catch(() => null)
+      if (resp.status === 200 && data?.token) {
+        const info = await fetch(`${CONFIG.backendUrl}/getInfo`, { headers: { Authorization: `Bearer ${data.token}` } })
+          .then((r) => r.json())
+          .catch(() => null)
+        return { ok: true, token: data.token, info, data }
+      }
+      if (resp.status === 429 && attempt < maxRetries) {
+        log(`  ⏳ 测试用户登录被限流（429），等待 65 秒后重试（${attempt}/${maxRetries}）...`)
+        await sleep(65000)
+        continue
+      }
+      return { ok: false, status: resp.status, data }
+    } catch (err) {
+      if (attempt < maxRetries) {
+        await sleep(3000)
+        continue
+      }
+      return { ok: false, error: err.message }
+    }
+  }
+  return { ok: false, error: '重试次数耗尽' }
+}
+
+async function testFeature85(page) {
+  log('=== 功能 85：强制首登改密全链路（B4 开关式默认关） ===')
+  const setup = await mLevelApiSetup(85)
+  if (!setup) return
+  const { jsonHeaders, api } = setup
+  const uniq = Date.now()
+  const userName = `e2e_force_pwd_${uniq}`
+  const initPwd = 'Stepby@12345' // 复杂度：字母+数字，非弱口令黑名单（同 feature 76 口径）
+  const newPwd = 'E2e#Test2026x' // 大写+小写+数字+特殊字符
+  const cfgKey = 'sys.user.forceFirstLoginChangePwd'
+
+  // A. 建测试用户（deptId=100 种子部门）→ 查回 userId
+  const created = await api('/system/user', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ deptId: 100, userName, nickName: 'e2e85 强改密', password: initPwd, status: '0', roleIds: [2] })
+  })
+  record(85, 'A1 创建测试用户（deptId=100）', created.code === 200, `code=${created.code} ${created.msg}`)
+  const found = await api(`/system/user/list?userName=${encodeURIComponent(userName)}`, { headers: jsonHeaders })
+  const userId = Number(found.rows?.[0]?.userId || 0)
+  record(85, 'A2 查回 userId', userId > 0, `userId=${userId}`)
+  if (!userId) return
+
+  // B. 管理员 resetPwd → must_change_pwd='1'（下发初始密码语义）
+  const reset = await api('/system/user/resetPwd', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ userId, password: initPwd }) })
+  record(85, 'B1 管理员 resetPwd（置 must_change_pwd=1）', reset.code === 200, `code=${reset.code} ${reset.msg}`)
+
+  // C. 开关关闭基线（默认 false）：登录不被拦截
+  const base = await forcePwdLogin(userName, initPwd)
+  record(85, 'C1 测试用户登录（开关关闭基线）', base.ok && !!base.token, base.ok ? '' : `status=${base.status} err=${base.error || ''}`)
+  if (!base.ok) {
+    // 清理后退出，避免残留
+    await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
+    return
+  }
+  const baseFieldPresent = base.info && 'mustChangePassword' in (base.info.data || base.info)
+  const baseInfo = base.info?.data || base.info
+  record(85, 'C2 /getInfo 含 mustChangePassword 字段（B4 后端产物）', !!baseFieldPresent, `fields=${baseInfo ? Object.keys(baseInfo).filter((k) => /pwd|password/i.test(k)).join(',') : 'null'}`)
+  record(85, 'C3 开关关闭时 mustChangePassword === false（不拦截）', baseInfo?.mustChangePassword === false, `mustChangePassword=${baseInfo?.mustChangePassword}`)
+
+  // D. 置开关 true：读 config → PUT /system/config → refreshCache
+  const cfgList = await api(`/system/config/list?pageNum=1&pageSize=10&configKey=${encodeURIComponent(cfgKey)}`, { headers: jsonHeaders })
+  const cfgRow = cfgList.rows?.[0]
+  record(85, 'D1 参数配置存在且当前 false', !!cfgRow && cfgRow.configValue === 'false', `configId=${cfgRow?.configId} value=${cfgRow?.configValue}`)
+  if (!cfgRow) {
+    await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
+    return
+  }
+  const cfgOn = await api('/system/config', {
+    method: 'PUT', headers: jsonHeaders,
+    body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'true', configType: cfgRow.configType })
+  })
+  record(85, 'D2 置开关 true（PUT /system/config）', cfgOn.code === 200, `code=${cfgOn.code} ${cfgOn.msg}`)
+  await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
+
+  // E. 开关开启 → 重新登录 mustChangePassword === true
+  await sleep(1000)
+  const forced = await forcePwdLogin(userName, initPwd)
+  const forcedInfo = forced.info?.data || forced.info
+  record(85, 'E1 开关开启后重新登录', forced.ok, forced.ok ? '' : `status=${forced.status} err=${forced.error || ''}`)
+  record(85, 'E2 mustChangePassword === true（拦截生效）', forcedInfo?.mustChangePassword === true, `mustChangePassword=${forcedInfo?.mustChangePassword}`)
+  if (!forced.ok || !forced.token) {
+    // 兜底恢复开关 + 删除用户
+    await api('/system/config', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'false', configType: cfgRow.configType }) })
+    await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
+    await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
+    return
+  }
+
+  // F. 该用户 token 个人改密 → 清除标志
+  const userHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${forced.token}` }
+  const chg = await api('/system/user/profile/updatePwd', { method: 'PUT', headers: userHeaders, body: JSON.stringify({ oldPassword: initPwd, newPassword: newPwd }) })
+  record(85, 'F1 个人改密 profile/updatePwd 200', chg.code === 200, `code=${chg.code} ${chg.msg}`)
+
+  // G. 新密码重新登录 → 标志已清除
+  await sleep(1000)
+  const after = await forcePwdLogin(userName, newPwd)
+  const afterInfo = after.info?.data || after.info
+  record(85, 'G1 新密码重新登录成功', after.ok, after.ok ? '' : `status=${after.status} err=${after.error || ''}`)
+  record(85, 'G2 改密后 mustChangePassword === false（标志清除）', afterInfo?.mustChangePassword === false, `mustChangePassword=${afterInfo?.mustChangePassword}`)
+
+  // H. 恢复：开关置回 false + 删除测试用户（绝不动 admin）
+  const cfgOff = await api('/system/config', {
+    method: 'PUT', headers: jsonHeaders,
+    body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'false', configType: cfgRow.configType })
+  })
+  await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
+  record(85, 'H1 开关恢复 false + refreshCache', cfgOff.code === 200, `code=${cfgOff.code}`)
+  const cfgVerify = await api(`/system/config/configKey/${encodeURIComponent(cfgKey)}`, { headers: jsonHeaders })
+  record(85, 'H2 回读开关值确认 false', String(cfgVerify.data ?? cfgVerify.msg) === 'false', `value=${JSON.stringify(cfgVerify.data ?? cfgVerify.msg)}`)
+  const del = await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
+  record(85, 'H3 删除测试用户', del.code === 200, `code=${del.code} ${del.msg}`)
 }
