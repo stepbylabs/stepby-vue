@@ -416,6 +416,8 @@ import { download } from '@/utils/request'
 import { getConfigKey } from '@/api/system/config'
 import { ElMessageBox } from 'element-plus'
 import { useSearchPersistence } from '@/composables/useSearchPersistence'
+import { useTableColumns } from '@/composables/useTableColumns'
+import type { TableColumnDef } from '@/utils/userPrefs'
 import { useRoute } from 'vue-router'
 import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
@@ -452,7 +454,30 @@ const editUser = ref<SysUser | undefined>(undefined)
 // v5-D12 Group：SCIM 组联动角色/兼职部门（编辑表单只读标记）
 const scimRoleIds = ref<number[]>([])
 const scimDeptIds = ref<number[]>([])
-// 列显隐信息
+// UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
+// 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
+const settingsStore = useSettingsStore()
+const USER_TABLE_KEY = 'system:user'
+// 列定义顺序即设置面板展示顺序；oauthBound/操作列/多选列不参与显隐偏好（常驻）
+const USER_COLUMN_DEFS: TableColumnDef[] = [
+  { key: 'userId' },
+  { key: 'userName' },
+  { key: 'nickName' },
+  { key: 'deptName' },
+  { key: 'phonenumber' },
+  { key: 'status' },
+  { key: 'createTime' }
+]
+const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn } = useTableColumns({
+  pageKey: USER_TABLE_KEY,
+  columns: USER_COLUMN_DEFS,
+  getSaved: () => settingsStore.userPrefs.tableColumns?.[USER_TABLE_KEY],
+  save: (visible) =>
+    settingsStore.updateUserPrefs({
+      tableColumns: { ...settingsStore.userPrefs.tableColumns, [USER_TABLE_KEY]: visible }
+    })
+})
+
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；
 // 若改 computed，语言切换时 computed 重新求值会返回新对象，丢失用户已切换的 visible 状态。
 // label 不响应语言切换是已知限制，可通过 watch locale 更新 label 优化（当前影响较小）。
@@ -466,22 +491,25 @@ const columns = ref<Record<string, TableShowColumns>>({
   createTime: { label: t('user.column.createTime'), visible: true }
 })
 
-// UX-7：列显隐偏好持久化 —— 从用户偏好恢复，改动后写回（刷新/换设备保持一致）
-const settingsStore = useSettingsStore()
-const USER_TABLE_KEY = 'system:user'
-const savedColumns = settingsStore.userPrefs.tableColumns?.[USER_TABLE_KEY]
-if (savedColumns?.length) {
-  for (const key of Object.keys(columns.value)) {
-    columns.value[key].visible = savedColumns.includes(key)
-  }
-}
+// 偏好 → columns ref（immediate：setup 内同步应用，先于深 watch 注册避免回写回环）
+watch(
+  userVisibleKeys,
+  (keys: string[]) => {
+    for (const key of Object.keys(columns.value)) {
+      columns.value[key].visible = keys.includes(key)
+    }
+  },
+  { immediate: true }
+)
+// RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
 watch(
   columns,
   (v: Record<string, TableShowColumns>) => {
-    const visible = Object.keys(v).filter((k) => v[k].visible)
-    settingsStore.updateUserPrefs({
-      tableColumns: { ...settingsStore.userPrefs.tableColumns, [USER_TABLE_KEY]: visible }
-    })
+    for (const key of Object.keys(v)) {
+      if (userVisibleKeys.value.includes(key) !== v[key].visible) {
+        toggleUserColumn(key, v[key].visible)
+      }
+    }
   },
   { deep: true }
 )

@@ -425,6 +425,50 @@ describe('composables/useCrudTable', () => {
     })
   })
 
+  // ===== 可选排序（supportsSort） =====
+  describe('supportsSort', () => {
+    it('开启时 ascending → isAsc=asc 并合入请求参数、重置第一页', async () => {
+      const { ctx, listApi, queryParams } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: 'postName', order: 'ascending' })
+      await flush()
+      expect(queryParams.value.pageNum).toBe(1)
+      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a', orderByColumn: 'postName', isAsc: 'asc' })
+    })
+
+    it('开启时 descending → isAsc=desc', async () => {
+      const { ctx, listApi } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: 'postId', order: 'descending' })
+      await flush()
+      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a', orderByColumn: 'postId', isAsc: 'desc' })
+    })
+
+    it('开启时取消排序（order=null）→ 清空排序参数并重置第一页', async () => {
+      const { ctx, listApi } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: 'postId', order: 'descending' })
+      await flush()
+      ctx.handleSortChange({ prop: 'postId', order: null })
+      await flush()
+      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a' })
+    })
+
+    it('开启时 prop 缺失视同取消排序（不产生空排序参数）', async () => {
+      const { ctx, listApi } = makeCtx({ supportsSort: true })
+      ctx.handleSortChange({ prop: undefined, order: 'ascending' })
+      await flush()
+      expect(listApi).toHaveBeenLastCalledWith({ pageNum: 1, name: 'a' })
+    })
+
+    it('未开启（默认）时 handleSortChange 不触发请求、不影响查询参数', async () => {
+      const { ctx, listApi, queryParams } = makeCtx()
+      ctx.handleSortChange({ prop: 'postName', order: 'descending' })
+      await flush()
+      expect(listApi).not.toHaveBeenCalled()
+      expect(queryParams.value).not.toHaveProperty('orderByColumn')
+      expect(queryParams.value).not.toHaveProperty('isAsc')
+      expect(queryParams.value.pageNum).toBe(2) // 未被重置
+    })
+  })
+
   // ===== 导出 =====
   describe('handleExport', () => {
     it('未配置 exportUrl 时直接返回，不触发下载', () => {

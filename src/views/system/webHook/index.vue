@@ -382,9 +382,26 @@
       destroy-on-close
       @open="loadEventCatalog(true)"
     >
-      <el-table v-loading="eventCatalogLoading" :data="eventCatalog" :row-key="(row: WebhookEventVo) => row.id">
-        <el-table-column :label="t('webHook.eventCatalog.eventKey')" prop="eventKey" min-width="160" show-overflow-tooltip />
-        <el-table-column :label="t('webHook.eventCatalog.name')" prop="name" min-width="140" show-overflow-tooltip />
+      <el-table
+        v-loading="eventCatalogLoading"
+        :data="eventCatalog"
+        :row-key="(row: WebhookEventVo) => row.id"
+        @sort-change="handleEventCatalogSortChange"
+      >
+        <el-table-column
+          :label="t('webHook.eventCatalog.eventKey')"
+          prop="eventKey"
+          min-width="160"
+          show-overflow-tooltip
+          sortable="custom"
+        />
+        <el-table-column
+          :label="t('webHook.eventCatalog.name')"
+          prop="name"
+          min-width="140"
+          show-overflow-tooltip
+          sortable="custom"
+        />
         <el-table-column :label="t('webHook.eventCatalog.description')" min-width="200" show-overflow-tooltip>
           <template #default="scope">
             <span>{{ scope.row.description || '-' }}</span>
@@ -395,7 +412,13 @@
             <pre class="result-pre">{{ scope.row.payloadExample || '-' }}</pre>
           </template>
         </el-table-column>
-        <el-table-column :label="t('webHook.column.status')" align="center" width="120">
+        <el-table-column
+          :label="t('webHook.column.status')"
+          align="center"
+          width="120"
+          prop="enabled"
+          sortable="custom"
+        >
           <template #default="scope">
             <!-- 停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断 -->
             <el-switch
@@ -440,7 +463,7 @@ import {
   testSendByEvent,
   changeWebhookEventEnabled
 } from '@/api/system/webHook'
-import type { SysWebHook, DeliveryResult, WebhookEventVo } from '@/types/api/system/webHook'
+import type { SysWebHook, DeliveryResult, WebhookEventVo, WebhookEventQueryParams } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
@@ -470,7 +493,7 @@ const eventCatalog = ref<WebhookEventVo[]>([])
 const eventCatalogTotal = ref(0)
 // 目录是否已加载过（多选下拉/测试发送复用，避免重复请求）
 const eventCatalogLoaded = ref(false)
-const eventCatalogQuery = reactive({ pageNum: 1, pageSize: 10 })
+const eventCatalogQuery = reactive<WebhookEventQueryParams>({ pageNum: 1, pageSize: 10 })
 
 /** 加载事件目录（force=true 时重新拉取，如目录对话框分页） */
 function loadEventCatalog(force = false): void {
@@ -487,6 +510,13 @@ function loadEventCatalog(force = false): void {
     .finally(() => {
       eventCatalogLoading.value = false
     })
+}
+
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+function handleEventCatalogSortChange(column: { prop: string | null; order: string | null }): void {
+  eventCatalogQuery.orderByColumn = column.prop ?? undefined
+  eventCatalogQuery.isAsc = column.order ?? undefined
+  loadEventCatalog(true)
 }
 
 // 缺陷修复：下拉数据源与目录对话框脱钩——此前订阅/测试发送下拉复用第一页

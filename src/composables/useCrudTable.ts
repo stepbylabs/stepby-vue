@@ -72,6 +72,12 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
    * 仅同步非空业务字段与分页参数；无路由上下文（单测环境）时自动降级为不同步。
    */
   syncQueryToUrl?: boolean
+  /**
+   * 是否启用可选排序（默认 false，存量页面行为零变化）。开启后导出
+   * handleSortChange（el-table @sort-change 直接绑定），排序参数在 getList
+   * 请求时合入查询参数（camelCase 透传后端 sort.rs 列白名单，camel_to_snake 归一）。
+   */
+  supportsSort?: boolean
 }
 
 export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
@@ -96,7 +102,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     beforeSubmit,
     onAfterSubmit,
     onAfterDelete,
-    syncQueryToUrl = true
+    syncQueryToUrl = true,
+    supportsSort = false
   } = options
 
   // 路由上下文（单测/无路由环境下降级为空，不影响 CRUD 主流程）
@@ -131,6 +138,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   // 请求版本计数器：防止并发请求时旧响应覆盖新数据
   let listRequestId = 0
   let updateRequestId = 0
+
+  // 可选排序（仅 supportsSort 开启时生效）：null = 无排序（后端回退默认排序）
+  const sortOrder = ref<{ orderByColumn: string; isAsc: string } | null>(null)
 
   // 未保存守卫（UX-5）：编辑弹窗脏表单关闭前确认
   const { snapshotForm, markSaved, confirmLeave } = useUnsavedGuard()
@@ -183,7 +193,12 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     const currentRequestId = ++listRequestId
     syncUrlQuery()
     loading.value = true
-    listApi(queryParams.value)
+    // 可选排序：开启时把 orderByColumn/isAsc 合入请求参数（camelCase 透传后端白名单）；
+    // 未开启时保持原样透传 queryParams，存量页面行为零变化
+    const params = (
+      supportsSort && sortOrder.value ? { ...queryParams.value, ...sortOrder.value } : queryParams.value
+    ) as Q
+    listApi(params)
       .then((response) => {
         if (currentRequestId !== listRequestId) return // discard stale response
         const resp = response as { rows: T[]; total: number }
@@ -244,6 +259,25 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     ids.value = selection.map((item) => item[idField] as string | number)
     single.value = selection.length !== 1
     multiple.value = !selection.length
+  }
+
+  /**
+   * 排序触发事件（可选能力，需 supportsSort 开启；el-table @sort-change 直接绑定）：
+   * ascending → asc，descending → desc，取消排序/非法输入 → 清空排序（后端回退默认排序）。
+   * 排序变化统一重置回第一页（表格排序行业惯例）。
+   */
+  function handleSortChange({ prop, order }: { prop?: string | null; order?: string | null }): void {
+    if (!supportsSort) return
+    if (prop && (order === 'ascending' || order === 'descending')) {
+      sortOrder.value = {
+        orderByColumn: prop,
+        isAsc: order === 'ascending' ? 'asc' : 'desc'
+      }
+    } else {
+      sortOrder.value = null
+    }
+    queryParams.value.pageNum = 1
+    getList()
   }
 
   /** 新增按钮操作 */
@@ -381,6 +415,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     handleQuery,
     resetQuery,
     handleSelectionChange,
+    handleSortChange,
     handleAdd,
     handleUpdate,
     submitForm,
