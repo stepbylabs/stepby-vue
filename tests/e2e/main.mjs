@@ -16381,7 +16381,8 @@ async function main() {
       { id: 79, fn: testFeature79 },
       { id: 80, fn: testFeature80 },
       { id: 81, fn: testFeature81 },
-      { id: 82, fn: testFeature82 }
+      { id: 82, fn: testFeature82 },
+      { id: 83, fn: testFeature83 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -16870,4 +16871,64 @@ async function testFeature82(page) {
   // E. 目录行含前端下拉所需字段（eventKey/name/enabled/payloadExample）
   const sample = (full.rows || [])[0] || {}
   record(82, 'A5 目录行字段完整', 'eventKey' in sample && 'name' in sample && 'enabled' in sample, `fields=${Object.keys(sample).slice(0, 8).join(',')}`)
+}
+
+// ---------- feature 83：webhook 事件目录停用/启用全链路（m20261004_000002） ----------
+// 覆盖：PUT enabled=0 → 目录过滤生效 → 停用事件订阅 400 / test-send 400 →
+//       启用恢复订阅可用 → 非法值 400 / 不存在 404。与后端集成测试
+//       test_webhook_event_enabled_chain 同逻辑，经 e2e 环境独立验证。
+async function testFeature83(page) {
+  log('=== 功能 83：webhook 事件目录停用/启用全链路 ===')
+  const setup = await mLevelApiSetup(83)
+  if (!setup) return
+  const { jsonHeaders, api } = setup
+  const catalogKey = 'user.created' // 种子事件（WEBHOOK_SEED_EVENTS 首个）
+  const target = 'http://8.8.8.8:59999/webhook'
+
+  // A. 目录含种子事件且默认启用
+  const list = await api('/system/webhook/event/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+  const event = (list.rows || []).find((r) => r.eventKey === catalogKey)
+  record(83, 'A1 目录含 user.created 且默认启用', !!event && event.enabled === '1', `id=${event?.id} enabled=${event?.enabled}`)
+  if (!event) return
+  const eventId = event.id
+
+  // B. 停用 → enabled=0 过滤命中
+  const off = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '0' }) })
+  record(83, 'B1 停用成功', off.code === 200, `code=${off.code} ${off.msg}`)
+  const offList = await api(`/system/webhook/event/list?eventKey=${catalogKey}&enabled=0`, { headers: jsonHeaders })
+  record(83, 'B2 停用过滤命中', offList.rows?.length === 1, `rows=${offList.rows?.length}`)
+
+  // C. 停用事件订阅被拒（400）
+  const sub = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  record(83, 'C1 停用事件订阅 400', sub.status === 400, `status=${sub.status} msg=${sub.msg}`)
+
+  // D. 载体 hook（订阅其它目录键）→ 停用事件 test-send 400
+  const carrier = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用测试载体_${Date.now()}`, subscribedEvents: ['login.failed'], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  record(83, 'D1 载体 hook 创建', carrier.code === 200, `code=${carrier.code}`)
+  const carrierList = await api('/monitor/webHook/list?hookName=e2e_停用测试载体_', { headers: jsonHeaders })
+  const carrierId = (carrierList.rows || [])[0]?.id
+  if (carrierId) {
+    const ts = await api(`/system/webhook/${carrierId}/test-send`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ eventKey: catalogKey }) })
+    record(83, 'D2 停用事件 test-send 400', ts.status === 400, `status=${ts.status}`)
+  }
+
+  // E. 启用恢复 → 订阅成功
+  const on = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+  record(83, 'E1 启用成功', on.code === 200, `code=${on.code}`)
+  const resub = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_恢复订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  record(83, 'E2 恢复后订阅成功', resub.code === 200, `code=${resub.code}`)
+
+  // F. 校验分支：非法值 400 / 不存在 404
+  const badVal = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: 'x' }) })
+  record(83, 'F1 非法 enabled 400', badVal.status === 400, `status=${badVal.status}`)
+  const notFound = await api('/system/webhook/event/999999999/enabled', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+  record(83, 'F2 不存在事件 404', notFound.status === 404, `status=${notFound.status}`)
+
+  // 清理测试 hook（目录事件为种子数据恢复原状，无需清理）
+  const hooks = await api('/monitor/webHook/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+  for (const h of hooks.rows || []) {
+    if ((h.hookName || '').startsWith('e2e_停用') || (h.hookName || '').startsWith('e2e_恢复')) {
+      await api(`/monitor/webHook/${h.id}`, { method: 'DELETE', headers: jsonHeaders })
+    }
+  }
 }
