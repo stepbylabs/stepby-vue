@@ -12,8 +12,12 @@ import type { AjaxResult } from '@/types'
  * - PUT    /system/tenant/domain/changeStatus       启停（仅平台）
  * - DELETE /system/tenant/domain/{domainId}         删除绑定（仅平台）
  *
- * 安全：本接口组整体为平台专属（tenant_id=0），租户操作者一律 403（不静默降级为
- * "只读本租户"，避免域名台账成为租户侧无授权信息面）；租户自助延后至 P3。
+ * 安全（三档准入，与后端 DomainScope 同源）：
+ * - 平台操作者（tenant_id=0）：全量管理（列表可传 tenantId 过滤）；
+ * - 租户操作者 + 能力位 `tenant.domain_self_service` 非 off：**自助模式**——
+ *   不传 tenantId，后端按操作者所属租户强制收窄（只能读写本租户域名）；
+ * - 租户操作者 + 能力位 off：403（不静默降级，避免域名台账成为无授权信息面）。
+ *   前端 domain/index.vue 按 isPlatform 分流自助/平台两种面板（L43）。
  */
 
 /** 域名视图（对齐后端 TenantDomainVo） */

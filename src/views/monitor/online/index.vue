@@ -24,8 +24,13 @@
               @keyup.enter="handleQuery"
             />
           </el-form-item>
-          <!-- §27.13.2 分层视图：租户筛选仅平台操作者（tid=0）可见；租户操作者后端恒按本租户过滤 -->
-          <el-form-item v-if="isPlatform" :label="t('online.search.tenantId')" prop="tenantId">
+          <!-- §27.13.2 分层视图：租户筛选仅平台操作者（tid=0）可见；租户操作者后端恒按本租户过滤。
+               单机模式（showTenantFilter=false）一并隐藏——与 TenantFilter 组件同一布场口径 -->
+          <el-form-item
+            v-if="isPlatform && userStore.showTenantFilter"
+            :label="t('online.search.tenantId')"
+            prop="tenantId"
+          >
             <el-input-number
               v-model="queryParams.tenantId"
               :min="0"

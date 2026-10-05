@@ -107,7 +107,14 @@
         min-width="200"
         show-overflow-tooltip
       />
-      <el-table-column :label="t('oauth.ownership')" align="center" width="90">
+      <!-- 「归属」列消费 showTenantColumn 布场（与 TenantColumn 组件同口径）：
+           单机模式（management=false ⇒ false）下隐藏——归属语义绑定租户体系 -->
+      <el-table-column
+        v-if="userStore.showTenantColumn"
+        :label="t('oauth.ownership')"
+        align="center"
+        width="90"
+      >
         <template #default="scope">
           <el-tag :type="scope.row.tenantId === 0 ? 'warning' : 'primary'" disable-transitions>
             {{ scope.row.tenantId === 0 ? t('oauth.ownershipPlatform') : t('oauth.ownershipTenant') }}
@@ -332,8 +339,10 @@ import {
 } from '@/api/oauth'
 import { useCrudTable } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
+import useUserStore from '@/store/modules/user'
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const { sys_yes_no } = useDict('sys_yes_no')
 const formRef = useTemplateRef('formRef')
 const queryRef = useTemplateRef('queryRef')
