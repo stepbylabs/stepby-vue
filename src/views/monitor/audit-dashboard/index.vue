@@ -167,6 +167,27 @@
         <alarm-panel :alarm-data="alarmData" :alarm-loading="alarmLoading" :alarm-threshold-tip="alarmThresholdTip" />
       </el-col>
     </el-row>
+    <!-- 操作类型分布（§5.36：operlog stats-by-type 前端接入） -->
+    <el-row :gutter="16" class="chart-row mb-4">
+      <el-col v-motion="fadeInUp" :xs="24" :lg="12">
+        <el-card shadow="hover">
+          <template #header>
+            <div class="card-header flex items-center justify-between font-medium">
+              <span class="flex items-center gap-1.5">
+                <el-icon><Histogram /></el-icon>
+                {{ t('auditDashboard.chart.typeStats') }}
+              </span>
+            </div>
+          </template>
+          <div
+            ref="typeStatsChartRef"
+            class="chart-box w-full h-80"
+            v-loading="loading"
+            :element-loading-text="t('common.loading')"
+          ></div>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -219,16 +240,19 @@ const {
   topUsersChartRef,
   topModulesChartRef,
   failTrendChartRef,
+  typeStatsChartRef,
   lastDaily,
   lastPieData,
   lastTopUsersData,
   lastTopModulesData,
+  lastTypeStats,
   formatBusinessType,
   renderTrendChart,
   renderPieChart,
   renderTopUsersChart,
   renderTopModulesChart,
   renderFailTrendChart,
+  renderTypeStatsChart,
   handleResize,
   clearResizeTimer
 } = useAuditCharts({
@@ -312,6 +336,23 @@ async function loadStats() {
     lastPieData.value = businessTypes.map((b) => ({ name: formatBusinessType(b.businessType), value: b.count }))
     lastTopUsersData.value = topOperators.map((u) => ({ userName: u.operName, count: u.count }))
     lastTopModulesData.value = topModules.map((m) => ({ moduleName: m.moduleName, count: m.count }))
+    // §5.36：操作类型分布（独立聚合接口，四元组 insert/update/delete/other）
+    const ts = (await request({
+      url: '/monitor/operlog/stats-by-type',
+      method: 'get'
+    })) as Partial<{ data?: { insert: number; update: number; delete: number; other: number } }> & {
+      insert?: number
+      update?: number
+      delete?: number
+      other?: number
+    }
+    const typeVo = (ts.data || ts) as { insert: number; update: number; delete: number; other: number }
+    lastTypeStats.value = {
+      insert: typeVo.insert || 0,
+      update: typeVo.update || 0,
+      delete: typeVo.delete || 0,
+      other: typeVo.other || 0
+    }
     await nextTick()
     // 图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
     await Promise.all([
@@ -319,7 +360,8 @@ async function loadStats() {
       renderPieChart(lastPieData.value),
       renderTopUsersChart(lastTopUsersData.value),
       renderTopModulesChart(lastTopModulesData.value),
-      renderFailTrendChart(lastDaily.value)
+      renderFailTrendChart(lastDaily.value),
+      renderTypeStatsChart(lastTypeStats.value)
     ])
   } catch (e) {
     if (import.meta.env.DEV) console.error('Failed to load audit dashboard data:', e)
@@ -356,7 +398,8 @@ watch(
       renderPieChart(lastPieData.value),
       renderTopUsersChart(lastTopUsersData.value),
       renderTopModulesChart(lastTopModulesData.value),
-      renderFailTrendChart(lastDaily.value)
+      renderFailTrendChart(lastDaily.value),
+      renderTypeStatsChart(lastTypeStats.value)
     ])
   }
 )

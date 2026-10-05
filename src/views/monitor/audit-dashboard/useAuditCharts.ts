@@ -67,18 +67,22 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
   const topUsersChartRef = ref<HTMLElement | null>(null)
   const topModulesChartRef = ref<HTMLElement | null>(null)
   const failTrendChartRef = ref<HTMLElement | null>(null)
+  const typeStatsChartRef = ref<HTMLElement | null>(null)
 
   let trendChart: ECharts | null = null
   let pieChart: ECharts | null = null
   let topUsersChart: ECharts | null = null
   let topModulesChart: ECharts | null = null
   let failTrendChart: ECharts | null = null
+  let typeStatsChart: ECharts | null = null
 
   // 主题切换时复用最近一次数据重新渲染（避免重新请求接口）
   const lastDaily = ref<TrendData[]>([])
   const lastPieData = ref<PieData[]>([])
   const lastTopUsersData = ref<TopUsersData[]>([])
   const lastTopModulesData = ref<TopModulesData[]>([])
+  // §5.36：操作类型分布（insert/update/delete/other 四元组）
+  const lastTypeStats = ref<{ insert: number; update: number; delete: number; other: number } | null>(null)
 
   /**
    * 业务类型 code → 中文名称映射
@@ -167,6 +171,50 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
         series: [
           {
             name: t('auditDashboard.report.businessType'),
+            type: 'pie',
+            radius: ['40%', '70%'],
+            avoidLabelOverlap: false,
+            label: { show: true, formatter: '{b}: {c}' },
+            data: data.length > 0 ? data : [{ name: t('common.noData'), value: 1 }],
+            color: palette
+          }
+        ]
+      }),
+      true
+    )
+  }
+
+  // §5.36：操作类型分布环形图（后端 /monitor/operlog/stats-by-type，
+  // 四元组 insert/update/delete/other → 环形图；样式对齐 renderPieChart）
+  async function renderTypeStatsChart(vo: {
+    insert: number
+    update: number
+    delete: number
+    other: number
+  } | null) {
+    if (!vo) return
+    const chart = await getChart(typeStatsChartRef.value)
+    if (!chart) return
+    typeStatsChart = chart
+    const data: PieData[] = [
+      { name: formatBusinessType(1), value: vo.insert },
+      { name: formatBusinessType(2), value: vo.update },
+      { name: formatBusinessType(3), value: vo.delete },
+      { name: formatBusinessType(0), value: vo.other }
+    ].filter((d) => d.value > 0)
+    const palette = [
+      cssVar('--el-color-success', '#67c23a'),
+      cssVar('--el-color-primary', '#409eff'),
+      cssVar('--el-color-danger', '#f56c6c'),
+      cssVar('--el-color-info', '#909399')
+    ]
+    chart.setOption(
+      withDark(chart, {
+        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+        legend: { orient: 'vertical', left: 'left' },
+        series: [
+          {
+            name: t('auditDashboard.chart.typeStats'),
             type: 'pie',
             radius: ['40%', '70%'],
             avoidLabelOverlap: false,
@@ -288,16 +336,19 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
     topUsersChartRef,
     topModulesChartRef,
     failTrendChartRef,
+    typeStatsChartRef,
     lastDaily,
     lastPieData,
     lastTopUsersData,
     lastTopModulesData,
+    lastTypeStats,
     formatBusinessType,
     renderTrendChart,
     renderPieChart,
     renderTopUsersChart,
     renderTopModulesChart,
     renderFailTrendChart,
+    renderTypeStatsChart,
     handleResize,
     clearResizeTimer
   }

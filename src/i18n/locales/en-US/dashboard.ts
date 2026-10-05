@@ -133,6 +133,7 @@ export default {
     },
     chart: {
       trend: 'Operation Trend',
+      typeStats: 'Operations by Type',
       trendRange: 'Operation Trend (last {days} days)',
       businessDist: 'Business Type',
       topUsers: 'Top 10 Active Users',

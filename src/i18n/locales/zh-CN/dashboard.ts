@@ -133,6 +133,7 @@ export default {
     },
     chart: {
       trend: '操作趋势',
+      typeStats: '操作类型分布',
       trendRange: '操作趋势（最近 {days} 天）',
       businessDist: '业务类型分布',
       topUsers: 'Top 10 活跃用户',
