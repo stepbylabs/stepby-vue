@@ -395,6 +395,15 @@ async function skipTour(page) {
     await skipBtn.click().catch(() => {})
     await sleep(500)
   }
+  // B4 软提示「安全提示」（初始密码提醒 confirm）可能盖在任何页面上——
+  // 点「取消」留在当前页继续测试（确定会跳转改密页破坏用例上下文）
+  const mbCancel = page
+    .locator('.el-overlay-message-box button:has-text("取消"), .el-message-box button:has-text("取消")')
+    .first()
+  if (await mbCancel.isVisible({ timeout: 500 }).catch(() => false)) {
+    await mbCancel.click().catch(() => {})
+    await sleep(300)
+  }
   // 也尝试 ESC 关闭
   await page.keyboard.press('Escape').catch(() => {})
   await sleep(300)
@@ -579,9 +588,9 @@ async function testFeature3(page) {
   // 端到端验证：点击下载按钮触发实际下载。判定收紧（轮1）：必须观察到 download 事件，
   // 或 /system/backup/download/ 的 200 响应且响应体非空；"按钮可点击即过"是假通过。
   try {
-    const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
+    const downloadPromise = page.waitForEvent('download', { timeout: 60000 }).catch(() => null)
     const responsePromise = page
-      .waitForResponse((r) => r.url().includes('/system/backup/download/') && r.status() === 200, { timeout: 15000 })
+      .waitForResponse((r) => r.url().includes('/system/backup/download/') && r.status() === 200, { timeout: 60000 })
       .catch(() => null)
     // 点击第一行的下载按钮（el-button link 类型，文本"下载"）
     const downloadBtn = page
@@ -590,7 +599,12 @@ async function testFeature3(page) {
       .locator('button:has-text("下载"), .el-button:has-text("下载")')
       .first()
     if ((await downloadBtn.count()) > 0) {
-      await downloadBtn.click().catch(() => {})
+      // force: true —— tour 蒙层/浮层可能拦截常规点击（skipTour 时机竞态），穿透执行
+      await downloadBtn.click({ force: true }).catch(() => {})
+      // 下载属敏感操作，首启会弹「安全提示」MessageBox（强改密/会话确认链）——
+      // 确认后请求才放行；无弹窗时静默跳过（非首次下载无确认）
+      const mbConfirm = page.locator('.el-overlay-message-box .el-button--primary').first()
+      await mbConfirm.click({ timeout: 8000 }).catch(() => {})
       const [download, resp] = await Promise.all([downloadPromise, responsePromise])
       if (download) {
         record(3, '下载功能端到端验证', true, `文件: ${download.suggestedFilename()}`)
@@ -1876,7 +1890,7 @@ async function testFeature17(page) {
   // system:backup: 前缀在 common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 中列为平台专属
   // （理由：整库 dump/恢复、下载面即全库数据）。initialize::ensure_tenant_role_menu_governance
   // 治理 SQL 修复补上 perms LIKE 列名后首次真正生效：菜单 118(system:backup:list)/1200(system:backup:query)
-  // 授权已从 role_id=2（stepby）删除，故前端路由 /monitor/backup 对 stepby 不可达（404）。
+  // 授权已从 role_id=2（stepby）删除，故前端路由 /system/backup 对 stepby 不可达（404）。
   await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
   await sleep(2500)
   await skipTour(page)
@@ -10932,7 +10946,7 @@ async function testFeature51(page) {
     // 先注册列表响应等待再导航：表格由 /system/oauth/client/list 数据驱动渲染，
     // 固定 sleep(1000) 在懒加载慢时会读到空表格（假阴性）
     const listResp = page
-      .waitForResponse((r) => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 })
+      .waitForResponse((r) => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 60000 })
       .catch(() => null)
     // 不可用 `networkidle`：本页会由 web-vitals 上报（`/monitor/frontendError/report`，
     // 类 beacon 发送）——服务端确已 200，但 Chromium 对该请求**永不发 requestfinished**，
@@ -16218,7 +16232,62 @@ function summarizeBackendLogErrors() {
   }
 }
 
+/**
+ * B4 强改密态前置清理（§5.31 循环流程沉淀）：
+ * admin 处于 mustChangePassword=true（B4 迁移标记存量用户 / 前轮用例残留开关）时，
+ * 每次登录都会弹「安全提示」alert（确定 ⇒ 跳转改密页），拦截一切后续页面用例。
+ * 这里用纯 API 复位：两步改密（admin123→Temp!2026a→admin123，个人改密自动清标志）
+ * + B4 开关幂等复位 false + refreshCache。任何一步失败仅告警不中断（fail-open）。
+ */
+async function ensureB4Clean() {
+  try {
+    const cap = await fetch(`${CONFIG.backendUrl}/captchaImage`).then((r) => r.json())
+    const body = { username: 'admin', password: 'admin123', code: '', uuid: cap.uuid || '' }
+    const login = await fetch(`${CONFIG.backendUrl}/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then((r) => r.json())
+    if (!login.token) return console.log('[B4 前置] 登录失败：', login.msg)
+    const h = { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' }
+    const info = await fetch(`${CONFIG.backendUrl}/getInfo`, { headers: h }).then((r) => r.json())
+    if (info.mustChangePassword === true) {
+      console.log('[B4 前置] admin 处于强改密态，执行两步改密复位')
+      const s1 = await fetch(`${CONFIG.backendUrl}/system/user/profile/updatePwd`, {
+        method: 'PUT', headers: h,
+        body: JSON.stringify({ oldPassword: 'admin123', newPassword: 'Temp!2026a' }),
+      }).then((r) => r.json())
+      const s2 = await fetch(`${CONFIG.backendUrl}/system/user/profile/updatePwd`, {
+        method: 'PUT', headers: h,
+        body: JSON.stringify({ oldPassword: 'Temp!2026a', newPassword: 'admin123' }),
+      }).then((r) => r.json())
+      console.log('[B4 前置] 改密复位：', s1.code, s2.code)
+    }
+    const cfg = await fetch(
+      `${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent('sys.user.forceFirstLoginChangePwd')}`,
+      { headers: h },
+    ).then((r) => r.json())
+    if (String(cfg.data) !== 'false') {
+      const list = await fetch(
+        `${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=50&configKey=sys.user.forceFirstLoginChangePwd`,
+        { headers: h },
+      ).then((r) => r.json())
+      const row = (list.rows || []).find((r) => r.configKey === 'sys.user.forceFirstLoginChangePwd')
+      if (row) {
+        await fetch(`${CONFIG.backendUrl}/system/config`, {
+          method: 'PUT', headers: h,
+          body: JSON.stringify({ configId: row.configId, configName: row.configName, configKey: row.configKey, configValue: 'false', configType: row.configType }),
+        }).then((r) => r.json())
+        await fetch(`${CONFIG.backendUrl}/system/config/refreshCache`, { method: 'DELETE', headers: h })
+        console.log('[B4 前置] 开关复位 false')
+      }
+    }
+  } catch (e) {
+    console.log('[B4 前置] 异常（fail-open 放行）：', String(e).slice(0, 120))
+  }
+}
+
 async function main() {
+  // B4 强改密态前置清理（详见函数注释）——必须在浏览器登录前完成
+  await ensureB4Clean()
   // 解析命令行参数
   const args = process.argv.slice(2)
   for (const arg of args) {

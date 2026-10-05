@@ -61,7 +61,11 @@ export function downloadBackup(backupId: number, filename?: string): Promise<Blo
   return request({
     url: '/system/backup/download/' + backupId,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    // §5.31：大备份（实测 43MB+）下载耗时超过全局 axios timeout（30s）会被
+    // abort——abort 的请求无响应对象，前端只见 msgError。blob 下载不限时
+    // （timeout: 0），进度由调用方 downloadingIds loading 态表达。
+    timeout: 0
   }).then((blob: unknown) => {
     const data = blob instanceof Blob ? blob : new Blob([blob as BlobPart])
     saveAs(data, filename || `backup-${backupId}.sql`)
