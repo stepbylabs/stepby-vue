@@ -238,6 +238,28 @@
               </template>
             </el-table-column>
             <el-table-column
+              :label="t('user.column.loginIp')"
+              align="center"
+              prop="loginIp"
+              v-if="columns.loginIp.visible"
+              width="140"
+            >
+              <template #default="scope">
+                <span>{{ scope.row.loginIp }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('user.column.loginDate')"
+              align="center"
+              prop="loginDate"
+              v-if="columns.loginDate.visible"
+              width="160"
+            >
+              <template #default="scope">
+                <span>{{ parseTime(scope.row.loginDate) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
               :label="t('user.column.createTime')"
               align="center"
               prop="createTime"
@@ -465,6 +487,8 @@ const USER_COLUMN_DEFS: TableColumnDef[] = [
   { key: 'deptName' },
   { key: 'phonenumber' },
   { key: 'status' },
+  { key: 'loginIp' },
+  { key: 'loginDate' },
   { key: 'createTime' }
 ]
 // P2a：label 工厂——locale 切换时由 composable 重建 columns label（visible 偏好保留）
@@ -475,6 +499,8 @@ const USER_COLUMN_LABELS = () => ({
   deptName: t('user.column.dept'),
   phonenumber: t('user.column.phone'),
   status: t('user.column.status'),
+  loginIp: t('user.column.loginIp'),
+  loginDate: t('user.column.loginDate'),
   createTime: t('user.column.createTime')
 })
 const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn, bindLabels: bindUserLabels } = useTableColumns({
@@ -498,6 +524,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   deptName: { label: t('user.column.dept'), visible: true },
   phonenumber: { label: t('user.column.phone'), visible: true },
   status: { label: t('user.column.status'), visible: true },
+  loginIp: { label: t('user.column.loginIp'), visible: true },
+  loginDate: { label: t('user.column.loginDate'), visible: true },
   createTime: { label: t('user.column.createTime'), visible: true }
 })
 // P2a：locale 切换 → columns label 自动更新（labelMap immediate 应用 + watch 跟随）

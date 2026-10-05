@@ -195,6 +195,8 @@ export default {
       status: 'Status',
       oauthBound: '3rd-party',
       oauthBoundTag: 'Bound',
+      loginIp: 'Last Login IP',
+      loginDate: 'Last Login Time',
       createTime: 'Created Time'
     },
     form: {
