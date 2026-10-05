@@ -204,7 +204,6 @@ export function importUserData(file: File, updateSupport = false): Promise<AjaxR
     url: '/system/user/importData',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     params: { updateSupport: updateSupport ? 1 : 0 }
   })
 }

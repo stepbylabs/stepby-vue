@@ -81,9 +81,11 @@ const usePermissionStore = defineStore('permission', {
         this.setTopbarRoutes(defaultRoutes)
         return rewriteRoutes
       } catch (e) {
-        // 忽略路由获取错误，request.ts 拦截器已统一弹错误提示；此处仅记录日志便于排查
+        // §5.35：不吞异常——守卫按 HTTP status 分类跳转（403/500）依赖此处
+        // 上抛；吞掉会导致守卫拿到空路由集只能落 404，错误分类失效。
+        // request.ts 拦截器已统一弹错误提示，此处抛出不会造成静默。
         if (import.meta.env.DEV) console.error('[generateRoutes]', e)
-        return []
+        throw e
       }
     },
     // 重置路由：移除所有动态添加的路由，只保留常量路由（P0-60）

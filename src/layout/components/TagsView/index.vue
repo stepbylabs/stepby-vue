@@ -11,7 +11,7 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollLeft')"
       @click="scrollLeft"
-      @keydown.enter.prevent="scrollLef" >
+      @keydown.enter.prevent="scrollLeft" >
       <el-icon><arrow-left /></el-icon>
     </span>
 
@@ -39,7 +39,7 @@
           @dragover.prevent="onDragOver($event, idx)"
           @dragleave="onDragLeave(idx)"
           @drop.prevent="onDrop(idx)"
-          @dragend="onDragEn" >
+          @dragend="onDragEnd" >
           <svg-icon
             v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'"
             :icon-class="tag.meta.icon"
@@ -69,7 +69,7 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollRight')"
       @click="scrollRight"
-      @keydown.enter.prevent="scrollRigh" >
+      @keydown.enter.prevent="scrollRight" >
       <el-icon><arrow-right /></el-icon>
     </span>
 
