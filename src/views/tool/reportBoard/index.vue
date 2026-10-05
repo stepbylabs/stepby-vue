@@ -81,6 +81,7 @@
           link
           type="danger"
           icon="Delete"
+          v-hasPermi="['tool:reportBoard:save']"
           :aria-label="t('reportBoard.deleteCard')"
           @click="deleteCard(c.id)"
         />
@@ -95,7 +96,7 @@
         <template #image>
           <el-icon :size="48" class="text-text-secondary"><DataAnalysis /></el-icon>
         </template>
-        <el-button type="primary" @click="openAddDialog">{{ t('reportBoard.addCard') }}</el-button>
+        <el-button type="primary" v-hasPermi="['tool:reportBoard:save']" @click="openAddDialog">{{ t('reportBoard.addCard') }}</el-button>
         <p class="mt-2 text-sm text-text-secondary">{{ t('reportBoard.emptyHint') }}</p>
       </el-empty>
     </el-card>
