@@ -41,6 +41,7 @@
           icon="Promotion"
           :loading="loading"
           :disabled="!question.trim()"
+          v-hasPermi="['ai:chat']"
           @click="ask"
         >
           {{ t('aiPanel.ask') }}

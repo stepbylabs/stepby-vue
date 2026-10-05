@@ -21,8 +21,17 @@
           <el-option v-for="b in boards" :key="b.id" :value="b.id" :label="b.name" />
         </el-select>
 
-        <el-button icon="Plus" @click="createBoard">{{ t('reportBoard.newBoard') }}</el-button>
-        <el-button v-if="activeBoard" icon="Delete" type="danger" plain @click="removeBoard">
+        <el-button icon="Plus" v-hasPermi="['tool:reportBoard:save']" @click="createBoard">{{
+          t('reportBoard.newBoard')
+        }}</el-button>
+        <el-button
+          v-if="activeBoard"
+          icon="Delete"
+          type="danger"
+          plain
+          v-hasPermi="['tool:reportBoard:save']"
+          @click="removeBoard"
+        >
           {{ t('reportBoard.deleteBoard') }}
         </el-button>
 
@@ -37,6 +46,7 @@
           v-model="editing"
           :active-text="t('reportBoard.modeEdit')"
           :inactive-text="t('reportBoard.modeView')"
+          v-hasPermi="['tool:reportBoard:save']"
         />
 
         <template v-if="editing">
