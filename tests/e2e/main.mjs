@@ -11045,18 +11045,25 @@ async function testFeature51(page) {
     record(51, 'RP-initiated end_session 链（回跳/吊销/fail-closed）', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  // ---- 14. 清理：删除测试客户端（无论前面成败都执行；end_session 可能已拉黑
-  //      当前登录 JWT → 优先用 13a 备用的 freshAuth） ----
+  // ---- 14. 清理：删除测试客户端（无论前面成败都执行；end_session 已吊销存量
+  //      JWT（freshAuth 亦可能过期）→ 无条件实时重新登录取干净 token） ----
   try {
     if (!created) throw new Error('无已创建客户端')
+    const capForClean = await fetch(`${B}/captchaImage`).then((r) => r.json())
+    const relogin = await fetch(`${B}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: TEST_USER, password: CONFIG.password, code: '', uuid: capForClean.uuid || '' }),
+    }).then((r) => r.json())
+    const delHeaders = relogin.token ? { Authorization: `Bearer ${relogin.token}` } : freshAuth || auth
     const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
       method: 'DELETE',
-      headers: freshAuth || auth
+      headers: delHeaders
     }).then((r) => r.json())
     let gone = false
     try {
       const chk = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
-        headers: freshAuth || auth
+        headers: delHeaders
       }).then((r) => r.json())
       // 401 不算"已消失"：认证失败无法证明客户端已删除，必须拿到明确业务非存在响应
       gone = chk?.code !== 401 && chk?.code !== 200 && chk?.code !== 0 && !chk?.data?.clientId
