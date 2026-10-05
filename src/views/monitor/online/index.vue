@@ -81,9 +81,11 @@
             min-width="120"
             show-overflow-tooltip
           />
-          <!-- §27.13.2 分层视图：租户列仅平台视图展示（租户操作者全部会话同属本租户） -->
+          <!-- §27.13.2 分层视图：租户列仅平台视图展示（租户操作者全部会话同属本租户）；
+               单机模式（[tenant].management=false ⇒ showTenantColumn=false）一并隐藏——
+               与 TenantColumn 组件消费同一布场，租户列可见性全站单一口径 -->
           <el-table-column
-            v-if="isPlatform"
+            v-if="isPlatform && userStore.showTenantColumn"
             :label="t('online.column.tenantName')"
             align="center"
             prop="tenantName"
