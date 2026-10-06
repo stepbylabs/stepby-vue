@@ -1180,3 +1180,24 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
   `"<calleeFile>::<calleeFn> => <callerFile>::<callerFn>"`）。局部复核：`--full --rule=R9`。
   产物 `docs/optimization/tenant-audit-report.md` 是**候选集**，每条需回代码复核，
   口径见 `docs/optimization/topic-multitenant-sso-audit-2026-09-23.md` §30.2.5/§30.2.6。
+
+## 6. 功能 87-93（批次五新增，2026-10-07）通过判据
+
+命令同 §3，`--feature=87-93` → `总计 28 通过 28 失败 0`（EXIT=0，已验证基线）。
+
+| 功能 | 覆盖 | 关键断言 |
+|---|---|---|
+| 87 | 消息渠道编辑全链 | 新增重复编码被唯一约束拒绝（负路径，`channelCode=channelType` 与种子冲突是产品语义）；编辑对话框 configJson **明文回显**（EncryptedString 读路径解密，非 `enc*:` 密文）；仅改备注配置保持；`clearFields` 显式清空；**零污染闭环**（清空验证后写回原配置并回显一致） |
+| 88 | 消息模板增改删 | email 渠道 + 变量占位 `{{nickName}}`；主题编辑生效；删除后行消失 |
+| 89 | OSS 存储配置页（G-11） | GET 出参掩码（accessKeyMasked/secretKeyMasked 不回明文）；页面可达（**菜单 4103 孤儿占位修复回归点**）；档位提示；PUT 空 secretKey 保留原值（掩码不变） |
+| 90 | AI 助手配置页 | 表单关键字段；API Key 保留语义；空 Key 保存；测试连通负路径无崩溃 |
+| 91 | 盲区冒烟 | /monitor/task、/system/dataRule、**/system/log/auditChange**（注意前缀是 /system/log） |
+| 92 | 盲区冒烟 | /system/oauth/scimGroup、/tool/http-debugger、/tool/swagger |
+| 93 | e2e 孤儿数据巡检 | `test-menu-*` 孤儿菜单清零；e2e 用户残留清理（防测试污染复发——历史 F23 孤儿占位 menu_id=4101-4147 导致固定 ID 菜单 INSERT OR IGNORE 静默失效的教训） |
+
+**本批修复的真实缺陷（测试反哺产品）**：
+1. 38 个 e2e 孤儿菜单占位 → AI 配置(4102)/OSS 配置(4103)/告警规则(4110) 等业务菜单从未落库（固定 ID + OR IGNORE 静默失效）——已数据修复 + `ensure_upload_config_menu` 加内容校验 warn + F23 finally 兜底清理 + F93 巡检。
+2. F23 删除失败无兜底 → 加"菜单删除兜底清理"断言。
+3. admin 密码漂移（历史改密测试残留）→ 本地库重置 admin123；e2e 依赖 `sys_config.sys.account.captchaEnabled=false`。
+
+**对话框交互经验（写新 UI 用例必读）**：goto 前 `presetTourDisabled(page)`（tour 遮罩 z-9998 拦截一切点击，goto 后 skipTour 来不及）；自家对话框提交用 `click({ force: true })`（actionability 判定偶发抖动，非确定性实测）；提交失败关闭对话框会触发**未保存守卫**（"不保存并离开"按钮，需循环收敛处理）；el-select 下拉 option 用 `getByRole('option')`（`.el-select-dropdown:visible` 对 popper 不可靠）。

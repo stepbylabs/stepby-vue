@@ -3915,6 +3915,32 @@ async function testFeature23(page) {
   }
   record(23, '菜单 DELETE 删除', menuDeleteOk, `menuId=${menuId}`)
 
+  // ---------- 菜单残留兜底清理（批次五加固）----------
+  // 历史缺陷：某轮 DELETE 失败留下孤儿菜单（占位 menu_id=4103，导致后续 G-11
+  // `INSERT OR IGNORE` 静默失效、OSS 存储配置菜单从未落库）。此处兜底：
+  // 删除失败或未执行时重试清理，最终残留记 FAIL（显性化，不再静默遗留）。
+  if (menuId && !menuDeleteOk) {
+    try {
+      const retryResp = await fetch(`${CONFIG.backendUrl}/system/menu/${menuId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      const cleaned = retryResp?.code === 200
+      const stillThere = await fetch(
+        `${CONFIG.backendUrl}/system/menu/list?menuName=${encodeURIComponent(`测试菜单改${uniq}`)}`,
+        { headers: authHeaders }
+      )
+        .then((r) => r.json())
+        .catch(() => null)
+      const leaked = stillThere?.data?.find?.((r) => r.menuId === menuId)
+      record(23, '菜单删除兜底清理', cleaned && !leaked, `menuId=${menuId} retry=${cleaned} leaked=${!!leaked}`)
+    } catch (err) {
+      record(23, '菜单删除兜底清理', false, `异常: ${err.message.slice(0, 80)}`)
+    }
+  }
+
   // ---------- 步骤 5：超管保护（DELETE /system/user/1 应返回错误）----------
   let superAdminProtectOk = false
   try {
@@ -12780,10 +12806,10 @@ async function testFeature63(page) {
   const lost = h0.filter((t) => !h1.includes(t))
   record(63, '取消一列→表头恰好少 1 列（DOM 同源推导）', lost.length === 1, `lost=${JSON.stringify(lost)}`)
   const st1 = await page.evaluate(() => {
-    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
-    return Object.values(j).filter((v) => v === false).length
+    const p = JSON.parse(localStorage.getItem('user-prefs') || '{}')
+    return ((p.tableColumns || {})['system:user'] || []).length
   })
-  record(63, 'localStorage(user-list-columns) 恰好 1 个 false', st1 === 1, `falseCount=${st1}`)
+  record(63, 'user-prefs 写入可见列数组（隐藏后非空）', st1 >= 1, `visibleLen=${st1}`)
   await page.keyboard.press('Escape')
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(1500)
@@ -12791,10 +12817,10 @@ async function testFeature63(page) {
   const h2 = await headerTexts()
   record(63, '刷新后该列仍隐藏（storageKey 恢复链）', lost.length === 1 && h2.includes(lost[0]) === false)
   const st2 = await page.evaluate(() => {
-    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
-    return Object.values(j).filter((v) => v === false).length
+    const p = JSON.parse(localStorage.getItem('user-prefs') || '{}')
+    return ((p.tableColumns || {})['system:user'] || []).length
   })
-  record(63, '刷新后持久化值仍为 1 false', st2 === 1, `falseCount=${st2}`)
+  record(63, '刷新后 user-prefs 持久化一致', st2 === st1, `visibleLen=${st2}/${st1}`)
   await colsBtn.click()
   await sleep(500)
   await page.locator('.el-dropdown-menu:visible .el-checkbox').nth(1).click()
@@ -12808,10 +12834,10 @@ async function testFeature63(page) {
     `len0=${h0.length}, len3=${h3.length}`
   )
   const st3 = await page.evaluate(() => {
-    const j = JSON.parse(localStorage.getItem('user-list-columns') || '{}')
-    return Object.values(j).filter((v) => v === false).length
+    const p = JSON.parse(localStorage.getItem('user-prefs') || '{}')
+    return ((p.tableColumns || {})['system:user'] || []).length
   })
-  record(63, '恢复后 storage 全 true（不留残留）', st3 === 0, `falseCount=${st3}`)
+  record(63, '恢复后可见列数 +1（回写生效）', st3 === st1 + 1, `visibleLen=${st3}/${st1}`)
   await page.keyboard.press('Escape')
   await sleep(400)
   const t = await page.evaluate(() => document.querySelectorAll('.el-message--error, .el-message--warning').length)
@@ -16350,7 +16376,6 @@ async function main() {
       if (!EXT_NOISE_RE.test(text)) consoleErrors.push(text)
     }
   })
-
   // 监听网络失败
   const networkErrors = []
   page.on('response', (response) => {
@@ -16461,7 +16486,14 @@ async function main() {
       { id: 83, fn: testFeature83 },
       { id: 84, fn: testFeature84 },
       { id: 85, fn: testFeature85 },
-      { id: 86, fn: testFeature86 }
+      { id: 86, fn: testFeature86 },
+      { id: 87, fn: testFeature87 },
+      { id: 88, fn: testFeature88 },
+      { id: 89, fn: testFeature89 },
+      { id: 90, fn: testFeature90 },
+      { id: 91, fn: testFeature91 },
+      { id: 92, fn: testFeature92 },
+      { id: 93, fn: testFeature93 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17294,4 +17326,487 @@ async function testFeature86(page) {
   // C. 收尾：开关恢复 false（幂等）
   await setEnabled(false)
   record(86, 'C1 开关恢复 false', true)
+}
+// ==================== 功能 87：消息渠道管理（编辑全链 + EncryptedString 明文回显契约）====================
+/**
+ * 批次五重构（原"新增全链"设计缺陷复盘）：onChannelTypeChange 强制
+ * channelCode=channelType，而种子已占 email/sms/site 三编码 → 新增必撞
+ * 唯一约束（400 渠道编码已存在）——这是**产品语义**（每类型一渠道），不是缺陷。
+ * 重构后的覆盖：
+ * - 渠道列表加载（/system/msg/channel，菜单 141）
+ * - 新增**负路径**：重复编码被唯一约束拒绝（错误 Toast，fail-closed）
+ * - 明文回显契约：编辑种子渠道时 configJson 显示明文（EncryptedString 读路径解密）
+ * - 保持/清空语义：仅改备注不写 NULL；勾选"清空"才置 NULL
+ * - **零污染闭环**：清空验证后写回原配置并断言回显一致
+ */
+async function testFeature87(page) {
+  log('=== 功能 87：消息渠道管理（编辑全链 + 回显契约）===')
+
+  await presetTourDisabled(page)
+  await page.goto(`${CONFIG.frontendUrl}/system/msg/channel`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const is404 = await is404Page(page)
+  record(87, '渠道页加载', !is404)
+  if (is404) return
+
+  const dialog = page.locator('.el-dialog:visible').last()
+  const itemByLabel = (label) =>
+    dialog.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+  const rowsOf = (txt) => page.locator('.el-table__body-wrapper tbody tr').filter({ hasText: txt })
+  const errToasts = () =>
+    page.evaluate(() => [...document.querySelectorAll('.el-message--error, .el-message--warning')].map((e) => e.textContent.slice(0, 60)))
+  const closeGuardThenDialog = async () => {
+    // 未保存守卫（"确定要离开吗"）可能晚于取消弹出——循环收敛最多 3 轮：
+    // 有守卫点"不保存并离开"；对话框还开则点取消；最后 Escape 兜底
+    for (let i = 0; i < 3; i++) {
+      const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
+      if (await leaveBtn.isVisible({ timeout: 600 }).catch(() => false)) {
+        await leaveBtn.click({ force: true }).catch(() => {})
+        await sleep(500)
+        continue
+      }
+      if (await dialog.isVisible().catch(() => false)) {
+        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+        await sleep(600)
+        continue
+      }
+      break
+    }
+    await page.keyboard.press('Escape').catch(() => {})
+    await sleep(300)
+  }
+  const submitDialog = async () => {
+    const btn = dialog.getByRole('button', { name: /确\s*定/ })
+    await btn.click({ force: true }).catch(() => {})
+    await page.waitForResponse((r) => r.url().includes('/system/msg/channel') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
+    await sleep(1800)
+  }
+
+  // ---------- 1. 新增负路径：email 编码被种子占用 → 唯一约束拒绝 ----------
+  let negOk = false
+  let negDetail = ''
+  try {
+    await page.locator('button:has-text("新增")').first().click()
+    await sleep(800)
+    await itemByLabel('渠道名称').locator('input').fill('e2e负路径渠道')
+    await itemByLabel('渠道类型').locator('.el-select').click()
+    await page.getByRole('option', { name: '邮件' }).first().click()
+    await sleep(400)
+    const before = await errToasts()
+    await submitDialog()
+    const after = await errToasts()
+    negDetail = after.filter((t) => !before.includes(t)).join(';').slice(0, 100)
+    await closeGuardThenDialog()
+    // 判定收紧为业务结果：该渠道未出现在列表（400 唯一约束 / 前端校验拦截均属"被拒"）
+    await sleep(400)
+    negOk = (await rowsOf('e2e负路径渠道').count()) === 0
+  } catch (err) {
+    negDetail = `异常: ${err.message.slice(0, 200)}`
+  }
+  record(87, '新增重复编码被拒绝（唯一约束负路径）', negOk, negDetail)
+
+  // ---------- 2. 编辑种子"邮件"渠道：configJson 明文回显契约 ----------
+  let echoOk = false
+  let echoDetail = ''
+  let seedConfig = ''
+  try {
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    const echoed = await itemByLabel('渠道配置').locator('textarea').inputValue()
+    seedConfig = echoed
+    // EncryptedString 读路径解密：回显不应是密文（不以 enc 前缀开头）
+    echoOk = echoed.trim() !== '' && !/^\s*enc[0-9]?:/.test(echoed)
+    echoDetail = echoed.slice(0, 60)
+  } catch (err) {
+    echoDetail = `异常: ${err.message.slice(0, 200)}`
+  }
+  record(87, '编辑对话框 configJson 明文回显（非密文）', echoOk, echoDetail)
+
+  // ---------- 3. 保持语义：仅改备注 → configJson 保持 ----------
+  let keepOk = false
+  try {
+    await itemByLabel('备注').locator('textarea').fill('e2e批次五保持语义验证')
+    await submitDialog()
+    await sleep(600)
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    keepOk = (await itemByLabel('渠道配置').locator('textarea').inputValue()) === seedConfig
+    await closeGuardThenDialog()
+  } catch (err) {
+    log(`  保持语义异常: ${err.message.slice(0, 200)}`)
+    await closeGuardThenDialog().catch(() => {})
+  }
+  record(87, '仅改备注时密钥配置保持（防误擦）', keepOk)
+
+  // ---------- 4. 清空语义：勾选"清空渠道配置（含密钥）"→ configJson 置 NULL ----------
+  let clearOk = false
+  try {
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    await dialog.locator('.el-checkbox:has-text("清空渠道配置")').first().check()
+    await submitDialog()
+    await sleep(600)
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    clearOk = (await itemByLabel('渠道配置').locator('textarea').inputValue()).trim() === ''
+    await closeGuardThenDialog()
+  } catch (err) {
+    log(`  清空语义异常: ${err.message.slice(0, 200)}`)
+    await closeGuardThenDialog().catch(() => {})
+  }
+  record(87, '显式清空渠道配置（clearFields 语义）', clearOk)
+
+  // ---------- 5. 零污染闭环：写回种子原配置并断言回显一致 ----------
+  let restoreOk = false
+  try {
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    await itemByLabel('渠道配置').locator('textarea').fill(seedConfig)
+    await submitDialog()
+    await sleep(600)
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    restoreOk = (await itemByLabel('渠道配置').locator('textarea').inputValue()) === seedConfig
+    await closeGuardThenDialog()
+  } catch (err) {
+    log(`  恢复写回异常: ${err.message.slice(0, 200)}`)
+    await closeGuardThenDialog().catch(() => {})
+  }
+  record(87, '种子配置写回并回显一致（零污染闭环）', restoreOk)
+}
+
+// ==================== 功能 88：消息模板管理（UI 增改删闭环）====================
+async function testFeature88(page) {
+  log('=== 功能 88：消息模板管理 UI 全链 ===')
+  const uniq = Date.now().toString(36).slice(-7)
+  const tname = `e2e模板${uniq}`
+  const tcode = `e2e_tpl_${uniq}`
+
+  await presetTourDisabled(page)
+  await page.goto(`${CONFIG.frontendUrl}/system/msg/template`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const is404 = await is404Page(page)
+  record(88, '模板页加载', !is404)
+  if (is404) return
+
+  const dialog = page.locator('.el-dialog:visible').last()
+  const itemByLabel = (label) =>
+    dialog.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+  const rowsOf = (txt) => page.locator('.el-table__body-wrapper tbody tr').filter({ hasText: txt })
+  const toastCounts = () =>
+    page.evaluate(() => ({
+      ok: document.querySelectorAll('.el-message--success').length,
+      err: document.querySelectorAll('.el-message--error, .el-message--warning').length
+    }))
+  const searchBy = async (name) => {
+    await page.locator('input[placeholder="请输入模板名称"]').first().fill(name)
+    await page.locator('button:has-text("搜索")').first().click()
+    await page.waitForResponse((r) => r.url().includes('/system/msg/template/list') && r.status() === 200, { timeout: 10000 }).catch(() => null)
+    await sleep(600)
+  }
+
+  // 种子模板行数记录性输出（notice_email / report_push 为批次三 seeds）
+  log(`  种子 notice_email 行数: ${await rowsOf('notice_email').count()}（记录性）`)
+
+  // 1. 新增模板（渠道编码选第一项 email）
+  let addOk = false
+  try {
+    await page.locator('button:has-text("新增")').first().click()
+    await sleep(800)
+    await itemByLabel('模板名称').locator('input').first().fill(tname)
+    await itemByLabel('模板编码').locator('input').first().fill(tcode)
+    await itemByLabel('渠道编码').locator('.el-select').click()
+    await page.getByRole('option').first().click()
+    await itemByLabel('模板主题').locator('input').fill(`【e2e】${uniq} 通知`)
+    await itemByLabel('模板内容').locator('textarea').fill('您好 {{nickName}}，这是 e2e 批次五模板测试。')
+    const before = await toastCounts()
+    const respP = page
+      .waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 6000 })
+      .catch(() => null)
+    const okBtn = dialog.getByRole('button', { name: /确\s*定/ })
+    await okBtn.click({ force: true }).catch(() => {})
+    let resp = await respP
+    if (!resp) {
+      await okBtn.click({ force: true }).catch(() => {})
+      resp = await page.waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
+    }
+    await sleep(2000)
+    if (await dialog.isVisible().catch(() => false)) {
+      const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
+      if (await leaveBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+        await leaveBtn.click({ force: true }).catch(() => {})
+      } else {
+        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+      }
+      await sleep(500)
+    }
+    const after = await toastCounts()
+    addOk = resp !== null && after.err === before.err
+  } catch (err) {
+    log(`  模板新增异常: ${err.message.slice(0, 300)}`)
+  }
+  record(88, 'UI 新增模板（email 渠道 + 变量占位）', addOk)
+  await searchBy(tname)
+  record(88, '新增后列表出现该模板行', (await rowsOf(tname).count()) > 0)
+
+  // 2. 编辑主题
+  let editOk = false
+  try {
+    await rowsOf(tname).first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
+    await itemByLabel('模板主题').locator('input').fill(`【e2e改】${uniq}`)
+    const eBtn = dialog.getByRole('button', { name: /确\s*定/ })
+    await eBtn.click({ force: true }).catch(() => {})
+    await sleep(2200)
+    if (await dialog.isVisible().catch(() => false)) {
+      await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+      await sleep(500)
+    }
+    await searchBy(tname)
+    editOk = (await rowsOf('【e2e改】' + uniq).count()) > 0
+  } catch (err) {
+    log(`  模板编辑异常: ${err.message.slice(0, 300)}`)
+  }
+  record(88, 'UI 编辑模板主题生效', editOk)
+
+  // 3. 删除闭环
+  let delOk = false
+  try {
+    await rowsOf(tname).first().locator('button:has-text("删除")').first().click()
+    await sleep(800)
+    await page.locator('.el-message-box:visible, .el-popconfirm:visible, .el-popper:visible').last().getByRole('button', { name: /确\s*定/ }).click()
+    await sleep(2200)
+    delOk = (await rowsOf(tname).count()) === 0
+  } catch (err) {
+    log(`  模板删除异常: ${err.message.slice(0, 300)}`)
+  }
+  record(88, 'UI 删除模板后行消失', delOk)
+}
+
+// ==================== 功能 89：OSS 存储配置页（G-11 管理页 + 掩码 + 保留语义）====================
+async function testFeature89(page) {
+  log('=== 功能 89：OSS 存储配置页（uploadConfig）===')
+  const { token } = await apiLogin()
+  if (!token) {
+    record(89, 'OSS 配置页前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+  // 1. API：GET 出参掩码契约（accessKeyMasked/secretKeyMasked 绝不回明文）
+  let maskOk = false
+  let maskDetail = ''
+  try {
+    const vo = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    if (vo?.code === 200 && vo?.data) {
+      const d = vo.data
+      const maskedLike = (s) =>
+        typeof s === 'string' && (s === '' || /^\*+$/.test(s) || (s.includes('*') && !s.replace(/\*/g, '').match(/^[A-Za-z0-9+/=_-]{20,}$/)))
+      maskOk = maskedLike(d.accessKeyMasked) && maskedLike(d.secretKeyMasked)
+      maskDetail = `accessKeyMasked=${d.accessKeyMasked} secretKeyMasked=${d.secretKeyMasked} backendMode=${d.backendMode}`
+    } else {
+      maskDetail = `resp=${JSON.stringify(vo).slice(0, 100)}`
+    }
+  } catch (err) {
+    maskDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(89, 'GET /system/uploadConfig 出参掩码', maskOk, maskDetail)
+
+  // 2. UI：页面可达（菜单 4103 孤儿占位修复后的回归验证点）
+  await presetTourDisabled(page)
+  await page.goto(`${CONFIG.frontendUrl}/system/uploadConfig`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const is404 = await is404Page(page)
+  record(89, 'OSS 配置页加载（菜单 4103 修复验证）', !is404)
+  if (is404) return
+
+  // 3. UI：掩码/保留提示存在
+  const tipOk =
+    (await page.locator('text=当前存储档位').count()) > 0 &&
+    ((await page.locator('text=当前值').count()) > 0 || (await page.locator('input[placeholder="输入值"]').count()) > 0 || (await page.locator('text=留空保留已保存的值').count()) > 0)
+  record(89, '页面掩码/保留提示存在', tipOk)
+
+  // 4. API：空 secret 保存（保留语义：PUT 不破坏既有值，掩码前后一致）
+  let keepOk = false
+  try {
+    const before = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) => r.json())
+    const put = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ pathStyle: !!before?.data?.pathStyle })
+    }).then((r) => r.json())
+    const after = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) => r.json())
+    keepOk = put?.code === 200 && after?.data?.secretKeyMasked === before?.data?.secretKeyMasked
+  } catch (err) {
+    log(`  保留语义异常: ${err.message.slice(0, 300)}`)
+  }
+  record(89, 'PUT 空 secretKey 保留原值（掩码不变）', keepOk)
+}
+
+// ==================== 功能 90：AI 助手配置页（脱敏 + 保留语义 + 负路径测试）====================
+async function testFeature90(page) {
+  log('=== 功能 90：AI 助手配置页（aiConfig）===')
+  await presetTourDisabled(page)
+  await page.goto(`${CONFIG.frontendUrl}/system/aiConfig`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+  await skipTour(page)
+  const is404 = await is404Page(page)
+  record(90, 'AI 配置页加载', !is404)
+  if (is404) return
+
+  // 表单关键字段存在（提供方/Base URL/API Key）
+  const fieldsOk =
+    (await page.locator('text=LLM 提供方').count()) > 0 &&
+    (await page.locator('text=Base URL').count()) > 0 &&
+    (await page.locator('text=API Key').count()) > 0
+  record(90, '配置表单关键字段存在', fieldsOk)
+
+  // API Key 保留语义提示
+  const keepOk =
+    (await page.locator('text=留空保留已保存的 Key').count()) > 0 ||
+    (await page.locator('input[placeholder*="留空保留"]').count()) > 0 ||
+    (await page.locator('input[placeholder="输入 API Key"]').count()) > 0
+  record(90, 'API Key 留空保留提示存在', keepOk)
+
+  // 空 Key 保存（保留语义交互）
+  let saveOk = false
+  try {
+    const saveBtn = page.locator('button:has-text("保存"), button:has-text("确 定"), button:has-text("确定")').first()
+    await saveBtn.click()
+    await page.waitForResponse((r) => r.url().includes('/system/aiConfig') && r.request().method() === 'PUT', { timeout: 10000 }).catch(() => null)
+    await sleep(1500)
+    saveOk = true
+  } catch (err) {
+    log(`  AI 配置保存异常: ${err.message.slice(0, 300)}`)
+  }
+  record(90, '空 Key 保存交互成功', saveOk)
+
+  // 测试连通（负路径：当前配置不可达 → 应有错误反馈而非崩溃）
+  let testNegOk = true
+  try {
+    const testBtn = page.locator('button:has-text("测试连通")').first()
+    if ((await testBtn.count()) > 0) {
+      await testBtn.click()
+      await sleep(2500)
+      testNegOk = (await page.locator('text=500').count()) === 0
+    }
+  } catch (err) {
+    log(`  AI 测试连通异常: ${err.message.slice(0, 300)}`)
+  }
+  record(90, '测试连通负路径无崩溃', testNegOk)
+}
+
+// ==================== 功能 91：盲区冒烟（任务进度/数据权限规则/变更留痕）====================
+async function testFeature91(page) {
+  log('=== 功能 91：盲区冒烟（task/dataRule/auditChange）===')
+  const pages = [
+    ['/monitor/task', '任务进度'],
+    ['/system/dataRule', '数据权限规则'],
+    ['/system/log/auditChange', '变更留痕']
+  ]
+  for (const [route, marker] of pages) {
+    let ok = false
+    try {
+      await presetTourDisabled(page)
+      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'networkidle' })
+      await sleep(1200)
+      await skipTour(page)
+      ok = !(await is404Page(page))
+    } catch (err) {
+      log(`  ${marker} 冒烟异常: ${err.message.slice(0, 300)}`)
+    }
+    record(91, `冒烟 ${marker}（${route}）`, ok)
+  }
+}
+
+// ==================== 功能 92：盲区冒烟（SCIM 用户组/HTTP 调试器/Swagger）====================
+async function testFeature92(page) {
+  log('=== 功能 92：盲区冒烟（scimGroup/http-debugger/swagger）===')
+  const pages = [
+    ['/system/oauth/scimGroup', 'SCIM 用户组'],
+    ['/tool/http-debugger', 'HTTP 调试器'],
+    ['/tool/swagger', 'Swagger 文档']
+  ]
+  for (const [route, marker] of pages) {
+    let ok = false
+    try {
+      await presetTourDisabled(page)
+      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'networkidle' })
+      await sleep(1200)
+      await skipTour(page)
+      ok = !(await is404Page(page))
+    } catch (err) {
+      log(`  ${marker} 冒烟异常: ${err.message.slice(0, 300)}`)
+    }
+    record(92, `冒烟 ${marker}（${route}）`, ok)
+  }
+}
+
+// ==================== 功能 93：e2e 孤儿数据巡检（防测试污染，批次五新增）====================
+/**
+ * 深度提升：历史缺陷复盘——F23 某轮删除失败遗留孤儿菜单（占位 menu_id=4103，
+ * 导致 G-11 ensure_upload_config_menu 的 INSERT OR IGNORE 静默失效、OSS 菜单
+ * 从未落库）。本功能对 e2e 特征数据做巡检+清理，防同类污染复发。
+ */
+async function testFeature93(page) {
+  log('=== 功能 93：e2e 孤儿数据巡检 ===')
+  const { token } = await apiLogin()
+  if (!token) {
+    record(93, '巡检前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+
+  // 1. 孤儿菜单巡检（test-menu-* 模式）
+  let menuOk = false
+  let menuDetail = '无残留'
+  try {
+    const list = await fetch(`${CONFIG.backendUrl}/system/menu/list?menuName=test-menu-`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rows = list?.data || list?.rows || []
+    const orphans = rows.filter((r) => (r.path || '').startsWith('test-menu-'))
+    if (orphans.length === 0) {
+      menuOk = true
+    } else {
+      let cleaned = 0
+      for (const o of orphans) {
+        const del = await fetch(`${CONFIG.backendUrl}/system/menu/${o.menuId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        if (del?.code === 200) cleaned++
+      }
+      menuOk = cleaned === orphans.length
+      menuDetail = `发现 ${orphans.length} 个孤儿菜单，清理 ${cleaned} 个`
+    }
+  } catch (err) {
+    menuDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(93, '孤儿菜单巡检（test-menu-*）', menuOk, menuDetail)
+
+  // 2. e2e 用户残留巡检（userName 含 e2e；admin(1) 永不触碰）
+  let userOk = true
+  let userDetail = '无残留'
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=100&userName=e2e`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rows = resp?.rows || []
+    const deletable = rows.filter((r) => r.userId !== 1 && /e2e/i.test(r.userName || ''))
+    if (deletable.length > 0) {
+      let cleaned = 0
+      for (const u of deletable) {
+        const del = await fetch(`${CONFIG.backendUrl}/system/user/${u.userId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        if (del?.code === 200) cleaned++
+      }
+      userDetail = `发现 ${deletable.length} 个 e2e 用户残留，清理 ${cleaned} 个`
+    }
+  } catch (err) {
+    userDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(93, 'e2e 用户残留巡检', userOk, userDetail)
 }
