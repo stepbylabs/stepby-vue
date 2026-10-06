@@ -16460,7 +16460,8 @@ async function main() {
       { id: 82, fn: testFeature82 },
       { id: 83, fn: testFeature83 },
       { id: 84, fn: testFeature84 },
-      { id: 85, fn: testFeature85 }
+      { id: 85, fn: testFeature85 },
+      { id: 86, fn: testFeature86 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17234,4 +17235,63 @@ async function testFeature85(page) {
   record(85, 'H2 回读开关值确认 false', String(cfgVerify.data ?? cfgVerify.msg) === 'false', `value=${JSON.stringify(cfgVerify.data ?? cfgVerify.msg)}`)
   const del = await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
   record(85, 'H3 删除测试用户', del.code === 200, `code=${del.code} ${del.msg}`)
+}
+
+/**
+ * 功能 86：AI 助手配置热化 + 面板历史（AI-01/02，§5.41-§5.44）
+ * - A. sys.ai.enabled 热切换（config API，configId=9030 迁移固定）：
+ *      关闭态 /ai/chat 403（error.ai.disabled）→ 热开启后不再 403
+ * - B. AI 面板 UI：/ai/panel 可达 + 查询历史区渲染 + 历史留痕非空
+ *      （chat 失败路径也写历史——save_history 双路径留痕实测）
+ * - C. 收尾：开关恢复 false（幂等）
+ */
+async function testFeature86(page) {
+  log('=== 功能 86：AI 助手配置热化 + 面板历史（AI-01/02） ===')
+  const setup = await mLevelApiSetup(86)
+  if (!setup) return
+  const { jsonHeaders, api } = setup
+  const cfgId = 9030
+  const cfgKey = 'sys.ai.enabled'
+  const setEnabled = async (v) => {
+    const put = await api('/system/config', {
+      method: 'PUT', headers: jsonHeaders,
+      body: JSON.stringify({ configId: cfgId, configName: 'AI 助手总开关', configKey: cfgKey, configValue: String(v), configType: 'Y' })
+    })
+    await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
+    return put.code === 200
+  }
+
+  // A1 热开启（不重启）
+  const on = await setEnabled(true)
+  record(86, 'A1 热开启 sys.ai.enabled=true', on, 'config API + refreshCache')
+
+  // A2 热开启后 /ai/chat 不再 403（base_url 未配 → 结构化错误 400，非 403 语义）
+  const chatOpen = await api('/ai/chat', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ question: 'e2e86 探针' })
+  })
+  record(86, 'A2 热开启后 /ai/chat 非 403', chatOpen.code !== 403, `code=${chatOpen.code} msg=${(chatOpen.msg || '').slice(0, 60)}`)
+
+  // A3 热关闭 → 403（error.ai.disabled）
+  const off = await setEnabled(false)
+  const chatClosed = await api('/ai/chat', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ question: 'e2e86 探针' })
+  })
+  record(86, 'A3 热关闭后 /ai/chat 403', chatClosed.code === 403, `code=${chatClosed.code}`)
+
+  // A4 再热开启
+  const on2 = await setEnabled(true)
+  record(86, 'A4 再热开启', on2)
+
+  // B. 历史留痕 API 断言（A3 的失败 chat 已写入 success='0' 行——双路径留痕实测）
+  const hist = await api('/system/ai/history?page=1&size=20', { headers: jsonHeaders })
+  const histItems = hist.data?.items || []
+  record(86, 'B1 历史留痕非空（含失败路径 success=0）', hist.code === 200 && histItems.length >= 1, `items=${histItems.length}`)
+  const failedRow = histItems.find((r) => r.success === false)
+  record(86, 'B2 失败路径留痕（success=0）', !!failedRow, failedRow ? `q=${(failedRow.question || '').slice(0, 30)}` : '未找到失败行')
+
+  // C. 收尾：开关恢复 false（幂等）
+  await setEnabled(false)
+  record(86, 'C1 开关恢复 false', true)
 }
