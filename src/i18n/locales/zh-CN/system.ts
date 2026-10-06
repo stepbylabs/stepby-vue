@@ -172,6 +172,32 @@ export default {
     syncReadFail: '同步已读状态失败',
     noUnreadTip: '所有通知均已阅读'
   },
+  aiConfig: {
+    title: 'AI 助手配置',
+    btn: {
+      test: '测试连通'
+    },
+    field: {
+      enabled: '启用 AI 助手',
+      provider: 'LLM 提供方',
+      baseUrl: 'Base URL',
+      apiKey: 'API Key',
+      model: '模型名',
+      allowedTables: '可查询表白名单'
+    },
+    ph: {
+      baseUrl: 'https://api.openai.com/v1 或 http://localhost:11434/v1',
+      apiKeyKeep: '留空保留已保存的 Key',
+      apiKeyNew: '输入 API Key',
+      allowedTables: '选择或输入表名，回车确认'
+    },
+    tip: {
+      dualSource:
+        '配置热生效：sys.ai.* 优先于 config.toml [ai] 段（出厂缺省）。修改后立即影响 AI 面板，无需重启。',
+      apiKeyMasked: '当前 Key：{masked}',
+      testOk: '连通正常'
+    }
+  },
   user: {
     title: '用户管理',
     search: {
@@ -1618,6 +1644,17 @@ export default {
     msgNoTaskFound: '未找到该单据的待办任务'
   },
   aiPanel: {
+    historyTitle: '查询历史',
+    history: {
+      time: '时间',
+      question: '问题',
+      rows: '行数',
+      status: '状态',
+      ok: '成功',
+      failed: '失败',
+      empty: '暂无查询历史',
+      replay: '重放'
+    },
     title: 'AI 数据助手（自然语言查数据）',
     toggleTables: '可查询范围',
     tablesTitle: '可查询的表（白名单）',

@@ -172,6 +172,32 @@ export default {
     syncReadFail: 'Failed to sync read status',
     noUnreadTip: 'All notices have been read'
   },
+  aiConfig: {
+    title: 'AI Assistant Config',
+    btn: {
+      test: 'Test Connection'
+    },
+    field: {
+      enabled: 'Enable AI Assistant',
+      provider: 'LLM Provider',
+      baseUrl: 'Base URL',
+      apiKey: 'API Key',
+      model: 'Model',
+      allowedTables: 'Allowed Tables Whitelist'
+    },
+    ph: {
+      baseUrl: 'https://api.openai.com/v1 or http://localhost:11434/v1',
+      apiKeyKeep: 'Leave empty to keep the saved key',
+      apiKeyNew: 'Enter API Key',
+      allowedTables: 'Select or type a table name, press Enter'
+    },
+    tip: {
+      dualSource:
+        'Hot-applied: sys.ai.* takes precedence over the config.toml [ai] factory defaults. Changes affect the AI panel immediately without restart.',
+      apiKeyMasked: 'Current key: {masked}',
+      testOk: 'Connection OK'
+    }
+  },
   user: {
     title: 'User Management',
     search: {
@@ -1636,6 +1662,17 @@ export default {
     msgNoTaskFound: 'No pending task found for this document'
   },
   aiPanel: {
+    historyTitle: 'Query History',
+    history: {
+      time: 'Time',
+      question: 'Question',
+      rows: 'Rows',
+      status: 'Status',
+      ok: 'OK',
+      failed: 'Failed',
+      empty: 'No query history yet',
+      replay: 'Replay'
+    },
     title: 'AI Data Assistant (natural language queries)',
     toggleTables: 'Queryable scope',
     tablesTitle: 'Whitelisted tables',

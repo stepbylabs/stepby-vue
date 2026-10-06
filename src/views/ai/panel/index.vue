@@ -115,13 +115,46 @@
       </el-table>
       <el-empty v-if="result.columns.length > 0 && result.rows.length === 0" :description="t('aiPanel.emptyResult')" />
     </el-card>
+
+    <!-- 查询历史（AI-02：本人历史，列表+删除；重放端点下批） -->
+    <el-card shadow="never" class="mt-3">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <span class="font-medium">{{ t('aiPanel.historyTitle') }}</span>
+          <el-button link type="primary" icon="Refresh" @click="loadHistory">
+            {{ t('common.refresh') }}
+          </el-button>
+        </div>
+      </template>
+      <el-table :data="historyRows" border stripe max-height="320" v-loading="historyLoading">
+        <el-table-column prop="createTime" :label="t('aiPanel.history.time')" width="170" />
+        <el-table-column prop="question" :label="t('aiPanel.history.question')" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="rowsCount" :label="t('aiPanel.history.rows')" width="90" align="center" />
+        <el-table-column :label="t('aiPanel.history.status')" width="90" align="center">
+          <template #default="scope">
+            <el-tag :type="scope.row.success ? 'success' : 'danger'" size="small">
+              {{ scope.row.success ? t('aiPanel.history.ok') : t('aiPanel.history.failed') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('common.column.operation')" width="90" align="center">
+          <template #default="scope">
+            <el-button link type="danger" @click="removeHistory(scope.row.id)">
+              {{ t('common.delete') }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="historyRows.length === 0 && !historyLoading" :description="t('aiPanel.history.empty')" />
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts" name="AiPanel">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { aiChat, aiTables } from '@/api/ai/chat'
+import request from '@/utils/request'
 
 interface ChatResult {
   answer: string
@@ -154,6 +187,47 @@ const tables = ref<Array<{ table: string; columns: Array<{ name: string }> }>>([
 const tablesLoading = ref(false)
 const showTables = ref(false)
 
+// AI-02：查询历史（本人）
+interface HistoryItem {
+  id: number
+  question: string
+  sql: string
+  tables: string
+  rowsCount: number
+  durationMs: number
+  success: boolean
+  errorMsg?: string
+  createTime: string
+}
+const historyRows = ref<HistoryItem[]>([])
+const historyLoading = ref(false)
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    const res = await request({
+      url: '/system/ai/history',
+      method: 'get',
+      params: { page: 1, size: 20 }
+    })
+    const d = (res as any).data ?? res
+    historyRows.value = ((d as { items?: HistoryItem[] }).items ?? []) as HistoryItem[]
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[aiPanel] loadHistory failed:', e)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+async function removeHistory(id: number) {
+  try {
+    await request({ url: `/system/ai/history/${id}`, method: 'delete' })
+    historyRows.value = historyRows.value.filter((r: HistoryItem) => r.id !== id)
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[aiPanel] removeHistory failed:', e)
+  }
+}
+
 // 快捷模板（引导首次使用；命中实际数据形态）
 const templates = computed(() => [
   t('aiPanel.tpl1'),
@@ -181,6 +255,7 @@ async function ask() {
   if (!q || loading.value) return
   loading.value = true
   errorMsg.value = ''
+  loadHistory()
   result.value = null
   try {
     const resp = (await aiChat({ question: q })) as unknown as AiChatResp
@@ -224,6 +299,10 @@ function exportCsv() {
   a.click()
   URL.revokeObjectURL(url)
 }
+onMounted(() => {
+  // AI-02：面板加载即拉本人历史（失败静默，历史为辅助信息）
+  loadHistory()
+})
 </script>
 
 <style scoped>
