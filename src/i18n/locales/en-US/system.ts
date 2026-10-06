@@ -172,6 +172,18 @@ export default {
     syncReadFail: 'Failed to sync read status',
     noUnreadTip: 'All notices have been read'
   },
+  dataRule: {
+    title: 'Data Permission Rules',
+    name: 'Rule Name',
+    table: 'Target Table',
+    field: 'Target Column',
+    op: 'Operator',
+    valueType: 'Value Type',
+    value: 'Rule Value',
+    status: 'Status',
+    role: 'Effective Roles',
+    ph: { roles: 'Select effective roles', confirmRemove: 'Remove this rule? Bindings take effect immediately' }
+  },
   aiHistory: {
     title: 'AI Query History',
     time: 'Time',

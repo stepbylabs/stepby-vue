@@ -172,6 +172,18 @@ export default {
     syncReadFail: '同步已读状态失败',
     noUnreadTip: '所有通知均已阅读'
   },
+  dataRule: {
+    title: '数据权限规则',
+    name: '规则名',
+    table: '目标表',
+    field: '目标列',
+    op: '操作符',
+    valueType: '值类型',
+    value: '规则值',
+    status: '状态',
+    role: '生效角色',
+    ph: { roles: '选择生效角色', confirmRemove: '确认删除该规则？删除后关联角色立即失效' }
+  },
   aiHistory: {
     title: 'AI 问数历史',
     time: '时间',
