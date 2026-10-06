@@ -4,4 +4,11 @@ export type SysJobLog = {
 /**
  * 多租户归属（Phase 2 立项铺开，迁移 m20260925_000001；0=平台租户）
  */
-tenantId: number, jobLogId: number, jobName: string, jobGroup: string, invokeTarget: string, jobMessage: string | null, status: string | null, exceptionInfo: string | null, createTime: string | null, };
+tenantId: number, jobLogId: number, jobName: string, jobGroup: string, invokeTarget: string, jobMessage: string | null, status: string | null, exceptionInfo: string | null, 
+/**
+ * 任务执行耗时（毫秒，G-09 运行报表聚合用；存量行/未知为 NULL）
+ *
+ * 历史口径：耗时曾以字符串拼进 `job_message`（`"... (elapsed 123ms)"`），
+ * 该字符串保留兼容展示，但报表聚合以本列为准。
+ */
+durationMs: number | null, createTime: string | null, };
