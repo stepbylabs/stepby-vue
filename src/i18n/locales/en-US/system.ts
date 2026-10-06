@@ -172,6 +172,21 @@ export default {
     syncReadFail: 'Failed to sync read status',
     noUnreadTip: 'All notices have been read'
   },
+  aiHistory: {
+    title: 'AI Query History',
+    time: 'Time',
+    tenant: 'Tenant',
+    user: 'User',
+    question: 'Question',
+    sql: 'SQL',
+    rows: 'Rows',
+    duration: 'Duration(ms)',
+    status: 'Status',
+    ok: 'OK',
+    failed: 'Failed',
+    error: 'Error',
+    ph: { tenantFilter: 'Tenant ID filter (platform)' }
+  },
   aiConfig: {
     title: 'AI Assistant Config',
     btn: {

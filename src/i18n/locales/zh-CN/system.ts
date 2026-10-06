@@ -172,6 +172,21 @@ export default {
     syncReadFail: '同步已读状态失败',
     noUnreadTip: '所有通知均已阅读'
   },
+  aiHistory: {
+    title: 'AI 问数历史',
+    time: '时间',
+    tenant: '租户',
+    user: '用户',
+    question: '问题',
+    sql: 'SQL',
+    rows: '行数',
+    duration: '耗时(ms)',
+    status: '状态',
+    ok: '成功',
+    failed: '失败',
+    error: '错误信息',
+    ph: { tenantFilter: '租户 ID 筛选（平台）' }
+  },
   aiConfig: {
     title: 'AI 助手配置',
     btn: {
