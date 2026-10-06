@@ -20,9 +20,9 @@ old_header = '''### 10.11 深度 E2E 测试套件（282 项，14 模块）
 
 ```powershell
 # PowerShell 环境变量设置
-$env:YEBOT_TEST_USER='<set-your-username>'
-$env:YEBOT_TEST_PASS='<set-your-password>'
-$env:YEBOT_BASE_URL='http://localhost:8080'
+$env:STEPBY_TEST_USER='<set-your-username>'
+$env:STEPBY_TEST_PASS='<set-your-password>'
+$env:STEPBY_BASE_URL='http://localhost:8080'
 
 # 全量深度测试（282 项，14 模块）
 node tests/deep-e2e.mjs --headless
@@ -61,9 +61,9 @@ new_header = '''### 10.11 深度 E2E 测试套件（329 项，20 模块）
 
 ```powershell
 # PowerShell 环境变量设置
-$env:YEBOT_TEST_USER='<set-your-username>'
-$env:YEBOT_TEST_PASS='<set-your-password>'
-$env:YEBOT_BASE_URL='http://localhost:8080'
+$env:STEPBY_TEST_USER='<set-your-username>'
+$env:STEPBY_TEST_PASS='<set-your-password>'
+$env:STEPBY_BASE_URL='http://localhost:8080'
 
 # 全量深度测试（329 项，20 模块）
 node tests/deep-e2e.mjs --headless

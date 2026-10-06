@@ -9908,7 +9908,7 @@ async function testFeature48(page) {
       resp.status === 200 &&
       body?.code === 200 &&
       typeof patToken === 'string' &&
-      patToken.startsWith('ybt_') &&
+      patToken.startsWith('sb_') &&
       !!patId &&
       body?.data?.pat?.tokenHash === undefined
     record(
