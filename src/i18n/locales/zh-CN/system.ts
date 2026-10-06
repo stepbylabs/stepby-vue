@@ -197,6 +197,7 @@ export default {
     ok: '成功',
     failed: '失败',
     error: '错误信息',
+    exportBtn: '导出',
     ph: { tenantFilter: '租户 ID 筛选（平台）' }
   },
   aiConfig: {

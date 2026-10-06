@@ -18,6 +18,9 @@
             <el-button icon="Refresh" @click="load(page)">
               {{ t('common.refresh') }}
             </el-button>
+            <el-button icon="Download" @click="exportHistory">
+              {{ t('aiHistory.exportBtn') }}
+            </el-button>
           </div>
         </div>
       </template>
@@ -102,4 +105,29 @@ async function load(p?: number) {
 }
 
 onMounted(() => load(1))
+
+// §5.55 AI-02 结果导出：下载管理视图 Excel（服务端生成，带租户过滤口径）
+async function exportHistory() {
+  try {
+    const params: Record<string, string> = {}
+    const tid = tenantFilter.value.trim()
+    if (tid) params.tenantFilter = tid
+    const query = new URLSearchParams(params).toString()
+    // 与 operlog 导出同款直链下载（token 从统一 auth 存储取）
+    const { getToken } = await import('@/utils/auth')
+    const resp = await fetch('/dev-api/system/ai/history/admin/export?' + query, {
+      headers: { authorization: 'Bearer ' + (getToken() ?? '') }
+    })
+    if (!resp.ok) throw new Error('export failed: ' + resp.status)
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ai_history_${new Date().toISOString().slice(0, 10)}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[aiHistory] export failed:', e)
+  }
+}
 </script>
