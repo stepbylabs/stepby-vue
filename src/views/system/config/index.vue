@@ -133,6 +133,26 @@
           <dict-tag :options="sys_yes_no" :value="scope.row.configType" />
         </template>
       </el-table-column>
+      <!-- E-04：多租户参数治理列（§27.8）——scope/tenant_editable/visible_to_tenant 只读展示，编辑防误改由后端 Locked 守卫兜底 -->
+      <el-table-column :label="t('config.column.governance')" align="center" width="150">
+        <template #default="scope">
+          <el-tooltip :disabled="!isGovernanceRestricted(scope.row)" placement="top">
+            <template #content>{{ t('config.column.governanceTip') }}</template>
+            <span class="inline-flex items-center gap-1">
+              <el-tag size="small" :type="scope.row.scope === 'platform_only' ? 'danger' : 'info'">
+                {{ scope.row.scope || 'global' }}
+              </el-tag>
+              <el-tag
+                v-if="scope.row.visibleToTenant === '0'"
+                size="small"
+                type="warning"
+              >
+                {{ t('config.column.hiddenToTenant') }}
+              </el-tag>
+            </span>
+          </el-tooltip>
+        </template>
+      </el-table-column>
       <el-table-column
         :label="t('config.column.remark')"
         align="center"
@@ -348,6 +368,12 @@ function handleRefreshCache() {
 // ==================== 行内编辑（Tier-S #5）====================
 // 是否可编辑参数值：与「编辑」按钮同权限，无权限时单元格退化为纯文本。
 const canEditValue = computed(() => checkPermi(['system:config:edit']))
+
+// E-04：治理列受限判定（platform_only / 对租户不可见 → tooltip 提示防误改；
+// 编辑防误改由后端 Locked 守卫兜底，前端仅提示语义）
+function isGovernanceRestricted(row: { scope?: string; visibleToTenant?: string }): boolean {
+  return row.scope === 'platform_only' || row.visibleToTenant === '0'
+}
 
 /** 行内校验：参数值必填（与对话框 configValue 规则同源） */
 function validateConfigValue(v: string): string | true {

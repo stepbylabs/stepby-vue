@@ -660,6 +660,9 @@ export default {
       configKey: '参数键名',
       configValue: '参数键值',
       configType: '系统内置',
+      governance: '治理',
+      governanceTip: 'platform_only=平台专属参数；对租户隐藏的参数值不向租户下发。编辑防误改由后端锁定守卫兜底。',
+      hiddenToTenant: '租户不可见',
       remark: '备注',
       createTime: '创建时间'
     },

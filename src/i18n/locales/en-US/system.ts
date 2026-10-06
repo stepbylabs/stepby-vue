@@ -673,6 +673,9 @@ export default {
       configKey: 'Config Key',
       configValue: 'Config Value',
       configType: 'Built-in',
+      governance: 'Governance',
+      governanceTip: 'platform_only = platform-exclusive; values hidden from tenants are not delivered. Edit safety is enforced by backend Locked guard.',
+      hiddenToTenant: 'Hidden',
       remark: 'Remark',
       createTime: 'Created Time'
     },
