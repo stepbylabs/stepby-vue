@@ -200,6 +200,7 @@
 </template>
 
 <script setup lang="ts" name="JobLog">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import JobDetail from './detail.vue'
 import JobStatsPanel from './JobStatsPanel.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
@@ -220,6 +221,9 @@ const jobLogList = shallowRef<SysJobLog[]>([])
 const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const ids = ref<number[]>([])
 const cleanLoading = ref(false)
 const multiple = ref<boolean>(true)

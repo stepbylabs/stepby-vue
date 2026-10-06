@@ -202,6 +202,7 @@
 
 <script setup lang="ts" name="Gen">
 const { t } = useI18n()
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { listTable, delTable, genCode, batchGenCode, synchDb } from '@/api/tool/gen'
 import importTable from './importTable.vue'
 import createTable from './createTable.vue'
@@ -222,6 +223,9 @@ const previewRef = useTemplateRef('previewRef')
 const tableList = ref<GenTable[]>([])
 const loading = ref<boolean>(true)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const ids = ref<number[]>([])
 const single = ref<boolean>(true)
 const multiple = ref<boolean>(true)

@@ -212,6 +212,7 @@
 </template>
 
 <script setup lang="ts" name="Data">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import useDictStore from '@/store/modules/dict'
 import { optionselect as getDictOptionselect, getType } from '@/api/system/dict/type'
 import { listData, getData, delData, addData, updateData } from '@/api/system/dict/data'
@@ -235,6 +236,9 @@ const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
 const submitLoading = ref<boolean>(false)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const ids = ref<number[]>([])
 const single = ref<boolean>(true)
 const multiple = ref<boolean>(true)

@@ -248,6 +248,7 @@
 </template>
 
 <script setup lang="ts" name="SysWebHookLog">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { listWebHookLog, delWebHookLog, cleanWebHookLog, retryWebHookLog, exportWebHookLog } from '@/api/system/webHook'
 import type { SysWebHookLog } from '@/types/api/system/webHook'
@@ -264,6 +265,9 @@ const { sys_common_status } = useDict('sys_common_status')
 const logList = shallowRef<SysWebHookLog[]>([])
 const loading = ref<boolean>(true)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const ids = ref<number[]>([])
 const cleanLoading = ref(false)
 const multiple = ref<boolean>(true)

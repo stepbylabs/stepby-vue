@@ -387,6 +387,7 @@
 </template>
 
 <script setup lang="ts" name="Menu">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import {
   addMenu,
   delMenu,
@@ -416,6 +417,9 @@ const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
 const submitLoading = ref<boolean>(false)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const title = ref<string>('')
 const menuOptions = ref<SysMenu[]>([])
 const iconSelectRef = useTemplateRef<InstanceType<typeof IconSelect>>('iconSelectRef')

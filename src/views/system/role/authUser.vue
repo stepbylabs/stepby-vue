@@ -104,6 +104,7 @@
 </template>
 
 <script setup lang="ts" name="AuthUser">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import selectUser from './selectUser.vue'
 import { allocatedUserList, authUserCancel, authUserCancelAll } from '@/api/system/role'
 import type { SysUser, AuthUserQueryParams } from '@/types/api/system/user'
@@ -119,6 +120,9 @@ const { sys_normal_disable } = useDict('sys_normal_disable')
 const userList = shallowRef<SysUser[]>([])
 const loading = ref<boolean>(true)
 const showSearch = ref<boolean>(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const multiple = ref<boolean>(true)
 const total = ref<number>(0)
 const userIds = ref<number[]>([])
