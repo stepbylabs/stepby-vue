@@ -21,5 +21,7 @@
  * // 写入：ActiveModel { secret: Set(Some(EncryptedString("raw-secret".into()))) }
  * // 读取：model.secret -> Some(EncryptedString("raw-secret"))（已自动解密）
  * ```
+ * 注意：Debug 手写全掩码（**不可 derive**）——读路径解密后 `self.0` 持有明文，
+ * derive Debug 会把明文打进日志（安全红线）；实体 derive(Debug) 依赖本实现兜底。
  */
 export type EncryptedString = string;
