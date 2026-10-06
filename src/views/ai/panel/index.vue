@@ -137,8 +137,16 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.column.operation')" width="90" align="center">
+        <el-table-column :label="t('common.column.operation')" width="140" align="center">
           <template #default="scope">
+            <el-button
+              link
+              type="primary"
+              :disabled="!scope.row.success"
+              @click="replay(scope.row)"
+            >
+              {{ t('aiPanel.history.replay') }}
+            </el-button>
             <el-button link type="danger" @click="removeHistory(scope.row.id)">
               {{ t('common.delete') }}
             </el-button>
@@ -225,6 +233,30 @@ async function removeHistory(id: number) {
     historyRows.value = historyRows.value.filter((r: HistoryItem) => r.id !== id)
   } catch (e) {
     if (import.meta.env.DEV) console.error('[aiPanel] removeHistory failed:', e)
+  }
+}
+
+// AI-02 决策 2：重放本人历史（历史 SQL 重新走服务端守卫 + 受控执行）
+const replaying = ref(false)
+async function replay(row: HistoryItem) {
+  if (replaying.value) return
+  replaying.value = true
+  try {
+    const resp = (await request({
+      url: '/ai/replay',
+      method: 'post',
+      data: { historyId: row.id }
+    })) as unknown as AiChatResp
+    if (resp.code === 200 && resp.data) {
+      result.value = resp.data
+      loadHistory()
+    } else {
+      errorMsg.value = resp.msg || t('aiPanel.history.replayFailed')
+    }
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[aiPanel] replay failed:', e)
+  } finally {
+    replaying.value = false
   }
 }
 

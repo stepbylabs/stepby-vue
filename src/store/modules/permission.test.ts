@@ -219,14 +219,10 @@ describe('store/modules/permission', () => {
       expect(typeof page.component).toBe('function')
     })
 
-    it('returns [] and logs when getRouters rejects', async () => {
-      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    it('re-throws when getRouters rejects (guard classifies by status, §5.35)', async () => {
       h.getRouters.mockRejectedValue(new Error('boom'))
       const store = usePermissionStore()
-      const res = await store.generateRoutes()
-      expect(res).toEqual([])
-      expect(errSpy).toHaveBeenCalled()
-      errSpy.mockRestore()
+      await expect(store.generateRoutes()).rejects.toThrow('boom')
     })
 
     it('handles an empty menu payload (no-permission branch)', async () => {

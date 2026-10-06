@@ -1,4 +1,4 @@
-﻿// zh-CN · 分类：system（系统管理）
+// zh-CN · 分类：system（系统管理）
 // 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
 
 export default {
@@ -221,6 +221,8 @@ export default {
       status: '状态',
       oauthBound: '第三方',
       oauthBoundTag: '已绑定',
+      loginIp: '最后登录 IP',
+      loginDate: '最后登录时间',
       createTime: '创建时间'
     },
     form: {
@@ -1653,7 +1655,8 @@ export default {
       ok: '成功',
       failed: '失败',
       empty: '暂无查询历史',
-      replay: '重放'
+      replay: '重放',
+      replayFailed: '重放失败'
     },
     title: 'AI 数据助手（自然语言查数据）',
     toggleTables: '可查询范围',
