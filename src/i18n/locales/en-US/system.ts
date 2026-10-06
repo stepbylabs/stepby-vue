@@ -226,7 +226,37 @@ export default {
       testOk: 'Connection OK'
     }
   },
+  uploadConfig: {
+    title: 'OSS Storage Config',
+    btn: {
+      test: 'Test Connection'
+    },
+    field: {
+      accessKey: 'Access Key',
+      secretKey: 'Secret Key',
+      endpoint: 'Endpoint',
+      region: 'Region',
+      bucket: 'Bucket',
+      pathStyle: 'Path-style Addressing',
+      publicEndpoint: 'Public Endpoint'
+    },
+    ph: {
+      keyKeep: 'Leave empty to keep the saved value',
+      keyNew: 'Enter value',
+      endpoint: 'https://s3.example.com or http://127.0.0.1:9000',
+      publicEndpoint: 'Optional, CDN / public domain; falls back to endpoint'
+    },
+    tip: {
+      dualSource:
+        'Hot reload: sys.upload.s3.* overrides config.toml [upload.s3] (factory defaults). Applies to uploads immediately, no restart needed.',
+      mode: 'Current storage mode: {mode} (runtime override only applies in s3 mode; switching mode requires config.toml + restart)',
+      keyMasked: 'Current value: {masked}',
+      pathStyle: 'On = /{bucket}/{key} (MinIO/Aliyun OSS/Tencent COS); Off = {bucket}.{host} (recommended for AWS S3)',
+      testOk: 'Connection OK'
+    }
+  },
   user: {
+
     title: 'User Management',
     search: {
       username: 'Username',

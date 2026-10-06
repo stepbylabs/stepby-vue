@@ -171,6 +171,26 @@ export default {
     }
   },
   jobLog: {
+    stats: {
+      title: 'Run Statistics (G-09)',
+      days7: 'Last 7 days',
+      days14: 'Last 14 days',
+      days30: 'Last 30 days',
+      total: 'Total Runs',
+      successRate: 'Success Rate',
+      avgMs: 'Avg Duration',
+      maxMs: 'Max Duration',
+      trend: 'Executions & Failure Rate Trend',
+      topFailures: 'Top 10 Failures',
+      noFailures: 'No failures in this window',
+      jobName: 'Job Name',
+      failedCount: 'Failures',
+      truncated: 'Log rows reached the stats cap; aggregated first 200000 rows. Narrow the window or clean old logs first.',
+      legend: {
+        exec: 'Executions',
+        failed: 'Failure Rate'
+      }
+    },
     title: 'Job Log',
     tip: {
       confirmDelete: 'Are you sure to delete the job log with ID "{ids}"?',

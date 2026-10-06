@@ -1,5 +1,7 @@
 <template>
   <div class="app-container">
+    <!-- G-09：定时任务运行统计报表（成功率趋势 / 耗时分布 / 失败 TOP） -->
+    <JobStatsPanel class="mb-3" />
     <Transition name="expand-fade">
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
         <el-form-item :label="t('job.search.jobName')" prop="jobName">
@@ -199,6 +201,7 @@
 
 <script setup lang="ts" name="JobLog">
 import JobDetail from './detail.vue'
+import JobStatsPanel from './JobStatsPanel.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { getJob } from '@/api/monitor/job'
 import { listJobLog, delJobLog, cleanJobLog } from '@/api/monitor/jobLog'

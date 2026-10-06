@@ -226,7 +226,37 @@ export default {
       testOk: '连通正常'
     }
   },
+  uploadConfig: {
+    title: 'OSS 存储配置',
+    btn: {
+      test: '测试连通'
+    },
+    field: {
+      accessKey: 'Access Key',
+      secretKey: 'Secret Key',
+      endpoint: 'Endpoint',
+      region: 'Region',
+      bucket: 'Bucket',
+      pathStyle: '路径风格寻址',
+      publicEndpoint: '公开访问前缀'
+    },
+    ph: {
+      keyKeep: '留空保留已保存的值',
+      keyNew: '输入值',
+      endpoint: 'https://s3.example.com 或 http://127.0.0.1:9000',
+      publicEndpoint: '可选，CDN / 公网域名，缺省回退 endpoint'
+    },
+    tip: {
+      dualSource:
+        '配置热生效：sys.upload.s3.* 优先于 config.toml [upload.s3] 段（出厂缺省）。写后立即影响上传链路，无需重启。',
+      mode: '当前存储档位：{mode}（运行时覆盖仅 s3 档生效；档位切换需改 config.toml 重启）',
+      keyMasked: '当前值：{masked}',
+      pathStyle: '开 = /{bucket}/{key}（MinIO/阿里云 OSS/腾讯 COS）；关 = {bucket}.{host}（AWS S3 推荐）',
+      testOk: '连通正常'
+    }
+  },
   user: {
+
     title: '用户管理',
     search: {
       username: '用户名称',

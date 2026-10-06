@@ -171,6 +171,26 @@ export default {
     }
   },
   jobLog: {
+    stats: {
+      title: '运行统计报表（G-09）',
+      days7: '近 7 天',
+      days14: '近 14 天',
+      days30: '近 30 天',
+      total: '执行总数',
+      successRate: '成功率',
+      avgMs: '平均耗时',
+      maxMs: '最大耗时',
+      trend: '执行量与失败率趋势',
+      topFailures: '失败 TOP 10',
+      noFailures: '窗口内无失败记录',
+      jobName: '任务名称',
+      failedCount: '失败次数',
+      truncated: '窗口内日志行数达到统计上界，结果按前 200000 行聚合——建议缩小窗口或先清理历史日志',
+      legend: {
+        exec: '执行次数',
+        failed: '失败率'
+      }
+    },
     title: '调度日志',
     tip: {
       confirmDelete: '是否确认删除调度日志编号为"{ids}"的数据项？',
