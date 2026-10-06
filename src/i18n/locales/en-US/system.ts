@@ -1714,6 +1714,7 @@ export default {
     hint: 'The AI generates SQL which is security-checked then executed (read-only, tenant-isolated)',
     resultTitle: 'Query result',
     rowCount: '{n} rows',
+      tokenUsage: '{promptTokens}+{completionTokens} tokens (total {totalTokens})',
     exportCsv: 'Export CSV',
     generatedSql: 'Generated SQL (tables referenced):',
     emptyResult: 'Query succeeded but returned no rows',

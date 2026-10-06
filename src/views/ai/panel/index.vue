@@ -83,6 +83,9 @@
           <span class="font-medium">{{ t('aiPanel.resultTitle') }}</span>
           <div class="flex items-center gap-2">
             <el-tag size="small" type="info">{{ t('aiPanel.rowCount', { n: result.rowCount }) }}</el-tag>
+            <el-tag v-if="result.tokenUsage" size="small" type="warning">
+              {{ t('aiPanel.tokenUsage', result.tokenUsage) }}
+            </el-tag>
             <el-button link type="primary" icon="Download" @click="exportCsv">
               {{ t('aiPanel.exportCsv') }}
             </el-button>
@@ -171,6 +174,7 @@ interface ChatResult {
   columns: string[]
   rows: Array<Record<string, unknown>>
   rowCount: number
+  tokenUsage?: { promptTokens: number; completionTokens: number; totalTokens: number }
 }
 
 interface AiChatResp {
@@ -298,7 +302,8 @@ async function ask() {
         tables: resp.data.tables ?? [],
         columns: resp.data.columns ?? [],
         rows: resp.data.rows ?? [],
-        rowCount: resp.data.rowCount ?? 0
+        rowCount: resp.data.rowCount ?? 0,
+        tokenUsage: resp.data.tokenUsage ?? undefined
       }
     } else {
       errorMsg.value = resp?.msg || t('aiPanel.askFailed')

@@ -1698,6 +1698,7 @@ export default {
     hint: '结果由 AI 生成 SQL 并经安全校验后执行（只读查询，自动按租户隔离）',
     resultTitle: '查询结果',
     rowCount: '{n} 行',
+      tokenUsage: '{promptTokens}+{completionTokens} tokens（共 {totalTokens}）',
     exportCsv: '导出 CSV',
     generatedSql: '生成的 SQL（引用表）：',
     emptyResult: '查询成功，但没有符合条件的数据',
