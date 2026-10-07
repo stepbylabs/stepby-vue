@@ -74,6 +74,10 @@ threshold: number | null,
  */
 delegateFrom: number | null, 
 /**
+ * 节点高级动作白名单快照（JSON 数组；NULL = 存量行全开放，批次十七）
+ */
+actionsJson: string | null, 
+/**
  * 多租户前向兼容预留（默认 0，不参与过滤）
  */
 tenantId: number, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, };
