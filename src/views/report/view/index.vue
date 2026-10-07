@@ -35,6 +35,22 @@
       >
         {{ t('common.refresh') }}
       </el-button>
+      <!-- G-01 M3：自动刷新间隔（0=关闭） -->
+      <el-select v-if="mode === 'view' && selectedId" v-model="refreshInterval" class="w-28">
+        <el-option :value="0" :label="t('rp.refreshOff')" />
+        <el-option :value="10" :label="t('rp.refresh10s')" />
+        <el-option :value="30" :label="t('rp.refresh30s')" />
+        <el-option :value="60" :label="t('rp.refresh60s')" />
+      </el-select>
+      <!-- G-01 M3：PDF 导出 = 打印对话框（另存 PDF）；print 样式仅保留画布 -->
+      <el-button
+        v-if="mode === 'view' && selectedId"
+        icon="Printer"
+        plain
+        @click="exportPdf"
+      >
+        {{ t('rp.exportPdf') }}
+      </el-button>
     </div>
 
     <!-- 设计态：复用设计器画布 -->
@@ -122,4 +138,65 @@ watch(mode, (m: 'view' | 'design') => {
     })
   }
 })
+
+// ==================== G-01 M3：自动刷新（递归 setTimeout，对齐 useAutoRefresh P2 范式） ====================
+const refreshInterval = ref(0)
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+let refreshStopped = true
+
+function clearRefreshTimer(): void {
+  refreshStopped = true
+  if (refreshTimer) {
+    clearTimeout(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+function scheduleRefresh(): void {
+  clearRefreshTimer()
+  refreshStopped = false
+  // 标签页隐藏时不启动（与 useVisibilityPause 同口径），间隔 0 = 关闭
+  if (refreshInterval.value > 0 && !document.hidden) {
+    const next = (): void => {
+      refreshTimer = setTimeout(async () => {
+        refreshTimer = null
+        try {
+          reloadTick.value++ // 重建卡片 → ChartCard onMounted 重拉数据
+        } finally {
+          if (refreshTimer === null && !refreshStopped) next()
+        }
+      }, refreshInterval.value * 1000)
+    }
+    next()
+  }
+}
+
+watch(refreshInterval, scheduleRefresh)
+onBeforeUnmount(clearRefreshTimer)
+
+// ==================== G-01 M3：PDF 导出（打印对话框另存 PDF） ====================
+function exportPdf(): void {
+  window.print()
+}
+</script>
+
+<!-- 样式豁免：打印场景需隐藏导航/工具栏并平铺画布（visibility 方案保留 echarts canvas），
+     属「打印专项」全局级联，scoped 无法覆盖兄弟节点——限定 .report-board 作用域 -->
+<style>
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .report-board,
+  .report-board * {
+    visibility: visible;
+  }
+  .report-board {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
+</style>
 </script>

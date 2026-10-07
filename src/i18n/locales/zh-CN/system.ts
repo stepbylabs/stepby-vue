@@ -1659,6 +1659,11 @@ export default {
     valueField: '数值字段',
     modeView: '运行',
     modeDesign: '设计',
+    refreshOff: '关闭刷新',
+    refresh10s: '每 10 秒',
+    refresh30s: '每 30 秒',
+    refresh60s: '每 60 秒',
+    exportPdf: '导出 PDF',
     fullscreen: '全屏',
     boardEmpty: '该大屏暂无图表，请切换到设计模式添加',
     pickDashboardFirst: '请先选择大屏'

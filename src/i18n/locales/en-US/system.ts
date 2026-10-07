@@ -1675,6 +1675,11 @@ export default {
     valueField: 'Value field',
     modeView: 'View',
     modeDesign: 'Design',
+    refreshOff: 'Off',
+    refresh10s: 'Every 10s',
+    refresh30s: 'Every 30s',
+    refresh60s: 'Every 60s',
+    exportPdf: 'Export PDF',
     fullscreen: 'Fullscreen',
     boardEmpty: 'No charts yet — switch to Design mode to add',
     pickDashboardFirst: 'Pick a dashboard first'
