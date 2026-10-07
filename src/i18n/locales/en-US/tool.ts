@@ -114,9 +114,11 @@ export default {
     btn: {
       upload: 'Upload File',
       download: 'Download',
-      copyLink: 'Copy Link'
+      copyLink: 'Copy Link',
+      previewPdf: 'Preview PDF'
     },
     tip: {
+      previewFail: 'Failed to load PDF preview',
       confirmDelete: 'Are you sure to delete file "{name}"?',
       confirmBatchDelete: 'Are you sure to delete {count} selected files?',
       linkCopied: 'Link copied',
@@ -126,6 +128,7 @@ export default {
     },
     unknownType: 'Unknown',
     ariaLabel: {
+      previewPdf: 'Preview PDF',
       download: 'Download',
       copyLink: 'Copy Link',
       preview: 'Preview image'

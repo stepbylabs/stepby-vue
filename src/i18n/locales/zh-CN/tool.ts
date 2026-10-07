@@ -115,12 +115,14 @@ export default {
     btn: {
       upload: '上传文件',
       download: '下载',
-      copyLink: '复制链接'
+      copyLink: '复制链接',
+      previewPdf: '在线预览 PDF'
     },
     tip: {
       confirmDelete: '确认删除文件 "{name}" ？',
       confirmBatchDelete: '确认删除选中的 {count} 个文件？',
       linkCopied: '链接已复制',
+      previewFail: 'PDF 预览加载失败',
       unsupportedType: '不支持的文件类型',
       externalLinkBlocked: '不支持下载外部链接，存在安全风险',
       batchDeletePartial: '共 {total} 个，成功 {success} 个，失败 {fail} 个'
@@ -129,7 +131,8 @@ export default {
     ariaLabel: {
       download: '下载',
       copyLink: '复制链接',
-      preview: '预览图片'
+      preview: '预览图片',
+      previewPdf: '在线预览 PDF'
     }
   },
   crontab: {

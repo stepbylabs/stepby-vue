@@ -83,6 +83,21 @@
             :alt="row.fileName"
             :aria-label="t('file.ariaLabel.preview')"
           />
+          <el-tooltip
+            v-else-if="isPdf(row.ext)"
+            :content="t('file.btn.previewPdf')"
+            placement="top"
+          >
+            <el-icon
+              size="32"
+              class="cursor-pointer text-text-secondary transition-all duration-200 hover:scale-110 hover:text-primary"
+              role="button"
+              :aria-label="t('file.btn.previewPdf')"
+              @click="handlePdfPreview(row)"
+            >
+              <Document />
+            </el-icon>
+          </el-tooltip>
           <el-icon v-else size="32" class="transition-all duration-200 hover:scale-110" :aria-label="row.fileName">
             <Document />
           </el-icon>
@@ -138,6 +153,26 @@
       v-model:limit="queryParams.pageSize"
       @pagination="loadList"
     />
+    <!-- PDF 在线预览（G-06 缺口②）：同源代理 blob → objectURL → iframe，
+         鉴权与下载同链（带 Authorization），关闭时 revoke 释放 -->
+    <el-dialog
+      v-model="pdfPreview.open"
+      :title="pdfPreview.name"
+      width="min(92%, 1100px)"
+      top="4vh"
+      append-to-body
+      destroy-on-close
+      @closed="revokePdfUrl"
+    >
+      <div v-loading="pdfPreview.loading" class="min-h-[60vh]">
+        <iframe
+          v-if="pdfPreview.url && !pdfPreview.loading"
+          :src="pdfPreview.url"
+          class="w-full h-[76vh] border-0 rounded"
+          :title="pdfPreview.name"
+        />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -270,6 +305,48 @@ async function handleUpload(options: UploadRequestOptions): Promise<void> {
     loadList()
   } catch (err) {
     if (import.meta.env.DEV) console.error('[FileMgr] Upload failed:', err)
+  }
+}
+
+/** PDF 在线预览状态（G-06 缺口②） */
+const pdfPreview = reactive<{ open: boolean; loading: boolean; url: string; name: string }>({
+  open: false,
+  loading: false,
+  url: '',
+  name: ''
+})
+
+function isPdf(ext?: string): boolean {
+  return (ext || '').toLowerCase() === 'pdf'
+}
+
+async function handlePdfPreview(row: FileInfo): Promise<void> {
+  pdfPreview.open = true
+  pdfPreview.loading = true
+  pdfPreview.name = row.fileName
+  pdfPreview.url = ''
+  try {
+    // 与 download.name 同鉴权链（带 Authorization 的同源代理请求），
+    // blob → objectURL 交给 iframe 内嵌渲染，不引入 token 查询参数
+    const res = await request({
+      url: `/common/download?fileName=${encodeURIComponent(row.fileName)}&delete=false`,
+      method: 'get',
+      responseType: 'blob'
+    })
+    pdfPreview.url = URL.createObjectURL(res as unknown as Blob)
+  } catch (err) {
+    if (import.meta.env.DEV) console.error('[FileMgr] PDF preview failed:', err)
+    modal.msgError(t('file.tip.previewFail'))
+    pdfPreview.open = false
+  } finally {
+    pdfPreview.loading = false
+  }
+}
+
+function revokePdfUrl(): void {
+  if (pdfPreview.url) {
+    URL.revokeObjectURL(pdfPreview.url)
+    pdfPreview.url = ''
   }
 }
 
