@@ -1225,3 +1225,7 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 6. **图流程测试的自审禁区**：admin 提交 + 审批人全为 role:admin = 「禁止全链自审」400。审批人用 `role:common`，推进用 stepby/admin123 独立 API 会话（todo/action 端点仅登录、归属校验在 service 层）——与集成测试同范式。
 7. **embedded 链路铁律**：main.mjs 默认 `frontendUrl = FRONTEND_URL || STEPBY_UI_URL || BASE_URL` = **8080 embedded**。改前端源码后必须 `vite build → cp dist/* stepby-axum/frontend-dist/ → 重启后端`（build.rs include 重编），否则测到"不存在的修复"。
 8. `ResizeObserver loop` 控制台噪声已入 EXT_NOISE_RE 过滤（良性，非应用缺陷）。
+
+**10 轮循环沉淀（run-rounds.mjs，2026-10-08 批次十八）**：
+9. **API 连发段必遇 sys_rate_limit 令牌桶 429**（"请求过于频繁"）：M 级簇 76-83 每功能 10-20 连发 API，多轮满载下令牌桶耗尽 → R6-R9 连环 429 假失败。`mLevelApiSetup` 的 `api` 助手已内建 429 退避（1.2s × 3，令牌桶按秒回填）——**尊重限流语义的确定性化，非绕过**；新功能用 mLevelApiSetup 即自动获得。无任何用例以 429 为期望值，重试不改变断言语义。
+10. **链路中断会污染下一轮状态**：F83「停用→恢复」链在 E1 429 中断会把种子事件 user.created 留在 disabled=0，下一轮 A1 前置断言假失败——尾部已加 best-effort 恢复启用态（幂等）。教训：**有状态翻转的用例必须在尾部恢复初态，不能假设链路必然走完**。
