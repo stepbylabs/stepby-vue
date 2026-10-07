@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import type { AjaxResult, TableDataInfo } from '@/types'
+import type { FlowGraphDoc } from '@/types/api/generated/FlowGraphDoc'
 
 // 审批待办任务（sys_flow_task，方案 B′）
 export interface SysFlowTask {
@@ -309,5 +310,18 @@ export function publishFlowDefinition(flowId: number): Promise<AjaxResult<{ flow
   return request({
     url: `/system/flow/definition/publish/${flowId}`,
     method: 'post'
+  })
+}
+
+/** 图驱动单据提交（批次十六：按图推进——任一已发布流程图驱动审批） */
+export function submitGraphDoc(data: {
+  flowCode: string
+  title: string
+  fields: Record<string, unknown>
+}): Promise<AjaxResult<FlowGraphDoc>> {
+  return request({
+    url: '/system/flow/graph/submit',
+    method: 'post',
+    data
   })
 }

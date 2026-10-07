@@ -50,6 +50,15 @@
             <el-button link icon="DocumentCopy" @click="openDiff(row)">
               {{ t('flowDef.diffVsLatest') }}
             </el-button>
+            <el-button
+              v-if="row.isLatest && row.status === '1'"
+              link
+              type="warning"
+              icon="Position"
+              @click="openGraphSubmit(row)"
+            >
+              {{ t('flowDef.submitTest') }}
+            </el-button>
             <el-button v-hasPermi="['flow:definition:remove']" link type="danger" icon="Delete" @click="handleRemove(row)">
               {{ t('common.delete') }}
             </el-button>
@@ -193,6 +202,28 @@
           <el-button type="primary" @click="confirmAddEdge">{{ t('common.confirm') }}</el-button>
         </template>
       </el-dialog>
+    <!-- 批次十七：提交测试单据（按图推进体验入口——仅已发布最新版） -->
+    <el-dialog v-model="graphSubmitOpen" :title="t('flowDef.submitTest')" width="480px">
+      <el-form label-width="90px">
+        <el-form-item :label="t('flowDef.docTitle')" required>
+          <el-input v-model="graphSubmitTitle" maxlength="200" :placeholder="t('flowDef.submitTitlePh')" />
+        </el-form-item>
+        <el-form-item :label="t('flowDef.fieldsJson')" required>
+          <el-input
+            v-model="graphSubmitFields"
+            type="textarea"
+            :rows="6"
+            :placeholder="t('flowDef.fieldsJsonTip')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="graphSubmitOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="graphSubmitting" @click="confirmGraphSubmit">
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
     </template>
   </div>
 </template>
@@ -207,6 +238,7 @@ import {
   getFlowDefinition,
   listFlowDefinitions,
   publishFlowDefinition,
+  submitGraphDoc,
   removeFlowDefinition,
   type FlowDefinition,
   type FlowGraphEdge,
@@ -421,6 +453,51 @@ async function handlePublish(row: FlowDefinition): Promise<void> {
   const res = await publishFlowDefinition(row.flowId)
   ElMessage.success(t('flowDef.publishDone', { version: res.data?.version ?? '' }))
   load()
+}
+
+// ==================== 批次十七：提交测试单据（按图推进体验入口） ====================
+const graphSubmitOpen = ref(false)
+const graphSubmitting = ref(false)
+const graphSubmitCode = ref('')
+const graphSubmitTitle = ref('')
+const graphSubmitFields = ref('{\n  "days": 5\n}')
+
+function openGraphSubmit(row: FlowDefinition): void {
+  graphSubmitCode.value = row.flowCode
+  graphSubmitTitle.value = t('flowDef.submitTitleDefault', { code: row.flowCode })
+  graphSubmitFields.value = '{\n  "days": 5\n}'
+  graphSubmitOpen.value = true
+}
+
+async function confirmGraphSubmit(): Promise<void> {
+  if (!graphSubmitTitle.value.trim()) {
+    ElMessage.warning(t('flowDef.submitTitleRequired'))
+    return
+  }
+  let fields: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(graphSubmitFields.value)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('not an object')
+    }
+    fields = parsed as Record<string, unknown>
+  } catch {
+    ElMessage.warning(t('flowDef.fieldsJsonInvalid'))
+    return
+  }
+  graphSubmitting.value = true
+  try {
+    const res = await submitGraphDoc({
+      flowCode: graphSubmitCode.value,
+      title: graphSubmitTitle.value.trim(),
+      fields
+    })
+    ElMessage.success(t('flowDef.submitOk'))
+    graphSubmitOpen.value = false
+    void res
+  } finally {
+    graphSubmitting.value = false
+  }
 }
 
 async function handleRemove(row: FlowDefinition): Promise<void> {
