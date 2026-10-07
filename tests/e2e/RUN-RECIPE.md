@@ -1201,3 +1201,27 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 3. admin 密码漂移（历史改密测试残留）→ 本地库重置 admin123；e2e 依赖 `sys_config.sys.account.captchaEnabled=false`。
 
 **对话框交互经验（写新 UI 用例必读）**：goto 前 `presetTourDisabled(page)`（tour 遮罩 z-9998 拦截一切点击，goto 后 skipTour 来不及）；自家对话框提交用 `click({ force: true })`（actionability 判定偶发抖动，非确定性实测）；提交失败关闭对话框会触发**未保存守卫**（"不保存并离开"按钮，需循环收敛处理）；el-select 下拉 option 用 `getByRole('option')`（`.el-select-dropdown:visible` 对 popper 不可靠）。
+
+## 7. 功能 94-97（批次十八新增，2026-10-08）通过判据
+
+命令同 §3，`--feature=94-97` → `总计 14 通过 14 失败 0`（EXIT=0，embedded 8080 基线已验证）。
+
+| 功能 | 覆盖 | 关键断言 |
+|---|---|---|
+| 94 | 报表数据集页全链（G-01 e2e 盲区） | 新增落库→SQL 明文端点回填（admin 持 edit 键 200 且含明文）→试跑对话框开/**关**→删除后列表轮询复查不再命中 |
+| 95 | 图驱动审批全链（含批次十七 UI 入口） | API 建图发布→UI「提交测试单据」按钮→对话框提交 Toast→stepby 会话按图两级办结（条件 days>3 真走长链 a1→a2） |
+| 96 | actions 白名单收窄 | 图节点未勾 delegate → 403；勾选 countersign_add → 非 403（**属主会话调用**，白名单 403 与属主 403 不混淆） |
+| 97 | 大屏 view 页冒烟 | `/system/reportDashboard` 可达（菜单 4148，parent=1 前缀 /system）→ 运行/设计模式切换 |
+
+**批次十八新坑（写新 UI 用例必读，均有探针/截图实证）**：
+1. **「按钮可见」≠「交互可用」**：v-if 的对话框若误嵌在未激活的 v-if/v-else 分支，组件不挂载、点击零响应**且零报错**（F95 提交对话框曾误嵌 designer 分支）。新用例必须点到底断言对话框可见，不能止步于按钮 count。
+2. **裸 `permissions.includes('xxx')` 不识别超管 `*:*:*`**：超管看不到按钮（dataset 页 canEdit 实证）。一律用 `checkPermi([...])`（utils/permission.ts，P0-47 空值防护）。
+3. **ElMessageBox 确认键文案**：未显式传 confirmButtonText 时是 EP locale 默认「确定」（**无空格**），`hasText: '确 定'` 匹配失败。结构化定位：`.el-message-box:visible .el-message-box__btns .el-button--primary`。
+4. **Escape 关框不可靠**（force 点击后焦点不在框内）：改点 `.el-dialog__headerbtn`，并断言「对话框已关闭」。
+5. **动态路由竞态**：登录后立即 goto 未注册路由 → 404 回首页，`is404Page` 对首页误判 PASS（假绿）。goto 重试至 URL 命中（F95 范式）：
+   ```js
+   for (let i = 0; i < 5; i++) { await page.goto(url); await page.waitForTimeout(1500); if (page.url().includes('xxx')) break }
+   ```
+6. **图流程测试的自审禁区**：admin 提交 + 审批人全为 role:admin = 「禁止全链自审」400。审批人用 `role:common`，推进用 stepby/admin123 独立 API 会话（todo/action 端点仅登录、归属校验在 service 层）——与集成测试同范式。
+7. **embedded 链路铁律**：main.mjs 默认 `frontendUrl = FRONTEND_URL || STEPBY_UI_URL || BASE_URL` = **8080 embedded**。改前端源码后必须 `vite build → cp dist/* stepby-axum/frontend-dist/ → 重启后端`（build.rs include 重编），否则测到"不存在的修复"。
+8. `ResizeObserver loop` 控制台噪声已入 EXT_NOISE_RE 过滤（良性，非应用缺陷）。

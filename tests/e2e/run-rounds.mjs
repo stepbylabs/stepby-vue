@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process'
 import { writeFileSync, existsSync, appendFileSync, statSync } from 'node:fs'
 
 const DIR = 'D:/Projects/stepby/stepby-vue/tests/e2e'
-const NODE = 'C:/Users/Jeff/.workbuddy/binaries/node/versions/22.22.2-5/node.exe'
+const NODE = 'C:/Users/Jeff/.workbuddy/binaries/node/versions/22.22.2-6/node.exe'
 const RUNNER_LOG = `${DIR}/_rounds2026_runner.log`
 const DONE_JSON = `${DIR}/_rounds2026_done.json`
 

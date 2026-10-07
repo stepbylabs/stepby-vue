@@ -202,7 +202,9 @@
           <el-button type="primary" @click="confirmAddEdge">{{ t('common.confirm') }}</el-button>
         </template>
       </el-dialog>
-    <!-- 批次十七：提交测试单据（按图推进体验入口——仅已发布最新版） -->
+    </template>
+    <!-- 批次十八修复：提交测试单据对话框原先误嵌在 v-else（designer）分支内，
+         列表模式下组件未挂载导致按钮点击无响应（探针 v10/v11 实证）——移至根级两分支之外 -->
     <el-dialog v-model="graphSubmitOpen" :title="t('flowDef.submitTest')" width="480px">
       <el-form label-width="90px">
         <el-form-item :label="t('flowDef.docTitle')" required>
@@ -224,7 +226,6 @@
         </el-button>
       </template>
     </el-dialog>
-    </template>
   </div>
 </template>
 

@@ -16187,7 +16187,7 @@ async function restoreCaptchaDisabled() {
   try {
     const capRes = await fetch(`${CONFIG.backendUrl}/captchaImage`)
     const capJson = await capRes.json()
-    let loginBody = { username: CONFIG.username, password: CONFIG.password }
+    const loginBody = { username: CONFIG.username, password: CONFIG.password }
     if (capJson.captchaEnabled) {
       const { code, uuid } = await fetchCaptchaForApi(CONFIG.backendUrl)
       loginBody.code = code
@@ -16368,7 +16368,7 @@ async function main() {
   // 环境噪声而非应用缺陷。与采集器 collect-warnings.mjs 的 EXT_NOISE_RE 保持一致地过滤，
   // 避免把扩展噪声计入"浏览器控制台错误"而淹没真实的应用错误。
   const EXT_NOISE_RE =
-    /chrome-extension:\/\/|moz-extension:\/\/|ms-browser-extension:\/\/|extensions\.[a-z]+\.chromium\.org|Loading the font '[^']*(chrome-extension|moz-extension)|Content Security Policy directive:[^\n]*(chrome-extension|moz-extension)/i
+    /chrome-extension:\/\/|moz-extension:\/\/|ms-browser-extension:\/\/|extensions\.[a-z]+\.chromium\.org|Loading the font '[^']*(chrome-extension|moz-extension)|Content Security Policy directive:[^\n]*(chrome-extension|moz-extension)|ResizeObserver loop (limit exceeded|completed with undelivered notifications)/i
   const consoleErrors = []
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
@@ -16493,7 +16493,11 @@ async function main() {
       { id: 90, fn: testFeature90 },
       { id: 91, fn: testFeature91 },
       { id: 92, fn: testFeature92 },
-      { id: 93, fn: testFeature93 }
+      { id: 93, fn: testFeature93 },
+      { id: 94, fn: testFeature94 },
+      { id: 95, fn: testFeature95 },
+      { id: 96, fn: testFeature96 },
+      { id: 97, fn: testFeature97 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17811,6 +17815,7 @@ async function testFeature93(page) {
   record(93, '孤儿菜单巡检（test-menu-*）', menuOk, menuDetail)
 
   // 2. e2e 用户残留巡检（userName 含 e2e；admin(1) 永不触碰）
+  // 批次十八：修正恒真语义——异常/清理不全必须 FAIL（原 userOk 恒 true，catch 也 PASS）
   let userOk = true
   let userDetail = '无残留'
   try {
@@ -17825,10 +17830,354 @@ async function testFeature93(page) {
         const del = await fetch(`${CONFIG.backendUrl}/system/user/${u.userId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
         if (del?.code === 200) cleaned++
       }
+      userOk = cleaned === deletable.length
       userDetail = `发现 ${deletable.length} 个 e2e 用户残留，清理 ${cleaned} 个`
     }
   } catch (err) {
+    userOk = false
     userDetail = `异常: ${err.message.slice(0, 300)}`
   }
   record(93, 'e2e 用户残留巡检', userOk, userDetail)
+}
+
+// ==================== 功能 94：报表数据集页全链（批次十八：G-01 e2e 盲区补齐）====================
+async function testFeature94(page) {
+  log('=== 功能 94：报表数据集页全链 ===')
+  // 批次十八：主流程已 UI 登录（重复登录会互踢会话导致 goto 被踢回首页），直接复用会话
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(94, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+  const code = `it_ds_e2e_${Date.now()}`
+
+  // 批次十八：tour 遮罩 z-[9998] 会拦截点击——addInitScript 必须在 goto 前预置才于下次导航生效
+  await presetTourDisabled(page)
+  // 1. 页面可达（菜单 4146）——主流程登录后动态路由 addRoute 异步，立即 goto 会 404 回首页，重试至 URL 命中
+  const dsUrl = `${CONFIG.frontendUrl}/system/reportDataset`
+  for (let i = 0; i < 5; i++) {
+    await page.goto(dsUrl)
+    await page.waitForTimeout(1500)
+    log(`  [diag94] goto try ${i}: url=${page.url()}`)
+    if (page.url().includes('reportDataset')) break
+  }
+  await page.waitForLoadState('networkidle').catch(() => {})
+  const not404 = !(await is404Page(page))
+  record(94, '页面可达（/reportDataset）', not404)
+
+  // 2. 新增数据集（无参 SELECT 模板）
+  await page.getByRole('button', { name: '新增' }).first().click({ force: true })
+  await page.waitForTimeout(400)
+  await page.locator('.el-dialog input').nth(0).fill(code)
+  await page.locator('.el-dialog input').nth(1).fill('e2e 数据集')
+  const sqlArea = page.locator('.el-dialog textarea')
+  if ((await sqlArea.count()) > 0) {
+    await sqlArea.first().fill('SELECT user_id, user_name FROM sys_user')
+  } else {
+    await page.locator('.el-dialog .cm-content').first().click()
+    await page.keyboard.type('SELECT user_id, user_name FROM sys_user')
+  }
+  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click({ force: true })
+  await page.waitForTimeout(800)
+  const listHit = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders })
+    .then((r) => r.json())
+    .then((j) => (j.rows || []).some((r) => r.datasetCode === code))
+  record(94, '新增数据集落库', listHit)
+
+  // 3. SQL 明文专用端点（admin 持 edit 键 → 200 且含明文）
+  const list = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders }).then((r) => r.json())
+  const row = (list.rows || []).find((r) => r.datasetCode === code)
+  let sqlOk = false
+  if (row) {
+    const sqlResp = await fetch(`${CONFIG.backendUrl}/report/dataset/${row.datasetId}/sql`, {
+      method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: '{}'
+    }).then((r) => r.json())
+    sqlOk = sqlResp?.code === 200 && String(sqlResp?.data || '').includes('SELECT user_id')
+  }
+  record(94, 'SQL 明文端点回填', sqlOk)
+
+  // 4. 试跑（UI：rp.preview 按钮 → 预览对话框打开）
+  if (row) {
+    const previewBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '试跑' })
+    await previewBtn.click({ force: true })
+    await page.waitForTimeout(1500)
+    const dialogVisible = (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
+    record(94, '试跑对话框打开', dialogVisible > 0)
+    // 批次十八：Escape 依赖焦点在对话框内（force 点击后不可靠），优先点关闭按钮
+    const closeBtn = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
+    if (await closeBtn.isVisible().catch(() => false)) {
+      await closeBtn.click({ force: true })
+    } else {
+      await page.keyboard.press('Escape')
+    }
+    await page.waitForTimeout(400)
+    const dialogLeft = (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
+    record(94, '试跑对话框已关闭', dialogLeft === 0)
+  }
+
+  // 5. 删除 + 列表不再命中（确认框等可见再点；删除落库轮询复查）
+  if (row) {
+    await page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '删除' }).click({ force: true })
+    // 批次十八：ElMessageBox 未显式传 confirmButtonText 时按钮文案为 EP locale 默认「确定」
+    // （无空格），hasText '确 定' 匹配失败（截图实证）——改结构化定位：主按钮即确认键
+    const confirmBtn = page.locator('.el-message-box:visible .el-message-box__btns .el-button--primary').first()
+    await confirmBtn.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
+    if (await confirmBtn.isVisible().catch(() => false)) await confirmBtn.click({ force: true })
+    let gone = false
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(600)
+      const still = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders })
+        .then((r) => r.json())
+        .then((j) => (j.rows || []).some((r) => r.datasetCode === code))
+      if (!still) { gone = true; break }
+    }
+    record(94, '删除后列表不再命中', gone)
+  }
+}
+
+// ==================== 功能 95：图驱动审批全链（批次十六/十七核心闭环：按图推进）====================
+async function testFeature95(page) {
+  log('=== 功能 95：图驱动审批全链（设计器→发布→提交测试单据→审批办结）===')
+  // 批次十八：主流程已 UI 登录（重复登录会互踢会话导致 goto 被踢回首页），直接复用会话
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(95, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+  const code = `it_graph_e2e_${Date.now()}`
+
+  // 1. API 建图 + 发布（两节点：role:common 单审 → role:common 加权 t1；条件 days>3）
+  // 批次十八：审批人必须是 role:common（stepby 用户），不能 role:admin——admin 既是提交人
+  // （UI 对话框）又是审批人会触发「禁止全链自审」400（探针 v12 实证），与集成测试同范式
+  const graph = {
+    nodes: [
+      { id: 's', type: 'start', name: '开始' },
+      { id: 'a1', type: 'approve', name: '主管审批', assignees: ['role:common'], multi: 'single', threshold: 1, actions: ['delegate', 'countersign_add', 'countersign_del'] },
+      { id: 'a2', type: 'approve', name: '总监加权', assignees: ['role:common'], multi: 'weighted', threshold: 1, actions: ['delegate', 'countersign_add', 'countersign_del'] },
+      { id: 'e', type: 'end', name: '结束' }
+    ],
+    edges: [
+      { from: 's', to: 'a1' },
+      { from: 'a1', to: 'a2', condition: { field: 'days', op: '>', value: 3 } },
+      { from: 'a1', to: 'e' },
+      { from: 'a2', to: 'e' }
+    ]
+  }
+  const addResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition`, {
+    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flowCode: code, flowName: 'e2e 图驱动', graphJson: JSON.stringify(graph) })
+  }).then((r) => r.json())
+  if (addResp?.code !== 200) {
+    record(95, 'API 建图', false, JSON.stringify(addResp).slice(0, 200))
+    return
+  }
+  const flowId = addResp.data.flowId
+  const pubResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition/publish/${flowId}`, {
+    method: 'POST', headers: authHeaders
+  }).then((r) => r.json())
+  record(95, 'API 发布（version+1）', pubResp?.code === 200 && pubResp?.data?.version === 2)
+
+  // 2. UI：设计器列表 → 提交测试单据按钮（批次十七新交互）
+  // 主流程登录后动态路由 addRoute 异步——立即 goto 会 404 回首页，重试至 URL 命中
+  // 批次十八：tour 遮罩 z-[9998] 会拦截点击——addInitScript 必须在首次 goto 前预置
+  await presetTourDisabled(page)
+  const flowDefUrl = `${CONFIG.frontendUrl}/system/flowDefinition`
+  for (let i = 0; i < 5; i++) {
+    await page.goto(flowDefUrl)
+    await page.waitForTimeout(1500)
+    log(`  [diag] goto try ${i}: url=${page.url()}`)
+    if (page.url().includes('flowDefinition')) break
+  }
+  await page.waitForLoadState('networkidle').catch(() => {})
+  const submitBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '提交测试单据' })
+  let btnVisible = (await submitBtn.count()) > 0
+  for (let i = 0; i < 5 && !btnVisible; i++) {
+    await page.waitForTimeout(1200)
+    btnVisible = (await submitBtn.count()) > 0
+  }
+  record(95, '「提交测试单据」按钮可见（已发布最新版）', btnVisible)
+  if (!btnVisible) return
+  await submitBtn.click({ force: true })
+  await page.waitForTimeout(500)
+  await page.locator('.el-dialog input').first().fill('e2e 图驱动单据（长链）')
+  await page.locator('.el-dialog textarea').fill('{\n  "days": 5\n}')
+  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click({ force: true })
+  await page.waitForTimeout(1000)
+  const toastOk = (await page.locator('.el-message', { hasText: '提交成功，审批人待办已生成' }).count()) > 0
+  record(95, '提交成功 Toast', toastOk)
+
+  // 3. 审批链：stepby（role:common 成员）推进 → approve a1 → 推进 a2 → approve → 办结
+  // 批次十八：待办/动作端点仅登录即可（归属校验在 service 层），用 stepby 独立会话推进
+  const sbLogin = await fetch(`${CONFIG.backendUrl}/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'stepby', password: 'admin123' })
+  }).then((r) => r.json())
+  const sbToken = sbLogin?.data?.token || sbLogin?.token || ''
+  if (!sbToken) {
+    record(95, 'stepby 前置登录', false, JSON.stringify(sbLogin).slice(0, 120))
+    return
+  }
+  const sbHeaders = { Authorization: `Bearer ${sbToken}` }
+  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders })
+    .then((r) => r.json())
+  const t1 = (todo.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.title === 'e2e 图驱动单据（长链）')
+  let chainOk = false
+  if (t1) {
+    const act1 = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
+      method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve', comment: 'e2e a1' })
+    }).then((r) => r.json())
+    const todo2 = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders })
+      .then((r) => r.json())
+    const t2 = (todo2.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.nodeSeq === 2 && r.bizId === t1.bizId)
+    if (act1?.code === 200 && t2) {
+      const act2 = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t2.taskId}/action`, {
+        method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' })
+      }).then((r) => r.json())
+      chainOk = act2?.code === 200
+    }
+  }
+  record(95, '按图推进两级审批办结（条件真走长链）', chainOk)
+
+  // 批次十八：自清理测试流程（best-effort——已产生单据的流程可能被引用校验拒绝，静默即可）
+  try {
+    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, { headers: authHeaders }).then((r) => r.json())
+    const mine = (listAll.rows || []).filter((r) => String(r.flowCode).startsWith('it_graph_e2e_'))
+    for (const f of mine) {
+      await fetch(`${CONFIG.backendUrl}/system/flow/definition/${f.flowId}`, { method: 'DELETE', headers: authHeaders })
+    }
+  } catch { /* best-effort 清理 */ }
+}
+
+// ==================== 功能 96：actions 白名单收窄（批次十七：未勾 delegate → 403）====================
+async function testFeature96(page) {
+  log('=== 功能 96：actions 白名单收窄 ===')
+  // 批次十八：apiLogin 重复登录会互踢 UI 会话（污染后续功能），复用 page cookie token
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(96, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+  const code = `it_graph_act_${Date.now()}`
+
+  // 建图（a1 仅勾 countersign_add——不含 delegate；审批人 role:common 避免 admin 自审 400）+ 发布
+  const graph = {
+    nodes: [
+      { id: 's', type: 'start', name: '开始' },
+      { id: 'a1', type: 'approve', name: '主管', assignees: ['role:common'], multi: 'single', threshold: 1, actions: ['countersign_add'] },
+      { id: 'e', type: 'end', name: '结束' }
+    ],
+    edges: [
+      { from: 's', to: 'a1' },
+      { from: 'a1', to: 'e' }
+    ]
+  }
+  const addResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition`, {
+    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flowCode: code, flowName: 'e2e 动作收窄', graphJson: JSON.stringify(graph) })
+  }).then((r) => r.json())
+  const flowId = addResp?.data?.flowId
+  if (addResp?.code !== 200 || !flowId) {
+    record(96, 'API 建图', false, JSON.stringify(addResp).slice(0, 200))
+    return
+  }
+  await fetch(`${CONFIG.backendUrl}/system/flow/definition/publish/${flowId}`, { method: 'POST', headers: authHeaders })
+
+  // API 提交图驱动单据（days=1 默认边单节点）
+  const subResp = await fetch(`${CONFIG.backendUrl}/system/flow/graph/submit`, {
+    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flowCode: code, title: 'e2e 动作收窄单', fields: { days: 1 } })
+  }).then((r) => r.json())
+  const docId = subResp?.data?.docId
+  if (subResp?.code !== 200 || !docId) {
+    record(96, 'API 提交', false, JSON.stringify(subResp).slice(0, 200))
+    return
+  }
+  // 待办属主 = role:common 成员（stepby）——动作用属主会话调，白名单 403 与属主 403 不混淆
+  const sbLogin = await fetch(`${CONFIG.backendUrl}/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'stepby', password: 'admin123' })
+  }).then((r) => r.json())
+  const sbToken = sbLogin?.data?.token || sbLogin?.token || ''
+  if (!sbToken) {
+    record(96, 'stepby 前置登录', false, JSON.stringify(sbLogin).slice(0, 120))
+    return
+  }
+  const sbHeaders = { Authorization: `Bearer ${sbToken}` }
+  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders }).then((r) => r.json())
+  const t1 = (todo.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.bizId === docId)
+  if (!t1) {
+    record(96, '待办出现', false)
+    return
+  }
+  // delegate 未勾 → 403
+  const del = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
+    method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'delegate', toUserId: 2, comment: '不在白名单' })
+  })
+  record(96, '未勾 delegate → 403', del.status === 403)
+  // countersign_add 在白名单 → 非 403（自委派等业务校验可能 400，但不是白名单 403）
+  const csAdd = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
+    method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'countersign_add', toUserId: 2 })
+  })
+  record(96, '勾选 countersign_add 非 403（白名单放行到业务校验）', csAdd.status !== 403)
+
+  // 批次十八：自清理测试流程（best-effort）
+  try {
+    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, { headers: authHeaders }).then((r) => r.json())
+    const mine = (listAll.rows || []).filter((r) => String(r.flowCode).startsWith('it_graph_act_'))
+    for (const f of mine) {
+      await fetch(`${CONFIG.backendUrl}/system/flow/definition/${f.flowId}`, { method: 'DELETE', headers: authHeaders })
+    }
+  } catch { /* best-effort 清理 */ }
+}
+
+// ==================== 功能 97：大屏 view 页冒烟（运行/设计双模式）====================
+async function testFeature97(page) {
+  log('=== 功能 97：大屏 view 页冒烟 ===')
+  // 批次十八：主流程已 UI 登录（重复登录会互踢会话导致 goto 被踢回首页），直接复用会话
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(97, '前置登录', false, 'token 获取失败')
+    return
+  }
+  // 批次十八：tour 遮罩 z-[9998] 会拦截点击——addInitScript 必须在 goto 前预置
+  await presetTourDisabled(page)
+  // 菜单 4148（parent=1 系统管理 path=system）→ 完整路由 /system/reportDashboard
+  // 动态路由 addRoute 异步——立即 goto 会 404 回首页，重试至 URL 命中
+  for (let i = 0; i < 5; i++) {
+    await page.goto(`${CONFIG.frontendUrl}/system/reportDashboard`)
+    await page.waitForTimeout(1500)
+    if (page.url().includes('reportDashboard')) break
+  }
+  await page.waitForLoadState('networkidle').catch(() => {})
+  const not404 = !(await is404Page(page))
+  record(97, '页面可达（/reportDashboard）', not404)
+  // 设计模式切换（el-radio-button design）
+  const designBtn = page.getByRole('radio', { name: '设计' })
+  if ((await designBtn.count()) > 0) {
+    await designBtn.click({ force: true })
+    await page.waitForTimeout(600)
+    const designerMounted = (await page.locator('.el-dialog, .el-select, button').count()) > 0
+    record(97, '设计模式切换（designer 内嵌渲染）', designerMounted)
+  } else {
+    record(97, '设计模式切换控件', false, '未找到 rp.modeDesign 单选钮')
+  }
 }

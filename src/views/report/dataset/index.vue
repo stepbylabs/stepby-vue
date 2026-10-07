@@ -152,13 +152,13 @@ import {
   type DatasetUpsertForm,
   type ReportDataset
 } from '@/api/report'
-import useUserStore from '@/store/modules/user'
+import { checkPermi } from '@/utils/permission'
 
 const { t } = useI18n()
-const userStore = useUserStore()
 
-/** sql_template 明文仅 report:dataset:edit 持有者可见（后端裁剪），无权限则只读 */
-const canEdit = computed(() => userStore.permissions.includes('report:dataset:edit'))
+/** sql_template 明文仅 report:dataset:edit 持有者可见（后端裁剪），无权限则只读
+ *  批次十八：改用 checkPermi——裸 includes 不识别超管 *:*:*，超管在数据集页看不到任何操作按钮 */
+const canEdit = computed(() => checkPermi(['report:dataset:edit']))
 
 const rows = ref<ReportDataset[]>([])
 const total = ref(0)
