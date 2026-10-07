@@ -1660,6 +1660,8 @@ export default {
     colActedAt: 'Acted At',
     typeSingle: 'Single',
     typeCountersign: 'Countersign',
+    typeOrSign: 'Any-of',
+    typeWeighted: 'Weighted',
     actApprove: 'Approve',
     actReject: 'Reject',
     actApproveShort: 'Approve',

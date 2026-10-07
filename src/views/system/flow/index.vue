@@ -75,7 +75,14 @@
           <el-table-column :label="t('flow.colDays')" prop="days" width="80" />
           <el-table-column :label="t('flow.colMode')" width="110">
             <template #default="{ row }">
-              {{ row.flowMode === 'countersign' ? t('flow.typeCountersign') : t('flow.typeSingle') }}
+              {{
+                ({
+                  single: t('flow.typeSingle'),
+                  countersign: t('flow.typeCountersign'),
+                  or_sign: t('flow.typeOrSign'),
+                  weighted: t('flow.typeWeighted'),
+                } as Record<string, string>)[row.flowMode] ?? row.flowMode
+              }}
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colStatus')" width="100">
@@ -206,6 +213,8 @@
           <el-radio-group v-model="submitForm.flowMode">
             <el-radio value="single">{{ t('flow.typeSingle') }}</el-radio>
             <el-radio value="countersign">{{ t('flow.typeCountersign') }}</el-radio>
+            <el-radio value="or_sign">{{ t('flow.typeOrSign') }}</el-radio>
+            <el-radio value="weighted">{{ t('flow.typeWeighted') }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item :label="t('flow.formReason')" prop="reason">
@@ -450,7 +459,7 @@ const submitForm = ref({
   leaveType: 'annual' as 'annual' | 'sick' | 'personal',
   days: 1,
   reason: '',
-  flowMode: 'single' as 'single' | 'countersign'
+  flowMode: 'single' as 'single' | 'countersign' | 'or_sign' | 'weighted'
 })
 const submitRules = {
   title: [{ required: true, message: t('flow.rules.title'), trigger: 'blur' }],

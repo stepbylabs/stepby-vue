@@ -26,6 +26,10 @@ subject: string | null,
  */
 content: string | null, 
 /**
+ * 短信投递原始渲染参数 JSON 快照（云厂商重试还原用，G-07 扩展）
+ */
+smsParams: string | null, 
+/**
  * 状态（0=成功 1=失败 2=待重试）
  */
 status: string | null, 

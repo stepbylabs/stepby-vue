@@ -26,6 +26,10 @@ templateSubject: string,
  */
 templateContent: string, 
 /**
+ * 云厂商短信模板 code（阿里云 SMS_xxxx / 腾讯云数字 code；NULL = 不走云厂商模板制，G-07 扩展）
+ */
+smsTemplateCode: string | null, 
+/**
  * 状态（0=正常 1=停用）
  */
 status: string | null, createBy: string | null, createTime: string | null, updateBy: string | null, updateTime: string | null, remark: string | null, 

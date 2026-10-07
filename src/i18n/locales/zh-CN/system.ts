@@ -1644,6 +1644,8 @@ export default {
     colActedAt: '审批时间',
     typeSingle: '单审',
     typeCountersign: '会签',
+    typeOrSign: '或签',
+    typeWeighted: '加权票',
     actApprove: '同意',
     actReject: '驳回',
     actApproveShort: '同意',

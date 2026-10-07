@@ -26,11 +26,11 @@ nodeName: string | null,
  */
 assigneeId: number, 
 /**
- * 任务类型（single=单审 / countersign=会签）
+ * 任务类型（single=单审 / countersign=会签 / or_sign=或签 / weighted=加权票）
  */
 taskType: string, 
 /**
- * 状态（pending/approved/rejected/cancelled/transferred）
+ * 状态（pending/approved/rejected/cancelled/transferred/discarded）
  */
 status: string, 
 /**
@@ -61,6 +61,18 @@ dueAt: string | null,
  * 最近一次超时提醒时间（审计）
  */
 lastRemindedAt: string | null, 
+/**
+ * 审批人权重快照（weighted 行生效，提交时定格；其余类型恒 1，G-02 M2）
+ */
+weight: number, 
+/**
+ * 节点门槛快照（weighted 行：权重和 ≥ threshold 即节点通过；其余类型 NULL，G-02 M2）
+ */
+threshold: number | null, 
+/**
+ * 委派转出人（delegate 动作记录原审批人；处理完回不到 A，G-02 M2）
+ */
+delegateFrom: number | null, 
 /**
  * 多租户前向兼容预留（默认 0，不参与过滤）
  */
