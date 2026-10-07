@@ -16510,6 +16510,18 @@ async function main() {
 
     for (const f of features) {
       if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) continue
+      // 会话自愈守卫（批次五深审）：偶发会话竞态会把 UI 会话踢回登录页
+      // （R8 实测：F52 起连环 401 假失败）。功能入口检测到停留在登录页则自动重登，
+      // 让偶发踢下线在下一功能自愈而非连环污染后续 10+ 个功能。
+      if (/\/login(\?|$|#)/.test(page.url())) {
+        log(`  ⚠️ [功能${f.id}] 入口检测到会话失效（停留在登录页），自动重登`)
+        try {
+          await login(page)
+          await sleep(1200)
+        } catch (reloginErr) {
+          log(`  ⚠️ 自动重登失败: ${String(reloginErr.message).slice(0, 120)}`)
+        }
+      }
       const t0 = Date.now()
       try {
         await f.fn(page)

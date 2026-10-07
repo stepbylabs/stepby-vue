@@ -50,14 +50,44 @@ for (let round = 4; round <= 10; round++) {
     } catch {}
   }, 60 * 1000)
 
-  const code = await new Promise((resolve) => child.on('close', (c) => { clearInterval(watcher); resolve(c) }))
+  let code = await new Promise((resolve) => child.on('close', (c) => { clearInterval(watcher); resolve(c) }))
+
+  // 深审 A2：HANG 轮自动重跑一次（R12 实测挂死 44 分钟——复测归零机制常态化）
+  let retried = false
+  if (hung) {
+    retried = true
+    appendFileSync(logPath, `
+[RETRY] HANG 轮自动重跑一次（round ${round}-retry）
+`, 'utf8')
+    console.log(`round ${round}: HUNG → 自动重跑`)
+    out = ''
+    const retry = spawn(NODE, ['main.mjs', '--headless'], {
+      cwd: DIR,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '',
+        STEPBY_TEST_USER: 'admin',
+        STEPBY_TEST_PASS: 'admin123',
+        STEPBY_BASE_URL: 'http://localhost:8080',
+        FRONTEND_URL: 'http://localhost:8080',
+        PLAYWRIGHT_BROWSERS_PATH: 'D:/Projects/.pw-browsers'
+      }
+    })
+    const sink2 = (d) => {
+      out += d
+      appendFileSync(logPath, d, 'utf8')
+    }
+    retry.stdout.on('data', sink2)
+    retry.stderr.on('data', sink2)
+    code = await new Promise((resolve) => retry.on('close', (c) => resolve(c)))
+  }
 
   const pass = (out.match(/✅ PASS/g) || []).length
   const failLines = (out.match(/❌ FAIL.*/g) || [])
   const total = (out.match(/总计: (\d+)/) || [])[1] || ''
-  summary.push({ round, exit: code, hung, pass, total, failCount: failLines.length, fails: failLines.slice(0, 12) })
+  summary.push({ round, exit: code, hung, retried, pass, total, failCount: failLines.length, fails: failLines.slice(0, 12) })
   writeFileSync(DONE_JSON, JSON.stringify({ complete: false, summary }, null, 2), 'utf8')
-  console.log(`round ${round}: exit=${code} hung=${hung} total=${total} pass=${pass} fail=${failLines.length}`)
+  console.log(`round ${round}: exit=${code} hung=${hung} retried=${retried} total=${total} pass=${pass} fail=${failLines.length}`)
   if (!existsSync(`${DIR}/main.mjs`)) break
 }
 console.log('ROUNDS-5B-COMPLETE')
