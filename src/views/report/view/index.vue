@@ -199,4 +199,3 @@ function exportPdf(): void {
   }
 }
 </style>
-</script>

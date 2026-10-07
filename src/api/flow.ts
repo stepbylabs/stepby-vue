@@ -193,3 +193,121 @@ export function countersignAddFlowTask(
     data: { toUserId }
   })
 }
+
+// ==================== G-02 M3：流程定义设计器（flow_definition） ====================
+
+/** 图节点类型白名单（BPMN-lite） */
+export type FlowNodeType = 'start' | 'approve' | 'end'
+/** 多签模式（对齐后端 MultiMode 四模式） */
+export type FlowMultiMode = 'single' | 'countersign' | 'or_sign' | 'weighted'
+/** 节点开放动作白名单 */
+export type FlowNodeAction = 'delegate' | 'countersign_add' | 'countersign_del'
+
+/** 图节点（graph_json.nodes 元素） */
+export interface FlowGraphNode {
+  id: string
+  type: FlowNodeType
+  name?: string
+  /** 审批人形态（approve 必填 ≥1）：dept_leader | role:<key> */
+  assignees?: string[]
+  /** 多签模式（缺省 single） */
+  multi?: FlowMultiMode
+  /** 门槛（weighted 必填；countersign 可选） */
+  threshold?: number
+  /** 开放的高级动作 */
+  actions?: FlowNodeAction[]
+}
+
+/** 原子条件（字段 比较符 值，6 比较符白名单） */
+export interface FlowEdgeCondition {
+  field: string
+  op: '=' | '!=' | '>' | '>=' | '<' | '<='
+  value: string | number
+}
+
+/** 图边（graph_json.edges 元素） */
+export interface FlowGraphEdge {
+  from: string
+  to: string
+  condition?: FlowEdgeCondition
+}
+
+/** 图结构（graph_json 反序列化形态） */
+export interface FlowGraph {
+  nodes: FlowGraphNode[]
+  edges: FlowGraphEdge[]
+}
+
+/** 流程定义行（flow_definition） */
+export interface FlowDefinition {
+  flowId: number
+  tenantId: number
+  flowCode: string
+  flowName: string
+  graphJson: string
+  version: number
+  isLatest: boolean
+  status: string
+  remark?: string
+  createTime?: string
+  updateTime?: string
+}
+
+/** 定义新增/编辑入参 */
+export interface FlowDefUpsertForm {
+  flowId?: number
+  flowCode: string
+  flowName: string
+  graphJson: string
+  remark?: string
+}
+
+export function listFlowDefinitions(query?: {
+  pageNum?: number
+  pageSize?: number
+  flowCode?: string
+}): Promise<TableDataInfo<FlowDefinition>> {
+  return request({
+    url: '/system/flow/definition/list',
+    method: 'get',
+    params: query
+  })
+}
+
+export function getFlowDefinition(flowId: number): Promise<AjaxResult<FlowDefinition>> {
+  return request({
+    url: `/system/flow/definition/${flowId}`,
+    method: 'get'
+  })
+}
+
+export function addFlowDefinition(data: FlowDefUpsertForm): Promise<AjaxResult<FlowDefinition>> {
+  return request({
+    url: '/system/flow/definition',
+    method: 'post',
+    data
+  })
+}
+
+export function editFlowDefinition(data: FlowDefUpsertForm): Promise<AjaxResult<FlowDefinition>> {
+  return request({
+    url: '/system/flow/definition',
+    method: 'put',
+    data
+  })
+}
+
+export function removeFlowDefinition(flowId: number): Promise<AjaxResult<unknown>> {
+  return request({
+    url: `/system/flow/definition/${flowId}`,
+    method: 'delete'
+  })
+}
+
+/** 发布（生成新版本并切换 is_latest），返回新版本号 */
+export function publishFlowDefinition(flowId: number): Promise<AjaxResult<{ flowId: number; version: number }>> {
+  return request({
+    url: `/system/flow/definition/publish/${flowId}`,
+    method: 'post'
+  })
+}
