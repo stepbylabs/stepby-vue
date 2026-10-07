@@ -15,10 +15,10 @@
           :label="d.dashboardName"
         />
       </el-select>
-      <el-button icon="Plus" type="primary" plain @click="openCreate">
+      <el-button v-hasPermi="['report:dashboard:view']" icon="Plus" type="primary" plain @click="openCreate">
         {{ t('common.add') }}
       </el-button>
-      <el-button icon="Delete" plain :disabled="!selectedId" @click="handleRemove">
+      <el-button v-hasPermi="['report:dashboard:view']" icon="Delete" plain :disabled="!selectedId" @click="handleRemove">
         {{ t('common.delete') }}
       </el-button>
       <el-divider direction="vertical" />
@@ -44,6 +44,7 @@
         />
       </el-select>
       <el-button
+        v-hasPermi="['report:dashboard:view']"
         icon="CirclePlus"
         type="primary"
         :disabled="!newChartDataset"
@@ -52,6 +53,7 @@
         {{ t('rp.addChart') }}
       </el-button>
       <el-button
+        v-hasPermi="['report:dashboard:view']"
         icon="Check"
         type="success"
         :loading="saving"

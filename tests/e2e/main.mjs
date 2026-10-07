@@ -17775,7 +17775,9 @@ async function testFeature93(page) {
   }
   const authHeaders = { Authorization: `Bearer ${token}` }
 
-  // 1. 孤儿菜单巡检（test-menu-* 模式）
+  // 1. 孤儿菜单巡检（双特征：path 前缀 + menuName 前缀——批次十三强化）
+  // 历史漏检实证：F23 改名行（测试菜单改*）path 特征丢失 ⇒ 4148 被 e2e 孤儿占用、
+  // m20261007_000005 的 INSERT OR IGNORE 静默失效，大屏管理菜单从未落库。
   let menuOk = false
   let menuDetail = '无残留'
   try {
@@ -17783,7 +17785,15 @@ async function testFeature93(page) {
       .then((r) => r.json())
       .catch(() => null)
     const rows = list?.data || list?.rows || []
-    const orphans = rows.filter((r) => (r.path || '').startsWith('test-menu-'))
+    const nameList = await fetch(`${CONFIG.backendUrl}/system/menu/list?menuName=${encodeURIComponent('测试菜单')}`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rowsByName = nameList?.data || nameList?.rows || []
+    const seen = new Map()
+    for (const r of [...rows, ...rowsByName]) seen.set(r.menuId, r)
+    const orphans = [...seen.values()].filter(
+      (r) => (r.path || '').startsWith('test-menu-') || (r.menuName || '').startsWith('测试菜单')
+    )
     if (orphans.length === 0) {
       menuOk = true
     } else {

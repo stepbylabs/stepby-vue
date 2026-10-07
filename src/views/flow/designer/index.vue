@@ -13,7 +13,7 @@
         <el-button icon="Search" type="primary" plain @click="handleQuery">
           {{ t('common.search') }}
         </el-button>
-        <el-button icon="Plus" type="primary" @click="openEdit()">
+        <el-button v-hasPermi="['flow:definition:add']" icon="Plus" type="primary" @click="openEdit()">
           {{ t('common.add') }}
         </el-button>
       </div>
@@ -34,11 +34,12 @@
         <el-table-column :label="t('common.column.updateTime')" prop="updateTime" width="160" />
         <el-table-column :label="t('common.column.operation')" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" icon="Edit" @click="openEdit(row)">
+            <el-button v-hasPermi="['flow:definition:edit']" link type="primary" icon="Edit" @click="openEdit(row)">
               {{ t('common.edit') }}
             </el-button>
             <el-button
               v-if="row.isLatest"
+              v-hasPermi="['flow:definition:publish']"
               link
               type="success"
               icon="Promotion"
@@ -49,7 +50,7 @@
             <el-button link icon="DocumentCopy" @click="openDiff(row)">
               {{ t('flowDef.diffVsLatest') }}
             </el-button>
-            <el-button link type="danger" icon="Delete" @click="handleRemove(row)">
+            <el-button v-hasPermi="['flow:definition:remove']" link type="danger" icon="Delete" @click="handleRemove(row)">
               {{ t('common.delete') }}
             </el-button>
           </template>
@@ -102,7 +103,7 @@
         </el-button>
         <el-button icon="Plus" plain @click="addNode('end')">{{ t('flowDef.addEnd') }}</el-button>
         <el-button icon="Plus" plain @click="addEdgeOpen = true">{{ t('flowDef.addEdge') }}</el-button>
-        <el-button type="success" :loading="saving" @click="handleSave">{{ t('common.save') }}</el-button>
+        <el-button v-hasPermi="['flow:definition:add', 'flow:definition:edit']" type="success" :loading="saving" @click="handleSave">{{ t('common.save') }}</el-button>
       </div>
 
       <!-- 校验错误清单（保存前前端先拦，与后端白名单校验器双份对齐） -->
