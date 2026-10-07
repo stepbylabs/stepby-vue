@@ -16638,9 +16638,16 @@ async function mLevelApiSetup(featureId) {
   }
   record(featureId, 'admin 登录获取 token', true, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-  const api = async (url, opts) => {
+  const api = async (url, opts, _tries = 3) => {
     const res = await fetch(`${CONFIG.backendUrl}${url}`, opts).catch(() => null)
     if (!res) return { status: 0, body: null, code: null, rows: [], data: null }
+    // 批次十八（R6/R8 实证）：M 级簇（76-83）为 API 连发段，会触发 sys_rate_limit
+    // 令牌桶 429（"请求过于频繁"）。令牌桶按秒回填——1.2s 退避重试是尊重限流
+    // 语义的确定性化，而非绕过限流。无任何用例以 429 为期望值，重试不改变断言语义。
+    if (res.status === 429 && _tries > 0) {
+      await new Promise((r) => setTimeout(r, 1200))
+      return api(url, opts, _tries - 1)
+    }
     const body = await res.json().catch(() => null)
     return { status: res.status, body, code: body?.code ?? null, rows: body?.rows ?? [], total: body?.total ?? null, data: body?.data ?? null, msg: body?.msg ?? '' }
   }
@@ -17009,6 +17016,17 @@ async function testFeature83(page) {
   const setup = await mLevelApiSetup(83)
   if (!setup) return
   const { jsonHeaders, api } = setup
+  // 批次十八（R6 实证）：本功能 ~12 连发 API 会触发 sys_rate_limit 令牌桶 429
+  // （E2/F1/F2 连环 429，轮次 1-5 全绿=纯负载节流）。令牌桶按秒回填——1.2s 退避重试
+  // 是尊重限流语义的确定性化，而非绕过限流。
+  const api429 = async (url, opts = {}, tries = 3) => {
+    let r = await api(url, opts)
+    for (let i = 0; i < tries && r?.status === 429; i++) {
+      await page.waitForTimeout(1200)
+      r = await api(url, opts)
+    }
+    return r
+  }
   const catalogKey = 'user.created' // 种子事件（WEBHOOK_SEED_EVENTS 首个）
   const target = 'http://8.8.8.8:59999/webhook'
 
@@ -17026,29 +17044,29 @@ async function testFeature83(page) {
   record(83, 'B2 停用过滤命中', offList.rows?.length === 1, `rows=${offList.rows?.length}`)
 
   // C. 停用事件订阅被拒（400）
-  const sub = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const sub = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
   record(83, 'C1 停用事件订阅 400', sub.status === 400, `status=${sub.status} msg=${sub.msg}`)
 
   // D. 载体 hook（订阅其它目录键）→ 停用事件 test-send 400
-  const carrier = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用测试载体_${Date.now()}`, subscribedEvents: ['login.failed'], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const carrier = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用测试载体_${Date.now()}`, subscribedEvents: ['login.failed'], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
   record(83, 'D1 载体 hook 创建', carrier.code === 200, `code=${carrier.code}`)
   const carrierList = await api('/monitor/webHook/list?hookName=e2e_停用测试载体_', { headers: jsonHeaders })
   const carrierId = (carrierList.rows || [])[0]?.id
   if (carrierId) {
-    const ts = await api(`/system/webhook/${carrierId}/test-send`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ eventKey: catalogKey }) })
+    const ts = await api429(`/system/webhook/${carrierId}/test-send`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ eventKey: catalogKey }) })
     record(83, 'D2 停用事件 test-send 400', ts.status === 400, `status=${ts.status}`)
   }
 
   // E. 启用恢复 → 订阅成功
   const on = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
   record(83, 'E1 启用成功', on.code === 200, `code=${on.code}`)
-  const resub = await api('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_恢复订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const resub = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_恢复订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
   record(83, 'E2 恢复后订阅成功', resub.code === 200, `code=${resub.code}`)
 
   // F. 校验分支：非法值 400 / 不存在 404
-  const badVal = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: 'x' }) })
+  const badVal = await api429(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: 'x' }) })
   record(83, 'F1 非法 enabled 400', badVal.status === 400, `status=${badVal.status}`)
-  const notFound = await api('/system/webhook/event/999999999/enabled', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+  const notFound = await api429('/system/webhook/event/999999999/enabled', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
   record(83, 'F2 不存在事件 404', notFound.status === 404, `status=${notFound.status}`)
 
   // 清理测试 hook（目录事件为种子数据恢复原状，无需清理）
@@ -17057,6 +17075,11 @@ async function testFeature83(page) {
     if ((h.hookName || '').startsWith('e2e_停用') || (h.hookName || '').startsWith('e2e_恢复')) {
       await api(`/monitor/webHook/${h.id}`, { method: 'DELETE', headers: jsonHeaders })
     }
+  }
+  // 批次十八（R7→R8 状态继承教训）：链路中途 429/失败会把 user.created 留在 disabled=0，
+  // 污染下一轮 A1 前置断言——尾部 best-effort 恢复启用态（幂等，正常路径已启用时无副作用）
+  if (eventId) {
+    await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
   }
 }
 
