@@ -16327,6 +16327,8 @@ async function ensureB4Clean() {
 async function main() {
   // B4 强改密态前置清理（详见函数注释）——必须在浏览器登录前完成
   await ensureB4Clean()
+  // 批次十九 P1：oper_log 测试库尾部截断（防测试库单调增长拖慢 F4 聚合）
+  await ensureOperLogTrim()
   // 解析命令行参数
   const args = process.argv.slice(2)
   for (const arg of args) {
@@ -16666,6 +16668,39 @@ async function mLevelApiSetup(featureId) {
 async function mLevelSign(sk, stringToSign) {
   const { createHmac } = await import('node:crypto')
   return createHmac('sha256', sk).update(stringToSign).digest('hex')
+}
+
+/**
+ * 批次十九 P1：oper_log 测试库尾部截断（每轮全量运行前执行一次）。
+ *
+ * 痛点：e2e 每轮写入数千行 oper_log，全部落在保留窗（90 天）内，保留期清理永不
+ * 生效 → 测试库单调增长，审计大屏聚合（F4）耗时线性恶化（探针实证串行 6.5s→30s+）。
+ * 本函数复用既有 DELETE /monitor/operlog/clean 按时间范围接口清理 7 天前数据——
+ * 与大屏默认 7 天窗（批次十九 P2）对齐：窗口内自造数据保留，窗口外历史不再参与聚合。
+ * 清理走后端锚点编排（链感知保留），防篡改链校验语义不受影响。
+ */
+async function ensureOperLogTrim() {
+  try {
+    const cap = await fetch(`${CONFIG.backendUrl}/captchaImage`).then((r) => r.json())
+    const login = await fetch(`${CONFIG.backendUrl}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123', code: '', uuid: cap.uuid || '' })
+    }).then((r) => r.json())
+    if (!login.token) return console.log('[oper_log 截断] 登录失败：', login.msg)
+    const h = { Authorization: `Bearer ${login.token}` }
+    const end = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    const del = await fetch(
+      `${CONFIG.backendUrl}/monitor/operlog/clean?params[beginTime]=2026-01-01&params[endTime]=${end}`,
+      { method: 'DELETE', headers: h }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
+    const affected = del?.data?.affected ?? del?.affected
+    console.log(`[oper_log 截断] 清理 7 天前操作日志 ${affected ?? '?'} 条`)
+  } catch (e) {
+    console.log('[oper_log 截断] 前置清理失败（不阻断）:', e?.message || e)
+  }
 }
 
 /** 清理 e2e 前缀历史 PAT（循环轮 8 修复：每轮创建累积触发每用户 PAT 上限守卫 → 400） */

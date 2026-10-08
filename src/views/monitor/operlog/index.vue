@@ -272,7 +272,17 @@
     >
       <el-result v-if="verifyResult?.valid" icon="success" :title="t('operlog.verify.validTitle')">
         <template #sub-title>
-          <span>{{ t('operlog.verify.checkedCount', { count: verifyResult.checked }) }}</span>
+          <div class="flex flex-col items-center gap-2">
+            <span>{{ t('operlog.verify.checkedCount', { count: verifyResult.checked }) }}</span>
+            <!-- 批次十九链感知保留：gapCount > 0 = 存在保留期清理缺口（锚点续接校验通过） -->
+            <el-alert
+              v-if="verifyResult.gapCount != null && verifyResult.gapCount > 0"
+              :title="t('operlog.verify.gapTip', { count: verifyResult.gapCount })"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+          </div>
         </template>
       </el-result>
       <el-result v-else-if="verifyResult" icon="error" :title="t('operlog.verify.brokenTitle')">

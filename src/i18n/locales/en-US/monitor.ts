@@ -526,7 +526,8 @@ export default {
       validTitle: 'Chain intact, not tampered',
       brokenTitle: 'Chain break detected',
       checkedCount: 'Verified {count} chain nodes',
-      brokenAt: 'First broken node: operation log #{operId}. Data after this log may have been tampered with or deleted; investigate immediately'
+      brokenAt: 'First broken node: operation log #{operId}. Data after this log may have been tampered with or deleted; investigate immediately',
+      gapTip: '{count} retention-cleanup gap(s) detected (verified via archive anchors; archives downloadable by platform admins)'
     },
     tip: {
       confirmDelete: 'Are you sure to delete the log with ID "{ids}"?',

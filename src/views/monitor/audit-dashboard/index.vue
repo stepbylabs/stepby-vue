@@ -219,7 +219,8 @@ const { fadeInUp } = useMotionPresets()
 // P1-3：业务类型字典单一来源，与 operlog 共用 sys_oper_type
 const { sys_oper_type } = useDict('sys_oper_type')
 
-const days = ref(14)
+// 批次十九 P2（福哥拍板）：大屏默认 7 天窗（与后端 stats 默认对齐，聚合量收敛到窗口内）
+const days = ref(7)
 const loading = ref(false)
 // U20 优化：图表加载错误状态
 const chartError = ref(false)

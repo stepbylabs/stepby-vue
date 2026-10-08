@@ -49,6 +49,8 @@ export interface ChainVerifyResult {
   checked: number
   /** 首个校验失败节点的 oper_id（valid=true 时为 null） */
   brokenAtOperId: number | null
+  /** 清理缺口段数（批次十九链感知保留：保留期清理的区间由锚点续接校验；0 = 无缺口） */
+  gapCount?: number | null
   /** 链是否完整 */
   valid: boolean
 }

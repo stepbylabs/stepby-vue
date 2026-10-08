@@ -525,7 +525,8 @@ export default {
       validTitle: '链完整，未被篡改',
       brokenTitle: '检测到链断裂',
       checkedCount: '共校验 {count} 条链节点',
-      brokenAt: '首个断裂节点：操作日志 #{operId}，该日志之后的数据可能被篡改或删除，请立即排查'
+      brokenAt: '首个断裂节点：操作日志 #{operId}，该日志之后的数据可能被篡改或删除，请立即排查',
+      gapTip: '含 {count} 段保留期清理缺口（已由清理锚点续接校验，归档对象可由平台管理员下载）'
     },
     tip: {
       confirmDelete: '是否确认删除日志编号为"{ids}"的数据项？',
