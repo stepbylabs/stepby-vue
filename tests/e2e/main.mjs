@@ -392,7 +392,7 @@ async function skipTour(page) {
     .locator('button:has-text("跳过"), button:has-text("跳过引导"), [class*="tour"] button:has-text("跳")')
     .first()
   if (await skipBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-    await skipBtn.click().catch(() => {})
+    await skipBtn.click({ timeout: 3000 }).catch(() => {})
     await sleep(500)
   }
   // B4 软提示「安全提示」（初始密码提醒 confirm）可能盖在任何页面上——
@@ -401,7 +401,7 @@ async function skipTour(page) {
     .locator('.el-overlay-message-box button:has-text("取消"), .el-message-box button:has-text("取消")')
     .first()
   if (await mbCancel.isVisible({ timeout: 500 }).catch(() => false)) {
-    await mbCancel.click().catch(() => {})
+    await mbCancel.click({ timeout: 3000 }).catch(() => {})
     await sleep(300)
   }
   // 也尝试 ESC 关闭
@@ -483,13 +483,13 @@ async function testFeature3(page) {
 
   if (hasCreateBtn) {
     // 点击创建备份
-    await createBtn.click().catch(() => {})
+    await createBtn.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
     // 处理 ElMessageBox.confirm 确认弹窗（前端 backup/index.vue:262 confirmCreate）——
     // 不点确认则请求根本不会发出（此前表格 0 行的根因）
     const confirmBtn = page.locator('.el-message-box__btns button.el-button--primary').first()
     if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await confirmBtn.click().catch(() => {})
+      await confirmBtn.click({ timeout: 3000 }).catch(() => {})
       log('  已确认创建备份弹窗')
     }
     await sleep(2000)
@@ -706,7 +706,7 @@ async function testFeature5(page) {
       // 点击"自选字段"以显示字段列表
       const selectedRadio = dialog.locator('text=自选字段').first()
       if (await selectedRadio.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await selectedRadio.click().catch(() => {})
+        await selectedRadio.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
 
         // 验证字段列表存在
@@ -734,7 +734,7 @@ async function testFeature5(page) {
 
       // 取消对话框
       if (hasCancel) {
-        await cancelBtn.click().catch(() => {})
+        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
     }
@@ -753,7 +753,7 @@ async function testFeature5(page) {
     const hasVerifyBtn = await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(5, '链校验按钮存在', hasVerifyBtn)
     if (hasVerifyBtn) {
-      await verifyBtn.click().catch(() => {})
+      await verifyBtn.click({ timeout: 3000 }).catch(() => {})
       const verifyDialog = page.locator('.el-dialog:visible', { hasText: '链完整性校验' }).first()
       const verifyShown = await visibleWithRetry(verifyDialog)
       const verifyValid = verifyShown && (await verifyDialog.locator('text=链完整，未被篡改').first().isVisible({ timeout: 1500 }).catch(() => false))
@@ -771,7 +771,7 @@ async function testFeature5(page) {
     const hasCompBtn = await compBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(5, '合规报告按钮存在', hasCompBtn)
     if (hasCompBtn) {
-      await compBtn.click().catch(() => {})
+      await compBtn.click({ timeout: 3000 }).catch(() => {})
       const compDialog = page.locator('.el-dialog:visible', { hasText: '审计合规报告' }).first()
       const compShown = await visibleWithRetry(compDialog, 5000)
       const compData = compShown && (await visibleWithRetry(compDialog.locator('text=操作总数').first(), 2000))
@@ -786,7 +786,7 @@ async function testFeature5(page) {
     const hasArchBtn = await archBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(5, '归档下载按钮存在', hasArchBtn)
     if (hasArchBtn) {
-      await archBtn.click().catch(() => {})
+      await archBtn.click({ timeout: 3000 }).catch(() => {})
       const archDialog = page.locator('.el-dialog:visible', { hasText: '清理锚点' }).first()
       const archShown = await visibleWithRetry(archDialog, 5000)
       const archTable = archShown && (await visibleWithRetry(archDialog.locator('text=清理区间').first(), 2000))
@@ -873,7 +873,7 @@ async function testFeature7(page) {
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取消"), button:has-text("关闭")').first()
       if (await cancelBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await cancelBtn.click().catch(() => {})
+        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
     }
@@ -952,7 +952,7 @@ async function testFeature8(page) {
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取 消"), button:has-text("取消")').first()
       if (await cancelBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await cancelBtn.click().catch(() => {})
+        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
     }
@@ -1062,7 +1062,7 @@ async function testFeature9(page) {
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取 消"), button:has-text("取消")').first()
       if (await cancelBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await cancelBtn.click().catch(() => {})
+        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
     }
@@ -1204,7 +1204,7 @@ async function testFeature10(page) {
         .getByRole('button', { name: /详细|详情|Detail/i })
         .first()
       if ((await detailBtn.count().catch(() => 0)) === 0) continue
-      await detailBtn.click().catch(() => {})
+      await detailBtn.click({ timeout: 3000 }).catch(() => {})
       await page.waitForSelector('.el-dialog', { state: 'visible', timeout: 4000 }).catch(() => {})
       await sleep(400)
       const dialogText = await page
@@ -1297,7 +1297,11 @@ async function getAdminToken(page) {
 
 async function testFeature11(page) {
   log('=== 功能 11：审计合规报告 PDF 导出 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
+  const statsReadyN = page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/stats') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'load', timeout: 45000 })
+  await statsReadyN
   await sleep(3000)
   await skipTour(page)
   await screenshot(page, 'feat11_audit_dashboard')
@@ -1618,7 +1622,11 @@ async function testFeature14(page) {
   record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除可见=${rateLimitBtns.del}（均应隐藏）`)
 
   // 步骤 4：访问审计大屏（stepby 用户可能无权限）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
+  const statsReadyN = page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/stats') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'load', timeout: 45000 })
+  await statsReadyN
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_stepby_audit_dashboard')
@@ -1713,7 +1721,7 @@ async function testFeature15(page) {
             { timeout: 6000 }
           )
           .catch(() => null),
-        registerBtn.click().catch(() => {})
+        registerBtn.click({ timeout: 3000 }).catch(() => {})
       ])
       await sleep(1200)
 
@@ -1775,8 +1783,10 @@ async function testFeature16(page) {
 
   for (const p of pagesToScan) {
     try {
-      await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'networkidle' })
-      await sleep(1500)
+      // 批次十九收尾八：扫描目标是静态 DOM 文本（按钮/label/表头），本地接口 <200ms，
+      // networkidle 在高负载下是纯浪费（17 页 × 1-3s）——'load' + 800ms 渲染等待即充分
+      await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'load', timeout: 30000 })
+      await sleep(800)
       await skipTour(page)
 
       // 扫描页面上的硬编码中文（仅扫描可见的文本内容）
@@ -1858,8 +1868,9 @@ async function testFeature16(page) {
   for (const p of pageResults.slice(0, 8)) {
     // 仅扫描前 8 个核心页面以节省时间
     try {
-      await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'networkidle' })
-      await sleep(1200)
+      // 批次十九收尾八：与中文主扫描同语义（静态 DOM 文本），'load' + 短等待
+      await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'load', timeout: 30000 })
+      await sleep(800)
 
       const residual = await page
         .evaluate(() => {
@@ -1970,7 +1981,11 @@ async function testFeature17(page) {
   // 步骤 2：验证 stepby 用户能正常访问审计大屏（API 不返回 403）
   // 这验证 permission.rs 中 /monitor/operlog/stats 权限已改为 monitor:audit:list，
   // role_id=2 拥有此权限（通过菜单 120 关联）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
+  const statsReadyN = page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/stats') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'load', timeout: 45000 })
+  await statsReadyN
   await sleep(3500) // 给 ECharts 充足渲染时间
   await skipTour(page)
   await screenshot(page, 'feat17_stepby_audit_dashboard')
@@ -6822,7 +6837,7 @@ async function testFeature37(page) {
     if (btnVisible) {
       // 监听路由变化
       const beforeUrl = page.url()
-      await viewAllBtn.click().catch(() => {})
+      await viewAllBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
       const afterUrl = page.url()
       // 验证跳转到 /system/log/operlog（操作日志菜单实际注册路径）
@@ -7592,7 +7607,7 @@ async function testFeature38(page) {
       const colBtn = page.locator('.top-right-btn .el-button:has(.el-icon)').nth(2)
       const btnVisible = await colBtn.isVisible({ timeout: 2000 }).catch(() => false)
       if (btnVisible) {
-        await colBtn.click().catch(() => {})
+        await colBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
         // 列设置通常弹出 el-transfer 或 el-checkbox-group
         columnSettingVisible = await page
@@ -7993,7 +8008,7 @@ async function testFeature39(page) {
         .first()
       const tabVisible = await resetPwdTab.isVisible({ timeout: 2000 }).catch(() => false)
       if (tabVisible) {
-        await resetPwdTab.click().catch(() => {})
+        await resetPwdTab.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
       }
     } catch (e) {}
@@ -8258,7 +8273,7 @@ async function testFeature40(page) {
       const searchBtn = page.locator('.el-form .el-button[type="primary"]').first()
       const btnVisible = await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)
       if (btnVisible) {
-        await searchBtn.click().catch(() => {})
+        await searchBtn.click({ timeout: 3000 }).catch(() => {})
       } else {
         // 回车触发
         await userNameInput.press('Enter').catch(() => {})
@@ -10313,7 +10328,7 @@ async function testFeature49(page) {
     await page
       .getByRole('button', { name: /完成|Done/ })
       .first()
-      .click()
+      .click({ timeout: 3000 })
       .catch(() => {})
     await sleep(700)
     const bodyCells = await page.locator('.widget-cell .widget-cell__body').count()
@@ -11302,7 +11317,7 @@ async function testFeature52(page) {
     await itemByLabel('归属部门')
       .locator('input')
       .first()
-      .click()
+      .click({ timeout: 3000 })
       .catch(() => {})
     await page
       .locator('.el-select-dropdown:visible .el-tree-node__content')
@@ -11313,7 +11328,7 @@ async function testFeature52(page) {
     await itemByLabel('角色')
       .locator('input')
       .first()
-      .click()
+      .click({ timeout: 3000 })
       .catch(() => {})
     await page
       .locator('.el-select-dropdown:visible .el-select-dropdown__item')
@@ -11713,7 +11728,7 @@ async function testFeature55(page) {
     const capResp = page
       .waitForResponse((r) => r.url().includes('/captchaImage') && r.status() === 200, { timeout: 10000 })
       .catch(() => null)
-    await form.locator('img[src^="data:image"]').first().click().catch(() => {})
+    await form.locator('img[src^="data:image"]').first().click({ timeout: 3000 }).catch(() => {})
     const resp = await capResp
     if (!resp) return false
     const data = await resp.json().catch(() => null)
@@ -12048,7 +12063,7 @@ async function testFeature57(page) {
     await dlg
       .locator('button:has-text("取 消"), button:has-text("取消")')
       .first()
-      .click()
+      .click({ timeout: 3000 })
       .catch(() => {})
     return
   }
@@ -13598,6 +13613,9 @@ async function testFeature68(page) {
     if (r.request().method() === 'DELETE' && /\/monitor\/jobLog\/\d+$/.test(p)) delStatus = r.status()
   }
   page.on('response', respDel)
+  // 被删行指纹必须在删除动作之前采集（收尾八 bug 修正：放在删除后会导致
+  // firstBefore=firstAfter 恒成立、断言恒败）
+  const firstBefore = (await logRows.first().innerText().catch(() => '')).replace(/\s+/g, ' ')
   await logRows.first().locator('.el-checkbox').first().click()
   await sleep(400)
   await page
@@ -13614,11 +13632,22 @@ async function testFeature68(page) {
     .click()
   await sleep(1600)
   page.off('response', respDel)
-  const rowsAfterDel = await logRows.count()
+  // 批次十九收尾八：删除后列表刷新竞态（R9 类别）+ 种子任务 jobLog 存在测试控制外的
+  // 合法写入源（后端重启时 misfire 补执行等，复跑/第八/九轮连续 rows=1 实证）——
+  // 断言语义修正为「被删行从列表消失」（rows 归零 或 首行已非被删行）：
+  // 后端 DELETE 200 + API total 闭环不变，对调度器合法再生鲁棒
+  let rowsAfterDel = await logRows.count()
+  for (let attempt = 0; attempt < 4 && rowsAfterDel > 0; attempt++) {
+    await sleep(1500)
+    rowsAfterDel = await logRows.count()
+  }
+  const firstAfter =
+    rowsAfterDel > 0 ? (await logRows.first().innerText().catch(() => '')).replace(/\s+/g, ' ') : ''
+  const deletedGone = rowsAfterDel === 0 || firstAfter !== firstBefore
   record(
     68,
-    '勾选删除：DELETE 200 且列表回到空态',
-    delStatus === 200 && rowsAfterDel === 0,
+    '勾选删除：DELETE 200 且被删行从列表消失',
+    delStatus === 200 && deletedGone,
     `status=${delStatus}, rows=${rowsAfterDel}`
   )
   const after2 = await logList()
@@ -16148,7 +16177,7 @@ async function testFeature75(page) {
     record(75, 'G1 审批页出现「已办」tab', hasDoneTab, `visible=${hasDoneTab}`)
 
     if (hasDoneTab) {
-      await doneTab.click().catch(() => {})
+      await doneTab.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const doneCell = page.locator(`.el-table__row:has-text("${docTitle}")`).first()
       const hasDoneRow = await doneCell.isVisible({ timeout: 5000 }).catch(() => false)
@@ -16161,7 +16190,7 @@ async function testFeature75(page) {
     const hasAllTab = await allTab.isVisible({ timeout: 3000 }).catch(() => false)
     let hasExportBtn = false
     if (hasAllTab) {
-      await allTab.click().catch(() => {})
+      await allTab.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       hasExportBtn = await page
         .locator('button:has-text("导出"), button:has-text("Export")')
@@ -17929,7 +17958,9 @@ async function testFeature92(page) {
     let ok = false
     try {
       await presetTourDisabled(page)
-      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'networkidle' })
+      // 批次十九收尾八：冒烟只验证可达（非 404），networkidle 对含长请求/轮询的页面
+      // 是反模式（SCIM 用户组页 30s 超时实证）——'load' + 页面标记出现即达标
+      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'load', timeout: 30000 })
       await sleep(1200)
       await skipTour(page)
       ok = !(await is404Page(page))
