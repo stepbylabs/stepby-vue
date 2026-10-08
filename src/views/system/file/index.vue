@@ -177,6 +177,7 @@
 </template>
 
 <script setup lang="ts" name="SystemFile">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { Document } from '@element-plus/icons-vue'
 import type { UploadRequestOptions } from 'element-plus'
 import request from '@/utils/request'
@@ -200,6 +201,8 @@ const total = ref(0)
 const ids = ref<string[]>([])
 const multiple = ref(true)
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 const queryParams = reactive({
   pageNum: 1,

@@ -241,6 +241,7 @@ import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import EmptyState from '@/components/EmptyState/index.vue'
 import useSettingsStore from '@/store/modules/settings'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useTableColumns } from '@/composables/useTableColumns'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import type { TableShowColumns } from '@/types/api/common'
@@ -331,6 +332,8 @@ watch(
 const taskList = shallowRef<SysTask[]>([])
 const loading = ref(true)
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 const total = ref(0)
 const ids = ref<number[]>([])
 const single = ref(true)

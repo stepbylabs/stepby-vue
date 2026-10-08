@@ -966,7 +966,9 @@ export default {
       type: {
         email: '邮件',
         sms: '短信',
-        site: '站内'
+        site: '站内',
+        wecomRobot: '企微群机器人',
+        dingtalkRobot: '钉钉机器人'
       },
       search: {
         channelName: '渠道名称',

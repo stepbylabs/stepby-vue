@@ -269,11 +269,13 @@ const clearConfig = ref(false)
 const queryRefRef = useTemplateRef('queryRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
-// 渠道类型选项（email/sms/site）
+// 渠道类型选项（email/sms/site + 批次十八 IM 群机器人：wecom_robot/dingtalk_robot）
 const channelTypeOptions = [
   { value: 'email', label: t('msg.channel.type.email') },
   { value: 'sms', label: t('msg.channel.type.sms') },
-  { value: 'site', label: t('msg.channel.type.site') }
+  { value: 'site', label: t('msg.channel.type.site') },
+  { value: 'wecom_robot', label: t('msg.channel.type.wecomRobot') },
+  { value: 'dingtalk_robot', label: t('msg.channel.type.dingtalkRobot') }
 ]
 
 const data = reactive({

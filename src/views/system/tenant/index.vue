@@ -370,6 +370,7 @@
 </template>
 
 <script setup lang="ts">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import {
   listTenant,
   getTenant,
@@ -399,6 +400,8 @@ const userStore = useUserStore()
 const isPlatform = computed(() => (userStore.tenantId ?? 0) === 0)
 
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 const loading = ref(false)
 const saving = ref(false)
 const tenantList = ref<TenantVo[]>([])

@@ -300,6 +300,7 @@
 </template>
 
 <script setup lang="ts" name="MonitorAlert">
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { listAlert, getAlert, addAlert, updateAlert, delAlert, changeAlertEnabled, evaluateAlert, exportAlert } from '@/api/monitor/alert'
 import { listChannel, listTemplate } from '@/api/system/msg'
 import type { SysAlertRule, AlertRuleQueryParams, AlertRuleSaveDto, AlertEvaluateResult } from '@/types/api/monitor/alert'
@@ -343,6 +344,8 @@ function comparatorLabel(comparator: string): string {
 const loading = ref(false)
 const submitLoading = ref(false)
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 const dataList = ref<SysAlertRule[]>([])
 const ids = ref<(number | string)[]>([])
 const single = ref(true)

@@ -980,7 +980,9 @@ export default {
       type: {
         email: 'Email',
         sms: 'SMS',
-        site: 'Site'
+        site: 'Site',
+        wecomRobot: 'WeCom Bot',
+        dingtalkRobot: 'DingTalk Bot'
       },
       search: {
         channelName: 'Channel Name',
