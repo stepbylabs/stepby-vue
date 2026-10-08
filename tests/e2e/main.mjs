@@ -17523,7 +17523,14 @@ async function testFeature87(page) {
   log('=== 功能 87：消息渠道管理（编辑全链 + 回显契约）===')
 
   await presetTourDisabled(page)
-  await page.goto(`${CONFIG.frontendUrl}/system/msg/channel`, { waitUntil: 'networkidle' })
+  // 批次十九收尾四：networkidle 对本页在全量负载下不稳定（1912 断言轮 F87 goto 30s
+  // 超时实证；与 F4 同根因——全量跑到 87 段时限流冷却/轮询使网络无法静默）——
+  // 对齐 F4 修复模式：'load' + 显式等待渠道列表接口，确定性收敛
+  const channelListReady = page
+    .waitForResponse((r) => r.url().includes('/system/msg/channel/list') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/system/msg/channel`, { waitUntil: 'load', timeout: 45000 })
+  await channelListReady
   await sleep(1500)
   await skipTour(page)
   const is404 = await is404Page(page)
@@ -17664,7 +17671,12 @@ async function testFeature88(page) {
   const tcode = `e2e_tpl_${uniq}`
 
   await presetTourDisabled(page)
-  await page.goto(`${CONFIG.frontendUrl}/system/msg/template`, { waitUntil: 'networkidle' })
+  // 批次十九收尾四：与 F87 同族同根因（全量负载下 networkidle 无法静默）——对齐 F4 模式
+  const templateListReady = page
+    .waitForResponse((r) => r.url().includes('/system/msg/template/list') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/system/msg/template`, { waitUntil: 'load', timeout: 45000 })
+  await templateListReady
   await sleep(1500)
   await skipTour(page)
   const is404 = await is404Page(page)
