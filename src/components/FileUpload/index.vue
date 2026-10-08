@@ -58,6 +58,8 @@ import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import modal from '@/plugins/modal'
 import type { UploadFile as ElUploadFile } from 'element-plus'
+// G-10 批次十八：分片上传 / 断点续传（>8MB 自动分流；后端总上限 1GB）
+import { shouldChunk, uploadFileChunked } from '@/api/upload'
 import type { UploadFileResult } from '@/types/api/common'
 
 const { t } = useI18n()
@@ -145,6 +147,9 @@ watch(
 )
 
 // 上传前校检格式和大小
+// G-10 批次十八：>8MB 文件自动分流到分片链（before-upload 返回 false 阻止 el-upload
+// 默认单请求上传，改走 handleChunkedUpload 编排器）；fileSize prop 校验仅对单请求
+// 路径生效——分片路径上限由后端 common_chunk_max_total_size（1GB）裁决
 function handleBeforeUpload(file: File): boolean {
   // 校检文件类型
   if (props.fileType.length > 0) {
@@ -161,6 +166,13 @@ function handleBeforeUpload(file: File): boolean {
     modal.msgError(t('fileUpload.fileNameError'))
     return false
   }
+  // 分流：大文件走分片链（跳过 fileSize 单请求校验）
+  if (shouldChunk(file.size)) {
+    modal.loading(t('fileUpload.uploadingFile'))
+    number.value++
+    void handleChunkedUpload(file)
+    return false
+  }
   // 校检文件大小
   if (props.fileSize) {
     const isLt = file.size / 1024 / 1024 < props.fileSize
@@ -172,6 +184,24 @@ function handleBeforeUpload(file: File): boolean {
   modal.loading(t('fileUpload.uploadingFile'))
   number.value++
   return true
+}
+
+// G-10 批次十八：分片上传编排（断点续传 / 并发 / 进度见 api/upload.ts 编排器）
+// 成功/失败计数与列表收敛复用单请求路径的 uploadList + uploadedSuccessfully 逻辑
+async function handleChunkedUpload(file: File): Promise<void> {
+  try {
+    const result = await uploadFileChunked(file)
+    if (result.code === 200) {
+      uploadList.value.push({ name: result.fileName, url: result.fileName })
+      uploadedSuccessfully()
+    } else {
+      throw new Error(result.msg || 'chunk upload failed')
+    }
+  } catch {
+    number.value--
+    modal.closeLoading()
+    modal.msgError(t('fileUpload.uploadFailed'))
+  }
 }
 
 // 文件个数超出

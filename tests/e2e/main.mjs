@@ -16497,7 +16497,8 @@ async function main() {
       { id: 94, fn: testFeature94 },
       { id: 95, fn: testFeature95 },
       { id: 96, fn: testFeature96 },
-      { id: 97, fn: testFeature97 }
+      { id: 97, fn: testFeature97 },
+      { id: 98, fn: testFeature98 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -18203,4 +18204,111 @@ async function testFeature97(page) {
   } else {
     record(97, '设计模式切换控件', false, '未找到 rp.modeDesign 单选钮')
   }
+}
+
+// ==================== 功能 98：G-10 分片上传真链路（批次十八：前端接线配套）====================
+// 真实 API 端到端（node fetch 直打后端）：init → 断点续传重演（传 0 片 → session 查缺失 → 补传）→
+// complete → 下载字节比对 → abort 清理分支。>10MB 文件在单请求 body limit 下无法上传，
+// 分片链是唯一通道——本段同时验证 64MB→1GB 新上限下的协议完整性。
+async function testFeature98(page) {
+  log('=== 功能 98：分片上传真链路（init/part/complete/断点续传/abort） ===')
+  // 批次十八：复用 page cookie token（对齐 F94 范式，避免 apiLogin 互踢）
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(98, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+
+  // 构造 11MB 伪 zip（PK magic 头 + 确定性填充——save_upload_bytes 校验 magic bytes）
+  const PART_SIZE = 5 * 1024 * 1024
+  const TOTAL = 11 * 1024 * 1024
+  const buf = Buffer.alloc(TOTAL)
+  buf.write('PK\x03\x04', 0, 'binary')
+  for (let i = 4; i < TOTAL; i++) buf[i] = (i * 31 + 7) & 0xff
+  const totalParts = 3
+
+  // 1. init
+  const initRes = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/init`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName: 'e2e-chunk.zip', totalParts, totalSize: TOTAL, partSize: PART_SIZE })
+  }).then((r) => r.json())
+  const sessionId = initRes?.data?.sessionId
+  // chunkSize 为服务端推导（ceil(total/parts)），非客户端声明的 partSize
+  record(98, 'init 创建会话', initRes?.code === 200 && !!sessionId && initRes.data.chunkSize === Math.ceil(TOTAL / totalParts), `sessionId=${sessionId} chunkSize=${initRes?.data?.chunkSize}`)
+
+  // 2. 断点续传重演：先只传第 0 片 → session 查缺失 → 补传 1、2 片
+  async function uploadPart(idx) {
+    const form = new FormData()
+    form.append('sessionId', sessionId)
+    form.append('partIndex', String(idx))
+    const blob = new Blob([buf.subarray(idx * PART_SIZE, Math.min((idx + 1) * PART_SIZE, TOTAL))])
+    form.append('file', blob, `part-${idx}`)
+    return fetch(`${CONFIG.backendUrl}/common/upload/chunk/part`, {
+      method: 'POST', headers: authHeaders, body: form
+    }).then((r) => r.json())
+  }
+  const part0 = await uploadPart(0)
+  record(98, 'part#0 上传', part0?.code === 200 && part0.data.received === 1, `received=${part0?.data?.received}`)
+
+  const sess1 = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/session/${sessionId}`, {
+    headers: authHeaders
+  }).then((r) => r.json())
+  const idx1 = sess1?.data?.receivedIndexes
+  record(98, 'session 返回已收索引（断点续传语义）', sess1?.code === 200 && Array.isArray(idx1) && idx1.length === 1 && idx1[0] === 0, `receivedIndexes=${JSON.stringify(idx1)}`)
+  const missing = [1, 2].filter((i) => !idx1.includes(i))
+  const part1 = await uploadPart(missing[0])
+  const part2 = await uploadPart(missing[1])
+  record(98, '补传缺失片 1、2', part1?.code === 200 && part2?.code === 200 && part2.data.complete === true, `complete=${part2?.data?.complete}`)
+
+  // 3. complete
+  const completeRes = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/complete`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId })
+  }).then((r) => r.json())
+  const fileUrl = completeRes?.data?.url
+  record(98, 'complete 合并落盘', completeRes?.code === 200 && !!fileUrl, `url=${fileUrl}`)
+
+  // 4. 下载字节比对（长度 + magic 头 + 抽样位置）
+  let downloadOk = false
+  if (fileUrl) {
+    const dl = await fetch(`${CONFIG.backendUrl}${fileUrl}`, { headers: authHeaders })
+    if (dl.status === 200) {
+      const ab = Buffer.from(await dl.arrayBuffer())
+      const sampleOk =
+        ab.length === TOTAL &&
+        ab.subarray(0, 4).toString('binary') === 'PK\x03\x04' &&
+        ab[1024 * 1024] === buf[1024 * 1024] &&
+        ab[TOTAL - 1] === buf[TOTAL - 1]
+      downloadOk = sampleOk
+    }
+  }
+  record(98, '下载回读字节一致', downloadOk)
+
+  // 5. abort 清理分支：新会话 → DELETE → part 应 400（会话已清）
+  const init2 = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/init`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName: 'e2e-abort.zip', totalParts: 1, totalSize: 1024, partSize: 1024 })
+  }).then((r) => r.json())
+  const sid2 = init2?.data?.sessionId
+  const abortRes = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/${sid2}`, {
+    method: 'DELETE', headers: authHeaders
+  }).then((r) => r.json())
+  const partAfterAbort = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/part`, {
+    method: 'POST', headers: authHeaders,
+    body: (() => {
+      const f = new FormData()
+      f.append('sessionId', sid2)
+      f.append('partIndex', '0')
+      f.append('file', new Blob([Buffer.alloc(10)]), 'part-0')
+      return f
+    })()
+  }).then((r) => r.status)
+  record(98, 'abort 清理后 part 拒绝', abortRes?.code === 200 && partAfterAbort === 400, `abort=${abortRes?.code} partStatus=${partAfterAbort}`)
 }
