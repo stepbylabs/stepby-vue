@@ -717,6 +717,21 @@ export default {
       configType: 'Built-in',
       remark: 'Remark'
     },
+    governance: {
+      section: 'Multi-tenant Governance (platform only)',
+      scope: 'Governance Scope',
+      scopePlaceholder: 'Select governance scope',
+      scopePlatformOnly: 'Platform Only (hidden from tenants)',
+      scopePlatformDefault: 'Platform Default (visible & overridable)',
+      scopeTenantPrivate: 'Tenant Private (tenant-created key)',
+      tenantEditable: 'Tenant Overridable',
+      tenantEditableTip: 'When on, tenant admins can modify this value for their own tenant',
+      visibleToTenant: 'Tenant Visible',
+      visibleToTenantTip: 'When on, this config appears in the tenant config list',
+      lockedTip: 'This config is platform-locked (Coverage::Locked); governance attributes cannot be edited',
+      confirmChange:
+        'Governance attributes changed: this affects visibility and overridability of this config for ALL tenants. Save anyway?'
+    },
     validate: {
       configNameRequired: 'Config name is required',
       configKeyRequired: 'Config key is required',

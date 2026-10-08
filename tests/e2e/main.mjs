@@ -3132,6 +3132,47 @@ async function testFeature21(page) {
   }
   record(21, '配置 DELETE 删除', configDeleteOk, `configId=${configId}`)
 
+  // ---------- 步骤 4.5：E-04 参数治理（governance-locked 端点 + 治理属性建参回读） ----------
+  {
+    const govHeaders = { ...authHeaders, 'Content-Type': 'application/json' }
+    const govJson = async (url, opts = {}) => {
+      for (let i = 0; i < 4; i++) {
+        const res = await fetch(`${CONFIG.backendUrl}${url}`, opts).catch(() => null)
+        if (res && res.status === 429 && i < 3) {
+          await new Promise((r) => setTimeout(r, 1200))
+          continue
+        }
+        const text = res ? await res.text().catch(() => '') : ''
+        try { return { status: res ? res.status : 0, body: JSON.parse(text) } } catch { return { status: res ? res.status : 0, body: { __raw: text.slice(0, 100) } } }
+      }
+    }
+    const locked = await govJson('/system/config/governance-locked', { headers: authHeaders })
+    const lockedKeys = locked.body?.data || []
+    record(21, '治理锁定键清单（平台）', Array.isArray(lockedKeys) && lockedKeys.length > 0, `${lockedKeys.length} 个锁定键`)
+
+    const add = await govJson('/system/config', {
+      method: 'POST',
+      headers: govHeaders,
+      body: JSON.stringify({
+        configName: `e2e_gov_${uniq}`,
+        configKey: `e2e.gov.${uniq}`,
+        configValue: 'v1',
+        configType: 'N',
+        scope: 'platform_default',
+        tenantEditable: '1',
+        visibleToTenant: '1'
+      })
+    })
+    const list = await govJson(`/system/config/list?configKey=${encodeURIComponent(`e2e.gov.${uniq}`)}`, { headers: authHeaders })
+    const grow = list.body?.rows?.[0] || {}
+    const addOk = add.body?.code === 200
+    const scopeOk = grow.scope === 'platform_default' && grow.tenantEditable === '1'
+    record(21, '治理属性建参回读（platform_default/1/1）', addOk && scopeOk, JSON.stringify({ addStatus: add.status, addCode: add.body?.code, rows: list.body?.rows?.length, scope: grow.scope, te: grow.tenantEditable }))
+    if (grow.configId) {
+      await fetch(`${CONFIG.backendUrl}/system/config/${grow.configId}`, { method: 'DELETE', headers: authHeaders }).catch(() => null)
+    }
+  }
+
   // ---------- 步骤 5：sys_dict 字典类型完整 CRUD ----------
   let dictId = null
   let dictAddOk = false

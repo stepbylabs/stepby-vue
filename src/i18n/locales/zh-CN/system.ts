@@ -704,6 +704,21 @@ export default {
       configType: '系统内置',
       remark: '备注'
     },
+    governance: {
+      section: '多租户治理（平台专属）',
+      scope: '治理范围',
+      scopePlaceholder: '请选择治理范围',
+      scopePlatformOnly: '平台专属（租户不可见/不可改）',
+      scopePlatformDefault: '平台默认（租户可见、可覆盖）',
+      scopeTenantPrivate: '租户私有（租户自建键）',
+      tenantEditable: '租户可覆盖',
+      tenantEditableTip: '开启后租户管理员可修改本租户的参数值',
+      visibleToTenant: '租户可见',
+      visibleToTenantTip: '开启后该参数出现在租户的参数列表中',
+      lockedTip: '该参数受平台治理锁定（Coverage::Locked），治理属性不可修改',
+      confirmChange:
+        '检测到参数治理属性变更：该操作影响所有租户对该参数的可见性与可覆盖性。确认保存？'
+    },
     validate: {
       configNameRequired: '参数名称不能为空',
       configKeyRequired: '参数键名不能为空',

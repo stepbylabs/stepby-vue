@@ -237,10 +237,58 @@
             show-word-limit
           />
         </el-form-item>
+        <!-- E-04 参数治理（仅平台管理员）：scope/editable/visible 三列编辑；
+             Locked 键控件禁用（后端 resolve_governance fail-closed 兜底） -->
+        <template v-if="isPlatform">
+          <el-divider content-position="left">{{ t('config.governance.section') }}</el-divider>
+          <el-form-item :label="t('config.governance.scope')" prop="scope">
+            <el-select
+              v-model="form.scope"
+              :disabled="isLockedKey"
+              :placeholder="t('config.governance.scopePlaceholder')"
+              class="w-full"
+              @change="onScopeChange"
+            >
+              <el-option value="platform_only" :label="t('config.governance.scopePlatformOnly')" />
+              <el-option value="platform_default" :label="t('config.governance.scopePlatformDefault')" />
+              <el-option value="tenant_private" :label="t('config.governance.scopeTenantPrivate')" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('config.governance.tenantEditable')">
+            <el-switch
+              v-model="tenantEditableOn"
+              :disabled="isLockedKey || form.scope === 'platform_only'"
+              active-value="1"
+              inactive-value="0"
+            />
+            <span class="ml-2 text-xs text-[var(--el-text-color-secondary)]">
+              {{ t('config.governance.tenantEditableTip') }}
+            </span>
+          </el-form-item>
+          <el-form-item :label="t('config.governance.visibleToTenant')">
+            <el-switch
+              v-model="visibleToTenantOn"
+              :disabled="isLockedKey || form.scope === 'platform_only'"
+              active-value="1"
+              inactive-value="0"
+            />
+            <span class="ml-2 text-xs text-[var(--el-text-color-secondary)]">
+              {{ t('config.governance.visibleToTenantTip') }}
+            </span>
+          </el-form-item>
+          <el-alert
+            v-if="isLockedKey"
+            :title="t('config.governance.lockedTip')"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="mb-2"
+          />
+        </template>
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" :loading="submitLoading" @click="submitForm">{{ t('common.confirm') }}</el-button>
+          <el-button type="primary" :loading="submitLoading" @click="submitFormGuarded">{{ t('common.confirm') }}</el-button>
           <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
@@ -263,8 +311,27 @@ import { useCrudTable } from '@/composables/useCrudTable'
 import { addDateRange } from '@/utils/stepby'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
+import request from '@/utils/request'
+import useUserStore from '@/store/modules/user'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import EditableCell from '@/components/EditableCell/index.vue'
+
+const userStore = useUserStore()
+/** E-04 参数治理：治理编辑仅平台管理员（租户写治理字段被后端强制 tenant_private） */
+const isPlatform = computed(() => (userStore.tenantId ?? 0) === 0)
+
+/** 平台锁定键清单（governance-locked 端点；Locked 键治理控件禁用，后端 fail-closed 兜底） */
+const lockedKeys = ref<Set<string>>(new Set())
+onMounted(() => {
+  if (!isPlatform.value) return
+  request({ url: '/system/config/governance-locked', method: 'get' })
+    .then((res) => {
+      const keys = ((res as { data?: string[] }).data ?? (res as unknown as string[])) || []
+      lockedKeys.value = new Set(keys)
+    })
+    .catch(() => {})
+})
+const isLockedKey = computed(() => !!form.value.configKey && lockedKeys.value.has(form.value.configKey))
 
 const configRefRef = useTemplateRef('configRef')
 const queryRefRef = useTemplateRef('queryRef')
@@ -326,7 +393,11 @@ const {
     configKey: undefined,
     configValue: undefined,
     configType: 'Y',
-    remark: undefined
+    remark: undefined,
+    // E-04：治理缺省跟随后端 fail-closed（platform_only/'0'/'0'），下放需显式选择
+    scope: 'platform_only',
+    tenantEditable: '0',
+    visibleToTenant: '0'
   }),
   titleKey: 'config.title',
   deleteTipKey: 'common.confirmDelete',
@@ -346,6 +417,75 @@ const {
     refreshCache().catch(() => {})
   }
 })
+
+/** E-04 治理表单状态：switch 与 scope 联动（platform_only 强制 '0'/'0'）+ 变更快照（二次确认） */
+const tenantEditableOn = ref<'0' | '1'>('0')
+const visibleToTenantOn = ref<'0' | '1'>('0')
+let governanceSnapshot = ''
+
+function syncSwitchesFromForm() {
+  tenantEditableOn.value = (form.value.tenantEditable as '0' | '1') || '0'
+  visibleToTenantOn.value = (form.value.visibleToTenant as '0' | '1') || '0'
+}
+
+/** scope 变更：platform_only 强制两开关关（镜像后端 resolve_governance 推导） */
+function onScopeChange(scope: string) {
+  if (scope === 'platform_only') {
+    tenantEditableOn.value = '0'
+    visibleToTenantOn.value = '0'
+  }
+}
+
+/** 提交前把治理开关回写 form（非平台不上传治理字段——后端本就忽略，保持语义干净） */
+function applyGovernanceToForm() {
+  if (!isPlatform.value) {
+    delete (form.value as Record<string, unknown>).scope
+    delete (form.value as Record<string, unknown>).tenantEditable
+    delete (form.value as Record<string, unknown>).visibleToTenant
+    return
+  }
+  form.value.scope = (form.value.scope as string) || 'platform_only'
+  if (form.value.scope === 'platform_only') {
+    tenantEditableOn.value = '0'
+    visibleToTenantOn.value = '0'
+  }
+  form.value.tenantEditable = tenantEditableOn.value
+  form.value.visibleToTenant = visibleToTenantOn.value
+}
+
+/** 治理字段相对打开对话框时是否有变化（有变 → 保存前二次确认，防误改） */
+function governanceChanged(): boolean {
+  if (!isPlatform.value) return false
+  const cur = JSON.stringify([
+    form.value.scope || 'platform_only',
+    tenantEditableOn.value,
+    visibleToTenantOn.value
+  ])
+  return cur !== governanceSnapshot
+}
+
+watch(open, (v: boolean) => {
+  if (!v) return
+  syncSwitchesFromForm()
+  governanceSnapshot = JSON.stringify([
+    form.value.scope || 'platform_only',
+    tenantEditableOn.value,
+    visibleToTenantOn.value
+  ])
+})
+
+/** 提交守卫：治理字段变更时二次确认（E-04 防误改设计），再走 useCrudTable 提交 */
+async function submitFormGuarded() {
+  applyGovernanceToForm()
+  if (governanceChanged()) {
+    try {
+      await modal.confirm(t('config.governance.confirmChange'))
+    } catch {
+      return
+    }
+  }
+  submitForm()
+}
 
 /** 重置按钮操作 - 覆盖以清空 dateRange */
 function resetQuery() {
