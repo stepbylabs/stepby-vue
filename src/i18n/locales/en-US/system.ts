@@ -1399,7 +1399,10 @@ export default {
       login_success: 'Login Success',
       login_failure: 'Login Failure',
       scim_user_provisioned: 'SCIM User Provisioned',
-      scim_user_deactivated: 'SCIM User Deactivated'
+      scim_user_deactivated: 'SCIM User Deactivated',
+      user_created: 'User Created',
+      scim_group_provisioned: 'SCIM Group Provisioned',
+      scim_group_deleted: 'SCIM Group Deleted'
     },
     test: {
       eventType: 'Event Type',

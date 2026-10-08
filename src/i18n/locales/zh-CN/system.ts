@@ -1383,7 +1383,10 @@ export default {
       login_success: '登录成功',
       login_failure: '登录失败',
       scim_user_provisioned: 'SCIM 用户创建',
-      scim_user_deactivated: 'SCIM 用户停用'
+      scim_user_deactivated: 'SCIM 用户停用',
+      user_created: '用户创建',
+      scim_group_provisioned: 'SCIM 用户组创建',
+      scim_group_deleted: 'SCIM 用户组删除'
     },
     test: {
       eventType: '事件类型',

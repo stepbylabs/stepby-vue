@@ -124,7 +124,9 @@
           show-overflow-tooltip
           sortable="custom"
           :sort-orders="['descending', 'ascending']"
-        />
+        >
+          <template #default="{ row }">{{ formatEventType(row.eventType) }}</template>
+        </el-table-column>
         <el-table-column
           :label="t('webHook.log.column.targetUrl')"
           align="center"
@@ -211,7 +213,7 @@
           {{ currentLog?.hookName || '-' }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('webHook.log.column.eventType')">
-          {{ currentLog?.eventType }}
+          {{ currentLog ? formatEventType(currentLog.eventType) : '' }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('webHook.log.column.status')">
           <el-tag :type="currentLog?.status === '0' ? 'success' : 'danger'" size="small">
@@ -257,7 +259,19 @@ import tab from '@/plugins/tab'
 import { addDateRange } from '@/utils/stepby'
 import type { WebHookLogQueryParams } from '@/types/api/system/webHook'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+/**
+ * 事件键显示翻译（批次十九收尾：collect-warnings 实证 eventType 原始值如
+ * `login.success` 形如 i18n 键被误判泄漏——本质是展示层未翻译）。
+ * 约定：目录键 `a.b` → i18n `webHook.eventType.a_b`（点转下划线）；
+ * te() 不存在的键（自定义事件名）如实显示原值，符合"目录外事件原样"语义。
+ */
+function formatEventType(key: string | null | undefined): string {
+  if (!key) return ''
+  const i18nKey = `webHook.eventType.${key.replaceAll('.', '_')}`
+  return te(i18nKey) ? t(i18nKey) : key
+}
 const queryRef = useTemplateRef('queryRef')
 const logTableRef = useTemplateRef('logTableRef')
 const { sys_common_status } = useDict('sys_common_status')
