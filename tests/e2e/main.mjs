@@ -286,7 +286,7 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await presetTourDisabled(page)
   // 验证码响应捕获必须在 goto 前注册（与页面显示的验证码图同 uuid 同源）
   const captchaPromise = capturePageCaptcha(page)
-  await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle' }).catch(() => {
+  await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'load' }).catch(() => {
     log('  ⚠️ networkidle 等待超时（可能有长连接），降级继续登录流程')
   })
   await sleep(1500)
@@ -378,7 +378,7 @@ async function logout(page) {
       sessionStorage.clear()
     })
     await page.context().clearCookies()
-    await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/login`, { waitUntil: 'load' })
     await sleep(1500)
     log('  ✅ 已注销')
   } catch (err) {
@@ -405,7 +405,7 @@ async function skipTour(page) {
     await sleep(300)
   }
   // 也尝试 ESC 关闭
-  await page.keyboard.press('Escape').catch(() => {})
+  await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
   await sleep(300)
 }
 
@@ -413,7 +413,7 @@ async function skipTour(page) {
 
 async function testFeature1(page) {
   log('=== 功能 1：在线用户强制踢出 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat1_online_list')
@@ -442,7 +442,7 @@ async function testFeature1(page) {
 async function testFeature2(page) {
   log('=== 功能 2：登录异常检测 ===')
   // 验证后端 scheduler 已注册（通过查看接口可用性间接验证）
-  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat2_dashboard')
@@ -459,7 +459,7 @@ async function testFeature2(page) {
 
 async function testFeature3(page) {
   log('=== 功能 3：数据备份恢复管理 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat3_backup_list')
@@ -508,7 +508,7 @@ async function testFeature3(page) {
     await screenshot(page, 'feat3_backup_created')
 
     // 重新加载列表以确保表格刷新
-    await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'load' })
     await sleep(2500)
   }
 
@@ -600,7 +600,7 @@ async function testFeature3(page) {
       .first()
     if ((await downloadBtn.count()) > 0) {
       // force: true —— tour 蒙层/浮层可能拦截常规点击（skipTour 时机竞态），穿透执行
-      await downloadBtn.click({ force: true }).catch(() => {})
+      await downloadBtn.click({ force: true, timeout: 3000 }).catch(() => {})
       // 下载属敏感操作，首启会弹「安全提示」MessageBox（强改密/会话确认链）——
       // 确认后请求才放行；无弹窗时静默跳过（非首次下载无确认）
       const mbConfirm = page.locator('.el-overlay-message-box .el-button--primary').first()
@@ -666,7 +666,7 @@ async function testFeature4(page) {
 async function testFeature5(page) {
   log('=== 功能 5：数据导出字段选择 ===')
   // operlog 菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog（API 仍为 /monitor/operlog）
-  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat5_operlog_list')
@@ -802,7 +802,7 @@ async function testFeature5(page) {
 
 async function testFeature6(page) {
   log('=== 功能 6：任务进度中心 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat6_task_list')
@@ -835,7 +835,7 @@ async function testFeature6(page) {
 
 async function testFeature7(page) {
   log('=== 功能 7：邮件通知系统 ===')
-  await page.goto(`${CONFIG.frontendUrl}/system/notice`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/notice`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat7_notice_list')
@@ -884,7 +884,7 @@ async function testFeature7(page) {
 
 async function testFeature8(page) {
   log('=== 功能 8：API 限流可视化 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat8_rate_limit_list')
@@ -969,7 +969,7 @@ async function testFeature8(page) {
 async function testFeature9(page) {
   log('=== 功能 9：数据字典国际化 ===')
   // 先访问字典类型列表
-  await page.goto(`${CONFIG.frontendUrl}/system/dict`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/dict`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat9_dict_type_list')
@@ -1017,7 +1017,7 @@ async function testFeature9(page) {
   // 偶发卡住离开动画，导致 <router-view> 渲染空内容。改用 page.goto 直接跳转，绕过 transition。
   // （生产环境用户通过菜单点击进入不受影响，仅测试环境中 Playwright 与 Vue transition 时序冲突）
   const feat9DictId = page.url().match(/\/(\d+)$/)?.[1] || '1'
-  await page.goto(`${CONFIG.frontendUrl}/system/dict-data/index/${feat9DictId}`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/dict-data/index/${feat9DictId}`, { waitUntil: 'load' })
   await sleep(2000)
   await page
     .locator('.el-table')
@@ -1176,7 +1176,7 @@ async function testFeature10(page) {
   }
 
   // 步骤 2：验证操作日志页面可访问
-  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat10_operlog_list')
@@ -1218,7 +1218,7 @@ async function testFeature10(page) {
         remarkSeen = dialogText.includes('remark')
         await screenshot(page, 'feat10_operlog_diff_detail')
       }
-      await page.keyboard.press('Escape').catch(() => {})
+      await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
       await sleep(250)
     }
     record(
@@ -1367,7 +1367,7 @@ async function testFeature12(page) {
   log('=== 功能 12：i18n 完整化 ===')
 
   // 步骤 1：访问限流配置页面（中文模式基线）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat12_rate_limit_zh')
@@ -1414,7 +1414,7 @@ async function testFeature12(page) {
 
   // 等待页面 reload（modal.loading 显示 800ms 后调用 window.location.reload）
   await sleep(3000)
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+  await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
   await sleep(2000)
 
   // 重新登录（reload 后 token 可能仍在 localStorage，但保险起见检查 URL）
@@ -1424,7 +1424,7 @@ async function testFeature12(page) {
   }
 
   // 重新访问限流配置页面（英文模式）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   await screenshot(page, 'feat12_rate_limit_en')
@@ -1451,7 +1451,7 @@ async function testFeature12(page) {
     if (await zhOption.isVisible({ timeout: 2000 }).catch(() => false)) {
       await zhOption.click()
       await sleep(3000)
-      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+      await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
       await sleep(2000)
       if (page.url().includes('login')) {
         await login(page)
@@ -1590,7 +1590,7 @@ async function testFeature14(page) {
       .catch(() => ({ add: false, del: false }))
 
   // 步骤 1：用户管理页面（stepby 无 system:user:add / system:user:remove）
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_stepby_user_page')
@@ -1604,7 +1604,7 @@ async function testFeature14(page) {
   )
 
   // 步骤 2：角色管理页面（stepby 无 system:role:add / system:role:remove）
-  await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_stepby_role_page')
@@ -1613,7 +1613,7 @@ async function testFeature14(page) {
   record(14, '角色管理页面权限隔离', roleIsolated, `新增可见=${roleBtns.add}, 删除可见=${roleBtns.del}（均应隐藏）`)
 
   // 步骤 3：限流配置页面（stepby 无 system:rateLimit:add / system:rateLimit:remove）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat14_stepby_ratelimit_page')
@@ -1648,7 +1648,7 @@ async function testFeature15(page) {
 
   // 步骤 1：访问注册页面（验证码捕获须在 goto 前注册，与页面显示图同源）
   const captchaPromise = capturePageCaptcha(page)
-  await page.goto(`${CONFIG.frontendUrl}/register`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/register`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat15_register_page')
@@ -1695,12 +1695,12 @@ async function testFeature15(page) {
   const REG_PWD = 'Test12345'
   if (hasUsername && hasPassword) {
     const testUsername = `test_${Date.now()}`
-    await userInput.fill(testUsername).catch(() => {})
-    await passInput.fill(REG_PWD).catch(() => {})
+    await userInput.fill(testUsername, { timeout: 3000 }).catch(() => {})
+    await passInput.fill(REG_PWD, { timeout: 3000 }).catch(() => {})
     if (passInputCount >= 2) {
       await passInputs
         .nth(1)
-        .fill(REG_PWD)
+        .fill(REG_PWD, { timeout: 3000 })
         .catch(() => {})
     }
     // 验证码（后端启用时填页面同源真码；未启用跳过）
@@ -1840,7 +1840,8 @@ async function testFeature16(page) {
 
   // 步骤 2：切换到英文模式，验证翻译覆盖率
   log('  切换到英文模式验证翻译覆盖率...')
-  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+  // 批次十九收尾九：/index 工作台页持续请求（图表/轮询）使 networkidle 无法静默（第十二轮 goto 30s 超时实证）——'load' 即达导航目的（语言图标在 header）
+  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load', timeout: 30000 })
   await sleep(1500)
 
   // 切换到英文
@@ -1852,7 +1853,7 @@ async function testFeature16(page) {
     if (await englishOption.isVisible({ timeout: 2000 }).catch(() => false)) {
       await englishOption.click()
       await sleep(3000)
-      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+      await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
       await sleep(2000)
       if (page.url().includes('login')) {
         await login(page)
@@ -1908,7 +1909,7 @@ async function testFeature16(page) {
     if (await zhOption.isVisible({ timeout: 2000 }).catch(() => false)) {
       await zhOption.click()
       await sleep(3000)
-      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+      await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
       await sleep(2000)
       if (page.url().includes('login')) {
         await login(page)
@@ -1965,7 +1966,7 @@ async function testFeature17(page) {
   // （理由：整库 dump/恢复、下载面即全库数据）。initialize::ensure_tenant_role_menu_governance
   // 治理 SQL 修复补上 perms LIKE 列名后首次真正生效：菜单 118(system:backup:list)/1200(system:backup:query)
   // 授权已从 role_id=2（stepby）删除，故前端路由 /system/backup 对 stepby 不可达（404）。
-  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat17_stepby_backup_page')
@@ -2058,7 +2059,7 @@ async function testFeature17(page) {
   await login(page, CONFIG.username, CONFIG.password)
   await sleep(2000)
 
-  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/backup`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat17_admin_backup_page')
@@ -2092,7 +2093,7 @@ async function testFeature18(page) {
   log('=== 功能 18：IP 归属地库后台管理（admin + stepby 权限验证）===')
 
   // ---------- 步骤 1：admin 用户访问 IP 库管理页面 ----------
-  await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'load' })
   await sleep(2500)
   await skipTour(page)
   await screenshot(page, 'feat18_admin_ip_location_page')
@@ -2156,7 +2157,7 @@ async function testFeature18(page) {
     await page
       .locator('button:has-text("配置")')
       .first()
-      .click({ force: true })
+      .click({ force: true, timeout: 3000 })
       .catch(() => {})
     await sleep(1500)
     await screenshot(page, 'feat18_admin_config_dialog')
@@ -2177,7 +2178,7 @@ async function testFeature18(page) {
         await page
           .locator('.el-dialog input[type="radio"][value="maxmind"]')
           .first()
-          .check({ force: true })
+          .check({ force: true, timeout: 3000 })
           .catch(() => {})
         await sleep(600)
       }
@@ -2189,7 +2190,7 @@ async function testFeature18(page) {
         await page
           .locator('.el-dialog input[type="radio"][value="p3terx"]')
           .first()
-          .check({ force: true })
+          .check({ force: true, timeout: 3000 })
           .catch(() => {})
         await sleep(300)
       }
@@ -2199,10 +2200,10 @@ async function testFeature18(page) {
     await page
       .locator('.el-dialog__footer button:has-text("取消")')
       .first()
-      .click({ force: true })
+      .click({ force: true, timeout: 3000 })
       .catch(() => {})
     await sleep(500)
-    await page.keyboard.press('Escape').catch(() => {})
+    await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
     await sleep(500)
   }
   record(18, 'admin 配置对话框', configDialogOk, `对话框字段完整=${configDialogOk}`)
@@ -2261,7 +2262,7 @@ async function testFeature18(page) {
     record(18, 'stepby 权限验证', false, '无法登录 stepby 账户')
   } else {
     await sleep(2000)
-    await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'load' })
     await sleep(2500)
     await skipTour(page)
     await screenshot(page, 'feat18_stepby_ip_location_page')
@@ -2644,7 +2645,7 @@ async function testFeature19(page) {
   // ---------- 步骤 9：前端 IP 库管理页面可访问 ----------
   let pageOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/ip-location`, { waitUntil: 'load' })
     await sleep(2500)
     await skipTour(page)
     await screenshot(page, 'feat19_ip_location_page')
@@ -5842,7 +5843,7 @@ async function testFeature32(page) {
   let i18nLoadDetail = ''
   try {
     // 访问首页，验证 i18n 资源已加载（页面渲染中文按钮文本）
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
     await sleep(2000)
     // 检查页面是否有任何中文文本（说明 zh-CN 资源已加载）
     const hasChinese = await page
@@ -5890,7 +5891,7 @@ async function testFeature33(page) {
   // SPA 模式下 fetch 只返回 index.html 外壳，错误页内容由前端 JS 渲染，必须用 page.goto 才能看到真实内容
   async function visitPageRendered(url, expectNotContains = []) {
     try {
-      const resp = await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 })
+      const resp = await page.goto(url, { waitUntil: 'load', timeout: 15000 })
       const status = resp ? resp.status() : 0
       const title = await page.title().catch(() => '')
       const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '').catch(() => '')
@@ -6047,7 +6048,7 @@ async function testFeature34(page) {
 
   // ---------- 3. 登录日志页面渲染验证（含"我的登录"Tab，合并自 my-login） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/monitor/logininfor`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/logininfor`, { waitUntil: 'load', timeout: 15000 })
     await sleep(2000)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasMyLoginContent =
@@ -6091,7 +6092,7 @@ async function testFeature34(page) {
 
   // ---------- 5. 关于系统页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/about`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/about`, { waitUntil: 'load', timeout: 15000 })
     await sleep(2000)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasAboutContent =
@@ -6127,7 +6128,7 @@ async function testFeature34(page) {
   // ---------- 7. Dashboard 快捷入口渲染验证 ----------
   try {
     // 注意：菜单实际路径——/dashboard=数据看板（含快捷入口），/workbench/index=工作台
-    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
     await sleep(1500)
     // 检查快捷入口卡片是否存在
     const quickEntryExists = await page.evaluate(() => {
@@ -6175,7 +6176,7 @@ async function testFeature34(page) {
 
   // ---------- 9. 快捷入口权限过滤验证（admin 应看到全部 8 个） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
     await sleep(1500)
     const entryCount = await page.evaluate(() => {
       return document.querySelectorAll('.quick-entry-item').length
@@ -6262,7 +6263,7 @@ async function testFeature35(page) {
 
   // ---------- 3. 通知中心页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/notice-center`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/system/notice-center`, { waitUntil: 'load', timeout: 15000 })
     await page.waitForTimeout(800)
     const hasContent = await page.evaluate(() => {
       const txt = document.body.innerText
@@ -6313,7 +6314,7 @@ async function testFeature35(page) {
 
   // ---------- 6. 在线会话页面渲染验证（含"我的会话"Tab，合并自 my-session） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'load', timeout: 15000 })
     await page.waitForTimeout(800)
     const hasContent = await page.evaluate(() => {
       const txt = document.body.innerText
@@ -6363,7 +6364,7 @@ async function testFeature35(page) {
   // ---------- 8. 主题切换功能验证（Settings 抽屉） ----------
   try {
     // 访问任意已加载页面
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load', timeout: 15000 })
     await page.waitForTimeout(500)
 
     // 点击设置按钮（如有）打开抽屉
@@ -6412,7 +6413,7 @@ async function testFeature35(page) {
     // i18n 使用 Composition API 模式（legacy: false），$t 不可在根 proxy 直接访问。
     // 改为通过页面渲染的文本内容验证翻译键存在。
     // 1. 访问通知中心页面，检查标题渲染
-    await page.goto(`${CONFIG.frontendUrl}/system/notice-center`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/system/notice-center`, { waitUntil: 'load' }).catch(() => {})
     await sleep(800)
     const noticeCenterText = await page.evaluate(() => {
       // 查找页面中包含 "我的通知" 或 "My Notifications" 的元素
@@ -6429,7 +6430,7 @@ async function testFeature35(page) {
     })
 
     // 2. 访问在线会话页面（合并自 my-session），检查标题渲染
-    await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/monitor/online`, { waitUntil: 'load' }).catch(() => {})
     await sleep(800)
     // admin 默认激活 "全部在线" tab，需切换到 "我的会话" tab 才能看到 MySessionPanel 内容
     const mySessionTabClicked = await page.evaluate(() => {
@@ -6464,7 +6465,7 @@ async function testFeature35(page) {
     })
 
     // 3. 主题切换文案通过设置面板验证（打开 Settings 抽屉）
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' }).catch(() => {})
     await sleep(500)
     const themeText = { hasThemeTitle: true, hasLight: true, hasDark: true } // 主题切换已在测试8验证过 UI 可见
     // 直接通过文档检查 i18n 翻译对象是否构建到 bundle（间接验证）
@@ -6596,7 +6597,7 @@ async function testFeature36(page) {
   // ---------- 4. 个人工作台页面渲染验证 ----------
   try {
     // 工作台菜单实际注册路径为 /workbench/index（旧猜测 /dashboard/workbench 命中 404）
-    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'load', timeout: 15000 })
     await sleep(1500)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     // 问候语 / 快捷入口 / 收藏 / 最近访问等任一关键文案
@@ -6643,7 +6644,7 @@ async function testFeature36(page) {
 
   // ---------- 6. 快捷键中心页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'load', timeout: 15000 })
     await sleep(1200)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasShortcutsContent =
@@ -6701,7 +6702,7 @@ async function testFeature36(page) {
 
   // ---------- 8. 帮助中心页面渲染验证 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'load', timeout: 15000 })
     await sleep(1200)
     const bodyText = await page.evaluate(() => document.body?.innerText || '')
     const hasHelpContent =
@@ -6745,7 +6746,7 @@ async function testFeature36(page) {
   try {
     // 访问三个页面，验证关键文案渲染
     // 工作台实际注册路径为 /workbench/index（旧猜测 /dashboard/workbench 命中 404）
-    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'load' }).catch(() => {})
     await sleep(800)
     const workbenchText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
@@ -6758,7 +6759,7 @@ async function testFeature36(page) {
       }
     })
 
-    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'load' }).catch(() => {})
     await sleep(800)
     const shortcutsText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
@@ -6768,7 +6769,7 @@ async function testFeature36(page) {
       }
     })
 
-    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'load' }).catch(() => {})
     await sleep(800)
     const helpText = await page.evaluate(() => {
       const body = document.body?.innerText || ''
@@ -6826,7 +6827,7 @@ async function testFeature37(page) {
   // ---------- 1. U1 路由修复：dashboard "查看全部" 跳转到 /system/log/operlog ----------
   try {
     // 注意：/index 是首页（登录统计图表），/dashboard 才是包含"查看全部"按钮的数据看板
-    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' })
     await sleep(2500)
     await skipTour(page)
 
@@ -6844,7 +6845,7 @@ async function testFeature37(page) {
       const correctRoute = afterUrl.includes('/system/log/operlog')
       record(37, 'U1 dashboard 跳转操作日志路由', correctRoute, `跳转到: ${afterUrl.replace(CONFIG.frontendUrl, '')}`)
       // 返回 dashboard
-      await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' }).catch(() => {})
+      await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' }).catch(() => {})
       await sleep(1000)
     } else {
       // 按钮可能未渲染（权限或网络问题），通过源码检查验证路由正确性
@@ -6908,7 +6909,7 @@ async function testFeature37(page) {
   // ---------- 3. U20 图表加载/错误状态验证 ----------
   try {
     // dashboard 页面应存在 v-loading 容器或 chart-error 兜底
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
     await sleep(2500)
     await skipTour(page)
 
@@ -7007,7 +7008,7 @@ async function testFeature37(page) {
   // ---------- 5. U17 Tags 关闭按钮尺寸验证 ----------
   try {
     // 访问有 tags 的页面
-    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
     await sleep(1500)
 
     const closeBtnStyle = await page.evaluate(() => {
@@ -7167,7 +7168,7 @@ async function testFeature37(page) {
   // ---------- 10b. U11 keep-alive max=20 实际缓存验证 ----------
   try {
     // 访问两个不同页面，验证 keep-alive 缓存生效
-    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
     await sleep(1500)
     // 滚动列表
     await page.evaluate(() => {
@@ -7180,11 +7181,11 @@ async function testFeature37(page) {
     })
 
     // 切换到另一个页面
-    await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 返回第一个页面，验证 keep-alive 缓存（应该不需要重新加载）
-    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 验证 keep-alive 标签存在
@@ -7325,7 +7326,7 @@ async function testFeature38(page) {
 
   // ---------- 2. TierS-2 更新日志页面 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/changelog`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/tool/changelog`, { waitUntil: 'load' })
     await sleep(2500)
 
     // 验证页面元素存在
@@ -7480,7 +7481,7 @@ async function testFeature38(page) {
 
   // ---------- 6. TierS-6 图表下载 ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' })
     await sleep(3000)
 
     // 查找下载按钮（el-tooltip content 包含"下载为图片"或"Download as image"）
@@ -7601,7 +7602,7 @@ async function testFeature38(page) {
     // 实际页面验证：访问用户列表，点击 RightToolbar 列设置按钮（如果有）
     let columnSettingVisible = false
     try {
-      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
       await sleep(1500)
       // RightToolbar 列设置按钮通常含 Setting 图标
       const colBtn = page.locator('.top-right-btn .el-button:has(.el-icon)').nth(2)
@@ -7616,7 +7617,7 @@ async function testFeature38(page) {
           .isVisible({ timeout: 2000 })
           .catch(() => false)
         // 按 ESC 关闭
-        await page.keyboard.press('Escape').catch(() => {})
+        await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
       }
     } catch (e) {}
 
@@ -7638,7 +7639,7 @@ async function testFeature38(page) {
 
   // ---------- 9. UserPrefsDialog 实际切换验证（表格密度+水印） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 读取当前 html class
@@ -7728,7 +7729,7 @@ async function testFeature39(page) {
     })
 
     // 验证 DOM 中进度条元素存在（路由切换后会渲染）
-    await page.goto(`${CONFIG.frontendUrl}/`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/`, { waitUntil: 'load' })
     await sleep(1500)
     // 检查 CSS 中是否加载了 nprogress 样式（#nprogress 是 nprogress 库自带的选择器，最稳定）
     const hasNProgressCss = await page.evaluate(() => {
@@ -7857,7 +7858,7 @@ async function testFeature39(page) {
     // 4b. 页面实际渲染验证：访问用户列表页，清空数据后检查 EmptyState 是否渲染
     let actualRendered = false
     try {
-      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
       await sleep(1500)
       // 检查页面中是否有 EmptyState 渲染（el-empty + 按钮）
       actualRendered = await page.evaluate(() => {
@@ -7888,7 +7889,7 @@ async function testFeature39(page) {
   // ---------- 5. TierA-5 密码强度指示器 ----------
   try {
     // 访问注册页面，验证密码强度组件
-    await page.goto(`${CONFIG.frontendUrl}/register`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/register`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 输入密码触发强度显示
@@ -7966,7 +7967,7 @@ async function testFeature39(page) {
     // 页面实际渲染验证：访问 user 列表页，检查打印按钮是否可见
     let printBtnVisible = false
     try {
-      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
       await sleep(1500)
       // RightToolbar 打印按钮（Printer 图标按钮）
       const printBtns = page.locator('.top-right-btn .el-button:has(.el-icon)'),
@@ -7996,7 +7997,7 @@ async function testFeature39(page) {
   // ---------- 7. TierA-5 密码强度指示器在 resetPwd 页面验证 ----------
   try {
     // 访问个人中心修改密码页面，验证 PasswordStrength 也在此页面使用
-    await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 切换到修改密码 tab（如果有）
@@ -8021,7 +8022,7 @@ async function testFeature39(page) {
         // 通常第二个是新密码输入框
         await pwdInputs
           .nth(Math.min(1, pwdCount - 1))
-          .fill('Test@12345')
+          .fill('Test@12345', { timeout: 3000 })
           .catch(() => {})
         await sleep(500)
       }
@@ -8257,7 +8258,7 @@ async function testFeature40(page) {
 
   // ---------- 3b. TierB-3 搜索保存实际操作验证（输入查询→刷新页面→恢复） ----------
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 使用更稳定的输入框选择器：查询表单中的第一个 input
@@ -8267,7 +8268,7 @@ async function testFeature40(page) {
     let savedValue = ''
     let restoredValue = ''
     if (inputVisible) {
-      await userNameInput.fill('test_persist').catch(() => {})
+      await userNameInput.fill('test_persist', { timeout: 3000 }).catch(() => {})
       await sleep(300)
       // 触发查询（让 persistQuery 保存）- 使用 type=primary 的搜索按钮
       const searchBtn = page.locator('.el-form .el-button[type="primary"]').first()
@@ -8276,7 +8277,7 @@ async function testFeature40(page) {
         await searchBtn.click({ timeout: 3000 }).catch(() => {})
       } else {
         // 回车触发
-        await userNameInput.press('Enter').catch(() => {})
+        await userNameInput.press('Enter', { timeout: 3000 }).catch(() => {})
       }
       await sleep(1000)
 
@@ -8292,7 +8293,7 @@ async function testFeature40(page) {
       })
 
       // 刷新页面
-      await page.reload({ waitUntil: 'networkidle' })
+      await page.reload({ waitUntil: 'load' })
       await sleep(1500)
 
       // 读取恢复后的输入框值
@@ -8317,7 +8318,7 @@ async function testFeature40(page) {
   // ---------- 4. TierB-4 头像裁剪增强（拖拽上传） ----------
   try {
     // 访问个人中心头像
-    await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'load' })
     await sleep(1500)
 
     // 检查头像组件是否存在
@@ -8492,7 +8493,7 @@ async function testFeature40(page) {
   // ---------- 5d. TierB-2 会话超时配置验证 ----------
   try {
     // 验证会话超时配置可通过 UserPrefsDialog 调整
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
     await sleep(1000)
 
     // 检查 userPrefs 中 sessionTimeout 字段存在
@@ -9141,7 +9142,7 @@ async function testFeature43(page) {
   // 43-1 operlog title 列 te() 回退（前端 formatModuleTitle）
   let titleFmtOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'load' })
     await page.waitForTimeout(800)
     // 列表加载后，title 列单元格应渲染为文本（key 翻译或原文回退），不应出现裸 "module." 前缀
     // title 列为第 3 列（index=2，跳过 selection 和 operId），通过 .el-table__row td:nth-child(3) 定位
@@ -9203,7 +9204,7 @@ async function testFeature43(page) {
     }
     page.on('request', requestHandler)
     // 触发请求：重新进入首页（路由守卫会调用 getInfo）
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' }).catch(() => {})
     await sleep(1000)
     page.off('request', requestHandler)
     acceptLangOk = !!capturedAl
@@ -9328,7 +9329,7 @@ async function testFeature44(page) {
   // 44-3 HeaderNotice 空状态统一 el-empty
   let emptyStateOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/`, { waitUntil: 'load' })
     await page.waitForTimeout(500)
     // HeaderNotice 弹出（hover/click bell）；此处仅验证 el-empty 组件全局可用（样式注入）
     const hasEmpty = await page.evaluate(() => {
@@ -9420,7 +9421,7 @@ async function testFeature45(page) {
   let defaultThemeOk = false
   try {
     // 访问首页（已登录），检查 sidebar-theme-wrapper 的 class
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(800)
     const wrapperClass = await page.evaluate(() => {
       const wrapper = document.querySelector('.sidebar-theme-wrapper')
@@ -9792,7 +9793,7 @@ async function testFeature46(page) {
   let pageWsDetail = '未连接'
   try {
     // 确保已登录（登录后前端会自动建立 WS，此处再主动建一条验证 429 回归）
-    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(800)
     const result = await page.evaluate(
       () =>
@@ -9990,7 +9991,7 @@ async function testFeature47(page) {
   let pageDetail = '未请求'
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/monitor/logtail`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/monitor/logtail`, { waitUntil: 'load', timeout: 15000 })
       .catch(() => {})
     await sleep(2500)
     await skipTour(page)
@@ -10131,7 +10132,7 @@ async function testFeature48(page) {
   let profileTabOk = false
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/user/profile/pat`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/user/profile/pat`, { waitUntil: 'load', timeout: 15000 })
       .catch(() => {})
     await sleep(2200)
     await skipTour(page)
@@ -10148,7 +10149,7 @@ async function testFeature48(page) {
   // ---------- 48-10 监控/PAT 管理页面渲染 ----------
   let adminPageOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/pat`, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/tool/pat`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(2200)
     await skipTour(page)
     const hasTable = await page
@@ -10196,7 +10197,7 @@ async function testFeature49(page) {
   let chartOk = false
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
       .catch(() => {})
     await sleep(2600)
     await skipTour(page)
@@ -10276,7 +10277,7 @@ async function testFeature49(page) {
   let reloadPersistOk = false
   try {
     await page
-      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle', timeout: 15000 })
+      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
       .catch(() => {})
     await sleep(2400)
     await skipTour(page)
@@ -10369,7 +10370,7 @@ async function testFeature50(page) {
   }
 
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/config`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/system/config`, { waitUntil: 'load' })
     await sleep(800)
     await skipTour(page)
     const editableCount = await page.locator('.editable-cell').count()
@@ -10704,7 +10705,7 @@ async function testFeature51(page) {
     const ctx2 = await SPA.newContext()
     await ctx2.addCookies([{ name: 'Admin-Token', value: token, url: B }])
     const p2 = await ctx2.newPage()
-    await p2.goto(authorizeUrl, { waitUntil: 'networkidle' })
+    await p2.goto(authorizeUrl, { waitUntil: 'load' })
     await p2.waitForTimeout(1500)
     const onConsent = p2.url().includes('/sso-consent')
     const approveVisible = await p2
@@ -10756,7 +10757,7 @@ async function testFeature51(page) {
     const p3 = await ctx3.newPage()
     // 验证码捕获须在 goto 前注册（与登录页显示图同源）
     const captchaPromise3 = capturePageCaptcha(p3)
-    await p3.goto(authorizeUrl, { waitUntil: 'networkidle' })
+    await p3.goto(authorizeUrl, { waitUntil: 'load' })
     const landedLogin = p3.url().includes('/login')
     const redirectKept = p3.url().includes('redirect=') && decodeURIComponent(p3.url()).includes('/sso/authorize')
 
@@ -10824,7 +10825,7 @@ async function testFeature51(page) {
     const p4 = await ctx4.newPage()
     // 验证码捕获须在 goto 前注册（与登录页显示图同源）
     const captchaPromise4 = capturePageCaptcha(p4)
-    await p4.goto(`${B}${deepLink}`, { waitUntil: 'networkidle' })
+    await p4.goto(`${B}${deepLink}`, { waitUntil: 'load' })
     const onLogin4 = p4.url().includes('/login')
     // redirect 查询解码一次必须等于完整深链（含 & 分隔的三个参数）
     const gotRedirect = await p4.evaluate(() => new URLSearchParams(location.search).get('redirect'))
@@ -11268,7 +11269,7 @@ async function testFeature52(page) {
   const nick1 = `E2E甲${uniq}`
   const nick2 = `E2E乙${uniq}`
 
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
   const is404 = await is404Page(page)
@@ -11551,7 +11552,7 @@ async function testFeature53(page) {
     return clean
   }
   const openPage = async (path, probe) => {
-    await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'load' })
     await sleep(1500)
     await skipTour(page)
     const is404 = await is404Page(page)
@@ -11648,7 +11649,7 @@ async function testFeature54(page) {
     page.on('console', onConsole)
     page.on('pageerror', onPageErr)
     try {
-      await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'networkidle' })
+      await page.goto(`${CONFIG.frontendUrl}${path}`, { waitUntil: 'load' })
       await sleep(1500)
       await skipTour(page)
       const is404 = await is404Page(page)
@@ -11876,7 +11877,7 @@ async function testFeature56(page) {
   }
 
   const mbox = page.locator('.el-message-box:visible')
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(1800)
   await skipTour(page)
   await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
@@ -11954,7 +11955,7 @@ async function testFeature56(page) {
   }
 
   // (B) operlog 分页边界
-  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'load' })
   await sleep(1800)
   await skipTour(page)
   const pager = page.locator('.el-pagination')
@@ -12028,7 +12029,7 @@ async function testFeature56(page) {
 // (C) 重新打开回显回写后的新值；取消不改值；最近执行时间预览真实计算；重置回默认。
 async function testFeature57(page) {
   log('=== 功能 57：Cron 生成器双向回传 + 执行时间预览 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'load' })
   await sleep(1800)
   await skipTour(page)
   await page
@@ -12150,7 +12151,7 @@ async function testFeature58(page) {
     { path: '/system/notice', api: '/system/notice', name: 'notice' }
   ]
   for (const tg of targets) {
-    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'load' })
     await sleep(1500)
     await skipTour(page)
     await page
@@ -12235,7 +12236,7 @@ async function testFeature58(page) {
 /** 功能 59：语言切换全链路——EN 渲染/持久化/刷新恢复/回切（轮6） */
 async function testFeature59(page) {
   log('=== 功能 59：语言切换全链路（EN 渲染/持久化/刷新恢复） ===')
-  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' })
   await sleep(1200)
   await skipTour(page)
   const langIcon = page.locator('.lang-icon--style').first()
@@ -12286,7 +12287,7 @@ async function testFeature59(page) {
   )
 
   // EN 态打开用户新增对话框：标签与校验错误均为英文
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   await page
@@ -12364,7 +12365,7 @@ async function testFeature59(page) {
   }
 
   // 刷新持久化：语言保持 EN 且登录态不丢（钉死启动同步 <html lang> 修复）
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'load' })
   await sleep(1800)
   await skipTour(page)
   const st2 = await page.evaluate(() => ({
@@ -12425,7 +12426,7 @@ async function testFeature60(page) {
   const toggleRe = /展开\/收起|Expand\/Collapse/
 
   // —— 菜单页：默认折叠 → 展开加行 → 再折叠还原 ——
-  await page.goto(`${CONFIG.frontendUrl}/system/menu`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/menu`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const mBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
@@ -12451,7 +12452,7 @@ async function testFeature60(page) {
   }
 
   // —— 部门页：默认展开 → 折叠减行 → 再展开还原 ——
-  await page.goto(`${CONFIG.frontendUrl}/system/dept`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/dept`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const dBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
@@ -12550,7 +12551,7 @@ async function testFeature60(page) {
 /** 功能 61：角色菜单权限树联动 + 数据权限自定义范围（轮7） */
 async function testFeature61(page) {
   log('=== 功能 61：角色菜单权限树联动 + 数据权限自定义范围 ===')
-  await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/role`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
@@ -12778,7 +12779,7 @@ async function testFeature62(page) {
     } catch (_) {}
   }
 
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
@@ -12864,7 +12865,7 @@ async function testFeature62(page) {
     onAuth && !is404 && tableOk,
     `path=${onAuth}, 404=${is404}, table=${tableOk}`
   )
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(1200)
   const backRows = await page.locator('.el-table .el-table__body-wrapper .el-table__row').count()
   record(62, '返回用户列表正常', backRows > 0, `rows=${backRows}`)
@@ -12874,7 +12875,7 @@ async function testFeature62(page) {
 /** 功能 63：RightToolbar 搜索切换/刷新/列显隐+持久化全链（用户页，轮8） */
 async function testFeature63(page) {
   log('=== 功能 63：右工具栏搜索切换/刷新/列显隐持久化链 ===')
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const searchInput = page.locator('input[placeholder="请输入用户名称"]').first()
@@ -12930,7 +12931,7 @@ async function testFeature63(page) {
   })
   record(63, 'user-prefs 写入可见列数组（隐藏后非空）', st1 >= 1, `visibleLen=${st1}`)
   await page.keyboard.press('Escape')
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const h2 = await headerTexts()
@@ -12972,7 +12973,7 @@ async function testFeature64(page) {
     { name: 'config', path: '/system/config', api: '/system/config/refreshCache' }
   ]
   for (const tg of targets) {
-    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'load' })
     await sleep(1500)
     await skipTour(page)
     const btn = page
@@ -13015,7 +13016,7 @@ async function testFeature65(page) {
   // R3 增强：networkidle 在调度日志长轮询下可能永不 idle（30s 超时偶发），
   // 降级继续——后续 rows>0 断言会真实校验页面加载结果
   await page
-    .goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+    .goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'load' })
     .catch(() => log('  ⚠️ networkidle 等待超时（可能有长连接），降级继续'))
   await sleep(1500)
   await skipTour(page)
@@ -13160,7 +13161,7 @@ async function testFeature65(page) {
     onLog && !is404 && logTable,
     `path=${onLog}, 404=${is404}, table=${logTable}`
   )
-  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'load' })
   await sleep(1200)
   const backRows = await rows.count()
   record(65, '返回定时任务列表正常', backRows > 0, `rows=${backRows}`)
@@ -13212,7 +13213,7 @@ async function testFeature66(page) {
   }
 
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/gen`, { waitUntil: 'networkidle' })
+    await page.goto(`${CONFIG.frontendUrl}/tool/gen`, { waitUntil: 'load' })
     await sleep(1500)
     await skipTour(page)
     const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
@@ -13366,7 +13367,7 @@ async function testFeature67(page) {
       profileGetStatus = r.status()
   }
   page.on('response', respGet)
-  await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   page.off('response', respGet)
@@ -13438,7 +13439,7 @@ async function testFeature67(page) {
     lastPutStatus === 200 && after2?.data?.nickName === origNick,
     `status=${lastPutStatus}, api=${after2?.data?.nickName}`
   )
-  await page.reload({ waitUntil: 'networkidle' })
+  await page.reload({ waitUntil: 'load' })
   await sleep(1200)
   await skipTour(page)
   const nickNow = await page
@@ -13504,7 +13505,7 @@ async function testFeature68(page) {
     `total=${baseTotal}`
   )
 
-  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/monitor/job`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
@@ -16170,7 +16171,7 @@ async function testFeature75(page) {
     )
 
     // ---------- G. UI：已办 tab / 导出按钮 / 看板卡片 ----------
-    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'load' }).catch(() => {})
     await sleep(2000)
     const doneTab = page.locator('.el-tabs__item:has-text("已办"), .el-tabs__item:has-text("Done")').first()
     const hasDoneTab = await doneTab.isVisible({ timeout: 5000 }).catch(() => false)
@@ -16201,7 +16202,7 @@ async function testFeature75(page) {
     record(75, 'G3 管理视图出现「导出」按钮', hasExportBtn, `visible=${hasExportBtn}`)
 
     // 看板卡片（W-10）：数量来自 pending-count，卡片标题双语匹配
-    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' }).catch(() => {})
     await sleep(2500)
     // ⚠️ 不可写 `text=A, text=B`：text 引擎会把逗号后整串当字面文本 → 恒 0 匹配（已实测）。
     //    多语言并列必须用 CSS 列表 + :has-text()。
@@ -16216,7 +16217,7 @@ async function testFeature75(page) {
 
     // ---------- H. 移动端（W-17）：小屏取消操作列固定 ----------
     await page.setViewportSize({ width: 375, height: 720 })
-    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'networkidle' }).catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'load' }).catch(() => {})
     await sleep(2500)
     const fixedCount = await page
       .evaluate(
@@ -17263,7 +17264,7 @@ async function testFeature83(page) {
 async function testFeature84(page) {
   log('=== 功能 84：列显隐偏好持久化（定时任务页 useTableColumns + user-prefs） ===')
   // 1. 导航到定时任务页（路由 /monitor/task，同 feature 6 先例；组件 src/views/system/task/index.vue）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'networkidle' }).catch(() => log('  ⚠️ networkidle 等待超时，降级继续'))
+  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' }).catch(() => log('  ⚠️ networkidle 等待超时，降级继续'))
   await sleep(2000)
   await skipTour(page)
   const tableVisible = await page.locator('.el-table').first().isVisible({ timeout: 5000 }).catch(() => false)
@@ -17303,7 +17304,7 @@ async function testFeature84(page) {
   // 4. reload → 偏好恢复链：该列仍隐藏 + user-prefs 已持久化
   await page.keyboard.press('Escape')
   await sleep(400)
-  await page.reload({ waitUntil: 'networkidle' }).catch(() => log('  ⚠️ reload networkidle 超时，降级继续'))
+  await page.reload({ waitUntil: 'load' }).catch(() => log('  ⚠️ reload networkidle 超时，降级继续'))
   await sleep(2500)
   await skipTour(page)
   const h2 = await headerTexts()
@@ -17578,23 +17579,23 @@ async function testFeature87(page) {
     for (let i = 0; i < 3; i++) {
       const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
       if (await leaveBtn.isVisible({ timeout: 600 }).catch(() => false)) {
-        await leaveBtn.click({ force: true }).catch(() => {})
+        await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
         await sleep(500)
         continue
       }
       if (await dialog.isVisible().catch(() => false)) {
-        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
         await sleep(600)
         continue
       }
       break
     }
-    await page.keyboard.press('Escape').catch(() => {})
+    await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
     await sleep(300)
   }
   const submitDialog = async () => {
     const btn = dialog.getByRole('button', { name: /确\s*定/ })
-    await btn.click({ force: true }).catch(() => {})
+    await btn.click({ force: true, timeout: 3000 }).catch(() => {})
     await page.waitForResponse((r) => r.url().includes('/system/msg/channel') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
     await sleep(1800)
   }
@@ -17747,19 +17748,19 @@ async function testFeature88(page) {
       .waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 6000 })
       .catch(() => null)
     const okBtn = dialog.getByRole('button', { name: /确\s*定/ })
-    await okBtn.click({ force: true }).catch(() => {})
+    await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
     let resp = await respP
     if (!resp) {
-      await okBtn.click({ force: true }).catch(() => {})
+      await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
       resp = await page.waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
     }
     await sleep(2000)
     if (await dialog.isVisible().catch(() => false)) {
       const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
       if (await leaveBtn.isVisible({ timeout: 800 }).catch(() => false)) {
-        await leaveBtn.click({ force: true }).catch(() => {})
+        await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
       } else {
-        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
       }
       await sleep(500)
     }
@@ -17779,10 +17780,10 @@ async function testFeature88(page) {
     await sleep(1000)
     await itemByLabel('模板主题').locator('input').fill(`【e2e改】${uniq}`)
     const eBtn = dialog.getByRole('button', { name: /确\s*定/ })
-    await eBtn.click({ force: true }).catch(() => {})
+    await eBtn.click({ force: true, timeout: 3000 }).catch(() => {})
     await sleep(2200)
     if (await dialog.isVisible().catch(() => false)) {
-      await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true }).catch(() => {})
+      await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
       await sleep(500)
     }
     await searchBy(tname)
@@ -17840,7 +17841,7 @@ async function testFeature89(page) {
 
   // 2. UI：页面可达（菜单 4103 孤儿占位修复后的回归验证点）
   await presetTourDisabled(page)
-  await page.goto(`${CONFIG.frontendUrl}/system/uploadConfig`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/uploadConfig`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const is404 = await is404Page(page)
@@ -17874,7 +17875,7 @@ async function testFeature89(page) {
 async function testFeature90(page) {
   log('=== 功能 90：AI 助手配置页（aiConfig）===')
   await presetTourDisabled(page)
-  await page.goto(`${CONFIG.frontendUrl}/system/aiConfig`, { waitUntil: 'networkidle' })
+  await page.goto(`${CONFIG.frontendUrl}/system/aiConfig`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
   const is404 = await is404Page(page)
@@ -17935,7 +17936,7 @@ async function testFeature91(page) {
     let ok = false
     try {
       await presetTourDisabled(page)
-      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'networkidle' })
+      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'load' })
       await sleep(1200)
       await skipTour(page)
       ok = !(await is404Page(page))
@@ -18072,7 +18073,7 @@ async function testFeature94(page) {
     log(`  [diag94] goto try ${i}: url=${page.url()}`)
     if (page.url().includes('reportDataset')) break
   }
-  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForLoadState('load').catch(() => {})
   const not404 = !(await is404Page(page))
   record(94, '页面可达（/reportDataset）', not404)
 
@@ -18203,7 +18204,7 @@ async function testFeature95(page) {
     log(`  [diag] goto try ${i}: url=${page.url()}`)
     if (page.url().includes('flowDefinition')) break
   }
-  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForLoadState('load').catch(() => {})
   const submitBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '提交测试单据' })
   let btnVisible = (await submitBtn.count()) > 0
   for (let i = 0; i < 5 && !btnVisible; i++) {
@@ -18374,7 +18375,7 @@ async function testFeature97(page) {
     await page.waitForTimeout(1500)
     if (page.url().includes('reportDashboard')) break
   }
-  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForLoadState('load').catch(() => {})
   const not404 = !(await is404Page(page))
   record(97, '页面可达（/reportDashboard）', not404)
   // 设计模式切换（el-radio-button design）
@@ -18520,7 +18521,7 @@ async function testFeature99(page) {
     await page.waitForTimeout(1500)
     if (page.url().includes('/msg/channel')) break
   }
-  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForLoadState('load').catch(() => {})
   const addBtn = page.getByRole('button', { name: /新增|新建/ }).first()
   const addVisible = (await addBtn.count()) > 0
   let optionsOk = false
