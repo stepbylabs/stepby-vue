@@ -91,7 +91,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Setting } from '@element-plus/icons-vue'
-import { getAiConfig, testAiConfig, updateAiConfig, type AiConfigMaskedVo } from '@/api/system/aiConfig'
+import { getAiConfig, testAiConfig, updateAiConfig } from '@/api/system/aiConfig'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -158,7 +158,7 @@ async function onSave() {
     ElMessage.success(t('common.saveSuccess'))
     await load()
     apiKeyInput.value = ''
-  } catch (e) {
+  } catch {
     // request 拦截器已统一弹错误
   } finally {
     saving.value = false
@@ -170,7 +170,7 @@ async function onTest() {
   try {
     const res = await testAiConfig()
     ElMessage.success(res.msg || t('aiConfig.tip.testOk'))
-  } catch (e) {
+  } catch {
     // 拦截器已弹错误摘要
   } finally {
     testing.value = false

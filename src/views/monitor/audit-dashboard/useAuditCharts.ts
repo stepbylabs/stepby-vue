@@ -319,6 +319,9 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
       topUsersChart?.resize()
       topModulesChart?.resize()
       failTrendChart?.resize()
+      // 批次十九收尾：操作类型分布图补 resize 挂钩（此前实例已持有但未挂
+      // handleResize——窗口变化时该图不重排，属遗漏而非仅 lint 警告）
+      typeStatsChart?.resize()
     }, 150)
   }
 

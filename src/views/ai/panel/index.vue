@@ -222,7 +222,7 @@ async function loadHistory() {
       method: 'get',
       params: { page: 1, size: 20 }
     })
-    const d = (res as any).data ?? res
+    const d = (res as { data?: unknown }).data ?? res
     historyRows.value = ((d as { items?: HistoryItem[] }).items ?? []) as HistoryItem[]
   } catch (e) {
     if (import.meta.env.DEV) console.error('[aiPanel] loadHistory failed:', e)

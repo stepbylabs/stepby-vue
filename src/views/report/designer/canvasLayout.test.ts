@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- 图表 option 结构断言需宽松索引访问，属测试断言便利（限定本文件） */
 import { describe, expect, it } from 'vitest'
 import {
   appendChart,

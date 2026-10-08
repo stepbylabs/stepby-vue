@@ -519,7 +519,22 @@ export default {
       detail: 'Detail',
       exportPdf: 'Export PDF',
       exportFieldSelect: 'Select Export Fields',
-      verifyChain: 'Verify Chain'
+      verifyChain: 'Verify Chain',
+      complianceReport: 'Compliance Report'
+    },
+    compliance: {
+      title: 'Audit Compliance Report (last 30 days)',
+      period: 'Period',
+      total: 'Total Operations',
+      generatedAt: 'Generated At',
+      anomalyCount: '{count} anomalous operation(s) (failed writes, up to 50 shown)',
+      colTime: 'Time',
+      colModule: 'Module',
+      colOperator: 'Operator',
+      colUrl: 'URL',
+      colIp: 'IP',
+      colError: 'Error',
+      refresh: 'Regenerate'
     },
     verify: {
       title: 'Operation Log Chain Integrity Verification',

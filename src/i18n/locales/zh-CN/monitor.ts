@@ -518,7 +518,22 @@ export default {
       detail: '详细',
       exportPdf: '导出 PDF',
       exportFieldSelect: '选择导出字段',
-      verifyChain: '链完整性校验'
+      verifyChain: '链完整性校验',
+      complianceReport: '合规报告'
+    },
+    compliance: {
+      title: '审计合规报告（近 30 天）',
+      period: '报告周期',
+      total: '操作总数',
+      generatedAt: '生成时间',
+      anomalyCount: '异常操作 {count} 条（status=失败且为写操作，最多展示 50 条）',
+      colTime: '时间',
+      colModule: '模块',
+      colOperator: '操作人',
+      colUrl: 'URL',
+      colIp: 'IP',
+      colError: '错误信息',
+      refresh: '重新生成'
     },
     verify: {
       title: '操作日志链完整性校验',

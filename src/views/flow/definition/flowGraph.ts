@@ -201,7 +201,7 @@ export function diffGraphs(oldG: FlowGraph, newG: FlowGraph): GraphDiff {
     if (!oldNodes.has(id)) diff.addedNodes.push(id)
     else if (nodeFingerprint(n) !== nodeFingerprint(oldNodes.get(id)!)) diff.changedNodes.push(id)
   }
-  for (const [id, n] of oldNodes) {
+  for (const [id, _n] of oldNodes) {
     if (!newNodes.has(id)) diff.removedNodes.push(id)
   }
   for (const [k, e] of newEdges) {

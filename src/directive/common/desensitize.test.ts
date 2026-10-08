@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import directive, { DESSENSITIZE_RULES, desensitize } from './desensitize'
+import directive, { desensitize } from './desensitize'
 import type { DesensitizeType } from './desensitize'
 import type { DirectiveBinding } from 'vue'
 

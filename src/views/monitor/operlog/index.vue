@@ -129,6 +129,19 @@
           {{ t('operlog.btn.verifyChain') }}
         </el-button>
       </el-col>
+      <!-- 批次十九收尾（E-06）：compliance-report 接口前端消费闭环 -->
+      <el-col :span="1.5">
+        <el-button
+          type="warning"
+          plain
+          icon="Document"
+          :loading="complianceLoading"
+          @click="handleComplianceReport"
+          v-hasPermi="['monitor:operlog:query']"
+        >
+          {{ t('operlog.btn.complianceReport') }}
+        </el-button>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" :columns="columns" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -303,6 +316,50 @@
         <el-button type="primary" @click="verifyVisible = false">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批次十九收尾（E-06）：审计合规报告（GET /monitor/operlog/compliance-report） -->
+    <el-dialog
+      :title="t('operlog.compliance.title')"
+      v-model="complianceVisible"
+      width="min(94%, 860px)"
+      append-to-body
+      destroy-on-close
+    >
+      <template v-if="complianceReport">
+        <el-descriptions :column="3" border size="small" class="mb-3">
+          <el-descriptions-item :label="t('operlog.compliance.period')">
+            {{ complianceReport.periodFrom }} ~ {{ complianceReport.periodTo }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('operlog.compliance.total')">
+            {{ complianceReport.summary.total }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="t('operlog.compliance.generatedAt')">
+            {{ complianceReport.generatedAt }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          :title="t('operlog.compliance.anomalyCount', { count: complianceReport.anomalies.length })"
+          :type="complianceReport.anomalies.length > 0 ? 'warning' : 'success'"
+          :closable="false"
+          show-icon
+          class="mb-3"
+        />
+        <el-table :data="complianceReport.anomalies" size="small" max-height="360" border>
+          <el-table-column prop="operTime" :label="t('operlog.compliance.colTime')" width="170" />
+          <el-table-column prop="title" :label="t('operlog.compliance.colModule')" min-width="120" />
+          <el-table-column prop="operName" :label="t('operlog.compliance.colOperator')" width="110" />
+          <el-table-column prop="operUrl" :label="t('operlog.compliance.colUrl')" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="operIp" :label="t('operlog.compliance.colIp')" width="130" show-overflow-tooltip />
+          <el-table-column prop="errorMsg" :label="t('operlog.compliance.colError')" min-width="160" show-overflow-tooltip />
+        </el-table>
+      </template>
+      <template #footer>
+        <el-button @click="loadComplianceReport" :loading="complianceLoading">
+          {{ t('operlog.compliance.refresh') }}
+        </el-button>
+        <el-button type="primary" @click="complianceVisible = false">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -313,7 +370,7 @@ import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
-import { list, delOperlog, cleanOperlog, verifyChain, type ChainVerifyResult } from '@/api/monitor/operlog'
+import { list, delOperlog, cleanOperlog, verifyChain, getComplianceReport, type ChainVerifyResult } from '@/api/monitor/operlog'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
@@ -597,6 +654,44 @@ function handleVerifyChain() {
     .finally(() => {
       verifyLoading.value = false
     })
+}
+
+// ----- 审计合规报告（GET /monitor/operlog/compliance-report，批次十九收尾 E-06） -----
+interface ComplianceAnomaly {
+  operId: number
+  title: string
+  operName: string
+  operUrl: string
+  operIp: string
+  errorMsg: string
+  operTime: string
+}
+interface ComplianceReport {
+  summary: { total: number; success: number; fail: number }
+  anomalies: ComplianceAnomaly[]
+  generatedAt: string
+  periodFrom: string
+  periodTo: string
+}
+const complianceLoading = ref(false)
+const complianceVisible = ref(false)
+const complianceReport = ref<ComplianceReport | null>(null)
+
+function loadComplianceReport() {
+  complianceLoading.value = true
+  getComplianceReport(30)
+    .then((res) => {
+      complianceReport.value = (res.data ?? null) as ComplianceReport | null
+      complianceVisible.value = true
+    })
+    .catch(() => {})
+    .finally(() => {
+      complianceLoading.value = false
+    })
+}
+
+function handleComplianceReport() {
+  loadComplianceReport()
 }
 
 getList()
