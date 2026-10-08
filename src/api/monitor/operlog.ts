@@ -55,10 +55,43 @@ export interface ChainVerifyResult {
   valid: boolean
 }
 
-// 校验操作日志防篡改 HMAC 链完整性（全量，跨租户）
+// 校验操作日志防篡改 HMAC 链完整性（全量，跨租户；批次十九收尾收紧平台专属）
 export function verifyChain(): Promise<AjaxResult<ChainVerifyResult>> {
   return request({
     url: '/monitor/operlog/verify-chain',
     method: 'get'
+  })
+}
+
+// 清理锚点（批次十九）：链感知保留的清理缺口登记行
+export interface LogArchiveAnchor {
+  anchorId: number
+  firstOperId: number
+  lastOperId: number
+  lastChainHash: string
+  deletedCount: number
+  mode: string
+  archiveObjectKey: string | null
+  deletedAt: string
+}
+
+// 归档锚点分页列表（平台专属）
+export function listArchiveAnchors(params: {
+  pageNum?: number
+  pageSize?: number
+}): Promise<TableDataInfo<LogArchiveAnchor>> {
+  return request({
+    url: '/monitor/operlog/archive-anchors',
+    method: 'get',
+    params
+  })
+}
+
+// 下载归档对象 JSONL（平台专属，octet-stream → Blob）
+export function downloadArchiveFile(anchorId: number): Promise<Blob> {
+  return request({
+    url: `/monitor/operlog/archive/${anchorId}`,
+    method: 'get',
+    responseType: 'blob'
   })
 }

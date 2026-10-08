@@ -519,7 +519,18 @@ export default {
       exportPdf: '导出 PDF',
       exportFieldSelect: '选择导出字段',
       verifyChain: '链完整性校验',
-      complianceReport: '合规报告'
+      complianceReport: '合规报告',
+      archiveList: '归档下载'
+    },
+    archive: {
+      title: '清理锚点 / 归档下载（平台专属）',
+      colDeletedAt: '清理时间',
+      colRange: '清理区间（oper_id）',
+      colCount: '删除行数',
+      colMode: '模式',
+      colAction: '归档对象',
+      download: '下载 JSONL',
+      totalLabel: '锚点'
     },
     compliance: {
       title: '审计合规报告（近 30 天）',

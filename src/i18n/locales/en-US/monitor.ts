@@ -520,7 +520,18 @@ export default {
       exportPdf: 'Export PDF',
       exportFieldSelect: 'Select Export Fields',
       verifyChain: 'Verify Chain',
-      complianceReport: 'Compliance Report'
+      complianceReport: 'Compliance Report',
+      archiveList: 'Archives'
+    },
+    archive: {
+      title: 'Cleanup Anchors / Archive Download (platform only)',
+      colDeletedAt: 'Deleted At',
+      colRange: 'Range (oper_id)',
+      colCount: 'Rows',
+      colMode: 'Mode',
+      colAction: 'Archive',
+      download: 'Download JSONL',
+      totalLabel: 'anchors'
     },
     compliance: {
       title: 'Audit Compliance Report (last 30 days)',

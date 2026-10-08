@@ -124,7 +124,7 @@
           icon="Lock"
           :loading="verifyLoading"
           @click="handleVerifyChain"
-          v-hasPermi="['monitor:operlog:query']"
+          v-hasPermi="['monitor:operlogArchive:verify']"
         >
           {{ t('operlog.btn.verifyChain') }}
         </el-button>
@@ -140,6 +140,19 @@
           v-hasPermi="['monitor:operlog:query']"
         >
           {{ t('operlog.btn.complianceReport') }}
+        </el-button>
+      </el-col>
+      <!-- 批次十九收尾：归档锚点列表+下载（平台专属 UI 留白闭环） -->
+      <el-col :span="1.5">
+        <el-button
+          type="primary"
+          plain
+          icon="FolderOpened"
+          :loading="archiveLoading"
+          @click="handleArchiveList"
+          v-hasPermi="['monitor:operlogArchive:download']"
+        >
+          {{ t('operlog.btn.archiveList') }}
         </el-button>
       </el-col>
       <right-toolbar v-model:showSearch="showSearch" :columns="columns" @queryTable="getList"></right-toolbar>
@@ -360,6 +373,56 @@
         <el-button type="primary" @click="complianceVisible = false">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批次十九收尾：归档锚点列表 + 下载（平台专属，monitor:operlogArchive:） -->
+    <el-dialog
+      :title="t('operlog.archive.title')"
+      v-model="archiveVisible"
+      width="min(94%, 860px)"
+      append-to-body
+      destroy-on-close
+    >
+      <el-table v-loading="archiveLoading" :data="archiveRows" size="small" border>
+        <el-table-column prop="deletedAt" :label="t('operlog.archive.colDeletedAt')" width="170" />
+        <el-table-column :label="t('operlog.archive.colRange')" min-width="150">
+          <template #default="{ row }">
+            #{{ row.firstOperId }} ~ #{{ row.lastOperId }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="deletedCount" :label="t('operlog.archive.colCount')" width="100" />
+        <el-table-column :label="t('operlog.archive.colMode')" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.mode === 'archive' ? 'success' : 'info'" size="small">{{ row.mode }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('operlog.archive.colAction')" width="110">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.archiveObjectKey"
+              type="primary"
+              size="small"
+              link
+              @click="downloadArchive(row)"
+            >
+              {{ t('operlog.archive.download') }}
+            </el-button>
+            <span v-else class="text-[var(--el-text-color-placeholder)]">—</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-model:current-page="archivePage"
+        :page-size="20"
+        :total="archiveTotal"
+        layout="total, prev, pager, next"
+        :total-label="t('operlog.archive.totalLabel')"
+        class="mt-3 justify-end"
+        @current-change="loadArchiveList"
+      />
+      <template #footer>
+        <el-button type="primary" @click="archiveVisible = false">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -370,7 +433,17 @@ import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
 import ExportDialog from '@/components/ExportDialog/index.vue'
 import type { ExportField } from '@/components/ExportDialog/index.vue'
-import { list, delOperlog, cleanOperlog, verifyChain, getComplianceReport, type ChainVerifyResult } from '@/api/monitor/operlog'
+import {
+  list,
+  delOperlog,
+  cleanOperlog,
+  verifyChain,
+  getComplianceReport,
+  listArchiveAnchors,
+  downloadArchiveFile,
+  type ChainVerifyResult,
+  type LogArchiveAnchor
+} from '@/api/monitor/operlog'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
@@ -692,6 +765,44 @@ function loadComplianceReport() {
 
 function handleComplianceReport() {
   loadComplianceReport()
+}
+
+// ----- 归档锚点列表 + 下载（批次十九收尾，平台专属 monitor:operlogArchive:） -----
+const archiveLoading = ref(false)
+const archiveVisible = ref(false)
+const archiveRows = ref<LogArchiveAnchor[]>([])
+const archiveTotal = ref(0)
+const archivePage = ref(1)
+
+function loadArchiveList() {
+  archiveLoading.value = true
+  listArchiveAnchors({ pageNum: archivePage.value, pageSize: 20 })
+    .then((res) => {
+      archiveRows.value = res.rows ?? []
+      archiveTotal.value = res.total ?? 0
+      archiveVisible.value = true
+    })
+    .catch(() => {})
+    .finally(() => {
+      archiveLoading.value = false
+    })
+}
+
+function handleArchiveList() {
+  archivePage.value = 1
+  loadArchiveList()
+}
+
+/** 下载归档 JSONL：带 Bearer 的 blob 下载（fetch + a[download]） */
+function downloadArchive(row: LogArchiveAnchor) {
+  downloadArchiveFile(row.anchorId).then((blob) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `anchor_${row.firstOperId}_${row.lastOperId}.jsonl`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
 }
 
 getList()

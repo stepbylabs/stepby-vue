@@ -738,6 +738,63 @@ async function testFeature5(page) {
         await sleep(500)
       }
     }
+
+    // ==================== 批次十九收尾：链感知保留三件套 ====================
+    // 断言弹性：弹窗数据由页面内请求拉取（无 mLevelApiSetup 429 退避保护），
+    // 首次不可见时退避 1.5s 重试一轮（令牌桶按秒回填）
+    const visibleWithRetry = async (loc, timeout = 3000) => {
+      if (await loc.isVisible({ timeout }).catch(() => false)) return true
+      await sleep(1500)
+      return loc.isVisible({ timeout }).catch(() => false)
+    }
+
+    // 1) 链完整性校验（平台专属按钮 + 弹窗展示；本地库链状态不定——valid/broken 均为弹窗正常）
+    const verifyBtn = page.locator('button:has-text("链完整性校验")').first()
+    const hasVerifyBtn = await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    record(5, '链校验按钮存在', hasVerifyBtn)
+    if (hasVerifyBtn) {
+      await verifyBtn.click().catch(() => {})
+      const verifyDialog = page.locator('.el-dialog:visible', { hasText: '链完整性校验' }).first()
+      const verifyShown = await visibleWithRetry(verifyDialog)
+      const verifyValid = verifyShown && (await verifyDialog.locator('text=链完整，未被篡改').first().isVisible({ timeout: 1500 }).catch(() => false))
+      const verifyBroken = verifyShown && (await verifyDialog.locator('text=检测到链断裂').first().isVisible({ timeout: 800 }).catch(() => false))
+      record(5, '链校验弹窗（valid/broken 结果展示）', verifyValid || verifyBroken, verifyValid ? 'valid' : verifyBroken ? 'broken' : '未渲染')
+      await screenshot(page, 'feat5_verify_chain')
+      // 关闭用 Escape（"确定"按钮点击曾因 modal actionability 被吞——verify 弹窗
+      // 残留会以遮罩拦截后续 compliance/archive 弹窗，Playwright 三连 FAIL）
+      await page.keyboard.press('Escape')
+      await sleep(600)
+    }
+
+    // 2) 合规报告（compliance-report 消费闭环）
+    const compBtn = page.locator('button:has-text("合规报告")').first()
+    const hasCompBtn = await compBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    record(5, '合规报告按钮存在', hasCompBtn)
+    if (hasCompBtn) {
+      await compBtn.click().catch(() => {})
+      const compDialog = page.locator('.el-dialog:visible', { hasText: '审计合规报告' }).first()
+      const compShown = await visibleWithRetry(compDialog, 5000)
+      const compData = compShown && (await visibleWithRetry(compDialog.locator('text=操作总数').first(), 2000))
+      record(5, '合规报告弹窗（数据展示）', compData)
+      await screenshot(page, 'feat5_compliance_report')
+      await page.keyboard.press('Escape')
+      await sleep(600)
+    }
+
+    // 3) 归档下载（锚点列表对话框；本地库锚点可能为 0——断言对话框与表头）
+    const archBtn = page.locator('button:has-text("归档下载")').first()
+    const hasArchBtn = await archBtn.isVisible({ timeout: 2000 }).catch(() => false)
+    record(5, '归档下载按钮存在', hasArchBtn)
+    if (hasArchBtn) {
+      await archBtn.click().catch(() => {})
+      const archDialog = page.locator('.el-dialog:visible', { hasText: '清理锚点' }).first()
+      const archShown = await visibleWithRetry(archDialog, 5000)
+      const archTable = archShown && (await visibleWithRetry(archDialog.locator('text=清理区间').first(), 2000))
+      record(5, '归档锚点对话框（列表结构）', archTable)
+      await screenshot(page, 'feat5_archive_anchors')
+      await page.keyboard.press('Escape')
+      await sleep(600)
+    }
   }
 }
 
