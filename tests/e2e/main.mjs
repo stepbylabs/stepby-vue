@@ -626,7 +626,13 @@ async function testFeature3(page) {
 
 async function testFeature4(page) {
   log('=== 功能 4：审计日志可视化大屏 ===')
-  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'networkidle' })
+  // 批次十八：networkidle 对串行多接口 + 大表聚合页不稳定（operlog 持续增长，聚合
+  // 耗时抖动曾致 30s goto 超时）——改 'load' + 显式等待核心 stats 接口响应，确定性收敛
+  const statsReady = page
+    .waitForResponse((r) => r.url().includes('/monitor/operlog/stats') && r.status() === 200, { timeout: 45000 })
+    .catch(() => null)
+  await page.goto(`${CONFIG.frontendUrl}/monitor/audit-dashboard`, { waitUntil: 'load', timeout: 45000 })
+  await statsReady
   await sleep(3000) // 给 ECharts 充足渲染时间
   await skipTour(page)
   await screenshot(page, 'feat4_audit_dashboard')
@@ -16498,7 +16504,8 @@ async function main() {
       { id: 95, fn: testFeature95 },
       { id: 96, fn: testFeature96 },
       { id: 97, fn: testFeature97 },
-      { id: 98, fn: testFeature98 }
+      { id: 98, fn: testFeature98 },
+      { id: 99, fn: testFeature99 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -18311,4 +18318,92 @@ async function testFeature98(page) {
     })()
   }).then((r) => r.status)
   record(98, 'abort 清理后 part 拒绝', abortRes?.code === 200 && partAfterAbort === 400, `abort=${abortRes?.code} partStatus=${partAfterAbort}`)
+}
+
+// ==================== 功能 99：IM 群机器人渠道（批次十八：G-15b 更优替代落地验证）====================
+// 覆盖：渠道页类型下拉含 IM 机器人选项（UI）→ API 建 wecom_robot 渠道（configJson 缺
+// webhookUrl）→ 连通性测试 fail-closed 400 → 补全配置后测试 200 → alert 渠道支持（resolve_recipient 空收件人不 400）。
+async function testFeature99(page) {
+  log('=== 功能 99：IM 群机器人渠道（wecom_robot/dingtalk_robot） ===')
+  const token = await page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+  if (!token) {
+    record(99, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}` }
+
+  // 1. UI：渠道管理页新建对话框的类型下拉含 5 项（含 IM 机器人两项）
+  // G-15a 批次十八：tour 禁用预置在 goto 前
+  await presetTourDisabled(page)
+  const chUrl = `${CONFIG.frontendUrl}/system/msg/channel`
+  for (let i = 0; i < 5; i++) {
+    await page.goto(chUrl)
+    await page.waitForTimeout(1500)
+    if (page.url().includes('/msg/channel')) break
+  }
+  await page.waitForLoadState('networkidle').catch(() => {})
+  const addBtn = page.getByRole('button', { name: /新增|新建/ }).first()
+  const addVisible = (await addBtn.count()) > 0
+  let optionsOk = false
+  if (addVisible) {
+    await addBtn.click({ force: true })
+    await page.waitForTimeout(800)
+    // RUN-RECIPE 已知坑：el-select 下拉 option 用 getByRole('option')（popper 的 :visible 不可靠）
+    const typeSelect = page.locator('.el-dialog').getByRole('combobox').first()
+    await typeSelect.click({ force: true })
+    await page.waitForTimeout(500)
+    const optionTexts = await page.getByRole('option').allTextContents()
+    const flat = optionTexts.map((s) => s.trim()).join('|')
+    optionsOk = flat.includes('企微群机器人') && flat.includes('钉钉机器人')
+    await page.keyboard.press('Escape')
+  }
+  record(99, '类型下拉含企微/钉钉机器人', optionsOk)
+
+  // 2. API 建 wecom_robot 渠道（configJson 缺 webhookUrl）→ 连通性测试 fail-closed 400
+  const code = `it_robot_e2e_${Date.now()}`
+  const add = await fetch(`${CONFIG.backendUrl}/system/msg/channel`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelName: 'e2e 企微机器人', channelCode: code, channelType: 'wecom_robot', status: '0' })
+  }).then((r) => r.json())
+  record(99, 'API 建 wecom_robot 渠道', add?.code === 200, `code=${add?.code}`)
+  if (add?.code !== 200) return
+  const channelId = add.data.channelId
+
+  // 3. 无 config_json → 测试 400 且提示配置无效
+  const test1 = await fetch(`${CONFIG.backendUrl}/system/msg/channel/test/${channelId}`, {
+    method: 'POST', headers: authHeaders, body: '{}'
+  })
+  const t1body = await test1.json().catch(() => ({}))
+  record(99, '缺 webhookUrl 连通测试 400', test1.status === 400 && String(t1body.msg || '').includes('配置无效'), `status=${test1.status}`)
+
+  // 4. 补全 config_json（webhookUrl 指向本地不在线端口——probe 仅校验形态）→ 测试 200
+  const upd = await fetch(`${CONFIG.backendUrl}/system/msg/channel`, {
+    method: 'PUT',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      channelId, channelName: 'e2e 企微机器人', channelCode: code, channelType: 'wecom_robot', status: '0',
+      configJson: JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/cgi-bin/webhook/send?key=K' })
+    })
+  }).then((r) => r.json())
+  const test2 = await fetch(`${CONFIG.backendUrl}/system/msg/channel/test/${channelId}`, {
+    method: 'POST', headers: authHeaders, body: '{}'
+  })
+  record(99, '补全 webhookUrl 后测试 200', upd?.code === 200 && test2.status === 200, `test2=${test2.status}`)
+
+  // 5. dingtalk_robot 类型可建（渠道类型白名单生效）
+  const add2 = await fetch(`${CONFIG.backendUrl}/system/msg/channel`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channelName: 'e2e 钉钉机器人', channelCode: `${code}_dt`, channelType: 'dingtalk_robot', status: '0' })
+  }).then((r) => r.json())
+  record(99, 'API 建 dingtalk_robot 渠道', add2?.code === 200, `code=${add2?.code}`)
+
+  // 6. 清理（best-effort）
+  for (const cid of [channelId, add2?.data?.channelId].filter(Boolean)) {
+    await fetch(`${CONFIG.backendUrl}/system/msg/channel/${cid}`, { method: 'DELETE', headers: authHeaders }).catch(() => {})
+  }
 }
