@@ -167,6 +167,15 @@ export default [
     }
   },
 
+  // 运维/工具脚本（scripts/*.mjs）：Node CLI 脚本打印进度与结果使用 console 是
+  // 合理输出方式（批次十九收尾五：对齐 tests/e2e 先例，消除 7 条 no-console 误伤）
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      'no-console': 'off'
+    }
+  },
+
   // Prettier 兼容层（必须放在最后）：关闭所有与 Prettier 冲突的格式化规则
   prettierConfig
 ]

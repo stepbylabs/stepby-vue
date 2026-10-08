@@ -26,7 +26,7 @@ async function tryLogin(password) {
 }
 
 async function main() {
-  let auth = (await tryLogin(STRONG)) || (await tryLogin(LEGACY))
+  const auth = (await tryLogin(STRONG)) || (await tryLogin(LEGACY))
   if (!auth) {
     log('LOGIN_FAIL_BOTH（Temp!2026a 与 admin123 均失败）')
     process.exit(1)

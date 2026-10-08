@@ -11,7 +11,6 @@
 // 依赖：playwright / pixelmatch / pngjs（本地回归工具，不进 CI）。
 // 解析顺序：本仓 node_modules → NODE_PATH（如受管 workspace 的 node_modules）。
 // 基线入库（__baselines__/），供本地复现与比对。
-/* eslint-disable no-console -- e2e 检查脚本，stdout 即报告 */
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'

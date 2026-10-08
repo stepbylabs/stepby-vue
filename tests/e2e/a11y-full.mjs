@@ -8,7 +8,6 @@
 //   node tests/e2e/a11y-full.mjs --limit=8
 //
 // 退出码：0 = 无 FAIL；1 = 存在 FAIL、登录/运行异常或参数错误。
-/* eslint-disable no-console -- E2E 检查脚本，stdout 与日志文件均为测试报告 */
 
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

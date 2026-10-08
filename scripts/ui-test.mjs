@@ -21,7 +21,6 @@
  * 完整的浏览器视觉测试请使用 TRAE 的 Browser Use 功能或 tests/main.mjs。
  */
 
-/* eslint-disable no-console */
 import { spawn } from 'child_process'
 import { createServer } from 'net'
 

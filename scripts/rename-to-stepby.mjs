@@ -47,4 +47,4 @@ const walk = (dir) => {
   }
 }
 for (const r of roots) walk(r)
-console.log(`files changed = ${fileCount}`)
+console.log(`files changed = ${fileCount}, hits = ${hitCount}`)

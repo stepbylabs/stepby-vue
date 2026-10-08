@@ -9,7 +9,6 @@
 // 阈值口径：perf-budget.json 的 runtime 预算是**正常网络**下的用户体验目标；
 // 节流档按业界惯例放宽（Slow3G ×4 / CPU4x ×2），但仍形成硬回归门禁：
 // 若引入了新的渲染阻塞资源或首屏巨型依赖，节流档 LCP/FCP 会首先越限报警。
-/* eslint-disable no-console -- e2e 检查脚本，stdout 即报告 */
 
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
