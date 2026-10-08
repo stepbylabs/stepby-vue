@@ -5889,14 +5889,22 @@ async function testFeature33(page) {
 
   // 辅助：通过 page.goto 访问页面，等待 JS 渲染后检查内容
   // SPA 模式下 fetch 只返回 index.html 外壳，错误页内容由前端 JS 渲染，必须用 page.goto 才能看到真实内容
-  async function visitPageRendered(url, expectNotContains = []) {
+  async function visitPageRendered(url, expectNotContains = [], expectContains = []) {
     try {
       const resp = await page.goto(url, { waitUntil: 'load', timeout: 15000 })
       const status = resp ? resp.status() : 0
       const title = await page.title().catch(() => '')
-      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || '').catch(() => '')
-      // 验证：HTTP 200 + body 非空 + 不包含未授权标识
-      const ok = status === 200 && bodyText.length > 0 && expectNotContains.every((kw) => !bodyText.includes(kw))
+      // 收尾十：'load' 不含懒加载 chunk/异步组件/i18n/数据请求的渲染完成——探针实证
+      // 2500ms 后 /401 全文齐备而立即采集只见骨架（/401 与 /user/profile 两类失败同因）
+      await page.waitForTimeout(2500)
+      // 收尾十修正：expectContains 必须检查全文——嵌 layout 的页面 body 前 300 字被
+      // 侧边栏菜单文本占据，主区内容（错误页标题等）在窗口外被截掉（/401 实证）
+      const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '')
+      const ok =
+        status === 200 &&
+        bodyText.length > 0 &&
+        expectNotContains.every((kw) => !bodyText.includes(kw)) &&
+        expectContains.every((kw) => bodyText.includes(kw))
       const detail = `HTTP ${status}, title=${title.slice(0, 40)}, body前80字=${bodyText.slice(0, 80)}`
       return { ok, detail }
     } catch (err) {
@@ -5934,6 +5942,17 @@ async function testFeature33(page) {
   const r500 = await fetchHtml(`${CONFIG.frontendUrl}/500`)
   record(33, '/500 服务器错误页 SPA fallback', r500.ok, r500.detail)
 
+  // ---------- 3b. 错误页组件渲染验证（收尾十：错误页组件标题正向断言——
+  // fetchHtml 仅验证 SPA fallback 返回 HTML 外壳，错误页组件的实际渲染内容
+  // （i18n 标题/大数字）此前从未被断言）。注意 expectNotContains 不可包含页面
+  // 自身内容词（401 页大数字标题含"401"——循环第四轮 FAIL 实证的自相矛盾参数）
+  const r401Rendered = await visitPageRendered(`${CONFIG.frontendUrl}/401`, [], ['您没有访问权限'])
+  record(33, '/401 错误页组件渲染（i18n 标题）', r401Rendered.ok, r401Rendered.detail)
+  const r403Rendered = await visitPageRendered(`${CONFIG.frontendUrl}/403`, [], ['403'])
+  record(33, '/403 错误页组件渲染（大数字标题）', r403Rendered.ok, r403Rendered.detail)
+  const r500Rendered = await visitPageRendered(`${CONFIG.frontendUrl}/500`, [], ['500'])
+  record(33, '/500 错误页组件渲染（大数字标题）', r500Rendered.ok, r500Rendered.detail)
+
   // ---------- 4. /network-error 网络错误页 ----------
   const rNetwork = await fetchHtml(`${CONFIG.frontendUrl}/network-error`)
   record(33, '/network-error 网络错误页 SPA fallback', rNetwork.ok, rNetwork.detail)
@@ -5961,7 +5980,20 @@ async function testFeature33(page) {
   record(33, '/user/profile 个人中心页渲染（登录后）', rProfile.ok, rProfile.detail)
 
   // ---------- 10. 综合验证 ----------
-  const allChecks = [r401.ok, r403.ok, r500.ok, rNetwork.ok, rPrivacy.ok, rLock.ok, r404.ok, rDashboard.ok, rProfile.ok]
+  const allChecks = [
+    r401.ok,
+    r403.ok,
+    r500.ok,
+    r401Rendered.ok,
+    r403Rendered.ok,
+    r500Rendered.ok,
+    rNetwork.ok,
+    rPrivacy.ok,
+    rLock.ok,
+    r404.ok,
+    rDashboard.ok,
+    rProfile.ok
+  ]
   const allPass = allChecks.every(Boolean)
   record(
     33,
@@ -16383,16 +16415,31 @@ function summarizeBackendLogErrors() {
       .sort()
       .reverse()
     if (files.length === 0) return
-    const tail = fs.readFileSync(path.join(logDir, files[0]), 'utf-8').split('\n').slice(-400)
-    const bad = tail.filter((l) => /\bERROR\b/.test(l) || (/\bWARN\b/.test(l) && /失败|noauth|no such (table|column)|超时/i.test(l)))
+    const tail = fs.readFileSync(path.join(logDir, files[0]), 'utf-8').split('\n').slice(-800)
+    // 收尾十 v2：WARN 关键词扩展（链降级/拒绝/断链——收尾六人工巡检发现的断链
+    // 当时只能靠手工 grep，现自动捕获）+ 聚合去重（同型消息计数，噪声可见但紧凑）
+    const bad = tail.filter(
+      (l) =>
+        /\bERROR\b/.test(l) ||
+        (/\bWARN\b/.test(l) && /失败|noauth|no such (table|column)|超时|降级|拒绝|断链|broken/i.test(l))
+    )
     if (bad.length === 0) {
       log('✅ 后端日志尾部无 ERROR/WARN 异常')
       return
     }
+    const agg = new Map()
+    for (const l of bad) {
+      const key = l
+        .replace(/^[0-9T:.Z-]+\s*/, '')
+        .replace(/request_id=[a-f0-9-]+/g, 'request_id=N')
+        .replace(/\d+/g, 'N')
+        .slice(0, 120)
+      agg.set(key, (agg.get(key) || 0) + 1)
+    }
     log('------------------------------------------')
-    log(`后端日志异常摘要（最近 ${bad.length} 条 ERROR/异常 WARN）:`)
-    for (const l of bad.slice(-10)) {
-      log(`  🖥 ${l.slice(0, 180)}`)
+    log(`后端日志异常摘要（尾部 800 行，ERROR/异常 WARN 共 ${bad.length} 条，聚合 ${agg.size} 型）:`)
+    for (const [k, n] of [...agg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+      log(`  🖥 ×${n} ${k}`)
     }
   } catch {
     /* best-effort：日志不可读不阻塞测试结论 */
