@@ -85,10 +85,18 @@ function addIframe(): void {
 
 /* 移动端fixed-header优化 */
 @media screen and (max-width: 991px) {
+  /* 收尾十一：:has(.copyright) 36px 规则 specificity 与本块相当但顺序靠后会覆盖
+     safe-area padding，移动端 TabBar 遮挡 copyright/内容底部——显式补 :has 版本 */
   .fixed-header + .app-main {
     padding-bottom: max(60px, calc(constant(safe-area-inset-bottom) + 40px));
     padding-bottom: max(60px, calc(env(safe-area-inset-bottom) + 40px));
     overscroll-behavior-y: none;
+  }
+
+  .fixed-header + .app-main:has(.copyright),
+  .hasTagsView .fixed-header + .app-main:has(.copyright) {
+    padding-bottom: max(76px, calc(constant(safe-area-inset-bottom) + 56px));
+    padding-bottom: max(76px, calc(env(safe-area-inset-bottom) + 56px));
   }
 
   .hasTagsView .fixed-header + .app-main {
