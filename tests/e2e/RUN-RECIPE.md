@@ -1300,6 +1300,10 @@ STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 ```
 
+> ⚠️ **不要传 `--headless`**：`a11y-full.mjs` 的参数解析器只认 `--route=` / `--limit=`，其余一律
+> `throw new Error("未知参数")` → 整轮退化为 `PASS=0 FAIL=1（运行异常）`。脚本内部已默认 headless。
+> （与 `main.mjs` 不同——后者接受 `--headless`。二者参数约定不一致。批二十八踩坑。）
+
 - **基线：PASS=560 / FAIL=0（EXIT=0）**，56 路由全扫。
 - 演变：**461/99（暴露存量）→ 529/31（修字号）→ 534/26（修 label/iframe）→ 560/0（全口径）**。
 
