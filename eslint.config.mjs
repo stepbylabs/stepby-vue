@@ -125,6 +125,13 @@ export default [
       'vue/multi-word-component-names': 'off',
       'vue/no-v-html': 'off',
       'vue/require-default-prop': 'off',
+      // 低代码/代码生成器的 schema 对象天然共享可变（父以整对象持有、子就地改字段），
+      // 全仓有意保留 6 处豁免：
+      //   src/components/RightToolbar/index.vue:74
+      //   src/views/tool/build/DraggableItem.vue:2
+      //   src/views/tool/build/RightPanel.vue:2,610（live-editing contract，见 build/types.ts 头注释）
+      //   src/views/tool/gen/basicInfoForm.vue:2
+      //   src/views/tool/gen/genInfoForm.vue:2,275
       'vue/no-mutating-props': 'warn',
       // 以下规则在既有代码库存在历史遗留问题，降级为 warn 以便渐进式修复，
       // 同时在 IDE 中保留可见性，避免新代码引入同样问题

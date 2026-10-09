@@ -131,6 +131,8 @@ export default {
     clientName: 'Client Name',
     clientId: 'Client ID',
     clientSecret: 'Client Secret',
+    copyClientId: 'Copy Client ID',
+    copyClientSecret: 'Copy Client Secret',
     clientIdAuto: 'Leave blank to auto-generate',
     logoUri: 'Logo URL',
     redirectUris: 'Redirect URIs',

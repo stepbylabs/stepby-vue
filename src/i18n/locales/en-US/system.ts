@@ -1702,7 +1702,10 @@ export default {
     exportPdf: 'Export PDF',
     fullscreen: 'Fullscreen',
     boardEmpty: 'No charts yet — switch to Design mode to add',
-    pickDashboardFirst: 'Pick a dashboard first'
+    pickDashboardFirst: 'Pick a dashboard first',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    chartSetting: 'Chart settings'
   },
   flowDef: {
     searchByCode: 'Search by code',

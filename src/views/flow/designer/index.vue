@@ -155,6 +155,7 @@
             type="danger"
             icon="Delete"
             size="small"
+            :aria-label="t('common.delete')"
             @click="formNodes.splice(i, 1)"
           />
         </div>
@@ -179,7 +180,7 @@
             </el-select>
             <el-input v-model="e.condValue" size="small" class="w-28" :placeholder="t('flowDef.condValue')" />
           </template>
-          <el-button link type="danger" icon="Delete" size="small" @click="formEdges.splice(i, 1)" />
+          <el-button link type="danger" icon="Delete" size="small" :aria-label="t('common.delete')" @click="formEdges.splice(i, 1)" />
         </div>
       </el-card>
 

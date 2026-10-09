@@ -57,6 +57,7 @@
  */
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import cache from '@/plugins/cache'
 
 const { t } = useI18n()
 
@@ -240,7 +241,7 @@ function updatePopoverHeight(): void {
 
 function finish() {
   if (props.storageKey) {
-    localStorage.setItem(props.storageKey, 'completed')
+    cache.local.set(props.storageKey, 'completed')
   }
   visible.value = false
   emit('finish')
@@ -248,7 +249,7 @@ function finish() {
 
 function skip() {
   if (props.storageKey) {
-    localStorage.setItem(props.storageKey, 'skipped')
+    cache.local.set(props.storageKey, 'skipped')
   }
   visible.value = false
   emit('skip')

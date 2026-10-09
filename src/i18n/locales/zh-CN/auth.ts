@@ -129,6 +129,8 @@ export default {
     clientName: '客户端名称',
     clientId: '客户端 ID',
     clientSecret: '客户端密钥',
+    copyClientId: '复制客户端 ID',
+    copyClientSecret: '复制客户端密钥',
     clientIdAuto: '留空则自动生成',
     logoUri: 'Logo 地址',
     redirectUris: '回调地址',

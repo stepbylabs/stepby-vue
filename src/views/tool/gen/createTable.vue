@@ -181,6 +181,7 @@
               type="danger"
               link
               icon="Delete"
+              :aria-label="t('common.delete')"
               :disabled="form.columns.length <= 1"
               @click="handleRemoveColumn(scope.$index)"
             />

@@ -452,7 +452,7 @@ import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import useSettingsStore from '@/store/modules/settings'
+import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useTableColumns } from '@/composables/useTableColumns'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import type { TableShowColumns } from '@/types/api/common'
@@ -470,7 +470,7 @@ const { sys_oper_type, sys_common_status } = useDict('sys_oper_type', 'sys_commo
 
 // UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
 // 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
-const settingsStore = useSettingsStore()
+const columnPrefs = useColumnPreferences('monitor:operlog')
 const OPERLOG_TABLE_KEY = 'monitor:operlog'
 // 列定义顺序即设置面板展示顺序；多选列/租户列/操作列不参与显隐偏好（常驻）
 const OPERLOG_COLUMN_DEFS: TableColumnDef[] = [
@@ -502,11 +502,8 @@ const {
   pageKey: OPERLOG_TABLE_KEY,
   columns: OPERLOG_COLUMN_DEFS,
   labels: OPERLOG_COLUMN_LABELS,
-  getSaved: () => settingsStore.userPrefs.tableColumns?.[OPERLOG_TABLE_KEY],
-  save: (visible) =>
-    settingsStore.updateUserPrefs({
-      tableColumns: { ...settingsStore.userPrefs.tableColumns, [OPERLOG_TABLE_KEY]: visible }
-    })
+  getSaved: () => columnPrefs.saved(),
+  save: columnPrefs.save
 })
 
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；

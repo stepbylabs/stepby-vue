@@ -1229,3 +1229,74 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 **10 轮循环沉淀（run-rounds.mjs，2026-10-08 批次十八）**：
 9. **API 连发段必遇 sys_rate_limit 令牌桶 429**（"请求过于频繁"）：M 级簇 76-83 每功能 10-20 连发 API，多轮满载下令牌桶耗尽 → R6-R9 连环 429 假失败。`mLevelApiSetup` 的 `api` 助手已内建 429 退避（1.2s × 3，令牌桶按秒回填）——**尊重限流语义的确定性化，非绕过**；新功能用 mLevelApiSetup 即自动获得。无任何用例以 429 为期望值，重试不改变断言语义。
 10. **链路中断会污染下一轮状态**：F83「停用→恢复」链在 E1 429 中断会把种子事件 user.created 留在 disabled=0，下一轮 A1 前置断言假失败——尾部已加 best-effort 恢复启用态（幂等）。教训：**有状态翻转的用例必须在尾部恢复初态，不能假设链路必然走完**。
+
+## 8. 批次二十四：后台管理系统审计修复轮（2026-10-09）— 通过判据与长跑漂移根治
+
+命令同 §3（embedded :8080 权威环境），全量 **939 项**。
+
+### 8.1 本轮通过判据
+- 首轮全量：939 项 / 932 通过 / **7 失败**（此前一轮 936 项 / 926 通过 / 10 失败）。
+- 失败项**全部定性为测试脚本竞态/靶点问题**，逐条根因修正后单跑全绿：
+  - `--feature=8,42,59,60,61` → **59 / 59 通过**
+  - `--feature=53,54,67,84` → **68 / 68 通过**
+- **注意**：验收必须「重启后端 + 全量复跑」，单跑绿不等价（漂移失败正是单跑绿、全量随机失败）。
+
+### 8.2 长跑漂移失败根治（本轮新增铁律）
+
+**根因**：管理后台页面大量使用「固定 sleep → 立即断言首屏/异步元素可见」。全量跑至后半段（功能 50+）时
+浏览器累积负载 + 路由 chunk 懒加载变慢，固定等待不足 → 元素未挂载 → **假失败**（用例逻辑本身正确）。
+
+**根治范式**（本轮 8 个功能段统一改造）：
+
+```js
+// ❌ 旧：固定 sleep 后立即断言
+await sleep(1500)
+const visible = await el.isVisible({ timeout: 1500 }).catch(() => false)
+
+// ✅ 新：waitFor 优先（显式上限），再断言
+await el.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+const visible = await el.isVisible({ timeout: 1500 }).catch(() => false)
+```
+
+覆盖点：
+| 功能 | 元素 | 改造 |
+|---|---|---|
+| 8 | 限流页表格行 | 等 `.el-table__row` 出现；断言升级为「可见**且**行数>0」（骨架态不算通过） |
+| 42 | 后端 VO 源码扫描 | **靶点迁移**：B-2 重构把聚合下沉 `service/dashboard_service.rs`，断言随 source of truth 迁移，**并新增** handler `pub use` 重导出 + 委托调用断言（保对外契约） |
+| 53 | frontendError 清空按钮 | waitFor 10s |
+| 54 | 各页 `.el-tabs__item` | 等首个页签挂载再断言 tabs 数 |
+| 59 | 导航栏语言入口 | waitFor 10s |
+| 60 | 菜单/部门页展开折叠按钮 | waitFor 10s |
+| 61 | 数据权限对话框 | 点击后 waitFor 再断言（非固定 timeout） |
+| 67 | 个人中心昵称输入 | waitFor 10s；**并修监听窗口**——原 `sleep(1500)` 后即 `off`，慢响应漏采致 `status=null`，改为轮询等响应（上限 8s） |
+| 84 | 定时任务页 el-table | waitFor 10s |
+
+**契约保持原则**：凡因**架构重构**（如 handler→service 下沉）导致断言靶点搬家的，
+迁移靶点时**必须同时断言旧位置的对外契约仍成立**（重导出/委托），否则等于放弃该契约的回归保护。
+
+### 8.3 附带修复的既有问题（用户指令「预先存在的问题也要一并优化修复」）
+- e2e 异步元素等待范式统一（§8.2）：消除长跑漂移这一**长期存在的测试脆弱性**。
+- e2e 断言点与架构同步（功能 42）+ 契约保持断言。
+
+### 8.4 a11y 全站巡检基线（2026-10-09 本批闭环）
+
+命令：
+```bash
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
+```
+
+- **基线：PASS=560 / FAIL=0（EXIT=0）**，56 路由全扫。
+- 演变：**461/99（暴露存量）→ 529/31（修字号）→ 534/26（修 label/iframe）→ 560/0（全口径）**。
+
+**a11y 修复两类根因**：
+1. **真实应用缺陷（2 处，已修源码）**：`HeaderNotice` 角标 10px、`notice-center` badge 11px
+   （低于全站 12px 可读性基线；前者全站每页渲染 → 单点缺陷放大为 56 条 FAIL）。
+2. **扫描器口径缺口（7 类，已修脚本）**：`unnamed` 判定 `!text && !ariaLabel && !title` 过窄，
+   必须并计 WCAG 认可来源 —— `placeholder` / 关联 `<label>` 文本 / `aria-valuenow|valuetext|labelledby`
+   / combobox 的 form-item label 与 `.el-select__placeholder` / 第三方 iframe / `.el-table` 选择列 checkbox；
+   并排除 `.hidden-columns`（EP 隐藏列模板）。
+
+**判读口诀**：a11y 报 FAIL 先分「应用缺陷 vs 扫描器口径」——**误报的形态是「同一元素在 N 个路由重复出现、
+且形态恒定」**（如 `.notice-badge` 在 56 页都有）；真实缺陷则**集中于个别页面**。

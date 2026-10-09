@@ -69,16 +69,17 @@
       <el-col v-for="c in charts" :key="c.chartId" :span="c.span" class="mb-3">
         <ChartCard :chart="c">
           <template #tools>
-            <el-button link icon="ArrowUp" @click="charts = moveChart(charts, c.chartId, -1)" />
-            <el-button link icon="ArrowDown" @click="charts = moveChart(charts, c.chartId, 1)" />
+            <el-button link icon="ArrowUp" :aria-label="t('rp.moveUp')" @click="charts = moveChart(charts, c.chartId, -1)" />
+            <el-button link icon="ArrowDown" :aria-label="t('rp.moveDown')" @click="charts = moveChart(charts, c.chartId, 1)" />
             <el-button
               link
               :icon="`FullScreen`"
               :title="`${t('rp.span')}=${c.span}`"
+              :aria-label="`${t('rp.span')}=${c.span}`"
               @click="charts = cycleSpan(charts, c.chartId)"
             />
-            <el-button link icon="Setting" @click="selectedChartId = c.chartId" />
-            <el-button link type="danger" icon="Delete" @click="charts = removeChart(charts, c.chartId)" />
+            <el-button link icon="Setting" :aria-label="t('rp.chartSetting')" @click="selectedChartId = c.chartId" />
+            <el-button link type="danger" icon="Delete" :aria-label="t('common.delete')" @click="charts = removeChart(charts, c.chartId)" />
           </template>
         </ChartCard>
       </el-col>

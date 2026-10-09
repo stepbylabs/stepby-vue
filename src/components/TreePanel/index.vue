@@ -94,6 +94,7 @@
 
 <script setup lang="ts">
 import type { TreeInstance } from 'element-plus'
+import cache from '@/plugins/cache'
 
 /** 树节点数据结构（最小约束：label 用于过滤，children 用于层级） */
 interface TreeNodeData {
@@ -319,7 +320,7 @@ const getSavedWidth = (): number | null => {
     return null
   }
   try {
-    const savedWidth = localStorage.getItem(props.storageKey)
+    const savedWidth = cache.local.get(props.storageKey)
     if (savedWidth) {
       const width = parseInt(savedWidth, 10)
       if (!isNaN(width) && width >= props.minWidth && width <= props.maxWidth) {
@@ -337,7 +338,7 @@ const getSavedWidth = (): number | null => {
 const saveWidthToStorage = (): void => {
   if (collapsed.value || !props.enableStorage) return
   try {
-    localStorage.setItem(props.storageKey, sidebarWidth.value.toString())
+    cache.local.set(props.storageKey, sidebarWidth.value.toString())
   } catch (error) {
     if (import.meta.env.DEV)
       console.warn(`Failed to save sidebar width to storage with key ${props.storageKey}:`, error)

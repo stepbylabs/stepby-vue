@@ -181,7 +181,8 @@ export default {
   },
   layout: {
     tabbar: {
-      mine: '我的'
+      mine: '我的',
+      navLabel: '底部导航'
     },
     forceLogoutMessage: '您已被管理员强制下线，请重新登录',
     tour: {

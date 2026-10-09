@@ -9,8 +9,8 @@
             <el-option :label="t('jobLog.stats.days14')" :value="14" />
             <el-option :label="t('jobLog.stats.days30')" :value="30" />
           </el-select>
-          <el-button size="small" icon="Refresh" circle :loading="loading" @click="load" />
-          <el-button size="small" icon="ArrowUp" circle @click="collapsed = !collapsed" />
+          <el-button size="small" icon="Refresh" circle :loading="loading" :aria-label="t('common.refresh')" @click="load" />
+          <el-button size="small" icon="ArrowUp" circle :aria-label="collapsed ? t('common.expand') : t('common.collapse')" @click="collapsed = !collapsed" />
         </div>
       </div>
     </template>

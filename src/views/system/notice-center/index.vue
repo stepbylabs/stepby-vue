@@ -496,7 +496,8 @@ onMounted(() => {
 
 .filter-badge {
   :deep(.el-badge__content) {
-    font-size: 11px;
+    /* a11y：正文最小 12px（原 11px 低于全站可读性基线） */
+    font-size: 12px;
   }
 }
 

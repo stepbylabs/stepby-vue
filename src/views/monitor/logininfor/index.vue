@@ -232,8 +232,8 @@ import { useMobileFilter } from '@/composables/useMobileFilter'
 import type { SysLogininfor, LogininforQueryParams } from '@/types/api/monitor/logininfor'
 import MyLoginPanel from './MyLoginPanel.vue'
 import useUserStore from '@/store/modules/user'
-import useSettingsStore from '@/store/modules/settings'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import type { TableShowColumns } from '@/types/api/common'
 
@@ -245,7 +245,8 @@ const { sys_common_status } = useDict('sys_common_status')
 
 // UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
 // 偏好恢复 → columns ref；RightToolbar 直改 visible → 回写偏好（刷新/换设备保持一致）
-const settingsStore = useSettingsStore()
+// 读写 glue 由 useColumnPreferences 提供（合并写，不覆盖其它页面偏好）
+const columnPrefs = useColumnPreferences('monitor:logininfor')
 const LOGININFOR_TABLE_KEY = 'monitor:logininfor'
 // 列定义顺序即设置面板展示顺序；多选列/租户列不参与显隐偏好（常驻）
 const LOGININFOR_COLUMN_DEFS: TableColumnDef[] = [
@@ -279,11 +280,8 @@ const {
   pageKey: LOGININFOR_TABLE_KEY,
   columns: LOGININFOR_COLUMN_DEFS,
   labels: LOGININFOR_COLUMN_LABELS,
-  getSaved: () => settingsStore.userPrefs.tableColumns?.[LOGININFOR_TABLE_KEY],
-  save: (visible) =>
-    settingsStore.updateUserPrefs({
-      tableColumns: { ...settingsStore.userPrefs.tableColumns, [LOGININFOR_TABLE_KEY]: visible }
-    })
+  getSaved: () => columnPrefs.saved(),
+  save: columnPrefs.save
 })
 
 // M1: columns 保持 ref（非 computed），因为 RightToolbar 通过 props 直接 mutate visible 属性来切换列显隐；

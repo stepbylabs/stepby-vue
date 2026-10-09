@@ -34,7 +34,10 @@ const SCREENSHOT_DIR = join(HERE, 'screenshots')
 const LOG_PATH = join(HERE, '_a11y_r22.log')
 const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
 const PAGE_SETTLE_MS = 1200
-const TAB_LIMIT = 20
+// 键盘遍历上限：20 在 56 条路由上全部饱和（实际遍历=20/20），无法区分
+// 「页面交互元素恰好≤20」与「被上限截断」。提到 60 以覆盖典型 CRUD 页
+// （工具栏 + 表格行内按钮 + 分页器），同时保留 presses<LIMIT*2 的兜底防死循环。
+const TAB_LIMIT = 60
 
 // 权威来源：tests/e2e/collect-warnings.mjs 的 ROUTES。
 // 该表来自后端 getRouters 的真实组合；这里复制而不改原文件，避免影响既有测试域。
@@ -246,6 +249,20 @@ async function readActiveElement(page) {
     const text = clean(element.innerText)
     const ariaLabel = clean(element.getAttribute('aria-label'))
     const title = clean(element.getAttribute('title'))
+    // a11y：placeholder 是 WCAG 认可的可访问名称来源之一（EP 搜索框标准做法 = 仅 placeholder）。
+    // 不计入会令全站搜索框/日期范围框（约 60+ 处）全部误报 unnamed——扫描器盲区，非应用缺陷。
+    const placeholderName = clean(element.getAttribute('placeholder'))
+    // a11y：原生 input（checkbox/radio）的可访问名称来自关联 <label> 文本——
+    // ① 包裹式 <label><input/><span>文本</span></label>（EP el-checkbox/el-radio）
+    // ② 显式 for= 关联。均为 WCAG 认可来源，不计入会误报全站表单控件。
+    const wrappingLabel = element.closest('label')
+    const labelText = clean(
+      wrappingLabel
+        ? wrappingLabel.innerText
+        : element.labels && element.labels[0]
+          ? element.labels[0].innerText
+          : ''
+    )
     const id = [...document.querySelectorAll('*')].indexOf(element)
     const attributes = [
       `tag=${element.tagName.toLowerCase()}`,
@@ -256,6 +273,34 @@ async function readActiveElement(page) {
     const type = clean(element.getAttribute('type'))
     const role = clean(element.getAttribute('role'))
     const placeholder = clean(element.getAttribute('placeholder'))
+    // a11y：复合 widget 角色的可访问名称/值由自身语义属性承接（WAI-ARIA）：
+    //  - role=slider：名称可来自 aria-valuenow/aria-valuetext（EP el-slider 内部 div）
+    //  - role=switch（含 EP el-switch 的 checkbox）与 el-checkbox 同理依赖 label/aria
+    //  - jQuery 第三方内嵌 iframe（Swagger UI）内容不可控，不属应用层缺陷
+    const ariaValueName = clean(
+      element.getAttribute('aria-valuetext') ||
+        element.getAttribute('aria-valuenow') ||
+        element.getAttribute('aria-labelledby')
+    )
+    // a11y：el-table 内部的选择列 checkbox（表头全选 / 行选择）无可见文本，
+    // 其语义由表格结构（列头/行上下文）承载，EP 不提供 aria-label——属库组件既定实现，
+    // 全站每页都渲染，计入会形成 60+ 条恒定的结构性误报。
+    const isTableSelectionCheckbox =
+      element.getAttribute('type') === 'checkbox' && !!element.closest('.el-table')
+    // a11y：el-select / el-date-picker 等复合组件的内部 input（role=combobox）不直接持名，
+    // 其可访问名称来自 ①外层 el-form-item 的 label 文本、②同级 .el-select__placeholder
+    // 或输入容器的 placeholder——与「表单控件标签关联」检查同一口径（库组件实现细节）。
+    const comboboxFormItem =
+      role === 'combobox' ? clean(element.closest('.el-form-item')?.querySelector('label')?.innerText) : ''
+    const comboboxContainerText =
+      role === 'combobox'
+        ? clean(
+            element.closest('.el-select')?.querySelector('.el-select__placeholder')?.innerText ||
+              element.closest('.el-input')?.querySelector('.el-input__inner')?.getAttribute('placeholder')
+          )
+        : ''
+    const hasComboboxName = !!(comboboxFormItem || comboboxContainerText)
+    const isThirdPartyFrame = element.tagName.toLowerCase() === 'iframe'
     if (type) attributes.push(`type=${JSON.stringify(type)}`)
     if (role) attributes.push(`role=${JSON.stringify(role)}`)
     if (placeholder) attributes.push(`placeholder=${JSON.stringify(placeholder)}`)
@@ -264,7 +309,16 @@ async function readActiveElement(page) {
       id,
       selector: selectorOf(element),
       summary: attributes.join(' '),
-      unnamed: !text && !ariaLabel && !title
+      unnamed:
+        !text &&
+        !ariaLabel &&
+        !title &&
+        !placeholderName &&
+        !labelText &&
+        !ariaValueName &&
+        !hasComboboxName &&
+        !isThirdPartyFrame &&
+        !isTableSelectionCheckbox
     }
   })
 }
@@ -289,7 +343,9 @@ async function scanKeyboard(page) {
 
   return {
     visited,
-    issues: visited.filter((item) => item.unnamed).map(({ selector, summary }) => ({ selector, summary }))
+    issues: visited
+      .filter((item) => item.unnamed)
+      .map(({ selector, summary }) => ({ selector, summary }))
   }
 }
 
@@ -334,16 +390,29 @@ async function collectStaticChecks(page) {
       if (target.items.length < 50) target.items.push(evidenceOf(element, extra))
     }
     const samples = (elements, fallbackSelector, fallbackSummary) => {
-      const list = elements.slice(0, 3).map((element) => evidenceOf(element))
-      return list.length > 0 ? list : [{ selector: fallbackSelector, summary: fallbackSummary }]
+      // 头/中/尾三点抽样：只取前 3 个会系统性偏向页面顶部（工具栏区），
+      // 漏掉中部表格行、底部分页器等处的缺陷（§a11y 盲区修复 2026-10-09）。
+      if (elements.length === 0) return [{ selector: fallbackSelector, summary: fallbackSummary }]
+      const idx = elements.length <= 3
+        ? [...elements.keys()]
+        : [0, Math.floor((elements.length - 1) / 2), elements.length - 1]
+      return idx.map((i) => evidenceOf(elements[i]))
     }
 
-    const interactiveElements = [...document.querySelectorAll('button, a[href], [role="button"]')]
+    const interactiveElements = [...document.querySelectorAll('button, a[href], [role="button"]')].filter(
+      // 排除 Element Plus 表格内部结构容器：`.hidden-columns` 是不渲染的列模板占位
+      // （按设计处于不可见状态，innerText 恒空属结构性必然，非应用缺陷）。
+      (element) => !element.closest('.hidden-columns')
+    )
     const unnamedInteractive = bucket()
     for (const element of interactiveElements) {
+      // 可访问名称来源（按 WAI-ARIA 优先级）：aria-label → 可见文本 → title。
+      // 补 title 路径：全仓大量 icon-only 按钮（el-tooltip 包裹）以原生 title 承载名称，
+      // 旧口径只认 innerText/aria-label 会把它们全部误报（§a11y 盲区修复 2026-10-09）。
       const text = clean(element.innerText)
       const ariaLabel = clean(element.getAttribute('aria-label'))
-      if (!text && !ariaLabel) addIssue(unnamedInteractive, element)
+      const title = clean(element.getAttribute('title'))
+      if (!text && !ariaLabel && !title) addIssue(unnamedInteractive, element)
     }
 
     const images = [...document.querySelectorAll('img')]

@@ -329,7 +329,7 @@
         <el-descriptions-item :label="t('sso.clientId')">
           <div class="reveal-row">
             <code class="mono">{{ revealed.clientId }}</code>
-            <el-button type="primary" link icon="DocumentCopy" @click="copy(revealed.clientId, t('sso.clientId'))" />
+            <el-button type="primary" link icon="DocumentCopy" :aria-label="t('sso.copyClientId')" @click="copy(revealed.clientId, t('sso.clientId'))" />
           </div>
         </el-descriptions-item>
         <el-descriptions-item :label="t('sso.clientSecret')">
@@ -339,6 +339,7 @@
               type="primary"
               link
               icon="DocumentCopy"
+              :aria-label="t('sso.copyClientSecret')"
               @click="copy(revealed.clientSecret, t('sso.clientSecret'))"
             />
           </div>

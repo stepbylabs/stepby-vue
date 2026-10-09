@@ -1686,7 +1686,10 @@ export default {
     exportPdf: '导出 PDF',
     fullscreen: '全屏',
     boardEmpty: '该大屏暂无图表，请切换到设计模式添加',
-    pickDashboardFirst: '请先选择大屏'
+    pickDashboardFirst: '请先选择大屏',
+    moveUp: '上移',
+    moveDown: '下移',
+    chartSetting: '图表设置'
   },
   flowDef: {
     searchByCode: '按编码搜索',

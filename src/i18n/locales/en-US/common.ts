@@ -181,7 +181,8 @@ export default {
   },
   layout: {
     tabbar: {
-      mine: 'Mine'
+      mine: 'Mine',
+      navLabel: 'Bottom navigation'
     },
     forceLogoutMessage: 'You have been forced offline by an administrator. Please log in again.',
     tour: {

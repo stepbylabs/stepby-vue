@@ -422,9 +422,9 @@ import type { TreeSelect, TableShowColumns } from '@/types/api/common'
 import type { RoleDeptTreeResult } from '@/types/api/system/role'
 import type { RoleMenuTreeselectResult } from '@/types/api/system/menu'
 import type { TreeInstance } from 'element-plus'
-import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
@@ -438,8 +438,9 @@ const roleTableRef = useTemplateRef('roleTableRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
 // UX-7：列显隐偏好持久化（与用户管理页同一模式：RightToolbar 面板 + userPrefs 存储）
-const settingsStore = useSettingsStore()
+// 读写 glue 收敛到 useColumnPreferences（合并写，避免覆盖其它页面偏好）
 const ROLE_TABLE_KEY = 'system:role'
+const columnPrefs = useColumnPreferences(ROLE_TABLE_KEY)
 const columns = ref<Record<string, TableShowColumns>>({
   roleName: { label: t('role.column.roleName'), visible: true },
   roleKey: { label: t('role.column.roleKey'), visible: true },
@@ -447,22 +448,8 @@ const columns = ref<Record<string, TableShowColumns>>({
   status: { label: t('role.column.status'), visible: true },
   createTime: { label: t('role.column.createTime'), visible: true }
 })
-const savedRoleColumns = settingsStore.userPrefs.tableColumns?.[ROLE_TABLE_KEY]
-if (savedRoleColumns?.length) {
-  for (const key of Object.keys(columns.value)) {
-    columns.value[key].visible = savedRoleColumns.includes(key)
-  }
-}
-watch(
-  columns,
-  (v: Record<string, TableShowColumns>) => {
-    const visible = Object.keys(v).filter((k) => v[k].visible)
-    settingsStore.updateUserPrefs({
-      tableColumns: { ...settingsStore.userPrefs.tableColumns, [ROLE_TABLE_KEY]: visible }
-    })
-  },
-  { deep: true }
-)
+columnPrefs.applyTo(columns)
+columnPrefs.watchColumns(columns)
 
 const dateRange = ref<string[]>([])
 const menuOptions = ref<TreeSelect[]>([])

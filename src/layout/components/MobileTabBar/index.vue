@@ -5,7 +5,7 @@
   <nav
     v-if="device === 'mobile'"
     class="mobile-tabbar fixed inset-x-0 bottom-0 z-[1003] flex items-stretch border-t border-[var(--el-border-color-light)] bg-[var(--el-bg-color-overlay)] pb-[var(--safe-bottom,0px)]"
-    aria-label="底部导航"
+    :aria-label="t('layout.tabbar.navLabel')"
   >
     <button
       v-for="item in tabs"

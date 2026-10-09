@@ -245,11 +245,12 @@ async function markAllRead(): Promise<void> {
     background: var(--el-color-danger);
     color: var(--el-color-white);
     border-radius: 10px;
-    font-size: 10px;
-    height: 16px;
-    line-height: 16px;
+    /* a11y：正文最小 12px（原 10px 低于全站可读性基线）；高度同步 16→17 保持视觉比例 */
+    font-size: 12px;
+    height: 17px;
+    line-height: 17px;
     padding: 0 4px;
-    min-width: 16px;
+    min-width: 17px;
     text-align: center;
     white-space: nowrap;
     pointer-events: none;

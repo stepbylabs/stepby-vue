@@ -917,6 +917,14 @@ async function testFeature8(page) {
   await page.goto(`${CONFIG.frontendUrl}/monitor/rateLimit`, { waitUntil: 'load' })
   await sleep(2000)
   await skipTour(page)
+
+  // 等待表格数据加载完成：骨架屏消失 + 至少一行数据渲染（修复异步取数竞态）
+  await page
+    .locator('.el-table__row')
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
+
   await screenshot(page, 'feat8_rate_limit_list')
 
   // 验证页面加载（不是 404）
@@ -927,10 +935,11 @@ async function testFeature8(page) {
   }
   record(8, '页面加载', true)
 
-  // 验证表格存在
+  // 验证表格存在且含数据行（骨架态不算通过）
   const table = page.locator('.el-table, table').first()
   const hasTable = await table.isVisible().catch(() => false)
-  record(8, '限流配置表格', hasTable)
+  const rowCount = await page.locator('.el-table__row').count().catch(() => 0)
+  record(8, '限流配置表格', hasTable && rowCount > 0, `行数=${rowCount}`)
 
   // 验证表格中存在默认全局配置（routePattern='*'，显示为"全局默认" tag）
   const hasGlobalConfig = await page
@@ -8835,10 +8844,14 @@ async function testFeature42(page) {
 
   // ---------- 1. U5 后端 DashboardStatsVo 字段扩展 ----------
   try {
+    // B-2 重构：dashboard 聚合逻辑已从 handler 迁至 service（handler 薄化为委托 + pub use 重导出）
+    // ⇒ 靶点跟随 source of truth 迁移，并校验 handler 仍正确重导出
     const handlerPath = path.join(backendRoot, 'src/handler/common_handler.rs')
     const handlerContent = fs.readFileSync(handlerPath, 'utf-8')
+    const servicePath = path.join(backendRoot, 'src/service/dashboard_service.rs')
+    const serviceContent = fs.readFileSync(servicePath, 'utf-8')
 
-    // 检查 DashboardStatsVo 是否包含全部 8 个字段
+    // 检查 DashboardStatsVo 是否包含全部 8 个字段（定义在 service）
     const requiredFields = [
       'today_anomaly_ips',
       'total_users',
@@ -8849,23 +8862,29 @@ async function testFeature42(page) {
       'online_count',
       'recent_oper_logs'
     ]
-    const missingFields = requiredFields.filter((f) => !handlerContent.includes(`pub ${f}`))
+    const missingFields = requiredFields.filter((f) => !serviceContent.includes(`pub ${f}`))
 
     // 检查 RecentOperLog 结构体
-    const hasRecentOperLog = handlerContent.includes('pub struct RecentOperLog')
+    const hasRecentOperLog = serviceContent.includes('pub struct RecentOperLog')
 
     // 检查 tokio::join! 并发聚合
-    const hasTokioJoin = handlerContent.includes('tokio::join!')
+    const hasTokioJoin = serviceContent.includes('tokio::join!')
 
     // 检查 scan_keys 复用（在线用户数）
-    const hasScanKeys = handlerContent.includes('scan_keys') && handlerContent.includes('online:*')
+    const hasScanKeys = serviceContent.includes('scan') && serviceContent.includes('online:*')
 
-    const passed = missingFields.length === 0 && hasRecentOperLog && hasTokioJoin && hasScanKeys
+    // 检查 handler 仍重导出 VO（对外契约不变）
+    const handlerReExports =
+      handlerContent.includes('pub use crate::service::dashboard_service::') &&
+      handlerContent.includes('dashboard_stats')
+
+    const passed =
+      missingFields.length === 0 && hasRecentOperLog && hasTokioJoin && hasScanKeys && handlerReExports
     record(
       42,
       'U5 后端 DashboardStatsVo 扩展 8 字段 + RecentOperLog + tokio::join! 聚合',
       passed,
-      `missing=${missingFields.join(',') || 'none'}, recentLog=${hasRecentOperLog}, join=${hasTokioJoin}, scan=${hasScanKeys}`
+      `missing=${missingFields.join(',') || 'none'}, recentLog=${hasRecentOperLog}, join=${hasTokioJoin}, scan=${hasScanKeys}, reExport=${handlerReExports}`
     )
   } catch (err) {
     record(
@@ -8910,21 +8929,26 @@ async function testFeature42(page) {
 
   // ---------- 3. U14 后端 user_stats 接口 ----------
   try {
+    // B-2 重构：VO 与 30 天窗口逻辑已迁至 service
     const handlerPath = path.join(backendRoot, 'src/handler/common_handler.rs')
     const handlerContent = fs.readFileSync(handlerPath, 'utf-8')
+    const servicePath = path.join(backendRoot, 'src/service/dashboard_service.rs')
+    const serviceContent = fs.readFileSync(servicePath, 'utf-8')
 
-    // 检查 user_stats handler 存在
-    const hasUserStatsHandler = /pub async fn user_stats/.test(handlerContent)
+    // 检查 user_stats handler 存在（且委托 service）
+    const hasUserStatsHandler =
+      /pub async fn user_stats/.test(handlerContent) && handlerContent.includes('user_stats(')
 
-    // 检查 UserStatsVo 结构体包含全部字段
+    // 检查 UserStatsVo 结构体包含全部字段（定义在 service）
     const requiredFields = ['total_users', 'new_users_this_week', 'active_users', 'disabled_users', 'create_trend']
-    const missingFields = requiredFields.filter((f) => !handlerContent.includes(`pub ${f}`))
+    const missingFields = requiredFields.filter((f) => !serviceContent.includes(`pub ${f}`))
 
     // 检查 UserCreateTrendItem 结构体
-    const hasTrendItem = handlerContent.includes('pub struct UserCreateTrendItem')
+    const hasTrendItem = serviceContent.includes('pub struct UserCreateTrendItem')
 
     // 检查 30 天时间窗口
-    const has30Days = handlerContent.includes('Duration::days(29)') || handlerContent.includes('Duration::days(30)')
+    const has30Days =
+      serviceContent.includes('Duration::days(29)') || serviceContent.includes('Duration::days(30)')
 
     const passed = hasUserStatsHandler && missingFields.length === 0 && hasTrendItem && has30Days
     record(
@@ -11691,6 +11715,8 @@ async function testFeature53(page) {
   // (5) 前端错误日志·清空取消（数据面板页，无表格行依赖，单独走确认框链）
   if (await openPage('/monitor/frontendError', false)) {
     const cleanBtn = page.locator('button:has-text("清空")').first()
+    // 长跑后期 chunk 加载慢——显式 waitFor 消除竞态（固定 1500ms 会漂移假失败）
+    await cleanBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
     const visible = await cleanBtn.isVisible({ timeout: 1500 }).catch(() => false)
     record(53, '前端错误页清空按钮可见', visible)
     if (visible) await cancelChain(cleanBtn, '清空(frontendError)')
@@ -11726,6 +11752,12 @@ async function testFeature54(page) {
       const is404 = await is404Page(page)
       record(54, `${path} 页加载`, !is404)
       if (is404) continue
+      // 异步路由 chunk 加载慢——等首个页签挂载再断言（固定 1500ms 长跑下会 tabs=0 假失败）
+      await page
+        .locator('.el-tabs__item')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 })
+        .catch(() => {})
       const tabs = await page.locator('.el-tabs__item').all()
       record(54, `${path} 存在可切换页签`, tabs.length >= 2, `tabs=${tabs.length}`)
       for (let i = 0; i < tabs.length; i++) {
@@ -12311,6 +12343,8 @@ async function testFeature59(page) {
   await sleep(1200)
   await skipTour(page)
   const langIcon = page.locator('.lang-icon--style').first()
+  // 首屏元素在长跑下可能晚于固定 sleep 出现——显式 waitFor 消除竞态（避免漂移假失败）
+  await langIcon.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const iconOk = await langIcon.isVisible({ timeout: 4000 }).catch(() => false)
   record(59, '导航栏语言入口可见', iconOk)
   if (!iconOk) return
@@ -12501,6 +12535,8 @@ async function testFeature60(page) {
   await sleep(1500)
   await skipTour(page)
   const mBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
+  // 首屏按钮可能晚于固定 sleep 出现——显式 waitFor 消除长跑竞态
+  await mBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const btnOk = await mBtn.isVisible({ timeout: 3000 }).catch(() => false)
   record(60, '菜单页展开/折叠按钮可见', btnOk)
   if (btnOk) {
@@ -12527,6 +12563,7 @@ async function testFeature60(page) {
   await sleep(1500)
   await skipTour(page)
   const dBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
+  await dBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const dOk = await dBtn.isVisible({ timeout: 3000 }).catch(() => false)
   record(60, '部门页展开/折叠按钮可见', dOk)
   if (dOk) {
@@ -12743,6 +12780,8 @@ async function testFeature61(page) {
   if (dOk) {
     await dsBtn.click()
     const ddlg = page.locator('.el-dialog:visible').last()
+    // 对话框为异步挂载——先 waitFor 再断言（固定 timeout 在长跑下会漂移假失败）
+    await ddlg.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
     const ddOk = await ddlg.isVisible({ timeout: 4000 }).catch(() => false)
     record(61, '数据权限对话框打开', ddOk)
     if (ddOk) {
@@ -13443,9 +13482,13 @@ async function testFeature67(page) {
   await page.goto(`${CONFIG.frontendUrl}/user/profile`, { waitUntil: 'load' })
   await sleep(1500)
   await skipTour(page)
+  // 等待 profile 响应到达（上限 8s）再注销监听——固定 sleep 会在慢响应下漏采 status（status=null 假失败）
+  for (let i = 0; i < 40 && profileGetStatus === null; i++) await sleep(200)
   page.off('response', respGet)
 
   const nickInput = page.locator('.el-form-item:has-text("用户昵称") input').first()
+  // 表单异步渲染——显式 waitFor（固定 1500ms 长跑下会 nickVisible=false 假失败）
+  await nickInput.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const nickVisible = await nickInput.isVisible().catch(() => false)
   const nickPrefill = nickVisible ? await nickInput.inputValue().catch(() => '') : ''
   const base = await getProfile()
@@ -17352,9 +17395,11 @@ async function testFeature83(page) {
 async function testFeature84(page) {
   log('=== 功能 84：列显隐偏好持久化（定时任务页 useTableColumns + user-prefs） ===')
   // 1. 导航到定时任务页（路由 /monitor/task，同 feature 6 先例；组件 src/views/system/task/index.vue）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' }).catch(() => log('  ⚠️ networkidle 等待超时，降级继续'))
+  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' }).catch(() => log('  ⚠️ load 等待超时，降级继续'))
   await sleep(2000)
   await skipTour(page)
+  // 表格异步挂载——显式 waitFor 消除长跑竞态（固定 2000ms+5s 可见性仍会漂移失败）
+  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const tableVisible = await page.locator('.el-table').first().isVisible({ timeout: 5000 }).catch(() => false)
   record(84, 'A1 定时任务页加载且 el-table 渲染', tableVisible, `url=${page.url()}`)
   if (!tableVisible) return

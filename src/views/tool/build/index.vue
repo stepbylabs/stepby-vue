@@ -193,23 +193,24 @@ import { ElNotification } from 'element-plus'
 import DraggableItem from './DraggableItem.vue'
 import RightPanel from './RightPanel.vue'
 import CodeTypeDialog from './CodeTypeDialog.vue'
+import type { BuildFormConf, BuildNodeData } from './types'
 
 initDrawingDefaultValue()
 
-const drawingList = ref<any[]>(drawingDefaultValue)
+const drawingList = ref<BuildNodeData[]>(drawingDefaultValue)
 const dialogVisible = ref<boolean>(false)
 const showFileName = ref<boolean>(false)
 const operationType = ref<string>('')
 const idGlobal = ref<number>(100)
-const activeData = ref<any>(drawingDefaultValue[0])
+const activeData = ref<BuildNodeData>(drawingDefaultValue[0])
 const activeId = ref<number>(drawingDefaultValue[0].formId)
 const generateConf = ref<any | null>(null)
 const formData = ref<FormData>({} as FormData)
-const formConf = ref<any>(formConfData)
+const formConf = ref<BuildFormConf>(formConfData)
 let oldActiveId: number | undefined
-let tempActiveData: any = undefined
+let tempActiveData: BuildNodeData | undefined = undefined
 
-function activeFormItem(element: any): void {
+function activeFormItem(element: BuildNodeData): void {
   activeData.value = element
   activeId.value = element.formId
 }

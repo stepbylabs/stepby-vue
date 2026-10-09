@@ -625,14 +625,15 @@ import {
 } from './rightPanelOptions'
 import { inputComponents, selectComponents } from '@/utils/generator/config'
 import { useTreeNode } from './useTreeNode'
+import type { BuildFormConf, BuildNodeData } from './types'
 
 const { t } = useI18n()
 const idGlobal = defineModel<number>('idGlobal', { default: 100 })
 const dateTimeFormat = createDateTimeFormat((key) => t(key))
 const props = defineProps<{
   showField: boolean
-  activeData: any
-  formConf: any
+  activeData: BuildNodeData
+  formConf: BuildFormConf
 }>()
 
 const data = reactive({
