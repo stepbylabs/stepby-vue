@@ -338,6 +338,7 @@ import {
   toggleOauthProvider
 } from '@/api/oauth'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import useUserStore from '@/store/modules/user'
 
@@ -441,6 +442,9 @@ const {
   formRef,
   queryRef
 })
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 新增：标记为新增模式（clientSecret 必填），打开弹窗 */
 function handleAdd(): void {

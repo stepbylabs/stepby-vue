@@ -465,6 +465,7 @@ import {
 } from '@/api/system/webHook'
 import type { SysWebHook, DeliveryResult, WebhookEventVo, WebhookEventQueryParams } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
 import { useRouter } from 'vue-router'
@@ -667,6 +668,9 @@ const {
   formRef,
   queryRef
 })
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 表单内订阅事件目录键（数组；空 = 订阅全部）。
 // 方案 C：旧 eventTypes 表单数组已随输入框移除，订阅只经新字段提交

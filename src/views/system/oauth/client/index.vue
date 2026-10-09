@@ -356,6 +356,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import type { SsoClient, SsoClientForm, SsoClientQueryParams } from '@/types'
 import { listSsoClients, getSsoClient, addSsoClient, updateSsoClient, delSsoClient, toggleSsoClient, rotateSsoClientSecret, clearSsoClientPrevSecret } from '@/api/sso'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -444,6 +445,9 @@ const {
   formRef,
   queryRef
 })
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 function scopesOf(row: SsoClient): string[] {
   return row.scopes || []

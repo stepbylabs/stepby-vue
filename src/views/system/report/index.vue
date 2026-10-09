@@ -498,6 +498,7 @@ import {
 } from '@/api/system/report'
 import type { SysReport, SysReportSub, ReportSnapshot } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import type { FormRules } from 'element-plus'
 
@@ -594,6 +595,9 @@ const {
   formRef: reportRefRef,
   queryRef: queryRefRef
 })
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 状态切换
 function handleStatusChange(row: SysReport) {
