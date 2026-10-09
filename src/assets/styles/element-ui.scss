@@ -1,5 +1,17 @@
 // cover some element-ui styles
 
+/* [收尾十三] secondary 对比度修复（视觉架构师定稿 #6f7279）：白底 4.82:1、卡片头 4.49:1 双达 WCAG AA；
+   暗色已 7.56:1 达标，显式钉住 #a3a6ad 阻断继承泄漏。
+   位置说明：本文件经 index.scss 在 EP 默认变量（main.ts 引入的 dark/css-vars.css 与按需组件样式）之后加载，
+   暗色作用域对齐项目 useDark 挂载方式 html.dark（见 index.scss L33、variables.module.scss L79）。 */
+:root,
+html.light {
+  --el-text-color-secondary: #6f7279;
+}
+html.dark {
+  --el-text-color-secondary: #a3a6ad;
+}
+
 .el-breadcrumb__inner,
 .el-breadcrumb__inner a {
   font-weight: 400 !important;

@@ -308,6 +308,7 @@ import {
   invalidateConfigCache
 } from '@/api/system/config'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { addDateRange } from '@/utils/stepby'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
@@ -417,6 +418,10 @@ const {
     refreshCache().catch(() => {})
   }
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** E-04 治理表单状态：switch 与 scope 联动（platform_only 强制 '0'/'0'）+ 变更快照（二次确认） */
 const tenantEditableOn = ref<'0' | '1'>('0')

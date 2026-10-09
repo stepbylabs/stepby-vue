@@ -20,7 +20,10 @@
               filterable
               class="gen-preview-select"
             >
-              <el-option v-for="file in fileList" :key="file.path" :value="file.path" :label="file.name" />
+              <!-- 体验阶段 gen 方案首步：文件下拉按五组分组（后端 Java / 前端 Vue / SQL / XML / 其他） -->
+              <el-option-group v-for="group in groupedFiles" :key="group.label" :label="group.label">
+                <el-option v-for="file in group.files" :key="file.path" :value="file.path" :label="file.name" />
+              </el-option-group>
             </el-select>
             <el-tag type="info" effect="plain">{{ activeLanguage }}</el-tag>
           </div>
@@ -35,8 +38,13 @@
             {{ t('common.copy') }}
           </el-button>
         </div>
+        <!-- 行号列自实现（prismjs line-numbers 插件在按需引入链下不可用，不引新依赖）：
+             flex 两列，行号列与代码列同字号/同行高逐行对齐 -->
         <pre class="gen-preview-code" :class="`language-${activeLanguage}`">
-          <code :class="`language-${activeLanguage}`" v-html="highlightedCode"></code>
+          <span class="gen-preview-gutter" aria-hidden="true">
+            <span v-for="n in lineCount" :key="n" class="gen-preview-line-no">{{ n }}</span>
+          </span>
+          <code class="gen-preview-source" :class="`language-${activeLanguage}`" v-html="highlightedCode"></code>
         </pre>
       </template>
       <el-empty v-else :description="t('gen.preview.empty')" />
@@ -136,6 +144,36 @@ const activeLanguage = computed(
   () => fileList.value.find((f: GenPreviewFile) => f.path === activeFile.value)?.language ?? 'plaintext'
 )
 
+/** 行号列行数：按换行拆分，与代码列 line-height 一致逐行对齐 */
+const lineCount = computed(() => activeContent.value.split('\n').length)
+
+/** 文件下拉五组分组（体验阶段 gen 方案首步）：按路径后缀与目录关键词归类 */
+const FILE_GROUP_LABELS = ['后端 Java', '前端 Vue', 'SQL', 'XML', '其他'] as const
+
+function fileGroup(path: string): (typeof FILE_GROUP_LABELS)[number] {
+  const bare = path.replace(/\.vm$/i, '')
+  const ext = (bare.split('.').pop() || '').toLowerCase()
+  if (ext === 'java' || /(^|\/)(pojo|domain|entity)(\/|$)/i.test(bare)) return '后端 Java'
+  if (ext === 'vue') return '前端 Vue'
+  if (ext === 'sql') return 'SQL'
+  if (ext === 'xml' && /mapper\.xml$/i.test(bare)) return 'XML'
+  return '其他'
+}
+
+const groupedFiles = computed(() => {
+  const buckets = new Map<string, GenPreviewFile[]>()
+  for (const f of fileList.value) {
+    const group = fileGroup(f.path)
+    const bucket = buckets.get(group)
+    if (bucket) bucket.push(f)
+    else buckets.set(group, [f])
+  }
+  return FILE_GROUP_LABELS.filter((label) => buckets.has(label)).map((label) => ({
+    label,
+    files: buckets.get(label)!
+  }))
+})
+
 /** 按已返回的代码手动高亮（避免在组合式 setup 中重复调用 Prism.highlightAll） */
 const highlightedCode = computed(() => {
   const code = activeContent.value
@@ -179,13 +217,40 @@ defineExpose({ openPreview })
   max-width: 100%;
 }
 
+/* 行号列 + 代码列 flex 两列布局：
+   纵向滚动由 pre 统一承担（两列同步滚动，保证逐行对齐）；
+   横向滚动由代码列自担（向右滚动时行号保持可见）。 */
 .gen-preview-code {
+  display: flex;
+  align-items: flex-start;
   margin: 0;
-  padding: 12px 16px;
+  padding: 12px 0;
   border-radius: 6px;
   max-height: 60vh;
   overflow: auto;
   font-size: 13px;
   line-height: 1.6;
+
+  .gen-preview-gutter {
+    flex-shrink: 0;
+    padding: 0 12px;
+    text-align: right;
+    user-select: none;
+    opacity: 0.6;
+    border-right: 1px solid var(--el-border-color-lighter);
+  }
+
+  .gen-preview-line-no {
+    display: block;
+  }
+
+  .gen-preview-source {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 16px;
+    white-space: pre;
+    overflow-x: auto;
+  }
 }
 </style>

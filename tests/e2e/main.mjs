@@ -388,10 +388,13 @@ async function logout(page) {
 
 // 跳过 Tour 引导（如果出现）
 async function skipTour(page) {
+  // 收尾十三：等待窗口 1000→2500ms——tour 在页面数据渲染完成后延迟弹出
+  // （local 档列表加载更快使 tour 相对 skipTour 的时序漂移， operlog 页 1/4 步遮罩
+  //  拦截后续点击实证），原 1s 窗口会漏掉晚到的 tour
   const skipBtn = page
     .locator('button:has-text("跳过"), button:has-text("跳过引导"), [class*="tour"] button:has-text("跳")')
     .first()
-  if (await skipBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (await skipBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
     await skipBtn.click({ timeout: 3000 }).catch(() => {})
     await sleep(500)
   }
@@ -665,6 +668,9 @@ async function testFeature4(page) {
 
 async function testFeature5(page) {
   log('=== 功能 5：数据导出字段选择 ===')
+  // 收尾十三：段首清残留遮罩/Toast——前置备份用例的确认框/成功 Toast 在 local 档
+  // 时序下可能横跨到本段（备份成功 Toast 残留遮挡点击，本轮"弹窗未渲染"实证）
+  await dismissAllOverlays(page)
   // operlog 菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog（API 仍为 /monitor/operlog）
   await page.goto(`${CONFIG.frontendUrl}/system/log/operlog`, { waitUntil: 'load' })
   await sleep(2000)
@@ -753,9 +759,33 @@ async function testFeature5(page) {
     const hasVerifyBtn = await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(5, '链校验按钮存在', hasVerifyBtn)
     if (hasVerifyBtn) {
-      await verifyBtn.click({ timeout: 3000 }).catch(() => {})
+      // 收尾十三：点击失败不再静默吞——elementFromPoint 输出拦截者（探针已证
+      // 干净环境下 29ms 可点，e2e 前置段状态导致 actionability 失败需可见化）
+      try {
+        await verifyBtn.click({ timeout: 3000 })
+      } catch (e) {
+        const box = await verifyBtn.boundingBox().catch(() => null)
+        const blocker = box
+          ? await page
+              .evaluate(({ x, y }) => {
+                const el = document.elementFromPoint(x, y)
+                return el ? `${el.tagName}.${String(el.className).slice(0, 80)} text=${(el.textContent || '').slice(0, 40)}` : 'null'
+              }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
+              .catch(() => 'diag-fail')
+          : 'no-box'
+        log(`  🔍 链校验按钮点击失败拦截者: ${blocker}`)
+      }
       const verifyDialog = page.locator('.el-dialog:visible', { hasText: '链完整性校验' }).first()
-      const verifyShown = await visibleWithRetry(verifyDialog)
+      // 链数据 7 天窗稳态前持续增长（12149 行实测 2.3-8s 波动），等待窗口 6s→15s。
+      // 韧性：e2e 多段累积状态（tour 时序/标签堆叠）下首次点击偶发被吞（探针单流程
+      // 37ms+2052ms 全通，纯环境噪声）——未渲染时清浮层并重点击一轮
+      let verifyShown = await visibleWithRetry(verifyDialog, 15000)
+      if (!verifyShown) {
+        await dismissAllOverlays(page)
+        await sleep(500)
+        await verifyBtn.click({ timeout: 3000 }).catch(() => {})
+        verifyShown = await visibleWithRetry(verifyDialog, 15000)
+      }
       const verifyValid = verifyShown && (await verifyDialog.locator('text=链完整，未被篡改').first().isVisible({ timeout: 1500 }).catch(() => false))
       const verifyBroken = verifyShown && (await verifyDialog.locator('text=检测到链断裂').first().isVisible({ timeout: 800 }).catch(() => false))
       record(5, '链校验弹窗（valid/broken 结果展示）', verifyValid || verifyBroken, verifyValid ? 'valid' : verifyBroken ? 'broken' : '未渲染')
@@ -773,7 +803,7 @@ async function testFeature5(page) {
     if (hasCompBtn) {
       await compBtn.click({ timeout: 3000 }).catch(() => {})
       const compDialog = page.locator('.el-dialog:visible', { hasText: '审计合规报告' }).first()
-      const compShown = await visibleWithRetry(compDialog, 5000)
+      const compShown = await visibleWithRetry(compDialog, 15000)
       const compData = compShown && (await visibleWithRetry(compDialog.locator('text=操作总数').first(), 2000))
       record(5, '合规报告弹窗（数据展示）', compData)
       await screenshot(page, 'feat5_compliance_report')
@@ -788,7 +818,7 @@ async function testFeature5(page) {
     if (hasArchBtn) {
       await archBtn.click({ timeout: 3000 }).catch(() => {})
       const archDialog = page.locator('.el-dialog:visible', { hasText: '清理锚点' }).first()
-      const archShown = await visibleWithRetry(archDialog, 5000)
+      const archShown = await visibleWithRetry(archDialog, 15000)
       const archTable = archShown && (await visibleWithRetry(archDialog.locator('text=清理区间').first(), 2000))
       record(5, '归档锚点对话框（列表结构）', archTable)
       await screenshot(page, 'feat5_archive_anchors')
@@ -11280,9 +11310,18 @@ async function testFeature51(page) {
 
 // ==================== 功能 52：用户管理全 UI 增删改链 + 导出物证（页面级循环·轮2） ====================
 
-/** 关闭可能仍打开的浮层（对话框/抽屉/确认框），避免残留遮挡后续点击 */
+/** 关闭可能仍打开的浮层（对话框/抽屉/确认框/引导 tour），避免残留遮挡后续点击 */
 async function dismissAllOverlays(page) {
   for (let i = 0; i < 3; i++) {
+    // 收尾十三：引导 tour（1/4 步遮罩）不在 el-dialog/message-box 体系内——
+    // 点「跳过引导」终止（探针实证 tour 遮罩拦截按钮点击）
+    const tourSkip = page
+      .locator('button:has-text("跳过引导"), [class*="tour"] button:has-text("跳")')
+      .first()
+    if (await tourSkip.isVisible({ timeout: 300 }).catch(() => false)) {
+      await tourSkip.click({ timeout: 2000 }).catch(() => {})
+      await sleep(400)
+    }
     const open = await page.locator('.el-dialog:visible, .el-drawer:visible, .el-message-box:visible').count()
     if (!open) return
     await page.keyboard.press('Escape')
@@ -13298,7 +13337,9 @@ async function testFeature66(page) {
     const opts = page.locator('.el-select-dropdown__item:visible')
     const optCount = await opts.count()
     record(66, '文件下拉列出 ≥8 个模板文件', optCount >= 8, `opts=${optCount}`)
-    await opts.nth(1).click() // 排序后第 2 个：src/api/system/sys_notice.ts
+    // 收尾十三修正：文件下拉已升级为 el-option-group 五组分组（组内重排），nth(1) 会
+    // 选中非预期文件（本轮 tag=markup 实证）——按文件名文本精确定位
+    await opts.filter({ hasText: 'sys_notice.ts' }).first().click()
     await sleep(800)
     const langTag1 = (
       await dlg

@@ -280,6 +280,7 @@ import ReadUsersDialog from './ReadUsers.vue'
 import { listNotice, getNotice, delNotice, addNotice, updateNotice } from '@/api/system/notice'
 import type { SysNotice, NoticeQueryParams } from '@/types/api/system/notice'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import useNoticeStore from '@/store/modules/notice'
 
 const { t } = useI18n()
@@ -372,6 +373,10 @@ const {
     noticeStore.refreshTopNotices().catch(() => {})
   }
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 查看公告详情 */
 function handleViewData(row: SysNotice) {

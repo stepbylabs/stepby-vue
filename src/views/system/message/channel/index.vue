@@ -259,6 +259,7 @@
 import { listChannel, getChannel, delChannel, addChannel, updateChannel, testChannel } from '@/api/system/msg'
 import type { SysMsgChannel, ChannelQueryParams } from '@/types/api/system/msg'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -347,6 +348,10 @@ const {
     return withClear
   }
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 每次打开弹窗重置「清空配置」勾选，避免上一轮的选择残留导致误清
 watch(open, (visible: boolean) => {

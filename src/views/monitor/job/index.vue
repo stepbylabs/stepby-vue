@@ -290,6 +290,7 @@ import dayjs from 'dayjs'
 import { nextFireTimes } from '@/utils/cronPreview'
 import { listJob, getJob, delJob, addJob, updateJob, runJob, changeJobStatus } from '@/api/monitor/job'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import type { JobQueryParams, SysJob } from '@/types/api/monitor/job'
 
@@ -365,6 +366,10 @@ const {
   formRef: jobRef,
   queryRef: queryRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 任务状态修改
 function handleStatusChange(row: SysJob) {

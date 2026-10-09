@@ -451,6 +451,7 @@ import { addDateRange } from '@/utils/stepby'
 import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import useSettingsStore from '@/store/modules/settings'
 import { useTableColumns } from '@/composables/useTableColumns'
 import type { TableColumnDef } from '@/utils/userPrefs'
@@ -607,6 +608,10 @@ const {
   formRef,
   queryRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 重置按钮操作（审计 2.5 修复：重置后必须刷新列表）
  * 清除日期范围、重置排序参数并重新触发查询；与原始行为一致（重置后重新应用默认排序）。

@@ -425,6 +425,7 @@ import type { TreeInstance } from 'element-plus'
 import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 
@@ -558,6 +559,10 @@ const {
   formRef: roleRefRef,
   queryRef: queryRefRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 重置按钮操作 - 覆盖以清空 dateRange */
 function resetQuery() {
