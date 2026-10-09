@@ -11382,12 +11382,32 @@ async function testFeature52(page) {
       formErr: document.querySelectorAll('.el-form-item.is-error').length
     }))
   const searchBy = async (name) => {
+    // ⚠️ 必须等「URL 已带本次搜索参数」的响应：仅匹配 `/system/user/list` 会被
+    //    点击前在途的旧响应"提前满足"→ 断言到旧快照（诊断实证：后端 total=1 但 DOM 尚未更新）
+    const respPromise = page
+      .waitForResponse(
+        (r) => r.url().includes('/system/user/list') && r.url().includes(`userName=${name}`) && r.status() === 200,
+        { timeout: 15000 }
+      )
+      .catch(() => null)
     await page.locator('input[placeholder="请输入用户名称"]').first().fill(name)
     await page.locator('button:has-text("搜索")').first().click()
+    await respPromise
+    // ⚠️ 根因（批次二十五实测定性）：输入/搜索触发页面 `syncUrlQuery()→router.replace({query})`，
+    //    Vue Router 对该路由执行「卸载→重挂」——中间存在**表格短暂消失的空白窗口**（诊断实证：
+    //    点击后 el-table 计数时序 1→1→1→(sleep后)0→(更晚)1 的闪变）。断言若落在窗口内即误判 rows=0。
+    //    故必须等目标行真正出现（而非固定 sleep）：先等表格体至少一行可见，再等含目标文本的行可见。
     await page
-      .waitForResponse((r) => r.url().includes('/system/user/list') && r.status() === 200, { timeout: 10000 })
-      .catch(() => null)
-    await sleep(700)
+      .locator('.el-table__body-wrapper tbody tr')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
+    await page
+      .locator('.el-table__body-wrapper tbody tr')
+      .filter({ hasText: name })
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
   }
   // 提交并等待：对话框关闭 + Toast 落定（成功类消息自动消失前的窗口内计数）
   const submitDialog = async () => {
@@ -11446,8 +11466,8 @@ async function testFeature52(page) {
   // 循环轮 7 修复：与编辑后断言同源的时序竞态——新增 PUT 200 后首搜可能命中旧快照。
   // 2026-10-04 R9 增强：重查扩到 4 次（对齐编辑断言；R9 实测 1.2s 单次重查在高负载下仍命中旧快照）
   let rowAfterAdd = await rowsOf(uname).count()
-  for (let attempt = 0; attempt < 4 && rowAfterAdd === 0; attempt++) {
-    await sleep(1500)
+  for (let attempt = 0; attempt < 6 && rowAfterAdd === 0; attempt++) {
+    await sleep(2000)
     await searchBy(uname)
     rowAfterAdd = await rowsOf(uname).count()
   }
@@ -11486,8 +11506,8 @@ async function testFeature52(page) {
     // （此前 detail 只打期望值，无法区分"列表未刷新"与"昵称列渲染差异"）。
     let showsNew = (await rowsOf(nick2).count()) === 1
     let rowDump = ''
-    for (let attempt = 0; attempt < 4 && !showsNew; attempt++) {
-      await sleep(1500)
+    for (let attempt = 0; attempt < 6 && !showsNew; attempt++) {
+      await sleep(2000)
       await searchBy(uname)
       showsNew = (await rowsOf(nick2).count()) === 1
     }
@@ -11509,8 +11529,8 @@ async function testFeature52(page) {
   // 曾致行匹配 0 → 删除按钮"不可见"连锁 3 断言失败）。改用 uname 搜索行
   // （与昵称渲染无关），先确认行在页上再取行内删除按钮。
   let delRowReady = false
-  for (let attempt = 0; attempt < 3 && !delRowReady; attempt++) {
-    await sleep(1200)
+  for (let attempt = 0; attempt < 6 && !delRowReady; attempt++) {
+    await sleep(2000)
     await searchBy(uname)
     delRowReady = (await rowsOf(uname).count()) === 1
   }
@@ -12976,7 +12996,13 @@ async function testFeature62(page) {
     `path=${onAuth}, 404=${is404}, table=${tableOk}`
   )
   await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
-  await sleep(1200)
+  // 同一类竞态（见功能52 searchBy 注释）：goto 后 SPA 路由/组件重建存在空白窗口，
+  // 固定 sleep 易抓在窗口内 → 误判 rows=0。改为等首行真正出现。
+  await page
+    .locator('.el-table .el-table__body-wrapper .el-table__row')
+    .first()
+    .waitFor({ state: 'visible', timeout: 12000 })
+    .catch(() => {})
   const backRows = await page.locator('.el-table .el-table__body-wrapper .el-table__row').count()
   record(62, '返回用户列表正常', backRows > 0, `rows=${backRows}`)
   await cleanup()
@@ -16319,16 +16345,22 @@ async function testFeature75(page) {
 
     // 看板卡片（W-10）：数量来自 pending-count，卡片标题双语匹配
     await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' }).catch(() => {})
-    await sleep(2500)
+    // 先等看板容器渲染（任一 widget-card 可见），再对目标卡片显式 waitFor——
+    // 卡片数量来自异步 pending-count，固定 sleep 在长跑下会与懒加载 chunk 竞态（全量漂移实证）。
+    await page
+      .locator('.widget-card')
+      .first()
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .catch(() => {})
     // ⚠️ 不可写 `text=A, text=B`：text 引擎会把逗号后整串当字面文本 → 恒 0 匹配（已实测）。
     //    多语言并列必须用 CSS 列表 + :has-text()。
-    const cardTitle = await page
+    const cardLocator = page
       .locator(
         '.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")'
       )
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false)
+    await cardLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+    const cardTitle = await cardLocator.isVisible({ timeout: 5000 }).catch(() => false)
     record(75, 'G4 看板出现「我的待办」卡片', cardTitle, `visible=${cardTitle}`)
 
     // ---------- H. 移动端（W-17）：小屏取消操作列固定 ----------
@@ -18367,7 +18399,9 @@ async function testFeature95(page) {
     return
   }
   const sbHeaders = { Authorization: `Bearer ${sbToken}` }
-  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders })
+  // ⚠️ pageSize 用 100（后端 clamp 上限）：待办可能被前序用例残留数据占据首页，
+  //    取 50 会漏掉本次刚提交的单据（实证：积压 50 条 e2e 动作收窄单 → t1 找不到 → 链失败）。
+  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, { headers: sbHeaders })
     .then((r) => r.json())
   const t1 = (todo.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.title === 'e2e 图驱动单据（长链）')
   let chainOk = false
@@ -18476,6 +18510,21 @@ async function testFeature96(page) {
     body: JSON.stringify({ action: 'countersign_add', toUserId: 2 })
   })
   record(96, '勾选 countersign_add 非 403（白名单放行到业务校验）', csAdd.status !== 403)
+
+  // 批次二十五：办结本单据（days=1 默认边为单节点，approve 一次即办结），
+  // 防止待办长期积压淹没后续「我的待办」查询（实测积压 50 条致功能 95 链失败）。
+  try {
+    // 加签可能已改变节点形态——重新取该单据当前待办再办结（best-effort）
+    const todoNow = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, { headers: sbHeaders }).then((r) => r.json())
+    const tn = (todoNow.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.bizId === docId)
+    if (tn) {
+      await fetch(`${CONFIG.backendUrl}/system/flow/task/${tn.taskId}/action`, {
+        method: 'POST',
+        headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', comment: 'e2e 清理办结' })
+      }).catch(() => {})
+    }
+  } catch { /* best-effort 办结 */ }
 
   // 批次十八：自清理测试流程（best-effort）
   try {
