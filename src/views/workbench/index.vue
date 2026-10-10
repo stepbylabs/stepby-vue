@@ -267,7 +267,7 @@
 <script setup lang="ts" name="Workbench">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Calendar,
@@ -287,6 +287,7 @@ import {
   Edit
 } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
+import useLockStore from '@/store/modules/lock'
 import { useMenuFavorites } from '@/composables/useMenuFavorites'
 import { useRecentViews } from '@/composables/useRecentViews'
 import { translateTitle } from '@/composables/useMenuTitle'
@@ -298,6 +299,7 @@ import type { SysNotice } from '@/types'
 
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 const fav = useMenuFavorites()
 const recent = useRecentViews()
@@ -364,6 +366,11 @@ function formatRelativeTime(ts: number): string {
 }
 
 function goTo(path: string): void {
+  // 锁屏快捷入口特殊处理：守卫在未锁定态会拒绝 /lock（permission.ts P0-62 防绕过），
+  // 必须先置锁定态再跳转（对齐 Navbar.lockScreen 范式），否则点击后立即被弹回 /index（死入口）
+  if (path === '/lock') {
+    useLockStore().lockScreen(route.fullPath)
+  }
   router.push(path).catch(() => {})
 }
 

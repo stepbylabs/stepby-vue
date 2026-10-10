@@ -245,24 +245,31 @@ function resetQuery() {
 
 async function openEdit(row: ScimGroupAdminRow) {
   editRow.value = row
-  const res = await getScimGroup(row.groupId)
-  detail.value = res.data ?? null
-  editForm.mappingType = detail.value?.mappingType ?? 'role'
-  editForm.bindingTargetIds = [...(detail.value?.bindingTargetIds ?? [])]
-  // 并行加载角色 / 部门候选
-  if (roleOptions.value.length === 0) {
-    // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-    const r = await listRole({ pageNum: 1, pageSize: 500 })
-    roleOptions.value = r.rows
-    if (import.meta.env.DEV && r.rows.length >= 500) {
-      console.warn('[scimGroup] 角色下拉拉取达到 pageSize=500 上限，可能存在截断')
+  try {
+    const res = await getScimGroup(row.groupId)
+    detail.value = res.data ?? null
+    editForm.mappingType = detail.value?.mappingType ?? 'role'
+    editForm.bindingTargetIds = [...(detail.value?.bindingTargetIds ?? [])]
+    // 并行加载角色 / 部门候选
+    if (roleOptions.value.length === 0) {
+      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
+      const r = await listRole({ pageNum: 1, pageSize: 500 })
+      roleOptions.value = r.rows
+      if (import.meta.env.DEV && r.rows.length >= 500) {
+        console.warn('[scimGroup] 角色下拉拉取达到 pageSize=500 上限，可能存在截断')
+      }
     }
+    if (deptOptions.value.length === 0) {
+      const dRes = await listDept()
+      deptOptions.value = flattenDepts(dRes.data ?? [])
+    }
+    // 全部数据就绪才打开抽屉：避免半开状态（缺下拉选项/成员列表）
+    editVisible.value = true
+  } catch {
+    // 接口均走 request 封装，响应拦截器已统一弹错，此处不再重复提示；
+    // 仅清理行引用，保证失败后抽屉不打开（editVisible 仅在成功路径置 true）
+    editRow.value = null
   }
-  if (deptOptions.value.length === 0) {
-    const dRes = await listDept()
-    deptOptions.value = flattenDepts(dRes.data ?? [])
-  }
-  editVisible.value = true
 }
 
 /** 部门树平铺（绑定选择用简单多选） */
