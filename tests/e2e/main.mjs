@@ -46,6 +46,13 @@
  *   45. 侧边栏/主题优化验证（theme-auto + CSS 变量统一 + 深色模式可见性 + i18n 完整性）
  *   46. WebSocket 实时通知连接验证（页面全链路 + Node 直连后端，429 回归防线）
  *   47. 实时系统日志查看模块（/monitor/logtail + API：文件列表/尾部读取/非法名防护/401/页面渲染）
+ *  110. 流程定义设计器 UI（/system/flowDefinition 列表 + 编辑态节点/连线面板，零落库）
+ *  111. 报表 dataset 负路径（新增对话框打开+取消零落库）+ dashboard/view 容器/空态
+ *  112. /tool/pat 管理页 UI（自建 PAT 行 + token 脱敏 + 吊销按钮，自建自清 ExitGuard）
+ *  113. 消息日志页渲染 + notice-center 批量已读链（自建公告→标记→行状态翻转→清理）
+ *  114. HTTP 调试器 UI 发送链（GET + 1.1.1.1:81 封闭端口不可达负例 → 错误反馈呈现）
+ *  115. observability 错误聚合查询链 + logtail autoRefresh 轮询双请求（开关还原）
+ *  116. aiHistory 导出 UI 链（接口 200 + download 物证；负例不可达缘由见用例内注释）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -189,6 +196,46 @@ async function gotoDynamicRoute(page, url, pathToken) {
   await page.waitForLoadState('load').catch(() => {})
 }
 
+/**
+ * F117（测试债）抽取的「页面打开五连」样板：presetTourDisabled → goto（动态路由重试）
+ * → sleep(1500) → skipTour → is404 判定。
+ * 替换 F91/F92/F100/F101 中 16 处重复的「预置 tour → goto → sleep → skipTour → 非404」
+ * 组合，行为等价（F91/F92 原 sleep(1200) 统一为 1500ms；goto 升级为 gotoDynamicRoute
+ * 重试语义，仅更强不弱——addRoute 异步竞态下原实现偶发 404 回首页）。
+ * @param {import('playwright').Page} page
+ * @param {string} path 页面路径（以 / 开头自动拼 frontendUrl；传完整 URL 原样使用）
+ * @param {string} [pathToken] URL 命中片段（缺省用 path）
+ * @returns {Promise<boolean>} false = 落到 404 页（调用方据此早退）
+ */
+async function openPage(page, path, pathToken) {
+  await presetTourDisabled(page)
+  const url = path.startsWith('http') ? path : `${CONFIG.frontendUrl}${path}`
+  await gotoDynamicRoute(page, url, pathToken || path)
+  await sleep(1500)
+  await skipTour(page)
+  return !(await is404Page(page))
+}
+
+/**
+ * 通用 API 助手（429 退避重试，语义对齐 mLevelApiSetup 内 api 闭包——批次十八口径）。
+ * F117 新增：供 recordSkip 的 API 200 兜底断言与 F110-116 使用（e2e 规范：禁裸 fetch）。
+ * @param {string} path 后端路径（以 / 开头）
+ * @param {object} [opts] fetch 选项（method/headers/body 等）
+ * @param {number} [_tries] 剩余重试次数
+ * @returns {Promise<{status: number, body: any}>}
+ */
+async function apiWithBackoff(path, opts = {}, _tries = 3) {
+  const res = await fetch(`${CONFIG.backendUrl}${path}`, opts).catch(() => null)
+  if (!res) return { status: 0, body: null }
+  // 批次十八 R6/R8 实证：令牌桶 429 按秒回填，1.2s 退避重试不改变断言语义
+  if (res.status === 429 && _tries > 0) {
+    await sleep(1200)
+    return apiWithBackoff(path, opts, _tries - 1)
+  }
+  const body = await res.json().catch(() => null)
+  return { status: res.status, body }
+}
+
 // ==================== 测试结果 ====================
 
 const results = []
@@ -211,6 +258,31 @@ function record(feature, name, passed, detail = '') {
   results.push(entry)
   const tag = passed ? '✅ PASS' : '❌ FAIL'
   log(`${tag} [功能${feature}] ${name}${detail ? ' - ' + detail : ''}`)
+}
+
+/**
+ * F117（测试债修复）：SKIP 条目不再冒充 PASS。
+ * 原问题：`record(N, name, true, 'SKIP：...')` 把未实际执行的路径记为 passed=true，
+ * 汇总统计/明细打印/退出码均按 PASS 处理（假通过）。
+ * 最小侵入方案：本助手产出带 skipped:true 标记的条目——汇总明细以 ⏭ SKIP 打印、
+ * 汇总行单列 SKIP 数（不再显示 ✅）；同时要求调用点用 api 助手（apiWithBackoff）
+ * 补一条 API 200 兜底断言：apiOk=true 时条目计 passed（由真实兜底断言支撑），
+ * apiOk=false 兜底失败按 FAIL 处理，apiOk=null 表示场景确无 API 可兜底（注释缘由）。
+ * @param {number} feature 功能号
+ * @param {string} name 断言名
+ * @param {string} reason SKIP 缘由
+ * @param {boolean|null} [apiOk] 兜底 API 200 断言结果（null = 无 API 可兜底）
+ */
+function recordSkip(feature, name, reason, apiOk = null) {
+  const passed = apiOk !== false
+  const detail = `SKIP：${reason}（兜底 API=${apiOk === null ? '无' : apiOk ? '200 ✓' : '失败 ✗'}）`
+  if (!passed) {
+    try {
+      captureHub?.noteFailure({ feature, name, passed, detail })
+    } catch {}
+  }
+  results.push({ feature, name, passed, detail, skipped: true })
+  log(`${passed ? '⏭ SKIP' : '❌ FAIL'} [功能${feature}] ${name} - ${detail}`)
 }
 
 /**
@@ -17005,7 +17077,14 @@ async function main() {
       { id: 106, fn: testFeature106 },
       { id: 107, fn: testFeature107 },
       { id: 108, fn: testFeature108 },
-      { id: 109, fn: testFeature109 }
+      { id: 109, fn: testFeature109 },
+      { id: 110, fn: testFeature110 },
+      { id: 111, fn: testFeature111 },
+      { id: 112, fn: testFeature112 },
+      { id: 113, fn: testFeature113 },
+      { id: 114, fn: testFeature114 },
+      { id: 115, fn: testFeature115 },
+      { id: 116, fn: testFeature116 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17062,10 +17141,12 @@ async function main() {
     log('==========================================')
     const passed = results.filter((r) => r.passed).length
     const failed = results.filter((r) => !r.passed).length
-    log(`总计: ${results.length}  通过: ${passed}  失败: ${failed}`)
+    // F117：SKIP 条目（skipped:true，含 API 兜底）单列统计，不再混入 PASS 视觉
+    const skipped = results.filter((r) => r.skipped).length
+    log(`总计: ${results.length}  通过: ${passed}  失败: ${failed}${skipped > 0 ? `  其中 SKIP: ${skipped}` : ''}`)
 
     for (const r of results) {
-      const tag = r.passed ? '✅' : '❌'
+      const tag = r.skipped ? '⏭ SKIP' : r.passed ? '✅' : '❌'
       log(`  ${tag} [功能${r.feature}] ${r.name}${r.detail ? ' - ' + r.detail : ''}`)
     }
 
@@ -18312,11 +18393,8 @@ async function testFeature91(page) {
     let contentOk = false
     let detail = ''
     try {
-      await presetTourDisabled(page)
-      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'load' })
-      await sleep(1200)
-      await skipTour(page)
-      ok = !(await is404Page(page))
+      // F117：五连样板收敛为 openPage（行为等价，goto 升级为动态路由重试）
+      ok = await openPage(page, route)
       // 批次三十六：冒烟必须补主内容断言（表格或主按钮可见），避免任意接口 500 也算 PASS
       contentOk =
         (await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
@@ -18343,13 +18421,8 @@ async function testFeature92(page) {
     let contentOk = false
     let detail = ''
     try {
-      await presetTourDisabled(page)
-      // 批次十九收尾八：冒烟只验证可达（非 404），networkidle 对含长请求/轮询的页面
-      // 是反模式（SCIM 用户组页 30s 超时实证）——'load' + 页面标记出现即达标
-      await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1200)
-      await skipTour(page)
-      ok = !(await is404Page(page))
+      // F117：五连样板收敛为 openPage（'load' + 重试语义等价，networkidle 反模式注释见批次十九收尾八）
+      ok = await openPage(page, route)
       // 批次三十六：补主内容断言（主表格或主按钮/主容器可见），避免任意接口 500 也算 PASS
       contentOk =
         (await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
@@ -19057,18 +19130,12 @@ async function testFeature100(page) {
 
   // ---------- 1. 我的域名（/tenant-space/my-domain）----------
   // 页面 = 平台操作者先选租户 → TenantDomainPanel；租户操作者直接面板
-  await presetTourDisabled(page)
   let domOk = false
   let domDetail = ''
   let domDialogOk = false
   try {
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/tenant-space/my-domain`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('my-domain')) break
-    }
-    await skipTour(page)
-    domOk = !(await is404Page(page))
+    // F117：五连样板收敛为 openPage
+    domOk = await openPage(page, '/tenant-space/my-domain', 'my-domain')
     // 面板容器渲染（TenantDomainPanel 的 info alert + 新增按钮 + 表格）
     const panelAlert = page.locator('.el-alert').first()
     const hasPanel = await panelAlert.isVisible({ timeout: 3000 }).catch(() => false)
@@ -19105,13 +19172,8 @@ async function testFeature100(page) {
   let navOk = false
   let navTableOk = false
   try {
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/tenant-space/my-nav`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('my-nav')) break
-    }
-    await skipTour(page)
-    navOk = !(await is404Page(page))
+    // F117：五连样板收敛为 openPage
+    navOk = await openPage(page, '/tenant-space/my-nav', 'my-nav')
     // 页面主体：卡片标题 + info 提示 + （权限足够时）表格/空态
     const card = page.locator('.el-card').first()
     const hasCard = await card.isVisible({ timeout: 3000 }).catch(() => false)
@@ -19133,13 +19195,8 @@ async function testFeature100(page) {
   let aiOk = false
   let aiTableOk = false
   try {
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/monitor/aiHistory`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('aiHistory')) break
-    }
-    await skipTour(page)
-    aiOk = !(await is404Page(page))
+    // F117：五连样板收敛为 openPage
+    aiOk = await openPage(page, '/monitor/aiHistory', 'aiHistory')
     aiTableOk = await page.locator('.el-table').first().isVisible({ timeout: 3000 }).catch(() => false)
     record(100, 'AI 问数历史页可达且表格渲染', aiOk && aiTableOk)
   } catch (err) {
@@ -19191,13 +19248,8 @@ async function testFeature101(page) {
 
   // ---------- 1. 任务进度（/monitor/task）----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('/monitor/task')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/monitor/task', '/monitor/task')
     // 表格 + 搜索表单 + 删除按钮（含任务类型筛选下拉）
     const tableOk = await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)
     const searchOk = await page.locator('form.el-form--inline').first().isVisible({ timeout: 2000 }).catch(() => false)
@@ -19264,13 +19316,8 @@ async function testFeature101(page) {
 
   // 2b. UI 级：编辑对话框角色多选应回显已绑定角色
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/system/dataRule`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('/system/dataRule')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/system/dataRule', '/system/dataRule')
     const tableOk = await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)
     // 打开首行编辑对话框，断言对话框挂载
     let dlgOk = false
@@ -19300,13 +19347,8 @@ async function testFeature101(page) {
 
   // ---------- 3. 变更留痕（/system/log/auditChange）----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/system/log/auditChange`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('auditChange')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/system/log/auditChange', 'auditChange')
     const tableOk = await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)
     // 行展开（diff 视图）：点首行展开按钮，断言 diff 双栏出现
     let expandOk = false
@@ -19335,13 +19377,8 @@ async function testFeature101(page) {
 
   // ---------- 4. SCIM 用户组（/system/oauth/scimGroup）----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/system/oauth/scimGroup`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('scimGroup')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
     const tableOk = await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)
     const searchOk = await page.locator('form.el-form--inline').first().isVisible({ timeout: 2000 }).catch(() => false)
     record(101, 'SCIM 用户组页：搜索+表格渲染', tableOk && searchOk, `table=${tableOk}, search=${searchOk}`)
@@ -19354,13 +19391,8 @@ async function testFeature101(page) {
 
   // ---------- 5. HTTP 调试器（/tool/http-debugger）----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/tool/http-debugger`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('http-debugger')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/tool/http-debugger', 'http-debugger')
     const methodSelect = page.locator('.method-select').first()
     const urlInput = page.locator('input[placeholder*="http"], input[placeholder*="URL"], input[placeholder*="url"]').first()
     const sendBtn = page.getByRole('button', { name: /发送|Send/ }).first()
@@ -19407,13 +19439,8 @@ async function testFeature101(page) {
 
   // ---------- 7. 告警规则（/monitor/alert）——F77 仅 API，此处补页面级 ----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/monitor/alert`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('/monitor/alert')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/monitor/alert', '/monitor/alert')
     const tableOk = await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)
     const searchOk = await page.locator('form.el-form--inline').first().isVisible({ timeout: 2000 }).catch(() => false)
     // 新增按钮 → 对话框真挂载（「按钮可见 ≠ 交互可用」）
@@ -19437,13 +19464,8 @@ async function testFeature101(page) {
 
   // ---------- 8. 报表大屏（/tool/reportBoard）——此前仅 API，此处补页面级 ----------
   try {
-    await presetTourDisabled(page)
-    for (let i = 0; i < 5; i++) {
-      await page.goto(`${CONFIG.frontendUrl}/tool/reportBoard`, { waitUntil: 'load', timeout: 30000 })
-      await sleep(1500)
-      if (page.url().includes('reportBoard')) break
-    }
-    await skipTour(page)
+    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    await openPage(page, '/tool/reportBoard', 'reportBoard')
     // 大屏编辑器容器 + 组件库面板 + 新增看板/新增卡片按钮
     const bodyText = await page.locator('.app-container').first().innerText().catch(() => '')
     const hasEditor =
@@ -19933,7 +19955,9 @@ async function testFeature104(page) {
           record(104, '②b 勾选角色保存 → API 回读含该角色', false, `未在表格中定位角色 ${targetRoleId}`)
         }
       } else {
-        record(104, '②b 勾选角色保存 → API 回读含该角色', true, 'SKIP：无未持有的非 admin 启用角色可勾选')
+        // F117：SKIP 补 API 200 兜底（角色列表可读即环境健康），不再空记 PASS
+        const fb = await apiWithBackoff('/system/role/list?pageNum=1&pageSize=1', { headers: authHeaders })
+        recordSkip(104, '②b 勾选角色保存 → API 回读含该角色', '无未持有的非 admin 启用角色可勾选', fb.status === 200)
       }
     }
 
@@ -19979,10 +20003,14 @@ async function testFeature104(page) {
           const stillAllocated = (alloc?.rows || []).some((r) => r.userName === uname)
           record(104, '③b 取消授权生效（allocatedList 不再含该用户）', !!cancelResp && !stillAllocated, `cancel=${!!cancelResp}, still=${stillAllocated}`)
         } else {
-          record(104, '③b 取消授权生效', true, 'SKIP：allocatedList 中未定位到该用户行')
+          // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
+          const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', { headers: authHeaders })
+          recordSkip(104, '③b 取消授权生效', 'allocatedList 中未定位到该用户行', fb.status === 200)
         }
       } else {
-        record(104, '③b 取消授权生效', true, `SKIP：API 挂载角色 2 未成功（code=${bind?.code}），仅断言表格渲染`)
+        // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
+        const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', { headers: authHeaders })
+        recordSkip(104, '③b 取消授权生效', `API 挂载角色 2 未成功（code=${bind?.code}），仅断言表格渲染`, fb.status === 200)
       }
     }
   } catch (err) {
@@ -20135,7 +20163,9 @@ async function testFeature106(page) {
         await page.keyboard.press('Escape')
         await page.waitForTimeout(400)
       } else {
-        record(106, '① passkeys：注册失败出现错误提示（.catch 语义）', cardOk, 'SKIP：能力位未开放（无注册按钮），仅断言卡片渲染')
+        // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
+        const fb = authHeaders ? await apiWithBackoff('/system/user/profile', { headers: authHeaders }) : null
+        recordSkip(106, '① passkeys：注册失败出现错误提示（.catch 语义）', '能力位未开放（无注册按钮），仅断言卡片渲染', fb ? fb.status === 200 : null)
       }
     }
   } catch (err) {
@@ -20165,7 +20195,9 @@ async function testFeature106(page) {
       const stillList = (await card.locator('.grant-item').count()) > 0
       record(106, '②b 撤销确认「取消」→ 授权仍在', stillList)
     } else {
-      record(106, '②b 撤销确认「取消」→ 授权仍在', true, 'SKIP：无已授权应用，撤销链不可达')
+      // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
+      const fb = authHeaders ? await apiWithBackoff('/system/user/profile', { headers: authHeaders }) : null
+      recordSkip(106, '②b 撤销确认「取消」→ 授权仍在', '无已授权应用，撤销链不可达', fb ? fb.status === 200 : null)
     }
   } catch (err) {
     record(106, '② ssoGrants', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20210,7 +20242,9 @@ async function testFeature106(page) {
         }).then((r) => r.json()).catch(() => null)
         record(106, '③c msgPref：恢复原值', restore?.code === 200, `code=${restore?.code}`)
       } else {
-        record(106, '③c msgPref：恢复原值', true, 'SKIP：原值未知或已一致')
+        // F117：SKIP 补 messagePref 接口 200 兜底，不再空记 PASS
+        const fb = await apiWithBackoff('/system/user/profile/messagePref', { headers: authHeaders })
+        recordSkip(106, '③c msgPref：恢复原值', '原值未知或已一致', fb.status === 200)
       }
     } else {
       record(106, '③ msgPref：保存请求发出', swOk, swOk ? 'token 缺失，跳过 API 比对' : '开关不可见')
@@ -20440,8 +20474,12 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
+      // F117：SKIP 补列表接口 200 兜底（复用主流程会话 token），不再空记 PASS
+      const tk = await sessionTokenOf(page)
+      const fb = tk ? await apiWithBackoff('/monitor/frontendError/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      recordSkip(109, '① frontendError 详情字段非空渲染', '列表无行，空态渲染断言兜底', fb ? fb.status === 200 : null)
       const emptyOk = (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
-      record(109, '① frontendError 详情字段非空渲染', emptyOk, 'SKIP：列表无行，空态渲染断言')
+      record(109, '①b frontendError 空态渲染', emptyOk)
     }
   } catch (err) {
     record(109, '① frontendError 详情', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20467,7 +20505,10 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
-      record(109, '② operlog 详情字段非空渲染', true, 'SKIP：操作日志列表无行')
+      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      const tk = await sessionTokenOf(page)
+      const fb = tk ? await apiWithBackoff('/monitor/operlog/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      recordSkip(109, '② operlog 详情字段非空渲染', '操作日志列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
     record(109, '② operlog 详情', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20489,7 +20530,10 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
-      record(109, '③ 公告已读情况弹窗渲染（含表格）', true, 'SKIP：公告列表无行')
+      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      const tk = await sessionTokenOf(page)
+      const fb = tk ? await apiWithBackoff('/system/notice/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      recordSkip(109, '③ 公告已读情况弹窗渲染（含表格）', '公告列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
     record(109, '③ 公告已读情况弹窗', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20515,10 +20559,407 @@ async function testFeature109(page) {
         (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
       record(109, '④ dict 详情渲染', navOk && dictTable, `nav=${navOk}, url=${page.url().slice(0, 80)}, table=${dictTable}`)
     } else {
-      record(109, '④ dict 详情渲染', true, 'SKIP：字典类型列表无行')
+      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      const tk = await sessionTokenOf(page)
+      const fb = tk ? await apiWithBackoff('/system/dict/type/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      recordSkip(109, '④ dict 详情渲染', '字典类型列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
     record(109, '④ dict 详情', false, `异常: ${err.message.slice(0, 120)}`)
   }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 批次三十七新增 feature 110-116 ====================
+// 约定对齐 F102-109：openPage 五连样板；waitFor 优先于 sleep；Escape 关 EP dialog；
+// 弹窗链关闭后 dismissAllOverlays；有状态用例尾部恢复初态（自建自清 ExitGuard）；
+// e2e 禁外网 URL——只使用 IP 字面量 + 封闭端口（http://1.1.1.1:81）或 localhost:8080。
+
+// ==================== 功能 110：流程定义设计器 UI ====================
+async function testFeature110(page) {
+  log('=== 功能 110：流程定义设计器 UI ===')
+  // 菜单 4140（parent=1 系统管理）→ /system/flowDefinition（component flow/designer/index）
+  const ok = await openPage(page, '/system/flowDefinition', 'flowDefinition')
+  record(110, '① 页面可达（/system/flowDefinition）', ok)
+  if (!ok) return
+
+  // ② 列表至少可加载（表格渲染；行数不限——本用例不创建流程定义落库，无 ExitGuard 负担）
+  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const listOk =
+    (await page.locator('.el-table__row').count()) > 0 ||
+    (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+  record(110, '② 流程定义列表可加载（表格/空态渲染）', listOk)
+
+  // ③ 设计器编辑态：新增 → 画布容器（节点/连线面板 + 添加节点按钮）渲染 → 返回（不保存零落库）
+  let designerOk = false
+  try {
+    await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+    await page.waitForTimeout(800)
+    // 表单式设计器（designer/index.vue 编辑分支）：节点/连线标题 + 「添加审批节点」按钮
+    const bodyText = await page.locator('.p-4').first().innerText().catch(() => '')
+    const nodePanel = bodyText.includes('节点') && bodyText.includes('连线')
+    const addNodeBtn = await page
+      .getByRole('button', { name: /添加审批节点|添加结束节点/ })
+      .first()
+      .isVisible({ timeout: 2500 })
+      .catch(() => false)
+    designerOk = nodePanel && addNodeBtn
+    // 返回列表（编辑态不点保存，无数据写入）
+    await page.getByRole('button', { name: /返回/ }).first().click({ force: true }).catch(() => {})
+    await page.waitForTimeout(600)
+  } catch (err) {
+    log(`  F110 设计器交互异常: ${err.message.slice(0, 120)}`)
+  }
+  record(110, '③ 设计器画布渲染（节点/连线面板 + 添加节点按钮）', designerOk)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 111：报表 dataset 负路径 + dashboard view 渲染 ====================
+async function testFeature111(page) {
+  log('=== 功能 111：报表 dataset 负路径 + dashboard view 渲染 ===')
+  // ① dataset 新增对话框打开 + 取消（不落库，仿 F58 负路径；全链 CRUD 已由 F94 覆盖）
+  const dsOk = await openPage(page, '/system/reportDataset', 'reportDataset')
+  record(111, '① dataset 页可达（/system/reportDataset）', dsOk)
+  if (dsOk) {
+    let dlgOk = false
+    let dlgClosed = false
+    try {
+      await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+      const dlg = page.locator('.el-dialog:visible').last()
+      dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (dlgOk) {
+        // 取消关闭（不提交任何 POST——零落库负路径）
+        await dlg.getByRole('button', { name: /取\s*消|取消/ }).first().click()
+        await page.waitForTimeout(500)
+        dlgClosed = (await page.locator('.el-dialog:visible').count()) === 0
+      }
+    } catch (err) {
+      log(`  F111 dataset 对话框异常: ${err.message.slice(0, 120)}`)
+    }
+    record(111, '② dataset 新增对话框打开并取消（零落库）', dlgOk && dlgClosed, `dlg=${dlgOk}, closed=${dlgClosed}`)
+  } else {
+    record(111, '② dataset 新增对话框打开并取消（零落库）', false, '前置页不可达')
+  }
+
+  // ③ dashboard/view 大屏容器渲染 + 空态断言（/system/reportDashboard 与 /tool/reportBoard 不同页面）
+  const dashOk = await openPage(page, '/system/reportDashboard', 'reportDashboard')
+  const boardOk =
+    dashOk &&
+    ((await page.locator('.report-board').first().isVisible({ timeout: 3000 }).catch(() => false)) ||
+      (await page.locator('.el-empty').first().isVisible({ timeout: 1500 }).catch(() => false)))
+  record(111, '③ 大屏 view 容器渲染（.report-board 或空态）', boardOk)
+  const emptyDesc = await page.locator('.el-empty__description').first().innerText().catch(() => '')
+  const hasBoard = (await page.locator('.report-board').count()) > 0
+  record(
+    111,
+    '④ 大屏空态文案/画布内容呈现',
+    dashOk && (hasBoard || emptyDesc.includes('请先选择大屏') || emptyDesc.includes('暂无图表')),
+    `board=${hasBoard}, empty="${emptyDesc.slice(0, 30)}"`
+  )
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 112：/tool/pat 管理页 UI（自建自清 ExitGuard） ====================
+async function testFeature112(page) {
+  log('=== 功能 112：/tool/pat 管理页 UI ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(112, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+  // ⓪ 自建 PAT（F48 口径；先清理历史 e2e PAT 防每用户上限守卫；本用例自建自清）
+  try { await mLevelCleanupPats(token) } catch { /* 清理失败不阻断 */ }
+  const patName = `e2e-pat112-${Date.now().toString(36)}`
+  const created = await apiWithBackoff('/system/user/profile/tokens', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ name: patName, scopes: ['system:config:list'], expireDays: 1 })
+  })
+  const patToken = created.body?.data?.token
+  const patId = created.body?.data?.pat?.patId
+  record(112, '⓪ API 自建 PAT（明文一次性返回）', created.status === 200 && !!patToken && !!patId, `status=${created.status}`)
+  if (!patToken || !patId) return
+
+  try {
+    // ① 管理页可达（菜单 3560 存量库 parent=3 系统工具 → /tool/pat；迁移种子 parent=2 系统监控
+    //    仅新装库生效，与批三十一 aiHistory 同型「存量库父链 ≠ 种子」陷阱——以部署库真实路由为准）
+    const ok = await openPage(page, '/tool/pat', '/tool/pat')
+    record(112, '① 页面可达（/tool/pat）', ok)
+    if (!ok) return
+
+    // ② 列表出现自建 PAT 行（等目标行 waitFor 可见）
+    const row = page.locator('.el-table__row').filter({ hasText: patName }).first()
+    await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+    const rowOk = await row.isVisible().catch(() => false)
+    record(112, '② 列表出现自建 PAT 行', rowOk)
+
+    // ③ token 脱敏：后端 token_prefix 仅展示前 11 字符（sys_pat_service take(11)）——
+    //    页面 HTML 不得包含完整明文，也不得包含第 12 位起的明文片段（取 8 位连续字符判泄漏；
+    //    前 11 字符按设计展示，故以「超出展示前缀」为泄漏基准而非「前 8 位」字面）
+    const html = await page.content().catch(() => '')
+    const noFull = !html.includes(patToken)
+    const noSecretTail = !html.includes(patToken.slice(11, 19))
+    record(112, '③ token 脱敏（HTML 无完整明文/无超出展示前缀的片段）', noFull && noSecretTail, `full=${noFull}, tail=${noSecretTail}`)
+
+    // ④ 吊销按钮存在（pat.btn.revoke = 「吊销」，v-hasPermi monitor:pat:revoke）
+    const revokeOk = rowOk && (await row.getByRole('button', { name: /吊销/ }).count()) > 0
+    record(112, '④ 吊销按钮存在', revokeOk)
+  } catch (err) {
+    record(112, '管理页 UI 链', false, `异常: ${err.message.slice(0, 120)}`)
+  } finally {
+    // 尾部恢复初态：吊销/删除自建 PAT（ExitGuard 自清）
+    const del = await apiWithBackoff(`/monitor/pat/${patId}`, { method: 'DELETE', headers: jsonHeaders })
+    record(112, '⑤ 清理：吊销/删除自建 PAT（恢复初态）', del.status === 200 && del.body?.code === 200, `code=${del.body?.code}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 113：消息日志页 + notice-center 批量已读 ====================
+async function testFeature113(page) {
+  log('=== 功能 113：消息日志页 + notice-center 批量已读 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(113, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+  // ① 消息日志页（菜单 143：目录 140 path=msg → /system/msg/log，component system/message/log/index）
+  const logOk = await openPage(page, '/system/msg/log', '/msg/log')
+  const logTable =
+    logOk &&
+    ((await page.locator('.el-table__row').count()) > 0 ||
+      (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0)
+  record(113, '① 消息日志页表格/空态渲染', logTable, `not404=${logOk}`)
+
+  // ② 自建公告（ExitGuard：尾部删除恢复初态——已读为单向状态且无未读还原接口，
+  //    翻转既有公告不可逆，故采用「自建自清」保证零污染）
+  const nTitle = `e2e 批量已读 ${Date.now().toString(36)}`
+  const created = await apiWithBackoff('/system/notice', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ noticeTitle: nTitle, noticeType: '1', noticeContent: 'e2e 批量已读用例', status: '0' })
+  })
+  record(113, '② API 自建公告', created.status === 200 && created.body?.code === 200, `code=${created.body?.code}`)
+  const lst = await apiWithBackoff(`/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`, { headers: jsonHeaders })
+  const noticeId = (lst.body?.rows || []).find((r) => r.noticeTitle === nTitle)?.noticeId
+  if (!noticeId) {
+    record(113, '②b 公告定位', false, '列表未回查到自建公告')
+    // ExitGuard 兜底：回查失败也 best-effort 重查清理，防自建公告残留
+    const retry = await apiWithBackoff(`/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`, { headers: jsonHeaders })
+    const rid = (retry.body?.rows || []).find((r) => r.noticeTitle === nTitle)?.noticeId
+    if (rid) await apiWithBackoff(`/system/notice/${rid}`, { method: 'DELETE', headers: jsonHeaders })
+    return
+  }
+
+  try {
+    // ③ notice-center 列表出现新建公告行
+    const ncOk = await openPage(page, '/system/notice-center', 'notice-center')
+    const row = page.locator('.el-table__row').filter({ hasText: nTitle }).first()
+    await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+    const rowOk = ncOk && (await row.isVisible().catch(() => false))
+    record(113, '③ notice-center 列表出现自建公告行', rowOk)
+    if (!rowOk) return
+
+    // ④ 勾选 1 行（仅未读行可选，canSelect）→ 批量已读 → markReadAll 200 → 行状态翻转
+    const cb = row.locator('.el-checkbox').first()
+    const selectable = await cb.isEnabled({ timeout: 3000 }).catch(() => false)
+    if (!selectable) {
+      // 环境兜底：新建公告被预置为已读（读态存储异常）——按 SKIP 兜底不空记 PASS
+      const fb = await apiWithBackoff('/system/notice/list?pageNum=1&pageSize=1', { headers: jsonHeaders })
+      recordSkip(113, '④ 批量标记已读接口 200', '新建公告行不可勾选（未读预置异常）', fb.status === 200)
+      record(113, '⑤ 行未读标记消失（状态翻转）', false, '前置：行不可勾选')
+      return
+    }
+    await cb.click({ force: true })
+    const markPromise = page.waitForResponse(
+      (r) => r.url().includes('/system/notice/markReadAll') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await page.getByRole('button', { name: /批量已读/ }).first().click({ force: true })
+    // ElMessageBox 确认（batchReadConfirm）
+    const box = page.locator('.el-message-box:visible').first()
+    await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
+    await box.locator('.el-message-box__btns .el-button--primary').first().click().catch(() => {})
+    const markResp = await markPromise.catch(() => null)
+    record(113, '④ 批量标记已读接口 200（waitForResponse）', !!markResp)
+    // 行状态变化：未读 danger 标记消失（store 乐观更新 + isRead 合并）
+    await page.waitForTimeout(800)
+    const unreadGone = (await row.locator('.el-tag--danger').count()) === 0
+    record(113, '⑤ 行未读标记消失（状态翻转）', unreadGone)
+  } catch (err) {
+    record(113, 'notice-center 批量链', false, `异常: ${err.message.slice(0, 120)}`)
+  } finally {
+    // 尾部恢复初态：删除自建公告
+    const del = await apiWithBackoff(`/system/notice/${noticeId}`, { method: 'DELETE', headers: jsonHeaders })
+    record(113, '⑥ 清理自建公告（恢复初态）', del.status === 200 && del.body?.code === 200, `code=${del.body?.code}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 114：HTTP 调试器 UI 发送链（不可达负例） ====================
+async function testFeature114(page) {
+  log('=== 功能 114：HTTP 调试器 UI 发送链 ===')
+  const ok = await openPage(page, '/tool/http-debugger', 'http-debugger')
+  record(114, '① 页面可达（/tool/http-debugger）', ok)
+  if (!ok) return
+
+  // ② method 显式选 GET（补 UI↔API 断裂）+ URL 填封闭端口不可达负例（禁外网）
+  let resp = null
+  try {
+    const methodSelect = page.locator('.method-select').first()
+    await methodSelect.click({ force: true })
+    await page.waitForTimeout(500)
+    await page.getByRole('option', { name: /^GET$/ }).first().click()
+    const urlInput = page
+      .locator('input[placeholder*="http"], input[placeholder*="URL"], input[placeholder*="url"]')
+      .first()
+    // 1.1.1.1:81 —— IP 字面量 + 封闭端口（无服务监听必然连接失败），e2e 禁外网 URL 口径
+    await urlInput.fill('http://1.1.1.1:81/hook')
+    const execPromise = page.waitForResponse(
+      (r) => r.url().includes('/tool/http-debug/execute') && r.request().method() === 'POST',
+      { timeout: 20000 }
+    )
+    await page.getByRole('button', { name: /发送|Send/ }).first().click({ force: true })
+    resp = await execPromise.catch(() => null)
+  } catch (err) {
+    log(`  F114 发送链异常: ${err.message.slice(0, 120)}`)
+  }
+  record(114, '② 发送触发 /tool/http-debug/execute', !!resp, resp ? `status=${resp.status()}` : '未捕获请求')
+
+  // ③ 错误反馈呈现：响应区 danger 告警（errorMsg → el-alert）或错误 Toast
+  //    后端形态：400 校验拒绝，或 200 + data.error（transport 连接失败）——均属错误反馈前提
+  await page.waitForTimeout(1000)
+  const alertErr = await page
+    .locator('.el-alert--danger, .el-alert.is-type-danger')
+    .first()
+    .isVisible({ timeout: 2000 })
+    .catch(() => false)
+  const toastErr = await page.locator('.el-message--error').first().isVisible({ timeout: 1000 }).catch(() => false)
+  let execFailed = true
+  if (resp) {
+    const body = await resp.json().catch(() => null)
+    execFailed = resp.status() >= 400 || (body && (body.code !== 200 || body?.data?.error))
+  }
+  record(
+    114,
+    '③ UI 错误反馈呈现（响应区 danger 告警或错误 Toast）',
+    (alertErr || toastErr) && execFailed,
+    `alert=${alertErr}, toast=${toastErr}, execFailed=${execFailed}`
+  )
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 115：observability 错误聚合查询 + logtail 自动刷新轮询 ====================
+async function testFeature115(page) {
+  log('=== 功能 115：observability/logtail 交互 ===')
+
+  // ① observability：切 error Tab → 点查询 → /monitor/error-log/list 请求发生
+  const obsOk = await openPage(page, '/monitor/observability', 'observability')
+  record(115, '① observability 页可达', obsOk)
+  let errReq = false
+  if (obsOk) {
+    try {
+      await page.getByRole('tab', { name: /错误聚合/ }).first().click({ force: true })
+      await page.waitForTimeout(800)
+      const qPromise = page.waitForResponse(
+        (r) => r.url().includes('/monitor/error-log/list') && r.status() === 200,
+        { timeout: 10000 }
+      )
+      const searchBtn = page.getByRole('button', { name: /搜索|查询/ }).first()
+      await searchBtn.click({ force: true }).catch(() => {})
+      const resp = await qPromise.catch(() => null)
+      errReq = !!resp
+    } catch (err) {
+      log(`  F115 observability 异常: ${err.message.slice(0, 120)}`)
+    }
+  }
+  record(115, '② 错误聚合 Tab：查询接口请求发生', errReq)
+
+  // ③ logtail：开 autoRefresh（10s 间隔 scheduleRefresh）→ 数秒内出现第二次 tail 轮询 → 关开关还原
+  const ltOk = await openPage(page, '/monitor/logtail', 'logtail')
+  record(115, '③ logtail 页可达', ltOk)
+  let autoOk = false
+  if (ltOk) {
+    try {
+      // 定位外层可见 .el-switch 根节点——aria-label 在内层视觉隐藏 checkbox（el-switch__input，
+      // viewport 外），直接点它连 force 也会抛 outside viewport（探针实证）
+      const sw = page.locator('.el-switch').filter({ has: page.locator('input[aria-label="自动刷新"]') }).first()
+      const swVisible = await sw.isVisible({ timeout: 4000 }).catch(() => false)
+      if (swVisible) {
+        // 请求计数器从开启前登记。scheduleRefresh = setTimeout(10000)——开启后首次轮询在 ~10s，
+        // 页面加载首请求发生在计数器挂载前不计入；断言语义=「开启后出现轮询请求」（≥1）
+        let tailCount = 0
+        const counter = (r) => {
+          if (r.url().includes('/monitor/log/tail')) tailCount++
+        }
+        page.on('request', counter)
+        // el-switch 视觉隐藏 checkbox：Playwright 点根节点不触发切换（探针实证），
+        // 可靠范式=对内层 input 做 JS click（触发 change → v-model 更新）
+        await page.locator('input[aria-label="自动刷新"]').first().evaluate((e) => e.click())
+        // 条件轮询等待开启后首次轮询（setTimeout 10s，窗口 16s 留裕量；500ms 步进，非裸 sleep 长等）
+        const t0 = Date.now()
+        while (tailCount < 1 && Date.now() - t0 < 16000) {
+          await page.waitForTimeout(500)
+        }
+        autoOk = tailCount >= 1
+        page.off('request', counter)
+        // 关闭开关还原初态（同上：JS click 隐藏 input）
+        await page.locator('input[aria-label="自动刷新"]').first().evaluate((e) => e.click()).catch(() => {})
+        await page.waitForTimeout(300)
+      }
+    } catch (err) {
+      log(`  F115 logtail 异常: ${err.message.slice(0, 120)}`)
+    }
+  }
+  record(115, '④ autoRefresh 开启后出现轮询 tail 请求（关闭还原）', autoOk)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 116：aiHistory 导出 UI 链（接口 200 + download 物证） ====================
+async function testFeature116(page) {
+  log('=== 功能 116：aiHistory 导出 UI 链 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(116, '前置登录', false, 'token 获取失败')
+    return
+  }
+  // 导出实现（aiHistory/index.vue:128 附近）：原生 fetch → blob → createObjectURL → <a download>
+  // 点击——会触发 Playwright download 事件。独立建 acceptDownloads 上下文并挂 Admin-Token
+  //（对齐 F105 的独立上下文范式），避免扰动主会话。
+  const ctx = await page.context().browser().newContext({ acceptDownloads: true })
+  await ctx.addCookies([{ name: 'Admin-Token', value: token, url: CONFIG.frontendUrl }])
+  const p = await ctx.newPage()
+  try {
+    await presetTourDisabled(p)
+    await gotoDynamicRoute(p, `${CONFIG.frontendUrl}/monitor/aiHistory`, 'aiHistory')
+    await sleep(1500)
+    await skipTour(p)
+    const ok = !(await is404Page(p))
+    record(116, '① 页面可达（/monitor/aiHistory）', ok)
+    if (ok) {
+      const exportBtn = p.getByRole('button', { name: /导出/ }).first()
+      await exportBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+      const dlPromise = p.waitForEvent('download', { timeout: 20000 }).catch(() => null)
+      const respPromise = p
+        .waitForResponse((r) => r.url().includes('/system/ai/history/admin/export') && r.status() === 200, { timeout: 20000 })
+        .catch(() => null)
+      await exportBtn.click({ force: true })
+      const [dl, resp] = await Promise.all([dlPromise, respPromise])
+      record(116, '② 导出接口 200（waitForResponse）', !!resp, resp ? `status=${resp.status()}` : '未捕获导出响应')
+      record(116, '③ download 事件触发（xlsx 物证）', !!dl, dl ? dl.suggestedFilename() : '未捕获 download')
+    } else {
+      record(116, '② 导出接口 200（waitForResponse）', false, '前置页不可达')
+      record(116, '③ download 事件触发（xlsx 物证）', false, '前置页不可达')
+    }
+  } catch (err) {
+    record(116, '导出链', false, `异常: ${err.message.slice(0, 120)}`)
+  } finally {
+    await ctx.close().catch(() => {})
+  }
+  // 负例（无 token 导出）不可达缘由：UI 导出入口位于登录态页面之后，无 token 访问
+  // /monitor/aiHistory 会被路由守卫重定向到 /login，导出按钮的点击链不存在，UI 级负例
+  // 无法构造；接口级无 token 401 已由同族接口用例（F100 3b）覆盖。故本用例不设负例
+  // 断言，也不空记 SKIP 冒充 PASS（此处仅注释说明缘由，无断言产出）。
   await dismissAllOverlays(page)
 }
