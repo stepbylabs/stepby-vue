@@ -119,6 +119,9 @@ export default defineConfig(({ mode, command }) => {
       // sourceMappingURL 注释、浏览器不会自动拉取 ⇒ 源码不暴露给访客。
       // 部署侧兜底：nginx.conf 拒绝对外提供 *.map（location ~* \.map$ { deny all; }）。
       // 无 Sentry 等第三方错误平台时不需要"上传 map"步骤（R102-SMAP-003/004 改判，见性能文档）。
+      // 已知上游限制（2026-10-10 实证）：vite 8（rolldown）CSS 管线不产出 .map（sourcemap:true 亦然），
+      // 故 hidden map 仅覆盖 JS；CSS 走 postcss.config.mjs + @tailwindcss/postcss（替代
+      // @tailwindcss/vite 插件）后 SOURCEMAP_BROKEN 构建告警已清零，待上游支持后自动生效。
       sourcemap: command === 'build' ? 'hidden' : 'inline',
       outDir: 'dist',
       assetsDir: 'assets',

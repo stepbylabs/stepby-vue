@@ -1,5 +1,8 @@
 import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
+// Tailwind 走 PostCSS 管线（postcss.config.mjs + @tailwindcss/postcss）：
+// @tailwindcss/vite 插件 transform 不产出 sourcemap，导致 build.sourcemap='hidden'
+// 时 CSS 无 .map（R102-SMAP-001 未达成）且 rolldown 报 SOURCEMAP_BROKEN 告警；
+// PostCSS 管线原生产出 sourcemap，两问题一并消除。
 
 import createAutoImport from './auto-import'
 import createComponents from './components'
@@ -11,7 +14,7 @@ import createPwa from './pwa'
 import { PluginOption } from 'vite'
 
 export default function createVitePlugins(viteEnv: Record<string, string>, isBuild = false) {
-  const vitePlugins: PluginOption[] = [vue(), tailwindcss()]
+  const vitePlugins: PluginOption[] = [vue()]
   vitePlugins.push(createAutoImport())
   vitePlugins.push(createComponents())
   vitePlugins.push(createSetupExtend())
