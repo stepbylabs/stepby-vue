@@ -791,9 +791,12 @@ async function testFeature5(page) {
       record(5, '链校验弹窗（valid/broken 结果展示）', verifyValid || verifyBroken, verifyValid ? 'valid' : verifyBroken ? 'broken' : '未渲染')
       await screenshot(page, 'feat5_verify_chain')
       // 关闭用 Escape（"确定"按钮点击曾因 modal actionability 被吞——verify 弹窗
-      // 残留会以遮罩拦截后续 compliance/archive 弹窗，Playwright 三连 FAIL）
+      // 残留会以遮罩拦截后续 compliance/archive 弹窗，Playwright 三连 FAIL）。
+      // 批二十九加固：Escape + sleep 后追加 dismissAllOverlays 确认遮罩真正卸净，
+      // 消除「关闭动画未完 → 后继 click 被吞」的间歇失败。
       await page.keyboard.press('Escape')
       await sleep(600)
+      await dismissAllOverlays(page)
     }
 
     // 2) 合规报告（compliance-report 消费闭环）
@@ -809,6 +812,7 @@ async function testFeature5(page) {
       await screenshot(page, 'feat5_compliance_report')
       await page.keyboard.press('Escape')
       await sleep(600)
+      await dismissAllOverlays(page)
     }
 
     // 3) 归档下载（锚点列表对话框；本地库锚点可能为 0——断言对话框与表头）
@@ -824,6 +828,7 @@ async function testFeature5(page) {
       await screenshot(page, 'feat5_archive_anchors')
       await page.keyboard.press('Escape')
       await sleep(600)
+      await dismissAllOverlays(page)
     }
   }
 }
@@ -1884,13 +1889,18 @@ async function testFeature16(page) {
   await sleep(1500)
 
   // 切换到英文
+  // 批二十九加固：先清浮层（tour/消息框可能拦截 header 图标点击），再开下拉点 English。
+  await dismissAllOverlays(page)
   const langIcon = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
   if (await langIcon.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await langIcon.click()
+    await langIcon.click({ timeout: 5000 }).catch(() => {})
     await sleep(800)
     const englishOption = page.locator('.el-dropdown-menu__item:has-text("English")').first()
     if (await englishOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await englishOption.click()
+      const enDisabled = await englishOption.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
+      if (!enDisabled) {
+        await englishOption.click({ timeout: 5000 }).catch(() => {})
+      }
       await sleep(3000)
       await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
       await sleep(2000)
@@ -1911,6 +1921,9 @@ async function testFeature16(page) {
       // 批次十九收尾八：与中文主扫描同语义（静态 DOM 文本），'load' + 短等待
       await page.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'load', timeout: 30000 })
       await sleep(800)
+      // 批二十九加固：与中文主扫描对称调用 skipTour——英文扫描期间若 tour 遮罩/引导文案
+      // 在场，其标题/按钮文案会被计入「残留中文」造成假失败（探针实证需对称处理）。
+      await skipTour(page)
 
       const residual = await page
         .evaluate(() => {
@@ -1940,21 +1953,44 @@ async function testFeature16(page) {
   }
 
   // 切回中文模式
+  // 批二十九加固：EP 下拉当前选中项带 is-disabled，且关闭动画期点击会被 actionability 阻塞 30s
+  // （r33 实测：isVisible=true 但 click 超时 → 语言残留英文 → 后续 F61/62/63 级联全挂）。
+  // 故：先等 enabled 再点，失败则重开下拉重试；仍失败走 API 兜底强制切回中文。
   const langIcon2 = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
-  if (await langIcon2.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await langIcon2.click()
+  let zhRestored = false
+  for (let attempt = 0; attempt < 3 && !zhRestored; attempt++) {
+    if (!(await langIcon2.isVisible({ timeout: 2000 }).catch(() => false))) break
+    await langIcon2.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
-    const zhOption = page.locator('.el-dropdown-menu__item:has-text("简体中文")').first()
+    const zhOption = page.locator('.el-dropdown-menu__item:has-text("简体中文"), .el-dropdown-menu__item:has-text("Simplified Chinese")').first()
     if (await zhOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await zhOption.click()
-      await sleep(3000)
-      await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
-      await sleep(2000)
-      if (page.url().includes('login')) {
-        await login(page)
+      // 当前项若为禁用态（已处于中文）→ 视为已恢复；否则点击
+      const zhDisabled = await zhOption.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
+      if (zhDisabled) {
+        zhRestored = true
+      } else {
+        await zhOption.click({ timeout: 5000 }).catch(() => {})
         await sleep(2000)
+        await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
+        await sleep(1500)
+        zhRestored = (await page.evaluate(() => document.documentElement.lang || '').catch(() => '')) === 'zh-CN'
       }
     }
+    if (!zhRestored) {
+      await page.keyboard.press('Escape').catch(() => {})
+      await sleep(400)
+    }
+  }
+  if (!zhRestored) {
+    // localStorage 兜底：强制 language=zh-CN 并 reload，避免污染后续用例（i18n 持久化键见 src/i18n/index.ts:13）
+    await page.evaluate(() => { try { localStorage.setItem('language', 'zh-CN') } catch { /* noop */ } }).catch(() => {})
+    await page.reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {})
+    await sleep(1500)
+    log('  ⚠️ F16 语言切回中文未确认，已写 localStorage language=zh-CN 并 reload 兜底')
+  }
+  if (page.url().includes('login')) {
+    await login(page)
+    await sleep(2000)
   }
 
   // 记录结果
@@ -17120,7 +17156,10 @@ async function testFeature78(page) {
 
   // B. 存量形态兼容：subscribedEvents 逗号串写入（SubscribedEventsInput 多形态）→ 后端转换数组
   const hookName = `e2e78hook-${uniq}`
-  const target = 'http://httpbin.org:81/hook' // 公网域名+封闭端口：DNS 守卫放行、SSRF 放行、连接失败返回 error，链路真实
+  // IP 字面量 + 封闭端口：validate_url 走 Ipv4 分支（非内网/保留段 → 放行）、
+  // validate_host_resolution 对 IP 字面量必定解析成功 → 双守卫放行；:81 无服务 → 连接失败返回 error，链路真实。
+  // 不用公网域名（httpbin.org 等）：依赖外网 DNS，离线/被墙环境样例必挂（e2e 批二十九修复）。
+  const target = 'http://1.1.1.1:81/hook'
   const created = await api('/monitor/webHook', {
     method: 'POST', headers: jsonHeaders,
     body: JSON.stringify({ hookName, targetUrl: target, subscribedEvents: 'login.success,user.created', status: '0' })

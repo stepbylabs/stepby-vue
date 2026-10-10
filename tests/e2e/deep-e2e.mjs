@@ -14063,8 +14063,9 @@ async function testModule79(page, consoleErrors, pageErrors) {
       `校验提示="${errText.trim().slice(0, 40)}"`
     )
 
-    // 79.3 真实交互二：改为合法 URL 提交新增（外网 DNS 不可用时会被 SSRF 拦截 → SKIP）
-    await fillDialogField(page, '目标 URL', 'https://example.com/hook')
+    // 79.3 真实交互二：改为合法 URL 提交新增。IP 字面量 + 封闭端口：DNS/SSRF 双守卫放行、
+    // 连接失败返回 error，链路真实且不依赖外网 DNS（原用 https://example.com 在离线环境必被 SSRF 拦截 → 恒 SKIP）。
+    await fillDialogField(page, '目标 URL', 'http://1.1.1.1:81/hook')
     const addApi = waitForApi(page, '/monitor/webHook', 10000)
     await clickDialogBtn(page, '确 定')
     const aResp = await addApi
@@ -14588,9 +14589,10 @@ async function testModule81(page, consoleErrors, pageErrors) {
     await clearToasts(page)
     const swBtn = page.locator('.app-container .el-table__body .el-table__row .el-switch').first()
     const swVisible = await swBtn.isVisible({ timeout: 3000 }).catch(() => false)
-    // 前置于点击：先判定开关是否被禁用。provider/index.vue:131 写成
-    // :disabled="toggleLoading !== scope.row.providerId" 且 toggleLoading 初值为 0（:380），
-    // 导致初始态下所有行开关恒为 disabled，点击无效 —— 这是前端真实 bug，脚本如实记录并跳过交互。
+    // 前置于点击：先判定开关是否被禁用。开关语义 = 「仅切换中禁用」（toggleLoading 为
+    // 当前切换行 ID，0 表示空闲）。历史缺陷（已修复）：provider/index.vue 曾写成
+    // :disabled="toggleLoading !== scope.row.providerId"（初值 0）→ 所有行恒 disabled、
+    // 点击无效；现为 !== 0 && !== providerId，空闲态全部可用。此处仍保留判定以兼容意外禁用。
     const swDisabled = swVisible
       ? await swBtn.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
       : false
@@ -14600,9 +14602,8 @@ async function testModule81(page, consoleErrors, pageErrors) {
       recordSkip(
         M,
         '登录配置: 启停开关 toggle',
-        '跳过（开关初始即为 disabled，点击无效，确认为前端真实 bug：' +
-          'src/views/system/oauth/provider/index.vue:131 :disabled="toggleLoading !== scope.row.providerId"' +
-          '，toggleLoading 初值 0（:380），语义应为 === 而非 !==）'
+        '跳过（开关初始即为 disabled —— 与历史缺陷表现一致，请检查 ' +
+          'src/views/system/oauth/provider/index.vue :disabled="toggleLoading !== 0 && !== providerId"）'
       )
     } else {
       await swBtn.click({ timeout: 3000 }).catch(() => {})
