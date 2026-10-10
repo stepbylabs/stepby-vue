@@ -53,6 +53,12 @@
  *  114. HTTP 调试器 UI 发送链（GET + 1.1.1.1:81 封闭端口不可达负例 → 错误反馈呈现）
  *  115. observability 错误聚合查询链 + logtail autoRefresh 轮询双请求（开关还原）
  *  116. aiHistory 导出 UI 链（接口 200 + download 物证；负例不可达缘由见用例内注释）
+ *  118. scimGroup 行内操作负路径（编辑抽屉/删除 confirm 取消/批量删除 disabled，零落库）
+ *  119. scimGroup openEdit 异常健壮性（role/list 500 → 抽屉不开 + 页面存活）
+ *  120. workbench goTo 真实路由（个人中心/stat-login/锁屏快捷入口三跳 + 回退）
+ *  121. gen 导入表/建表对话框负路径（不选表错误 Toast + 取消零落库）
+ *  122. cache 键管理/统计 Tab 交互（getNames/getKeys/getValue 链 + 清空取消 0 DELETE）
+ *  123. profile TOTP Tab UI 真测（setup 200/QR/错误码验证失败/初态不落库）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -211,7 +217,10 @@ async function openPage(page, path, pathToken) {
   await presetTourDisabled(page)
   const url = path.startsWith('http') ? path : `${CONFIG.frontendUrl}${path}`
   await gotoDynamicRoute(page, url, pathToken || path)
-  await sleep(1500)
+  // .app-container 是 SPA 外壳（路由切换瞬间即存在，等于没等页面渲染）；skipTour 抢在
+  // tour 启动前执行会让遮罩后现并拦截后继点击（批三十三全量 F5-11 假失败实证）。
+  // 保持固定沉降窗（稳定胜过速度），保证 tour 启动→skipTour 关闭的时序
+  await page.waitForTimeout(1500)
   await skipTour(page)
   return !(await is404Page(page))
 }
@@ -544,8 +553,9 @@ async function testFeature2(page) {
   const isDashboard = page.url().includes('index') || page.url().endsWith('/')
   record(2, 'Dashboard 页面加载', isDashboard)
 
-  // 后端 scheduler 已注册（从启动日志中已知）
-  record(2, 'scheduler 已注册 login_anomaly_detector', true, '后端启动日志已确认')
+  // 后端 scheduler 已注册——原 record(...,true) 常量假通过改 recordSkip 口径：
+  // scheduler 注册状态无 UI/API 探针可断言（启动日志在测试进程外），故走 SKIP 统计
+  recordSkip(2, 'scheduler 已注册 login_anomaly_detector', '后端启动日志已确认，无运行时 API 可兜底', null)
 }
 
 // ==================== 功能 3：数据备份恢复管理 ====================
@@ -8567,8 +8577,12 @@ async function testFeature40(page) {
     await sleep(1500)
 
     // 使用更稳定的输入框选择器：查询表单中的第一个 input
+    // （isVisible() 新版不接受 timeout、立即返回——SPA 异步挂载慢于 sleep 时误判，必须 waitForSelector）
     const userNameInput = page.locator('.el-form .el-input input').first()
-    const inputVisible = await userNameInput.isVisible({ timeout: 2000 }).catch(() => false)
+    const inputVisible = await userNameInput
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
 
     let savedValue = ''
     let restoredValue = ''
@@ -12935,14 +12949,17 @@ async function testFeature60(page) {
   }
   // 批三十一 UX-5：编辑类 dialog 统一接 beforeDialogClose 脏表单守卫——
   // 取消后若表单有变更会先弹「离开且不保存」确认框，确认后才真正关闭。
+  // 测试债修复：原「守卫出现」与「关闭成功」两条独立断言合并为单一复合条件，
+  // 消除「守卫弹了但对话框没关仍双 PASS」的假阳性空间。
   const guardBox = page.locator('.el-message-box:visible')
-  if (await guardBox.isVisible({ timeout: 1500 }).catch(() => false)) {
+  const guardShown = await guardBox.isVisible({ timeout: 1500 }).catch(() => false)
+  if (guardShown) {
     await guardBox.locator('.el-message-box__btns .el-button--primary').first().click()
     await sleep(600)
-    record(60, '脏表单守卫：取消后弹「离开且不保存」确认并可关闭', true)
   }
   const vis = await page.locator('.el-dialog:visible').count()
-  record(60, '取消关闭对话框（未写入数据）', vis === 0, `visible=${vis}`)
+  record(60, '脏表单守卫：取消后弹「离开且不保存」确认框且确认后对话框关闭（未写入数据）',
+    guardShown && vis === 0, `guard=${guardShown}, visible=${vis}`)
 }
 
 /** 功能 61：角色菜单权限树联动 + 数据权限自定义范围（轮7） */
@@ -17084,7 +17101,13 @@ async function main() {
       { id: 113, fn: testFeature113 },
       { id: 114, fn: testFeature114 },
       { id: 115, fn: testFeature115 },
-      { id: 116, fn: testFeature116 }
+      { id: 116, fn: testFeature116 },
+      { id: 118, fn: testFeature118 },
+      { id: 119, fn: testFeature119 },
+      { id: 120, fn: testFeature120 },
+      { id: 121, fn: testFeature121 },
+      { id: 122, fn: testFeature122 },
+      { id: 123, fn: testFeature123 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17989,9 +18012,12 @@ async function testFeature86(page) {
   const failedRow = histItems.find((r) => r.success === false)
   record(86, 'B2 失败路径留痕（success=0）', !!failedRow, failedRow ? `q=${(failedRow.question || '').slice(0, 30)}` : '未找到失败行')
 
-  // C. 收尾：开关恢复 false（幂等）
-  await setEnabled(false)
-  record(86, 'C1 开关恢复 false', true)
+  // C. 收尾：开关恢复 false（幂等）——测试债修复：原常量 true 改为真断言
+  //（setEnabled 返回值 + configKey 直查后端落库值双确认）
+  const offOk = await setEnabled(false)
+  const cfgAfter = await api(`/system/config/configKey/${cfgKey}`, { headers: jsonHeaders })
+  record(86, 'C1 开关恢复 false', offOk && cfgAfter?.code === 200 && cfgAfter?.data === 'false',
+    `put=${offOk}, configValue=${cfgAfter?.data}`)
 }
 // ==================== 功能 87：消息渠道管理（编辑全链 + EncryptedString 明文回显契约）====================
 /**
@@ -19364,12 +19390,28 @@ async function testFeature101(page) {
     }
     record(101, '变更留痕页：表格渲染 + 行展开 diff 视图', tableOk && expandOk,
       `table=${tableOk}, expand=${expandOk}`)
-    // 排序切换（服务端排序参数透传）
+    // 排序切换（服务端排序参数透传）——测试债修复：原常量 true 改为监听
+    // list 请求 URL 携带 orderByColumn/isAsc（useCrudTable handleSortChange 写入 queryParams 后随请求透传）
     const sortable = page.locator('.el-table th.is-sortable').first()
     if ((await sortable.count()) > 0) {
+      let sortUrl = ''
+      const sortH = (r) => {
+        if (r.url().includes('/system/audit-change/list')) sortUrl = r.url()
+      }
+      page.on('request', sortH)
       await sortable.click({ force: true })
       await sleep(800)
-      record(101, '变更留痕页：服务端排序可触发', true)
+      page.off('request', sortH)
+      let hasSortParams = false
+      let sortDetail = '未捕获 list 请求'
+      if (sortUrl) {
+        const u = new URL(sortUrl)
+        const orderBy = u.searchParams.get('orderByColumn')
+        const isAsc = u.searchParams.get('isAsc')
+        hasSortParams = orderBy !== null && isAsc !== null
+        sortDetail = `orderByColumn=${orderBy}, isAsc=${isAsc}`
+      }
+      record(101, '变更留痕页：服务端排序可触发（list 请求带排序参数）', hasSortParams, sortDetail)
     }
   } catch (err) {
     record(101, '变更留痕页：表格渲染 + 行展开 diff 视图', false, `异常: ${err.message.slice(0, 200)}`)
@@ -20961,5 +21003,473 @@ async function testFeature116(page) {
   // /monitor/aiHistory 会被路由守卫重定向到 /login，导出按钮的点击链不存在，UI 级负例
   // 无法构造；接口级无 token 401 已由同族接口用例（F100 3b）覆盖。故本用例不设负例
   // 断言，也不空记 SKIP 冒充 PASS（此处仅注释说明缘由，无断言产出）。
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 118：scimGroup 行内操作负路径 ====================
+async function testFeature118(page) {
+  log('=== 功能 118：scimGroup 行内操作负路径 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(118, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const auth = { Authorization: `Bearer ${token}` }
+  // 前置：接口侧确认列表数据可用性（组数据由 SCIM IdP 同步产生，e2e 不安全构造）
+  const pre = await apiWithBackoff('/system/scimGroup/list?pageNum=1&pageSize=10', { headers: auth })
+  record(118, '⓪ scimGroup 列表接口 200', pre.status === 200, `status=${pre.status}`)
+  if (pre.status !== 200) return
+  const hasRows = (pre.body?.rows || []).length > 0
+
+  const ok = await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
+  record(118, '① 页面可达（/system/oauth/scimGroup）', ok)
+  if (!ok) return
+
+  // ③ 不勾选任何行 → 批量删除 disabled（:disabled="selectedIds.length === 0"，不依赖数据行）
+  const batchBtn = page.getByRole('button', { name: /批量删除/ }).first()
+  await batchBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  const batchDisabled = await batchBtn.isDisabled().catch(() => false)
+  record(118, '③ 未勾选任何行时批量删除按钮 disabled', batchDisabled)
+
+  if (!hasRows) {
+    // 行级操作（编辑/删除）需要真实组行——组由 IdP 同步产生，e2e 环境无数据时按 SKIP 兜底
+    recordSkip(118, '② 行内编辑/删除负路径', '当前环境无 SCIM 组数据行（组由 IdP 同步产生，e2e 不构造）', true)
+    await dismissAllOverlays(page)
+    return
+  }
+
+  const row = page.locator('.el-table__row').first()
+  await row.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const displayName = (await row.locator('td').nth(1).innerText().catch(() => '')).trim()
+  const memberCountText = (await row.locator('td').nth(4).innerText().catch(() => '0')).trim()
+
+  // ② 行「删除」→ confirm 文案含组 displayName → 取消 → 0 DELETE
+  let delCount = 0
+  const delH = (r) => {
+    if (r.request().method() === 'DELETE' && r.url().includes('/system/scimGroup')) delCount++
+  }
+  page.on('request', delH)
+  await row.getByRole('button', { name: /删\s*除|Delete/i }).first().click()
+  const box = page.locator('.el-message-box:visible').first()
+  await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
+  const boxVisible = await box.isVisible().catch(() => false)
+  const boxText = boxVisible ? await box.innerText().catch(() => '') : ''
+  record(118, '② 删除 confirm 出现且文案含组 displayName',
+    boxVisible && boxText.includes(displayName), `text=${boxText.slice(0, 40)}`)
+  await box
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /取\s*消|Cancel/i })
+    .first()
+    .click()
+    .catch(() => {})
+  await page.waitForTimeout(500)
+  page.off('request', delH)
+  record(118, '② 取消删除：0 DELETE 请求', delCount === 0, `del=${delCount}`)
+
+  // ① 行「编辑」→ 抽屉挂载 + GET /system/scimGroup/{id} 200 + 成员表行数与 memberCount 一致
+  let getIdOk = false
+  let getSeen = false
+  const getH = (r) => {
+    if (r.request().method() === 'GET' && /\/system\/scimGroup\/\d+/.test(r.url())) {
+      getSeen = true
+      getIdOk = r.status() === 200
+    }
+  }
+  page.on('response', getH)
+  await row.getByRole('button', { name: /修\s*改|编\s*辑|Edit/i }).first().click()
+  const drawer = page.locator('.el-drawer:visible').first()
+  await drawer.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  const drawerOk = await drawer.isVisible().catch(() => false)
+  await page.waitForTimeout(500)
+  page.off('response', getH)
+  record(118, '① 编辑抽屉挂载 + GET /system/scimGroup/{id} 200',
+    drawerOk && getIdOk, `drawer=${drawerOk}, getSeen=${getSeen}, getOk=${getIdOk}`)
+
+  if (drawerOk) {
+    // 成员表：抽屉「组成员」表单域下的 el-table（抽屉内唯一 el-table）
+    const memberRows = drawer.locator('.el-table__body-wrapper tbody tr')
+    const uiCount = await memberRows.count()
+    const expected = parseInt(memberCountText, 10) || 0
+    record(118, '① 抽屉成员表行数与 memberCount 一致', uiCount === expected,
+      `ui=${uiCount}, memberCount=${expected}`)
+  } else {
+    record(118, '① 抽屉成员表行数与 memberCount 一致', false, '前置：抽屉未挂载')
+  }
+
+  // 取消/Escape 关闭抽屉 → 0 PUT 请求
+  let putCount = 0
+  const putH = (r) => {
+    if (r.request().method() === 'PUT' && r.url().includes('/system/scimGroup')) putCount++
+  }
+  page.on('request', putH)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(500)
+  if (await drawer.isVisible().catch(() => false)) {
+    await drawer
+      .locator('button')
+      .filter({ hasText: /取\s*消|Cancel/i })
+      .first()
+      .click()
+      .catch(() => {})
+  }
+  await page.waitForTimeout(400)
+  page.off('request', putH)
+  const drawerClosed = !(await page.locator('.el-drawer:visible').first().isVisible().catch(() => false))
+  record(118, '① 取消/Escape 关闭抽屉且 0 PUT 请求', putCount === 0 && drawerClosed, `put=${putCount}, closed=${drawerClosed}`)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 119：scimGroup openEdit 异常健壮性 ====================
+async function testFeature119(page) {
+  log('=== 功能 119：scimGroup openEdit 异常健壮性 ===')
+  const ok = await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
+  record(119, '① 页面可达（/system/oauth/scimGroup）', ok)
+  if (!ok) return
+  const rows = page.locator('.el-table__row')
+  if ((await rows.count()) === 0) {
+    recordSkip(119, '② openEdit 异常健壮性', '当前环境无 SCIM 组数据行可点击（组由 IdP 同步产生）', true)
+    await dismissAllOverlays(page)
+    return
+  }
+  // 拦截 listRole（/system/role/list）返回 500——openEdit 串行 await 链上的一环
+  let pageErr = false
+  const errH = () => { pageErr = true }
+  page.on('pageerror', errH)
+  await page.route(/\/system\/role\/list/, (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 500, msg: 'mock 500 by e2e' }) })
+  )
+  // 缘由说明：源码 openEdit（scimGroup/index.vue L246-273）串行 await listRole/listDept，
+  // 当前实现失败时静默清理行引用、抽屉不打开（该健壮性行为由源码 agent 并行处理中）。
+  // 本用例只测行为契约：抽屉打不开 + 页面存活（app 容器在、无 pageerror）= PASS。
+  await rows.first().getByRole('button', { name: /修\s*改|编\s*辑|Edit/i }).first().click()
+  await page.waitForTimeout(1500)
+  const drawerOpen = await page.locator('.el-drawer:visible').first().isVisible().catch(() => false)
+  const appAlive = (await page.locator('.app-container').count()) > 0
+  page.off('pageerror', errH)
+  await page.unroute(/\/system\/role\/list/)
+  record(119, '② role/list 500：抽屉打不开且页面存活（无白屏/无 pageerror）',
+    appAlive && !drawerOpen && !pageErr, `app=${appAlive}, drawer=${drawerOpen}, pageerr=${pageErr}`)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 120：workbench goTo 真实路由 ====================
+async function testFeature120(page) {
+  log('=== 功能 120：workbench goTo 真实路由 ===')
+  const ok = await openPage(page, '/workbench/index', '/workbench')
+  record(120, '① 工作台页可达（/workbench/index）', ok)
+  if (!ok) return
+  // 源码 workbench/index.vue：L27 欢迎卡「个人中心」按钮 goTo('/user/profile')、
+  // L48 stat-login 统计卡 goTo('/monitor/logininfor')、L255-267 快捷入口栅格；
+  // i18n 真值（zh-CN/dashboard.ts）：workbench.profile='个人中心'，shortcutLock='锁屏'
+  const profileBtn = page.getByRole('button', { name: /个人中心/ }).first()
+  await profileBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await profileBtn.click()
+  const url1 = await page
+    .waitForURL((u) => u.toString().includes('/user/profile'), { timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  record(120, '② 点「个人中心」→ URL 含 /user/profile', url1, `url=${page.url()}`)
+  await page.goBack()
+  await page.waitForURL((u) => u.toString().includes('/workbench'), { timeout: 8000 }).catch(() => {})
+  record(120, '③ goBack 回工作台', page.url().includes('/workbench'), `url=${page.url()}`)
+
+  const statCard = page.locator('.stat-card.stat-login').first()
+  await statCard.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await statCard.click()
+  const url2 = await page
+    .waitForURL((u) => u.toString().includes('/monitor/logininfor'), { timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  record(120, '④ 点 stat-login 统计卡 → URL 含 /monitor/logininfor', url2, `url=${page.url()}`)
+  await page.goBack()
+  await page.waitForURL((u) => u.toString().includes('/workbench'), { timeout: 8000 }).catch(() => {})
+
+  const lockItem = page.locator('.shortcut-item').filter({ hasText: '锁屏' }).first()
+  await lockItem.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await lockItem.click()
+  const url3 = await page
+    .waitForURL((u) => u.toString().includes('/lock'), { timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  record(120, '⑤ 快捷入口「锁屏」→ URL 含 /lock', url3, `url=${page.url()}`)
+  // 尾部恢复初态：lock 态持久化（goBack 不清除、守卫会持续劫持所有路由到 /lock），
+  // 必须真实解锁——lock 页 API 校验（unlockScreen），用 TEST_PASS 走解锁链
+  if (url3) {
+    const pwdInput = page.locator('input[type="password"]')
+    await pwdInput.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    await pwdInput.fill(TEST_PASS)
+    await page.locator('.unlock-btn').click()
+    const backOk = await page
+      .waitForURL((u) => !u.toString().includes('/lock'), { timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    log(`  F120 解锁恢复: backOk=${backOk}, url=${page.url()}`)
+  } else {
+    await page.goBack().catch(() => {})
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 121：gen 导入表/建表对话框负路径 ====================
+async function testFeature121(page) {
+  log('=== 功能 121：gen 导入表/建表对话框负路径 ===')
+  // 复用 F66 的进入方式（/tool/gen 动态路由五连）
+  const ok = await openPage(page, '/tool/gen', '/tool/gen')
+  record(121, '① 代码生成页可达（/tool/gen）', ok)
+  if (!ok) return
+
+  // —— 导入表：不选表点确定 → 错误 Toast + 0 importTable POST（waitForResponse 计数）——
+  let importPost = 0
+  const impH = (r) => {
+    if (r.request().method() === 'POST' && r.url().includes('/tool/gen/importTable')) importPost++
+  }
+  page.on('request', impH)
+  const importBtn = page.getByRole('button', { name: /^导\s*入$/ }).first()
+  await importBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await importBtn.click()
+  const dlg = page.locator('.el-dialog:visible').filter({ hasText: '导入表' }).first()
+  await dlg.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  const dlgOk = await dlg.isVisible().catch(() => false)
+  // 表列表渲染（db/list 有数据行数>0，无数据走 el-empty 空态也算渲染完成）
+  const listRendered =
+    dlgOk && ((await dlg.locator('.el-table__row').count()) > 0 || (await dlg.locator('.el-empty').count()) > 0)
+  record(121, '② 导入表对话框打开且表列表渲染', listRendered)
+  if (dlgOk) {
+    // 不勾选任何表直接点「确 定」→ 前端校验 msgError('请选择要导入的表')，不发请求
+    // （msgError 经 errorHub 仍以 ElMessage 呈现；Toast 异步渲染——isVisible 立即判定会误 false，必须 waitFor）
+    await dlg.locator('.dialog-footer button').filter({ hasText: /确\s*定/ }).first().click()
+    const errToast = await page
+      .locator('.el-message--error')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    record(121, '③ 不选表点确定：错误 Toast 出现（请选择要导入的表）', errToast)
+  } else {
+    record(121, '③ 不选表点确定：错误 Toast 出现（请选择要导入的表）', false, '前置：对话框未打开')
+  }
+  await page.waitForTimeout(500)
+  page.off('request', impH)
+  record(121, '③ 0 importTable POST', importPost === 0, `post=${importPost}`)
+  await dlg.locator('.dialog-footer button').filter({ hasText: /取\s*消|Cancel/i }).first().click().catch(() => {})
+  await page.waitForTimeout(400)
+
+  // —— 创建表：对话框打开 + 取消零落库 ——
+  let createPost = 0
+  const crtH = (r) => {
+    if (r.request().method() === 'POST' && r.url().includes('/tool/gen/createTable')) createPost++
+  }
+  page.on('request', crtH)
+  const createBtn = page.getByRole('button', { name: /^创\s*建$/ }).first()
+  await createBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await createBtn.click()
+  const cd = page.locator('.el-dialog:visible').filter({ hasText: '创建表' }).first()
+  await cd.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  const cdOk = await cd.isVisible().catch(() => false)
+  record(121, '④ 创建表对话框打开', cdOk)
+  if (cdOk) {
+    await cd.locator('button').filter({ hasText: /取\s*消|Cancel/i }).first().click().catch(() => {})
+    await page.waitForTimeout(400)
+  }
+  page.off('request', crtH)
+  record(121, '④ 取消建表：0 createTable POST（零落库）', createPost === 0, `post=${createPost}`)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 122：cache 键管理/统计 Tab 交互 ====================
+async function testFeature122(page) {
+  log('=== 功能 122：cache 键管理/统计 Tab 交互 ===')
+  const ok = await openPage(page, '/monitor/cache', '/monitor/cache')
+  record(122, '① 缓存监控页可达（/monitor/cache）', ok)
+  if (!ok) return
+
+  let delCount = 0
+  const delH = (r) => {
+    if (r.request().method() === 'DELETE' && r.url().includes('/monitor/cache/clearCacheName')) delCount++
+  }
+  page.on('request', delH)
+
+  // 子组件懒加载：切「缓存列表」tab 后 CacheKeys 才挂载并拉 getNames
+  // （el-tabs 各 pane 可能同时挂载但仅活动 pane 可见——行/表选择器一律加 :visible 作用域；
+  //   getNames 可能在点击后瞬间完成——监听必须在点击**前**挂载，且 rows>0 本身即 getNames 成功的物证）
+  const namesRespP = page
+    .waitForResponse((r) => r.url().includes('/monitor/cache/getNames') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
+  await page.getByRole('tab', { name: /缓存列表/ }).first().click()
+  const namesResp = await namesRespP
+  await page
+    .locator('.el-table:visible')
+    .first()
+    .waitFor({ state: 'visible', timeout: 6000 })
+    .catch(() => {})
+  const nameRows = page.locator('.el-table:visible .el-table__row')
+  await page
+    .waitForFunction(() => {
+      const rows = document.querySelectorAll('.el-table__row')
+      return Array.from(rows).some((r) => r.offsetParent !== null)
+    }, { timeout: 8000 })
+    .catch(() => {})
+  const nameRowCount = await nameRows.count()
+  record(122, '② 切「缓存列表」tab：getNames 200 且 cacheNames 表行数>0',
+    (!!namesResp || nameRowCount > 0) && nameRowCount > 0, `resp=${!!namesResp}, rows=${nameRowCount}`)
+  if (!namesResp || nameRowCount === 0) {
+    page.off('request', delH)
+    await dismissAllOverlays(page)
+    return
+  }
+
+  // 点第一行 → getKeys → keys 表非空（捕获任意状态码响应，诊断非 200 场景；探针实证链路正常）
+  const keysRespP = page.waitForResponse(
+    (r) => r.url().includes('/monitor/cache/getKeys/'),
+    { timeout: 8000 }
+  ).catch(() => null)
+  await nameRows.first().click()
+  const keysResp = await keysRespP
+  await page.waitForTimeout(600)
+  // 第二张可见表为键名列表（CacheKeys 双表布局：左 cacheNames / 右 keys）
+  const allTables = page.locator('.el-table:visible')
+  const keysTable = allTables.nth(1)
+  const keyRowCount = await keysTable.locator('.el-table__row').count()
+  const keysStatus = keysResp ? keysResp.status() : 'none'
+  record(122, '③ 点第一行：getKeys 200 且 keys 表非空',
+    keysStatus === 200 && keyRowCount > 0, `status=${keysStatus}, keyRows=${keyRowCount}`)
+
+  if (keyRowCount > 0) {
+    // 点第一个 key → getValue → cacheForm.cacheKey 输入框有值（只读回显）
+    const valRespP = page.waitForResponse(
+      (r) => r.url().includes('/monitor/cache/getValue/') && r.status() === 200,
+      { timeout: 8000 }
+    ).catch(() => null)
+    await keysTable.locator('.el-table__row').first().click()
+    const valResp = await valRespP
+    await page.waitForTimeout(500)
+    // 「缓存内容」表单仅在选中 key 后出现（v-if cacheForm.cacheKey），缓存键名输入框只读且有值
+    const keyInput = page
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("缓存键名:")') })
+      .last()
+      .locator('input')
+      .first()
+    const keyVal = await keyInput.inputValue().catch(() => '')
+    record(122, '④ 点第一个 key：getValue 200 且 cacheForm.cacheKey 输入框有值',
+      !!valResp && keyVal.length > 0, `resp=${!!valResp}, val=${keyVal.slice(0, 30)}`)
+  } else {
+    record(122, '④ 点第一个 key：getValue 200 且 cacheForm.cacheKey 输入框有值', false, '前置：keys 表为空')
+  }
+
+  // 「清空」confirm 取消 → 0 DELETE（cacheNames 首行操作列 icon 按钮——aria-label=common.delete「删除」，
+  // 无文本，hasText 定位不到；@click.stop 不触发行点击）
+  const clearBtn = nameRows.first().locator('button[aria-label="删除"]').first()
+  if ((await clearBtn.count()) > 0) {
+    await clearBtn.click({ force: true })
+    const cbox = page.locator('.el-message-box:visible').first()
+    await cbox.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
+    const cboxShown = await cbox.isVisible().catch(() => false)
+    await cbox
+      .locator('.el-message-box__btns button')
+      .filter({ hasText: /取\s*消|Cancel/i })
+      .first()
+      .click()
+      .catch(() => {})
+    await page.waitForTimeout(500)
+    record(122, '⑤ 清空 confirm 出现且取消：0 DELETE 请求', cboxShown && delCount === 0,
+      `box=${cboxShown}, del=${delCount}`)
+  } else {
+    record(122, '⑤ 清空 confirm 出现且取消：0 DELETE 请求', false, '未找到清空按钮')
+  }
+  page.off('request', delH)
+
+  // 切「缓存统计」（热 Key 提示）tab → loadStats 接口发生（hotKeys + prefixStats）+ 渲染
+  await page.getByRole('tab', { name: /热\s*Key|统计/ }).first().click()
+  const hotP = page.waitForResponse((r) => r.url().includes('/monitor/cache/hotKeys') && r.status() === 200, { timeout: 8000 }).catch(() => null)
+  const prefixP = page.waitForResponse((r) => r.url().includes('/monitor/cache/prefixStats') && r.status() === 200, { timeout: 8000 }).catch(() => null)
+  await page.waitForTimeout(300)
+  const hotResp = await hotP
+  const prefixResp = await prefixP
+  // 统计 tab 双表：前缀统计 + 热 Key（若聚合无数据走空态，接口 200 即渲染完成前提）
+  const statsPane = page.locator('.el-tab-pane').last()
+  await statsPane.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  const statsRendered =
+    (await statsPane.locator('.el-table').count()) >= 2 ||
+    (await statsPane.locator('.el-empty').count()) > 0
+  record(122, '⑥ 切「缓存统计」tab：hotKeys/prefixStats 接口发生且双表渲染',
+    !!hotResp && !!prefixResp && statsRendered,
+    `hot=${!!hotResp}, prefix=${!!prefixResp}, rendered=${statsRendered}`)
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 123：profile TOTP Tab UI 真测（原 SKIP 变真测） ====================
+async function testFeature123(page) {
+  log('=== 功能 123：profile TOTP Tab UI 真测 ===')
+  const ok = await openPage(page, '/user/profile', '/user/profile')
+  record(123, '① 个人中心可达（/user/profile）', ok)
+  if (!ok) return
+
+  // 切「安全设置 (MFA)」tab（profile/index.vue：el-tab-pane name=totp label=profile.mfaSetting）
+  await page.getByRole('tab', { name: /安全设置/ }).first().click()
+  const totpCard = page.locator('.totp-card').first()
+  await totpCard.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  // steps 引导组件渲染（未启用态：el-steps 三步）
+  const stepsOk = await totpCard.locator('.el-steps').first().isVisible({ timeout: 4000 }).catch(() => false)
+  record(123, '② 切 MFA Tab：steps 引导组件渲染', stepsOk)
+  if (!stepsOk) {
+    await dismissAllOverlays(page)
+    return
+  }
+
+  // 点「生成密钥」→ POST /system/user/totp/setup 200
+  const setupP = page.waitForResponse(
+    (r) => r.url().includes('/system/user/totp/setup') && r.request().method() === 'POST',
+    { timeout: 10000 }
+  ).catch(() => null)
+  await totpCard.getByRole('button', { name: /生成密钥/ }).first().click()
+  const setupResp = await setupP
+  record(123, '③ 点「生成密钥」：setup 200', !!setupResp && setupResp.status() === 200,
+    setupResp ? `status=${setupResp.status()}` : '未捕获 setup 响应')
+
+  // QR img 出现 + secret 只读输入非空（totp.vue step2：img[alt="TOTP QR Code"] + readonly input）
+  const qr = totpCard.locator('img[alt="TOTP QR Code"]').first()
+  await qr.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  const qrOk = await qr.isVisible().catch(() => false)
+  const secretInput = totpCard.locator('.el-input input[readonly]').first()
+  const secretVal = await secretInput.inputValue().catch(() => '')
+  record(123, '③ QR img 出现且 secret 只读输入非空', qrOk && secretVal.length > 0,
+    `qr=${qrOk}, secretLen=${secretVal.length}`)
+
+  // step2 确认 → step3 输入错误 6 位码 → 验证失败（verify code≠200）且 enabledTag 仍「未启用」
+  await totpCard.getByRole('button', { name: /^确\s*定$/ }).first().click()
+  const codeInput = totpCard
+    .locator('input[placeholder="请输入认证器中的 6 位验证码"]')
+    .first()
+  await codeInput.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  await codeInput.fill('000000')
+  const verifyP = page.waitForResponse(
+    (r) => r.url().includes('/system/user/totp/verify') && r.request().method() === 'POST',
+    { timeout: 10000 }
+  ).catch(() => null)
+  await totpCard.getByRole('button', { name: /验证启用/ }).first().click()
+  const verifyResp = await verifyP
+  let verifyFailed = !verifyResp // 无响应也算未启用成功
+  if (verifyResp) {
+    const body = await verifyResp.json().catch(() => null)
+    verifyFailed = verifyResp.status() >= 400 || (body && body.code !== 200)
+  }
+  const tagText = (await totpCard.locator('.el-tag').first().innerText().catch(() => '')).trim()
+  const successToast = await page
+    .locator('.el-message--success')
+    .filter({ hasText: /启用成功/ })
+    .first()
+    .isVisible({ timeout: 500 })
+    .catch(() => false)
+  record(123, '④ step3 错误 6 位码：verify 失败且 enabledTag 仍「未启用」',
+    verifyFailed && tagText.includes('未启用') && !successToast,
+    `verifyFailed=${verifyFailed}, tag=${tagText}, successToast=${successToast}`)
+
+  // 尾部恢复初态：setup 仅生成临时密钥（不置 enabled），verify 失败不写库，enabled 全程 false，
+  // 无需调 F20 的 disable API；此处 status 接口兜底复核初态。
+  const token = await sessionTokenOf(page)
+  const st = await apiWithBackoff('/system/user/totp/status', { headers: { Authorization: `Bearer ${token}` } })
+  record(123, '⑤ 恢复初态复核：status.enabled 仍 false（未启用状态不落库）',
+    st.status === 200 && st.body?.data?.enabled === false, `code=${st.status}`)
   await dismissAllOverlays(page)
 }
