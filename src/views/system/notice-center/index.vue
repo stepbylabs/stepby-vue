@@ -71,6 +71,7 @@
           <el-input
             v-model="queryParams.noticeTitle"
             :placeholder="t('noticeCenter.searchPlaceholder')"
+            :aria-label="t('noticeCenter.searchPlaceholder')"
             :maxlength="50"
             clearable
             class="w-[220px]"

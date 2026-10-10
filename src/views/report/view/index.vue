@@ -6,8 +6,7 @@
         v-model="selectedId"
         :placeholder="t('rp.pickDashboard')"
         class="w-64"
-        filterable
-      >
+        filterable :aria-label="t('rp.pickDashboard')">
         <el-option
           v-for="d in dashboards"
           :key="d.dashboardId"

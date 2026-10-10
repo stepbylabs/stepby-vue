@@ -424,6 +424,7 @@ export default {
     metricsTitle: 'Backend Runtime Metrics (/metrics)',
     metricsDesc: 'Live process and database metrics from the Prometheus text endpoint',
     metricsUnavailable: 'Metrics unavailable (/metrics is closed or token-protected)',
+    dbPoolUnavailable: 'Connection pool metrics unavailable',
     dbBackend: 'Database Backend',
     dbConnected: 'DB Connection',
     dbConnectedOk: 'Connected',

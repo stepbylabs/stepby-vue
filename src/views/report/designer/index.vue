@@ -6,8 +6,7 @@
         v-model="selectedId"
         :placeholder="t('rp.pickDashboard')"
         class="w-64"
-        filterable
-      >
+        filterable :aria-label="t('rp.pickDashboard')">
         <el-option
           v-for="d in dashboards"
           :key="d.dashboardId"
@@ -26,16 +25,14 @@
       <el-select
         v-model="newChartType"
         class="w-32"
-        :placeholder="t('rp.chartType')"
-      >
+        :placeholder="t('rp.chartType')" :aria-label="t('rp.chartType')">
         <el-option v-for="ct in CHART_TYPES" :key="ct" :value="ct" :label="ct" />
       </el-select>
       <el-select
         v-model="newChartDataset"
         class="w-56"
         filterable
-        :placeholder="t('rp.pickDataset')"
-      >
+        :placeholder="t('rp.pickDataset')" :aria-label="t('rp.pickDataset')">
         <el-option
           v-for="ds in datasets"
           :key="ds.datasetId"
@@ -132,7 +129,7 @@
     </el-drawer>
 
     <!-- 新建大屏 -->
-    <el-dialog v-model="createOpen" :title="t('rp.newDashboard')" width="420px">
+    <el-dialog v-model="createOpen" :title="t('rp.newDashboard')" width="min(90%, 420px)" append-to-body destroy-on-close :close-on-click-modal="false">
       <el-form label-width="90px">
         <el-form-item :label="t('rp.dashboardCode')" required>
           <el-input v-model="createForm.dashboardCode" maxlength="64" />

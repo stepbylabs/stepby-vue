@@ -7,6 +7,7 @@
           <div class="flex items-center gap-2">
             <el-input
               v-model="tenantFilter"
+              :aria-label="t('aiHistory.tenant')"
               :placeholder="t('aiHistory.ph.tenantFilter')"
               clearable
               class="w-[180px]"
@@ -43,14 +44,15 @@
         <el-table-column prop="errorMsg" :label="t('aiHistory.error')" min-width="160" show-overflow-tooltip />
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
-        :page-size="size"
-        :total="total"
-        layout="total, prev, pager, next"
-        class="mt-3 justify-end"
-        @current-change="load"
-      />
+      <div class="mt-3 flex justify-end">
+        <pagination
+          v-model:page="page"
+          v-model:limit="size"
+          :total="total"
+          :auto-scroll="false"
+          @pagination="load()"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -79,7 +81,7 @@ const { t } = useI18n()
 const rows = ref<AiHistoryAdminRow[]>([])
 const loading = ref(false)
 const page = ref(1)
-const size = 20
+const size = ref(20)
 const total = ref(0)
 const tenantFilter = ref('')
 
@@ -87,7 +89,7 @@ async function load(p?: number) {
   if (p) page.value = p
   loading.value = true
   try {
-    const params: Record<string, unknown> = { page: page.value, size }
+    const params: Record<string, unknown> = { page: page.value, size: size.value }
     const tid = tenantFilter.value.trim()
     if (tid) params.tenantFilter = Number(tid)
     const res = (await request({

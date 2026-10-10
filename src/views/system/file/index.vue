@@ -28,18 +28,19 @@
           {{ t('common.batchDelete') }}
         </el-button>
       </el-col>
-      <right-toolbar v-model:showSearch="showSearch" @queryTable="loadList"></right-toolbar>
+      <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
     <Transition name="expand-fade">
-      <el-form :model="queryParams" :inline="true" v-show="showSearch" class="mb8">
+      <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" class="mb8">
         <el-form-item :label="t('file.search.fileName')" prop="fileName">
           <el-input
             v-model="queryParams.fileName"
+            :aria-label="t('file.search.fileName')"
             :placeholder="t('file.search.phFileName')"
             :maxlength="100"
             clearable
-            @keyup.enter="loadList"
+            @keyup.enter="handleQuery"
             class="w-[180px]"
           />
         </el-form-item>
@@ -50,13 +51,13 @@
             :placeholder="t('file.search.phType')"
             clearable
             class="w-[120px]"
-            @change="loadList"
+            @change="handleQuery"
           >
             <el-option v-for="ext in extOptions" :key="ext" :label="ext" :value="ext" />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button v-hasPermi="['system:file:list']" type="primary" icon="Search" @click="loadList">
+          <el-button v-hasPermi="['system:file:list']" type="primary" icon="Search" @click="handleQuery">
             {{ t('common.search') }}
           </el-button>
           <el-button icon="Refresh" @click="resetQuery">{{ t('common.reset') }}</el-button>
@@ -66,7 +67,7 @@
 
     <el-table
       v-loading="loading"
-      :data="fileList"
+      :data="dataList"
       :row-key="(row: { fileName: string }) => row.fileName"
       @selection-change="handleSelectionChange"
     >
@@ -151,7 +152,7 @@
       :total="total"
       v-model:page="queryParams.pageNum"
       v-model:limit="queryParams.pageSize"
-      @pagination="loadList"
+      @pagination="getList"
     />
     <!-- PDF 在线预览（G-06 缺口②）：同源代理 blob → objectURL → iframe，
          鉴权与下载同链（带 Authorization），关闭时 revoke 释放 -->
@@ -178,6 +179,7 @@
 
 <script setup lang="ts" name="SystemFile">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useCrudTable } from '@/composables/useCrudTable'
 import { Document } from '@element-plus/icons-vue'
 import type { UploadRequestOptions } from 'element-plus'
 import request from '@/utils/request'
@@ -195,21 +197,60 @@ interface FileInfo {
   lastModified: string
 }
 
-const loading = ref(false)
-const fileList = shallowRef<FileInfo[]>([])
-const total = ref(0)
-const ids = ref<string[]>([])
-const multiple = ref(true)
 const showSearch = ref(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-useMobileFilter(showSearch)
 
-const queryParams = reactive({
+const queryParams = ref({
   pageNum: 1,
   pageSize: 20,
   fileName: '',
   ext: ''
 })
+
+// 本页无新增/编辑表单（上传/删除为独立流程）：getApi/addApi/updateApi 按惯例传空实现；
+// 删除按 fileName 逐个调用且批量删除需 allSettled 部分成功统计，故删除保留页面级实现
+const form = ref({}) as Ref<FileInfo>
+const formRef = ref<unknown>(null)
+const queryRef = useTemplateRef('queryRef')
+
+const {
+  dataList,
+  loading,
+  showSearch: _unusedShowSearch,
+  total,
+  ids,
+  multiple,
+  getList,
+  handleQuery,
+  resetQuery,
+  handleSelectionChange
+} = useCrudTable<FileInfo, { pageNum: number; pageSize: number; fileName: string; ext: string }>({
+  // 后端 /system/file/list 响应可能包一层 data：兼容 { data: { rows, total } } 与 { rows, total }
+  listApi: (params) =>
+    request({
+      url: '/system/file/list',
+      method: 'get',
+      params
+    }).then((res: unknown) => {
+      const r = res as { data?: { rows?: FileInfo[]; total?: number }; rows?: FileInfo[]; total?: number }
+      return { rows: r.data?.rows || r.rows || [], total: r.data?.total || r.total || 0 }
+    }),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: () => Promise.resolve({}),
+  idField: 'fileName',
+  defaultForm: () => ({}) as FileInfo,
+  titleKey: 'file.column.fileName',
+  deleteTipKey: 'file.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef: formRef as never,
+  queryRef
+})
+
+void _unusedShowSearch
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 const extOptions = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'txt']
 // accept 属性：el-upload 需要逗号分隔字符串（扩展名或 MIME 类型）
@@ -240,35 +281,6 @@ function extTagType(ext: string): 'success' | 'warning' | 'info' | 'danger' | 'p
   if (['doc', 'docx', 'xls', 'xlsx'].includes(ext)) return 'warning'
   if (['zip'].includes(ext)) return 'info'
   return 'primary'
-}
-
-async function loadList(): Promise<void> {
-  loading.value = true
-  try {
-    const res = (await request({
-      url: '/system/file/list',
-      method: 'get',
-      params: queryParams
-    })) as { data?: { rows?: FileInfo[]; total?: number }; rows?: FileInfo[]; total?: number }
-    fileList.value = res.data?.rows || res.rows || []
-    total.value = res.data?.total || res.total || 0
-  } catch (err) {
-    if (import.meta.env.DEV) console.error('[FileMgr] Failed to load list:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-function resetQuery(): void {
-  queryParams.fileName = ''
-  queryParams.ext = ''
-  queryParams.pageNum = 1
-  loadList()
-}
-
-function handleSelectionChange(selection: FileInfo[]): void {
-  ids.value = selection.map((f) => f.fileName)
-  multiple.value = !selection.length
 }
 
 function beforeUpload(file: File): boolean {
@@ -305,7 +317,7 @@ async function handleUpload(options: UploadRequestOptions): Promise<void> {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     modal.msgSuccess(t('common.uploadSuccess'))
-    loadList()
+    getList()
   } catch (err) {
     if (import.meta.env.DEV) console.error('[FileMgr] Upload failed:', err)
   }
@@ -386,7 +398,7 @@ async function handleDelete(row: FileInfo): Promise<void> {
       data: { fileName: row.fileName }
     })
     modal.msgSuccess(t('common.deleteSuccess'))
-    loadList()
+    getList()
     // 清除选中状态：避免删除后按钮 disabled 状态与已删除数据不一致
     ids.value = []
     multiple.value = true
@@ -418,13 +430,13 @@ async function handleBatchDelete(): Promise<void> {
         t('file.tip.batchDeletePartial', { success: successCount, total: results.length, fail: failCount })
       )
     }
-    loadList()
+    getList()
   } catch (err) {
     if (err !== 'cancel' && import.meta.env.DEV) console.error('[FileMgr] Batch delete failed:', err)
   }
 }
 
-onMounted(loadList)
+onMounted(getList)
 </script>
 
 <style lang="scss" scoped>

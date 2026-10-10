@@ -52,10 +52,10 @@
       </template>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="t('profile.passkey.dialogTitle')" width="420px" append-to-body>
+    <el-dialog v-model="dialogVisible" :title="t('profile.passkey.dialogTitle')" width="min(90%, 420px)" append-to-body destroy-on-close :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('profile.passkey.nameLabel')" prop="name">
-          <el-input v-model.trim="form.name" :maxlength="50" :placeholder="t('profile.passkey.namePlaceholder')" />
+          <el-input v-model.trim="form.name" :maxlength="50" :placeholder="t('profile.passkey.namePlaceholder')" :aria-label="t('profile.passkey.namePlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>

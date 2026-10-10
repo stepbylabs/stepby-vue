@@ -208,6 +208,14 @@
               {{ t('health.metricsTitle') }}
             </span>
           </template>
+          <el-alert
+            v-if="!metricsData.available"
+            :title="t('health.metricsUnavailable')"
+            type="warning"
+            :closable="false"
+            class="mb-3"
+            show-icon
+          />
           <el-descriptions v-if="metricsData.available" :column="1" border>
             <el-descriptions-item :label="t('health.dbBackend')">
               <el-tag v-if="metricsData.dbBackend" size="small">{{ metricsData.dbBackend }}</el-tag>
@@ -259,6 +267,14 @@
               {{ t('health.dbPool.title') }}
             </span>
           </template>
+          <el-alert
+            v-if="!dbPool"
+            :title="t('health.dbPoolUnavailable')"
+            type="warning"
+            :closable="false"
+            class="mb-3"
+            show-icon
+          />
           <template v-if="dbPool">
             <el-descriptions :column="2" border class="mb-4">
               <el-descriptions-item :label="t('health.dbPool.dbKind')">
@@ -301,7 +317,7 @@
 
     <!-- 自动刷新 -->
     <div class="auto-refresh mt-5 flex items-center gap-5 justify-end">
-      <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" @change="toggleAutoRefresh" />
+      <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" />
       <span v-if="lastUpdate" class="last-update text-text-secondary text-xs">
         {{ t('health.form.lastUpdate') }}{{ lastUpdate }}
       </span>
@@ -323,6 +339,7 @@ import {
 import request from '@/utils/request'
 import { getDbPool, type DbPoolInfo } from '@/api/monitor/server'
 import { useMotionPresets } from '@/composables/useMotion'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import type { AjaxResult } from '@/types/api/common'
 
 const { t } = useI18n()
@@ -424,7 +441,8 @@ const poolProgressColor = computed(() => {
   if (busyPercent.value > 60) return 'var(--el-color-warning)'
   return 'var(--el-color-primary)'
 })
-let refreshTimer: ReturnType<typeof setTimeout> | null = null
+// uptimeTimer 为每秒展示型定时器（运行时长自增），不适合接入用户偏好的
+// autoRefreshInterval 机制，故保留手写 setInterval，并在卸载时成对清理
 let uptimeTimer: ReturnType<typeof setInterval> | null = null
 
 const statusClass = computed(() => ({
@@ -611,26 +629,12 @@ async function loadHealth(): Promise<void> {
   }
 }
 
-const scheduleRefresh = () => {
-  refreshTimer = setTimeout(async () => {
-    await loadHealth()
-    scheduleRefresh()
-  }, 10000)
-}
-
-function toggleAutoRefresh(val: boolean | string | number): void {
-  // BUG FIX: 原代码在 onMounted 已启动 uptimeTimer，此处再次创建会导致运行时长双倍递增
-  // uptimeTimer 由 onMounted 统一启动、onBeforeUnmount 统一清理，此处只管理 refreshTimer
-  if (val) {
-    if (refreshTimer) clearTimeout(refreshTimer)
-    scheduleRefresh()
-  } else {
-    if (refreshTimer) {
-      clearTimeout(refreshTimer)
-      refreshTimer = null
-    }
-  }
-}
+// 自动刷新数据：间隔由用户偏好 userPrefs.autoRefreshInterval 驱动（0=禁用），
+// 页内 autoRefresh 开关仅作为本次会话的启用门槛；immediate=false，
+// 首次加载由 onMounted 的 loadHealth() 负责
+useAutoRefresh(async () => {
+  if (autoRefresh.value) await loadHealth()
+})
 
 onMounted(() => {
   loadHealth()
@@ -640,10 +644,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) {
-    clearTimeout(refreshTimer)
-    refreshTimer = null
-  }
   if (uptimeTimer) {
     clearInterval(uptimeTimer)
     uptimeTimer = null

@@ -1,9 +1,10 @@
 <template>
   <div class="p-4">
-    <!-- 工具栏 -->
-    <div class="mb-4 flex flex-wrap items-center gap-2">
+    <!-- 工具栏（G-15a：移动端筛选收纳，v-show 与 useMobileFilter 共用 showSearch） -->
+    <div v-show="showSearch" class="mb-4 flex flex-wrap items-center gap-2">
       <el-input
-        v-model="query.datasetName"
+        v-model="queryParams.datasetName"
+        :aria-label="t('rp.searchByName')"
         :placeholder="t('rp.searchByName')"
         class="w-56"
         clearable
@@ -17,7 +18,7 @@
       </el-button>
     </div>
 
-    <el-table v-loading="loading" :data="rows" border>
+    <el-table v-loading="loading" :data="dataList" border>
       <el-table-column :label="t('rp.datasetCode')" prop="datasetCode" min-width="140" />
       <el-table-column :label="t('rp.datasetName')" prop="datasetName" min-width="160" />
       <el-table-column :label="t('common.status')" width="90">
@@ -36,25 +37,28 @@
           <el-button v-if="canEdit" link type="success" icon="VideoPlay" @click="openPreview(row)">
             {{ t('rp.preview') }}
           </el-button>
-          <el-button v-if="canEdit" link type="danger" icon="Delete" @click="handleRemove(row)">
+          <el-button v-if="canEdit" link type="danger" icon="Delete" @click="handleDelete(row)">
             {{ t('common.delete') }}
           </el-button>
         </template>
       </el-table-column>
     </el-table>
-    <el-pagination
-      v-model:current-page="pageNum"
-      v-model:page-size="pageSize"
+    <pagination
+      v-show="total > 0"
       :total="total"
+      v-model:page="queryParams.pageNum"
+      v-model:limit="queryParams.pageSize"
       :page-sizes="[10, 20, 50]"
-      layout="total, sizes, prev, pager, next"
-      class="mt-3 justify-end"
-      @current-change="load"
-      @size-change="load"
+      @pagination="getList"
     />
 
     <!-- 新增/编辑 -->
-    <el-dialog v-model="editOpen" :title="form.datasetId ? t('common.edit') : t('common.add')" width="720px">
+    <el-dialog
+      v-model="editOpen"
+      :title="form.datasetId ? t('common.edit') : t('common.add')"
+      width="720px"
+      :close-on-click-modal="false"
+    >
       <el-form label-width="110px">
         <el-form-item :label="t('rp.datasetCode')" required>
           <el-input v-model="form.datasetCode" maxlength="64" :disabled="!!form.datasetId" />
@@ -138,9 +142,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
   addDataset,
   editDataset,
@@ -153,6 +157,8 @@ import {
   type ReportDataset
 } from '@/api/report'
 import { checkPermi } from '@/utils/permission'
+import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 
 const { t } = useI18n()
 
@@ -160,21 +166,52 @@ const { t } = useI18n()
  *  批次十八：改用 checkPermi——裸 includes 不识别超管 *:*:*，超管在数据集页看不到任何操作按钮 */
 const canEdit = computed(() => checkPermi(['report:dataset:edit']))
 
-const rows = ref<ReportDataset[]>([])
-const total = ref(0)
-const pageNum = ref(1)
-const pageSize = ref(20)
-const loading = ref(false)
-const query = ref({ datasetName: '' })
+const queryParams = ref<{ pageNum: number; pageSize: number; datasetName?: string }>({
+  pageNum: 1,
+  pageSize: 20,
+  datasetName: undefined
+})
 
-const editOpen = ref(false)
-const saving = ref(false)
 const form = ref<DatasetUpsertForm>({
   datasetCode: '',
   datasetName: '',
   sqlTemplate: '',
   status: '0'
 })
+// 数据集页无 el-form rules 校验（保存前手工校验），formRef 仅为契约占位
+const formRef = ref<unknown>(null)
+const queryRef = ref<unknown>(null)
+
+const {
+  dataList,
+  loading,
+  showSearch,
+  total,
+  getList,
+  handleQuery,
+  handleDelete: crudHandleDelete
+} = useCrudTable<ReportDataset, { pageNum: number; pageSize: number; datasetName?: string }>({
+  listApi: listDataset,
+  getApi: (id) => getDataset(id as number),
+  addApi: (data) => addDataset(data as DatasetUpsertForm),
+  updateApi: (data) => editDataset(data as DatasetUpsertForm),
+  deleteApi: (ids) => removeDataset(String(Array.isArray(ids) ? ids[0] : ids)),
+  idField: 'datasetId',
+  defaultForm: () =>
+    ({ datasetCode: '', datasetName: '', sqlTemplate: '', status: '0' }) as unknown as ReportDataset,
+  titleKey: 'rp.datasetName',
+  deleteTipKey: 'rp.removeDatasetConfirm',
+  queryParams: queryParams as never,
+  form: form as never,
+  formRef: formRef as never,
+  queryRef: queryRef as never
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
+
+const editOpen = ref(false)
+const saving = ref(false)
 const paramsSchemaText = ref('')
 
 const previewOpen = ref(false)
@@ -195,26 +232,6 @@ const previewParams = computed<{ name: string; type: string; required: boolean }
     }))
     .filter((x) => x.name)
 })
-
-async function load() {
-  loading.value = true
-  try {
-    const res = await listDataset({
-      pageNum: pageNum.value,
-      pageSize: pageSize.value,
-      datasetName: query.value.datasetName || undefined
-    })
-    rows.value = res.rows ?? []
-    total.value = res.total ?? 0
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleQuery() {
-  pageNum.value = 1
-  load()
-}
 
 async function openEdit(row?: ReportDataset) {
   if (row) {
@@ -263,19 +280,10 @@ async function handleSave() {
     else await addDataset(payload)
     editOpen.value = false
     ElMessage.success(t('common.operationSuccess'))
-    load()
+    getList()
   } finally {
     saving.value = false
   }
-}
-
-async function handleRemove(row: ReportDataset) {
-  await ElMessageBox.confirm(t('rp.removeDatasetConfirm'), t('common.warning'), {
-    type: 'warning'
-  })
-  await removeDataset(String(row.datasetId))
-  ElMessage.success(t('common.operationSuccess'))
-  load()
 }
 
 async function openPreview(row: ReportDataset) {
@@ -304,5 +312,10 @@ async function runPreview() {
   }
 }
 
-onMounted(load)
+// 删除走 useCrudTable 的确认链（确认文案 rp.removeDatasetConfirm 与迁移前一致）
+function handleDelete(row: ReportDataset): void {
+  void crudHandleDelete(row)
+}
+
+getList()
 </script>

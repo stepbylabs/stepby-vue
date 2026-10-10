@@ -5,6 +5,7 @@
         <el-form-item :label="t('alert.search.name')" prop="name">
           <el-input
             v-model="queryParams.name"
+            :aria-label="t('alert.search.name')"
             :placeholder="t('alert.search.phName')"
             :maxlength="64"
             clearable
@@ -203,7 +204,15 @@
     />
 
     <!-- 添加或修改告警规则对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 620px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 620px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+      :before-close="beforeDialogClose"
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item :label="t('alert.form.name')" prop="name">
           <el-input v-model.trim="form.name" :placeholder="t('alert.form.phName')" :maxlength="64" />
@@ -301,12 +310,13 @@
 
 <script setup lang="ts" name="MonitorAlert">
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { listAlert, getAlert, addAlert, updateAlert, delAlert, changeAlertEnabled, evaluateAlert, exportAlert } from '@/api/monitor/alert'
+import { listAlert, getAlert, addAlert, updateAlert, delAlert, changeAlertEnabled, evaluateAlert } from '@/api/monitor/alert'
 import { listChannel, listTemplate } from '@/api/system/msg'
 import type { SysAlertRule, AlertRuleQueryParams, AlertRuleSaveDto, AlertEvaluateResult } from '@/types/api/monitor/alert'
 import type { SysMsgChannel, SysMsgTemplate } from '@/types/api/system/msg'
 import type { FormInstance, FormRules } from 'element-plus'
 import modal from '@/plugins/modal'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
@@ -341,18 +351,6 @@ function comparatorLabel(comparator: string): string {
   return hit ? hit.label : comparator
 }
 
-const loading = ref(false)
-const submitLoading = ref(false)
-const showSearch = ref(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-useMobileFilter(showSearch)
-const dataList = ref<SysAlertRule[]>([])
-const ids = ref<(number | string)[]>([])
-const single = ref(true)
-const multiple = ref(true)
-const total = ref(0)
-const title = ref('')
-const open = ref(false)
 const defaultSort = ref({ prop: 'lastFiredAt', order: 'descending' })
 
 // 消息渠道/模板下拉数据（编辑弹窗与列表展示共用）
@@ -381,7 +379,7 @@ const defaultForm = (): AlertRuleSaveDto => ({
   enabled: '1'
 })
 
-const form = ref<AlertRuleSaveDto>(defaultForm())
+const form = ref<SysAlertRule>(defaultForm() as unknown as SysAlertRule)
 
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: t('alert.rule.nameRequired'), trigger: 'blur' }],
@@ -390,52 +388,48 @@ const rules = computed<FormRules>(() => ({
   threshold: [{ required: true, message: t('alert.rule.thresholdRequired'), trigger: 'blur' }]
 }))
 
-/** 查询告警规则列表 */
-function getList(): void {
-  loading.value = true
-  listAlert(queryParams.value)
-    .then((res) => {
-      dataList.value = res.rows || []
-      total.value = res.total || 0
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
+const {
+  dataList,
+  open,
+  loading,
+  submitLoading,
+  showSearch,
+  single,
+  multiple,
+  total,
+  title,
+  getList,
+  beforeDialogClose,
+  cancel,
+  handleQuery,
+  resetQuery,
+  handleSelectionChange,
+  handleAdd: crudHandleAdd,
+  handleUpdate: crudHandleUpdate,
+  submitForm,
+  handleDelete,
+  handleExport,
+  handleSortChange
+} = useCrudTable<SysAlertRule, AlertRuleQueryParams>({
+  listApi: listAlert,
+  getApi: getAlert,
+  addApi: (data) => addAlert(data as unknown as AlertRuleSaveDto),
+  updateApi: (data) => updateAlert(data as unknown as AlertRuleSaveDto),
+  deleteApi: delAlert,
+  idField: 'id',
+  exportUrl: '/monitor/alert/export',
+  defaultForm: defaultForm as unknown as () => SysAlertRule,
+  titleKey: 'alert.title',
+  deleteTipKey: 'alert.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef,
+  queryRef,
+  supportsSort: true
+})
 
-/** 搜索按钮操作 */
-function handleQuery(): void {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作：清空排序参数后按默认排序重新查询 */
-function resetQuery(): void {
-  queryParams.value.orderByColumn = undefined
-  queryParams.value.isAsc = undefined
-  queryRef.value?.resetFields()
-  handleQuery()
-}
-
-/** 排序触发事件 */
-function handleSortChange(column: { prop: string | null; order: string | null }): void {
-  if (column.order === null) {
-    queryParams.value.orderByColumn = undefined
-    queryParams.value.isAsc = undefined
-  } else {
-    queryParams.value.orderByColumn = column.prop || undefined
-    queryParams.value.isAsc = column.order === 'ascending' ? 'asc' : 'desc'
-  }
-  getList()
-}
-
-/** 多选框选中数据 */
-function handleSelectionChange(selection: SysAlertRule[]): void {
-  ids.value = selection.map((item) => item.id)
-  single.value = selection.length !== 1
-  multiple.value = !selection.length
-}
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 /** 加载消息渠道下拉（启用的渠道） */
 function loadChannels(): void {
@@ -443,6 +437,10 @@ function loadChannels(): void {
   listChannel({ pageNum: 1, pageSize: 100, status: '0' })
     .then((res) => {
       channelList.value = res.rows || []
+      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
+      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
+        console.warn('[alert] 消息渠道下拉拉取达到 pageSize=100 上限，可能存在截断')
+      }
     })
     .catch(() => {})
     .finally(() => {
@@ -456,6 +454,10 @@ function loadTemplates(): void {
   listTemplate({ pageNum: 1, pageSize: 100, status: '0' })
     .then((res) => {
       templateList.value = res.rows || []
+      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
+      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
+        console.warn('[alert] 消息模板下拉拉取达到 pageSize=100 上限，可能存在截断')
+      }
     })
     .catch(() => {})
     .finally(() => {
@@ -470,66 +472,18 @@ function channelName(channelId: number | null): string | null {
   return hit ? hit.channelName : String(channelId)
 }
 
-/** 新增按钮操作 */
+/** 新增按钮操作（弹窗前加载渠道/模板下拉） */
 function handleAdd(): void {
-  form.value = defaultForm()
-  title.value = t('alert.title') + ' - ' + t('common.add')
+  crudHandleAdd()
   loadChannels()
   loadTemplates()
-  open.value = true
 }
 
-/** 修改按钮操作（可传行数据） */
+/** 修改按钮操作（可传行数据；弹窗前加载渠道/模板下拉） */
 function handleUpdate(row?: SysAlertRule): void {
-  const id = row?.id ?? ids.value[0]
-  if (id == null) return
-  getAlert(id)
-    .then((res) => {
-      form.value = { ...defaultForm(), ...(res.data || {}) } as AlertRuleSaveDto
-      title.value = t('alert.title') + ' - ' + t('common.edit')
-      loadChannels()
-      loadTemplates()
-      open.value = true
-    })
-    .catch(() => {})
-}
-
-/** 提交按钮操作 */
-function submitForm(): void {
-  formRef.value?.validate((valid: boolean) => {
-    if (!valid) return
-    submitLoading.value = true
-    const api = form.value.id != null ? updateAlert : addAlert
-    api(form.value)
-      .then(() => {
-        modal.msgSuccess(t('common.success'))
-        open.value = false
-        getList()
-      })
-      .catch(() => {})
-      .finally(() => {
-        submitLoading.value = false
-      })
-  })
-}
-
-/** 取消按钮 */
-function cancel(): void {
-  open.value = false
-}
-
-/** 删除按钮操作（支持行删除与批量删除） */
-function handleDelete(row?: SysAlertRule): void {
-  const deleteIds = row?.id != null ? [row.id] : ids.value
-  if (!deleteIds.length) return
-  modal
-    .confirm(t('alert.tip.confirmDelete', { ids: deleteIds.join(',') }))
-    .then(() => delAlert(deleteIds))
-    .then(() => {
-      getList()
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch(() => {})
+  loadChannels()
+  loadTemplates()
+  crudHandleUpdate(row)
 }
 
 /** 启停切换 */
@@ -556,11 +510,6 @@ function handleEvaluate(row: SysAlertRule): void {
       evaluateOpen.value = true
     })
     .catch(() => {})
-}
-
-/** 导出按钮操作（Excel） */
-function handleExport(): void {
-  exportAlert(queryParams.value)
 }
 
 // 初始化：列表 + 渠道名展示所需的渠道列表

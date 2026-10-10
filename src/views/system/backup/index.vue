@@ -30,6 +30,7 @@
         <el-form-item :label="t('backup.search.createTime')" prop="createTime">
           <el-date-picker
             v-model="dateRange"
+            :aria-label="t('backup.search.createTime')"
             value-format="YYYY-MM-DD"
             type="daterange"
             range-separator="-"
@@ -199,6 +200,9 @@ import { addDateRange } from '@/utils/stepby'
 import { formatFileSize } from '@/utils'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
+import type { Ref } from 'vue'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
@@ -215,48 +219,48 @@ const queryParams = ref<BackupLogQueryParams>({
   status: undefined
 })
 
-const dataList = ref<SysBackupLog[]>([])
-const loading = ref(true)
-const showSearch = ref(true)
-const total = ref(0)
-const ids = ref<number[]>([])
-const multiple = ref(true)
+// 本页无新增/编辑表单（创建/恢复为独立确认流程）：getApi/addApi/updateApi 按只读页惯例传空实现
+const form = ref({}) as Ref<SysBackupLog>
+const formRef = ref<unknown>(null)
 
-/** 查询备份列表 */
-function getList() {
-  loading.value = true
-  const params = addDateRange(
-    { ...queryParams.value } as Record<string, unknown>,
-    dateRange.value
-  ) as BackupLogQueryParams
-  listBackup(params)
-    .then((res) => {
-      dataList.value = res.rows
-      total.value = res.total
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
+const {
+  dataList,
+  loading,
+  showSearch,
+  total,
+  ids,
+  multiple,
+  getList,
+  handleQuery,
+  handleSelectionChange
+} = useCrudTable<SysBackupLog, BackupLogQueryParams>({
+  listApi: (params) =>
+    listBackup(
+      addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as BackupLogQueryParams
+    ),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: (deleteIds) =>
+    delBackup(String(Array.isArray(deleteIds) ? deleteIds.join(',') : deleteIds) as unknown as number),
+  idField: 'backupId',
+  defaultForm: () => ({}) as SysBackupLog,
+  titleKey: 'backup.column.fileName',
+  deleteTipKey: 'backup.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef: formRef as never,
+  queryRef
+})
 
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 /** 重置按钮操作 - 清空 dateRange */
 function resetQuery() {
   dateRange.value = []
   queryRef.value?.resetFields()
   handleQuery()
-}
-
-/** 多选框选中数据 */
-function handleSelectionChange(selection: SysBackupLog[]) {
-  ids.value = selection.map((item) => item.backupId)
-  multiple.value = !selection.length
 }
 
 function handleCreate() {
@@ -343,7 +347,7 @@ function handleDelete(row?: SysBackupLog) {
   modal
     .confirm(t('backup.tip.confirmDelete', { count: deleteIds.length }))
     .then(() => {
-      return delBackup(deleteIds.join(','))
+      return delBackup(deleteIds.join(',') as unknown as number)
     })
     .then(() => {
       modal.msgSuccess(t('common.deleteSuccess'))

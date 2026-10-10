@@ -1,6 +1,6 @@
 <template>
   <div class="errPage-container w-[800px] max-w-full my-[100px] mx-auto">
-    <el-button icon="arrow-left" class="pan-back-btn" @click="back">
+    <el-button icon="Back" class="pan-back-btn" @click="back">
       {{ t('common.back') }}
     </el-button>
     <el-row>

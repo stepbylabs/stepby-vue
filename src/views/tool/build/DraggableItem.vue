@@ -47,36 +47,34 @@
   </el-col>
 </template>
 <script setup lang="ts" name="DraggableItem">
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// 表单构建器拖拽项：动态组件渲染，element/clonedData 等结构由配置决定，类型无法静态约束
+// 表单构建器拖拽项：element/children 用 BuildNodeData 最小约束（动态字段经索引签名放行）
 const { t } = useI18n()
 import draggable from 'vuedraggable'
 import render from '@/utils/generator/render'
+import type { BuildFormConf, BuildNodeData } from './types'
 
-const props = defineProps({
-  element: Object,
-  index: Number,
-  drawingList: Array,
-  activeId: {
-    type: [String, Number]
-  },
-  formConf: Object
-})
+const props = defineProps<{
+  element: BuildNodeData
+  index: number
+  drawingList: BuildNodeData[]
+  activeId: string | number
+  formConf: BuildFormConf
+}>()
 const className = ref('')
 const draggableItemRef = useTemplateRef('draggableItemRef')
 const emits = defineEmits(['activeItem', 'copyItem', 'deleteItem'])
 
-function activeItem(item: any): void {
+function activeItem(item: BuildNodeData): void {
   emits('activeItem', item)
 }
-function copyItem(item: any, parent?: any[]): void {
+function copyItem(item: BuildNodeData, parent?: BuildNodeData[]): void {
   emits('copyItem', item, parent ?? props.drawingList)
 }
-function deleteItem(item: number | any, parent?: any[]): void {
+function deleteItem(item: number, parent?: BuildNodeData[]): void {
   emits('deleteItem', item, parent ?? props.drawingList)
 }
 
-function getComponentData(): Record<string, any> {
+function getComponentData(): Record<string, unknown> {
   return {
     gutter: props.element.gutter,
     justify: props.element.justify,
@@ -86,7 +84,7 @@ function getComponentData(): Record<string, any> {
 
 watch(
   () => props.activeId,
-  (val: string) => {
+  (val: string | number) => {
     className.value =
       (props.element.layout === 'rowFormItem' ? 'drawing-row-item' : 'drawing-item') +
       (val === props.element.formId ? ' active-from-item' : '')

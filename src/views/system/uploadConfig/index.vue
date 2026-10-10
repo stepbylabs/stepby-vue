@@ -37,7 +37,8 @@
         class="mb-4"
       />
 
-      <el-form label-width="180px" class="max-w-[720px]">
+      <el-empty v-if="!loading && !vo" :description="t('common.noData')" class="mt-2" />
+      <el-form v-loading="loading" label-width="180px" class="max-w-[720px]">
         <el-form-item :label="t('uploadConfig.field.accessKey')">
           <el-input
             v-model="accessKeyInput"
@@ -64,8 +65,7 @@
           <el-input
             v-model="form.endpoint"
             :placeholder="t('uploadConfig.ph.endpoint')"
-            class="w-[420px]"
-          />
+            class="w-[420px]" :aria-label="t('uploadConfig.ph.endpoint')" />
         </el-form-item>
         <el-form-item :label="t('uploadConfig.field.region')">
           <el-input v-model="form.region" class="w-[280px]" />
@@ -81,8 +81,7 @@
           <el-input
             v-model="form.publicEndpoint"
             :placeholder="t('uploadConfig.ph.publicEndpoint')"
-            class="w-[420px]"
-          />
+            class="w-[420px]" :aria-label="t('uploadConfig.ph.publicEndpoint')" />
         </el-form-item>
       </el-form>
     </el-card>
@@ -104,6 +103,7 @@ import {
 const { t } = useI18n()
 const saving = ref(false)
 const testing = ref(false)
+const loading = ref(false)
 const vo = ref<UploadConfigMaskedVo | null>(null)
 const accessKeyInput = ref('')
 const secretKeyInput = ref('')
@@ -117,6 +117,7 @@ const form = ref({
 })
 
 async function load() {
+  loading.value = true
   try {
     const res = await getUploadConfig()
     if (res.data) {
@@ -129,6 +130,8 @@ async function load() {
     }
   } catch (e) {
     if (import.meta.env.DEV) console.error('[uploadConfig] load failed:', e)
+  } finally {
+    loading.value = false
   }
 }
 

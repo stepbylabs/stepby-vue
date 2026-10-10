@@ -8,8 +8,7 @@
           :placeholder="t('flowDef.searchByCode')"
           class="w-56"
           clearable
-          @keyup.enter="handleQuery"
-        />
+          @keyup.enter="handleQuery" :aria-label="t('flowDef.searchByCode')" />
         <el-button icon="Search" type="primary" plain @click="handleQuery">
           {{ t('common.search') }}
         </el-button>
@@ -127,10 +126,10 @@
           <el-tag :type="n.type === 'start' ? 'info' : n.type === 'end' ? 'warning' : 'primary'">
             {{ n.type }}
           </el-tag>
-          <el-input v-model="n.id" :placeholder="t('flowDef.nodeId')" class="w-32" size="small" :disabled="n.type === 'start'" />
-          <el-input v-model="n.name" :placeholder="t('flowDef.nodeName')" class="w-40" size="small" />
+          <el-input v-model="n.id" :placeholder="t('flowDef.nodeId')" class="w-32" size="small" :disabled="n.type === 'start'" :aria-label="t('flowDef.nodeId')" />
+          <el-input v-model="n.name" :placeholder="t('flowDef.nodeName')" class="w-40" size="small" :aria-label="t('flowDef.nodeName')" />
           <template v-if="n.type === 'approve'">
-            <el-select v-model="n.assignees" multiple filterable allow-create class="w-64" size="small" :placeholder="t('flowDef.assignees')">
+            <el-select v-model="n.assignees" multiple filterable allow-create class="w-64" size="small" :placeholder="t('flowDef.assignees')" :aria-label="t('flowDef.assignees')">
               <el-option value="dept_leader" :label="t('flowDef.assigneeDeptLeader')" />
               <el-option value="role:admin" label="role:admin" />
             </el-select>
@@ -143,9 +142,8 @@
               :min="1"
               :max="1000"
               size="small"
-              :placeholder="t('flowDef.threshold')"
-            />
-            <el-select v-model="n.actions" multiple class="w-52" size="small" :placeholder="t('flowDef.actions')">
+              :placeholder="t('flowDef.threshold')" :aria-label="t('flowDef.threshold')" />
+            <el-select v-model="n.actions" multiple class="w-52" size="small" :placeholder="t('flowDef.actions')" :aria-label="t('flowDef.actions')">
               <el-option v-for="a in ACTIONS" :key="a" :value="a" :label="a" />
             </el-select>
           </template>
@@ -165,20 +163,20 @@
       <h4 class="mt-4 mb-2 font-medium">{{ t('flowDef.edges') }}</h4>
       <el-card v-for="(e, i) in formEdges" :key="i" shadow="never" class="mb-2">
         <div class="flex flex-wrap items-center gap-2">
-          <el-select v-model="e.from" size="small" class="w-36" :placeholder="t('flowDef.edgeFrom')">
+          <el-select v-model="e.from" size="small" class="w-36" :placeholder="t('flowDef.edgeFrom')" :aria-label="t('flowDef.edgeFrom')">
             <el-option v-for="n in formNodes" :key="n.id" :value="n.id" :label="`${n.id} (${n.type})`" />
           </el-select>
           <span>→</span>
-          <el-select v-model="e.to" size="small" class="w-36" :placeholder="t('flowDef.edgeTo')">
+          <el-select v-model="e.to" size="small" class="w-36" :placeholder="t('flowDef.edgeTo')" :aria-label="t('flowDef.edgeTo')">
             <el-option v-for="n in formNodes" :key="n.id" :value="n.id" :label="`${n.id} (${n.type})`" />
           </el-select>
           <el-checkbox v-model="e.hasCondition" size="small">{{ t('flowDef.hasCondition') }}</el-checkbox>
           <template v-if="e.hasCondition">
-            <el-input v-model="e.condField" size="small" class="w-36" :placeholder="t('flowDef.condField')" />
+            <el-input v-model="e.condField" size="small" class="w-36" :placeholder="t('flowDef.condField')" :aria-label="t('flowDef.condField')" />
             <el-select v-model="e.condOp" size="small" class="w-20">
               <el-option v-for="op in CONDITION_OPS" :key="op" :value="op" :label="op" />
             </el-select>
-            <el-input v-model="e.condValue" size="small" class="w-28" :placeholder="t('flowDef.condValue')" />
+            <el-input v-model="e.condValue" size="small" class="w-28" :placeholder="t('flowDef.condValue')" :aria-label="t('flowDef.condValue')" />
           </template>
           <el-button link type="danger" icon="Delete" size="small" :aria-label="t('common.delete')" @click="formEdges.splice(i, 1)" />
         </div>
@@ -209,15 +207,14 @@
     <el-dialog v-model="graphSubmitOpen" :title="t('flowDef.submitTest')" width="480px">
       <el-form label-width="90px">
         <el-form-item :label="t('flowDef.docTitle')" required>
-          <el-input v-model="graphSubmitTitle" maxlength="200" :placeholder="t('flowDef.submitTitlePh')" />
+          <el-input v-model="graphSubmitTitle" maxlength="200" :placeholder="t('flowDef.submitTitlePh')" :aria-label="t('flowDef.submitTitlePh')" />
         </el-form-item>
         <el-form-item :label="t('flowDef.fieldsJson')" required>
           <el-input
             v-model="graphSubmitFields"
             type="textarea"
             :rows="6"
-            :placeholder="t('flowDef.fieldsJsonTip')"
-          />
+            :placeholder="t('flowDef.fieldsJsonTip')" :aria-label="t('flowDef.fieldsJsonTip')" />
         </el-form-item>
       </el-form>
       <template #footer>

@@ -8,8 +8,7 @@
             :placeholder="t('report.sub.search.phSubName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('report.sub.search.phSubName')" />
         </el-form-item>
         <el-form-item :label="t('common.column.status')" prop="status">
           <el-select
@@ -159,7 +158,7 @@
     <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 620px)" append-to-body destroy-on-close>
       <el-form ref="subRef" :model="form" :rules="rules" label-width="120px">
         <el-form-item :label="t('report.sub.form.subName')" prop="subName">
-          <el-input v-model.trim="form.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" />
+          <el-input v-model.trim="form.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" :aria-label="t('report.sub.form.phSubName')" />
         </el-form-item>
         <el-form-item :label="t('report.sub.form.report')" prop="reportId">
           <el-select :aria-label="t('report.sub.form.report')" v-model="form.reportId" :placeholder="t('common.form.selectPlaceholder')" filterable>
@@ -168,7 +167,7 @@
         </el-form-item>
         <el-form-item :label="t('report.sub.form.cron')" prop="cron">
           <div class="w-full">
-            <el-input v-model.trim="form.cron" :placeholder="t('report.sub.form.phCron')" class="font-mono" />
+            <el-input v-model.trim="form.cron" :placeholder="t('report.sub.form.phCron')" class="font-mono" :aria-label="t('report.sub.form.phCron')" />
             <div class="mt-1 text-xs text-text-secondary">{{ t('report.sub.form.cronTip') }}</div>
           </div>
         </el-form-item>
@@ -183,8 +182,7 @@
             v-model="form.receiveEmail"
             type="textarea"
             :rows="3"
-            :placeholder="t('report.sub.form.phReceiveEmail')"
-          />
+            :placeholder="t('report.sub.form.phReceiveEmail')" :aria-label="t('report.sub.form.phReceiveEmail')" />
         </el-form-item>
         <el-form-item
           v-if="channels.includes('site')"
@@ -195,8 +193,7 @@
             v-model="form.receiveUserIds"
             type="textarea"
             :rows="3"
-            :placeholder="t('report.sub.form.phReceiveUserIds')"
-          />
+            :placeholder="t('report.sub.form.phReceiveUserIds')" :aria-label="t('report.sub.form.phReceiveUserIds')" />
         </el-form-item>
         <el-form-item :label="t('report.sub.form.status')">
           <el-switch

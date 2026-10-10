@@ -196,8 +196,7 @@
               <el-input
                 v-model.trim="form.providerName"
                 :maxlength="64"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.providerName')" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -222,8 +221,7 @@
               <el-input
                 v-model.trim="form.clientId"
                 :maxlength="200"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.clientId')" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -253,8 +251,7 @@
               <el-input
                 v-model.trim="form.authorizeUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.authorizeUrl')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -262,8 +259,7 @@
               <el-input
                 v-model.trim="form.tokenUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.tokenUrl')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -271,8 +267,7 @@
               <el-input
                 v-model.trim="form.userInfoUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.userInfoUrl')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -280,13 +275,12 @@
               <el-input
                 v-model.trim="form.redirectUri"
                 :maxlength="500"
-                :placeholder="t('oauth.redirectUriPlaceholder')"
-              />
+                :placeholder="t('oauth.redirectUriPlaceholder')" :aria-label="t('oauth.redirectUriPlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('oauth.scope')" prop="scope">
-              <el-input v-model.trim="form.scope" :maxlength="200" :placeholder="t('oauth.scopePlaceholder')" />
+              <el-input v-model.trim="form.scope" :maxlength="200" :placeholder="t('oauth.scopePlaceholder')" :aria-label="t('oauth.scopePlaceholder')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -311,8 +305,7 @@
                 type="textarea"
                 :maxlength="500"
                 show-word-limit
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.remark')" />
             </el-form-item>
           </el-col>
         </el-row>

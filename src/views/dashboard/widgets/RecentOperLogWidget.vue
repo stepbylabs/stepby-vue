@@ -5,7 +5,7 @@
     </template>
 
     <SkeletonTable v-if="loading && !loaded" :columns="4" :rows="6" />
-    <el-table v-else :data="rows" size="small" :show-header="true" style="width: 100%">
+    <el-table v-else :data="rows" size="small" :show-header="true" class="w-full">
       <el-table-column :label="t('common.tip')" min-width="120" show-overflow-tooltip>
         <template #default="{ row }">{{ moduleTitle(row.title) }}</template>
       </el-table-column>

@@ -19,7 +19,7 @@
       loading="lazy"
       @error="onAvatarError"
     />
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="t('profile.avatar.modifyTitle')"
       v-model="open"
       width="min(80%, 800px)"

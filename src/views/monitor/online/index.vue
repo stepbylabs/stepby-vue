@@ -3,10 +3,11 @@
     <el-tabs v-model="activeTab" class="online-tabs">
       <!-- Tab 1: 全部在线（管理员视角） -->
       <el-tab-pane v-if="hasOnlinePerm" :label="t('online.tab.allOnline')" name="admin">
-        <el-form :model="queryParams" ref="queryRef" :inline="true">
+        <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
           <el-form-item :label="t('online.search.ipaddr')" prop="ipaddr">
             <el-input
               v-model="queryParams.ipaddr"
+              :aria-label="t('online.search.ipaddr')"
               :placeholder="t('online.search.phIpaddr')"
               :maxlength="50"
               clearable
@@ -17,6 +18,7 @@
           <el-form-item :label="t('online.search.userName')" prop="userName">
             <el-input
               v-model="queryParams.userName"
+              :aria-label="t('online.search.userName')"
               :placeholder="t('online.search.phUserName')"
               :maxlength="30"
               clearable
@@ -59,6 +61,7 @@
               {{ t('online.btn.batchForceLogout') }}
             </el-button>
           </el-col>
+          <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
         </el-row>
         <el-table
           v-loading="loading"
@@ -193,6 +196,7 @@ import type { SysUserOnline, OnlineQueryParams } from '@/types/api/monitor/onlin
 import modal from '@/plugins/modal'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import MySessionPanel from './MySessionPanel.vue'
 import useUserStore from '@/store/modules/user'
 
@@ -235,6 +239,7 @@ const {
   dataList: onlineList,
   loading,
   total,
+  showSearch,
   getList,
   handleQuery: baseHandleQuery,
   resetQuery: baseResetQuery
@@ -255,6 +260,10 @@ const {
   formRef,
   queryRef: queryRefRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 搜索按钮操作（前端分页：重置到第 1 页并重新拉取全量数据） */
 function handleQuery() {

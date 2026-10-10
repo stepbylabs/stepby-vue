@@ -93,8 +93,7 @@
               :placeholder="t('observability.error.phModule')"
               clearable
               class="w-[220px]"
-              @keyup.enter="handleErrorQuery"
-            />
+              @keyup.enter="handleErrorQuery" :aria-label="t('observability.error.phModule')" />
           </el-form-item>
           <el-form-item :label="t('observability.error.level')">
             <el-select

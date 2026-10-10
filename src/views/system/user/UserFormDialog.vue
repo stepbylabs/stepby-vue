@@ -4,7 +4,7 @@
       <el-row>
         <el-col :span="12">
           <el-form-item :label="t('user.form.nickName')" prop="nickName">
-            <el-input v-model="form.nickName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" />
+            <el-input v-model="form.nickName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" :aria-label="t('user.form.nickName')" />
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -16,8 +16,7 @@
               value-key="id"
               :placeholder="t('common.form.selectPlaceholder')"
               clearable
-              check-strictly
-            />
+              check-strictly :aria-label="t('user.form.dept')" />
             <div class="el-form-item__tip">{{ t('user.form.deptPrimaryTip') }}</div>
           </el-form-item>
         </el-col>
@@ -34,8 +33,7 @@
               multiple
               clearable
               check-strictly
-              style="width: 100%"
-            />
+              class="w-full" :aria-label="t('user.form.deptSecondary')" />
             <div v-if="scimDeptTags.length" class="el-form-item__tip">
               {{ t('user.form.scimDeptTags') }}：
               <el-tag
@@ -54,12 +52,12 @@
       <el-row>
         <el-col :span="12">
           <el-form-item :label="t('user.form.phone')" prop="phonenumber">
-            <el-input v-model.trim="form.phonenumber" :placeholder="t('common.form.inputPlaceholder')" maxlength="11" />
+            <el-input v-model.trim="form.phonenumber" :placeholder="t('common.form.inputPlaceholder')" maxlength="11" :aria-label="t('user.form.phone')" />
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item :label="t('user.form.email')" prop="email">
-            <el-input v-model.trim="form.email" :placeholder="t('common.form.inputPlaceholder')" maxlength="50" />
+            <el-input v-model.trim="form.email" :placeholder="t('common.form.inputPlaceholder')" maxlength="50" :aria-label="t('user.form.email')" />
           </el-form-item>
         </el-col>
       </el-row>
@@ -67,7 +65,7 @@
         <el-col :span="12">
           <Transition name="expand-fade">
             <el-form-item v-if="form.userId == undefined" :label="t('user.form.username')" prop="userName">
-              <el-input v-model="form.userName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" />
+              <el-input v-model="form.userName" :placeholder="t('common.form.inputPlaceholder')" maxlength="30" :aria-label="t('user.form.username')" />
             </el-form-item>
           </Transition>
         </el-col>
@@ -84,8 +82,7 @@
                 :placeholder="t('user.form.phPassword')"
                 type="password"
                 maxlength="20"
-                show-password
-              />
+                show-password :aria-label="t('user.form.phPassword')" />
             </el-form-item>
           </Transition>
         </el-col>
@@ -149,8 +146,7 @@
               type="textarea"
               :placeholder="t('common.form.inputPlaceholder')"
               :maxlength="500"
-              show-word-limit
-            ></el-input>
+              show-word-limit :aria-label="t('user.form.remark')"></el-input>
           </el-form-item>
         </el-col>
       </el-row>

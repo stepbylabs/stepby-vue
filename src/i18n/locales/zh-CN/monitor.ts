@@ -424,6 +424,7 @@ export default {
     metricsTitle: '后端运行时指标（/metrics）',
     metricsDesc: '来自 Prometheus 文本指标端点的实时进程与数据库指标',
     metricsUnavailable: '指标暂不可用（/metrics 未开放或已配置访问令牌）',
+    dbPoolUnavailable: '连接池指标不可用',
     dbBackend: '数据库后端',
     dbConnected: '数据库连接',
     dbConnectedOk: '已连接',

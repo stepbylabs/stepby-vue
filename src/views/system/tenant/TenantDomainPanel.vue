@@ -109,7 +109,7 @@
   <el-empty v-if="!loading && rows.length === 0" :description="t('tenantDomain.empty')" />
 
   <!-- 新增域名绑定 -->
-  <el-dialog
+  <el-dialog :close-on-click-modal="false"
     v-model="addVisible"
     :title="t('tenantDomain.addTitle')"
     width="560px"
@@ -128,8 +128,7 @@
         <el-input
           v-model.trim="addForm.domain"
           :placeholder="t('tenantDomain.domainPlaceholder')"
-          maxlength="128"
-        />
+          maxlength="128" :aria-label="t('tenantDomain.domainPlaceholder')" />
       </el-form-item>
       <el-form-item :label="t('tenantDomain.domainType')" prop="domainType">
         <el-radio-group v-model="addForm.domainType">

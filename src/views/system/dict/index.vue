@@ -8,8 +8,7 @@
             :placeholder="t('dict.search.phDictName')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('dict.search.phDictName')" />
         </el-form-item>
         <el-form-item :label="t('dict.search.dictType')" prop="dictType">
           <el-input
@@ -17,8 +16,7 @@
             :placeholder="t('dict.search.phDictType')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('dict.search.phDictType')" />
         </el-form-item>
         <el-form-item :label="t('dict.search.status')" prop="status">
           <el-select :aria-label="t('dict.search.status')" v-model="queryParams.status" :placeholder="t('dict.search.phStatus')" clearable class="w-[240px]">
@@ -32,8 +30,7 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')"
-          ></el-date-picker>
+            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -181,10 +178,10 @@
     <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
       <el-form ref="dictRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('dict.form.dictName')" prop="dictName">
-          <el-input v-model.trim="form.dictName" :placeholder="t('dict.search.phDictName')" />
+          <el-input v-model.trim="form.dictName" :placeholder="t('dict.search.phDictName')" :aria-label="t('dict.search.phDictName')" />
         </el-form-item>
         <el-form-item prop="dictType">
-          <el-input v-model.trim="form.dictType" :placeholder="t('dict.search.phDictType')" />
+          <el-input v-model.trim="form.dictType" :placeholder="t('dict.search.phDictType')" :aria-label="t('dict.search.phDictType')" />
           <template #label>
             <span>
               <el-tooltip :content="t('dict.tip.dictTypeHelp')" placement="top">
@@ -207,8 +204,7 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit
-          ></el-input>
+            show-word-limit :aria-label="t('dict.form.remark')"></el-input>
         </el-form-item>
       </el-form>
       <template #footer>

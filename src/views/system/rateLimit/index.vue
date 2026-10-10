@@ -6,6 +6,7 @@
           <el-input
             v-model="queryParams.routePattern"
             :placeholder="t('rateLimit.search.phRoutePattern')"
+            :aria-label="t('rateLimit.search.routePattern')"
             clearable
             class="w-[240px]"
             @keyup.enter="handleQuery"
@@ -73,7 +74,7 @@
       <el-table
         v-else
         v-loading="loading"
-        :data="rateLimitList"
+        :data="dataList"
         :row-key="(row: SysRateLimit) => row.id"
         @selection-change="handleSelectionChange"
       >
@@ -165,7 +166,15 @@
     />
 
     <!-- 添加或修改限流配置对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 500px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+      :before-close="beforeDialogClose"
+    >
       <el-form ref="rateLimitRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('rateLimit.form.routePattern')" prop="routePattern">
           <el-input v-model.trim="form.routePattern" :placeholder="t('rateLimit.form.phRoutePattern')" />
@@ -218,24 +227,11 @@ import { listRateLimit, getRateLimit, delRateLimit, addRateLimit, updateRateLimi
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { useExport } from '@/composables/useExport'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const rateLimitRefRef = useTemplateRef('rateLimitRef')
 const queryRefRef = useTemplateRef('queryRef')
 const { t } = useI18n()
-
-const rateLimitList = ref<SysRateLimit[]>([])
-const open = ref<boolean>(false)
-const loading = ref<boolean>(true)
-const submitLoading = ref<boolean>(false)
-const showSearch = ref<boolean>(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
-void isMobileFilter
-const ids = ref<number[]>([])
-const single = ref<boolean>(true)
-const multiple = ref<boolean>(true)
-const total = ref<number>(0)
-const title = ref<string>('')
 
 const data = reactive({
   form: {} as SysRateLimit,
@@ -260,61 +256,61 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
-/** 查询限流配置列表 */
-function getList() {
-  loading.value = true
-  listRateLimit(queryParams.value)
-    .then((response) => {
-      rateLimitList.value = response.rows
-      total.value = response.total
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
+const {
+  dataList,
+  open,
+  loading,
+  submitLoading,
+  showSearch,
+  ids,
+  single,
+  multiple,
+  total,
+  title,
+  snapshotForm,
+  getList,
+  beforeDialogClose,
+  cancel,
+  reset,
+  handleQuery,
+  resetQuery,
+  handleSelectionChange,
+  submitForm
+} = useCrudTable<SysRateLimit, RateLimitQueryParams>({
+  listApi: listRateLimit,
+  getApi: (id) => getRateLimit(Number(id)),
+  addApi: addRateLimit,
+  updateApi: updateRateLimit,
+  // 批量删除显式 join 为逗号分隔字符串（后端 parse_id_list 按逗号拆分）
+  deleteApi: (ids) => delRateLimit(Array.isArray(ids) ? ids.join(',') : ids),
+  idField: 'id',
+  defaultForm: () =>
+    ({
+      id: undefined,
+      routePattern: '',
+      capacity: 100,
+      refillPerSecond: 10.0,
+      enabled: true,
+      description: undefined
+    }) as unknown as SysRateLimit,
+  titleKey: 'rateLimit.title',
+  deleteTipKey: 'rateLimit.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef: rateLimitRefRef,
+  queryRef: queryRefRef,
+  // 存量行为：本页未做查询条件 URL 同步，保持等价
+  syncQueryToUrl: false
+})
 
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  reset()
-}
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
-/** 表单重置 */
-function reset() {
-  form.value = {
-    id: undefined,
-    routePattern: '',
-    capacity: 100,
-    refillPerSecond: 10.0,
-    enabled: true,
-    description: undefined
-  }
-  rateLimitRefRef.value?.resetFields()
-}
-
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作 */
-function resetQuery() {
-  queryRefRef.value?.resetFields()
-  handleQuery()
-}
-
-/** 多选框选中数据 */
-function handleSelectionChange(selection: SysRateLimit[]) {
-  ids.value = selection.map((item) => item.id)
-  single.value = selection.length != 1
-  multiple.value = !selection.length
-}
-
-/** 新增按钮操作 */
+/** 新增按钮操作（标题文案沿用页面专属 titleAdd/titleEdit，故不走 composable 默认流程） */
 function handleAdd() {
   reset()
+  snapshotForm(form.value)
   open.value = true
   title.value = t('rateLimit.titleAdd')
 }
@@ -326,47 +322,15 @@ function handleUpdate(row?: SysRateLimit) {
   getRateLimit(id)
     .then((response) => {
       form.value = response.data
+      snapshotForm(form.value)
       open.value = true
       title.value = t('rateLimit.titleEdit')
     })
     .catch(() => {})
 }
 
-/** 提交按钮 */
-function submitForm() {
-  rateLimitRefRef.value?.validate((valid: boolean) => {
-    if (valid) {
-      submitLoading.value = true
-      if (form.value.id) {
-        updateRateLimit(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.editSuccess'))
-            open.value = false
-            getList()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      } else {
-        addRateLimit(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.addSuccess'))
-            open.value = false
-            getList()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      }
-    }
-  })
-}
-
-/** 删除按钮操作 */
+/** 删除按钮操作（确认文案以 join 后字符串插值，保持原有展示格式） */
 function handleDelete(row?: SysRateLimit) {
-  // 单条传数字 ID，批量显式 join 为逗号分隔字符串（后端 parse_id_list 按逗号拆分）
   const delIds = row ? row.id : ids.value.join(',')
   modal
     .confirm(t('rateLimit.tip.confirmDelete', { ids: delIds }))
@@ -398,7 +362,7 @@ function handleStatusChange(row: SysRateLimit) {
     })
 }
 
-/** 导出按钮操作（由 useExport 提供） */
+/** 导出按钮操作（由 useExport 提供，文件名前缀 rate_limit 保持不变） */
 const { handleExport: rawHandleExport } = useExport('/system/rateLimit/export', 'rate_limit', {
   successKey: 'common.exportSuccess'
 })

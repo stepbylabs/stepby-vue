@@ -6,6 +6,7 @@
       <el-form-item :label="t('pat.admin.column.userName')" prop="userId">
         <el-input
           v-model="userIdInput"
+          :aria-label="t('pat.admin.column.userName')"
           :placeholder="t('pat.admin.phUserId')"
           clearable
           class="w-[180px]"
@@ -28,7 +29,7 @@
         <el-table-column :label="t('pat.column.name')" prop="name" min-width="120" show-overflow-tooltip />
         <el-table-column :label="t('pat.column.token')" prop="tokenPrefix" width="130">
           <template #default="scope">
-            <code class="token-prefix">{{ scope.row.tokenPrefix }}…</code>
+            <code class="font-mono text-xs">{{ scope.row.tokenPrefix }}…</code>
           </template>
         </el-table-column>
         <el-table-column :label="t('pat.admin.column.userName')" prop="userName" width="120" show-overflow-tooltip />
@@ -38,7 +39,7 @@
               v-for="s in displayScopes(scope.row.scopes)"
               :key="s"
               size="small"
-              class="scope-tag"
+              class="my-[2px] mr-1"
               :type="s === '*:*:*' ? 'danger' : 'info'"
             >
               {{ scopeLabel(s) }}
@@ -114,6 +115,7 @@ import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { listPat, revokePat } from '@/api/monitor/pat'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 
 const { t } = useI18n()
@@ -121,6 +123,8 @@ const queryRef = useTemplateRef<FormInstance>('queryRef')
 
 const loading = ref(false)
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 const tokenList = ref<SysPat[]>([])
 const total = ref(0)
 const userIdInput = ref('')
@@ -186,13 +190,3 @@ function handleRevoke(row: SysPat): void {
 getList()
 useAutoRefresh(getList)
 </script>
-
-<style lang="scss" scoped>
-.token-prefix {
-  font-family: var(--el-font-family-mono, monospace);
-  font-size: 12px;
-}
-.scope-tag {
-  margin: 2px 4px 2px 0;
-}
-</style>

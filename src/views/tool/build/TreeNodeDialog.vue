@@ -1,10 +1,9 @@
 <template>
   <div>
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="t('build.treeNodeDialog.title')"
       v-model="open"
       width="800px"
-      :close-on-click-modal="false"
       append-to-body
       destroy-on-close
       @open="onOpen"
@@ -17,8 +16,7 @@
               v-model="formData.label"
               :placeholder="t('build.treeNodeDialog.phOptionName')"
               :maxlength="50"
-              clearable
-            />
+              clearable :aria-label="t('build.treeNodeDialog.phOptionName')" />
           </el-form-item>
         </el-col>
         <el-col :span="24">
@@ -27,8 +25,7 @@
               v-model="formData.value"
               :placeholder="t('build.treeNodeDialog.phOptionValue')"
               :maxlength="100"
-              clearable
-            >
+              clearable :aria-label="t('build.treeNodeDialog.phOptionValue')">
               <template #append>
                 <el-select :aria-label="t('build.treeNodeDialog.valueType')" v-model="dataType" :style="{ width: '100px' }">
                   <el-option

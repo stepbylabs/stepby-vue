@@ -8,8 +8,7 @@
             :placeholder="t('report.search.phReportName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('report.search.phReportName')" />
         </el-form-item>
         <el-form-item :label="t('report.column.reportType')" prop="reportType">
           <el-select
@@ -185,10 +184,10 @@
     <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
       <el-form ref="reportRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('report.form.reportCode')" prop="reportCode">
-          <el-input v-model.trim="form.reportCode" :placeholder="t('report.form.phReportCode')" :maxlength="64" />
+          <el-input v-model.trim="form.reportCode" :placeholder="t('report.form.phReportCode')" :maxlength="64" :aria-label="t('report.form.phReportCode')" />
         </el-form-item>
         <el-form-item :label="t('report.form.reportName')" prop="reportName">
-          <el-input v-model.trim="form.reportName" :placeholder="t('report.form.phReportName')" :maxlength="64" />
+          <el-input v-model.trim="form.reportName" :placeholder="t('report.form.phReportName')" :maxlength="64" :aria-label="t('report.form.phReportName')" />
         </el-form-item>
         <el-form-item :label="t('report.form.reportType')" prop="reportType">
           <el-select :aria-label="t('report.form.reportType')" v-model="form.reportType" :placeholder="t('common.form.selectPlaceholder')">
@@ -202,8 +201,7 @@
               type="textarea"
               :rows="5"
               :placeholder="t('report.form.phConfig')"
-              class="font-mono"
-            />
+              class="font-mono" :aria-label="t('report.form.phConfig')" />
             <div class="mt-1 text-xs text-text-secondary">{{ t('report.form.configTip') }}</div>
           </div>
         </el-form-item>
@@ -223,8 +221,7 @@
             :rows="2"
             :placeholder="t('report.form.phRemark')"
             :maxlength="500"
-            show-word-limit
-          />
+            show-word-limit :aria-label="t('report.form.phRemark')" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -313,169 +310,8 @@
       </div>
     </el-dialog>
 
-    <!-- 指定报表的订阅管理对话框 -->
-    <el-dialog :title="t('report.sub.title')" v-model="subOpen" width="min(94%, 860px)" append-to-body destroy-on-close>
-      <div class="mb8 flex items-center justify-between">
-        <div class="text-text-secondary">{{ t('report.sub.target', { name: currentReport?.reportName || '' }) }}</div>
-        <el-button type="primary" plain icon="Plus" @click="handleSubAdd" v-hasPermi="['system:report:sub:add']">
-          {{ t('common.add') }}
-        </el-button>
-      </div>
-
-      <el-table v-loading="subLoading" :data="subList">
-        <el-table-column
-          :label="t('report.sub.column.subName')"
-          align="center"
-          prop="subName"
-          min-width="150"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          :label="t('report.sub.column.cron')"
-          align="center"
-          prop="cron"
-          width="170"
-          show-overflow-tooltip
-        />
-        <el-table-column :label="t('report.sub.column.channels')" align="center" width="150">
-          <template #default="scope">
-            <div class="flex-center gap-1">
-              <el-tag v-if="scope.row.pushEmail === '1'" size="small" type="primary">
-                {{ t('report.sub.channel.email') }}
-              </el-tag>
-              <el-tag v-if="scope.row.pushSysMsg === '1'" size="small" type="success">
-                {{ t('report.sub.channel.site') }}
-              </el-tag>
-              <span v-if="scope.row.pushEmail !== '1' && scope.row.pushSysMsg !== '1'" class="text-text-secondary">
-                -
-              </span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('report.sub.column.status')" align="center" width="90">
-          <template #default="scope">
-            <el-switch
-              v-model="scope.row.status"
-              active-value="0"
-              inactive-value="1"
-              @change="handleSubStatusChange(scope.row)"
-              v-hasPermi="['system:report:sub:status']"
-            ></el-switch>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('report.sub.column.lastRunTime')" align="center" prop="lastRunTime" width="170" />
-        <el-table-column
-          :label="t('common.column.operation')"
-          align="center"
-          width="210"
-          class-name="small-padding fixed-width"
-        >
-          <template #default="scope">
-            <el-button
-              link
-              type="primary"
-              icon="Promotion"
-              @click="handleSubRun(scope.row)"
-              v-hasPermi="['system:report:sub:run']"
-            >
-              {{ t('report.sub.btn.run') }}
-            </el-button>
-            <el-button
-              link
-              type="primary"
-              icon="Edit"
-              @click="handleSubEdit(scope.row)"
-              v-hasPermi="['system:report:sub:edit']"
-            >
-              {{ t('common.edit') }}
-            </el-button>
-            <el-button
-              link
-              type="primary"
-              icon="Delete"
-              @click="handleSubDelete(scope.row)"
-              v-hasPermi="['system:report:sub:remove']"
-            >
-              {{ t('common.delete') }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty :description="t('common.empty')" />
-        </template>
-      </el-table>
-
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button type="primary" @click="subOpen = false">{{ t('common.confirm') }}</el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 订阅新增/编辑对话框 -->
-    <el-dialog :title="subTitle" v-model="subFormOpen" width="min(90%, 620px)" append-to-body destroy-on-close>
-      <el-form ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
-        <el-form-item :label="t('report.sub.form.subName')" prop="subName">
-          <el-input v-model.trim="subForm.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" />
-        </el-form-item>
-        <el-form-item :label="t('report.sub.form.cron')" prop="cron">
-          <div class="w-full">
-            <el-input v-model.trim="subForm.cron" :placeholder="t('report.sub.form.phCron')" class="font-mono" />
-            <div class="mt-1 text-xs text-text-secondary">{{ t('report.sub.form.cronTip') }}</div>
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('report.sub.form.channels')" prop="channels">
-          <el-checkbox-group v-model="subChannels">
-            <el-checkbox value="email">{{ t('report.sub.channel.email') }}</el-checkbox>
-            <el-checkbox value="site">{{ t('report.sub.channel.site') }}</el-checkbox>
-          </el-checkbox-group>
-        </el-form-item>
-        <el-form-item
-          v-if="subChannels.includes('email')"
-          :label="t('report.sub.form.receiveEmail')"
-          prop="receiveEmail"
-        >
-          <el-input
-            v-model="subForm.receiveEmail"
-            type="textarea"
-            :rows="3"
-            :placeholder="t('report.sub.form.phReceiveEmail')"
-          />
-        </el-form-item>
-        <el-form-item
-          v-if="subChannels.includes('site')"
-          :label="t('report.sub.form.receiveUserIds')"
-          prop="receiveUserIds"
-        >
-          <el-input
-            v-model="subForm.receiveUserIds"
-            type="textarea"
-            :rows="3"
-            :placeholder="t('report.sub.form.phReceiveUserIds')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('report.sub.form.status')">
-          <el-switch
-            v-model="subForm.status"
-            active-value="0"
-            inactive-value="1"
-            :active-text="t('common.enabled')"
-            :inactive-text="t('common.disabled')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('report.sub.form.lastRunTime')" v-if="subForm.subId">
-          <span class="text-text-secondary">{{ subForm.lastRunTime || '-' }}</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button type="primary" :loading="subSubmitLoading" @click="submitSubForm">
-            {{ t('common.confirm') }}
-          </el-button>
-          <el-button @click="subFormOpen = false">{{ t('common.cancel') }}</el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <!-- 订阅管理对话框 + 订阅表单（独立区块，见 SubReportSection.vue） -->
+    <SubReportSection v-model:open="subOpen" :report="subReport" />
   </div>
 </template>
 
@@ -487,20 +323,13 @@ import {
   addReport,
   updateReport,
   changeReportStatus,
-  previewReport,
-  listSub,
-  getSub,
-  delSub,
-  addSub,
-  updateSub,
-  changeSubStatus,
-  runSub
+  previewReport
 } from '@/api/system/report'
-import type { SysReport, SysReportSub, ReportSnapshot } from '@/types/api/system/report'
+import type { SysReport, ReportSnapshot } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
-import type { FormRules } from 'element-plus'
+import SubReportSection from './SubReportSection.vue'
 
 const { t } = useI18n()
 const reportRefRef = useTemplateRef('reportRef')
@@ -673,134 +502,15 @@ function handlePreview(row: SysReport) {
     })
 }
 
-// ----- 订阅管理 -----
+// ----- 订阅管理（子组件承载订阅管理对话框/订阅表单，见 SubReportSection.vue） -----
 const subOpen = ref(false)
-const subLoading = ref(false)
-const subList = ref<SysReportSub[]>([])
-const currentReport = ref<SysReport>({})
-const subFormOpen = ref(false)
-const subSubmitLoading = ref(false)
-const subTitle = ref('')
-const subFormRef = useTemplateRef('subFormRef')
-
-const subChannels = ref<string[]>([])
-const subForm = ref<SysReportSub>({})
-const subRules: FormRules = {
-  subName: [{ required: true, message: t('report.sub.validate.subNameRequired'), trigger: 'blur' }],
-  cron: [{ required: true, message: t('report.sub.validate.cronRequired'), trigger: 'blur' }]
-}
+const subReport = ref<SysReport>({})
 
 function openSubDialog() {
   const selectedId = ids.value[0]
   const report = dataList.value.find((r: SysReport) => r.reportId === selectedId) ?? { reportId: selectedId }
-  currentReport.value = report
-  subList.value = []
+  subReport.value = report
   subOpen.value = true
-  getSubList()
-}
-
-function getSubList() {
-  const reportId = currentReport.value.reportId
-  if (!reportId) return
-  subLoading.value = true
-  listSub({ pageNum: 1, pageSize: 100, reportId })
-    .then((res) => {
-      subList.value = res.rows ?? []
-    })
-    .catch(() => {})
-    .finally(() => {
-      subLoading.value = false
-    })
-}
-
-function handleSubAdd() {
-  const reportId = currentReport.value.reportId
-  if (!reportId) return
-  subForm.value = {
-    subId: undefined,
-    reportId,
-    subName: undefined,
-    cron: '0 0 9 * * *',
-    pushEmail: '1',
-    receiveEmail: undefined,
-    pushSysMsg: '0',
-    receiveUserIds: undefined,
-    status: '0',
-    lastRunTime: undefined
-  }
-  subChannels.value = ['email']
-  subTitle.value = t('common.add') + t('report.sub.title')
-  subFormOpen.value = true
-}
-
-function handleSubEdit(row: SysReportSub) {
-  getSub(row.subId!)
-    .then((res) => {
-      subForm.value = res.data ?? row
-      subChannels.value = [
-        ...(subForm.value.pushEmail === '1' ? ['email' as const] : []),
-        ...(subForm.value.pushSysMsg === '1' ? ['site' as const] : [])
-      ]
-      subTitle.value = t('common.edit') + t('report.sub.title')
-      subFormOpen.value = true
-    })
-    .catch(() => {})
-}
-
-function submitSubForm() {
-  subFormRef.value?.validate((valid: boolean) => {
-    if (!valid) return
-    subSubmitLoading.value = true
-    const payload: SysReportSub = {
-      ...subForm.value,
-      pushEmail: subChannels.value.includes('email') ? '1' : '0',
-      pushSysMsg: subChannels.value.includes('site') ? '1' : '0'
-    }
-    if (payload.pushEmail !== '1') payload.receiveEmail = undefined
-    if (payload.pushSysMsg !== '1') payload.receiveUserIds = undefined
-    const isUpdate = payload.subId != null
-    const api = isUpdate ? updateSub(payload) : addSub(payload)
-    api
-      .then(() => {
-        modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))
-        subFormOpen.value = false
-        getSubList()
-      })
-      .catch(() => {})
-      .finally(() => {
-        subSubmitLoading.value = false
-      })
-  })
-}
-
-function handleSubDelete(row: SysReportSub) {
-  modal
-    .confirm(t('report.sub.tip.confirmDelete', { name: row.subName }))
-    .then(() => delSub(row.subId!))
-    .then(() => {
-      modal.msgSuccess(t('common.deleteSuccess'))
-      getSubList()
-    })
-    .catch(() => {})
-}
-
-function handleSubStatusChange(row: SysReportSub) {
-  changeSubStatus(row.subId!, row.status!)
-    .then(() => modal.msgSuccess(t('common.success')))
-    .catch(() => {
-      row.status = row.status === '0' ? '1' : '0'
-    })
-}
-
-function handleSubRun(row: SysReportSub) {
-  modal
-    .confirm(t('report.sub.tip.confirmRun', { name: row.subName }))
-    .then(() => runSub(row.subId!))
-    .then(() => {
-      modal.msgSuccess(t('report.sub.tip.runSuccess'))
-      getSubList()
-    })
-    .catch(() => {})
 }
 
 getList()

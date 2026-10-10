@@ -44,7 +44,7 @@
               </el-select>
             </el-form-item>
             <el-form-item v-if="activeData.vModel !== undefined" :label="t('build.rightPanel.label.fieldName')">
-              <el-input v-model="activeData.vModel" :placeholder="t('build.rightPanel.ph.fieldName')" />
+              <el-input v-model="activeData.vModel" :placeholder="t('build.rightPanel.ph.fieldName')" :aria-label="t('build.rightPanel.ph.fieldName')" />
             </el-form-item>
             <el-form-item
               v-if="activeData.componentName !== undefined"
@@ -53,10 +53,10 @@
               {{ activeData.componentName }}
             </el-form-item>
             <el-form-item v-if="activeData.label !== undefined" :label="t('build.rightPanel.label.title')">
-              <el-input v-model="activeData.label" :placeholder="t('build.rightPanel.ph.title')" />
+              <el-input v-model="activeData.label" :placeholder="t('build.rightPanel.ph.title')" :aria-label="t('build.rightPanel.ph.title')" />
             </el-form-item>
             <el-form-item v-if="activeData.placeholder !== undefined" :label="t('build.rightPanel.label.placeholder')">
-              <el-input v-model="activeData.placeholder" :placeholder="t('build.rightPanel.ph.placeholder')" />
+              <el-input v-model="activeData.placeholder" :placeholder="t('build.rightPanel.ph.placeholder')" :aria-label="t('build.rightPanel.ph.placeholder')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['start-placeholder'] !== undefined"
@@ -65,20 +65,19 @@
               <el-input
                 v-model="activeData['start-placeholder']"
                 :placeholder="t('build.rightPanel.ph.placeholder')"
-                :maxlength="100"
-              />
+                :maxlength="100" :aria-label="t('build.rightPanel.ph.placeholder')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['end-placeholder'] !== undefined"
               :label="t('build.rightPanel.label.endPlaceholder')"
             >
-              <el-input v-model="activeData['end-placeholder']" :placeholder="t('build.rightPanel.ph.placeholder')" />
+              <el-input v-model="activeData['end-placeholder']" :placeholder="t('build.rightPanel.ph.placeholder')" :aria-label="t('build.rightPanel.ph.placeholder')" />
             </el-form-item>
             <el-form-item v-if="activeData.span !== undefined" :label="t('build.rightPanel.label.span')">
               <el-slider v-model="activeData.span" :max="24" :min="1" :marks="{ 12: '' }" @change="spanChange" />
             </el-form-item>
             <el-form-item v-if="activeData.layout === 'rowFormItem'" :label="t('build.rightPanel.label.gutter')">
-              <el-input-number v-model="activeData.gutter" :min="0" :placeholder="t('build.rightPanel.ph.gutter')" />
+              <el-input-number v-model="activeData.gutter" :min="0" :placeholder="t('build.rightPanel.ph.gutter')" :aria-label="t('build.rightPanel.ph.gutter')" />
             </el-form-item>
 
             <el-form-item v-if="activeData.justify !== undefined" :label="t('build.rightPanel.label.justify')">
@@ -102,8 +101,7 @@
               <el-input
                 v-model.number="activeData.labelWidth"
                 type="number"
-                :placeholder="t('build.rightPanel.ph.labelWidth')"
-              />
+                :placeholder="t('build.rightPanel.ph.labelWidth')" :aria-label="t('build.rightPanel.ph.labelWidth')" />
             </el-form-item>
             <el-form-item
               v-if="activeData.style && activeData.style.width !== undefined"
@@ -112,43 +110,39 @@
               <el-input
                 v-model="activeData.style.width"
                 :placeholder="t('build.rightPanel.ph.componentWidth')"
-                clearable
-              />
+                clearable :aria-label="t('build.rightPanel.ph.componentWidth')" />
             </el-form-item>
             <el-form-item v-if="activeData.vModel !== undefined" :label="t('build.rightPanel.label.defaultValue')">
               <el-input
                 :value="setDefaultValue(activeData.defaultValue)"
                 :placeholder="t('build.rightPanel.ph.defaultValue')"
-                @input="onDefaultValueInput"
-              />
+                @input="onDefaultValueInput" :aria-label="t('build.rightPanel.ph.defaultValue')" />
             </el-form-item>
             <el-form-item v-if="activeData.tag === 'el-checkbox-group'" :label="t('build.rightPanel.label.minChecked')">
               <el-input-number
                 :value="activeData.min"
                 :min="0"
                 :placeholder="t('build.rightPanel.ph.minChecked')"
-                @input="activeData.min = $event ? $event : undefined"
-              />
+                @input="activeData.min = $event ? $event : undefined" :aria-label="t('build.rightPanel.ph.minChecked')" />
             </el-form-item>
             <el-form-item v-if="activeData.tag === 'el-checkbox-group'" :label="t('build.rightPanel.label.maxChecked')">
               <el-input-number
                 :value="activeData.max"
                 :min="0"
                 :placeholder="t('build.rightPanel.ph.maxChecked')"
-                @input="activeData.max = $event ? $event : undefined"
-              />
+                @input="activeData.max = $event ? $event : undefined" :aria-label="t('build.rightPanel.ph.maxChecked')" />
             </el-form-item>
             <el-form-item v-if="activeData.prepend !== undefined" :label="t('build.rightPanel.label.prepend')">
-              <el-input v-model="activeData.prepend" :placeholder="t('build.rightPanel.ph.prepend')" :maxlength="50" />
+              <el-input v-model="activeData.prepend" :placeholder="t('build.rightPanel.ph.prepend')" :maxlength="50" :aria-label="t('build.rightPanel.ph.prepend')" />
             </el-form-item>
             <el-form-item v-if="activeData.append !== undefined" :label="t('build.rightPanel.label.append')">
-              <el-input v-model="activeData.append" :placeholder="t('build.rightPanel.ph.append')" />
+              <el-input v-model="activeData.append" :placeholder="t('build.rightPanel.ph.append')" :aria-label="t('build.rightPanel.ph.append')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['prefix-icon'] !== undefined"
               :label="t('build.rightPanel.label.prefixIcon')"
             >
-              <el-input v-model="activeData['prefix-icon']" :placeholder="t('build.rightPanel.ph.prefixIcon')">
+              <el-input v-model="activeData['prefix-icon']" :placeholder="t('build.rightPanel.ph.prefixIcon')" :aria-label="t('build.rightPanel.ph.prefixIcon')">
                 <template #append>
                   <el-button icon="Pointer" @click="openIconsDialog('prefix-icon')">
                     {{ t('build.rightPanel.btn.select') }}
@@ -160,7 +154,7 @@
               v-if="activeData['suffix-icon'] !== undefined"
               :label="t('build.rightPanel.label.suffixIcon')"
             >
-              <el-input v-model="activeData['suffix-icon']" :placeholder="t('build.rightPanel.ph.suffixIcon')">
+              <el-input v-model="activeData['suffix-icon']" :placeholder="t('build.rightPanel.ph.suffixIcon')" :aria-label="t('build.rightPanel.ph.suffixIcon')">
                 <template #append>
                   <el-button icon="Pointer" @click="openIconsDialog('suffix-icon')">
                     {{ t('build.rightPanel.btn.select') }}
@@ -169,37 +163,34 @@
               </el-input>
             </el-form-item>
             <el-form-item v-if="activeData.tag === 'el-cascader'" :label="t('build.rightPanel.label.separator')">
-              <el-input v-model="activeData.separator" :placeholder="t('build.rightPanel.ph.separator')" />
+              <el-input v-model="activeData.separator" :placeholder="t('build.rightPanel.ph.separator')" :aria-label="t('build.rightPanel.ph.separator')" />
             </el-form-item>
             <el-form-item v-if="activeData.autosize !== undefined" :label="t('build.rightPanel.label.minRows')">
               <el-input-number
                 v-model="activeData.autosize.minRows"
                 :min="1"
-                :placeholder="t('build.rightPanel.ph.minRows')"
-              />
+                :placeholder="t('build.rightPanel.ph.minRows')" :aria-label="t('build.rightPanel.ph.minRows')" />
             </el-form-item>
             <el-form-item v-if="activeData.autosize !== undefined" :label="t('build.rightPanel.label.maxRows')">
               <el-input-number
                 v-model="activeData.autosize.maxRows"
                 :min="1"
-                :placeholder="t('build.rightPanel.ph.maxRows')"
-              />
+                :placeholder="t('build.rightPanel.ph.maxRows')" :aria-label="t('build.rightPanel.ph.maxRows')" />
             </el-form-item>
             <el-form-item v-if="activeData.min !== undefined" :label="t('build.rightPanel.label.minValue')">
-              <el-input-number v-model="activeData.min" :placeholder="t('build.rightPanel.ph.minValue')" />
+              <el-input-number v-model="activeData.min" :placeholder="t('build.rightPanel.ph.minValue')" :aria-label="t('build.rightPanel.ph.minValue')" />
             </el-form-item>
             <el-form-item v-if="activeData.max !== undefined" :label="t('build.rightPanel.label.maxValue')">
-              <el-input-number v-model="activeData.max" :placeholder="t('build.rightPanel.ph.maxValue')" />
+              <el-input-number v-model="activeData.max" :placeholder="t('build.rightPanel.ph.maxValue')" :aria-label="t('build.rightPanel.ph.maxValue')" />
             </el-form-item>
             <el-form-item v-if="activeData.step !== undefined" :label="t('build.rightPanel.label.step')">
-              <el-input-number v-model="activeData.step" :placeholder="t('build.rightPanel.ph.step')" />
+              <el-input-number v-model="activeData.step" :placeholder="t('build.rightPanel.ph.step')" :aria-label="t('build.rightPanel.ph.step')" />
             </el-form-item>
             <el-form-item v-if="activeData.tag === 'el-input-number'" :label="t('build.rightPanel.label.precision')">
               <el-input-number
                 v-model="activeData.precision"
                 :min="0"
-                :placeholder="t('build.rightPanel.ph.precision')"
-              />
+                :placeholder="t('build.rightPanel.ph.precision')" :aria-label="t('build.rightPanel.ph.precision')" />
             </el-form-item>
             <el-form-item
               v-if="activeData.tag === 'el-input-number'"
@@ -215,7 +206,7 @@
               </el-radio-group>
             </el-form-item>
             <el-form-item v-if="activeData.maxlength !== undefined" :label="t('build.rightPanel.label.maxLength')">
-              <el-input v-model="activeData.maxlength" :placeholder="t('build.rightPanel.ph.maxLength')">
+              <el-input v-model="activeData.maxlength" :placeholder="t('build.rightPanel.ph.maxLength')" :aria-label="t('build.rightPanel.ph.maxLength')">
                 <template #append>
                   <span>{{ t('build.rightPanel.chars') }}</span>
                 </template>
@@ -228,14 +219,13 @@
               <el-input
                 v-model="activeData['active-text']"
                 :placeholder="t('build.rightPanel.ph.activeText')"
-                :maxlength="50"
-              />
+                :maxlength="50" :aria-label="t('build.rightPanel.ph.activeText')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['inactive-text'] !== undefined"
               :label="t('build.rightPanel.label.inactiveText')"
             >
-              <el-input v-model="activeData['inactive-text']" :placeholder="t('build.rightPanel.ph.inactiveText')" />
+              <el-input v-model="activeData['inactive-text']" :placeholder="t('build.rightPanel.ph.inactiveText')" :aria-label="t('build.rightPanel.ph.inactiveText')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['active-value'] !== undefined"
@@ -244,8 +234,7 @@
               <el-input
                 :value="setDefaultValue(activeData['active-value'])"
                 :placeholder="t('build.rightPanel.ph.activeValue')"
-                @input="onSwitchValueInput($event, 'active-value')"
-              />
+                @input="onSwitchValueInput($event, 'active-value')" :aria-label="t('build.rightPanel.ph.activeValue')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['inactive-value'] !== undefined"
@@ -255,8 +244,7 @@
                 :value="setDefaultValue(activeData['inactive-value'])"
                 :placeholder="t('build.rightPanel.ph.inactiveValue')"
                 :maxlength="100"
-                @input="onSwitchValueInput($event, 'inactive-value')"
-              />
+                @input="onSwitchValueInput($event, 'inactive-value')" :aria-label="t('build.rightPanel.ph.inactiveValue')" />
             </el-form-item>
             <el-form-item
               v-if="activeData.type !== undefined && 'el-date-picker' === activeData.tag"
@@ -273,7 +261,7 @@
               </el-select>
             </el-form-item>
             <el-form-item v-if="activeData.name !== undefined" :label="t('build.rightPanel.label.fileName')">
-              <el-input v-model="activeData.name" :placeholder="t('build.rightPanel.ph.fileName')" />
+              <el-input v-model="activeData.name" :placeholder="t('build.rightPanel.ph.fileName')" :aria-label="t('build.rightPanel.ph.fileName')" />
             </el-form-item>
             <el-form-item v-if="activeData.accept !== undefined" :label="t('build.rightPanel.label.fileType')">
               <el-select
@@ -293,7 +281,7 @@
               </el-select>
             </el-form-item>
             <el-form-item v-if="activeData.fileSize !== undefined" :label="t('build.rightPanel.label.fileSize')">
-              <el-input v-model.number="activeData.fileSize" :placeholder="t('build.rightPanel.ph.fileSize')">
+              <el-input v-model.number="activeData.fileSize" :placeholder="t('build.rightPanel.ph.fileSize')" :aria-label="t('build.rightPanel.ph.fileSize')">
                 <template #append>
                   <el-select :aria-label="t('build.rightPanel.label.sizeUnit')" v-model="activeData.sizeUnit" :style="{ width: '66px' }">
                     <el-option label="KB" value="KB" />
@@ -304,7 +292,7 @@
               </el-input>
             </el-form-item>
             <el-form-item v-if="activeData.action !== undefined" :label="t('build.rightPanel.label.action')">
-              <el-input v-model="activeData.action" :placeholder="t('build.rightPanel.ph.action')" clearable />
+              <el-input v-model="activeData.action" :placeholder="t('build.rightPanel.ph.action')" clearable :aria-label="t('build.rightPanel.ph.action')" />
             </el-form-item>
             <el-form-item v-if="activeData['list-type'] !== undefined" :label="t('build.rightPanel.label.listType')">
               <el-radio-group v-model="activeData['list-type']" size="small">
@@ -317,7 +305,7 @@
               v-if="activeData.buttonText !== undefined && 'picture-card' !== activeData['list-type']"
               :label="t('build.rightPanel.label.buttonText')"
             >
-              <el-input v-model="activeData.buttonText" :placeholder="t('build.rightPanel.ph.buttonText')" />
+              <el-input v-model="activeData.buttonText" :placeholder="t('build.rightPanel.ph.buttonText')" :aria-label="t('build.rightPanel.ph.buttonText')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['range-separator'] !== undefined"
@@ -325,8 +313,7 @@
             >
               <el-input
                 v-model="activeData['range-separator']"
-                :placeholder="t('build.rightPanel.ph.rangeSeparator')"
-              />
+                :placeholder="t('build.rightPanel.ph.rangeSeparator')" :aria-label="t('build.rightPanel.ph.rangeSeparator')" />
             </el-form-item>
             <el-form-item
               v-if="activeData['picker-options'] !== undefined"
@@ -334,16 +321,14 @@
             >
               <el-input
                 v-model="activeData['picker-options'].selectableRange"
-                :placeholder="t('build.rightPanel.ph.pickerOptions')"
-              />
+                :placeholder="t('build.rightPanel.ph.pickerOptions')" :aria-label="t('build.rightPanel.ph.pickerOptions')" />
             </el-form-item>
             <el-form-item v-if="activeData.format !== undefined" :label="t('build.rightPanel.label.format')">
               <el-input
                 :value="activeData.format"
                 :placeholder="t('build.rightPanel.ph.format')"
                 :maxlength="100"
-                @input="setTimeValue($event)"
-              />
+                @input="setTimeValue($event)" :aria-label="t('build.rightPanel.ph.format')" />
             </el-form-item>
             <template v-if="['el-checkbox-group', 'el-radio-group', 'el-select'].indexOf(activeData.tag) > -1">
               <el-divider>{{ t('build.rightPanel.options') }}</el-divider>
@@ -361,13 +346,12 @@
                     >
                       <i class="el-icon-s-operation" />
                     </div>
-                    <el-input v-model="element.label" :placeholder="t('build.rightPanel.ph.optionName')" size="small" />
+                    <el-input v-model="element.label" :placeholder="t('build.rightPanel.ph.optionName')" size="small" :aria-label="t('build.rightPanel.ph.optionName')" />
                     <el-input
                       :placeholder="t('build.rightPanel.ph.optionValue')"
                       size="small"
                       :value="element.value"
-                      @input="setOptionValue(element, $event)"
-                    />
+                      @input="setOptionValue(element, $event)" :aria-label="t('build.rightPanel.ph.optionValue')" />
                     <div
                       class="close-btn select-line-icon leading-8 text-[22px] px-1 text-text-secondary"
                       @click="activeData.options.splice(index, 1)"
@@ -402,13 +386,13 @@
 
               <template v-if="activeData.dataType === 'dynamic'">
                 <el-form-item :label="t('build.rightPanel.label.labelKey')">
-                  <el-input v-model="activeData.labelKey" :placeholder="t('build.rightPanel.ph.labelKey')" />
+                  <el-input v-model="activeData.labelKey" :placeholder="t('build.rightPanel.ph.labelKey')" :aria-label="t('build.rightPanel.ph.labelKey')" />
                 </el-form-item>
                 <el-form-item :label="t('build.rightPanel.label.valueKey')">
-                  <el-input v-model="activeData.valueKey" :placeholder="t('build.rightPanel.ph.valueKey')" />
+                  <el-input v-model="activeData.valueKey" :placeholder="t('build.rightPanel.ph.valueKey')" :aria-label="t('build.rightPanel.ph.valueKey')" />
                 </el-form-item>
                 <el-form-item :label="t('build.rightPanel.label.childrenKey')">
-                  <el-input v-model="activeData.childrenKey" :placeholder="t('build.rightPanel.ph.childrenKey')" />
+                  <el-input v-model="activeData.childrenKey" :placeholder="t('build.rightPanel.ph.childrenKey')" :aria-label="t('build.rightPanel.ph.childrenKey')" />
                 </el-form-item>
               </template>
 
@@ -581,10 +565,10 @@
                   </el-icon>
                 </span>
                 <el-form-item :label="t('build.rightPanel.label.expression')">
-                  <el-input v-model="item.pattern" :placeholder="t('build.rightPanel.ph.pattern')" :maxlength="255" />
+                  <el-input v-model="item.pattern" :placeholder="t('build.rightPanel.ph.pattern')" :maxlength="255" :aria-label="t('build.rightPanel.ph.pattern')" />
                 </el-form-item>
                 <el-form-item :label="t('build.rightPanel.label.errorTip')" class="mb-0">
-                  <el-input v-model="item.message" :placeholder="t('build.rightPanel.ph.errorTip')" />
+                  <el-input v-model="item.message" :placeholder="t('build.rightPanel.ph.errorTip')" :aria-label="t('build.rightPanel.ph.errorTip')" />
                 </el-form-item>
               </div>
               <div>
@@ -608,8 +592,8 @@
 
 <script setup lang="ts">
 /* eslint-disable vue/no-mutating-props */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// 表单构建器属性面板：Vue 2 风格直接修改 props，activeData 字段结构由用户配置动态决定
+// 表单构建器属性面板：Vue 2 风格直接修改 props，activeData 用 BuildNodeData 最小约束
+// （动态字段经索引签名放行，就地修改为既有且有意设计，见 types.ts 说明）。
 import draggable from 'vuedraggable'
 import { isNumberStr } from '@/utils/index'
 import IconsDialog from './IconsDialog.vue'
@@ -645,7 +629,7 @@ const data = reactive({
   colorFormatOptions: createColorFormatOptions(),
   justifyOptions: createJustifyOptions(),
   layoutTreeProps: {
-    label(data: any, _node: any) {
+    label(data: BuildNodeData, _node: unknown) {
       return data.componentName || `${data.label}: ${data.vModel}`
     }
   }
@@ -708,10 +692,10 @@ function addTreeItem(): void {
   currentNode.value = props.activeData.options
 }
 
-function setOptionValue(item: { value: any }, val: string): void {
+function setOptionValue(item: { value: unknown }, val: string): void {
   item.value = isNumberStr(val) ? +val : val
 }
-function setDefaultValue(val: any): string {
+function setDefaultValue(val: unknown): string {
   if (Array.isArray(val)) {
     return val.join(',')
   }
@@ -794,7 +778,7 @@ function setIcon(val: string): void {
 }
 
 function tagChange(tagIcon: string): void {
-  let target: Record<string, any> | undefined
+  let target: BuildNodeData | undefined
   target = inputComponents.find((item) => item.tagIcon === tagIcon)
   if (!target) {
     target = selectComponents.find((item) => item.tagIcon === tagIcon)

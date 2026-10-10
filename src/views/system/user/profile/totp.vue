@@ -33,11 +33,10 @@
               type="password"
               :placeholder="t('lock.passwordPlaceholder')"
               :maxlength="20"
-              show-password
-            />
+              show-password :aria-label="t('lock.passwordPlaceholder')" />
           </el-form-item>
           <el-form-item :label="t('login.code')" prop="code">
-            <el-input v-model="disableForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" />
+            <el-input v-model="disableForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" :aria-label="t('profile.totp.codePlaceholder')" />
           </el-form-item>
           <el-form-item>
             <el-button type="danger" :loading="disableLoading" @click="handleDisable">
@@ -109,7 +108,7 @@
           <div v-else key="step3" class="verify-section">
             <el-form ref="verifyRef" :model="verifyForm" :rules="verifyRules" label-width="120px">
               <el-form-item :label="t('login.code')" prop="code">
-                <el-input v-model="verifyForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" />
+                <el-input v-model="verifyForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" :aria-label="t('profile.totp.codePlaceholder')" />
               </el-form-item>
               <el-form-item>
                 <el-button type="primary" :loading="verifyLoading" @click="handleVerify">

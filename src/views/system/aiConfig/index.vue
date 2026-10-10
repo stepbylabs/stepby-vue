@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container p-4">
+  <div class="app-container p-4" v-loading="loading">
     <el-card shadow="never" class="mb-4">
       <template #header>
         <div class="card-header flex items-center justify-between font-medium">
@@ -37,16 +37,15 @@
         </el-form-item>
         <el-form-item :label="t('aiConfig.field.provider')">
           <el-select v-model="form.provider" class="w-[280px]">
-            <el-option label="OpenAI 兼容" value="openai" />
-            <el-option label="自定义" value="custom" />
+            <el-option :label="t('aiConfig.provider.openai')" value="openai" />
+            <el-option :label="t('aiConfig.provider.custom')" value="custom" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('aiConfig.field.baseUrl')">
           <el-input
             v-model="form.baseUrl"
             :placeholder="t('aiConfig.ph.baseUrl')"
-            class="w-[420px]"
-          />
+            class="w-[420px]" :aria-label="t('aiConfig.ph.baseUrl')" />
         </el-form-item>
         <el-form-item :label="t('aiConfig.field.apiKey')">
           <el-input
@@ -71,8 +70,7 @@
             allow-create
             default-first-option
             :placeholder="t('aiConfig.ph.allowedTables')"
-            class="w-[520px]"
-          >
+            class="w-[520px]" :aria-label="t('aiConfig.ph.allowedTables')">
             <el-option
               v-for="tb in tableOptions"
               :key="tb"

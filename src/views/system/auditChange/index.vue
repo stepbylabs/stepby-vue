@@ -5,6 +5,7 @@
         <el-form-item :label="t('auditChange.search.tableName')" prop="tableName">
           <el-input
             v-model="queryParams.tableName"
+            :aria-label="t('auditChange.search.tableName')"
             :placeholder="t('auditChange.search.phTableName')"
             :maxlength="64"
             clearable
@@ -15,6 +16,7 @@
         <el-form-item :label="t('auditChange.search.rowPk')" prop="rowPk">
           <el-input
             v-model="queryParams.rowPk"
+            :aria-label="t('auditChange.search.rowPk')"
             :placeholder="t('auditChange.search.phRowPk')"
             :maxlength="64"
             clearable
@@ -36,6 +38,7 @@
         <el-form-item :label="t('auditChange.search.operatorName')" prop="operatorName">
           <el-input
             v-model="queryParams.operatorName"
+            :aria-label="t('auditChange.search.operatorName')"
             :placeholder="t('auditChange.search.phOperatorName')"
             :maxlength="30"
             clearable
@@ -220,6 +223,9 @@ import TenantColumn from '@/components/TenantColumn/index.vue'
 import { listAuditChange, exportAuditChange } from '@/api/system/auditChange'
 import { addDateRange } from '@/utils/stepby'
 import type { SysAuditChange, AuditChangeQueryParams } from '@/types/api/system/auditChange'
+import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
+import type { Ref } from 'vue'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
@@ -227,11 +233,7 @@ const queryRef = useTemplateRef('queryRef')
 // 变更动作下拉（后端 action 取值域）
 const actionOptions = ['INSERT', 'UPDATE', 'DELETE']
 
-const loading = ref(false)
 const exportLoading = ref(false)
-const showSearch = ref(true)
-const dataList = ref<SysAuditChange[]>([])
-const total = ref(0)
 const dateRange = ref<string[]>([])
 const defaultSort = ref({ prop: 'operatedAt', order: 'descending' })
 
@@ -244,25 +246,40 @@ const queryParams = ref<AuditChangeQueryParams>({
   operatorName: undefined
 })
 
-/** 查询变更留痕列表 */
-function getList(): void {
-  loading.value = true
-  listAuditChange(addDateRange(queryParams.value as unknown as Record<string, unknown>, dateRange.value) as unknown as AuditChangeQueryParams)
-    .then((res) => {
-      dataList.value = res.rows || []
-      total.value = res.total || 0
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
+// 本页为只读审计页（无新增/编辑/删除表单）：getApi/addApi/updateApi 按只读页惯例传空实现（operlog 同模式）
+const form = ref({}) as Ref<SysAuditChange>
+const formRef = ref<unknown>(null)
 
-/** 搜索按钮操作 */
-function handleQuery(): void {
-  queryParams.value.pageNum = 1
-  getList()
-}
+const {
+  dataList,
+  loading,
+  showSearch,
+  total,
+  getList,
+  handleQuery,
+  handleSortChange
+} = useCrudTable<SysAuditChange, AuditChangeQueryParams>({
+  listApi: (params) =>
+    listAuditChange(
+      addDateRange(params as unknown as Record<string, unknown>, dateRange.value) as unknown as AuditChangeQueryParams
+    ),
+  getApi: () => Promise.resolve({}),
+  addApi: () => Promise.resolve({}),
+  updateApi: () => Promise.resolve({}),
+  deleteApi: () => Promise.resolve({}),
+  idField: 'id',
+  defaultForm: () => ({}) as SysAuditChange,
+  titleKey: 'auditChange.column.tableName',
+  deleteTipKey: 'common.delete',
+  queryParams,
+  form,
+  formRef: formRef as never,
+  queryRef,
+  supportsSort: true
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 /** 重置按钮操作：清空日期与排序参数后按默认排序重新查询 */
 function resetQuery(): void {
@@ -271,18 +288,6 @@ function resetQuery(): void {
   queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
   handleQuery()
-}
-
-/** 排序触发事件 */
-function handleSortChange(column: { prop: string | null; order: string | null }): void {
-  if (column.order === null) {
-    queryParams.value.orderByColumn = undefined
-    queryParams.value.isAsc = undefined
-  } else {
-    queryParams.value.orderByColumn = column.prop || undefined
-    queryParams.value.isAsc = column.order === 'ascending' ? 'asc' : 'desc'
-  }
-  getList()
 }
 
 /** 导出按钮操作（CSV 下载，携带当前过滤条件） */

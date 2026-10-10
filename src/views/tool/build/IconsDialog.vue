@@ -10,8 +10,7 @@
           :placeholder="t('build.iconsDialog.phIconName')"
           :maxlength="100"
           prefix-icon="Search"
-          clearable
-        />
+          clearable :aria-label="t('build.iconsDialog.phIconName')" />
       </template>
       <TransitionGroup name="icon-grid" tag="ul" class="icon-ul">
         <li v-for="icon in iconList" :key="icon" :class="active === icon ? 'active-item' : ''" @click="onSelect(icon)">

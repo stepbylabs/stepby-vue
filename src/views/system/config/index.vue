@@ -10,8 +10,7 @@
             :maxlength="100"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('config.search.phConfigName')" />
         </el-form-item>
         <el-form-item :label="t('config.search.configKey')" prop="configKey">
           <el-input
@@ -19,8 +18,7 @@
             :placeholder="t('config.search.phConfigKey')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('config.search.phConfigKey')" />
         </el-form-item>
         <el-form-item :label="t('config.search.configType')" prop="configType">
           <el-select
@@ -40,8 +38,7 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')"
-          ></el-date-picker>
+            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -206,13 +203,13 @@
     />
 
     <!-- 添加或修改参数配置对话框（before-close：未保存离开确认，UX-5） -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close :before-close="beforeDialogClose">
+    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close :before-close="beforeDialogClose" :close-on-click-modal="false">
       <el-form ref="configRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('config.form.configName')" prop="configName">
-          <el-input v-model.trim="form.configName" :placeholder="t('config.search.phConfigName')" />
+          <el-input v-model.trim="form.configName" :placeholder="t('config.search.phConfigName')" :aria-label="t('config.search.phConfigName')" />
         </el-form-item>
         <el-form-item :label="t('config.form.configKey')" prop="configKey">
-          <el-input v-model.trim="form.configKey" :placeholder="t('config.search.phConfigKey')" />
+          <el-input v-model.trim="form.configKey" :placeholder="t('config.search.phConfigKey')" :aria-label="t('config.search.phConfigKey')" />
         </el-form-item>
         <el-form-item :label="t('config.form.configValue')" prop="configValue">
           <el-input
@@ -220,8 +217,7 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit
-          />
+            show-word-limit :aria-label="t('config.form.configValue')" />
         </el-form-item>
         <el-form-item :label="t('config.form.configType')" prop="configType">
           <el-radio-group v-model="form.configType">
@@ -234,8 +230,7 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit
-          />
+            show-word-limit :aria-label="t('config.form.remark')" />
         </el-form-item>
         <!-- E-04 参数治理（仅平台管理员）：scope/editable/visible 三列编辑；
              Locked 键控件禁用（后端 resolve_governance fail-closed 兜底） -->
@@ -247,8 +242,7 @@
               :disabled="isLockedKey"
               :placeholder="t('config.governance.scopePlaceholder')"
               class="w-full"
-              @change="onScopeChange"
-            >
+              @change="onScopeChange" :aria-label="t('config.governance.scopePlaceholder')">
               <el-option value="platform_only" :label="t('config.governance.scopePlatformOnly')" />
               <el-option value="platform_default" :label="t('config.governance.scopePlatformDefault')" />
               <el-option value="tenant_private" :label="t('config.governance.scopeTenantPrivate')" />

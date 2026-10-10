@@ -16,8 +16,7 @@
           :placeholder="t('reportBoard.selectBoard')"
           class="w-[200px]"
           clearable
-          @change="onBoardChange"
-        >
+          @change="onBoardChange" :aria-label="t('reportBoard.selectBoard')">
           <el-option v-for="b in boards" :key="b.id" :value="b.id" :label="b.name" />
         </el-select>
 
@@ -85,8 +84,12 @@
           :aria-label="t('reportBoard.deleteCard')"
           @click="deleteCard(c.id)"
         />
+        <!-- 局部失败占位：该卡片数据源加载失败（全局错误由拦截器弹错，此处仅展示占位） -->
+        <div v-if="failedSources.has(c.sourceKey)" class="h-full w-full flex items-center justify-center">
+          <el-empty :image-size="60" :description="t('reportBoard.dataLoadFail')" />
+        </div>
         <!-- 图表容器（ECharts，useChart 复用实例 + ResizeObserver 自适应） -->
-        <div :ref="(el) => setChartEl(c.id, el)" class="h-full w-full" />
+        <div v-else :ref="(el) => setChartEl(c.id, el)" class="h-full w-full" />
       </el-card>
     </div>
 
@@ -105,7 +108,7 @@
     <el-dialog v-model="dialogVisible" :title="t('reportBoard.addCard')" width="480px">
       <el-form :model="form" label-width="90px">
         <el-form-item :label="t('reportBoard.cardTitle')" required>
-          <el-input v-model="form.title" maxlength="64" :placeholder="t('reportBoard.cardTitlePlaceholder')" />
+          <el-input v-model="form.title" maxlength="64" :placeholder="t('reportBoard.cardTitlePlaceholder')" :aria-label="t('reportBoard.cardTitlePlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('reportBoard.chartType')" required>
           <el-radio-group v-model="form.chartType">
@@ -118,8 +121,7 @@
           <el-select
             v-model="form.sourceKey"
             :placeholder="t('reportBoard.sourceKeyPlaceholder')"
-            class="w-full"
-          >
+            class="w-full" :aria-label="t('reportBoard.sourceKeyPlaceholder')">
             <el-option v-for="s in sources" :key="s.sourceKey" :value="s.sourceKey" :label="s.name" />
           </el-select>
         </el-form-item>
@@ -194,6 +196,8 @@ const range = ref<SourceRange>('7d')
 const editing = ref(false)
 /** 数据缓存：sourceKey → 数据点（同一 sourceKey 的卡片共享一次请求） */
 const dataMap = ref<Map<string, SourcePoint[]>>(new Map())
+/** 加载失败的数据源（对应卡片显示局部失败占位） */
+const failedSources = ref<Set<string>>(new Set())
 
 /** 添加卡片对话框 */
 const dialogVisible = ref(false)
@@ -249,13 +253,16 @@ async function onBoardChange(): Promise<void> {
 async function refreshData(): Promise<void> {
   const cards: ReportCard[] = config.value.cards
   const keys: string[] = [...new Set<string>(cards.map((c: ReportCard) => c.sourceKey))]
+  // 错误提示由 @/utils/request 响应拦截器 errorHub 统一弹出，此处仅记录失败源展示占位
+  failedSources.value.clear()
   const results = await Promise.all(
     keys.map(async (key: string): Promise<readonly [string, SourcePoint[]]> => {
       try {
         const resp = await getSourceData(key, range.value)
+        failedSources.value.delete(key)
         return [key, resp.data?.items ?? []]
       } catch {
-        ElMessage.error(t('reportBoard.dataLoadFail'))
+        failedSources.value.add(key)
         return [key, []]
       }
     })

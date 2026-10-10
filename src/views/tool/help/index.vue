@@ -16,8 +16,7 @@
             :placeholder="t('help.searchPlaceholder')"
             :maxlength="50"
             clearable
-            class="w-[280px]"
-          >
+            class="w-[280px]" :aria-label="t('help.searchPlaceholder')">
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>

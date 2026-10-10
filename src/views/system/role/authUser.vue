@@ -9,8 +9,7 @@
             :maxlength="30"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('user.search.phUsername')" />
         </el-form-item>
         <el-form-item :label="t('user.search.phone')" prop="phonenumber">
           <el-input
@@ -19,8 +18,7 @@
             :maxlength="11"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('user.search.phPhone')" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>

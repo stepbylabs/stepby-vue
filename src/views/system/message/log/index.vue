@@ -6,6 +6,7 @@
           <el-input
             v-model="queryParams.toAddr"
             :placeholder="t('msg.log.search.phToAddr')"
+            :aria-label="t('msg.log.search.toAddr')"
             clearable
             class="w-[200px]"
             @keyup.enter="handleQuery"
@@ -15,6 +16,7 @@
           <el-input
             v-model="queryParams.templateCode"
             :placeholder="t('msg.log.search.phTemplateCode')"
+            :aria-label="t('msg.log.search.templateCode')"
             clearable
             class="w-[160px]"
             @keyup.enter="handleQuery"
@@ -24,6 +26,7 @@
           <el-input
             v-model="queryParams.channelCode"
             :placeholder="t('msg.log.search.phChannelCode')"
+            :aria-label="t('msg.log.search.channelCode')"
             clearable
             class="w-[140px]"
             @keyup.enter="handleQuery"
@@ -207,6 +210,7 @@ import { listSendLog, delSendLog, cleanSendLog, retrySendLog } from '@/api/syste
 import type { SysMsgSendLog, SendLogQueryParams } from '@/types/api/system/msg'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
@@ -215,6 +219,9 @@ const tableRef = useTemplateRef('tableRef')
 const dataList = shallowRef<SysMsgSendLog[]>([])
 const loading = ref(true)
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const total = ref(0)
 const ids = ref<Array<string | number>>([])
 const multiple = ref(true)

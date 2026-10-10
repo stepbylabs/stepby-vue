@@ -108,8 +108,7 @@
             range-separator="-"
             :start-placeholder="t('myLogin.startDate')"
             :end-placeholder="t('myLogin.endDate')"
-            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
-          />
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]" :aria-label="t('myLogin.startDate')" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -332,23 +331,23 @@ onMounted(async () => {
 }
 
 .summary-current .summary-icon {
-  background: linear-gradient(135deg, #409eff, #66b1ff);
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
 }
 
 .summary-total .summary-icon {
-  background: linear-gradient(135deg, #67c23a, #85ce61);
+  background: linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3));
 }
 
 .summary-ips .summary-icon {
-  background: linear-gradient(135deg, #e6a23c, #f0b87a);
+  background: linear-gradient(135deg, var(--el-color-warning), var(--el-color-warning-light-3));
 }
 
 .summary-anomaly-ok .summary-icon {
-  background: linear-gradient(135deg, #67c23a, #85ce61);
+  background: linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3));
 }
 
 .summary-anomaly-warn .summary-icon {
-  background: linear-gradient(135deg, #f56c6c, #f89898);
+  background: linear-gradient(135deg, var(--el-color-danger), var(--el-color-danger-light-3));
 }
 
 .summary-anomaly-warn {

@@ -166,8 +166,8 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// 表单构建器主页面：drawingList/activeData 等结构由用户拖拽配置动态决定，类型无法静态约束
+// 表单构建器主页面：节点结构用 BuildNodeData 最小约束（动态字段经索引签名放行），
+// 拖拽回调链不再使用 any（无法约束的动态字段由 BuildNodeData 索引签名兜底）。
 const { t } = useI18n()
 import useAppStore from '@/store/modules/app'
 import draggable from 'vuedraggable'
@@ -195,6 +195,12 @@ import RightPanel from './RightPanel.vue'
 import CodeTypeDialog from './CodeTypeDialog.vue'
 import type { BuildFormConf, BuildNodeData } from './types'
 
+/** 代码生成配置（CodeTypeDialog confirm 载荷） */
+interface GenerateConf {
+  type?: string
+  fileName?: string
+}
+
 initDrawingDefaultValue()
 
 const drawingList = ref<BuildNodeData[]>(drawingDefaultValue)
@@ -204,7 +210,7 @@ const operationType = ref<string>('')
 const idGlobal = ref<number>(100)
 const activeData = ref<BuildNodeData>(drawingDefaultValue[0])
 const activeId = ref<number>(drawingDefaultValue[0].formId)
-const generateConf = ref<any | null>(null)
+const generateConf = ref<GenerateConf | null>(null)
 const formData = ref<FormData>({} as FormData)
 const formConf = ref<BuildFormConf>(formConfData)
 let oldActiveId: number | undefined
@@ -240,48 +246,49 @@ function empty(): void {
     })
 }
 
-function onEnd(obj: any): void {
+function onEnd(obj: { from: unknown; to: unknown }): void {
   if (obj.from !== obj.to) {
-    activeData.value = tempActiveData
+    if (tempActiveData) activeData.value = tempActiveData
     activeId.value = idGlobal.value
   }
 }
 
-function addComponent(item: any): void {
+function addComponent(item: BuildNodeData): void {
   const clone = cloneComponent(item)
+  if (!clone) return
   drawingList.value.push(clone)
   activeFormItem(clone)
 }
 
-function cloneComponent(origin: any): any {
-  const clone = JSON.parse(JSON.stringify(origin)) as any
+function cloneComponent(origin: BuildNodeData): BuildNodeData | undefined {
+  const clone = JSON.parse(JSON.stringify(origin)) as BuildNodeData
   clone.formId = ++idGlobal.value
-  clone.span = formConf.value.span
+  clone.span = formConf.value.span as number | undefined
   clone.renderKey = +new Date() // 改变renderKey后可以实现强制更新组件
   if (!clone.layout) clone.layout = 'colFormItem'
   if (clone.layout === 'colFormItem') {
     clone.vModel = `field${idGlobal.value}`
     if (clone.placeholder !== undefined) {
-      clone.placeholder += clone.label
+      clone.placeholder += clone.label ?? ''
     }
     tempActiveData = clone
   } else if (clone.layout === 'rowFormItem') {
     delete clone.label
     clone.componentName = `row${idGlobal.value}`
-    clone.gutter = formConf.value.gutter
+    clone.gutter = formConf.value.gutter as number | undefined
     tempActiveData = clone
   }
   return tempActiveData
 }
 
-function drawingItemCopy(item: any, parent: any[]): void {
-  let clone = JSON.parse(JSON.stringify(item))
-  clone = createIdAndKey(clone)
+function drawingItemCopy(item: BuildNodeData, parent: BuildNodeData[]): void {
+  const clone = JSON.parse(JSON.stringify(item)) as BuildNodeData
+  createIdAndKey(clone)
   parent.push(clone)
   activeFormItem(clone)
 }
 
-function createIdAndKey(item: any): any {
+function createIdAndKey(item: BuildNodeData): BuildNodeData {
   item.formId = ++idGlobal.value
   item.renderKey = +new Date()
   if (item.layout === 'colFormItem') {
@@ -290,12 +297,12 @@ function createIdAndKey(item: any): any {
     item.componentName = `row${idGlobal.value}`
   }
   if (Array.isArray(item.children)) {
-    item.children = item.children.map((childItem: any) => createIdAndKey(childItem))
+    item.children = item.children.map((childItem: BuildNodeData) => createIdAndKey(childItem))
   }
   return item
 }
 
-function drawingItemDelete(index: number, parent: any[]): void {
+function drawingItemDelete(index: number, parent: BuildNodeData[]): void {
   parent.splice(index, 1)
   nextTick(() => {
     const len = drawingList.value.length
@@ -307,8 +314,9 @@ function drawingItemDelete(index: number, parent: any[]): void {
   })
 }
 
-function tagChange(newTag: any): void {
+function tagChange(newTag: BuildNodeData): void {
   const clonedTag = cloneComponent(newTag)
+  if (!clonedTag) return
   clonedTag.vModel = activeData.value.vModel
   clonedTag.formId = activeId.value
   clonedTag.span = activeData.value.span
@@ -324,7 +332,7 @@ function tagChange(newTag: any): void {
   updateDrawingList(clonedTag, drawingList.value)
 }
 
-function updateDrawingList(newTag: any, list: any[]): void {
+function updateDrawingList(newTag: BuildNodeData, list: BuildNodeData[]): void {
   const index = list.findIndex((item) => item.formId === activeId.value)
   if (index > -1) {
     list.splice(index, 1, newTag)
@@ -334,7 +342,7 @@ function updateDrawingList(newTag: any, list: any[]): void {
     })
   }
 }
-function generate(data: any): void {
+function generate(data: GenerateConf): void {
   generateConf.value = data
   nextTick(() => {
     switch (operationType.value) {
@@ -350,7 +358,7 @@ function generate(data: any): void {
   })
 }
 
-function execDownload(data: any): void {
+function execDownload(data: GenerateConf): void {
   const codeStr = generateCode()
   const blob = new Blob([codeStr], { type: 'text/plain;charset=utf-8' })
   Download.saveAs(blob, data.fileName!)

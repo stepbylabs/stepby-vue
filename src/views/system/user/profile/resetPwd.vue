@@ -6,8 +6,7 @@
         :placeholder="t('user.tip.oldPwd')"
         type="password"
         :maxlength="20"
-        show-password
-      />
+        show-password :aria-label="t('user.tip.oldPwd')" />
     </el-form-item>
     <el-form-item :label="t('user.tip.editPwd')" prop="newPassword" :rules="infoPwdValidator">
       <el-input
@@ -15,8 +14,7 @@
         :placeholder="t('user.tip.editPwd')"
         type="password"
         :maxlength="20"
-        show-password
-      />
+        show-password :aria-label="t('user.tip.editPwd')" />
       <!-- TierA-5: 密码强度指示器 -->
       <PasswordStrength :password="user.newPassword || ''" />
     </el-form-item>
@@ -26,8 +24,7 @@
         :placeholder="t('register.confirmPassword')"
         type="password"
         :maxlength="20"
-        show-password
-      />
+        show-password :aria-label="t('register.confirmPassword')" />
     </el-form-item>
     <el-form-item>
       <el-button type="primary" :loading="submitLoading" @click="submit">{{ t('common.save') }}</el-button>

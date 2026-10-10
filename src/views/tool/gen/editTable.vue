@@ -149,7 +149,7 @@
       </el-tab-pane>
     </el-tabs>
     <el-form label-width="100px">
-      <div style="text-align: center; margin-left: -100px; margin-top: 10px">
+      <div class="text-center ml-[-100px] mt-2.5">
         <el-button type="primary" :loading="submitLoading" @click="submitForm()">{{ t('common.submit') }}</el-button>
         <el-button @click="close()">{{ t('common.back') }}</el-button>
       </div>

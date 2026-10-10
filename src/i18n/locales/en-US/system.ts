@@ -203,6 +203,10 @@ export default {
   },
   aiConfig: {
     title: 'AI Assistant Config',
+    provider: {
+      openai: 'OpenAI Compatible',
+      custom: 'Custom'
+    },
     btn: {
       test: 'Test Connection'
     },
@@ -1534,6 +1538,9 @@ export default {
       dept: 'Department',
       role: 'Role',
       createTime: 'Created Date'
+    },
+    placeholder: {
+      areaCode: 'Area code'
     },
     sex: {
       male: 'Male',

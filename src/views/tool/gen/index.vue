@@ -6,6 +6,7 @@
           <el-input
             v-model="queryParams.tableName"
             :placeholder="t('gen.search.phTableName')"
+            :aria-label="t('gen.search.tableName')"
             :maxlength="64"
             clearable
             class="w-[200px]"
@@ -16,6 +17,7 @@
           <el-input
             v-model="queryParams.tableComment"
             :placeholder="t('gen.search.phTableComment')"
+            :aria-label="t('gen.search.tableComment')"
             :maxlength="100"
             clearable
             class="w-[200px]"

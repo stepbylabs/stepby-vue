@@ -5,6 +5,7 @@
         <el-form-item :label="t('msg.template.search.templateName')" prop="templateName">
           <el-input
             v-model="queryParams.templateName"
+            :aria-label="t('msg.template.search.templateName')"
             :placeholder="t('msg.template.search.phTemplateName')"
             clearable
             class="w-[200px]"
@@ -14,6 +15,7 @@
         <el-form-item :label="t('msg.template.search.templateCode')" prop="templateCode">
           <el-input
             v-model="queryParams.templateCode"
+            :aria-label="t('msg.template.search.templateCode')"
             :placeholder="t('msg.template.search.phTemplateCode')"
             clearable
             class="w-[200px]"
@@ -260,6 +262,7 @@
 import { listTemplate, getTemplate, delTemplate, addTemplate, updateTemplate } from '@/api/system/msg'
 import type { SysMsgTemplate, TemplateQueryParams } from '@/types/api/system/msg'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 
 const { t } = useI18n()
 const templateRefRef = useTemplateRef('templateRef')
@@ -358,6 +361,10 @@ const {
   formRef: templateRefRef,
   queryRef: queryRefRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 点击变量标签插入占位到内容末尾 */
 function insertVar(v: string) {

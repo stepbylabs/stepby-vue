@@ -12,8 +12,7 @@
                 :maxlength="50"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery"
-              />
+                @keyup.enter="handleQuery" :aria-label="t('logininfor.search.phIpaddr')" />
             </el-form-item>
             <el-form-item :label="t('logininfor.search.userName')" prop="userName">
               <el-input
@@ -22,8 +21,7 @@
                 :maxlength="30"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery"
-              />
+                @keyup.enter="handleQuery" :aria-label="t('logininfor.search.phUserName')" />
             </el-form-item>
             <el-form-item :label="t('common.column.status')" prop="status">
               <el-select
@@ -49,8 +47,7 @@
                 range-separator="-"
                 :start-placeholder="t('common.form.startDate')"
                 :end-placeholder="t('common.form.endDate')"
-                :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
-              ></el-date-picker>
+                :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]" :aria-label="t('common.form.startDate')"></el-date-picker>
             </el-form-item>
             <el-form-item>
               <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
@@ -311,17 +308,21 @@ watch(
   { immediate: true }
 )
 // RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
-watch(
-  columns,
-  (v: Record<string, TableShowColumns>) => {
-    for (const key of Object.keys(v)) {
-      if (logininforVisibleKeys.value.includes(key) !== v[key].visible) {
-        toggleLogininforColumn(key, v[key].visible)
-      }
-    }
-  },
-  { deep: true }
+// columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
+// label 更新（bindLabels）不再触发 deep 全量遍历。
+const columnsVisibleSig = computed(() =>
+  (Object.values(columns.value) as TableShowColumns[])
+    .map((c) => (c.visible ? 1 : 0))
+    .join('')
 )
+watch(columnsVisibleSig, () => {
+  const v = columns.value
+  for (const key of Object.keys(v)) {
+    if (logininforVisibleKeys.value.includes(key) !== v[key].visible) {
+      toggleLogininforColumn(key, v[key].visible)
+    }
+  }
+})
 
 const selectName = ref<string[]>([])
 const dateRange = ref<string[]>([])

@@ -27,6 +27,7 @@
           <el-input
             v-model="queryParams.operator"
             :placeholder="t('task.search.phOperator')"
+            :aria-label="t('task.search.operator')"
             :maxlength="30"
             clearable
             class="w-[160px]"
@@ -317,17 +318,21 @@ watch(
   { immediate: true }
 )
 // RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
-watch(
-  columns,
-  (v: Record<string, TableShowColumns>) => {
-    for (const key of Object.keys(v)) {
-      if (taskVisibleKeys.value.includes(key) !== v[key].visible) {
-        toggleTaskColumn(key, v[key].visible)
-      }
-    }
-  },
-  { deep: true }
+// columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
+// label 更新（bindLabels）不再触发 deep 全量遍历。
+const columnsVisibleSig = computed(() =>
+  (Object.values(columns.value) as TableShowColumns[])
+    .map((c) => (c.visible ? 1 : 0))
+    .join('')
 )
+watch(columnsVisibleSig, () => {
+  const v = columns.value
+  for (const key of Object.keys(v)) {
+    if (taskVisibleKeys.value.includes(key) !== v[key].visible) {
+      toggleTaskColumn(key, v[key].visible)
+    }
+  }
+})
 
 const taskList = shallowRef<SysTask[]>([])
 const loading = ref(true)

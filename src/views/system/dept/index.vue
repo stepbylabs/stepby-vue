@@ -5,6 +5,7 @@
         <el-form-item :label="t('dept.search.deptName')" prop="deptName">
           <el-input
             v-model="queryParams.deptName"
+            :aria-label="t('dept.search.deptName')"
             :placeholder="t('dept.search.phDeptName')"
             clearable
             class="w-[200px]"
@@ -52,7 +53,7 @@
     <el-table
       v-if="refreshTable"
       v-loading="loading"
-      :data="deptList"
+      :data="dataList"
       row-key="deptId"
       :default-expand-all="isExpandAll"
       :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
@@ -105,7 +106,15 @@
     </el-table>
 
     <!-- 添加或修改部门对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 600px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+      :before-close="beforeDialogClose"
+    >
       <el-form ref="deptRef" :model="form" :rules="rules" label-width="80px">
         <el-row>
           <Transition name="expand-fade">
@@ -175,6 +184,7 @@
 
 <script setup lang="ts" name="Dept">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useCrudTable } from '@/composables/useCrudTable'
 import {
   listDept,
   getDept,
@@ -196,33 +206,17 @@ const deptRefRef = useTemplateRef('deptRef')
 const queryRefRef = useTemplateRef('queryRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
-const deptList = ref<SysDept[]>([])
-const open = ref<boolean>(false)
-const loading = ref<boolean>(true)
-const submitLoading = ref<boolean>(false)
-const showSearch = ref<boolean>(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
-void isMobileFilter
-const title = ref<string>('')
 const deptOptions = ref<TreeSelect[]>([])
 
-const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLoading, handleSaveSort } =
-  useTreeTableSort<SysDept>({
-    listRef: deptList,
-    idField: 'deptId',
-    sortApi: (p) => updateDeptSort({ deptIds: p.ids, orderNums: p.orderNums }),
-    noSortChangeKey: 'dept.tip.noSortChange',
-    sortSavedKey: 'dept.tip.sortSaved',
-    defaultExpand: true
-  })
+// 树形页查询参数（无分页语义，pageNum/pageSize 仅为 useCrudTable 契约占位，后端 listDept 忽略）
+type DeptCrudQueryParams = DeptQueryParams & { pageNum?: number; pageSize?: number }
 
 const data = reactive({
   form: {} as SysDept,
   queryParams: {
     deptName: undefined,
     status: undefined
-  } as DeptQueryParams,
+  } as DeptCrudQueryParams,
   rules: {
     parentId: [{ required: true, message: t('dept.validate.parentDeptRequired'), trigger: 'blur' }],
     deptName: [{ required: true, message: t('dept.validate.deptNameRequired'), trigger: 'blur' }],
@@ -234,29 +228,33 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
-/** 查询部门列表 */
-function getList() {
-  loading.value = true
-  listDept(queryParams.value)
-    .then((response) => {
-      deptList.value = handleTree(response.data!, 'deptId')
-      recordOriginalOrders(deptList.value)
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
-
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  reset()
-}
-
-/** 表单重置 */
-function reset() {
-  form.value = {
+const {
+  dataList,
+  open,
+  loading,
+  submitLoading,
+  showSearch,
+  title,
+  getList,
+  beforeDialogClose,
+  cancel,
+  handleAdd: crudHandleAdd,
+  handleUpdate: crudHandleUpdate,
+  submitForm
+} = useCrudTable<SysDept, DeptCrudQueryParams>({
+  // 树形接口无分页：包装为 { rows, total: 0 }，并在每次拉取后记录原始排序基准
+  listApi: (params) =>
+    listDept(params).then((response) => {
+      const tree = handleTree(response.data!, 'deptId')
+      recordOriginalOrders(tree)
+      return { rows: tree, total: 0 }
+    }),
+  getApi: (id) => getDept(id as number),
+  addApi: addDept,
+  updateApi: updateDept,
+  deleteApi: (ids) => delDept(ids as number),
+  idField: 'deptId',
+  defaultForm: () => ({
     deptId: undefined,
     parentId: 0,
     deptName: undefined,
@@ -265,11 +263,42 @@ function reset() {
     phone: undefined,
     email: undefined,
     status: '0'
-  }
-  deptRefRef.value?.resetFields()
+  }),
+  titleKey: 'dept.title',
+  deleteTipKey: 'dept.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef: deptRefRef,
+  queryRef: queryRefRef,
+  // V-1 修复: 部门变更后失效下拉树缓存，确保用户管理/角色管理等页面拿到最新部门树
+  onAfterSubmit: () => refreshDeptTreeSelect()
+})
+
+const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLoading, handleSaveSort } =
+  useTreeTableSort<SysDept>({
+  listRef: dataList,
+  idField: 'deptId',
+  sortApi: (p) => updateDeptSort({ deptIds: p.ids, orderNums: p.orderNums }),
+  noSortChangeKey: 'dept.tip.noSortChange',
+  sortSavedKey: 'dept.tip.sortSaved',
+  defaultExpand: true
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
+
+/** 加载部门树下拉选项 */
+function loadDeptOptions(excludeId?: number): void {
+  const req = excludeId ? listDeptExcludeChild(excludeId) : listDept()
+  req
+    .then((response) => {
+      deptOptions.value = handleTree(response.data!, 'deptId')
+    })
+    .catch(() => {})
 }
 
-/** 搜索按钮操作 */
+/** 搜索按钮操作（树形无分页，直接刷新） */
 function handleQuery() {
   getList()
 }
@@ -280,79 +309,25 @@ function resetQuery() {
   handleQuery()
 }
 
-/** 新增按钮操作 */
+/** 新增按钮操作（可指定父部门） */
 function handleAdd(row?: SysDept) {
-  reset()
-  listDept()
-    .then((response) => {
-      deptOptions.value = handleTree(response.data!, 'deptId')
-    })
-    .catch(() => {})
+  crudHandleAdd()
+  loadDeptOptions()
   if (row !== undefined) {
     form.value.parentId = row.deptId
   }
-  open.value = true
-  title.value = t('common.add') + t('dept.title')
 }
 
-/** 展开/折叠操作（由 useTreeTableSort 提供 toggleExpandAll） */
-
-/** 修改按钮操作 */
+/** 修改按钮操作（编辑时下拉排除自身子树） */
 function handleUpdate(row: SysDept) {
-  reset()
-  listDeptExcludeChild(row.deptId!)
-    .then((response) => {
-      deptOptions.value = handleTree(response.data!, 'deptId')
-    })
-    .catch(() => {})
-  getDept(row.deptId!)
-    .then((response) => {
-      form.value = response.data!
-      open.value = true
-      title.value = t('common.edit') + t('dept.title')
-    })
-    .catch(() => {})
+  loadDeptOptions(row.deptId!)
+  crudHandleUpdate(row)
 }
 
-/** 提交按钮 */
-function submitForm() {
-  deptRefRef.value?.validate((valid: boolean) => {
-    if (valid) {
-      submitLoading.value = true
-      if (form.value.deptId != undefined) {
-        updateDept(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.editSuccess'))
-            open.value = false
-            getList()
-            // V-1 修复: 部门变更后失效下拉树缓存，确保用户管理/角色管理等页面拿到最新部门树
-            refreshDeptTreeSelect()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      } else {
-        addDept(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.addSuccess'))
-            open.value = false
-            getList()
-            // V-1 修复: 部门变更后失效下拉树缓存
-            refreshDeptTreeSelect()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      }
-    }
-  })
-}
-
-/** recordOriginalOrders / handleSaveSort 由 useTreeTableSort 提供 */
-
-/** 删除按钮操作 */
+/**
+ * 删除按钮操作：保留页面级实现——确认文案按部门名（{name}）而非 ids 插值，
+ * 且树形页无批量删除；删除后失效部门下拉树缓存（V-1）
+ */
 function handleDelete(row: SysDept) {
   modal
     .confirm(t('dept.tip.confirmDelete', { name: row.deptName }))
@@ -367,6 +342,8 @@ function handleDelete(row: SysDept) {
     })
     .catch(() => {})
 }
+
+/** recordOriginalOrders / toggleExpandAll / handleSaveSort 由 useTreeTableSort 提供 */
 
 getList()
 </script>

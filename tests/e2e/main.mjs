@@ -8679,10 +8679,11 @@ async function testFeature41(page) {
     // 直接 import @/utils/echarts，或经 @/composables/useChart（其内部 import @/utils/echarts）。
     // 仪表盘已卡片化：图表代码分布于 src/views/dashboard/widgets/ 与 @/composables/useEchartsWidget.ts
     // （后者 import @/utils/echarts + useChart），故按「整个 dashboard 目录 + useEchartsWidget」聚合判定。
+    // 批三十一落地后 monitor/cache 拆为 CacheOverview/CacheKeys/CacheStats 子组件，
+    // 图表代码移入子组件 → 与 dashboard 同口径按「整个目录聚合」判定。
     const echartsPages = [
       'src/views/index.vue',
-      'src/views/monitor/audit-dashboard/index.vue',
-      'src/views/monitor/cache/index.vue'
+      'src/views/monitor/audit-dashboard/index.vue'
     ]
     const collectSources = (relDir) => {
       const abs = path.join(uiRoot, relDir)
@@ -8718,6 +8719,13 @@ async function testFeature41(page) {
     const dashboardFull = dashboardFiles.filter((p) => usesFullEcharts(fs.readFileSync(p, 'utf-8'))).length
     if (dashboardOnDemand) migratedCount++
     stillUsingFullEcharts += dashboardFull
+
+    // monitor/cache 目录聚合（同 dashboard 口径：任一文件走按需路由即计已迁移，全量 import 计违例）
+    const cacheFiles = collectSources('src/views/monitor/cache').filter((p) => fs.existsSync(p))
+    const cacheOnDemand = cacheFiles.some((p) => routesOnDemand(fs.readFileSync(p, 'utf-8')))
+    const cacheFull = cacheFiles.filter((p) => usesFullEcharts(fs.readFileSync(p, 'utf-8'))).length
+    if (cacheOnDemand) migratedCount++
+    stillUsingFullEcharts += cacheFull
 
     // useChart 必须经 @/utils/echarts 引入（集中式按需注册），否则页面委托即失效
     const useChartPath = path.join(uiRoot, 'src/composables/useChart.ts')
@@ -9081,7 +9089,10 @@ async function testFeature42(page) {
       'src/views/dashboard/index.vue',
       'src/views/index.vue',
       'src/views/monitor/audit-dashboard/index.vue',
-      'src/views/monitor/cache/index.vue'
+      // 批三十一：cache 页拆为三子组件，resize 绑定/解绑随块迁入
+      'src/views/monitor/cache/CacheOverview.vue',
+      'src/views/monitor/cache/CacheKeys.vue',
+      'src/views/monitor/cache/CacheStats.vue'
     ]
     const chartComposables = ['src/composables/useChart.ts', 'src/views/monitor/audit-dashboard/useAuditCharts.ts']
     let composablesOk = 0
@@ -9133,7 +9144,8 @@ async function testFeature42(page) {
     const echartsPages = [
       'src/views/index.vue',
       'src/views/monitor/audit-dashboard/index.vue',
-      'src/views/monitor/cache/index.vue'
+      // 批三十一：cache 图表加载/错误态随拆分移入 CacheOverview
+      'src/views/monitor/cache/CacheOverview.vue'
     ]
     let loadingCount = 0
     let errorCount = 0
@@ -11821,14 +11833,22 @@ async function testFeature54(page) {
         scoped.length = 0
         await tabs[i].click({ timeout: 2000 }).catch(() => {})
         await sleep(900)
-        const paneTxt = await page
-          .locator('.el-tab-pane:visible')
-          .last()
-          .innerText()
-          .catch(() => '')
-        const rendered =
-          paneTxt.trim().length > 0 ||
-          (await page.locator('.el-tab-pane:visible canvas, .el-tab-pane:visible table').count()) > 0
+        // 批三十一：cache 等页 Tab 拆为子组件懒加载（激活才挂载+拉数据），
+        // 固定 sleep(900) 会落在空窗期 → 轮询等 pane 内容就绪（最长 5s）。
+        let paneTxt = ''
+        let hasCanvasOrTable = false
+        for (let w = 0; w < 10; w++) {
+          paneTxt = await page
+            .locator('.el-tab-pane:visible')
+            .last()
+            .innerText()
+            .catch(() => '')
+          hasCanvasOrTable =
+            (await page.locator('.el-tab-pane:visible canvas, .el-tab-pane:visible table').count()) > 0
+          if (paneTxt.trim().length > 0 || hasCanvasOrTable) break
+          await sleep(500)
+        }
+        const rendered = paneTxt.trim().length > 0 || hasCanvasOrTable
         record(
           54,
           `${path} 页签「${name}」渲染无控制台错误且内容非空`,
@@ -12707,6 +12727,14 @@ async function testFeature60(page) {
     await sleep(500)
   } else if (dlgOk) {
     record(60, '添加下级对话框：上级部门树选择器可见', false, 'tree-select input not found')
+  }
+  // 批三十一 UX-5：编辑类 dialog 统一接 beforeDialogClose 脏表单守卫——
+  // 取消后若表单有变更会先弹「离开且不保存」确认框，确认后才真正关闭。
+  const guardBox = page.locator('.el-message-box:visible')
+  if (await guardBox.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await guardBox.locator('.el-message-box__btns .el-button--primary').first().click()
+    await sleep(600)
+    record(60, '脏表单守卫：取消后弹「离开且不保存」确认并可关闭', true)
   }
   const vis = await page.locator('.el-dialog:visible').count()
   record(60, '取消关闭对话框（未写入数据）', vis === 0, `visible=${vis}`)

@@ -44,6 +44,16 @@ export interface BuildNodeData {
   regList?: BuildNodeRegItem[]
   /** 文档链接 */
   document?: string
+  /** 表单项 label 宽度（px；生成器配置中可能为 null 表示未设置） */
+  labelWidth?: number | null
+  /** 是否必填（透传 el-form-item required） */
+  required?: boolean
+  /** 栅格间距（rowFormItem） */
+  gutter?: number
+  /** 默认值（类型由所选组件决定，保持未知） */
+  defaultValue?: unknown
+  /** 子节点（rowFormItem 嵌套） */
+  children?: BuildNodeData[]
   /** 已知动态字段（读写均可能）——保留宽松类型，其余由索引签名兜底 */
   [key: string]: unknown
 }

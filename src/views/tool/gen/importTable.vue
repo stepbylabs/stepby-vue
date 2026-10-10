@@ -1,6 +1,6 @@
 <template>
   <!-- 导入表 -->
-  <el-dialog
+  <el-dialog :close-on-click-modal="false"
     :title="t('gen.importTable.title')"
     v-model="visible"
     width="800px"

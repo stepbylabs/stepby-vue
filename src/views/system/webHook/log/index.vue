@@ -6,6 +6,7 @@
           <el-input
             v-model="queryParams.eventType"
             :placeholder="t('webHook.log.search.phEventType')"
+            :aria-label="t('webHook.log.search.eventType')"
             clearable
             class="w-[220px]"
             @keyup.enter="handleQuery"
@@ -231,13 +232,22 @@
           {{ currentLog?.createTime || '-' }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('webHook.log.detail.payload')" :span="2">
-          <pre class="detail-pre">{{ formatPayload(currentLog?.payload) }}</pre>
+          <pre
+            class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all"
+            >{{ formatPayload(currentLog?.payload) }}</pre
+          >
         </el-descriptions-item>
         <el-descriptions-item v-if="currentLog?.response" :label="t('webHook.log.detail.response')" :span="2">
-          <pre class="detail-pre">{{ currentLog.response }}</pre>
+          <pre
+            class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all"
+            >{{ currentLog.response }}</pre
+          >
         </el-descriptions-item>
         <el-descriptions-item v-if="currentLog?.errorMsg" :label="t('webHook.log.detail.errorMsg')" :span="2">
-          <pre class="detail-pre text-danger">{{ currentLog.errorMsg }}</pre>
+          <pre
+            class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all text-[var(--el-color-danger)]"
+            >{{ currentLog.errorMsg }}</pre
+          >
         </el-descriptions-item>
       </el-descriptions>
       <template #footer>
@@ -423,21 +433,3 @@ function handleExport() {
 
 getList()
 </script>
-
-<style lang="scss" scoped>
-.detail-pre {
-  margin: 0;
-  padding: 10px;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 260px;
-  overflow: auto;
-}
-.text-danger {
-  color: var(--el-color-danger);
-}
-</style>

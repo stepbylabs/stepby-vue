@@ -150,7 +150,7 @@
     </el-card>
 
     <!-- 配置对话框 -->
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="t('ipLocation.title.config')"
       v-model="configOpen"
       width="min(90%, 600px)"
@@ -234,7 +234,7 @@
     </el-dialog>
 
     <!-- 更新源选择对话框（点击"立即更新"时弹出） -->
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="t('ipLocation.title.updateNow')"
       v-model="updateOpen"
       width="min(90%, 480px)"

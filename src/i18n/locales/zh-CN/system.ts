@@ -203,6 +203,10 @@ export default {
   },
   aiConfig: {
     title: 'AI 助手配置',
+    provider: {
+      openai: 'OpenAI 兼容',
+      custom: '自定义'
+    },
     btn: {
       test: '测试连通'
     },
@@ -1518,6 +1522,9 @@ export default {
       dept: '所属部门',
       role: '所属角色',
       createTime: '创建日期'
+    },
+    placeholder: {
+      areaCode: '区号'
     },
     sex: {
       male: '男',

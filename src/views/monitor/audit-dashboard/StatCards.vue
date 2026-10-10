@@ -89,16 +89,16 @@ const { staggerChildren } = useMotionPresets()
 }
 
 .stat-total .stat-icon {
-  background: linear-gradient(135deg, #409eff, #66b1ff);
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
 }
 .stat-success .stat-icon {
-  background: linear-gradient(135deg, #67c23a, #85ce61);
+  background: linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3));
 }
 .stat-fail .stat-icon {
-  background: linear-gradient(135deg, #f56c6c, #f89898);
+  background: linear-gradient(135deg, var(--el-color-danger), var(--el-color-danger-light-3));
 }
 .stat-active .stat-icon {
-  background: linear-gradient(135deg, #e6a23c, #ebb563);
+  background: linear-gradient(135deg, var(--el-color-warning), var(--el-color-warning-light-3));
 }
 
 .stat-label {

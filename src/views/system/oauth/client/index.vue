@@ -199,8 +199,7 @@
               <el-input
                 v-model.trim="form.clientName"
                 :maxlength="64"
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.clientName')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -215,12 +214,12 @@
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('sso.logoUri')" prop="logoUri">
-              <el-input v-model.trim="form.logoUri" :maxlength="500" :placeholder="t('common.form.inputPlaceholder')" />
+              <el-input v-model.trim="form.logoUri" :maxlength="500" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.logoUri')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('sso.redirectUris')" prop="redirectUris">
-              <el-input v-model="redirectUrisText" type="textarea" :rows="3" :placeholder="t('sso.redirectUrisPh')" />
+              <el-input v-model="redirectUrisText" type="textarea" :rows="3" :placeholder="t('sso.redirectUrisPh')" :aria-label="t('sso.redirectUrisPh')" />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -302,8 +301,7 @@
                 type="textarea"
                 :maxlength="500"
                 show-word-limit
-                :placeholder="t('common.form.inputPlaceholder')"
-              />
+                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.remark')" />
             </el-form-item>
           </el-col>
         </el-row>

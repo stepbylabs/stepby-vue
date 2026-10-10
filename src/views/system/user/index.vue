@@ -20,8 +20,7 @@
                 :placeholder="t('user.search.phUsername')"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery"
-              />
+                @keyup.enter="handleQuery" :aria-label="t('user.search.phUsername')" />
             </el-form-item>
             <el-form-item :label="t('user.search.phone')" prop="phonenumber">
               <el-input
@@ -29,8 +28,7 @@
                 :placeholder="t('user.search.phPhone')"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery"
-              />
+                @keyup.enter="handleQuery" :aria-label="t('user.search.phPhone')" />
             </el-form-item>
             <el-form-item :label="t('user.search.status')" prop="status">
               <el-select
@@ -55,8 +53,7 @@
                 type="daterange"
                 range-separator="-"
                 :start-placeholder="t('common.form.startDate')"
-                :end-placeholder="t('common.form.endDate')"
-              ></el-date-picker>
+                :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
             </el-form-item>
             <el-form-item>
               <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
@@ -546,17 +543,21 @@ watch(
   { immediate: true }
 )
 // RightToolbar 直改 columns.visible → 回写 useTableColumns（内部仅在真正变化时持久化）
-watch(
-  columns,
-  (v: Record<string, TableShowColumns>) => {
-    for (const key of Object.keys(v)) {
-      if (userVisibleKeys.value.includes(key) !== v[key].visible) {
-        toggleUserColumn(key, v[key].visible)
-      }
-    }
-  },
-  { deep: true }
+// columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
+// label 更新（bindLabels）不再触发 deep 全量遍历。
+const columnsVisibleSig = computed(() =>
+  (Object.values(columns.value) as TableShowColumns[])
+    .map((c) => (c.visible ? 1 : 0))
+    .join('')
 )
+watch(columnsVisibleSig, () => {
+  const v = columns.value
+  for (const key of Object.keys(v)) {
+    if (userVisibleKeys.value.includes(key) !== v[key].visible) {
+      toggleUserColumn(key, v[key].visible)
+    }
+  }
+})
 
 // ===== M3 字段级权限：当前操作者生效的隐藏字段（动态隐藏列） =====
 // 首期 tableKey 固定 sys_user；后端按当前用户的角色配置聚合算好下发（如 ["phonenumber","email"]）

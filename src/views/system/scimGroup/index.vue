@@ -6,6 +6,7 @@
           <el-form-item :label="t('scimGroup.displayName')">
             <el-input
               v-model.trim="queryForm.displayName"
+              :aria-label="t('scimGroup.displayName')"
               :placeholder="t('common.inputText')"
               clearable
               class="w-[200px]"
@@ -137,7 +138,7 @@
           </div>
         </el-form-item>
         <el-form-item v-if="editForm.mappingType === 'role'" :label="t('scimGroup.bindRoles')">
-          <el-select :aria-label="t('scimGroup.bindRoles')" v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
+          <el-select :aria-label="t('scimGroup.bindRoles')" v-model="editForm.bindingTargetIds" multiple filterable class="w-full">
             <el-option
               v-for="r in roleOptions"
               :key="r.roleId"
@@ -148,7 +149,7 @@
           <div class="el-form-item__tip">{{ t('scimGroup.bindRoleTip') }}</div>
         </el-form-item>
         <el-form-item v-else :label="t('scimGroup.bindDept')">
-          <el-select :aria-label="t('scimGroup.bindDept')" v-model="editForm.bindingTargetIds" multiple filterable style="width: 100%">
+          <el-select :aria-label="t('scimGroup.bindDept')" v-model="editForm.bindingTargetIds" multiple filterable class="w-full">
             <el-option
               v-for="d in deptOptions"
               :key="d.deptId"
@@ -187,11 +188,15 @@ import { listRole } from '@/api/system/role'
 import { listDept } from '@/api/system/dept'
 import type { ComponentInternalInstance } from 'vue'
 import type { ScimGroupAdminRow, ScimGroupAdminDetail, SysRole, SysDept } from '@/types'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 
 const { t } = useI18n()
 const { proxy } = getCurrentInstance() as ComponentInternalInstance
 
 const showSearch = ref(true)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 const loading = ref(false)
 const saving = ref(false)
 const groupList = ref<ScimGroupAdminRow[]>([])
@@ -246,8 +251,12 @@ async function openEdit(row: ScimGroupAdminRow) {
   editForm.bindingTargetIds = [...(detail.value?.bindingTargetIds ?? [])]
   // 并行加载角色 / 部门候选
   if (roleOptions.value.length === 0) {
+    // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
     const r = await listRole({ pageNum: 1, pageSize: 500 })
     roleOptions.value = r.rows
+    if (import.meta.env.DEV && r.rows.length >= 500) {
+      console.warn('[scimGroup] 角色下拉拉取达到 pageSize=500 上限，可能存在截断')
+    }
   }
   if (deptOptions.value.length === 0) {
     const dRes = await listDept()

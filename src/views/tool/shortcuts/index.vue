@@ -16,8 +16,7 @@
             :placeholder="t('shortcuts.searchPlaceholder')"
             :maxlength="50"
             clearable
-            class="w-[240px]"
-          >
+            class="w-[240px]" :aria-label="t('shortcuts.searchPlaceholder')">
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>

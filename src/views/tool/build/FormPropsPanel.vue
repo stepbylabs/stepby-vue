@@ -1,13 +1,13 @@
 <template>
   <el-form label-width="90px" label-position="top">
     <el-form-item :label="t('build.rightPanel.label.formRef')">
-      <el-input v-model="formConf.formRef" :placeholder="t('build.rightPanel.ph.formRef')" :maxlength="50" />
+      <el-input v-model="formConf.formRef" :placeholder="t('build.rightPanel.ph.formRef')" :maxlength="50" :aria-label="t('build.rightPanel.ph.formRef')" />
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formModel')">
-      <el-input v-model="formConf.formModel" :placeholder="t('build.rightPanel.ph.formModel')" />
+      <el-input v-model="formConf.formModel" :placeholder="t('build.rightPanel.ph.formModel')" :aria-label="t('build.rightPanel.ph.formModel')" />
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formRules')">
-      <el-input v-model="formConf.formRules" :placeholder="t('build.rightPanel.ph.formRules')" />
+      <el-input v-model="formConf.formRules" :placeholder="t('build.rightPanel.ph.formRules')" :aria-label="t('build.rightPanel.ph.formRules')" />
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formSize')">
       <el-radio-group v-model="formConf.size">
@@ -36,10 +36,10 @@
       </el-radio-group>
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formLabelWidth')">
-      <el-input-number v-model="formConf.labelWidth" :placeholder="t('build.rightPanel.ph.formLabelWidth')" />
+      <el-input-number v-model="formConf.labelWidth" :placeholder="t('build.rightPanel.ph.formLabelWidth')" :aria-label="t('build.rightPanel.ph.formLabelWidth')" />
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formGutter')">
-      <el-input-number v-model="formConf.gutter" :min="0" :placeholder="t('build.rightPanel.ph.formGutter')" />
+      <el-input-number v-model="formConf.gutter" :min="0" :placeholder="t('build.rightPanel.ph.formGutter')" :aria-label="t('build.rightPanel.ph.formGutter')" />
     </el-form-item>
     <el-form-item :label="t('build.rightPanel.label.formDisabled')">
       <el-switch v-model="formConf.disabled" />
@@ -54,10 +54,11 @@
 </template>
 
 <script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// 表单构建器右侧面板：表单属性 tab（仅依赖 formConf，字段结构由用户配置动态决定）
+// 表单构建器右侧面板：表单属性 tab（仅依赖 formConf，动态字段经 BuildFormConf 索引签名放行）
+import type { BuildFormConf } from './types'
+
 const props = defineProps<{
-  formConf: any
+  formConf: BuildFormConf
 }>()
 
 const { t } = useI18n()

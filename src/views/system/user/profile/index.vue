@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="app-container" v-loading="loading">
     <el-row :gutter="20">
       <el-col :span="6" :xs="24">
         <el-card class="box-card">
@@ -12,7 +12,7 @@
             <div class="text-center">
               <userAvatar />
             </div>
-            <ul class="list-group list-group-striped">
+            <ul v-if="state.user.userName" class="list-group list-group-striped">
               <li class="list-group-item">
                 <svg-icon icon-class="user" />
                 {{ t('profile.label.userName') }}
@@ -46,6 +46,7 @@
                 <div class="pull-right">{{ state.user.createTime }}</div>
               </li>
             </ul>
+            <el-empty v-else-if="!loading" :description="t('common.noData')" />
           </div>
         </el-card>
       </el-col>
@@ -127,7 +128,10 @@ const state = reactive<UserProfileState>({
   postGroup: ''
 })
 
+const loading = ref(false)
+
 function getUser() {
+  loading.value = true
   getUserProfile()
     .then((response) => {
       state.user = response.data
@@ -135,6 +139,9 @@ function getUser() {
       state.postGroup = response.postGroup
     })
     .catch(() => {})
+    .finally(() => {
+      loading.value = false
+    })
 }
 
 onMounted(() => {

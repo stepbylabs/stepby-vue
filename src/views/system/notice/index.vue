@@ -8,8 +8,7 @@
             :placeholder="t('notice.search.phTitle')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('notice.search.phTitle')" />
         </el-form-item>
         <el-form-item :label="t('notice.search.createBy')" prop="createBy">
           <el-input
@@ -17,8 +16,7 @@
             :placeholder="t('notice.search.phCreateBy')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('notice.search.phCreateBy')" />
         </el-form-item>
         <el-form-item :label="t('notice.search.type')" prop="noticeType">
           <el-select
@@ -219,8 +217,7 @@
                 v-model.trim="form.noticeTitle"
                 :placeholder="t('notice.search.phTitle')"
                 :maxlength="50"
-                show-word-limit
-              />
+                show-word-limit :aria-label="t('notice.search.phTitle')" />
             </el-form-item>
           </el-col>
           <el-col :span="12">

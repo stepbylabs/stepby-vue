@@ -6,6 +6,7 @@
           <el-input
             v-model="queryParams.menuName"
             :placeholder="t('menuModule.search.phMenuName')"
+            :aria-label="t('menuModule.search.menuName')"
             clearable
             class="w-[200px]"
             @keyup.enter="handleQuery"
@@ -59,7 +60,7 @@
       ref="tableRef"
       v-if="refreshTable"
       v-loading="loading"
-      :data="menuList"
+      :data="dataList"
       row-key="menuId"
       :default-expand-all="isExpandAll"
       :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
@@ -141,7 +142,15 @@
     </el-table>
 
     <!-- 添加或修改菜单对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 680px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 680px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+      :before-close="beforeDialogClose"
+    >
       <el-form ref="menuRef" :model="form" :rules="rules" label-width="100px">
         <el-row>
           <el-col :span="24">
@@ -404,6 +413,7 @@ import modal from '@/plugins/modal'
 import { handleTree } from '@/utils/stepby'
 import { useMenuTitle } from '@/composables/useMenuTitle'
 import { useTreeTableSort } from '@/composables/useTreeTableSort'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const { translateTitle } = useMenuTitle()
@@ -412,27 +422,12 @@ const queryRefRef = useTemplateRef('queryRef')
 const tableRef = useTemplateRef('tableRef')
 const { sys_show_hide, sys_normal_disable } = useDict('sys_show_hide', 'sys_normal_disable')
 
-const menuList = ref<SysMenu[]>([])
-const open = ref<boolean>(false)
-const loading = ref<boolean>(true)
-const submitLoading = ref<boolean>(false)
 const showSearch = ref<boolean>(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
-const title = ref<string>('')
 const menuOptions = ref<SysMenu[]>([])
 const iconSelectRef = useTemplateRef<InstanceType<typeof IconSelect>>('iconSelectRef')
-
-const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLoading, handleSaveSort } =
-  useTreeTableSort<SysMenu>({
-    listRef: menuList,
-    idField: 'menuId',
-    sortApi: (p) => updateMenuSort({ menuIds: p.ids, orderNums: p.orderNums }),
-    noSortChangeKey: 'menuModule.tip.noSortChange',
-    sortSavedKey: 'menuModule.tip.sortSaved',
-    defaultExpand: false
-  })
 
 const data = reactive({
   form: {} as SysMenu,
@@ -449,19 +444,70 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
-/** 查询菜单列表 */
-function getList() {
-  loading.value = true
-  listMenu(queryParams.value)
-    .then((response) => {
-      menuList.value = handleTree(response.data!, 'menuId')
-      recordOriginalOrders(menuList.value)
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
+// 树形页接入 useCrudTable：列表/弹窗表单流程（loading/重置/未保存守卫/提交）由
+// composable 承载；listApi 返回 handleTree 后的树形结构（rows/total 适配）。
+// 新增（需父节点预选 + 下拉树）、修改（先取下拉树）、删除（确认文案按名称插值）
+// 与排序保存为页面特有流程，保持手写。
+const {
+  dataList,
+  open,
+  loading,
+  submitLoading,
+  title,
+  snapshotForm,
+  getList,
+  beforeDialogClose,
+  cancel,
+  reset,
+  submitForm
+} = useCrudTable<SysMenu, MenuQueryParams>({
+  listApi: (params) =>
+    listMenu(params).then((response) => {
+      const tree = handleTree(response.data!, 'menuId')
+      recordOriginalOrders(tree)
+      return { rows: tree, total: 0 }
+    }),
+  getApi: (id) => getMenu(Number(id)),
+  addApi: addMenu,
+  updateApi: updateMenu,
+  deleteApi: (ids) => delMenu(Number(ids)),
+  idField: 'menuId',
+  defaultForm: () => ({
+    menuId: undefined,
+    parentId: 0,
+    menuName: undefined,
+    icon: undefined,
+    menuType: 'M',
+    orderNum: undefined,
+    isFrame: '1',
+    isCache: '0',
+    visible: '0',
+    status: '0',
+    i18nKey: undefined
+  }),
+  titleKey: 'menuModule.title',
+  deleteTipKey: 'menuModule.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef: menuRefRef,
+  queryRef: queryRefRef,
+  onAfterSubmit: () => {
+    // V-1 修复: 菜单变更后失效下拉树缓存，确保用户管理/角色管理等页面拿到最新菜单树
+    refreshMenuTreeselect()
+  },
+  // 存量行为：本页未做查询条件 URL 同步，保持等价
+  syncQueryToUrl: false
+})
+
+const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLoading, handleSaveSort } =
+  useTreeTableSort<SysMenu>({
+    listRef: dataList,
+    idField: 'menuId',
+    sortApi: (p) => updateMenuSort({ menuIds: p.ids, orderNums: p.orderNums }),
+    noSortChangeKey: 'menuModule.tip.noSortChange',
+    sortSavedKey: 'menuModule.tip.sortSaved',
+    defaultExpand: false
+  })
 
 /** 查询菜单下拉树结构 */
 function getTreeselect() {
@@ -494,41 +540,12 @@ const translatedMenuOptions = computed(() => {
   return menuOptions.value.map(translateNode)
 })
 
-/** 取消按钮 */
-function cancel() {
-  open.value = false
-  reset()
-}
-
-/** 表单重置 */
-function reset() {
-  form.value = {
-    menuId: undefined,
-    parentId: 0,
-    menuName: undefined,
-    icon: undefined,
-    menuType: 'M',
-    orderNum: undefined,
-    isFrame: '1',
-    isCache: '0',
-    visible: '0',
-    status: '0',
-    i18nKey: undefined
-  }
-  menuRefRef.value?.resetFields()
-}
-
 /** 展示下拉图标 */
 function showSelectIcon() {
   iconSelectRef.value?.reset()
 }
 
-/** 选择图标 */
-function selected(name: string) {
-  form.value.icon = name
-}
-
-/** 搜索按钮操作 */
+/** 搜索按钮操作（树形列表无分页，直接重查） */
 function handleQuery() {
   getList()
 }
@@ -537,6 +554,11 @@ function handleQuery() {
 function resetQuery() {
   queryRefRef.value?.resetFields()
   handleQuery()
+}
+
+/** 选择图标 */
+function selected(name: string) {
+  form.value.icon = name
 }
 
 /** 新增按钮操作 */
@@ -548,6 +570,7 @@ function handleAdd(row?: SysMenu) {
   } else {
     form.value.parentId = 0
   }
+  snapshotForm(form.value)
   open.value = true
   title.value = t('common.add') + t('menuModule.title')
 }
@@ -561,51 +584,16 @@ async function handleUpdate(row: SysMenu) {
   getMenu(row.menuId!)
     .then((response) => {
       form.value = response.data!
+      snapshotForm(form.value)
       open.value = true
       title.value = t('common.edit') + t('menuModule.title')
     })
     .catch(() => {})
 }
 
-/** 提交按钮 */
-function submitForm() {
-  menuRefRef.value?.validate((valid: boolean) => {
-    if (valid) {
-      submitLoading.value = true
-      if (form.value.menuId != undefined) {
-        updateMenu(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.editSuccess'))
-            open.value = false
-            getList()
-            // V-1 修复: 菜单变更后失效下拉树缓存，确保用户管理/角色管理等页面拿到最新菜单树
-            refreshMenuTreeselect()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      } else {
-        addMenu(form.value)
-          .then(() => {
-            modal.msgSuccess(t('common.addSuccess'))
-            open.value = false
-            getList()
-            // V-1 修复: 菜单变更后失效下拉树缓存
-            refreshMenuTreeselect()
-          })
-          .catch(() => {})
-          .finally(() => {
-            submitLoading.value = false
-          })
-      }
-    }
-  })
-}
-
 /** recordOriginalOrders / handleSaveSort 由 useTreeTableSort 提供 */
 
-/** 删除按钮操作 */
+/** 删除按钮操作（确认文案按菜单名称插值，故不走 composable 通用删除流程） */
 function handleDelete(row: SysMenu) {
   modal
     .confirm(t('menuModule.tip.confirmDelete', { name: row.menuName }))

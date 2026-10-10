@@ -8,7 +8,7 @@
            平台必须显式指定 tenantId（否则新增会归属到平台租户 0 形成脏数据）。
            选中租户后以平台模式（TenantDomainPanel tenantId prop）代管该租户域名；
            租户操作者保持自助模式（不传 tenantId，后端强制本租户）。 -->
-      <el-form v-if="isPlatform" inline class="mb-2" @submit.prevent>
+      <el-form v-if="isPlatform" v-loading="loading" inline class="mb-2" @submit.prevent>
         <el-form-item :label="t('tenantDomain.targetTenant')">
           <el-select
             :aria-label="t('tenantDomain.targetTenant')"
@@ -40,6 +40,10 @@
         :closable="false"
         class="mb-2"
       />
+      <el-empty
+        v-if="isPlatform && !loading && selectedTenantId == null && tenantOptions.length === 0"
+        :description="t('common.noData')"
+      />
       <TenantDomainPanel v-if="!isPlatform || selectedTenantId != null" :tenant-id="selectedTenantId" />
     </el-card>
   </div>
@@ -57,14 +61,18 @@ const userStore = useUserStore()
 const isPlatform = userStore.tenantId === 0
 const tenantOptions = ref<TenantVo[]>([])
 const selectedTenantId = ref<number | undefined>(undefined)
+const loading = ref(false)
 
 onMounted(async () => {
   if (!isPlatform) return
+  loading.value = true
   try {
     const res = await listTenant()
     tenantOptions.value = res.data ?? []
   } catch {
     tenantOptions.value = []
+  } finally {
+    loading.value = false
   }
 })
 </script>

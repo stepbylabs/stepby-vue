@@ -8,8 +8,7 @@
             :placeholder="t('role.search.phRoleName')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('role.search.phRoleName')" />
         </el-form-item>
         <el-form-item :label="t('role.search.roleKey')" prop="roleKey">
           <el-input
@@ -17,8 +16,7 @@
             :placeholder="t('role.search.phRoleKey')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('role.search.phRoleKey')" />
         </el-form-item>
         <el-form-item :label="t('role.search.status')" prop="status">
           <el-select :aria-label="t('role.search.status')" v-model="queryParams.status" :placeholder="t('role.search.phStatus')" clearable class="w-[240px]">
@@ -32,8 +30,7 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')"
-          ></el-date-picker>
+            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -254,7 +251,7 @@
     <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
       <el-form ref="roleRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('role.form.roleName')" prop="roleName">
-          <el-input v-model.trim="form.roleName" :placeholder="t('role.search.phRoleName')" />
+          <el-input v-model.trim="form.roleName" :placeholder="t('role.search.phRoleName')" :aria-label="t('role.search.phRoleName')" />
         </el-form-item>
         <el-form-item prop="roleKey">
           <template #label>
@@ -265,7 +262,7 @@
               {{ t('role.form.roleKey') }}
             </span>
           </template>
-          <el-input v-model="form.roleKey" :placeholder="t('role.search.phRoleKey')" :maxlength="100" show-word-limit />
+          <el-input v-model="form.roleKey" :placeholder="t('role.search.phRoleKey')" :maxlength="100" show-word-limit :aria-label="t('role.search.phRoleKey')" />
         </el-form-item>
         <el-form-item :label="t('role.form.roleSort')" prop="roleSort">
           <el-input-number v-model="form.roleSort" controls-position="right" :min="0" />
@@ -299,7 +296,7 @@
           ></el-tree>
         </el-form-item>
         <el-form-item :label="t('role.form.remark')">
-          <el-input v-model="form.remark" type="textarea" :placeholder="t('common.form.inputPlaceholder')"></el-input>
+          <el-input v-model="form.remark" type="textarea" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('role.form.remark')"></el-input>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -311,58 +308,15 @@
     </el-dialog>
 
     <!-- 分配角色数据权限对话框 -->
-    <el-dialog :title="title" v-model="openDataScope" width="min(90%, 500px)" append-to-body destroy-on-close>
-      <el-form :model="form" label-width="80px">
-        <el-form-item :label="t('role.form.roleName')">
-          <el-input v-model="form.roleName" :disabled="true" />
-        </el-form-item>
-        <el-form-item :label="t('role.form.roleKey')">
-          <el-input v-model="form.roleKey" :disabled="true" />
-        </el-form-item>
-        <el-form-item :label="t('role.form.dataScope')">
-          <el-select :aria-label="t('role.form.dataScope')" v-model="form.dataScope" @change="dataScopeSelectChange">
-            <el-option
-              v-for="item in dataScopeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            ></el-option>
-          </el-select>
-        </el-form-item>
-        <Transition name="expand-fade">
-          <el-form-item :label="t('role.form.deptTree')" v-show="form.dataScope == 2">
-            <el-checkbox v-model="deptExpand" @change="handleCheckedTreeExpand($event, 'dept')">
-              {{ t('common.expand') }}/{{ t('common.collapse') }}
-            </el-checkbox>
-            <el-checkbox v-model="deptNodeAll" @change="handleCheckedTreeNodeAll($event, 'dept')">
-              {{ t('role.label.selectAll') }}
-            </el-checkbox>
-            <el-checkbox v-model="form.deptCheckStrictly" @change="handleCheckedTreeConnect($event, 'dept')">
-              {{ t('role.label.linkage') }}
-            </el-checkbox>
-            <el-tree
-              class="tree-border"
-              :data="deptOptions"
-              show-checkbox
-              default-expand-all
-              ref="deptRef"
-              node-key="id"
-              :check-strictly="!form.deptCheckStrictly"
-              :empty-text="t('common.loading')"
-              :props="{ label: 'label', children: 'children' }"
-            ></el-tree>
-          </el-form-item>
-        </Transition>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button type="primary" :loading="dataScopeLoading" @click="submitDataScope">
-            {{ t('common.confirm') }}
-          </el-button>
-          <el-button @click="cancelDataScope">{{ t('common.cancel') }}</el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <data-scope-dialog
+      v-model:open="openDataScope"
+      :title="title"
+      :form="form"
+      :dept-options="deptOptions"
+      @success="getList"
+      @cancel="reset"
+      ref="dataScopeRef"
+    />
 
     <!-- M3 字段级权限：角色字段授权矩阵对话框（首期 tableKey 固定 sys_user，tableKey 参数已预留多表） -->
     <el-dialog
@@ -403,10 +357,10 @@
 
 <script setup lang="ts" name="Role">
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
+import DataScopeDialog from './DataScopeDialog.vue'
 import {
   addRole,
   changeRoleStatus,
-  dataScope,
   delRole,
   getRole,
   listRole,
@@ -455,24 +409,10 @@ const dateRange = ref<string[]>([])
 const menuOptions = ref<TreeSelect[]>([])
 const menuExpand = ref<boolean>(false)
 const menuNodeAll = ref<boolean>(false)
-const deptExpand = ref<boolean>(true)
-const deptNodeAll = ref<boolean>(false)
 const deptOptions = ref<TreeSelect[]>([])
 const openDataScope = ref<boolean>(false)
-// P1 修复: 数据权限提交按钮独立 loading，避免与 submitLoading（角色 CRUD）混淆
-// 防止用户重复点击导致重复提交
-const dataScopeLoading = ref<boolean>(false)
 const menuRef = useTemplateRef<TreeInstance>('menuRef')
-const deptRef = useTemplateRef<TreeInstance>('deptRef')
-
-/** 数据范围选项 - M1: 使用 computed 响应语言切换 */
-const dataScopeOptions = computed(() => [
-  { value: '1', label: t('role.dataScopeOptions.all') },
-  { value: '2', label: t('role.dataScopeOptions.custom') },
-  { value: '3', label: t('role.dataScopeOptions.dept') },
-  { value: '4', label: t('role.dataScopeOptions.deptAndBelow') },
-  { value: '5', label: t('role.dataScopeOptions.self') }
-])
+const dataScopeRef = useTemplateRef<InstanceType<typeof DataScopeDialog>>('dataScopeRef')
 
 const data = reactive({
   form: {} as SysRole,
@@ -598,17 +538,6 @@ function getMenuTreeselect() {
     .catch(() => {})
 }
 
-/** 所有部门节点数据 */
-function getDeptAllCheckedKeys(): number[] {
-  // 目前被选中的部门节点
-  const checkedKeys = deptRef.value?.getCheckedKeys() ?? []
-  // 半选中的部门节点
-  const halfCheckedKeys = deptRef.value?.getHalfCheckedKeys() ?? []
-  // L3: 使用 spread 替代 unshift.apply 老式写法
-  checkedKeys.unshift(...halfCheckedKeys)
-  return checkedKeys
-}
-
 /** 重置新增的表单以及其他数据  */
 function reset() {
   if (menuRef.value != undefined) {
@@ -616,8 +545,6 @@ function reset() {
   }
   menuExpand.value = false
   menuNodeAll.value = false
-  deptExpand.value = true
-  deptNodeAll.value = false
   form.value = {
     roleId: undefined,
     roleName: undefined,
@@ -695,13 +622,6 @@ function handleCheckedTreeExpand(value: boolean, type: string) {
         treeNode.expanded = value
       }
     }
-  } else if (type == 'dept') {
-    for (const node of deptOptions.value) {
-      const treeNode = deptRef.value?.getNode(node.id)
-      if (treeNode) {
-        treeNode.expanded = value
-      }
-    }
   }
 }
 
@@ -709,8 +629,6 @@ function handleCheckedTreeExpand(value: boolean, type: string) {
 function handleCheckedTreeNodeAll(value: boolean, type: string) {
   if (type == 'menu') {
     menuRef.value?.setCheckedNodes(value ? menuOptions.value : [])
-  } else if (type == 'dept') {
-    deptRef.value?.setCheckedNodes(value ? deptOptions.value : [])
   }
 }
 
@@ -718,8 +636,6 @@ function handleCheckedTreeNodeAll(value: boolean, type: string) {
 function handleCheckedTreeConnect(value: boolean, type: string) {
   if (type == 'menu') {
     form.value.menuCheckStrictly = value
-  } else if (type == 'dept') {
-    form.value.deptCheckStrictly = value
   }
 }
 
@@ -774,14 +690,6 @@ function cancel() {
   reset()
 }
 
-/** 选择角色权限范围触发 */
-// L9: 移除未使用的 value 参数，直接读取 v-model 绑定的 form.value.dataScope
-function dataScopeSelectChange() {
-  if (form.value.dataScope !== '2') {
-    deptRef.value?.setCheckedKeys([])
-  }
-}
-
 /** 分配数据权限操作 */
 function handleDataScope(row: SysRole) {
   reset()
@@ -794,8 +702,8 @@ function handleDataScope(row: SysRole) {
         deptTreeSelect
           .then((res) => {
             nextTick(() => {
-              if (deptRef.value) {
-                deptRef.value?.setCheckedKeys(res.checkedKeys)
+              if (dataScopeRef.value) {
+                dataScopeRef.value?.setCheckedKeys(res.checkedKeys)
               }
             })
           })
@@ -804,32 +712,6 @@ function handleDataScope(row: SysRole) {
     })
     .catch(() => {})
   title.value = t('role.form.deptTree')
-}
-
-/** 提交按钮（数据权限） */
-function submitDataScope() {
-  if (form.value.roleId != undefined) {
-    dataScopeLoading.value = true
-    form.value.deptIds = getDeptAllCheckedKeys()
-    // P1 修复: 增加 loading 绑定 + catch 错误处理 + finally 重置 loading
-    // 避免重复提交，且 API 失败时不关闭对话框（让用户能修改后重试）
-    dataScope(form.value)
-      .then(() => {
-        modal.msgSuccess(t('common.editSuccess'))
-        openDataScope.value = false
-        getList()
-      })
-      .catch(() => {})
-      .finally(() => {
-        dataScopeLoading.value = false
-      })
-  }
-}
-
-/** 取消按钮（数据权限）*/
-function cancelDataScope() {
-  openDataScope.value = false
-  reset()
 }
 
 // ===== M3 字段级权限：角色字段授权矩阵 =====

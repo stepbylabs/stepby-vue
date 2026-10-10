@@ -17,8 +17,8 @@
           <el-select :aria-label="t('httpDebug.method')" v-model="form.method" class="method-select w-[130px]">
             <el-option v-for="m in ALLOWED_METHODS" :key="m" :value="m" :label="m" />
           </el-select>
-          <el-input v-model="form.url" :placeholder="t('httpDebug.urlPlaceholder')" clearable />
-          <el-select :aria-label="t('httpDebug.timeout')" v-model="form.timeoutSecs" style="width: 150px">
+          <el-input v-model="form.url" :placeholder="t('httpDebug.urlPlaceholder')" clearable :aria-label="t('httpDebug.urlPlaceholder')" />
+          <el-select :aria-label="t('httpDebug.timeout')" v-model="form.timeoutSecs" class="w-[150px]">
             <el-option v-for="s in [5, 10, 20, 30]" :key="s" :value="s" :label="`${s}s`" />
           </el-select>
           <el-button type="primary" :loading="loading" @click="send">
@@ -33,12 +33,12 @@
         <el-table :data="headers" size="small" border>
           <el-table-column :label="t('httpDebug.key')" min-width="200">
             <template #default="{ row }">
-              <el-input v-model="row.name" :placeholder="t('httpDebug.keyPlaceholder')" size="small" />
+              <el-input v-model="row.name" :placeholder="t('httpDebug.keyPlaceholder')" size="small" :aria-label="t('httpDebug.keyPlaceholder')" />
             </template>
           </el-table-column>
           <el-table-column :label="t('httpDebug.value')" min-width="260">
             <template #default="{ row }">
-              <el-input v-model="row.value" :placeholder="t('httpDebug.valuePlaceholder')" size="small" />
+              <el-input v-model="row.value" :placeholder="t('httpDebug.valuePlaceholder')" size="small" :aria-label="t('httpDebug.valuePlaceholder')" />
             </template>
           </el-table-column>
           <el-table-column :label="t('httpDebug.action')" width="90" align="center">
@@ -62,7 +62,7 @@
         <el-divider content-position="left">
           <span class="text-sm text-text-secondary">{{ t('httpDebug.body') }}</span>
         </el-divider>
-        <el-input v-model="form.body" type="textarea" :rows="6" :placeholder="t('httpDebug.bodyPlaceholder')" />
+        <el-input v-model="form.body" type="textarea" :rows="6" :placeholder="t('httpDebug.bodyPlaceholder')" :aria-label="t('httpDebug.bodyPlaceholder')" />
 
         <div v-if="showBodyHint && allowsBody" class="mt-2 text-xs text-text-secondary">
           <el-icon><InfoFilled /></el-icon>

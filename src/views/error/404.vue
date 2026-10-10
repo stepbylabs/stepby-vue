@@ -42,14 +42,23 @@ const message = computed(() => {
 // 落到 404 后自动倒计时跳回首页，避免浏览器"卡"在错误地址上无法退出
 const AUTO_BACK_SECONDS = 5
 const countdown = ref(AUTO_BACK_SECONDS)
+let backTimer: number | null = null
 onMounted(() => {
-  const timer = window.setInterval(() => {
+  backTimer = window.setInterval(() => {
     countdown.value -= 1
     if (countdown.value <= 0) {
-      window.clearInterval(timer)
+      if (backTimer !== null) window.clearInterval(backTimer)
+      backTimer = null
       router.replace('/index')
     }
   }, 1000)
+})
+// 用户提前离开（点返回首页/侧边栏路由跳转）时清理，避免定时器残留触发越权跳转
+onBeforeUnmount(() => {
+  if (backTimer !== null) {
+    window.clearInterval(backTimer)
+    backTimer = null
+  }
 })
 </script>
 

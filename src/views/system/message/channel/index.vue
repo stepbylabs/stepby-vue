@@ -5,6 +5,7 @@
         <el-form-item :label="t('msg.channel.search.channelName')" prop="channelName">
           <el-input
             v-model="queryParams.channelName"
+            :aria-label="t('msg.channel.search.channelName')"
             :placeholder="t('msg.channel.search.phChannelName')"
             clearable
             class="w-[200px]"

@@ -8,8 +8,7 @@
             :placeholder="t('webHook.search.phHookName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('webHook.search.phHookName')" />
         </el-form-item>
         <el-form-item :label="t('webHook.search.eventTypes')" prop="eventTypes">
           <el-select
@@ -233,7 +232,7 @@
     />
 
     <!-- 添加或修改回调配置对话框 -->
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="title"
        :before-close="beforeDialogClose" v-model="open"
       width="min(90%, 620px)"
@@ -243,7 +242,7 @@
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item :label="t('webHook.form.hookName')" prop="hookName">
-          <el-input v-model.trim="form.hookName" :placeholder="t('webHook.form.phHookName')" :maxlength="64" />
+          <el-input v-model.trim="form.hookName" :placeholder="t('webHook.form.phHookName')" :maxlength="64" :aria-label="t('webHook.form.phHookName')" />
         </el-form-item>
         <!-- 方案 C：订阅口径收敛为事件目录 subscribed_events（旧 eventTypes 输入已移除，
              存量配置由后端迁移 m20261003_000004 收敛并回显在新列） -->
@@ -264,7 +263,7 @@
           </div>
         </el-form-item>
         <el-form-item :label="t('webHook.form.targetUrl')" prop="targetUrl">
-          <el-input v-model.trim="form.targetUrl" :placeholder="t('webHook.form.phTargetUrl')" :maxlength="2048" />
+          <el-input v-model.trim="form.targetUrl" :placeholder="t('webHook.form.phTargetUrl')" :maxlength="2048" :aria-label="t('webHook.form.phTargetUrl')" />
         </el-form-item>
         <el-form-item :label="t('webHook.form.secret')" prop="secret">
           <div class="w-full">
@@ -303,8 +302,7 @@
             :rows="2"
             :placeholder="t('webHook.form.phRemark')"
             :maxlength="500"
-            show-word-limit
-          />
+            show-word-limit :aria-label="t('webHook.form.phRemark')" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -316,7 +314,7 @@
     </el-dialog>
 
     <!-- 测试推送对话框 -->
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       :title="t('webHook.tip.testTitle')"
       v-model="testOpen"
       width="min(90%, 640px)"
@@ -347,8 +345,7 @@
             type="textarea"
             :rows="6"
             :placeholder="t('webHook.test.phPayload')"
-            class="font-mono"
-          />
+            class="font-mono" :aria-label="t('webHook.test.phPayload')" />
         </el-form-item>
       </el-form>
       <el-descriptions :column="1" border v-if="testResult" class="mb15">
@@ -373,80 +370,12 @@
       </template>
     </el-dialog>
 
-    <!-- 事件目录对话框：展示可订阅事件清单（event_key/名称/说明/负载样例/状态） -->
-    <el-dialog
-      :title="t('webHook.eventCatalog.title')"
-      v-model="eventCatalogOpen"
-      width="min(92%, 860px)"
-      append-to-body
-      destroy-on-close
-      @open="loadEventCatalog(true)"
-    >
-      <el-table
-        v-loading="eventCatalogLoading"
-        :data="eventCatalog"
-        :row-key="(row: WebhookEventVo) => row.id"
-        @sort-change="handleEventCatalogSortChange"
-      >
-        <el-table-column
-          :label="t('webHook.eventCatalog.eventKey')"
-          prop="eventKey"
-          min-width="160"
-          show-overflow-tooltip
-          sortable="custom"
-        />
-        <el-table-column
-          :label="t('webHook.eventCatalog.name')"
-          prop="name"
-          min-width="140"
-          show-overflow-tooltip
-          sortable="custom"
-        />
-        <el-table-column :label="t('webHook.eventCatalog.description')" min-width="200" show-overflow-tooltip>
-          <template #default="scope">
-            <span>{{ scope.row.description || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('webHook.eventCatalog.payloadExample')" min-width="220">
-          <template #default="scope">
-            <pre class="result-pre">{{ scope.row.payloadExample || '-' }}</pre>
-          </template>
-        </el-table-column>
-        <el-table-column
-          :label="t('webHook.column.status')"
-          align="center"
-          width="120"
-          prop="enabled"
-          sortable="custom"
-        >
-          <template #default="scope">
-            <!-- 停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断 -->
-            <el-switch
-              v-if="checkPermi(['system:webhook:event:edit'])"
-              :model-value="scope.row.enabled === '1'"
-              :loading="eventEnabledLoadingId === scope.row.id"
-              @change="(val: string | number | boolean) => handleEventEnabledChange(scope.row, val)"
-            />
-            <el-tag v-else :type="scope.row.enabled === '1' ? 'success' : 'info'" size="small">
-              {{ scope.row.enabled === '1' ? t('common.enabled') : t('common.disabled') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty :description="t('common.empty')" />
-        </template>
-      </el-table>
-      <pagination
-        v-show="eventCatalogTotal > 0"
-        :total="eventCatalogTotal"
-        v-model:page="eventCatalogQuery.pageNum"
-        v-model:limit="eventCatalogQuery.pageSize"
-        @pagination="loadEventCatalog()"
-      />
-      <template #footer>
-        <el-button @click="eventCatalogOpen = false">{{ t('common.close') }}</el-button>
-      </template>
-    </el-dialog>
+    <!-- 事件目录对话框 + 全量下拉 + 启停（独立区块，见 EventCatalogSection.vue） -->
+    <EventCatalogSection
+      ref="eventCatalogSectionRef"
+      v-model:open="eventCatalogOpen"
+      v-model:options="eventCatalogOptions"
+    />
   </div>
 </template>
 
@@ -459,14 +388,12 @@ import {
   updateWebHook,
   changeWebHookStatus,
   testWebHook,
-  listWebhookEvents,
-  testSendByEvent,
-  changeWebhookEventEnabled
+  testSendByEvent
 } from '@/api/system/webHook'
-import type { SysWebHook, DeliveryResult, WebhookEventVo, WebhookEventQueryParams } from '@/types/api/system/webHook'
+import type { SysWebHook, DeliveryResult } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { checkPermi } from '@/utils/permission'
+import EventCatalogSection from './EventCatalogSection.vue'
 import modal from '@/plugins/modal'
 import { useRouter } from 'vue-router'
 
@@ -487,99 +414,20 @@ const eventTypeOptions = computed(() => [
 // 请求体格式
 const contentTypeOptions = ['json', 'form-urlencoded']
 
-// ==================== 事件目录（GET /system/webhook/event/list） ====================
+// ==================== 事件目录（子组件承载目录对话框/全量下拉/启停，见 EventCatalogSection.vue） ====================
 const eventCatalogOpen = ref(false)
-const eventCatalogLoading = ref(false)
-const eventCatalog = ref<WebhookEventVo[]>([])
-const eventCatalogTotal = ref(0)
-// 目录是否已加载过（多选下拉/测试发送复用，避免重复请求）
-const eventCatalogLoaded = ref(false)
-const eventCatalogQuery = reactive<WebhookEventQueryParams>({ pageNum: 1, pageSize: 10 })
-
-/** 加载事件目录（force=true 时重新拉取，如目录对话框分页） */
-function loadEventCatalog(force = false): void {
-  if (eventCatalogLoading.value) return
-  if (eventCatalogLoaded.value && !force) return
-  eventCatalogLoading.value = true
-  listWebhookEvents({ ...eventCatalogQuery })
-    .then((res) => {
-      eventCatalog.value = res.rows || []
-      eventCatalogTotal.value = res.total || 0
-      eventCatalogLoaded.value = true
-    })
-    .catch(() => {})
-    .finally(() => {
-      eventCatalogLoading.value = false
-    })
-}
-
-/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
-function handleEventCatalogSortChange(column: { prop: string | null; order: string | null }): void {
-  eventCatalogQuery.orderByColumn = column.prop ?? undefined
-  eventCatalogQuery.isAsc = column.order ?? undefined
-  loadEventCatalog(true)
-}
-
-// 缺陷修复：下拉数据源与目录对话框脱钩——此前订阅/测试发送下拉复用第一页
-// 分页数据（pageSize=10），事件目录超过一页时下拉选项缺失。事件目录为系统级
-// 枚举（量级有限），下拉统一全量拉取（pageSize: 500 覆盖足够）。
-const eventOptionsFull = ref<WebhookEventVo[]>([])
-const eventOptionsLoading = ref(false)
-
-/** 全量加载事件目录（供订阅/测试发送下拉；防重入） */
-function loadEventOptionsFull(): void {
-  if (eventOptionsLoading.value) return
-  eventOptionsLoading.value = true
-  listWebhookEvents({ pageNum: 1, pageSize: 500 })
-    .then((res) => {
-      eventOptionsFull.value = res.rows || []
-    })
-    .catch(() => {})
-    .finally(() => {
-      eventOptionsLoading.value = false
-    })
-}
-
-// 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示）
-const eventCatalogOptions = computed(() =>
-  eventOptionsFull.value.map((e: WebhookEventVo) => ({
-    value: e.eventKey,
-    label: e.name ? `${e.name} (${e.eventKey})` : e.eventKey,
-    disabled: e.enabled !== '1'
-  }))
-)
-
-// 组件创建即拉取一次（表格行内测试发送下拉直接可用）；对话框打开时再次调用
-// 会因防重入跳过，若首次因瞬时失败为空则重拉兜底
-loadEventOptionsFull()
+// 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示）由子组件加载并回传
+const eventCatalogOptions = ref<{ value: string; label: string; disabled: boolean }[]>([])
+const eventCatalogSectionRef = useTemplateRef<{ reloadOptions: () => void }>('eventCatalogSectionRef')
 
 /** 打开事件目录对话框 */
 function openEventCatalog(): void {
   eventCatalogOpen.value = true
 }
 
-// ==================== 事件目录停用/启用（system:webhook:event:edit） ====================
-// 语义：停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断
-const eventEnabledLoadingId = ref<number | string | null>(null)
-
-async function handleEventEnabledChange(
-  row: WebhookEventVo,
-  val: string | number | boolean
-): Promise<void> {
-  const target = val === true || val === '1' ? '1' : '0'
-  const prev = row.enabled
-  eventEnabledLoadingId.value = row.id
-  try {
-    await changeWebhookEventEnabled(row.id, target)
-    row.enabled = target
-    // 目录状态变化影响测试发送下拉的可用项，重新拉取
-    await loadEventOptionsFull()
-    modal.msgSuccess(t('common.success'))
-  } catch {
-    row.enabled = prev
-  } finally {
-    eventEnabledLoadingId.value = null
-  }
+/** 全量加载事件目录（供订阅/测试发送下拉；防重入逻辑在子组件内，瞬时失败后可重拉兜底） */
+function loadEventOptionsFull(): void {
+  eventCatalogSectionRef.value?.reloadOptions()
 }
 
 // 搜索区：事件类型多选（UI 用数组，请求时 join 为逗号串）

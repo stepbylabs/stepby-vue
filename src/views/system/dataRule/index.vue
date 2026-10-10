@@ -66,7 +66,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.ruleId ? t('common.edit') : t('common.add')" width="560px">
+    <el-dialog v-model="dialogVisible" :title="form.ruleId ? t('common.edit') : t('common.add')" width="min(90%, 560px)" append-to-body destroy-on-close :close-on-click-modal="false">
       <el-form :model="form" label-width="110px">
         <el-form-item :label="t('dataRule.name')">
           <el-input v-model="form.ruleName" maxlength="64" />
@@ -91,7 +91,7 @@
           <el-input v-model="form.ruleValue" />
         </el-form-item>
         <el-form-item :label="t('dataRule.role')">
-          <el-select v-model="form.roleIds" multiple class="w-full" :placeholder="t('dataRule.ph.roles')">
+          <el-select v-model="form.roleIds" multiple class="w-full" :placeholder="t('dataRule.ph.roles')" :aria-label="t('dataRule.ph.roles')">
             <el-option v-for="r in roles" :key="r.roleId" :value="r.roleId" :label="r.roleName" />
           </el-select>
         </el-form-item>

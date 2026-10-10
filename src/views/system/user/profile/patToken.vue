@@ -92,10 +92,10 @@
     />
 
     <!-- 新建令牌对话框 -->
-    <el-dialog v-model="createVisible" :title="t('pat.create.title')" width="560px" append-to-body>
+    <el-dialog v-model="createVisible" :title="t('pat.create.title')" width="min(90%, 560px)" append-to-body destroy-on-close :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('pat.form.name')" prop="name">
-          <el-input v-model="form.name" :placeholder="t('pat.form.namePh')" :maxlength="100" />
+          <el-input v-model="form.name" :placeholder="t('pat.form.namePh')" :maxlength="100" :aria-label="t('pat.form.namePh')" />
         </el-form-item>
         <el-form-item :label="t('pat.form.scopes')" prop="scopes">
           <el-select :aria-label="t('pat.form.scopes')" v-model="form.scopes" multiple filterable :placeholder="t('pat.form.scopesPh')" class="w-full">

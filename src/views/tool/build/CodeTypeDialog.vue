@@ -1,5 +1,5 @@
 <template>
-  <el-dialog
+  <el-dialog :close-on-click-modal="false"
     v-model="open"
     width="500px"
     :title="t('build.codeTypeDialog.title')"
@@ -21,8 +21,7 @@
             v-model="formData.fileName"
             :placeholder="t('build.codeTypeDialog.phFileName')"
             :maxlength="100"
-            clearable
-          />
+            clearable :aria-label="t('build.codeTypeDialog.phFileName')" />
         </el-form-item>
       </Transition>
     </el-form>

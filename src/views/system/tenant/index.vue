@@ -9,8 +9,7 @@
               :placeholder="t('common.inputText')"
               clearable
               class="w-[180px]"
-              @keyup.enter="handleQuery"
-            />
+              @keyup.enter="handleQuery" :aria-label="t('tenant.tenantName')" />
           </el-form-item>
           <el-form-item :label="t('tenant.tenantCode')">
             <el-input
@@ -18,8 +17,7 @@
               :placeholder="t('tenant.codePlaceholder')"
               clearable
               class="w-[160px]"
-              @keyup.enter="handleQuery"
-            />
+              @keyup.enter="handleQuery" :aria-label="t('tenant.codePlaceholder')" />
           </el-form-item>
           <!-- 生命周期视角切换（回收站仅平台可见；租户操作者列表恒为本租户在册行） -->
           <el-form-item v-if="isPlatform" :label="t('tenant.lifecycle')">
@@ -231,19 +229,18 @@
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="formVisible" :title="formTitle" width="640px" destroy-on-close>
+    <el-dialog v-model="formVisible" :title="formTitle" width="min(90%, 640px)" append-to-body destroy-on-close :close-on-click-modal="false">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" @submit.prevent>
         <el-divider content-position="left">{{ t('tenant.baseSection') }}</el-divider>
         <el-form-item :label="t('tenant.tenantName')" prop="tenantName">
-          <el-input v-model.trim="form.tenantName" :placeholder="t('common.inputText')" maxlength="30" />
+          <el-input v-model.trim="form.tenantName" :placeholder="t('common.inputText')" maxlength="30" :aria-label="t('tenant.tenantName')" />
         </el-form-item>
         <el-form-item v-if="!isEdit" :label="t('tenant.tenantCode')" prop="tenantCode">
           <el-input
             v-model.trim="form.tenantCode"
             :placeholder="t('tenant.codeAutoTip')"
             maxlength="32"
-            :disabled="!isPlatform"
-          />
+            :disabled="!isPlatform" :aria-label="t('tenant.codeAutoTip')" />
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.package')" prop="packageId">
           <el-select
@@ -268,8 +265,7 @@
             type="datetime"
             value-format="YYYY-MM-DD HH:mm:ss"
             :placeholder="t('tenant.expireForever')"
-            class="w-full"
-          />
+            class="w-full" :aria-label="t('tenant.expireForever')" />
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.accountCount')" prop="accountCount">
           <el-input-number v-model="form.accountCount" :min="0" :max="999999" controls-position="right" />
@@ -287,13 +283,13 @@
 
         <el-divider content-position="left">{{ t('tenant.contactSection') }}</el-divider>
         <el-form-item :label="t('tenant.contactName')" prop="contactName">
-          <el-input v-model.trim="form.contactName" :placeholder="t('common.inputText')" maxlength="20" />
+          <el-input v-model.trim="form.contactName" :placeholder="t('common.inputText')" maxlength="20" :aria-label="t('tenant.contactName')" />
         </el-form-item>
         <el-form-item :label="t('tenant.contactPhone')" prop="contactPhone">
-          <el-input v-model.trim="form.contactPhone" :placeholder="t('common.inputText')" maxlength="20" />
+          <el-input v-model.trim="form.contactPhone" :placeholder="t('common.inputText')" maxlength="20" :aria-label="t('tenant.contactPhone')" />
         </el-form-item>
         <el-form-item :label="t('tenant.contactEmail')" prop="contactEmail">
-          <el-input v-model.trim="form.contactEmail" :placeholder="t('common.inputText')" maxlength="50" />
+          <el-input v-model.trim="form.contactEmail" :placeholder="t('common.inputText')" maxlength="50" :aria-label="t('tenant.contactEmail')" />
         </el-form-item>
         <el-form-item :label="t('tenant.remark')" prop="remark">
           <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="200" show-word-limit />

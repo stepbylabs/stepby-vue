@@ -11,8 +11,7 @@
             :maxlength="64"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('jobLog.search.phJobName')" />
         </el-form-item>
         <el-form-item :label="t('job.search.jobGroup')" prop="jobGroup">
           <el-select
@@ -43,8 +42,7 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')"
-          ></el-date-picker>
+            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>

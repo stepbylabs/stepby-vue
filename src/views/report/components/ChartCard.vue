@@ -94,6 +94,9 @@ async function renderEcharts() {
   resize()
 }
 
+// deep 必须保留：上游 report/designer 属性面板通过 v-model 原地修改 chart 对象的字段
+// （editing.title/span/xField 等，非整体替换），浅监听 props.chart 引用不会触发；
+// report/view 则整卡 :key 重建，走 onMounted。无法收敛为单一变化源，故保持 deep。
 watch(() => props.chart, load, { deep: true, immediate: false })
 onMounted(load)
 onBeforeUnmount(dispose)

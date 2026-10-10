@@ -42,8 +42,7 @@
             class="w-[180px]"
             clearable
             @keyup.enter="loadTail"
-            @clear="loadTail"
-          />
+            @clear="loadTail" :aria-label="t('logTail.keyword')" />
         </div>
 
         <div class="toolbar-item">
@@ -193,6 +192,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style lang="scss" scoped>
+// tailwindcss-disable 全块：终端模拟为固定深色设计意图，不随明暗主题切换；
+// 色值统一收敛到局部 CSS 变量便于维护。
+.log-tail {
+  --logtail-bg: #0d1117;
+  --logtail-fg: #c9d1d9;
+  --logtail-line-no: #484f58;
+  --logtail-muted: #8b949e;
+  --logtail-accent: #58a6ff;
+  --logtail-warn: #d29922;
+  --logtail-error: #f85149;
+}
+
 .toolbar {
   .toolbar-item {
     display: flex;
@@ -216,7 +227,7 @@ onBeforeUnmount(() => {
 .log-area {
   height: 100%;
   overflow-y: auto;
-  background: #0d1117;
+  background: var(--logtail-bg);
   border-radius: 6px;
   padding: 12px 0;
   font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
@@ -229,7 +240,7 @@ onBeforeUnmount(() => {
   align-items: baseline;
   gap: 10px;
   padding: 1px 14px;
-  color: #c9d1d9;
+  color: var(--logtail-fg);
   white-space: pre-wrap;
   word-break: break-all;
 
@@ -240,7 +251,7 @@ onBeforeUnmount(() => {
   .line-no {
     min-width: 40px;
     text-align: right;
-    color: #484f58;
+    color: var(--logtail-line-no);
     user-select: none;
     flex-shrink: 0;
   }
@@ -256,16 +267,16 @@ onBeforeUnmount(() => {
 
     &.level-trace,
     &.level-debug {
-      color: #8b949e;
+      color: var(--logtail-muted);
     }
     &.level-info {
-      color: #58a6ff;
+      color: var(--logtail-accent);
     }
     &.level-warn {
-      color: #d29922;
+      color: var(--logtail-warn);
     }
     &.level-error {
-      color: #f85149;
+      color: var(--logtail-error);
     }
   }
 

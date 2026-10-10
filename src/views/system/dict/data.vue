@@ -13,8 +13,7 @@
             :placeholder="t('common.form.inputPlaceholder')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery"
-          />
+            @keyup.enter="handleQuery" :aria-label="t('dict.data.label')" />
         </el-form-item>
         <el-form-item :label="t('dict.search.status')" prop="status">
           <el-select :aria-label="t('dict.search.status')" v-model="queryParams.status" :placeholder="t('dict.search.phStatus')" clearable class="w-[200px]">
@@ -160,16 +159,16 @@
           <el-input v-model="form.dictType" :disabled="true" />
         </el-form-item>
         <el-form-item :label="t('dict.data.label')" prop="dictLabel">
-          <el-input v-model.trim="form.dictLabel" :placeholder="t('common.form.inputPlaceholder')" />
+          <el-input v-model.trim="form.dictLabel" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('dict.data.label')" />
         </el-form-item>
         <el-form-item :label="t('dict.data.labelEn')" prop="dictLabelEn">
-          <el-input v-model.trim="form.dictLabelEn" :placeholder="t('common.form.inputPlaceholder')" />
+          <el-input v-model.trim="form.dictLabelEn" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('dict.data.labelEn')" />
         </el-form-item>
         <el-form-item :label="t('dict.data.value')" prop="dictValue">
-          <el-input v-model.trim="form.dictValue" :placeholder="t('common.form.inputPlaceholder')" />
+          <el-input v-model.trim="form.dictValue" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('dict.data.value')" />
         </el-form-item>
         <el-form-item :label="t('dict.data.cssClass')" prop="cssClass">
-          <el-input v-model="form.cssClass" :placeholder="t('common.form.inputPlaceholder')" />
+          <el-input v-model="form.cssClass" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('dict.data.cssClass')" />
         </el-form-item>
         <el-form-item :label="t('dict.data.sort')" prop="dictSort">
           <el-input-number v-model="form.dictSort" controls-position="right" :min="0" />
@@ -197,8 +196,7 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit
-          ></el-input>
+            show-word-limit :aria-label="t('dict.data.remark')"></el-input>
         </el-form-item>
       </el-form>
       <template #footer>

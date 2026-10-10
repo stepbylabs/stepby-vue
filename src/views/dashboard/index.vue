@@ -10,7 +10,7 @@
         <el-badge v-if="editing && hiddenCount > 0" :value="hiddenCount" class="dashboard-toolbar__badge">
           <el-popover placement="bottom-end" :width="220" trigger="click">
             <template #reference>
-              <el-button size="small" :icon="Plus">{{ t('dashboard.layout.add') }}</el-button>
+              <el-button size="small" icon="Plus">{{ t('dashboard.layout.add') }}</el-button>
             </template>
             <div class="widget-add-list">
               <div v-for="w in hiddenWidgets" :key="w.id" class="widget-add-item">
@@ -100,7 +100,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Rank, View, Hide, Plus, Setting, RefreshLeft } from '@element-plus/icons-vue'
+import { Rank, View, Hide, Setting, RefreshLeft } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import { WIDGET_REGISTRY, type WidgetId, type LayoutItem, nextSpan } from './dashboardLayout'
 import { useDashboardLayout } from './useDashboardLayout'

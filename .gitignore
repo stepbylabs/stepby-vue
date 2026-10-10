@@ -51,3 +51,4 @@ tests/e2e/.browsers/
 
 # e2e 批跑器运行状态产物
 tests/e2e/_rounds*_done.json
+tsconfig.tsbuildinfo

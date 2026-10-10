@@ -148,7 +148,7 @@
       <el-empty v-if="canLoad && !loading && rows.length === 0" :description="t('tenantNav.empty')" />
     </el-card>
 
-    <el-dialog
+    <el-dialog :close-on-click-modal="false"
       v-model="dialogVisible"
       :title="isEdit ? t('tenantNav.editTitle') : t('tenantNav.addTitle')"
       width="620px"

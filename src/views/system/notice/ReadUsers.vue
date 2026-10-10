@@ -18,8 +18,7 @@
           :prefix-icon="Search"
           class="w-[220px]"
           @keyup.enter="handleQuery"
-          @clear="handleQuery"
-        />
+          @clear="handleQuery" :aria-label="t('notice.readUsers.phSearch')" />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" size="small" @click="handleQuery">{{ t('common.search') }}</el-button>

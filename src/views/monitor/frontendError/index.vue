@@ -74,6 +74,7 @@
         <el-form-item :label="t('frontendError.search.name')" prop="name">
           <el-input
             v-model="queryParams.name"
+            :aria-label="t('frontendError.search.name')"
             :placeholder="t('frontendError.search.phName')"
             :maxlength="50"
             clearable
@@ -291,6 +292,7 @@ import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useChart } from '@/composables/useChart'
 import type { SysFrontendError, FrontendErrorQueryParams, FrontendErrorStats } from '@/types/api/monitor/frontendError'
 import type { EChartsOption } from '@/utils/echarts'
@@ -370,6 +372,10 @@ const { dataList, loading, showSearch, multiple, total, getList, handleQuery, ha
     formRef,
     queryRef
   })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 function resetQuery() {
   dateRange.value = []
