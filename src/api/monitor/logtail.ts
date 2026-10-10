@@ -3,14 +3,14 @@ import type { AjaxResult } from '@/types'
 
 /** 日志文件信息 */
 export interface LogFileInfo {
-  /** 文件名，如 app.log.2026-08-18 */
-  file_name: string
+  /** 文件名，如 app.log.2026-08-18（后端 VO serde rename_all=camelCase，响应字段为 camelCase） */
+  fileName: string
   /** 文件大小（字节） */
-  file_size: number
+  fileSize: number
   /** 文件大小（人类可读，如 1.5MB） */
-  file_size_str: string
+  fileSizeStr: string
   /** 最后修改时间（字符串） */
-  last_modified: string
+  lastModified: string
 }
 
 /** 日志行 */
@@ -37,7 +37,7 @@ export function tailLogFile(params: {
   level?: string
   keyword?: string
   lines?: number
-}): Promise<AjaxResult<{ file_name: string; total: number; rows: LogLine[] }>> {
+}): Promise<AjaxResult<{ fileName: string; total: number; rows: LogLine[] }>> {
   return request({
     url: '/monitor/log/tail',
     method: 'get',

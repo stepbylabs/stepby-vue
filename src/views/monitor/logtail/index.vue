@@ -14,10 +14,10 @@
             filterable
             @change="onFileChange"
           >
-            <el-option v-for="f in files" :key="f.file_name" :label="f.file_name" :value="f.file_name">
+            <el-option v-for="f in files" :key="f.fileName" :label="f.fileName" :value="f.fileName">
               <span class="flex justify-between items-center gap-2">
-                <span>{{ f.file_name }}</span>
-                <span class="text-text-secondary text-xs">{{ f.file_size_str }}</span>
+                <span>{{ f.fileName }}</span>
+                <span class="text-text-secondary text-xs">{{ f.fileSizeStr }}</span>
               </span>
             </el-option>
           </el-select>
@@ -114,12 +114,12 @@ async function loadFiles(): Promise<void> {
     const res = (await listLogFiles()) as unknown as AjaxResult<{ rows: LogFileInfo[] }>
     files.value = res.data?.rows ?? []
     // 若当前选择文件已被新列表覆盖，下拉自动选中第一个（最新日志）
-    if (files.value.length && !files.value.some((f: LogFileInfo) => f.file_name === currentFile.value)) {
-      currentFile.value = files.value[0].file_name
+    if (files.value.length && !files.value.some((f: LogFileInfo) => f.fileName === currentFile.value)) {
+      currentFile.value = files.value[0].fileName
       await loadTail()
     } else if (!currentFile.value && files.value.length) {
       // 首次加载：自动选中最新日志文件
-      currentFile.value = files.value[0].file_name
+      currentFile.value = files.value[0].fileName
       await loadTail()
     }
   } catch (err) {

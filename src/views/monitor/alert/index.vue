@@ -148,6 +148,7 @@
             v-model="scope.row.enabled"
             active-value="1"
             inactive-value="0"
+            :loading="switchLoading === scope.row.id"
             @change="handleEnabledChange(scope.row)"
             v-hasPermi="['monitor:alert:edit']"
           ></el-switch>
@@ -486,16 +487,27 @@ function handleUpdate(row?: SysAlertRule): void {
   crudHandleUpdate(row)
 }
 
-/** 启停切换 */
-function handleEnabledChange(row: SysAlertRule): void {
+/** 启停切换（行级防连点：请求期间该行 switch 置 loading，期间再次触发直接忽略） */
+const switchLoading = ref<number | null>(null)
+
+async function handleEnabledChange(row: SysAlertRule): Promise<void> {
+  if (switchLoading.value !== null) {
+    row.enabled = row.enabled === '1' ? '0' : '1'
+    return
+  }
+  const oldVal = row.enabled === '1' ? '0' : '1'
+  switchLoading.value = row.id
   const text = row.enabled === '1' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('alert.tip.confirmChange', { text, name: row.name }))
-    .then(() => changeAlertEnabled(row.id, row.enabled ?? '0'))
-    .then(() => modal.msgSuccess(text + t('common.success')))
-    .catch(() => {
-      row.enabled = row.enabled === '1' ? '0' : '1'
-    })
+  try {
+    await modal.confirm(t('alert.tip.confirmChange', { text, name: row.name }))
+    await changeAlertEnabled(row.id, row.enabled ?? '0')
+    modal.msgSuccess(text + t('common.success'))
+  } catch {
+    // 取消确认或接口失败（request 封装已弹错，勿重复弹）均回滚
+    row.enabled = oldVal
+  } finally {
+    switchLoading.value = null
+  }
 }
 
 // ----- 立即评估 -----

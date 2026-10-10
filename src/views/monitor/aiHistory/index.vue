@@ -19,7 +19,7 @@
             <el-button icon="Refresh" @click="load(page)">
               {{ t('common.refresh') }}
             </el-button>
-            <el-button icon="Download" @click="exportHistory">
+            <el-button icon="Download" :loading="exportLoading" @click="exportHistory">
               {{ t('aiHistory.exportBtn') }}
             </el-button>
           </div>
@@ -84,6 +84,8 @@ const page = ref(1)
 const size = ref(20)
 const total = ref(0)
 const tenantFilter = ref('')
+// 导出按钮 loading：防连点并发两次 fetch 下载
+const exportLoading = ref(false)
 
 async function load(p?: number) {
   if (p) page.value = p
@@ -112,6 +114,7 @@ onMounted(() => load(1))
 
 // §5.55 AI-02 结果导出：下载管理视图 Excel（服务端生成，带租户过滤口径）
 async function exportHistory() {
+  exportLoading.value = true
   try {
     const params: Record<string, string> = {}
     const tid = tenantFilter.value.trim()
@@ -137,6 +140,8 @@ async function exportHistory() {
     // 导出失败必须有用户可见反馈（此前静默吞错，用户点导出无任何响应）
     ElMessage.error(t('aiHistory.exportFailed'))
     if (import.meta.env.DEV) console.error('[aiHistory] export failed:', e)
+  } finally {
+    exportLoading.value = false
   }
 }
 </script>
