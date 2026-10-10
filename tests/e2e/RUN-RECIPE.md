@@ -1343,3 +1343,19 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    报告里的「残留中文」是**整页中文**的假象，非逐条硬编码。真缺陷的形态是「lang=en-US 且仍有零星中文」。
 
 
+
+### 3.28 批三十二（循环第八轮）：el-switch 隐藏 input 与菜单父链陷阱
+
+1. **el-switch 的 aria-label 命中的是视觉隐藏 checkbox**（`el-switch__input`，viewport 外）——
+   Playwright 对它 click 连 `force:true` 也抛 `Element is outside of the viewport`；对 `.el-switch`
+   根节点 force click 则**不触发 v-model 切换**（EP 内部实现，探针实证 aria-checked 恒 null）。
+   **正解**：`page.locator('input[aria-label="…"]').evaluate(e => e.click())`（JS click 触发 change）。
+   （F115④ 曾因此 0 次轮询 FAIL；修正后 1063 全绿。）
+2. **存量库菜单父链 ≠ 迁移种子**（二度踩坑，aiHistory 同型）：F112 按 `m20260823` 种子 parent=2 写
+   `/monitor/pat`，但存量库菜单 3560 parent=3（系统工具）→ 真实路由 `/tool/pat`。**铁律重申**：
+   写路由前必查库追 `sys_menu` parent 链，以部署库真实路由为准。
+3. **响应字段命名以 serde rename_all 为准**：后端 VO `#[serde(rename_all="camelCase")]` 时 JSON 是
+   `fileName` 系，前端接口按 snake_case 写 = 页面静默失效（logtail 日志正文永不出、自动刷新空转，
+   零 console 错误、vue-tsc 不报）。**Query 参数**无 rename 时仍是 snake（`file_name`），双向分别核对。
+4. **空 SKIP 不得冒充 PASS**：`record(N, …, true, 'SKIP：…')` 掩盖列表接口 500。新范式
+   `recordSkip(feature, name, reason, apiOk)`——记独立 skip 态 + API 200 兜底断言。
