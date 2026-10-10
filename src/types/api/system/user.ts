@@ -120,12 +120,18 @@ export interface UserProfileAvatarResult extends AjaxResult {
   imgUrl: string
 }
 
+/** 授权角色行（SysRole + flag 已授权标记，对齐后端 SysRoleWithFlagVo） */
+export interface SysRoleWithFlag extends SysRole {
+  /** 用户是否已持有此角色（后端按 sys_user_role 填充，用于预勾选） */
+  flag: boolean
+}
+
 /** 用户授权角色响应 */
 export interface UserAuthRoleResult extends AjaxResult {
   /** 用户信息 */
   user: SysUser
-  /** 角色列表 */
-  roles: SysRole[]
+  /** 角色列表（带 flag，供分配角色页预勾选） */
+  roles: SysRoleWithFlag[]
 }
 
 /**

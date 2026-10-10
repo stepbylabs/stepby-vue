@@ -71,18 +71,13 @@
 <script setup lang="ts" name="AuthRole">
 import { getAuthRole, updateAuthRole } from '@/api/system/user'
 import type { SysRole } from '@/types/api/system/role'
-import type { SysUser } from '@/types/api/system/user'
+import type { SysUser, SysRoleWithFlag } from '@/types/api/system/user'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 
 const route = useRoute()
 const roleRefRef = useTemplateRef('roleRef')
 const { t } = useI18n()
-
-interface SysRoleWithFlag extends SysRole {
-  /** 用户是否存在此角色标识 */
-  flag: boolean
-}
 
 const loading = ref<boolean>(true)
 const total = ref<number>(0)

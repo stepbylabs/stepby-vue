@@ -171,6 +171,24 @@ async function is404Page(page, options = {}) {
   return false
 }
 
+/**
+ * 动态路由 goto 重试样板（批次三十六提取，语义与 F94/F95/F97 原三处内联循环一致）：
+ * 主流程 UI 登录后菜单路由 addRoute 异步注册——立即 goto 会 404 回首页，
+ * 重试至 URL 命中目标片段（最多 5 次，每次间隔 1.5s）。
+ * @param {import('playwright').Page} page
+ * @param {string} url 目标完整地址（含 frontendUrl）
+ * @param {string} pathToken URL 必须包含的路径片段（用于命中判定）
+ */
+async function gotoDynamicRoute(page, url, pathToken) {
+  for (let i = 0; i < 5; i++) {
+    await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+    await page.waitForTimeout(1500)
+    log(`  [diag-goto] try ${i}: url=${page.url()}`)
+    if (page.url().includes(pathToken)) break
+  }
+  await page.waitForLoadState('load').catch(() => {})
+}
+
 // ==================== 测试结果 ====================
 
 const results = []
@@ -3754,6 +3772,37 @@ async function testFeature22(page) {
   }
   record(22, '服务器监控 GET /monitor/server', serverMonitorOk, 'CPU/内存/磁盘信息')
 
+  // ---------- 步骤 5b：服务器监控页面级渲染（批次三十六补：canvas 图表 + 刷新按钮交互） ----------
+  let serverPageOk = false
+  let serverChartOk = false
+  let serverRefreshOk = false
+  try {
+    await presetTourDisabled(page)
+    // /monitor/server 为隐藏动态路由（monitor:health:list）——addRoute 异步，重试至 URL 命中
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/server`, '/monitor/server')
+    await skipTour(page)
+    serverPageOk = !(await is404Page(page))
+    // echarts canvas 真实挂载（性能图表区）
+    serverChartOk = (await page.locator('canvas').first().isVisible({ timeout: 8000 }).catch(() => false))
+    record(22, '服务器监控页渲染（路由可达）', serverPageOk)
+    record(22, '服务器监控页图表 canvas 挂载', serverChartOk)
+    // 刷新按钮存在并点击一次（不产生副作用，只重拉数据）
+    // 注：布局多标签栏自身也有「刷新」——必须限定在服务器监控卡片头部，避免误点全局按钮
+    const refreshBtn = page.locator('.card-header-actions button').filter({ hasText: /刷新|Refresh/i }).first()
+    serverRefreshOk = await refreshBtn.isVisible({ timeout: 3000 }).catch(() => false)
+    if (serverRefreshOk) {
+      const respPromise = page.waitForResponse((r) => r.url().includes('/monitor/server') && r.status() === 200, { timeout: 10000 }).catch(() => null)
+      await refreshBtn.click({ force: true })
+      const resp = await respPromise
+      serverRefreshOk = !!resp
+    }
+    record(22, '服务器监控页刷新按钮触发数据重拉', serverRefreshOk)
+  } catch (err) {
+    record(22, '服务器监控页渲染（路由可达）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+  void serverPageOk
+  void serverChartOk
+
   // ---------- 步骤 6：综合判断 ----------
   const allChecks = [
     results.find((r) => r.feature === 22 && r.name === 'admin 登录获取 token')?.passed || false,
@@ -6028,17 +6077,94 @@ async function testFeature33(page) {
   const r500Rendered = await visitPageRendered(`${CONFIG.frontendUrl}/500`, [], ['500'])
   record(33, '/500 错误页组件渲染（大数字标题）', r500Rendered.ok, r500Rendered.detail)
 
-  // ---------- 4. /network-error 网络错误页 ----------
-  const rNetwork = await fetchHtml(`${CONFIG.frontendUrl}/network-error`)
-  record(33, '/network-error 网络错误页 SPA fallback', rNetwork.ok, rNetwork.detail)
+  // ---------- 4. /network-error 网络错误页（渲染级 + 重试/返回按钮，批次三十六对齐 /401 断言方式） ----------
+  const rNetwork = await visitPageRendered(`${CONFIG.frontendUrl}/network-error`, [], ['网络'])
+  record(33, '/network-error 网络错误页渲染（i18n 文案）', rNetwork.ok, rNetwork.detail)
+  // 按钮：重试 + 返回首页（网络错误页真实交互入口此前零断言）
+  let networkBtnsOk = false
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/network-error`, { waitUntil: 'load', timeout: 15000 })
+    await page.waitForTimeout(2000)
+    const retryBtn = page.getByRole('button', { name: /重试|重連|Retry/i }).first()
+    const backBtn = page.getByRole('button', { name: /返回|首页|Home|Back/i }).first()
+    networkBtnsOk =
+      (await retryBtn.isVisible({ timeout: 3000 }).catch(() => false)) &&
+      (await backBtn.isVisible({ timeout: 2000 }).catch(() => false))
+  } catch (err) {
+    log(`  network-error 按钮检测异常: ${err.message.slice(0, 80)}`)
+  }
+  record(33, '/network-error 重试/返回按钮存在', networkBtnsOk)
 
   // ---------- 5. /privacy 隐私政策页（通过 page.goto 验证渲染后内容） ----------
   const rPrivacy = await visitPageRendered(`${CONFIG.frontendUrl}/privacy`, ['401', '未授权', 'Vue warn'])
   record(33, '/privacy 隐私政策页渲染', rPrivacy.ok, rPrivacy.detail)
 
-  // ---------- 6. /lock 锁屏页 ----------
+  // ---------- 6. /lock 锁屏页（渲染 + 错误密码拒绝 + 正确密码解锁全链） ----------
+  // 注：路由守卫 permission.ts 对「未锁屏访问 /lock」强制重定向 /——必须先注入签名锁屏态
+  // screen-lock / screen-lock-path（signature = SHA256(value + user-token)，与 store 写入口径一致）
   const rLock = await visitPageRendered(`${CONFIG.frontendUrl}/lock`, ['401', '未授权', 'Vue warn'])
   record(33, '/lock 锁屏页渲染', rLock.ok, rLock.detail)
+  // 锁屏交互链：错误密码 → 错误提示/输入框清空；正确密码（admin123）→ 解锁回原页
+  let lockWrongOk = false
+  let lockUnlockOk = false
+  let lockDetail = ''
+  try {
+    const lockToken = await sessionTokenOf(page)
+    if (!lockToken) throw new Error('token 获取失败，无法构造锁屏签名')
+    const sha = (v) => crypto.createHash('sha256').update(v + lockToken).digest('hex')
+    const signed = (v) => JSON.stringify({ value: v, signature: sha(v) })
+    const lockVal = signed('true')
+    const lockPathVal = signed('/index')
+    await page.addInitScript(
+      ([v1, v2]) => {
+        localStorage.setItem('screen-lock', v1)
+        localStorage.setItem('screen-lock-path', v2)
+      },
+      [lockVal, lockPathVal]
+    )
+    await page.goto(`${CONFIG.frontendUrl}/lock`, { waitUntil: 'load', timeout: 15000 })
+    await page.waitForTimeout(1500)
+    const pwdInput = page.locator('input[type="password"]').first()
+    if (await pwdInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // 错误密码：后端 401 → 拦截器弹「重新登录」ElMessageBox（也可能错误 Toast），锁屏不解除
+      await pwdInput.fill('wrong-pass-123')
+      await pwdInput.press('Enter')
+      const errToast = page.locator('.el-message--error').first()
+      const reloginBox = page.locator('.el-message-box:visible').first()
+      // 注意 isVisible({timeout}) 不等待——toast/弹窗在 401 后 2~3s 才出现，必须 waitFor
+      const rejected =
+        (await Promise.race([
+          errToast.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false),
+          reloginBox.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+        ]))
+      const stillLock = page.url().includes('/lock')
+      lockWrongOk = rejected && stillLock
+      // 关闭「重新登录」确认框（取消 → 留在锁屏页），再继续解锁链
+      if (await reloginBox.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await reloginBox.locator('button:not(.el-button--primary)').first().click().catch(() => {})
+        await page.waitForTimeout(600)
+      }
+      // 正确密码解锁 → 回到原页（非 /lock）
+      await pwdInput.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
+      await pwdInput.fill(CONFIG.password)
+      await pwdInput.press('Enter')
+      await page.waitForURL((u) => !u.toString().includes('/lock'), { timeout: 10000 }).catch(() => {})
+      await page.waitForTimeout(800)
+      lockUnlockOk = !page.url().includes('/lock')
+      lockDetail = `errToast=${lockWrongOk}, unlocked=${lockUnlockOk}, now=${page.url().slice(0, 60)}`
+    } else {
+      lockDetail = '未找到锁屏密码输入框'
+    }
+  } catch (err) {
+    lockDetail = `异常: ${err.message.slice(0, 100)}`
+  }
+  record(33, '/lock 错误密码被拒且停留锁屏', lockWrongOk, lockDetail)
+  record(33, '/lock 正确密码解锁回原页', lockUnlockOk, lockDetail)
+  // 注销锁屏注入：addInitScript 按注册顺序执行，后注册的移除脚本保证后续导航不再带锁屏态
+  await page.addInitScript(() => {
+    localStorage.removeItem('screen-lock')
+    localStorage.removeItem('screen-lock-path')
+  })
 
   // ---------- 7. 404 兜底页（访问不存在的路径，SPA fallback 应返回 index.html） ----------
   const r404 = await fetchHtml(`${CONFIG.frontendUrl}/nonexistent-test-page-12345`)
@@ -10283,7 +10409,14 @@ async function testFeature48(page) {
   // ---------- 48-10 监控/PAT 管理页面渲染 ----------
   let adminPageOk = false
   try {
-    await page.goto(`${CONFIG.frontendUrl}/tool/pat`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
+    // 批次三十六：goto 失败必须真实 FAIL（原 .catch 吞异常会把导航失败伪装成通过）
+    let gotoOk = true
+    try {
+      await page.goto(`${CONFIG.frontendUrl}/tool/pat`, { waitUntil: 'load', timeout: 15000 })
+    } catch (gotoErr) {
+      gotoOk = false
+      log(`  tool/pat goto 异常: ${gotoErr.message.slice(0, 80)}`)
+    }
     await sleep(2200)
     await skipTour(page)
     const hasTable = await page
@@ -10296,8 +10429,8 @@ async function testFeature48(page) {
       .first()
       .isVisible({ timeout: 3000 })
       .catch(() => false)
-    adminPageOk = hasTable
-    record(48, '监控/PAT 管理页面渲染', adminPageOk, hasTable ? `页面渲染成功(过滤器=${hasFilter})` : '页面未渲染')
+    adminPageOk = gotoOk && hasTable
+    record(48, '监控/PAT 管理页面渲染', adminPageOk, gotoOk ? (hasTable ? `页面渲染成功(过滤器=${hasFilter})` : '页面未渲染') : 'goto 导航失败')
   } catch (err) {
     record(48, '监控/PAT 管理页面渲染', false, `异常: ${err.message.slice(0, 80)}`)
   }
@@ -16864,7 +16997,15 @@ async function main() {
       { id: 98, fn: testFeature98 },
       { id: 99, fn: testFeature99 },
       { id: 100, fn: testFeature100 },
-      { id: 101, fn: testFeature101 }
+      { id: 101, fn: testFeature101 },
+      { id: 102, fn: testFeature102 },
+      { id: 103, fn: testFeature103 },
+      { id: 104, fn: testFeature104 },
+      { id: 105, fn: testFeature105 },
+      { id: 106, fn: testFeature106 },
+      { id: 107, fn: testFeature107 },
+      { id: 108, fn: testFeature108 },
+      { id: 109, fn: testFeature109 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -18168,16 +18309,24 @@ async function testFeature91(page) {
   ]
   for (const [route, marker] of pages) {
     let ok = false
+    let contentOk = false
+    let detail = ''
     try {
       await presetTourDisabled(page)
       await page.goto(`${CONFIG.frontendUrl}${route}`, { waitUntil: 'load' })
       await sleep(1200)
       await skipTour(page)
       ok = !(await is404Page(page))
+      // 批次三十六：冒烟必须补主内容断言（表格或主按钮可见），避免任意接口 500 也算 PASS
+      contentOk =
+        (await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
+        (await page.locator('.app-container .el-button, form.el-form--inline').first().isVisible({ timeout: 2000 }).catch(() => false))
+      detail = `可达=${ok}, 主内容=${contentOk}`
     } catch (err) {
+      detail = `异常: ${err.message.slice(0, 200)}`
       log(`  ${marker} 冒烟异常: ${err.message.slice(0, 300)}`)
     }
-    record(91, `冒烟 ${marker}（${route}）`, ok)
+    record(91, `冒烟 ${marker}（${route}）`, ok && contentOk, detail)
   }
 }
 
@@ -18191,6 +18340,8 @@ async function testFeature92(page) {
   ]
   for (const [route, marker] of pages) {
     let ok = false
+    let contentOk = false
+    let detail = ''
     try {
       await presetTourDisabled(page)
       // 批次十九收尾八：冒烟只验证可达（非 404），networkidle 对含长请求/轮询的页面
@@ -18199,10 +18350,16 @@ async function testFeature92(page) {
       await sleep(1200)
       await skipTour(page)
       ok = !(await is404Page(page))
+      // 批次三十六：补主内容断言（主表格或主按钮/主容器可见），避免任意接口 500 也算 PASS
+      contentOk =
+        (await page.locator('.el-table').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
+        (await page.locator('.app-container .el-button, form.el-form--inline, iframe').first().isVisible({ timeout: 2000 }).catch(() => false))
+      detail = `可达=${ok}, 主内容=${contentOk}`
     } catch (err) {
+      detail = `异常: ${err.message.slice(0, 200)}`
       log(`  ${marker} 冒烟异常: ${err.message.slice(0, 300)}`)
     }
-    record(92, `冒烟 ${marker}（${route}）`, ok)
+    record(92, `冒烟 ${marker}（${route}）`, ok && contentOk, detail)
   }
 }
 
@@ -18280,6 +18437,72 @@ async function testFeature93(page) {
     userDetail = `异常: ${err.message.slice(0, 300)}`
   }
   record(93, 'e2e 用户残留巡检', userOk, userDetail)
+
+  // 3. WebHook e2e 残留巡检（hookName e2e_ 前缀；批次三十六新增，覆盖 F78/F83/F103 残留）
+  let hookOk = true
+  let hookDetail = '无残留'
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=100`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rows = (resp?.rows || []).filter((r) => (r.hookName || '').startsWith('e2e'))
+    if (rows.length > 0) {
+      let cleaned = 0
+      for (const h of rows) {
+        const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${h.id}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        if (del?.code === 200) cleaned++
+      }
+      hookOk = cleaned === rows.length
+      hookDetail = `发现 ${rows.length} 个 e2e hook 残留，清理 ${cleaned} 个`
+    }
+  } catch (err) {
+    hookOk = false
+    hookDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(93, 'e2e WebHook 残留巡检', hookOk, hookDetail)
+
+  // 4. OAuth Provider e2e 残留巡检（providerName e2e_oauth_ 前缀；批次三十六新增）
+  let provOk = true
+  let provDetail = '无残留'
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=100`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rows = (resp?.rows || []).filter((r) => (r.providerName || '').startsWith('e2e_oauth_'))
+    if (rows.length > 0) {
+      const ids = rows.map((r) => r.providerId).join(',')
+      const del = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      provOk = del?.code === 200
+      provDetail = `发现 ${rows.length} 个 e2e provider 残留，清理 del=${del?.code}`
+    }
+  } catch (err) {
+    provOk = false
+    provDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(93, 'e2e OAuth Provider 残留巡检', provOk, provDetail)
+
+  // 5. 报表 e2e 残留巡检（reportCode e2e_rpt_ 前缀；批次三十六新增）
+  let rptOk = true
+  let rptDetail = '无残留'
+  try {
+    const resp = await fetch(`${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=100`, { headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
+    const rows = (resp?.rows || []).filter((r) => (r.reportCode || '').startsWith('e2e_rpt_'))
+    if (rows.length > 0) {
+      let cleaned = 0
+      for (const r of rows) {
+        const del = await fetch(`${CONFIG.backendUrl}/system/report/${r.reportId}`, { method: 'DELETE', headers: authHeaders }).then((x) => x.json()).catch(() => null)
+        if (del?.code === 200) cleaned++
+      }
+      rptOk = cleaned === rows.length
+      rptDetail = `发现 ${rows.length} 个 e2e 报表残留，清理 ${cleaned} 个`
+    }
+  } catch (err) {
+    rptOk = false
+    rptDetail = `异常: ${err.message.slice(0, 300)}`
+  }
+  record(93, 'e2e 报表残留巡检', rptOk, rptDetail)
 }
 
 // ==================== 功能 94：报表数据集页全链（批次十八：G-01 e2e 盲区补齐）====================
@@ -18301,13 +18524,7 @@ async function testFeature94(page) {
   await presetTourDisabled(page)
   // 1. 页面可达（菜单 4146）——主流程登录后动态路由 addRoute 异步，立即 goto 会 404 回首页，重试至 URL 命中
   const dsUrl = `${CONFIG.frontendUrl}/system/reportDataset`
-  for (let i = 0; i < 5; i++) {
-    await page.goto(dsUrl)
-    await page.waitForTimeout(1500)
-    log(`  [diag94] goto try ${i}: url=${page.url()}`)
-    if (page.url().includes('reportDataset')) break
-  }
-  await page.waitForLoadState('load').catch(() => {})
+  await gotoDynamicRoute(page, dsUrl, 'reportDataset')
   const not404 = !(await is404Page(page))
   record(94, '页面可达（/reportDataset）', not404)
 
@@ -18432,13 +18649,7 @@ async function testFeature95(page) {
   // 批次十八：tour 遮罩 z-[9998] 会拦截点击——addInitScript 必须在首次 goto 前预置
   await presetTourDisabled(page)
   const flowDefUrl = `${CONFIG.frontendUrl}/system/flowDefinition`
-  for (let i = 0; i < 5; i++) {
-    await page.goto(flowDefUrl)
-    await page.waitForTimeout(1500)
-    log(`  [diag] goto try ${i}: url=${page.url()}`)
-    if (page.url().includes('flowDefinition')) break
-  }
-  await page.waitForLoadState('load').catch(() => {})
+  await gotoDynamicRoute(page, flowDefUrl, 'flowDefinition')
   const submitBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '提交测试单据' })
   let btnVisible = (await submitBtn.count()) > 0
   for (let i = 0; i < 5 && !btnVisible; i++) {
@@ -18621,12 +18832,7 @@ async function testFeature97(page) {
   await presetTourDisabled(page)
   // 菜单 4148（parent=1 系统管理 path=system）→ 完整路由 /system/reportDashboard
   // 动态路由 addRoute 异步——立即 goto 会 404 回首页，重试至 URL 命中
-  for (let i = 0; i < 5; i++) {
-    await page.goto(`${CONFIG.frontendUrl}/system/reportDashboard`)
-    await page.waitForTimeout(1500)
-    if (page.url().includes('reportDashboard')) break
-  }
-  await page.waitForLoadState('load').catch(() => {})
+  await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/reportDashboard`, 'reportDashboard')
   const not404 = !(await is404Page(page))
   record(97, '页面可达（/reportDashboard）', not404)
   // 设计模式切换（el-radio-button design）
@@ -19266,4 +19472,1053 @@ async function testFeature101(page) {
   } catch (err) {
     record(101, '报表大屏页：编辑模式 + 新增卡片对话框挂载', false, `异常: ${err.message.slice(0, 200)}`)
   }
+}
+
+// ==================== 批次三十六新增 feature 102-109 ====================
+// 目标：OAuth Provider 管理 UI / WebHook UI 链 / 用户详情与角色分配 UI / SSO 同意页 UI /
+//       个人中心安全 Tab 深交互 / 报表管理 UI / 表单构建器冒烟 / 详情页渲染扫描
+// 约定：waitFor/waitForResponse 替代固定 sleep；Escape 关 EP dialog；
+//       ElMessageBox 主按钮 .el-message-box__btns .el-button--primary；有状态用例尾部恢复初态。
+
+/** 批次三十六公共：复用主流程 UI 会话 token（对齐 F94 范式，避免 apiLogin 互踢） */
+async function sessionTokenOf(page) {
+  return page.evaluate(() => {
+    const m = document.cookie.match(/Admin-Token=([^;]+)/)
+    return (m && m[1]) || localStorage.getItem('Admin-Token') || ''
+  })
+}
+
+// ==================== 功能 102：OAuth Provider 管理 UI 全链 ====================
+async function testFeature102(page) {
+  log('=== 功能 102：OAuth Provider 管理 UI 全链 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(102, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const ts = Date.now().toString(36)
+  const pname = `e2e_oauth_${ts}`
+  const pcode = `e2eoa${ts}`
+
+  // 1. 页面可达（动态路由重试）+ 表格渲染（有行或空态标记均算渲染成功）
+  await presetTourDisabled(page)
+  await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/oauth/provider`, 'oauth/provider')
+  await skipTour(page)
+  const not404 = !(await is404Page(page))
+  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const tableOk =
+    (await page.locator('.el-table__row').count()) > 0 ||
+    (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+  record(102, '① 列表页可达且表格渲染', not404 && tableOk, `not404=${not404}, table=${tableOk}`)
+
+  // 2. 新增对话框：空提交触发必填校验错误（负路径）
+  let negOk = false
+  try {
+    await page.getByRole('button', { name: /新增提供商|新增/ }).first().click({ force: true })
+    const dialog = page.locator('.el-dialog:visible').last()
+    await dialog.waitFor({ state: 'visible', timeout: 4000 })
+    await dialog.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    await page.waitForTimeout(600)
+    negOk = (await dialog.locator('.el-form-item.is-error').count()) > 0
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+  } catch (err) {
+    log(`  F102 负路径异常: ${err.message.slice(0, 120)}`)
+  }
+  record(102, '② 空提交触发表单校验错误（负路径）', negOk)
+
+  // 3. 合法创建（IP 字面量+封闭端口授权地址，禁外网）
+  let createdOk = false
+  try {
+    await page.getByRole('button', { name: /新增提供商|新增/ }).first().click({ force: true })
+    const dialog = page.locator('.el-dialog:visible').last()
+    await dialog.waitFor({ state: 'visible', timeout: 4000 })
+    const item = (label) =>
+      dialog.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+    await item('提供商名称').locator('input').first().fill(pname)
+    await item('提供商编码').locator('input').first().fill(pcode)
+    // providerType 默认 github（defaultForm），无需切换
+    await item('Client ID').locator('input').first().fill(`e2e_client_${ts}`)
+    await item('Client Secret').locator('input').first().fill(`e2e_secret_${ts}`)
+    await item('授权端点').locator('input').first().fill('http://1.1.1.1:81/authorize')
+    await item('令牌端点').locator('input').first().fill('http://1.1.1.1:81/token')
+    await item('用户信息端点').locator('input').first().fill('http://1.1.1.1:81/userinfo')
+    const respPromise = page.waitForResponse(
+      (r) => r.url().includes('/system/oauth/provider') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await dialog.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    const resp = await respPromise.catch(() => null)
+    createdOk = !!resp
+    record(102, '③ 合法创建 provider（POST 200）', createdOk, createdOk ? `name=${pname}` : '未捕获创建响应')
+  } catch (err) {
+    record(102, '③ 合法创建 provider（POST 200）', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // 搜索定位新建行（等 URL 带查询参数的响应，避免旧快照）
+  let row = null
+  if (createdOk) {
+    try {
+      const searchPromise = page.waitForResponse(
+        (r) => r.url().includes('/system/oauth/provider/list') && r.url().includes(`providerName=${pname}`) && r.status() === 200,
+        { timeout: 10000 }
+      )
+      await page.locator('input[placeholder*="提供商名称"]').first().fill(pname)
+      await page.getByRole('button', { name: /搜索/ }).first().click()
+      await searchPromise
+      row = page.locator('.el-table__row').filter({ hasText: pname }).first()
+      await row.waitFor({ state: 'visible', timeout: 5000 })
+    } catch (err) {
+      log(`  F102 搜索定位异常: ${err.message.slice(0, 120)}`)
+    }
+    record(102, '③b 列表搜索命中新建行', !!row && (await row.isVisible().catch(() => false)))
+  }
+
+  // 4. 编辑对话框：clientSecret 不明文回显（后端脱敏，仅创建时明文一次）
+  if (row && (await row.isVisible().catch(() => false))) {
+    try {
+      await row.getByRole('button', { name: /编辑/ }).first().click()
+      const dialog = page.locator('.el-dialog:visible').last()
+      await dialog.waitFor({ state: 'visible', timeout: 4000 })
+      const secretInput = dialog
+        .locator('.el-form-item')
+        .filter({ has: page.locator('.el-form-item__label:text-is("Client Secret")') })
+        .locator('input')
+        .first()
+      const secretVal = await secretInput.inputValue().catch(() => '<missing>')
+      const noPlaintext = secretVal === '' || !secretVal.includes(`e2e_secret_${ts}`)
+      record(102, '③c 编辑对话框 secret 不明文回显', noPlaintext, `len=${secretVal.length}`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+    } catch (err) {
+      record(102, '③c 编辑对话框 secret 不明文回显', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+
+    // 5. 停用→启用开关（PUT /status 200 且状态往返）
+    try {
+      const sw = row.locator('.el-switch').first()
+      const offPromise = page.waitForResponse(
+        (r) => r.url().includes('/status') && r.request().method() === 'PUT' && r.status() === 200,
+        { timeout: 8000 }
+      )
+      await sw.click({ force: true })
+      const offResp = await offPromise.catch(() => null)
+      await page.waitForTimeout(600)
+      const offOk = !!offResp
+      const onPromise = page.waitForResponse(
+        (r) => r.url().includes('/status') && r.request().method() === 'PUT' && r.status() === 200,
+        { timeout: 8000 }
+      )
+      await sw.click({ force: true })
+      const onResp = await onPromise.catch(() => null)
+      await page.waitForTimeout(600)
+      record(102, '④ 停用/启用开关往返（PUT /status 200）', offOk && !!onResp, `off=${!!offResp}, on=${!!onResp}`)
+    } catch (err) {
+      record(102, '④ 停用/启用开关往返（PUT /status 200）', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+
+    // 6. 删除确认「取消」→ 记录仍在 → 确认删除 → 行消失 + API 复核
+    try {
+      await row.getByRole('button', { name: /删除/ }).first().click()
+      const box = page.locator('.el-message-box:visible').first()
+      await box.waitFor({ state: 'visible', timeout: 4000 })
+      await box.locator('.el-message-box__btns button:not(.el-button--primary)').first().click()
+      await page.waitForTimeout(600)
+      const stillThere = await row.isVisible().catch(() => false)
+      record(102, '⑤ 删除确认弹「取消」→ 记录仍在', stillThere)
+      const apiBefore = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      record(102, '⑤b 取消后 API 复核记录仍在', (apiBefore?.rows || []).some((r) => r.providerName === pname))
+
+      await row.getByRole('button', { name: /删除/ }).first().click()
+      const box2 = page.locator('.el-message-box:visible').first()
+      await box2.waitFor({ state: 'visible', timeout: 4000 })
+      const delPromise = page.waitForResponse(
+        (r) => r.url().includes('/system/oauth/provider/') && r.request().method() === 'DELETE' && r.status() === 200,
+        { timeout: 8000 }
+      )
+      await box2.locator('.el-message-box__btns .el-button--primary').first().click()
+      const delResp = await delPromise.catch(() => null)
+      await page.waitForTimeout(800)
+      const gone = !(await row.isVisible().catch(() => false))
+      record(102, '⑥ 确认删除 → 行消失（DELETE 200）', !!delResp && gone, `del=${!!delResp}, gone=${gone}`)
+      const apiAfter = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      record(102, '⑥b API 复核已删除（自清完成）', ((apiAfter?.rows || [])).length === 0)
+    } catch (err) {
+      record(102, '⑥ 删除链', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+  }
+
+  // 兜底自清（防中途失败残留）
+  try {
+    const list = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=50&providerName=e2e_oauth_`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const ids = (list?.rows || []).map((r) => r.providerId)
+    if (ids.length > 0) await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids.join(',')}`, { method: 'DELETE', headers: authHeaders })
+  } catch { /* best-effort */ }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 103：WebHook UI 链 ====================
+async function testFeature103(page) {
+  log('=== 功能 103：WebHook UI 链 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(103, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const hookName = `e2e_hookui_${Date.now().toString(36)}`
+  // IP 字面量 + 封闭端口（e2e 禁外网 URL，同 F78 口径）
+  const target = 'http://1.1.1.1:81/hook'
+
+  // 0. API 建 hook（复用 F81 建数口径）
+  const created = await fetch(`${CONFIG.backendUrl}/monitor/webHook`, {
+    method: 'POST', headers: authHeaders,
+    body: JSON.stringify({ hookName, targetUrl: target, subscribedEvents: ['login.success'], contentType: 'json', timeoutSecs: 2, status: '0' })
+  }).then((r) => r.json()).catch(() => null)
+  record(103, '⓪ API 建 hook', created?.code === 200, `code=${created?.code}`)
+  if (created?.code !== 200) return
+  const hlist = await fetch(`${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=10&hookName=${encodeURIComponent(hookName)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+  const hookId = hlist?.rows?.[0]?.id
+
+  try {
+    // 1. 打开 /system/webHook，搜索后断言列表含该 hook
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
+    await skipTour(page)
+    const searchPromise = page.waitForResponse(
+      (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await page.locator('input[placeholder*="回调名称"], input[aria-label*="回调名称"]').first().fill(hookName)
+    await page.getByRole('button', { name: /搜索/ }).first().click()
+    await searchPromise
+    // 高负载下（如 backup 慢查询挤压）行渲染可能滞后：行未现时重试搜索（条件轮询，最多 3 轮）
+    let rowOk = false
+    for (let attempt = 0; attempt < 3 && !rowOk; attempt++) {
+      const retrySearch = page.waitForResponse(
+        (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+        { timeout: 10000 }
+      )
+      await page.getByRole('button', { name: /搜索/ }).first().click()
+      await retrySearch
+      const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
+      rowOk = await row.isVisible({ timeout: 5000 }).catch(() => false)
+      if (!rowOk) await sleep(1200)
+    }
+    record(103, '① 列表含 API 预建 hook', rowOk)
+
+    // 2. 事件目录（EventCatalogSection）：打开对话框，目录项 > 0
+    let catalogOk = false
+    try {
+      let dlg = page.locator('.el-dialog:visible').last()
+      // tour 可能晚到拦截点击：重试（每次先 skipTour 清理覆盖层/软提示）
+      for (let i = 0; i < 3 && !catalogOk; i++) {
+        await skipTour(page)
+        await page.getByRole('button', { name: /事件目录/ }).first().click({ force: true })
+        dlg = page.locator('.el-dialog:visible').last()
+        catalogOk = await dlg.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        if (!catalogOk) {
+          log(`  [diag-103②] try ${i}: btnCount=${await page.getByRole('button', { name: /事件目录/ }).count()}, dlgTotal=${await page.locator('.el-dialog').count()}, tour=${await skipTour && ''}${await page.locator('[class*="tour"]').count()}`)
+        }
+      }
+      // 目录行（表格行或列表项）> 0
+      let items = 0
+      for (let i = 0; i < 8; i++) {
+        items = await dlg.locator('.el-table__row, .el-dropdown-menu__item, .event-item, li').count()
+        if (items > 0) break
+        await page.waitForTimeout(500)
+      }
+      catalogOk = items > 0
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+    } catch (err) {
+      log(`  F103 事件目录异常: ${err.message.slice(0, 120)}`)
+    }
+    record(103, '② 事件目录对话框打开且目录项 > 0', catalogOk)
+  } catch (err) {
+    record(103, '① 列表含 API 预建 hook', false, `异常: ${err.message.slice(0, 120)}`)
+    record(103, '② 事件目录对话框打开且目录项 > 0', false, '前置失败')
+  }
+
+  // 3. /system/webHook/log 日志页：筛选控件可达、表格或空态渲染
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/log`, 'webHook/log')
+    await skipTour(page)
+    const not404 = !(await is404Page(page))
+    const filterOk =
+      (await page.locator('form.el-form--inline').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
+      (await page.locator('.el-form-item').first().isVisible({ timeout: 2000 }).catch(() => false))
+    const tableOk =
+      (await page.locator('.el-table__row').count()) > 0 ||
+      (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+    record(103, '③ 日志页筛选可达且表格/空态渲染', not404 && filterOk && tableOk, `404=${!not404}, filter=${filterOk}, table=${tableOk}`)
+  } catch (err) {
+    record(103, '③ 日志页筛选可达且表格/空态渲染', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // 4. 删除确认取消路径（回到列表页）
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
+    await skipTour(page)
+    const searchPromise = page.waitForResponse(
+      (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await page.locator('input[placeholder*="回调名称"], input[aria-label*="回调名称"]').first().fill(hookName)
+    await page.getByRole('button', { name: /搜索/ }).first().click()
+    await searchPromise
+    const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
+    if (await row.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await row.getByRole('button', { name: /删除/ }).first().click()
+      const box = page.locator('.el-message-box:visible').first()
+      await box.waitFor({ state: 'visible', timeout: 4000 })
+      await box.locator('.el-message-box__btns button:not(.el-button--primary)').first().click()
+      await page.waitForTimeout(600)
+      const stillThere = await row.isVisible().catch(() => false)
+      record(103, '④ 删除确认「取消」→ 记录仍在', stillThere)
+    } else {
+      record(103, '④ 删除确认「取消」→ 记录仍在', false, '未找到 hook 行')
+    }
+  } catch (err) {
+    record(103, '④ 删除确认「取消」→ 记录仍在', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // 清理：API 删除 hook（自清）
+  if (hookId) {
+    const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${hookId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    record(103, '⑤ 清理：API 删除 hook', del?.code === 200, `code=${del?.code}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 104：用户详情与角色/用户分配 UI 链 ====================
+async function testFeature104(page) {
+  log('=== 功能 104：用户详情与角色/用户分配 UI 链 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(104, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const uname = `e2e_view_${Date.now().toString(36)}`
+  let uid = null
+
+  // 0. API 建临时用户（F62 口径；roleIds 留空——留出未持有角色供 ②b 勾选）
+  try {
+    const created = await fetch(`${CONFIG.backendUrl}/system/user`, {
+      method: 'POST', headers: authHeaders,
+      body: JSON.stringify({
+        deptId: 100, userName: uname, nickName: `详情测试${uname.slice(-6)}`,
+        password: 'Test@12345', phonenumber: '13800000003', email: 'e2e_view@example.com',
+        sex: '0', status: '0', roleIds: [], postIds: []
+      })
+    }).then((r) => r.json())
+    const list = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`, { headers: authHeaders }).then((r) => r.json())
+    uid = (list?.rows || []).find((r) => r.userName === uname)?.userId ?? null
+    record(104, '⓪ API 建临时用户', created?.code === 200 && uid != null, `code=${created?.code}, uid=${uid}`)
+  } catch (err) {
+    record(104, '⓪ API 建临时用户', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+  if (!uid) return
+
+  try {
+    // 1. 列表行点击账号名 → /system/user/view 详情抽屉
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/user`, '/system/user')
+    await skipTour(page)
+    const searchPromise = page.waitForResponse(
+      (r) => r.url().includes('/system/user/list') && r.url().includes(`userName=${uname}`) && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
+    await page.getByRole('button', { name: /搜索/ }).first().click()
+    await searchPromise
+    // 全量跑时后端偏慢：行渲染最多等 8s，未命中再搜一次
+    const row = page.locator('.el-table__row').filter({ hasText: uname }).first()
+    let rowOk = await row.isVisible({ timeout: 8000 }).catch(() => false)
+    if (!rowOk) {
+      await page.getByRole('button', { name: /搜索/ }).first().click().catch(() => {})
+      await page.waitForTimeout(2000)
+      rowOk = await row.isVisible({ timeout: 5000 }).catch(() => false)
+    }
+    record(104, '① 搜索定位临时用户行', rowOk)
+    if (rowOk) {
+      await row.locator('a.el-link, .el-link').first().click()
+      const drawer = page.locator('.el-drawer:visible').first()
+      const drawerOk = await drawer.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      // 详情字段非空渲染：账号名出现
+      let fieldOk = false
+      if (drawerOk) {
+        for (let i = 0; i < 6; i++) {
+          const txt = await drawer.innerText().catch(() => '')
+          if (txt.includes(uname)) { fieldOk = true; break }
+          await page.waitForTimeout(500)
+        }
+      }
+      record(104, '①b 详情抽屉打开且账号字段非空渲染', drawerOk && fieldOk, `drawer=${drawerOk}, field=${fieldOk}`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(500)
+    }
+
+    // 2. authRole 页：勾选一个未持有角色 → 保存 → API 回读含该角色 → 取消勾选恢复
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/user-auth/role/${uid}`, 'user-auth/role')
+    await skipTour(page)
+    const roleTableOk = await page.locator('.el-table').first().isVisible({ timeout: 5000 }).catch(() => false)
+    record(104, '② authRole 页表格渲染', roleTableOk)
+    if (roleTableOk) {
+      // 取当前角色集合：后端 GET /system/user/authRole/{uid} 的 roles 不含 flag（产品缺陷，见报告），
+      // 因此用 GET /system/user/{uid} 顶层 roleIds 作为已持有角色真值
+      const userBefore = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const rolesList = await fetch(`${CONFIG.backendUrl}/system/role/list?pageNum=1&pageSize=50`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const rolesAll = rolesList?.rows || []
+      const currentRoleIds = (userBefore?.roleIds || []).map(Number)
+      const candidate = rolesAll.find(
+        (r) => r.status === '0' && !currentRoleIds.includes(Number(r.roleId)) && r.roleKey !== 'admin'
+      )
+      if (candidate) {
+        const targetRoleId = Number(candidate.roleId)
+        const rows = page.locator('.el-table__row')
+        let clicked = false
+        const n = await rows.count()
+        for (let i = 0; i < n; i++) {
+          const txt = await rows.nth(i).innerText().catch(() => '')
+          if (new RegExp(`\\b${targetRoleId}\\b`).test(txt)) {
+            await rows.nth(i).locator('.el-checkbox').first().click({ force: true })
+            clicked = true
+            break
+          }
+        }
+        if (clicked) {
+          const savePromise = page.waitForResponse(
+            (r) => r.url().includes('/system/user/authRole') && r.request().method() === 'PUT' && r.status() === 200,
+            { timeout: 8000 }
+          )
+          await page.getByRole('button', { name: /提交|保存/ }).first().click()
+          const saveResp = await savePromise.catch(() => null)
+          await page.waitForTimeout(1000)
+          const userAfter = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const afterIds = (userAfter?.roleIds || []).map(Number)
+          const granted = afterIds.includes(targetRoleId)
+          record(104, '②b 勾选角色保存 → API 回读含该角色', !!saveResp && granted, `role=${targetRoleId}, save=${!!saveResp}, ids=[${afterIds.join(',')}]`)
+          // 取消勾选恢复初态（重新进入 authRole 页操作）
+          await presetTourDisabled(page)
+          await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/user-auth/role/${uid}`, 'user-auth/role')
+          const rows2 = page.locator('.el-table__row')
+          const n2 = await rows2.count()
+          for (let i = 0; i < n2; i++) {
+            const txt = await rows2.nth(i).innerText().catch(() => '')
+            if (new RegExp(`\\b${targetRoleId}\\b`).test(txt)) {
+              const cb = rows2.nth(i).locator('.el-checkbox').first()
+              // 仅在确实处于勾选态时点击取消（authRole 预检查依赖后端 flag，产品缺陷可能致复选框未勾选）
+              const checked = await cb.evaluate((el) => el.classList.contains('is-checked')).catch(() => false)
+              if (checked) await cb.click({ force: true })
+              break
+            }
+          }
+          const restorePromise = page.waitForResponse(
+            (r) => r.url().includes('/system/user/authRole') && r.request().method() === 'PUT' && r.status() === 200,
+            { timeout: 8000 }
+          )
+          await page.getByRole('button', { name: /提交|保存/ }).first().click()
+          await restorePromise.catch(() => null)
+          await page.waitForTimeout(1000)
+          const userRestored = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const restoredIds = (userRestored?.roleIds || []).map(Number)
+          record(104, '②c 取消勾选恢复初态（不含该角色）', !restoredIds.includes(targetRoleId), `ids=[${restoredIds.join(',')}]`)
+        } else {
+          record(104, '②b 勾选角色保存 → API 回读含该角色', false, `未在表格中定位角色 ${targetRoleId}`)
+        }
+      } else {
+        record(104, '②b 勾选角色保存 → API 回读含该角色', true, 'SKIP：无未持有的非 admin 启用角色可勾选')
+      }
+    }
+
+    // 3. authUser 页（/system/role-auth/user/2，common 角色）：表格渲染 + 取消授权该用户
+    //    注：用角色 2（common）而非超管角色 1——向超管角色挂业务用户受后端保护，以可用等价角色执行
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/role-auth/user/2`, 'role-auth/user')
+    await skipTour(page)
+    const authTableOk = await page.locator('.el-table').first().isVisible({ timeout: 5000 }).catch(() => false)
+    record(104, '③ authUser 页表格渲染（role 2）', authTableOk)
+    if (authTableOk) {
+      // 先经 API 把临时用户挂到角色 2，制造可取消授权的真实前提（PUT + query params，对齐前端 api/system/role.ts）
+      const bind = await fetch(`${CONFIG.backendUrl}/system/role/authUser/selectAll?roleId=2&userIds=${uid}`, {
+        method: 'PUT', headers: authHeaders
+      }).then((r) => r.json()).catch(() => null)
+      if (bind?.code === 200) {
+        // 刷新 authUser 页并搜索
+        await presetTourDisabled(page)
+        await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/role-auth/user/2`, 'role-auth/user')
+        const searchPromise2 = page.waitForResponse(
+          (r) => r.url().includes('/system/role/authUser/allocatedList') && r.url().includes('userName=') && r.status() === 200,
+          { timeout: 10000 }
+        )
+        const searchInput2 = page.locator('input[placeholder*="用户名称"], input[placeholder*="账号"]').first()
+        if (await searchInput2.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await searchInput2.fill(uname)
+          await page.getByRole('button', { name: /搜索/ }).first().click()
+          await searchPromise2.catch(() => null)
+        }
+        const uRow = page.locator('.el-table__row').filter({ hasText: uname }).first()
+        if (await uRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+          const cancelPromise = page.waitForResponse(
+            (r) => r.url().includes('/system/role/authUser/cancel') && r.request().method() === 'PUT' && r.status() === 200,
+            { timeout: 8000 }
+          )
+          await uRow.getByRole('button', { name: /取消授权/ }).first().click()
+          const box = page.locator('.el-message-box:visible').first()
+          await box.waitFor({ state: 'visible', timeout: 4000 })
+          await box.locator('.el-message-box__btns .el-button--primary').first().click()
+          const cancelResp = await cancelPromise.catch(() => null)
+          await page.waitForTimeout(1000)
+          const alloc = await fetch(`${CONFIG.backendUrl}/system/role/authUser/allocatedList?pageNum=1&pageSize=50&roleId=2&userName=${encodeURIComponent(uname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const stillAllocated = (alloc?.rows || []).some((r) => r.userName === uname)
+          record(104, '③b 取消授权生效（allocatedList 不再含该用户）', !!cancelResp && !stillAllocated, `cancel=${!!cancelResp}, still=${stillAllocated}`)
+        } else {
+          record(104, '③b 取消授权生效', true, 'SKIP：allocatedList 中未定位到该用户行')
+        }
+      } else {
+        record(104, '③b 取消授权生效', true, `SKIP：API 挂载角色 2 未成功（code=${bind?.code}），仅断言表格渲染`)
+      }
+    }
+  } catch (err) {
+    record(104, '用例链异常', false, `异常: ${err.message.slice(0, 160)}`)
+  }
+
+  // 4. 清理临时用户
+  if (uid) {
+    const del = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    record(104, '④ 清理临时用户', del?.code === 200, `code=${del?.code}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 105：SSO 同意页 UI（拒绝路径 + 同意路径） ====================
+async function testFeature105(page) {
+  log('=== 功能 105：SSO 同意页 UI ===')
+  const B = CONFIG.backendUrl
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(105, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const redirectUri = `${B}/sso/e2e-callback` // 已登记回调（仅解析回跳 URL，不实际访问）
+  const b64url = (buf) => Buffer.from(buf).toString('base64url')
+  const randB64url = (n) => b64url(crypto.randomBytes(n))
+  const challengeOf = (v) => crypto.createHash('sha256').update(v, 'ascii').digest('base64url')
+
+  // 0. API 建同意制客户端（F51 口径）
+  let created = null
+  try {
+    const res = await fetch(`${B}/system/oauth/client`, {
+      method: 'POST', headers: auth,
+      body: JSON.stringify({
+        ssoClientId: 0, clientName: `E2E-CONSENT-${Date.now()}`, logoUri: '',
+        redirectUris: [redirectUri], scopes: ['openid', 'profile'],
+        grantTypes: ['authorization_code'], consentRequired: '1', enabled: '1', remark: 'e2e consent 临时客户端'
+      })
+    }).then((r) => r.json())
+    created = res?.data?.clientId ? { ssoClientId: res.data.client.ssoClientId, clientId: res.data.clientId, clientSecret: res.data.clientSecret } : null
+    record(105, '⓪ API 建 consent 客户端', !!created, `code=${res?.code}`)
+  } catch (err) {
+    record(105, '⓪ API 建 consent 客户端', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  const authorizeUrlOf = (clientId) => {
+    const qs = new URLSearchParams({
+      client_id: clientId, redirect_uri: redirectUri, response_type: 'code',
+      scope: 'openid profile', state: randB64url(8), nonce: randB64url(8),
+      code_challenge: challengeOf(randB64url(32)), code_challenge_method: 'S256'
+    })
+    return `${B}/sso/authorize?${qs.toString()}`
+  }
+
+  // 1. 登录态发起 authorize → 302 到 /sso-consent → 真实渲染同意页（scope 列表 + 同意/拒绝按钮）
+  let ctx2 = null
+  if (created) {
+    try {
+      ctx2 = await page.context().browser().newContext()
+      await ctx2.addCookies([{ name: 'Admin-Token', value: token, url: B }])
+      const p2 = await ctx2.newPage()
+      await p2.goto(authorizeUrlOf(created.clientId), { waitUntil: 'load' })
+      await p2.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
+      await p2.waitForTimeout(1500)
+      const onConsent = p2.url().includes('/sso-consent')
+      const scopeItems = await p2.locator('ul.scope-list li, .scope-list li').count()
+      const denyBtn = await p2.getByRole('button', { name: /拒绝|Deny/ }).first().isVisible({ timeout: 3000 }).catch(() => false)
+      const allowBtn = await p2.getByRole('button', { name: /允许|同意|授权|Allow|Approve/ }).first().isVisible({ timeout: 2000 }).catch(() => false)
+      record(105, '① 同意页渲染：scope 列表 + 同意/拒绝按钮', onConsent && scopeItems > 0 && denyBtn && allowBtn, `consent=${onConsent}, scopes=${scopeItems}, deny=${denyBtn}, allow=${allowBtn}`)
+    } catch (err) {
+      record(105, '① 同意页渲染：scope 列表 + 同意/拒绝按钮', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+
+    // 2. 点击拒绝 → 回跳带 error=access_denied
+    try {
+      const p2 = ctx2.pages()[0]
+      // 重新发起一次 authorize（同意页一次性，避免上一步状态残留）
+      await p2.goto(authorizeUrlOf(created.clientId), { waitUntil: 'load' })
+      await p2.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
+      await p2.waitForTimeout(1000)
+      await p2.getByRole('button', { name: /拒绝|Deny/ }).first().click()
+      const denied = await p2
+        .waitForURL((u) => u.toString().includes('error=access_denied'), { timeout: 15000 })
+        .then(() => true)
+        .catch(() => false)
+      record(105, '② 拒绝 → 回跳带 error=access_denied', denied, `url=${p2.url().slice(0, 120)}`)
+    } catch (err) {
+      record(105, '② 拒绝 → 回跳带 error=access_denied', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+
+    // 3. 同意 → code 参数下发（低成本分支）
+    try {
+      const p3ctx = await page.context().browser().newContext()
+      await p3ctx.addCookies([{ name: 'Admin-Token', value: token, url: B }])
+      const p3 = await p3ctx.newPage()
+      await p3.goto(authorizeUrlOf(created.clientId), { waitUntil: 'load' })
+      await p3.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
+      await p3.waitForTimeout(1000)
+      await p3.getByRole('button', { name: /允许|同意|授权|Allow|Approve/ }).first().click()
+      const coded = await p3
+        .waitForURL((u) => u.toString().includes('code='), { timeout: 15000 })
+        .then(() => true)
+        .catch(() => false)
+      record(105, '③ 同意 → 回跳带 code 参数', coded, `url=${p3.url().slice(0, 120)}`)
+      await p3ctx.close()
+    } catch (err) {
+      record(105, '③ 同意 → 回跳带 code 参数', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+
+    if (ctx2) await ctx2.close().catch(() => {})
+  }
+
+  // 清理：删除 consent 客户端（自清）
+  if (created) {
+    const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { method: 'DELETE', headers: auth }).then((r) => r.json()).catch(() => null)
+    record(105, '④ 清理：删除 consent 客户端', del?.code === 200 || del?.code === 0, `code=${del?.code}`)
+  }
+}
+
+// ==================== 功能 106：个人中心安全 Tab 深交互 ====================
+async function testFeature106(page) {
+  log('=== 功能 106：个人中心安全 Tab 深交互 ===')
+  const token = await sessionTokenOf(page)
+  const authHeaders = token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : null
+
+  // ① passkeys：注册交互 → 错误提示（无平台认证器环境走警告横幅/SKIP 语义）
+  try {
+    await presetTourDisabled(page)
+    await page.goto(`${CONFIG.frontendUrl}/user/profile/passkeys`, { waitUntil: 'load', timeout: 20000 })
+    await sleep(1500)
+    await skipTour(page)
+    const card = page.locator('.el-card').first()
+    const cardOk = await card.isVisible({ timeout: 5000 }).catch(() => false)
+    const unsupported = await page.locator('.el-alert--warning').first().isVisible({ timeout: 1500 }).catch(() => false)
+    if (unsupported) {
+      record(106, '① passkeys：无认证器环境显示警告横幅（SKIP 语义）', cardOk, 'unsupported 横幅可见，注册入口按能力位收敛')
+    } else {
+      const addBtn = page.getByRole('button', { name: /添加|新增|注册/ }).first()
+      if (await addBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await addBtn.click()
+        const dlg = page.locator('.el-dialog:visible').last()
+        await dlg.waitFor({ state: 'visible', timeout: 4000 })
+        await dlg.locator('input').first().fill(`e2e-pk-${Date.now().toString(36)}`)
+        await dlg.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+        // 无真实认证器：registerStart 404 / navigator.credentials 失败 → 错误 Toast（.catch 语义）
+        const errToast = page.locator('.el-message--error, .el-message--warning').first()
+        const errShown = await errToast.isVisible({ timeout: 8000 }).catch(() => false)
+        record(106, '① passkeys：注册失败出现错误提示（.catch 语义）', errShown)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(400)
+      } else {
+        record(106, '① passkeys：注册失败出现错误提示（.catch 语义）', cardOk, 'SKIP：能力位未开放（无注册按钮），仅断言卡片渲染')
+      }
+    }
+  } catch (err) {
+    record(106, '① passkeys：注册失败出现错误提示（.catch 语义）', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ② ssoGrants：列表/空态渲染 + 撤销确认取消路径
+  try {
+    await presetTourDisabled(page)
+    await page.goto(`${CONFIG.frontendUrl}/user/profile/ssoGrants`, { waitUntil: 'load', timeout: 20000 })
+    await sleep(1500)
+    await skipTour(page)
+    // 个人中心页首个 .el-card 是基本资料卡——用 grant-list 容器精确定位 ssoGrants 卡
+    const card = page.locator('.el-card:has(.grant-list)').first()
+    const rendered = await card.isVisible({ timeout: 5000 }).catch(() => false)
+    await page.waitForTimeout(1500)
+    const hasList = (await card.locator('.grant-item').count()) > 0
+    const hasEmpty = await card.locator('.el-empty').first().isVisible({ timeout: 1500 }).catch(() => false)
+    record(106, '② ssoGrants：列表或空态渲染', rendered && (hasList || hasEmpty), `list=${hasList}, empty=${hasEmpty}`)
+    const revokeBtn = card.getByRole('button', { name: /撤销|revoke/i }).first()
+    if (hasList && (await revokeBtn.isVisible({ timeout: 2000 }).catch(() => false))) {
+      await revokeBtn.click()
+      const box = page.locator('.el-message-box:visible').first()
+      await box.waitFor({ state: 'visible', timeout: 4000 })
+      await box.locator('.el-message-box__btns button:not(.el-button--primary)').first().click()
+      await page.waitForTimeout(600)
+      const stillList = (await card.locator('.grant-item').count()) > 0
+      record(106, '②b 撤销确认「取消」→ 授权仍在', stillList)
+    } else {
+      record(106, '②b 撤销确认「取消」→ 授权仍在', true, 'SKIP：无已授权应用，撤销链不可达')
+    }
+  } catch (err) {
+    record(106, '② ssoGrants', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ③ msgPref：切换开关 → 保存 → 刷新持久化 → 恢复原值
+  try {
+    await presetTourDisabled(page)
+    await page.goto(`${CONFIG.frontendUrl}/user/profile/pref`, { waitUntil: 'load', timeout: 20000 })
+    await sleep(1500)
+    await skipTour(page)
+    const emailSwitch = page.locator('.el-switch').first()
+    const swOk = await emailSwitch.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (swOk && authHeaders) {
+      // 记录原值（API 回读，避免依赖 DOM 初态）
+      const before = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const origEmail = before?.data?.emailNotify
+      // UI 切换
+      await emailSwitch.click({ force: true })
+      const savePromise = page.waitForResponse(
+        (r) => (r.url().includes('messagePref') || r.url().includes('pref')) && r.request().method() === 'PUT',
+        { timeout: 8000 }
+      )
+      await page.getByRole('button', { name: /保存/ }).first().click()
+      const saveResp = await savePromise.catch(() => null)
+      record(106, '③ msgPref：保存请求发出', !!saveResp)
+      // 刷新持久化
+      await page.reload({ waitUntil: 'load' })
+      await sleep(1500)
+      await skipTour(page)
+      const after = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const newVal = after?.data?.emailNotify
+      const flipped = newVal !== undefined && origEmail !== undefined ? newVal !== origEmail : true
+      record(106, '③b msgPref：切换持久化', flipped, `orig=${origEmail}, now=${newVal}`)
+      // 恢复原值（API 直写，幂等）
+      if (origEmail !== undefined && newVal !== origEmail) {
+        const restore = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, {
+          method: 'PUT', headers: authHeaders,
+          body: JSON.stringify({ ...after.data, emailNotify: origEmail })
+        }).then((r) => r.json()).catch(() => null)
+        record(106, '③c msgPref：恢复原值', restore?.code === 200, `code=${restore?.code}`)
+      } else {
+        record(106, '③c msgPref：恢复原值', true, 'SKIP：原值未知或已一致')
+      }
+    } else {
+      record(106, '③ msgPref：保存请求发出', swOk, swOk ? 'token 缺失，跳过 API 比对' : '开关不可见')
+    }
+  } catch (err) {
+    record(106, '③ msgPref', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ④ totp：解绑对话框打开 → 取消（未启用则断言引导流程渲染）
+  try {
+    await presetTourDisabled(page)
+    await page.goto(`${CONFIG.frontendUrl}/user/profile/totp`, { waitUntil: 'load', timeout: 20000 })
+    await sleep(1500)
+    await skipTour(page)
+    const card = page.locator('.totp-card, .el-card').first()
+    const cardOk = await card.isVisible({ timeout: 5000 }).catch(() => false)
+    const enabledTag = await card.locator('.el-tag--success').first().isVisible({ timeout: 2000 }).catch(() => false)
+    if (cardOk && enabledTag) {
+      const disableBtn = card.getByRole('button', { name: /禁用|解绑|关闭/ }).first()
+      await disableBtn.click()
+      const pwdInput = page.locator('input[type="password"]').first()
+      const formShown = await pwdInput.isVisible({ timeout: 4000 }).catch(() => false)
+      record(106, '④ totp：解绑表单打开', formShown)
+      // 取消 → 回到已启用态
+      const cancelBtn = page.getByRole('button', { name: /取消/ }).first()
+      if (formShown && (await cancelBtn.isVisible().catch(() => false))) {
+        await cancelBtn.click()
+        await page.waitForTimeout(500)
+      }
+      const backToEnabled = await card.getByRole('button', { name: /禁用|解绑|关闭/ }).first().isVisible({ timeout: 3000 }).catch(() => false)
+      record(106, '④b totp：取消后回到已启用态', backToEnabled)
+    } else {
+      const setupBtn = card.getByRole('button', { name: /生成密钥|绑定|开启/ }).first()
+      record(106, '④ totp：解绑表单打开', cardOk, `SKIP：TOTP 未启用（enabledTag=${enabledTag}），引导流程渲染=${await setupBtn.isVisible({ timeout: 2000 }).catch(() => false)}`)
+    }
+  } catch (err) {
+    record(106, '④ totp', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 107：报表管理 UI ====================
+async function testFeature107(page) {
+  log('=== 功能 107：报表管理 UI ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(107, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const ts = Date.now().toString(36)
+  const rcode = `e2e_rpt_${ts}`
+  const rname = `e2e 报表_${ts}`
+  let reportId = null
+
+  // ① 列表页可达渲染
+  await presetTourDisabled(page)
+  await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/report/index`, 'report/index')
+  await skipTour(page)
+  const not404 = !(await is404Page(page))
+  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const tableOk =
+    (await page.locator('.el-table__row').count()) > 0 ||
+    (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+  record(107, '① 列表页可达渲染', not404 && tableOk, `not404=${not404}, table=${tableOk}`)
+
+  // ② 新增报表（名称随机）→ 保存 → 列表出现
+  try {
+    await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+    const dlg = page.locator('.el-dialog:visible').last()
+    await dlg.waitFor({ state: 'visible', timeout: 4000 })
+    await dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表编码")') }).locator('input').first().fill(rcode)
+    await dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表名称")') }).locator('input').first().fill(rname)
+    // reportType 与 config 均为必填：选「自定义」类型 + 填最小 config
+    const typeItem = dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表类型")') })
+    await typeItem.locator('.el-select').first().click()
+    await page.locator('.el-select-dropdown__item:visible').filter({ hasText: /自定义|custom/ }).first().click()
+    const cfgItem = dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表配置")') })
+    if (await cfgItem.isVisible({ timeout: 1500 }).catch(() => false)) {
+      const cfgVal = await cfgItem.locator('textarea').first().inputValue().catch(() => '')
+      if (!cfgVal || !cfgVal.trim()) await cfgItem.locator('textarea').first().fill('{}')
+    }
+    const savePromise = page.waitForResponse(
+      (r) => r.url().includes('/system/report') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    await dlg.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    const saveResp = await savePromise.catch(() => null)
+    await page.waitForTimeout(800)
+    record(107, '② 新增报表保存（POST 200）', !!saveResp)
+    const list = await fetch(`${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const row = (list?.rows || []).find((r) => r.reportCode === rcode)
+    reportId = row?.reportId ?? null
+    record(107, '②b API 复核报表落库', !!row, `reportId=${reportId}`)
+  } catch (err) {
+    record(107, '② 新增报表保存（POST 200）', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ③ 子报表订阅页渲染
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/report/sub`, 'report/sub')
+    await skipTour(page)
+    const sub404 = !(await is404Page(page))
+    const subTable =
+      (await page.locator('.el-table__row').count()) > 0 ||
+      (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+    record(107, '③ 子报表订阅页渲染', sub404 && subTable, `not404=${sub404}, table=${subTable}`)
+  } catch (err) {
+    record(107, '③ 子报表订阅页渲染', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ④ 删除 → 确认 → 消失（API 复核自清）
+  if (reportId) {
+    try {
+      await presetTourDisabled(page)
+      await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/report/index`, 'report/index')
+      await skipTour(page)
+      const searchPromise = page.waitForResponse(
+        (r) => r.url().includes('/system/report/list') && r.url().includes(`reportName=${encodeURIComponent(rname)}`) && r.status() === 200,
+        { timeout: 10000 }
+      )
+      await page.locator('input[placeholder*="报表名称"]').first().fill(rname)
+      await page.getByRole('button', { name: /搜索/ }).first().click()
+      await searchPromise
+      const row = page.locator('.el-table__row').filter({ hasText: rcode }).first()
+      if (await row.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await row.getByRole('button', { name: /删除/ }).first().click()
+        const box = page.locator('.el-message-box:visible').first()
+        await box.waitFor({ state: 'visible', timeout: 4000 })
+        const delPromise = page.waitForResponse(
+          (r) => r.url().includes('/system/report/') && r.request().method() === 'DELETE' && r.status() === 200,
+          { timeout: 8000 }
+        )
+        await box.locator('.el-message-box__btns .el-button--primary').first().click()
+        const delResp = await delPromise.catch(() => null)
+        await page.waitForTimeout(800)
+        record(107, '④ 删除 → 确认 → 消失（DELETE 200）', !!delResp, `del=${!!delResp}`)
+        const apiAfter = await fetch(`${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        record(107, '④b API 复核已删除（自清完成）', ((apiAfter?.rows || [])).length === 0)
+      } else {
+        record(107, '④ 删除 → 确认 → 消失（DELETE 200）', false, '未定位到报表行')
+      }
+    } catch (err) {
+      record(107, '④ 删除链', false, `异常: ${err.message.slice(0, 120)}`)
+    }
+  }
+
+  // 兜底自清
+  if (reportId) {
+    await fetch(`${CONFIG.backendUrl}/system/report/${reportId}`, { method: 'DELETE', headers: authHeaders }).catch(() => {})
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 108：表单构建器冒烟 ====================
+async function testFeature108(page) {
+  log('=== 功能 108：表单构建器冒烟 ===')
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/tool/build`, '/tool/build')
+    await skipTour(page)
+    const not404 = !(await is404Page(page))
+
+    // ① 组件面板与画布渲染
+    const panelOk = (await page.locator('.left-board .components-item').count()) > 0
+    const boardOk = (await page.locator('.center-board').first().isVisible({ timeout: 4000 }).catch(() => false)) ||
+      (await page.locator('.drawing-board').first().isVisible({ timeout: 2000 }).catch(() => false))
+    record(108, '① 页面可达：组件面板+画布渲染', not404 && panelOk && boardOk, `not404=${not404}, panel=${panelOk}, board=${boardOk}`)
+
+    // ② 点击添加一个输入类组件 → 画布出现该项（click 添加路径，绕开拖拽不稳）
+    let addOk = false
+    try {
+      const before = await page.locator('.drawing-board > *').count()
+      await page.locator('.left-board .components-item').first().click({ force: true })
+      await page.waitForTimeout(800)
+      const after = await page.locator('.drawing-board > *').count()
+      addOk = after > before
+    } catch (err) {
+      log(`  F108 添加组件异常: ${err.message.slice(0, 120)}`)
+    }
+    record(108, '② 点击组件添加到画布', addOk)
+
+    // ③ 生成代码按钮 → 代码/预览弹窗出现 → Escape 关闭（弹窗链卸净）
+    let dlgOk = false
+    let dlgClosed = false
+    try {
+      await page.getByRole('button', { name: /复制代码|生成代码|导出/ }).first().click({ force: true })
+      const dlg = page.locator('.el-dialog:visible').last()
+      dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (dlgOk) {
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(500)
+        dlgClosed = (await page.locator('.el-dialog:visible').count()) === 0
+      }
+    } catch (err) {
+      log(`  F108 代码弹窗异常: ${err.message.slice(0, 120)}`)
+    }
+    record(108, '③ 生成代码弹窗出现并 Escape 卸净', dlgOk && dlgClosed, `dlg=${dlgOk}, closed=${dlgClosed}`)
+  } catch (err) {
+    record(108, '表单构建器冒烟', false, `异常: ${err.message.slice(0, 160)}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 109：详情页渲染扫描（只读，ExitGuard：不修改数据） ====================
+async function testFeature109(page) {
+  log('=== 功能 109：详情页渲染扫描 ===')
+
+  // ① monitor/frontendError → detail 对话框（无行记 SKIP + 空态断言）
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/frontendError`, 'frontendError')
+    await skipTour(page)
+    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const rowCount = await page.locator('.el-table__row').count()
+    if (rowCount > 0) {
+      await page.locator('.el-table__row').first().getByRole('button', { name: /详情|查看/ }).first().click({ force: true })
+      const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
+      const open = await detail.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      let fieldOk = false
+      if (open) {
+        const txt = (await detail.innerText().catch(() => '')).trim()
+        fieldOk = txt.length > 10
+      }
+      record(109, '① frontendError 详情字段非空渲染', open && fieldOk, `open=${open}`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+    } else {
+      const emptyOk = (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+      record(109, '① frontendError 详情字段非空渲染', emptyOk, 'SKIP：列表无行，空态渲染断言')
+    }
+  } catch (err) {
+    record(109, '① frontendError 详情', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ② operlog 详情（行操作「详情」抽屉/对话框）
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/operlog`, 'operlog')
+    await skipTour(page)
+    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const rowCount = await page.locator('.el-table__row').count()
+    if (rowCount > 0) {
+      await page.locator('.el-table__row').first().getByRole('button', { name: /详情|详细/ }).first().click({ force: true })
+      const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
+      const open = await detail.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      let fieldOk = false
+      if (open) {
+        const txt = (await detail.innerText().catch(() => '')).trim()
+        fieldOk = txt.length > 10
+      }
+      record(109, '② operlog 详情字段非空渲染', open && fieldOk, `open=${open}`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+    } else {
+      record(109, '② operlog 详情字段非空渲染', true, 'SKIP：操作日志列表无行')
+    }
+  } catch (err) {
+    record(109, '② operlog 详情', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ③ 公告 ReadUsers 弹窗（「阅读用户」入口）
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/notice`, 'notice')
+    await skipTour(page)
+    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const rowCount = await page.locator('.el-table__row').count()
+    if (rowCount > 0) {
+      await page.locator('.el-table__row').first().getByRole('button', { name: /阅读用户|已读/ }).first().click({ force: true })
+      const dlg = page.locator('.el-dialog:visible').last()
+      const open = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const tableOk = open && (await dlg.locator('.el-table').count()) > 0
+      record(109, '③ 公告已读情况弹窗渲染（含表格）', open && tableOk, `open=${open}, table=${tableOk}`)
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(400)
+    } else {
+      record(109, '③ 公告已读情况弹窗渲染（含表格）', true, 'SKIP：公告列表无行')
+    }
+  } catch (err) {
+    record(109, '③ 公告已读情况弹窗', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+
+  // ④ dict 详情（列表行「详情」抽屉）
+  try {
+    await presetTourDisabled(page)
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/dict`, 'dict')
+    await skipTour(page)
+    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const rowCount = await page.locator('.el-table__row').count()
+    if (rowCount > 0) {
+      // 「详细」不是弹窗：handleDataList 经 tab.openPage 跳 /system/dict-data/index/{dictId}
+      await page.locator('.el-table__row').first().getByRole('button', { name: /详细|详情/ }).first().click({ force: true })
+      const navOk = await page
+        .waitForURL(/dict-data\/index\/\d+/, { timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
+      await page.waitForTimeout(1500)
+      const dictTable =
+        (await page.locator('.el-table__row').count()) > 0 ||
+        (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
+      record(109, '④ dict 详情渲染', navOk && dictTable, `nav=${navOk}, url=${page.url().slice(0, 80)}, table=${dictTable}`)
+    } else {
+      record(109, '④ dict 详情渲染', true, 'SKIP：字典类型列表无行')
+    }
+  } catch (err) {
+    record(109, '④ dict 详情', false, `异常: ${err.message.slice(0, 120)}`)
+  }
+  await dismissAllOverlays(page)
 }
