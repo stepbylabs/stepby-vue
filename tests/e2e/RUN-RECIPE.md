@@ -1359,3 +1359,19 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    零 console 错误、vue-tsc 不报）。**Query 参数**无 rename 时仍是 snake（`file_name`），双向分别核对。
 4. **空 SKIP 不得冒充 PASS**：`record(N, …, true, 'SKIP：…')` 掩盖列表接口 500。新范式
    `recordSkip(feature, name, reason, apiOk)`——记独立 skip 态 + API 200 兜底断言。
+
+### 3.29 批三十三（循环第九轮）：isVisible-timeout 误用 / getNames 白名单 / 锁屏死入口
+
+1. **`locator.isVisible({ timeout })` 不等待**：新版 Playwright `isVisible()` 不接受 timeout、
+   **立即返回**——SPA 异步挂载/Toast 异步渲染慢于前置 sleep 时必误判 false（F40 TierB-3、F121③
+   双双因此假失败）。**正解**：`waitFor({ state: 'visible', timeout })`。存量 201 处同为该模式
+   （元素已挂载时作为存在性检查可用），未全量重写——**新代码禁用 isVisible({ timeout })**。
+2. **getNames 与白名单口径必须一致**：getNames 分组全 Redis 前缀但 getKeys/清理按白名单校验 →
+   页面列出点击必 400 的死行（F122 实证 status=400）。axum e8de93f 已在 get_names retain 白名单。
+   **教训**：列表接口与操作接口的安全口径要单点收敛，否则 UI 必出假入口。
+3. **workbench 锁屏快捷入口死链**：守卫在未锁定态拒绝 /lock（P0-62 防绕过），只 `router.push('/lock')`
+   会被弹回 /index。跳转 /lock 前必须先 `lockStore.lockScreen(currentPath)`（Navbar 范式）。
+4. **lock 态持久化 → 测试尾部必须真实解锁**：伪签名/直接 goBack 都会让守卫持续劫持后续用例路由；
+   F120 尾部走 lock 页真实密码解锁链（unlockScreen API）。
+5. **waitForResponse 监听必须在触发动作之前挂载**：getNames/getKeys 类快速响应在 click 后瞬间完成，
+   click 后再挂监听必 miss（F122② resp=false 而 rows=11 的根因）。
