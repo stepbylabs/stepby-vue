@@ -1375,3 +1375,17 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    F120 尾部走 lock 页真实密码解锁链（unlockScreen API）。
 5. **waitForResponse 监听必须在触发动作之前挂载**：getNames/getKeys 类快速响应在 click 后瞬间完成，
    click 后再挂监听必 miss（F122② resp=false 而 rows=11 的根因）。
+
+### 3.30 批三十四（循环第十轮·角度 E 并发竞态实测）：内存缓存击穿路由拦截
+
+1. **同 URL 二次 XHR 命中 Chromium 内存缓存 → page.route 拦截不到**：page.on('request') 照发
+   （极易误判"请求已发出"），但 route handler 静默旁路（F124 连点搜索 reqSeq=0 实证，三轮排除了
+   tour 遮挡/glob-vs-regex/CDP 禁缓存未先 Network.enable 等假设后由 context.route 定案）。
+   **正解：一律 `page.context().route(...)`**（上下文级拦截可击穿内存缓存）。判别特征：目标请求
+   在页面加载时已经发过一次、后续点击重复同 URL——scimGroup role/list 是点击后才首请求所以
+   page.route 能拦，user/list 页面加载即请求所以拦不到。**新用例拦截 XHR 默认 context.route**。
+2. **el-button 被 Tour 遮罩拦截时 JS click 是唯一解**：`.evaluate((e) => e.click())`（F124 二证，
+   与 §3.28 el-switch 同型）。Playwright 原生 click 会因 elementFromPoint 命中 mask 而超时 30s。
+3. **存量脚本债：F40 的 `page.route('**/system/user/list**')` 注册后从不 unroute**，全量模式下
+   会给后续所有 user/list 请求 +800ms 延迟（假失败温床）。已随 F124 修复提醒记录，待后续轮次
+   统一治理（route 与 unroute 必须 try/finally 配对）。

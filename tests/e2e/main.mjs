@@ -859,6 +859,9 @@ async function testFeature5(page) {
     const hasVerifyBtn = await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)
     record(5, '链校验按钮存在', hasVerifyBtn)
     if (hasVerifyBtn) {
+      // 批三十四韧性：verify-chain 全量扫 44k+ 行 HMAC（实测 5.4-15s 波动），后端冷启动首击
+      // 更慢——点击前先预热一次接口（走 429 退避），弹窗即开即有（r40 全量 F5 三连假失败实证）
+      await apiWithBackoff('/monitor/operlog/verify-chain').catch(() => null)
       // 收尾十三：点击失败不再静默吞——elementFromPoint 输出拦截者（探针已证
       // 干净环境下 29ms 可点，e2e 前置段状态导致 actionability 失败需可见化）
       try {
@@ -17107,7 +17110,8 @@ async function main() {
       { id: 120, fn: testFeature120 },
       { id: 121, fn: testFeature121 },
       { id: 122, fn: testFeature122 },
-      { id: 123, fn: testFeature123 }
+      { id: 123, fn: testFeature123 },
+      { id: 124, fn: testFeature124 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -21472,4 +21476,73 @@ async function testFeature123(page) {
   record(123, '⑤ 恢复初态复核：status.enabled 仍 false（未启用状态不落库）',
     st.status === 200 && st.body?.data?.enabled === false, `code=${st.status}`)
   await dismissAllOverlays(page)
+}
+
+// ==================== 功能 124：查询竞态守卫实测（useCrudTable 序号守卫，运行时注入） ====================
+async function testFeature124(page) {
+  log('=== 功能 124：查询竞态守卫实测 ===')
+  const ok = await openPage(page, '/system/user', '/system/user')
+  record(124, '① 用户管理页可达', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  // request 拦截：第 1 次列表请求延迟 2500ms 返回 slow-marker，第 2 次起立即返回 fast-marker——
+  // 快速连发两次查询后，序号守卫应丢弃迟到的慢响应（页面不回退旧数据）
+  let reqSeq = 0
+  const pageErrors = []
+  const onErr = (e) => pageErrors.push(String(e).slice(0, 80))
+  page.on('pageerror', onErr)
+  const routeRe = /\/prod-api\/system\/user\/list/
+  // 关键坑（探针实证）：同 URL 的重复 XHR 命中 Chromium 内存缓存——page.on('request') 照发
+  // 但 page.route 拦截不到（scimGroup role/list 首次点击可拦截、user/list 二次查询拦截不到）。
+  // 必须用 context.route（上下文级拦截可击穿内存缓存），glob 字符串/regex 均可。
+  await page.context().route(routeRe, async (route) => {
+    reqSeq++
+    const seq = reqSeq
+    const marker = seq === 1 ? 'slow-marker' : 'fast-marker'
+    if (seq === 1) await new Promise((r) => setTimeout(r, 2500))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200, msg: '操作成功', total: 1,
+        rows: [{ userId: seq, userName: marker, nickName: seq === 1 ? '竞态慢响应' : '竞态快响应', status: '0', phonenumber: '', createTime: null }]
+      })
+    })
+  })
+
+  try {
+    // Tour 遮罩（stepby-tour-mask, pointer-events-auto）会拦截 Playwright 原生 click——
+    // 全部用 JS click 绕过遮挡（与 el-switch 同型陷阱，见 RUN-RECIPE §3.28）
+    const searchBtn = page.locator('.el-form .el-button').filter({ hasText: /搜索|查\s*询/ }).first()
+    await searchBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    await searchBtn.evaluate((e) => e.click()).catch(() => {})
+    await page.waitForTimeout(300)
+    // 第二次查询：优先再点搜索（若被 loading 阻断则改触发分页 pageSize 变更，同样走 list 请求）
+    await searchBtn.evaluate((e) => e.click()).catch(() => {})
+    await page.waitForTimeout(800)
+    if (reqSeq < 2) {
+      const sizeSel = page.locator('.el-pagination .el-select').first()
+      if (await sizeSel.isVisible().catch(() => false)) {
+        await sizeSel.evaluate((e) => e.click()).catch(() => {})
+        await page.waitForTimeout(400)
+        const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').filter({ hasText: '25' }).first()
+        await opt.evaluate((e) => e.click()).catch(() => {})
+      }
+    }
+    // 等第二次请求发出（最多 5s）
+    const t0 = Date.now()
+    while (reqSeq < 2 && Date.now() - t0 < 5000) await page.waitForTimeout(200)
+    record(124, '② 两次查询均已发出（竞态前提成立）', reqSeq >= 2, `reqSeq=${reqSeq}`)
+
+    await page.waitForTimeout(3500) // 覆盖慢响应 2500ms 到达窗口
+    const text = await page.evaluate(() => document.body.innerText)
+    record(124, '③ 迟到的慢响应被守卫丢弃：页面无 slow-marker 残留', !text.includes('slow-marker'))
+    record(124, '④ 最终渲染为最后一次响应：fast-marker 可见', text.includes('fast-marker'))
+    record(124, '⑤ 全程无 unhandled pageerror', pageErrors.length === 0, `errs=${pageErrors.length}`)
+  } finally {
+    await page.context().unroute(routeRe).catch(() => {})
+    page.off('pageerror', onErr)
+    await dismissAllOverlays(page)
+  }
 }
