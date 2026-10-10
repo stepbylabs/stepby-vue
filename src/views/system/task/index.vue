@@ -238,14 +238,15 @@
 import { listTask, delTask } from '@/api/system/task'
 import type { SysTask, TaskQueryParams } from '@/api/system/task'
 import { addDateRange } from '@/utils/stepby'
-import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import EmptyState from '@/components/EmptyState/index.vue'
 import useSettingsStore from '@/store/modules/settings'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useTableColumns } from '@/composables/useTableColumns'
+import { useCrudTable } from '@/composables/useCrudTable'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import type { TableShowColumns } from '@/types/api/common'
+import type { FormInstance } from 'element-plus'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -334,15 +335,6 @@ watch(columnsVisibleSig, () => {
   }
 })
 
-const taskList = shallowRef<SysTask[]>([])
-const loading = ref(true)
-const showSearch = ref(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-useMobileFilter(showSearch)
-const total = ref(0)
-const ids = ref<number[]>([])
-const single = ref(true)
-const multiple = ref(true)
 const dateRange = ref<string[]>([])
 
 const queryParams = ref<TaskQueryParams>({
@@ -354,6 +346,40 @@ const queryParams = ref<TaskQueryParams>({
   orderByColumn: undefined,
   isAsc: undefined
 })
+
+// 只读接入（仅 listApi + deleteApi）：列表/查询/多选/删除走 useCrudTable；
+// 轮询/启停/排序/时间范围过滤保留手写。删除确认文案为 {count} 契约，经 deleteTipParams 等价表达，
+// delTask 后端接受逗号串，经 deleteApi 包装等价表达。
+const {
+  dataList: taskList,
+  loading,
+  showSearch,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleDelete,
+  handleSelectionChange
+} = useCrudTable<SysTask, TaskQueryParams>({
+  listApi: (params) =>
+    listTask(addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as TaskQueryParams),
+  deleteApi: (targetIds) =>
+    delTask(Array.isArray(targetIds) ? (targetIds.map(Number) as number[]) : Number(targetIds)),
+  deleteTipParams: (targetIds) => ({ count: targetIds.length }),
+  idField: 'taskId',
+  defaultForm: () => ({}) as SysTask,
+  titleKey: 'task.title',
+  deleteTipKey: 'task.tip.confirmDelete',
+  queryParams,
+  form: ref<SysTask>({} as SysTask),
+  formRef: ref<FormInstance | null>(null),
+  queryRef,
+  // 迁移等价性：原页面无 URL 查询同步，关闭以保持行为零变化
+  syncQueryToUrl: false
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+useMobileFilter(showSearch)
 
 const hasQueryFilter = computed(() => {
   const q = queryParams.value
@@ -403,27 +429,7 @@ function progressStatus(s: string): '' | 'success' | 'exception' | 'warning' {
   }
 }
 
-function getList() {
-  loading.value = true
-  const params = addDateRange({ ...queryParams.value } as Record<string, unknown>, dateRange.value) as TaskQueryParams
-  listTask(params)
-    .then((res) => {
-      taskList.value = res.rows
-      total.value = res.total
-      syncRunningPoll()
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
-}
-
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置（含排序状态清除） */
+/** 重置（含排序状态清除，保留手写：需 clearSort 恢复后端默认排序） */
 function resetQuery() {
   dateRange.value = []
   queryParams.value.orderByColumn = undefined
@@ -433,32 +439,11 @@ function resetQuery() {
   taskTableRef.value?.clearSort()
 }
 
-/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发；保留手写以维持既有参数语义） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
   queryParams.value.orderByColumn = column.prop ?? undefined
   queryParams.value.isAsc = column.order ?? undefined
   getList()
-}
-
-function handleSelectionChange(selection: SysTask[]) {
-  ids.value = selection.map((item) => item.taskId)
-  single.value = selection.length !== 1
-  multiple.value = !selection.length
-}
-
-function handleDelete(row?: SysTask) {
-  const deleteIds = row ? [row.taskId] : ids.value
-  if (!deleteIds.length) return
-  modal
-    .confirm(t('task.tip.confirmDelete', { count: deleteIds.length }))
-    .then(() => {
-      return delTask(deleteIds.join(','))
-    })
-    .then(() => {
-      modal.msgSuccess(t('common.deleteSuccess'))
-      getList()
-    })
-    .catch(() => {})
 }
 
 /** P2-1: 备份类型任务跳转到备份管理页面
@@ -475,6 +460,9 @@ const RUNNING_POLL_INTERVAL = 5000
 let runningPollTimer: ReturnType<typeof setInterval> | null = null
 
 const hasRunningTask = computed(() => taskList.value.some((t: SysTask) => t.status === 'running'))
+
+// 列表更新（含 useCrudTable 的 getList/删除刷新）后同步轮询启停
+watch(taskList, () => syncRunningPoll())
 
 /** 静默刷新：仅更新数据，不触发全页 loading（避免轮询闪烁） */
 function silentRefresh() {

@@ -208,27 +208,20 @@
 <script setup lang="ts" name="MsgLog">
 import { listSendLog, delSendLog, cleanSendLog, retrySendLog } from '@/api/system/msg'
 import type { SysMsgSendLog, SendLogQueryParams } from '@/types/api/system/msg'
+import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
 const tableRef = useTemplateRef('tableRef')
 
-const dataList = shallowRef<SysMsgSendLog[]>([])
-const loading = ref(true)
-const showSearch = ref(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
-void isMobileFilter
-const total = ref(0)
-const ids = ref<Array<string | number>>([])
-const multiple = ref(true)
 const dateRange = ref<string[]>([])
 const defaultSort = ref({ prop: 'sendTime', order: 'descending' })
 
-const queryParams = reactive<SendLogQueryParams>({
+const queryParams = ref<SendLogQueryParams>({
   pageNum: 1,
   pageSize: 10,
   toAddr: undefined,
@@ -238,6 +231,38 @@ const queryParams = reactive<SendLogQueryParams>({
   orderByColumn: undefined,
   isAsc: undefined
 })
+
+// 只读接入（仅 listApi + deleteApi）：列表/查询/多选/删除走 useCrudTable，
+// 清空/重试/排序/时间范围过滤保留手写；form 相关为契约占位（只读模式不暴露表单流程）
+const {
+  dataList,
+  loading,
+  showSearch,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleDelete,
+  handleSelectionChange
+} = useCrudTable<SysMsgSendLog, SendLogQueryParams>({
+  listApi: (params) =>
+    listSendLog(addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as SendLogQueryParams),
+  deleteApi: delSendLog,
+  idField: 'logId',
+  defaultForm: () => ({}) as SysMsgSendLog,
+  titleKey: 'msg.log.title',
+  deleteTipKey: 'msg.log.tip.confirmDelete',
+  queryParams,
+  form: ref<SysMsgSendLog>({} as SysMsgSendLog),
+  formRef: ref<FormInstance | null>(null),
+  queryRef: queryRefRef,
+  // 迁移等价性：原页面无 URL 查询同步，关闭以保持行为零变化
+  syncQueryToUrl: false
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 渠道类型选项（email/sms/site）
 const channelTypeOptions = [
@@ -253,63 +278,21 @@ const logStatusOptions = [
   { value: '2', label: t('msg.log.status.pending'), type: 'warning' }
 ]
 
-/** 查询列表 */
-function getList(): void {
-  loading.value = true
-  listSendLog(addDateRange({ ...queryParams } as Record<string, unknown>, dateRange.value) as SendLogQueryParams)
-    .then((resp) => {
-      dataList.value = resp.rows
-      total.value = resp.total
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
-
-/** 搜索 */
-function handleQuery(): void {
-  queryParams.pageNum = 1
-  getList()
-}
-
-/** 重置（含时间范围与排序状态） */
+/** 重置（含时间范围与排序状态，保留手写：需恢复表格默认排序） */
 function resetQuery(): void {
   dateRange.value = []
-  queryParams.orderByColumn = undefined
-  queryParams.isAsc = undefined
+  queryParams.value.orderByColumn = undefined
+  queryParams.value.isAsc = undefined
   queryRefRef.value?.resetFields()
   handleQuery()
   tableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
-/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，保留手写以维持既有参数语义） */
 function handleSortChange(column: { prop: string | null; order: string | null }): void {
-  queryParams.orderByColumn = column.prop ?? undefined
-  queryParams.isAsc = column.order ?? undefined
+  queryParams.value.orderByColumn = column.prop ?? undefined
+  queryParams.value.isAsc = column.order ?? undefined
   getList()
-}
-
-/** 多选 */
-function handleSelectionChange(selection: SysMsgSendLog[]): void {
-  ids.value = selection.map((item) => item.logId as string | number)
-  multiple.value = !selection.length
-}
-
-/** 删除（批量） */
-function handleDelete(): void {
-  if (!ids.value.length) return
-  modal
-    .confirm(t('msg.log.tip.confirmDelete', { ids: ids.value }))
-    .then(() => delSendLog(ids.value))
-    .then(() => {
-      getList()
-      ids.value = []
-      multiple.value = true
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch((e: unknown) => {
-      if (import.meta.env.DEV && e instanceof Error) console.error('[MsgLog] delete:', e)
-    })
 }
 
 /** 清空 */

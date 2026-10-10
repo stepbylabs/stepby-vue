@@ -239,14 +239,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import modal from '@/plugins/modal'
 import { listNotice, getNotice } from '@/api/system/notice'
 import useNoticeStore from '@/store/modules/notice'
 import { useMotionPresets } from '@/composables/useMotion'
+import { useCrudTable } from '@/composables/useCrudTable'
 import { sanitizeHtml } from '@/utils/index'
 import type { SysNotice } from '@/types'
+import type { NoticeQueryParams } from '@/types/api/system/notice'
+import type { FormInstance } from 'element-plus'
 
 const { t } = useI18n()
 const { staggerChildren, slideInRight } = useMotionPresets()
@@ -254,9 +257,51 @@ const { staggerChildren, slideInRight } = useMotionPresets()
 // P1 修复: 使用共享 notice store，readIds / unreadCount 与 HeaderNotice 联动
 const noticeStore = useNoticeStore()
 
-const loading = ref(false)
-const total = ref(0)
-const noticeList = shallowRef<SysNotice[]>([])
+const queryParams = ref<NoticeQueryParams>({
+  pageNum: 1,
+  pageSize: 10,
+  noticeTitle: undefined,
+  noticeType: undefined,
+  createBy: undefined
+})
+
+// 纯展示页（无删除/表单流程）：仅迁移 list/query 可迁部分。
+// listNotice 返回后需把每条记录的 isRead 合并进共享 store（跨组件已读联动），
+// 通过 listApi 包装在返回链上等价表达。
+const {
+  dataList: noticeList,
+  loading,
+  total,
+  getList,
+  handleQuery
+} = useCrudTable<SysNotice, NoticeQueryParams>({
+  listApi: (params) =>
+    listNotice(params).then((res) => {
+      // P1 修复: 同步 noticeStore 的 readIds（包含当前页可见的已读状态）
+      // listNotice 返回的每条记录带 isRead 字段，将其合并到 store
+      const newReadIds = new Set(noticeStore.readIds)
+      for (const item of res.rows || []) {
+        if (item.isRead && item.noticeId != null) {
+          newReadIds.add(item.noticeId)
+        }
+      }
+      noticeStore.readIds = newReadIds
+      return res
+    }),
+  // 只读页无删除能力：deleteApi 为契约占位（deleteTipKey 必填约束），不会暴露删除流程
+  deleteApi: () => Promise.resolve({}),
+  idField: 'noticeId',
+  defaultForm: () => ({}) as SysNotice,
+  titleKey: 'noticeCenter.title',
+  deleteTipKey: 'common.confirmDelete',
+  queryParams,
+  form: ref<SysNotice>({} as SysNotice),
+  formRef: ref<FormInstance | null>(null),
+  queryRef: ref<FormInstance | null>(null),
+  // 迁移等价性：原页面无 URL 查询同步，关闭以保持行为零变化
+  syncQueryToUrl: false
+})
+
 // 订阅 store 的 unreadCount（跨组件同步）
 const unreadCount = computed(() => noticeStore.unreadCount)
 // 订阅 store 的 readIds（跨组件同步已读状态）
@@ -268,14 +313,6 @@ const currentNotice = ref<SysNotice | null>(null)
 // P1 修复: 加载状态绑定到按钮，防止重复点击
 const markAllLoading = ref(false)
 const batchReadLoading = ref(false)
-
-const queryParams = reactive({
-  pageNum: 1,
-  pageSize: 10,
-  noticeTitle: undefined as string | undefined,
-  noticeType: undefined as string | undefined,
-  createBy: undefined as string | undefined
-})
 
 // P1 修复: 修正筛选与分页的不匹配
 // - 'notice'/'announcement': 通过 queryParams.noticeType 走后端查询，分页准确
@@ -299,40 +336,11 @@ function canSelect(row: SysNotice): boolean {
   return !isRead(row)
 }
 
-// 获取列表数据
-async function getList() {
-  loading.value = true
-  try {
-    const res = await listNotice(queryParams)
-    noticeList.value = res.rows || []
-    total.value = res.total || 0
-    // P1 修复: 同步 noticeStore 的 readIds（包含当前页可见的已读状态）
-    // listNotice 返回的每条记录带 isRead 字段，将其合并到 store
-    const newReadIds = new Set(noticeStore.readIds)
-    for (const item of noticeList.value) {
-      if (item.isRead && item.noticeId != null) {
-        newReadIds.add(item.noticeId)
-      }
-    }
-    noticeStore.readIds = newReadIds
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('Failed to load notices:', e)
-  } finally {
-    loading.value = false
-  }
-}
-
-// 查询
-function handleQuery() {
-  queryParams.pageNum = 1
-  getList()
-}
-
 // 重置
 function resetQuery() {
-  queryParams.noticeTitle = undefined
-  queryParams.noticeType = undefined
-  queryParams.createBy = undefined
+  queryParams.value.noticeTitle = undefined
+  queryParams.value.noticeType = undefined
+  queryParams.value.createBy = undefined
   filterType.value = 'all'
   handleQuery()
 }
@@ -342,15 +350,15 @@ function resetQuery() {
 // - 'unread' 仅前端过滤当前页（后端不支持 isRead 查询）
 function handleFilterChange() {
   if (filterType.value === 'notice') {
-    queryParams.noticeType = '1'
+    queryParams.value.noticeType = '1'
   } else if (filterType.value === 'announcement') {
-    queryParams.noticeType = '2'
+    queryParams.value.noticeType = '2'
   } else {
     // 'all' / 'unread'：清空 noticeType，避免后端过滤干扰
-    queryParams.noticeType = undefined
+    queryParams.value.noticeType = undefined
   }
   // 重新查询（'unread' 也重新拉取全部数据后前端过滤）
-  queryParams.pageNum = 1
+  queryParams.value.pageNum = 1
   getList()
 }
 

@@ -435,6 +435,62 @@ describe('composables/useCrudTable', () => {
     })
   })
 
+  // ===== 只读模式（仅 listApi + deleteApi）与 deleteTipParams 插值契约 =====
+  describe('readonly mode', () => {
+    it('未传 getApi/addApi/updateApi 时不暴露 handleAdd/handleUpdate/submitForm', () => {
+      const { ctx } = makeCtx({ getApi: undefined, addApi: undefined, updateApi: undefined })
+      const exposed = ctx as unknown as Record<string, unknown>
+      expect(exposed.handleAdd).toBeUndefined()
+      expect(exposed.handleUpdate).toBeUndefined()
+      expect(exposed.submitForm).toBeUndefined()
+    })
+
+    it('只读模式：getList/handleDelete 仍正常工作', async () => {
+      const { ctx, listApi, deleteApi } = makeCtx({ getApi: undefined, addApi: undefined, updateApi: undefined })
+      listApi.mockResolvedValueOnce({ rows: [{ postId: 1 }], total: 1 })
+      ctx.getList()
+      await flush()
+      expect(ctx.dataList.value).toEqual([{ postId: 1 }])
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleSelectionChange([{ postId: 9 }])
+      ctx.handleDelete()
+      await flush()
+      expect(deleteApi).toHaveBeenCalledWith([9])
+      expect(modal.msgSuccess).toHaveBeenCalledWith('common.deleteSuccess')
+    })
+
+    it('deleteTipParams 提供时优先作为插值契约（{count} 按 ids 派生）', async () => {
+      const { ctx, deleteApi } = makeCtx({
+        deleteTipParams: (ids: Array<number | string>) => ({ count: ids.length })
+      })
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleSelectionChange([{ postId: 1 }, { postId: 2 }])
+      ctx.handleDelete()
+      expect(t).toHaveBeenCalledWith('post.confirmDelete', { count: 2 })
+      await flush()
+      expect(deleteApi).toHaveBeenCalledWith([1, 2])
+    })
+
+    it('deleteTipParams 提供时单行删除收到单元素数组', async () => {
+      const { ctx, deleteApi } = makeCtx({
+        deleteTipParams: (ids: Array<number | string>) => ({ count: ids.length })
+      })
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleDelete({ postId: 7 })
+      expect(t).toHaveBeenCalledWith('post.confirmDelete', { count: 1 })
+      await flush()
+      expect(deleteApi).toHaveBeenCalledWith(7)
+    })
+
+    it('未提供 deleteTipParams 时默认插值契约保持 {ids}（存量行为零变化）', async () => {
+      const { ctx } = makeCtx()
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleDelete({ postId: 7 })
+      expect(t).toHaveBeenCalledWith('post.confirmDelete', { ids: 7 })
+      await flush()
+    })
+  })
+
   // ===== 可选排序（supportsSort）：直接写入 queryParams =====
   describe('supportsSort', () => {
     it('开启时 ascending → queryParams.orderByColumn/isAsc 写入并随请求透传、重置第一页', async () => {

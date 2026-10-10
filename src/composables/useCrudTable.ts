@@ -1,4 +1,4 @@
-import { nextTick, ref, shallowRef, type Ref } from 'vue'
+import { nextTick, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { useI18n } from 'vue-i18n'
@@ -34,12 +34,12 @@ export function focusFirstError(): void {
 export interface UseCrudTableOptions<T extends object, Q extends object> {
   /** 列表查询 API */
   listApi: (params: Q) => Promise<unknown>
-  /** 详情查询 API */
-  getApi: (id: number | string) => Promise<unknown>
-  /** 新增 API */
-  addApi: (data: T) => Promise<unknown>
-  /** 修改 API */
-  updateApi: (data: T) => Promise<unknown>
+  /** 详情查询 API（可选：只读列表页可不传，此时不暴露 handleUpdate） */
+  getApi?: (id: number | string) => Promise<unknown>
+  /** 新增 API（可选：只读列表页可不传，此时不暴露 handleAdd/handleUpdate/submitForm） */
+  addApi?: (data: T) => Promise<unknown>
+  /** 修改 API（可选：只读列表页可不传，此时不暴露 handleAdd/handleUpdate/submitForm） */
+  updateApi?: (data: T) => Promise<unknown>
   /** 删除 API */
   deleteApi: (ids: number | string | Array<number | string>) => Promise<unknown>
   /** 主键字段名（如 'postId'） */
@@ -52,6 +52,12 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   titleKey: string
   /** 删除提示 i18n key（如 'post.tip.confirmDelete'） */
   deleteTipKey: string
+  /**
+   * 删除确认文案插值参数（可选）：缺省 = 既有契约 `{ ids: targetIds }`；
+   * 提供时以返回值作为插值契约，支持 {name}/{count} 等非 ids 插值。
+   * 入参统一为「待删除 id 数组」（单行删除时为单元素数组），便于按 count/names 派生。
+   */
+  deleteTipParams?: (ids: Array<number | string>) => Record<string, unknown>
   /** 查询参数 ref */
   queryParams: Ref<Q>
   /** 表单数据 ref */
@@ -82,6 +88,54 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   supportsSort?: boolean
 }
 
+/**
+ * useCrudTable 返回值公共部分：列表/查询/删除/导出/选中态等，
+ * 只读接入页（未注入 getApi/addApi/updateApi）也可完整使用。
+ */
+export interface UseCrudTableReturn<T extends object> {
+  dataList: ShallowRef<T[]>
+  open: Ref<boolean>
+  loading: Ref<boolean>
+  submitLoading: Ref<boolean>
+  exportLoading: Ref<boolean>
+  beforeDialogClose: (done: () => void) => Promise<void>
+  snapshotForm: ReturnType<typeof useUnsavedGuard>['snapshotForm']
+  showSearch: Ref<boolean>
+  ids: Ref<Array<string | number>>
+  single: Ref<boolean>
+  multiple: Ref<boolean>
+  total: Ref<number>
+  title: Ref<string>
+  getList: () => void
+  cancel: () => Promise<void>
+  reset: () => void
+  handleQuery: () => void
+  resetQuery: () => void
+  handleSelectionChange: (selection: T[]) => void
+  handleSortChange: (p: { prop?: string | null; order?: string | null }) => void
+  handleDelete: (row?: T) => void
+  handleExport: (filename?: string) => void
+}
+
+/** 完整返回值：注入 getApi/addApi/updateApi 后额外暴露新增/修改/提交流程 */
+export interface UseCrudTableFormReturn<T extends object> extends UseCrudTableReturn<T> {
+  handleAdd: () => void
+  handleUpdate: (row?: T) => void
+  submitForm: () => void
+}
+
+/** 完整表单模式：三个表单 API 齐备时暴露 handleAdd/handleUpdate/submitForm */
+export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
+  options: UseCrudTableOptions<T, Q> & {
+    getApi: (id: number | string) => Promise<unknown>
+    addApi: (data: T) => Promise<unknown>
+    updateApi: (data: T) => Promise<unknown>
+  }
+): UseCrudTableFormReturn<T>
+/** 只读模式：未注入 getApi/addApi/updateApi 时按原样运行时不暴露新增/修改/提交流程 */
+export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
+  options: UseCrudTableOptions<T, Q>
+): UseCrudTableReturn<T>
 export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
   options: UseCrudTableOptions<T, Q>
 ) {
@@ -104,9 +158,14 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     beforeSubmit,
     onAfterSubmit,
     onAfterDelete,
+    deleteTipParams,
     syncQueryToUrl = true,
     supportsSort = false
   } = options
+
+  // 只读模式判定：getApi/addApi/updateApi 任一缺失即视为只读接入，
+  // 新增/修改/提交流程不暴露（返回对象条件展开）且运行时兜底短路
+  const hasFormApis = !!(getApi && addApi && updateApi)
 
   // 路由上下文（单测/无路由环境下降级为空，不影响 CRUD 主流程）
   const router: Router | null = (() => {
@@ -281,16 +340,18 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     getList()
   }
 
-  /** 新增按钮操作 */
+  /** 新增按钮操作（只读模式未注入表单 API 时不暴露，运行时兜底短路） */
   function handleAdd(): void {
+    if (!hasFormApis) return
     reset()
     snapshotForm(form.value)
     open.value = true
     title.value = t('common.add') + t(titleKey)
   }
 
-  /** 修改按钮操作 */
+  /** 修改按钮操作（只读模式未注入 getApi 时运行时兜底短路） */
   function handleUpdate(row?: T): void {
+    if (!getApi) return
     reset()
     const targetId = row?.[idField] ?? ids.value[0]
     const currentRequestId = ++updateRequestId
@@ -309,8 +370,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       })
   }
 
-  /** 提交按钮 */
+  /** 提交按钮（只读模式未注入新增/修改 API 时运行时兜底短路） */
   function submitForm(): void {
+    if (!addApi || !updateApi) return
     formRef.value?.validate((valid: boolean) => {
       // UX：校验失败时滚动并聚焦第一个错误字段（长表单不必手动找红字）
       if (!valid) {
@@ -343,8 +405,14 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   /** 删除按钮操作 */
   function handleDelete(row?: T): void {
     const targetIds = row?.[idField] ?? ids.value
+    // 删除确认文案插值契约：缺省 = 既有 `{ ids: targetIds }`；
+    // 提供 deleteTipParams 时由调用方决定插值参数（支持 {name}/{count} 等契约），
+    // 入参统一为待删除 id 数组（单行删除为单元素数组）
+    const tipValues = deleteTipParams
+      ? deleteTipParams(Array.isArray(targetIds) ? targetIds : [targetIds])
+      : { ids: targetIds }
     modal
-      .confirm(t(deleteTipKey, { ids: targetIds }))
+      .confirm(t(deleteTipKey, tipValues))
       .then(() => deleteApi(targetIds))
       .then(() => {
         getList()
@@ -399,6 +467,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   }
   restoreQueryFromUrl()
 
+  // 只读模式（未注入 getApi/addApi/updateApi）不暴露新增/修改/提交流程
   return {
     // 状态
     dataList,
@@ -424,9 +493,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     resetQuery,
     handleSelectionChange,
     handleSortChange,
-    handleAdd,
-    handleUpdate,
-    submitForm,
+    ...(hasFormApis ? { handleAdd, handleUpdate, submitForm } : {}),
     handleDelete,
     handleExport
   }

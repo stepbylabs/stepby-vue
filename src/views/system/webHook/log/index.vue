@@ -268,6 +268,8 @@ import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import { addDateRange } from '@/utils/stepby'
 import type { WebHookLogQueryParams } from '@/types/api/system/webHook'
+import type { FormInstance } from 'element-plus'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const { t, te } = useI18n()
 
@@ -286,33 +288,56 @@ const queryRef = useTemplateRef('queryRef')
 const logTableRef = useTemplateRef('logTableRef')
 const { sys_common_status } = useDict('sys_common_status')
 
-const logList = shallowRef<SysWebHookLog[]>([])
-const loading = ref<boolean>(true)
-const showSearch = ref<boolean>(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
-void isMobileFilter
-const ids = ref<number[]>([])
-const cleanLoading = ref(false)
-const multiple = ref<boolean>(true)
-const total = ref<number>(0)
-const detailOpen = ref(false)
-const currentLog = ref<SysWebHookLog | null>(null)
 const dateRange = ref<string[]>([])
 const defaultSort = ref({ prop: 'createTime', order: 'descending' })
 
-const data = reactive({
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-    eventType: undefined,
-    status: undefined,
-    orderByColumn: undefined,
-    isAsc: undefined
-  } as WebHookLogQueryParams & { pageNum: number; pageSize: number }
+const queryParams = ref<WebHookLogQueryParams & { pageNum: number; pageSize: number }>({
+  pageNum: 1,
+  pageSize: 10,
+  eventType: undefined,
+  status: undefined,
+  orderByColumn: undefined,
+  isAsc: undefined
 })
 
-const { queryParams } = toRefs(data)
+// 只读接入（仅 listApi + deleteApi）：列表/查询/多选/删除走 useCrudTable，
+// 清空/重试/导出/关闭/详情保留手写；form 相关为契约占位（只读模式不暴露表单流程）
+const {
+  dataList: logList,
+  loading,
+  showSearch,
+  ids,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleDelete,
+  handleSelectionChange
+} = useCrudTable<SysWebHookLog, WebHookLogQueryParams & { pageNum: number; pageSize: number }>({
+  listApi: (params) =>
+    listWebHookLog(
+      addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams
+    ),
+  deleteApi: delWebHookLog,
+  idField: 'id',
+  defaultForm: () => ({}) as SysWebHookLog,
+  titleKey: 'webHook.log.title',
+  deleteTipKey: 'webHook.log.tip.confirmDelete',
+  queryParams,
+  form: ref<SysWebHookLog>({} as SysWebHookLog),
+  formRef: ref<FormInstance | null>(null),
+  queryRef,
+  // 迁移等价性：原页面无 URL 查询同步，关闭以保持行为零变化
+  syncQueryToUrl: false
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
+
+const cleanLoading = ref(false)
+const detailOpen = ref(false)
+const currentLog = ref<SysWebHookLog | null>(null)
 
 function statusLabel(status?: string): string {
   return status === '0' ? t('webHook.log.status.success') : t('webHook.log.status.fail')
@@ -327,35 +352,12 @@ function formatPayload(payload: string | null | undefined): string {
   }
 }
 
-/** 查询推送记录列表 */
-function getList() {
-  loading.value = true
-  listWebHookLog(addDateRange(queryParams.value as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams)
-    .then((response) => {
-      logList.value = response.rows
-      total.value = response.total
-    })
-    .catch((e) => {
-      if (import.meta.env.DEV) console.error(e)
-      modal.msgError(t('common.requestFailed'))
-    })
-    .finally(() => {
-      loading.value = false
-    })
-}
-
 // 返回按钮
 function handleClose() {
   tab.closeOpenPage({ path: '/system/webHook' })
 }
 
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
-  getList()
-}
-
-/** 重置按钮操作（含时间范围与排序状态） */
+/** 重置按钮操作（含时间范围与排序状态，保留手写：需恢复表格默认排序） */
 function resetQuery() {
   dateRange.value = []
   queryParams.value.orderByColumn = undefined
@@ -365,35 +367,17 @@ function resetQuery() {
   logTableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
-/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
+/** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，保留手写以维持既有参数语义） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
   queryParams.value.orderByColumn = column.prop ?? undefined
   queryParams.value.isAsc = column.order ?? undefined
   getList()
 }
 
-// 多选框选中数据
-function handleSelectionChange(selection: SysWebHookLog[]) {
-  ids.value = selection.map((item) => item.id!)
-  multiple.value = !selection.length
-}
-
 /** 详情按钮操作 */
 function handleView(row: SysWebHookLog) {
   currentLog.value = { ...row }
   detailOpen.value = true
-}
-
-/** 删除按钮操作 */
-function handleDelete() {
-  modal
-    .confirm(t('webHook.log.tip.confirmDelete', { ids: ids.value }))
-    .then(() => delWebHookLog(ids.value))
-    .then(() => {
-      getList()
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch(() => {})
 }
 
 /** 清空按钮操作 */

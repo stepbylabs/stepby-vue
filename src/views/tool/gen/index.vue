@@ -214,6 +214,8 @@ import tab from '@/plugins/tab'
 import downloadPlugin from '@/plugins/download'
 import { addDateRange } from '@/utils/stepby'
 import type { GenTable, GenQueryParams } from '@/types/api/tool/gen'
+import type { FormInstance } from 'element-plus'
+import { useCrudTable } from '@/composables/useCrudTable'
 
 const route = useRoute()
 const queryRef = useTemplateRef('queryRef')
@@ -222,33 +224,52 @@ const importRef = useTemplateRef('importRef')
 const createRef = useTemplateRef('createRef')
 const previewRef = useTemplateRef('previewRef')
 
-const tableList = ref<GenTable[]>([])
-const loading = ref<boolean>(true)
-const showSearch = ref<boolean>(true)
-// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
-const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
-void isMobileFilter
-const ids = ref<number[]>([])
-const single = ref<boolean>(true)
-const multiple = ref<boolean>(true)
-const total = ref<number>(0)
-const tableNames = ref<string[]>([])
 const dateRange = ref<string[]>([])
 const uniqueId = ref<string>('')
 const defaultSort = ref({ prop: 'createTime', order: 'descending' })
 
-const data = reactive({
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-    tableName: undefined,
-    tableComment: undefined,
-    orderByColumn: defaultSort.value.prop,
-    isAsc: defaultSort.value.order
-  } as GenQueryParams
+const queryParams = ref<GenQueryParams>({
+  pageNum: 1,
+  pageSize: 10,
+  tableName: undefined,
+  tableComment: undefined,
+  orderByColumn: defaultSort.value.prop,
+  isAsc: defaultSort.value.order
 })
 
-const { queryParams } = toRefs(data)
+// 只读接入（仅 listApi + deleteApi）：列表/查询/删除走 useCrudTable；
+// 预览/生成/导入/建表/同步/排序/多选 tableNames 保留手写。form 相关为契约占位（只读模式不暴露表单流程）
+const {
+  dataList: tableList,
+  loading,
+  showSearch,
+  ids,
+  single,
+  multiple,
+  total,
+  getList,
+  handleQuery,
+  handleDelete
+} = useCrudTable<GenTable, GenQueryParams>({
+  listApi: (params) => listTable(addDateRange({ ...params }, dateRange.value) as GenQueryParams),
+  deleteApi: (targetIds) => delTable(targetIds as number | number[]),
+  idField: 'tableId',
+  defaultForm: () => ({}) as GenTable,
+  titleKey: 'gen.title',
+  deleteTipKey: 'common.confirmDelete',
+  queryParams,
+  form: ref<GenTable>({} as GenTable),
+  formRef: ref<FormInstance | null>(null),
+  queryRef,
+  // 迁移等价性：原页面无 URL 查询同步，关闭以保持行为零变化
+  syncQueryToUrl: false
+})
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
+
+const tableNames = ref<string[]>([])
 
 onActivated(() => {
   const time = route.query.t
@@ -261,23 +282,31 @@ onActivated(() => {
   }
 })
 
-/** 查询表集合 */
-function getList() {
-  loading.value = true
-  listTable(addDateRange(queryParams.value, dateRange.value))
-    .then((response) => {
-      tableList.value = response.rows
-      total.value = response.total
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+/** 重置按钮操作（保留手写：需恢复表格默认排序） */
+function resetQuery() {
+  dateRange.value = []
+  queryRef.value?.resetFields()
+  queryParams.value.pageNum = 1
+  genRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1
+/** 预览按钮：打开代码预览弹窗（Prism 高亮） */
+function handlePreview(row: GenTable) {
+  previewRef.value?.openPreview(row.tableId!)
+}
+
+// 多选框选中数据（写入 useCrudTable 的 ids/single/multiple，并额外维护 tableNames 供生成/编辑用）
+function handleSelectionChange(selection: GenTable[]) {
+  ids.value = selection.map((item) => item.tableId)
+  tableNames.value = selection.map((item) => item.tableName)
+  single.value = selection.length != 1
+  multiple.value = !selection.length
+}
+
+/** 排序触发事件（保留手写以维持既有参数语义） */
+function handleSortChange(column: { prop: string | null; order: string | null }) {
+  queryParams.value.orderByColumn = column.prop
+  queryParams.value.isAsc = column.order
   getList()
 }
 
@@ -325,55 +354,12 @@ function openCreateTable() {
   createRef.value?.show()
 }
 
-/** 重置按钮操作 */
-function resetQuery() {
-  dateRange.value = []
-  queryRef.value?.resetFields()
-  queryParams.value.pageNum = 1
-  genRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
-}
-
-/** 预览按钮：打开代码预览弹窗（Prism 高亮） */
-function handlePreview(row: GenTable) {
-  previewRef.value?.openPreview(row.tableId!)
-}
-
-// 多选框选中数据
-function handleSelectionChange(selection: GenTable[]) {
-  ids.value = selection.map((item) => item.tableId)
-  tableNames.value = selection.map((item) => item.tableName)
-  single.value = selection.length != 1
-  multiple.value = !selection.length
-}
-
-/** 排序触发事件 */
-function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop
-  queryParams.value.isAsc = column.order
-  getList()
-}
-
 /** 修改按钮操作 */
 function handleEditTable(row?: GenTable) {
   const tableId = row?.tableId || ids.value[0]
   const tableName = row?.tableName || tableNames.value[0]
   const params = { pageNum: queryParams.value.pageNum }
   tab.openPage(t('gen.msg.editTitle', { name: tableName }), '/tool/gen-edit/index/' + tableId, params)
-}
-
-/** 删除按钮操作 */
-function handleDelete(row?: GenTable) {
-  const tableIds = row?.tableId || ids.value
-  modal
-    .confirm(t('common.confirmDelete', { ids: tableIds }))
-    .then(function () {
-      return delTable(tableIds)
-    })
-    .then(() => {
-      getList()
-      modal.msgSuccess(t('common.deleteSuccess'))
-    })
-    .catch(() => {})
 }
 
 getList()
