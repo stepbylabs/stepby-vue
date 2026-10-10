@@ -198,6 +198,7 @@ export default {
     failed: 'Failed',
     error: 'Error',
     exportBtn: 'Export',
+    exportFailed: 'Export failed, please retry later',
     ph: { tenantFilter: 'Tenant ID filter (platform)' }
   },
   aiConfig: {

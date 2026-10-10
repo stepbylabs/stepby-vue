@@ -198,6 +198,7 @@ export default {
     failed: '失败',
     error: '错误信息',
     exportBtn: '导出',
+    exportFailed: '导出失败，请稍后重试',
     ph: { tenantFilter: '租户 ID 筛选（平台）' }
   },
   aiConfig: {

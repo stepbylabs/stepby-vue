@@ -124,6 +124,8 @@ interface DataRuleRow {
   valueType: string
   ruleValue?: string
   status: string
+  /** 已绑定角色 ID 集（列表接口返回，编辑回显用） */
+  roleIds?: number[]
 }
 
 interface RoleOption {
@@ -207,7 +209,9 @@ function openEdit(row: DataRuleRow) {
   form.valueType = row.valueType
   form.ruleValue = row.ruleValue ?? ''
   form.enabled = row.status === '0'
-  form.roleIds = []
+  // 回显已绑定角色（列表接口带 roleIds）。此前恒置空 → 编辑弹窗不显示现有绑定，
+  // 管理员改动即触发后端 upsert 全量覆盖、静默清除未勾选的原绑定。
+  form.roleIds = [...(row.roleIds ?? [])]
   dialogVisible.value = true
 }
 

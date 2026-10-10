@@ -58,6 +58,7 @@
 <script setup lang="ts" name="AiHistory">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
 interface AiHistoryAdminRow {
@@ -98,6 +99,7 @@ async function load(p?: number) {
     rows.value = d?.items ?? []
     total.value = d?.total ?? 0
   } catch (e) {
+    // 列表加载走 request 封装，错误提示由响应拦截器（errorHub）统一弹出，此处不重复提示
     if (import.meta.env.DEV) console.error('[aiHistory] load failed:', e)
   } finally {
     loading.value = false
@@ -113,9 +115,12 @@ async function exportHistory() {
     const tid = tenantFilter.value.trim()
     if (tid) params.tenantFilter = tid
     const query = new URLSearchParams(params).toString()
-    // 与 operlog 导出同款直链下载（token 从统一 auth 存储取）
+    // 与 operlog 导出同款直链下载（token 从统一 auth 存储取）。
+    // 基址必须取 VITE_APP_BASE_API（dev=/dev-api、prod=/prod-api、stage=/stage-api、
+    // embedded=''），不能硬编码 /dev-api —— 否则生产/预发/嵌入式下该路径无代理、必 404。
     const { getToken } = await import('@/utils/auth')
-    const resp = await fetch('/dev-api/system/ai/history/admin/export?' + query, {
+    const base = String(import.meta.env.VITE_APP_BASE_API || '')
+    const resp = await fetch(base + '/system/ai/history/admin/export?' + query, {
       headers: { authorization: 'Bearer ' + (getToken() ?? '') }
     })
     if (!resp.ok) throw new Error('export failed: ' + resp.status)
@@ -127,6 +132,8 @@ async function exportHistory() {
     a.click()
     URL.revokeObjectURL(url)
   } catch (e) {
+    // 导出失败必须有用户可见反馈（此前静默吞错，用户点导出无任何响应）
+    ElMessage.error(t('aiHistory.exportFailed'))
     if (import.meta.env.DEV) console.error('[aiHistory] export failed:', e)
   }
 }
