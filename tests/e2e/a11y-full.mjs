@@ -191,7 +191,7 @@ async function login(page) {
   })
 
   const cookieButton = page.locator('button:has-text("同意")').first()
-  if (await cookieButton.isVisible({ timeout: 500 }).catch(() => false)) {
+  if (await cookieButton.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
     await cookieButton.click({ timeout: 2000 }).catch(() => {})
   }
 
@@ -216,7 +216,7 @@ async function dismissTour(page) {
       'button:has-text("跳过"), button:has-text("跳过引导"), [class*="tour"] button:has-text("跳"), button:has-text("完成"), button:has-text("开始使用")'
     )
     .first()
-  if (await skipButton.isVisible({ timeout: 500 }).catch(() => false)) {
+  if (await skipButton.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
     await skipButton.click({ timeout: 1500 }).catch(() => {})
   }
   await page.keyboard.press('Escape').catch(() => {})

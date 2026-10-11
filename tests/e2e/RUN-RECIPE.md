@@ -1364,8 +1364,9 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 
 1. **`locator.isVisible({ timeout })` 不等待**：新版 Playwright `isVisible()` 不接受 timeout、
    **立即返回**——SPA 异步挂载/Toast 异步渲染慢于前置 sleep 时必误判 false（F40 TierB-3、F121③
-   双双因此假失败）。**正解**：`waitFor({ state: 'visible', timeout })`。存量 201 处同为该模式
-   （元素已挂载时作为存在性检查可用），未全量重写——**新代码禁用 isVisible({ timeout })**。
+   双双因此假失败）。**正解**：`waitFor({ state: 'visible', timeout })`。存量 201 处已于
+   **批三十五全量清零**（等价改写 `waitFor({state:'visible',timeout}).then(()=>true).catch(()=>false)`，
+   见 §3.31）——**新代码禁用 isVisible({ timeout })**。
 2. **getNames 与白名单口径必须一致**：getNames 分组全 Redis 前缀但 getKeys/清理按白名单校验 →
    页面列出点击必 400 的死行（F122 实证 status=400）。axum e8de93f 已在 get_names retain 白名单。
    **教训**：列表接口与操作接口的安全口径要单点收敛，否则 UI 必出假入口。
@@ -1386,6 +1387,38 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    page.route 能拦，user/list 页面加载即请求所以拦不到。**新用例拦截 XHR 默认 context.route**。
 2. **el-button 被 Tour 遮罩拦截时 JS click 是唯一解**：`.evaluate((e) => e.click())`（F124 二证，
    与 §3.28 el-switch 同型）。Playwright 原生 click 会因 elementFromPoint 命中 mask 而超时 30s。
-3. **存量脚本债：F40 的 `page.route('**/system/user/list**')` 注册后从不 unroute**，全量模式下
-   会给后续所有 user/list 请求 +800ms 延迟（假失败温床）。已随 F124 修复提醒记录，待后续轮次
-   统一治理（route 与 unroute 必须 try/finally 配对）。
+3. ~~**存量脚本债：F40 的 `page.route('**/system/user/list**')` 注册后从不 unroute**~~
+   **已修（批三十五）**：unroute 移入 `finally` 块——原实现 unroute 在 try 体内，
+   body 中途抛异常（goto 失败等）会跳过卸载，800ms 延迟拦截器泄漏到全量后续所有 user/list 请求。
+   **铁律：route 与 unroute 必须 try/finally 配对**。
+
+### 3.31 批三十五（循环第十一轮）：脚本债全量清零
+
+1. **isVisible({timeout}) 误用 202 处等价改写（main.mjs 200 + a11y-full.mjs 2）**：
+   `locator.isVisible({ timeout: N }).catch(() => false)` →
+   `locator.waitFor({ state: 'visible', timeout: N }).then(() => true).catch(() => false)`。
+   等价性论证：isVisible 本就不接受 timeout 立即返回，调用点传 timeout 的**真实意图**即"等至多 N ms"；
+   waitFor 语义严格覆盖（已可见立即 true / 迟到元素等满窗口 true / 缺席等满窗口经 catch false）。
+   副作用仅负路径分支等满超时（全量耗时小幅上升），换取长跑鲁棒性（r37 实测 isVisible 误判
+   与 Redis 抖动叠加放大假失败）。裸 `isVisible()`（立即状态探测）51 处语义正确**保留**。
+   批量改写用脚本执行（正则双形态：`{timeout:N}` / `{timeout}`）+ 同行/跨行冗余 `.catch` 去重 +
+   `node --check` 语法验证 + F5/F40/F119 三用例冒烟。
+2. **F40 route 泄漏 try/finally 修复**（见 §3.30-3）。
+3. **deep-e2e.mjs 不在本次改写范围**：非门禁脚本（补充深测），改动而不再全量验证违反
+   「改哪测哪」纪律——其 isVisible 用法仅在门禁口径外记档。
+4. **404 页 5s 自动回首页窗口**：`src/views/error/404.vue` 有 `AUTO_BACK_SECONDS=5` 倒计时
+   `router.replace('/index')`（应用设计行为）。一切「深链 → 期望 404」的断言必须在
+   goto 后 **5s 内**完成，且 skipTour 等晚到窗口等待不得插在判定之前（r42 实证：
+   sleep(2500)+skipTour(2.5s) 推过窗口 → URL 已变 /index 误判「未 404」）。
+   F17 修复：is404Page 移到 skipTour 之前。
+5. **语言切换必须「验证后继续」**：EP 下拉项 click 被瞬时拦截时 `.catch(()=>{})` 会静默吞掉
+   （r42 fail 截图实证：下拉开着、English 在场却未点上 → 8 页按中文扫描 → 77 处假残留）。
+   F16 修复：点击后验证 `documentElement.lang==='en-US'`，失败重试 ×3（JS click 穿透兜底）；
+   重试耗尽跳过扫描并诚实判定（不制造海量假残留）。切回中文路径已有同型三重兜底（对齐）。
+6. **skipTour 快路径**：login/presetTourDisabled 已注入 `*-tour=completed` 抑制标记——
+   标记在场时 tour 不会弹出，仅即时探测兜底（省 88 处 × 2.5s ≈ 4 分钟全量耗时）；
+   标记缺失（独立 newContext）保留完整 2500ms 晚到窗口（收尾十三 operlog 实证）。
+7. **a11y 字号基线**：日志类页面「终端风」小字易踩 a11y 规则「正文文本字号不小于 12px」
+   （r43 实证 logtail `.level-badge` 11px × 500 行 = 500 违规）。日志正文可 12.5px，
+   徽章/行号等重复元素一律 ≥12px。另：Git Bash 下传 `--route=/x` 会被 MSYS 路径转换改写
+   成盘符路径 → 加 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"` 前缀。
