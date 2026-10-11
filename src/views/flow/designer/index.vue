@@ -310,6 +310,9 @@ async function load(): Promise<void> {
     })
     rows.value = res.rows ?? []
     total.value = res.total ?? 0
+  } catch {
+    // 列表加载失败（网络/5xx）：全局拦截器已弹错误，吞掉 rejection 防 AxiosError
+    // 冒泡进 ErrorBoundary 整页崩溃（r44 实证 dataset 同型缺陷）
   } finally {
     loading.value = false
   }
@@ -442,6 +445,9 @@ async function handleSave(): Promise<void> {
     ElMessage.success(t('common.operationSuccess'))
     mode.value = 'list'
     load()
+  } catch {
+    // 保存失败（如 flow_code 唯一约束 400）：拦截器已弹错，保持表单打开修正重试，
+    // 吞 rejection 防 ErrorBoundary 整页崩溃（r44 实证 dataset 同型缺陷）
   } finally {
     saving.value = false
   }
@@ -494,6 +500,8 @@ async function confirmGraphSubmit(): Promise<void> {
     ElMessage.success(t('flowDef.submitOk'))
     graphSubmitOpen.value = false
     void res
+  } catch {
+    // 提交失败：拦截器已弹错，保持对话框打开修正重试（吞 rejection 防整页崩溃）
   } finally {
     graphSubmitting.value = false
   }

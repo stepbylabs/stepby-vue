@@ -281,6 +281,10 @@ async function handleSave() {
     editOpen.value = false
     ElMessage.success(t('common.operationSuccess'))
     getList()
+  } catch {
+    // 服务端拒绝（SQL 白名单 400/唯一约束等）：全局拦截器已弹具体错误，
+    // 此处必须吞掉 rejection——否则 AxiosError 冒泡进 ErrorBoundary 整页崩溃
+    // （r44 实证：负例 UPDATE 400 → 「页面加载失败」替换视图）。保持对话框打开让用户修正重试。
   } finally {
     saving.value = false
   }
