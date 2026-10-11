@@ -1494,3 +1494,12 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 - **修复 2 处**：M9 console 401 白名单补 `/system/notice/`（listTop 为批三十一新增的顶部通知）；
   M79 doTest waitForApi 超时 10s→20s（真实外呼不可达目标耗时 10.07s）。
 - **警告**：不要传 `STEPBY_UI_URL` 指向非 8080 实例（登录异常）——默认嵌入式同进程 8080。
+
+### 3.38 批四十七：F135 运行时 metrics 捕获维度（新捕获面）
+
+- `/metrics`（public.rs 公开端点，Prometheus 文本）此前不在 e2e 捕获面——F135 纳入：
+  结构健全性（uptime/db_connected/shared_store_kind）+ **5xx 轮内增量**（累计计数器跨轮快照
+  delta ≤10，首轮建基线；环境风暴信号，r55 实证暴涨可捕获）+ 定时任务失败计数 + DB 池结构健康。
+- **坑**：①计数器为进程启动以来累计值，固定阈值必错（首轮即 76 含风暴史）——必须 delta 语义；
+  ②shared_store_kind/db_connected 为带 label 形态（前缀匹配，裸名查不到）；③local 档 SQLite
+  池 size=1，单次抓取 busy=1/1 属瞬时正常（断言 busy ≤ size）。

@@ -17209,7 +17209,8 @@ async function main() {
       { id: 131, fn: testFeature131 },
       { id: 132, fn: testFeature132 },
       { id: 133, fn: testFeature133 },
-      { id: 134, fn: testFeature134 }
+      { id: 134, fn: testFeature134 },
+      { id: 135, fn: testFeature135 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -23102,4 +23103,103 @@ async function testFeature134(page) {
   await dismissAllOverlays(page)
   const leftoverDialogs = await page.locator('.el-dialog:visible').count()
   record(134, '④ 尾部收尾（无数据变更 + 对话框全关闭）', leftoverDialogs === 0, `dialogs=${leftoverDialogs}`)
+}
+
+// ==================== 功能 135：运行时 metrics 捕获维度（批四十七新捕获面）====================
+// /metrics（public.rs 公开端点，Prometheus 文本格式，5544 行）此前不在 e2e 捕获面内——
+// 本用例把「运行时指标异常」纳入捕获：结构健全性 + 5xx 计数 + 任务失败计数 + DB 池健康。
+// 设计要点：负向用例会产生 4xx（403/429/400 预期），不纳入异常；503（auth 闸门 fail-closed）
+// 是环境风暴信号——超阈值即 FAIL（r55 实证风暴轮 503 计数会暴涨）。
+async function testFeature135(page) {
+  log('=== 功能 135：运行时 metrics 捕获维度 ===')
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { Authorization: `Bearer ${token}` }
+  let raw = ''
+  try {
+    raw = await apiWithBackoff('/metrics', { headers: jsonHeaders }).then((r) => r.body).catch(() => null)
+    if (typeof raw !== 'string') {
+      // apiWithBackoff 可能 JSON.parse 失败回退——直接 fetch 兜底
+      raw = await fetch(`${CONFIG.backendUrl}/metrics`, { headers: jsonHeaders })
+        .then((r) => r.text())
+        .catch(() => '')
+    }
+  } catch (err) {
+    record(135, '① /metrics 可达', false, `异常: ${err.message.slice(0, 100)}`)
+    return
+  }
+  record(135, '① /metrics 可达（Prometheus 文本格式）', raw.length > 1000 && raw.includes('# HELP'), `bytes=${raw.length}`)
+
+  const metrics = new Map()
+  for (const line of raw.split('\n')) {
+    const m = line.match(/^(stepby_[a-z_]+)(\{[^}]*\})?\s+(.+)$/)
+    if (m) metrics.set(`${m[1]}${m[2] || ''}`, m[3].trim())
+  }
+
+  // ② 结构健全性：进程/DB/共享态关键 gauge（store kind 为带 label 形态——前缀匹配，批四十七修正）
+  const uptime = Number(metrics.get('stepby_uptime_seconds') || 0)
+  let dbConnected = 0
+  for (const [k, v] of metrics) {
+    if (k.startsWith('stepby_db_connected{')) dbConnected = Number(v) || 0
+  }
+  let storeKind = ''
+  for (const [k, v] of metrics) {
+    if (k.startsWith('stepby_shared_store_kind{')) storeKind = String(v).replace(/"/g, '')
+  }
+  record(
+    135,
+    '② 结构健全性（uptime>0 / db_connected=1 / shared_store_kind 在位）',
+    uptime > 0 && dbConnected === 1 && storeKind.length > 0,
+    `uptime=${uptime}s, db_connected=${dbConnected}, store=${storeKind}`
+  )
+
+  // ③ 5xx 计数（批四十七修正：计数器为进程启动以来累计值——固定阈值错误，首轮即 76 含 r55 风暴史）
+  // 改跨轮快照 delta 语义：screenshots/_metrics_5xx_baseline.json 存上轮总量，本轮 delta ≤ 阈值；
+  // 首轮无基线时建立基线并 PASS（记录口径）。负向用例只产 4xx；5xx 暴涨 = 环境风暴信号（r55 实证）。
+  let total5xx = 0
+  const fiveXXPaths = []
+  for (const [key, val] of metrics) {
+    if (key.startsWith('stepby_http_requests_total{') && /status="5\d\d"/.test(key)) {
+      total5xx += Number(val) || 0
+      fiveXXPaths.push(key.replace('stepby_http_requests_total', '').slice(0, 60))
+    }
+  }
+  const FIVE_XX_DELTA_THRESHOLD = 10
+  const baselinePath = path.join(CONFIG.screenshotDir, '_metrics_5xx_baseline.json')
+  let prev5xx = null
+  try {
+    if (fs.existsSync(baselinePath)) prev5xx = JSON.parse(fs.readFileSync(baselinePath, 'utf8')).total5xx ?? null
+  } catch {
+    prev5xx = null
+  }
+  fs.writeFileSync(baselinePath, JSON.stringify({ total5xx, ts: new Date().toISOString() }))
+  const delta5xx = prev5xx === null ? null : Math.max(0, total5xx - prev5xx)
+  const fiveXXOk = prev5xx === null || delta5xx <= FIVE_XX_DELTA_THRESHOLD
+  record(
+    135,
+    `③ 5xx 轮内增量 ≤ ${FIVE_XX_DELTA_THRESHOLD}（累计计数器跨轮快照 delta，环境风暴信号）`,
+    fiveXXOk,
+    prev5xx === null
+      ? `首轮建立基线：total5xx=${total5xx}（下轮起按 delta 判定）`
+      : `prev=${prev5xx}, now=${total5xx}, delta=${delta5xx}${fiveXXPaths.length ? ', sample=' + fiveXXPaths.slice(0, 3).join(' ; ') : ''}`
+  )
+
+  // ④ 任务失败计数：内置定时任务应全部成功（outcome/status=fail 家族）
+  let jobFail = 0
+  for (const [key, val] of metrics) {
+    if (key.startsWith('stepby_job_executions_total{') && /(fail|error|timeout)/i.test(key)) {
+      jobFail += Number(val) || 0
+    }
+  }
+  record(135, '④ 定时任务失败计数 = 0', jobFail === 0, `job_fail_total=${jobFail}`)
+
+  // ⑤ DB 池结构健康（批四十七修正：local 档 SQLite max_connections=1，单次抓取 busy=1/1 是
+  // 瞬时正常态）——断言池已上报且未超订（busy ≤ size），busy 值留档供趋势观察
+  const poolSize = Number(metrics.get('stepby_db_pool_size{backend="sqlite"}') || metrics.get('stepby_db_pool_size') || 0)
+  const poolBusy = Number(metrics.get('stepby_db_pool_busy{backend="sqlite"}') || metrics.get('stepby_db_pool_busy') || 0)
+  record(
+    135,
+    '⑤ DB 池结构健康（已上报且 busy ≤ size）',
+    poolSize > 0 && poolBusy <= poolSize,
+    `busy=${poolBusy}/${poolSize}（size=1 为 SQLite 档配置，单次抓取 busy=1 属瞬时正常）`
+  )
 }
