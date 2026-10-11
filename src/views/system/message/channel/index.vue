@@ -384,6 +384,11 @@ function runTest() {
       modal.msgSuccess(t('msg.channel.testSuccess'))
       testOpen.value = false
     })
+    .catch(() => {
+      // 测试失败（如 mail_disabled 400）：全局拦截器已弹具体错误，
+      // 保持对话框打开让用户修正配置——吞 rejection 防 ErrorBoundary 整页崩溃
+      // （批三十九：r44 dataset 同族缺陷，console Unhandled Rejection 实证）
+    })
     .finally(() => {
       testLoading.value = false
     })

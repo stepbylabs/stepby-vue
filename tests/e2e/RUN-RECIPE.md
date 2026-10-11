@@ -1443,3 +1443,16 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    sys_config（e2e_gov 键）四类纳入——r43 巡检实证 127+261+2 行无限增长，r44 验证清零。
 7. **负例断言先挂响应监听**：`waitForResponse` 在 click 前挂载，以服务端响应（400）为
    拒绝判定基准，toast/对话框状态在响应后测量（时序稳定）。
+
+### 3.33 批三十九（循环第十五轮）：flow 设计器闭环 + 渠道测试链
+
+1. **flow/designer 是表单式设计器（非画布）**：节点/边均为 el-card 列表 + 下拉选择（添加连线=弹窗
+   双 el-select），零拖拽——Playwright 纯 DOM 即可闭环，无需 mouse 轨迹模拟。编辑态**没有**
+   编码/名称输入框（新建自动生成 `flow_<ts>`）→ 落库断言从 POST 响应体回读 flowId/flowCode。
+2. **validateGraph 前端先拦**：图不连通/孤立节点时保存不发 POST（el-alert 错误清单 + graphInvalid
+   toast）——负例断言「无 POST」比断言 400 更准。审批节点必须入边+出边（加 1 条边必挂）。
+3. **msg-channel 发送测试**：site 渠道后端 `"site" => Ok(())` 无条件成功（零外部依赖）——
+   成功链用 site；email 本机 mailer 未启用 → 400 mail_disabled 错误 toast（负路径）。
+   **runTest 曾缺 .catch**（失败时 Unhandled Rejection，批三十九修复——与 batch36 try/catch 族同型）。
+4. **flow_definition 软删清理口径**：API 删除=del_flag=1 软删，DB 累积——自清理按
+   `del_flag=1 AND (it_*/flow_<digits>/e2e-*)` 物理清除（r50 巡检 6 行）。

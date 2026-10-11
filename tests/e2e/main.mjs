@@ -16784,7 +16784,18 @@ async function cleanupE2eResidue() {
       ['dict_data', "DELETE FROM sys_dict_data WHERE dict_type IN (SELECT dict_type FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2')"],
       ['dict_type', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2'"],
       ['pat', "DELETE FROM sys_pat WHERE name LIKE 'e2e%' AND status='1'"],
-      ['config', "DELETE FROM sys_config WHERE config_key LIKE 'e2e%'"]
+      ['config', "DELETE FROM sys_config WHERE config_key LIKE 'e2e%'"],
+      // 批三十九：F75 请假单链路残留（doc/task/log 三表，每轮 +1 链）——r49 巡检实证 136 链
+      ['f75_log', "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"],
+      ['f75_task', "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"],
+      ['f75_doc', "DELETE FROM flow_demo_doc WHERE title LIKE 'e2e75-%'"],
+      // 批三十九：flow_definition 软删行物理清除（F89 it_graph_* / F133 designer 自动码 flow_<ts>
+      // ——API 删除为软删 del_flag=1，list 已过滤但 DB 持续累积；r50 巡检 6 行）
+      [
+        'flow_def',
+        "DELETE FROM flow_definition WHERE del_flag=1 AND (flow_code GLOB 'it_*' OR flow_code GLOB 'flow_[0-9]*' OR flow_code GLOB 'e2e-*')",
+      ],
+      ['flow_graphdoc', "DELETE FROM flow_graph_doc WHERE del_flag=1 AND flow_code GLOB 'it_*'"]
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -17178,7 +17189,9 @@ async function main() {
       { id: 129, fn: testFeature129 },
       { id: 130, fn: testFeature130 },
       { id: 131, fn: testFeature131 },
-      { id: 132, fn: testFeature132 }
+      { id: 132, fn: testFeature132 },
+      { id: 133, fn: testFeature133 },
+      { id: 134, fn: testFeature134 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -22693,4 +22706,378 @@ async function testFeature132(page) {
     await apiWithBackoff(`/system/dataRule/${leftover.ruleId}`, { method: 'DELETE', headers: jsonHeaders })
   }
   await dismissAllOverlays(page)
+}
+
+// ==================== 功能 133：flow/designer 表单式设计器真实闭环 ====================
+/**
+ * 设计器是表单式（非画布）：src/views/flow/designer/index.vue——编辑态=节点 el-card
+ * 列表 + 边 el-card 列表，mode 'list'|'edit' 两态。本用例做**保存闭环**（F110 只做进入断言）：
+ * - happy path：新增 → 添加审批节点（填 id/name + 审批人多选）→ 添加连线×2（保证图连通）→
+ *   保存（先挂 POST /system/flow/definition 监听）→ 200 + 操作成功 toast + 回列表态 →
+ *   列表新 flow_code 行 + API 复核 → 尾部 API 删除自建 definition。
+ *   注意：新建时 flowCode 前端自动生成 flow_<ts>（编辑态**无**编码/名称输入框，
+ *   flowDef.codeNameRequired「编码与名称必填」告警在新模式下实际不可触达），故
+ *   用 e2e 语义节点 id（ap_e2e133）避撞 demo_v2 种子，flowCode 由响应体回读。
+ * - 连线补充断言：「添加连线」弹窗双 el-select 选 from/to → 边卡片数 +1（编辑态内 DOM）。
+ * - 负路径：删除中间审批节点使图断裂 → 保存被前端 validateGraph 先行拦截：
+ *   el-alert 错误清单 + flowDef.graphInvalid toast + 无 POST 发出（无落库）。
+ */
+async function testFeature133(page) {
+  log('=== 功能 133：流程设计器表单式编辑真实闭环（加节点+连线+保存落库+负路径+清理） ===')
+  const ok = await openPage(page, '/system/flowDefinition', 'flowDefinition')
+  record(133, '① 页面可达（/system/flowDefinition）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const ADD_NODE = '添加审批节点' // flowDef.addNode zh-CN 真值
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+  const enterEditMode = async () => {
+    await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+    return page
+      .getByRole('button', { name: ADD_NODE })
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+  }
+  const backToList = async () => {
+    await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
+    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  }
+  /** 「添加连线」弹窗：双 el-select 选 from/to → 确定 → 断言边卡片 +1 */
+  const addEdgeViaDialog = async (fromId, toId) => {
+    const before = await page.locator('.el-card').count()
+    await page.getByRole('button', { name: '添加连线' }).first().evaluate((el) => el.click()).catch(() => {})
+    const dlg = page.locator('.el-dialog:visible').last()
+    const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    if (!dlgOk) return false
+    for (const [idx, id] of [[0, fromId], [1, toId]]) {
+      await dlg
+        .locator('.el-select')
+        .nth(idx)
+        .locator('input')
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
+      const opt = page
+        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+        .filter({ hasText: id })
+        .first()
+      const optOk = await opt.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (!optOk) {
+        await page.keyboard.press('Escape')
+        return false
+      }
+      await opt.evaluate((el) => el.click())
+      await sleep(300)
+    }
+    await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+    await dlg.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
+    const after = await page.locator('.el-card').count()
+    return after === before + 1
+  }
+
+  // ② 列表「新增」进入编辑态（表单式设计器：缺省骨架 start→a1→end + 两条边）
+  const editOk = await enterEditMode()
+  record(133, '② 列表「新增」进入编辑态（添加审批节点按钮渲染）', editOk)
+  if (!editOk) {
+    await dismissAllOverlays(page)
+    return
+  }
+
+  // ③ 添加审批节点：卡片 +1（3 节点卡 + 2 边卡 → 新节点卡插在节点区末尾 = nth(3)），
+  //    填 id/name（aria-label 在内部 input 上：节点 ID / 节点名称），审批人多选追加 role:admin
+  const cardsBefore = await page.locator('.el-card').count()
+  await page.getByRole('button', { name: ADD_NODE }).first().evaluate((el) => el.click())
+  await sleep(300)
+  const cardsAfterAdd = await page.locator('.el-card').count()
+  const newCard = page.locator('.el-card').nth(3)
+  await newCard.locator('input[aria-label="节点 ID"]').first().fill('ap_e2e133')
+  await newCard.locator('input[aria-label="节点名称"]').first().fill('E2E审批节点')
+  let assigneeOk = false
+  try {
+    await newCard.locator('input[aria-label="审批人"]').first().evaluate((el) => el.click())
+    const opt = page
+      .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+      .filter({ hasText: 'role:admin' })
+      .first()
+    await opt.waitFor({ state: 'visible', timeout: 4000 })
+    await opt.evaluate((el) => el.click())
+    await page.keyboard.press('Escape') // 收起下拉，避免遮挡后续按钮
+    await sleep(300)
+    assigneeOk = (await newCard.locator('.el-select').first().locator('.el-tag').count()) >= 2
+  } catch {}
+  record(
+    133,
+    '③ 添加审批节点（卡片 +1）+ id/name 填写 + 审批人双 tag（dept_leader 默认 + role:admin）',
+    cardsAfterAdd === cardsBefore + 1 && assigneeOk,
+    `cards=${cardsBefore}→${cardsAfterAdd}, assignees=${assigneeOk}`
+  )
+
+  // ④ 连线补充断言：a1→ap_e2e133、ap_e2e133→end（新审批节点必须有入边+出边才通过
+  //    validateGraph 连通性校验，故两次添加、各断言边卡片 +1，随保存链一起提交）
+  const edge1 = await addEdgeViaDialog('a1', 'ap_e2e133')
+  const edge2 = await addEdgeViaDialog('ap_e2e133', 'end')
+  record(133, '④ 添加连线弹窗（a1→ap_e2e133、ap_e2e133→end，边卡片各 +1）', edge1 && edge2,
+    `edge1=${edge1}, edge2=${edge2}`)
+
+  // ⑤ 保存闭环：先挂 POST 监听再点保存 → 200 + 操作成功 toast + 回列表态
+  const saveP = page
+    .waitForResponse(
+      (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    .catch(() => null)
+  await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const saveResp = await saveP
+  const saveBody = saveResp ? await saveResp.json().catch(() => null) : null
+  let flowId = saveBody?.data?.flowId || null
+  let flowCode = saveBody?.data?.flowCode || ''
+  if (!flowId) {
+    // 兜底：POST 响应无 data 时按列表回查（flow_<ts> 为前端自动编码，种子 demo_v2 不匹配）
+    const lst = await apiWithBackoff('/system/flow/definition/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    const newest = (lst.body?.rows || [])
+      .filter((x) => /^flow_\d+/.test(x.flowCode || '') && x.isLatest)
+      .sort((a, b) => b.flowId - a.flowId)[0] || null
+    if (newest) {
+      flowId = newest.flowId
+      flowCode = newest.flowCode
+    }
+  }
+  const toastOk = await page
+    .locator('.el-message--success')
+    .filter({ hasText: '操作成功' })
+    .first()
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const backOk = await page
+    .getByRole('button', { name: ADD_NODE })
+    .first()
+    .waitFor({ state: 'hidden', timeout: 6000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    133,
+    '⑤ 保存（POST /system/flow/definition 200 + 操作成功 toast + 回列表态）',
+    !!saveResp && toastOk && backOk,
+    `resp=${saveResp ? saveResp.status() : 'none'}, flowId=${flowId}, code=${flowCode}, toast=${toastOk}, back=${backOk}`
+  )
+
+  // ⑥ 列表新 flow_code 行 + API 复核
+  let rowOk = false
+  let apiHit = false
+  if (flowCode) {
+    const row = page.locator('.el-table__row').filter({ hasText: flowCode }).first()
+    await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+    rowOk = await row.isVisible().catch(() => false)
+    const apiList = await apiWithBackoff(
+      `/system/flow/definition/list?pageNum=1&pageSize=10&flowCode=${encodeURIComponent(flowCode)}`,
+      { headers: jsonHeaders }
+    )
+    apiHit = (apiList.body?.rows || []).some((x) => x.flowId === flowId)
+  }
+  record(133, '⑥ 列表出现新 flow_code 行且 API 复核命中', rowOk && apiHit, `ui=${rowOk}, api=${apiHit}`)
+
+  // ⑦ 尾部清理：API 删除自建 definition + 复核已删（恢复初态）
+  let cleanOk = false
+  if (flowId) {
+    const del = await apiWithBackoff(`/system/flow/definition/${flowId}`, { method: 'DELETE', headers: jsonHeaders })
+    const check = flowCode
+      ? await apiWithBackoff(
+          `/system/flow/definition/list?pageNum=1&pageSize=10&flowCode=${encodeURIComponent(flowCode)}`,
+          { headers: jsonHeaders }
+        )
+      : { body: { rows: [1] } }
+    cleanOk = del.status === 200 && (check.body?.rows || []).length === 0
+  }
+  record(133, '⑦ 尾部删除自建 definition（API 复核已删，恢复初态）', cleanOk, `flowId=${flowId}, ok=${cleanOk}`)
+
+  // ⑧ 负路径：删掉中间审批节点 a1 使图断裂（start→a1→end 边悬空）→ 保存被
+  //    前端 validateGraph 先行拦截：el-alert 错误清单 + graphInvalid toast + 无 POST（无落库）
+  const edit2 = await enterEditMode()
+  if (edit2) {
+    await page.locator('.el-card').nth(1).locator('button[aria-label="删除"]').first().evaluate((el) => el.click())
+    await sleep(300)
+    const postP2 = page
+      .waitForResponse(
+        (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST',
+        { timeout: 2500 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+    const alertOk = await page
+      .locator('.el-alert--error')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const alertText = alertOk ? await page.locator('.el-alert--error').first().innerText().catch(() => '') : ''
+    const toastNeg = await page
+      .locator('.el-message--error')
+      .filter({ hasText: '流程图校验未通过' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const postFired = await postP2
+    const stillEdit = await page.getByRole('button', { name: ADD_NODE }).first().isVisible().catch(() => false)
+    record(
+      133,
+      '⑧ 断图保存被前端拦截（错误清单+graphInvalid toast+无 POST+保持编辑态）',
+      alertOk && toastNeg && !postFired && stillEdit,
+      `alert=${alertOk}, toast=${toastNeg}, post=${postFired}, edit=${stillEdit}, list="${alertText.replace(/\s+/g, ' ').slice(0, 60)}"`
+    )
+    await backToList()
+  } else {
+    record(133, '⑧ 断图保存被前端拦截（错误清单+graphInvalid toast+无 POST+保持编辑态）', false, '再次进入编辑态失败')
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 134：msg-channel 渠道连通性测试（site 成功链 + email 负路径） ====================
+/**
+ * 页面 /system/msg/channel（菜单 141，F87 同路由）。链路：列表行「测试」按钮
+ * （msg.channel.btn.test，v-hasPermi=system:msg:channel:test）→「渠道连通性测试」对话框
+ * （descriptions 只读）→「开始测试」→ POST /system/msg/channel/test/{id}：
+ * - site 渠道后端无条件成功（sys_msg_service.rs "site" => Ok(())）→ 200 + 渠道测试通过
+ *   toast（msg.channel.testSuccess）+ 对话框关闭。
+ * - email 渠道：本机 mailer 未启用 → 400 error.msg.mail_disabled（后端 tr! 已译
+ *   「邮件服务未启用，无法发送邮件」）→ 先 API 探针定性行为，再按实际断言
+ *   （错误 toast + runTest 失败路径 .then 跳过 → 对话框保持打开）。
+ * 零数据变更（测试不发消息、不写发送日志），尾部仅关闭对话框 + dismissAllOverlays。
+ */
+async function testFeature134(page) {
+  log('=== 功能 134：消息渠道连通性测试（site 成功 + email mail_disabled 负路径） ===')
+  const ok = await openPage(page, '/system/msg/channel', 'msg/channel')
+  record(134, '① 渠道页可达（/system/msg/channel）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const listRows = async () => {
+    const r = await apiWithBackoff('/system/msg/channel/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    return r.body?.rows || []
+  }
+  const apiRows = await listRows()
+  const siteRow = apiRows.find((x) => x.channelCode === 'site') || null
+  const emailRow = apiRows.find((x) => x.channelCode === 'email') || null
+  record(
+    134,
+    '①b API 复核 site/email 种子渠道存在（不新建渠道）',
+    !!siteRow && !!emailRow,
+    `site=${siteRow ? `id=${siteRow.channelId}` : 'miss'}, email=${emailRow ? `id=${emailRow.channelId}` : 'miss'}`
+  )
+
+  /** 行内「测试」按钮（JS click）→「渠道连通性测试」对话框 */
+  const openTestDialog = async (rowText) => {
+    const row = page.locator('.el-table__row').filter({ hasText: rowText }).first()
+    const rowOk = await row.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (!rowOk) return null
+    await row.getByRole('button', { name: '测试' }).first().evaluate((el) => el.click()).catch(() => {})
+    const dlg = page.locator('.el-dialog:visible').last()
+    const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    if (!dlgOk) return null
+    const title = await dlg.locator('.el-dialog__header').innerText().catch(() => '')
+    const descOk = (await dlg.locator('.el-descriptions__label').count()) >= 3
+    return { dlg, title, descOk }
+  }
+
+  // ② site 渠道成功链：先挂 POST 监听再点「开始测试」→ 200 + 渠道测试通过 + 对话框关闭
+  const s = await openTestDialog(siteRow?.channelName || '站内信')
+  if (!s) {
+    record(134, '② site 测试链（POST 200 + 渠道测试通过 toast + 对话框关闭）', false, '测试对话框未打开')
+  } else {
+    record(
+      134,
+      '② site 行「测试」打开对话框（标题+descriptions 只读渲染）',
+      s.title.includes('渠道连通性测试') && s.descOk,
+      `title=${s.title.trim().slice(0, 20)}, desc=${s.descOk}`
+    )
+    if (siteRow) {
+      const testP = page
+        .waitForResponse(
+          (r) => r.url().includes(`/system/msg/channel/test/${siteRow.channelId}`) && r.request().method() === 'POST',
+          { timeout: 10000 }
+        )
+        .catch(() => null)
+      await s.dlg.getByRole('button', { name: '开始测试' }).first().evaluate((el) => el.click()).catch(() => {})
+      const resp = await testP
+      const toastOk = await page
+        .locator('.el-message--success')
+        .filter({ hasText: '渠道测试通过' })
+        .first()
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      const closed = await s.dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
+      record(
+        134,
+        '② site 测试链（POST 200 + 渠道测试通过 toast + 对话框关闭）',
+        !!resp && resp.status() === 200 && toastOk && closed,
+        `resp=${resp ? resp.status() : 'none'}, toast=${toastOk}, closed=${closed}`
+      )
+    } else {
+      await s.dlg.getByRole('button', { name: /取\s*消/ }).first().evaluate((el) => el.click()).catch(() => {})
+      record(134, '② site 测试链（POST 200 + 渠道测试通过 toast + 对话框关闭）', false, 'API 无 site 渠道')
+    }
+  }
+
+  // ③ email 负路径：先 API 探针观察真实行为（400 mail_disabled），再按实际断言 UI 行为
+  if (emailRow) {
+    const probe = await apiWithBackoff(`/system/msg/channel/test/${emailRow.channelId}`, {
+      method: 'POST',
+      headers: jsonHeaders
+    })
+    const probeMsg = probe.body?.msg || ''
+    const e = await openTestDialog(emailRow.channelName || '邮件')
+    if (!e) {
+      record(134, '③ email 负路径（错误 toast + 对话框按探针定性实际行为）', false, '测试对话框未打开')
+    } else {
+      const testP2 = page
+        .waitForResponse(
+          (r) => r.url().includes(`/system/msg/channel/test/${emailRow.channelId}`) && r.request().method() === 'POST',
+          { timeout: 10000 }
+        )
+        .catch(() => null)
+      await e.dlg.getByRole('button', { name: '开始测试' }).first().evaluate((el) => el.click()).catch(() => {})
+      const resp2 = await testP2
+      const errToast = await page
+        .locator('.el-message--error, .el-message--warning')
+        .first()
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      const errText = errToast
+        ? await page.locator('.el-message--error, .el-message--warning').first().innerText().catch(() => '')
+        : ''
+      const dlgStillOpen = await e.dlg.isVisible().catch(() => false)
+      // 探针定性：失败（非 200）⇒ 期望 UI 同样失败路径（错误 toast + runTest .then 跳过 ⇒ 对话框保持打开）
+      const expectFail = probe.status !== 200
+      const behavOk = expectFail
+        ? !!resp2 && resp2.status() !== 200 && errToast && dlgStillOpen
+        : !!resp2 && resp2.status() === 200
+      record(
+        134,
+        '③ email 负路径（错误 toast + 对话框按探针定性实际行为）',
+        behavOk,
+        `probe=${probe.status}/${probeMsg.slice(0, 40)}, resp=${resp2 ? resp2.status() : 'none'}, toast=${errToast}("${errText.trim().slice(0, 40)}"), dlgOpen=${dlgStillOpen}`
+      )
+      if (dlgStillOpen) {
+        await e.dlg.getByRole('button', { name: /取\s*消/ }).first().evaluate((el) => el.click()).catch(() => {})
+        await e.dlg.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
+      }
+    }
+  } else {
+    record(134, '③ email 负路径（错误 toast + 对话框按探针定性实际行为）', false, 'API 无 email 渠道')
+  }
+
+  // ④ 尾部：零数据变更（测试不发消息、不写发送日志），仅确认对话框全关闭
+  await dismissAllOverlays(page)
+  const leftoverDialogs = await page.locator('.el-dialog:visible').count()
+  record(134, '④ 尾部收尾（无数据变更 + 对话框全关闭）', leftoverDialogs === 0, `dialogs=${leftoverDialogs}`)
 }
