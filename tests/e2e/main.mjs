@@ -20286,6 +20286,10 @@ async function testFeature105(page) {
       await p2.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
       await p2.waitForTimeout(1500)
       const onConsent = p2.url().includes('/sso-consent')
+      // 批四十三：等 scope 列表项就绪再计数——长跑负载下渲染滞后（r54 实证 scopes=0 瞬时
+      // 窗口假失败，单跑 5/5 全绿），固定 waitForTimeout(1500) 不足。
+      const scopeFirst = p2.locator('ul.scope-list li, .scope-list li').first()
+      await scopeFirst.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
       const scopeItems = await p2.locator('ul.scope-list li, .scope-list li').count()
       const denyBtn = await p2.getByRole('button', { name: /拒绝|Deny/ }).first().waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
       const allowBtn = await p2.getByRole('button', { name: /允许|同意|授权|Allow|Approve/ }).first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
