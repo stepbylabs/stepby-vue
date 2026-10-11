@@ -263,7 +263,8 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
     border-radius: 3px;
     padding: 0 4px;
-    font-size: 11px;
+    /* a11y 基线规则「正文文本字号不小于 12px」：11px 徽章 × 每行日志=500 处违规（_a11y_r43 实证） */
+    font-size: 12px;
 
     &.level-trace,
     &.level-debug {
