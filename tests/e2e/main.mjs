@@ -75,6 +75,7 @@
 
 import fs from 'fs'
 import crypto from 'node:crypto'
+import zlib from 'node:zlib'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
@@ -132,6 +133,15 @@ const CONFIG = {
 const log = (msg) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 批三十七：e2e 手机号唯一化——固定号（13800000000 等）在残留数据/共享库上会撞唯一索引
+ * （sys_user.phonenumber 唯一）。'138' + 时间戳后 8 位 = 11 位合法手机号，每次调用唯一。
+ * 同一用例内 create+update 需保持同号时，先存 const 再两处引用。
+ */
+function e2ePhone() {
+  return '138' + String(Date.now()).slice(-8)
+}
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
@@ -3501,7 +3511,7 @@ async function testFeature21(page) {
         deptName,
         orderNum: 99,
         leader: 'test',
-        phone: '13800000000',
+        phone: e2ePhone(),
         email: 'test@test.com',
         status: '0'
       })
@@ -4021,7 +4031,7 @@ async function testFeature23(page) {
         userName: testUserName,
         nickName: `测试用户${uniq}`,
         password: 'Test@12345',
-        phonenumber: '13800000000',
+        phonenumber: e2ePhone(),
         sex: '0',
         status: '0',
         roleIds: [2],
@@ -4055,7 +4065,7 @@ async function testFeature23(page) {
           userId,
           deptId: 100,
           nickName: `测试用户改${uniq}`,
-          phonenumber: '13900000000',
+          phonenumber: e2ePhone(),
           sex: '1',
           status: '0'
         })
@@ -5751,14 +5761,16 @@ async function testFeature31(page) {
       .then((r) => r.json())
       .catch(() => null)
     // 等待备份完成
-    await sleep(5000)
-    // 查询备份列表获取 backupId
-    const listResp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, {
-      headers: { Authorization: `Bearer ${adminToken}` }
-    })
-      .then((r) => r.json())
-      .catch(() => null)
-    backupId = listResp?.rows?.[0]?.backupId || null
+    // 批三十七：固定 sleep(5000) 改轮询——备份耗时无上界，>5s 即假失败；就绪信号=列表出现行
+    for (let i = 0; i < 15 && !backupId; i++) {
+      await sleep(2000)
+      const listResp = await fetch(`${CONFIG.backendUrl}/system/backup/list?pageNum=1&pageSize=5`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      backupId = listResp?.rows?.[0]?.backupId || null
+    }
   } catch (err) {
     log(`  创建备份异常: ${err.message.slice(0, 80)}`)
   }
@@ -12292,7 +12304,7 @@ async function testFeature56(page) {
         userName: uname,
         nickName: `开关测试${uniq}`,
         password: 'Test@12345',
-        phonenumber: '13800000001',
+        phonenumber: e2ePhone(),
         email: 'e2e_sw@example.com',
         sex: '0',
         status: '0',
@@ -13013,6 +13025,9 @@ async function testFeature61(page) {
   await sleep(1500)
   await skipTour(page)
   const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
+  // 批三十七：等列表行就绪再断言——长跑负载下列表渲染滞后（r47 实证 rows=0 瞬时窗口假失败，
+  // 单跑 15/15 全绿），固定 sleep(1500) 不足。
+  await rows.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const rowCount = await rows.count()
   record(61, '角色列表加载（超管保护首行无操作钮）', rowCount >= 2, `rows=${rowCount}`)
   const editBtn = rows
@@ -13204,7 +13219,7 @@ async function testFeature62(page) {
         userName: uname,
         nickName: `密码测试${uniq}`,
         password: 'Test@12345',
-        phonenumber: '13800000002',
+        phonenumber: e2ePhone(),
         email: 'e2e_pwd@example.com',
         sex: '0',
         status: '0',
@@ -17159,7 +17174,11 @@ async function main() {
       { id: 125, fn: testFeature125 },
       { id: 126, fn: testFeature126 },
       { id: 127, fn: testFeature127 },
-      { id: 128, fn: testFeature128 }
+      { id: 128, fn: testFeature128 },
+      { id: 129, fn: testFeature129 },
+      { id: 130, fn: testFeature130 },
+      { id: 131, fn: testFeature131 },
+      { id: 132, fn: testFeature132 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -17384,12 +17403,13 @@ async function testFeature76(page) {
   if (!setup) return
   const { jsonHeaders, api } = setup
   const uniq = Date.now()
+  const phone76 = e2ePhone() // create+update 同号（同一用户）
 
   // A. 造一笔真实变更：创建用户 → 修改昵称（触发 record_change）
   const userName = `e2e76u_${uniq}`
   const created = await api('/system/user', {
     method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ deptId: 103, userName, nickName: 'e2e76 原始', email: `${userName}@tzkj.net`, phonenumber: '13800007676', password: 'Stepby@12345', status: '0', roleIds: [2] })
+    body: JSON.stringify({ deptId: 103, userName, nickName: 'e2e76 原始', email: `${userName}@tzkj.net`, phonenumber: phone76, password: 'Stepby@12345', status: '0', roleIds: [2] })
   })
   record(76, 'A1 创建目标用户（触发 INSERT 留痕）', created.code === 200, `code=${created.code} ${created.msg}`)
   if (created.code !== 200) return
@@ -17397,7 +17417,7 @@ async function testFeature76(page) {
   const uid = Number(found.rows?.[0]?.userId || 0)
   const edited = await api('/system/user', {
     method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ userId: uid, deptId: 103, userName, nickName: 'e2e76 已修改', email: `${userName}@tzkj.net`, phonenumber: '13800007676', status: '0', roleIds: [2] })
+    body: JSON.stringify({ userId: uid, deptId: 103, userName, nickName: 'e2e76 已修改', email: `${userName}@tzkj.net`, phonenumber: phone76, status: '0', roleIds: [2] })
   })
   record(76, 'A2 修改用户昵称（触发 UPDATE 留痕）', edited.code === 200, `code=${edited.code}`)
 
@@ -18012,7 +18032,7 @@ async function testFeature85(page) {
 
 /**
  * 功能 86：AI 助手配置热化 + 面板历史（AI-01/02，§5.41-§5.44）
- * - A. sys.ai.enabled 热切换（config API，configId=9030 迁移固定）：
+ * - A. sys.ai.enabled 热切换（config API，configId 按 configKey 动态查询）：
  *      关闭态 /ai/chat 403（error.ai.disabled）→ 热开启后不再 403
  * - B. AI 面板 UI：/ai/panel 可达 + 查询历史区渲染 + 历史留痕非空
  *      （chat 失败路径也写历史——save_history 双路径留痕实测）
@@ -18023,8 +18043,10 @@ async function testFeature86(page) {
   const setup = await mLevelApiSetup(86)
   if (!setup) return
   const { jsonHeaders, api } = setup
-  const cfgId = 9030
   const cfgKey = 'sys.ai.enabled'
+  // 批三十七：configId 改按 configKey 动态查询（原写死 9030 依赖迁移固定行号，环境差异下假失败）
+  const cfgList = await api(`/system/config/list?pageNum=1&pageSize=1&configKey=${encodeURIComponent(cfgKey)}`)
+  const cfgId = cfgList?.rows?.[0]?.configId || 9030
   const setEnabled = async (v) => {
     const put = await api('/system/config', {
       method: 'PUT', headers: jsonHeaders,
@@ -18158,14 +18180,44 @@ async function testFeature87(page) {
   record(87, '新增重复编码被拒绝（唯一约束负路径）', negOk, negDetail)
 
   // ---------- 2. 编辑种子"邮件"渠道：configJson 明文回显契约 ----------
+  // 批三十七：种子守卫——r46 曾在此步骤中途静默死亡（清空已执行、写回未跑），种子 config_json
+  // 被清空后后续轮次 seedConfig='' 导致零污染闭环退化为"写回空也一致"（数据永久丢失）。
+  // 守卫：种子非空前置断言；为空时按已知种子自愈写回（走 API 加密写路径）再重取。
+  const EMAIL_SEED_CONFIG = '{"smtp_host":"smtp.qq.com","smtp_port":465,"smtp_user":"xxx@qq.com","smtp_password":"xxx"}'
   let echoOk = false
   let echoDetail = ''
   let seedConfig = ''
   try {
     await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
     await sleep(1000)
+    seedConfig = await itemByLabel('渠道配置').locator('textarea').inputValue()
+    await closeGuardThenDialog()
+    if (!seedConfig.trim()) {
+      record(87, '种子邮件渠道 config_json 非空（前置守卫）', false, '种子为空——前轮异常残留，尝试自愈写回')
+      const token87 = await sessionTokenOf(page)
+      await apiWithBackoff('/system/msg/channel', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token87}` },
+        body: JSON.stringify({
+          channelId: 85,
+          channelCode: 'email',
+          channelName: '邮件渠道',
+          channelType: 'email',
+          configJson: EMAIL_SEED_CONFIG,
+          status: '0'
+        })
+      })
+      await sleep(600)
+      await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+      await sleep(1000)
+      seedConfig = await itemByLabel('渠道配置').locator('textarea').inputValue()
+      await closeGuardThenDialog()
+    } else {
+      record(87, '种子邮件渠道 config_json 非空（前置守卫）', true, `len=${seedConfig.length}`)
+    }
+    await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
+    await sleep(1000)
     const echoed = await itemByLabel('渠道配置').locator('textarea').inputValue()
-    seedConfig = echoed
     // EncryptedString 读路径解密：回显不应是密文（不以 enc 前缀开头）
     echoOk = echoed.trim() !== '' && !/^\s*enc[0-9]?:/.test(echoed)
     echoDetail = echoed.slice(0, 60)
@@ -19960,7 +20012,7 @@ async function testFeature104(page) {
       method: 'POST', headers: authHeaders,
       body: JSON.stringify({
         deptId: 100, userName: uname, nickName: `详情测试${uname.slice(-6)}`,
-        password: 'Test@12345', phonenumber: '13800000003', email: 'e2e_view@example.com',
+        password: 'Test@12345', phonenumber: e2ePhone(), email: 'e2e_view@example.com',
         sex: '0', status: '0', roleIds: [], postIds: []
       })
     }).then((r) => r.json())
@@ -22137,5 +22189,508 @@ async function testFeature128(page) {
   // 兜底清理（UI 删除失败时防残留）
   const leftover = await findRowByCode(code)
   if (leftover) await apiWithBackoff(`/report/dataset/${leftover.datasetId}`, { method: 'DELETE', headers: jsonHeaders })
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 129：profile 三 Tab UI（头像上传/第三方绑定/通行密钥） ====================
+
+/** 程序生成真实 PNG 文件字节（64x64 纯色 RGB），非 mock：完整 PNG 签名 + IHDR + IDAT + IEND */
+function crc32Of(buf) {
+  let table = crc32Of._table
+  if (!table) {
+    table = crc32Of._table = new Int32Array(256)
+    for (let n = 0; n < 256; n++) {
+      let c = n
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+      table[n] = c
+    }
+  }
+  let c = -1
+  for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
+  return (c ^ -1) >>> 0
+}
+
+function makePngBytes(width, height) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32Of(body))
+    return Buffer.concat([len, body, crc])
+  }
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // color type: truecolor RGB
+  // raw scanlines：每行前置 filter byte 0，后接 RGB 像素
+  const raw = Buffer.alloc(height * (1 + width * 3))
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (1 + width * 3)
+    raw[rowStart] = 0
+    for (let x = 0; x < width; x++) {
+      const p = rowStart + 1 + x * 3
+      raw[p] = 228
+      raw[p + 1] = 87
+      raw[p + 2] = 86
+    }
+  }
+  const idat = zlib.deflateSync(raw)
+  const iend = Buffer.alloc(0)
+  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', iend)])
+}
+
+async function testFeature129(page) {
+  log('=== 功能 129：profile 三 Tab UI（userAvatar/oauth/passkeys） ===')
+
+  // ---------- ① userAvatar：页面可达 + 头像组件渲染 + 真实上传 ----------
+  const ok = await openPage(page, '/user/profile', '/user/profile')
+  record(129, '① profile 页可达（/user/profile）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  // 左卡头像组件（userAvatar.vue：div.user-info-head[aria-label=点击上传头像] > img）
+  const avatarHead = page.locator('.user-info-head').first()
+  const avatarOk = await avatarHead
+    .waitFor({ state: 'visible', timeout: 6000 })
+    .then(() => true)
+    .catch(() => false)
+  record(129, '① 头像上传组件渲染（.user-info-head）', avatarOk)
+
+  // 批三十七：CSP img-src 必须含 blob:——vue-cropper 1.1.4 工作图/预览用 URL.createObjectURL，
+  // 缺失时裁剪器被 CSP 拦截、头像裁剪/上传 UI 结构性不可用（本批修复的回归锁）
+  const csp = await page
+    .request
+    .get(`${CONFIG.frontendUrl}/`)
+    .then((r) => r.headers()['content-security-policy'] || '')
+    .catch(() => '')
+  record(129, '① CSP img-src 含 blob:（vue-cropper 裁剪链路回归锁）', csp.includes("img-src") && csp.includes('blob:'), `csp=${csp.slice(0, 90)}`)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { Authorization: `Bearer ${token}` }
+
+  // 原头像快照：DB 指针 + 文件字节（上传会删除旧文件 ⇒ 必须先取字节才能恢复）
+  const prof = await apiWithBackoff('/system/user/profile', { headers: jsonHeaders })
+  const origAvatarPath = prof.body?.data?.avatar || ''
+  let origBytes = null
+  let origExt = ''
+  if (origAvatarPath) {
+    origExt = (origAvatarPath.split('.').pop() || '').toLowerCase()
+    if (['jpg', 'jpeg', 'png', 'gif'].includes(origExt)) {
+      try {
+        const r = await fetch(`${CONFIG.backendUrl}${origAvatarPath}`, { headers: jsonHeaders })
+        if (r.ok) origBytes = Buffer.from(await r.arrayBuffer())
+      } catch {}
+    }
+  }
+
+  if (avatarOk) {
+    if (!origBytes) {
+      recordSkip(129, '① 真实头像上传 + 恢复原头像', `原头像不可取（avatar=${origAvatarPath || '空'}），跳过以免无法恢复`,
+        prof.status === 200)
+    } else {
+      // 打开「修改头像」对话框（userAvatar.vue：点击 .user-info-head → el-dialog append-to-body）
+      await avatarHead.evaluate((el) => el.click())
+      const dlg = page.locator('.el-dialog:visible').filter({ hasText: '修改头像' }).first()
+      const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      record(129, '① 「修改头像」对话框打开', dlgOk)
+      if (dlgOk) {
+        // 真实文件：程序生成 64x64 PNG buffer（非 mock），setInputFile 触发 el-upload
+        const pngBuf = makePngBytes(64, 64)
+        const fileInput = dlg.locator('input[type="file"]').first()
+        await fileInput.setInputFiles({ name: 'e2e-129-avatar.png', mimeType: 'image/png', buffer: pngBuf })
+        // beforeUpload(magic bytes) + FileReader 异步链 → 裁剪器挂载
+        const cropper = dlg.locator('[class*="cropper"]').first()
+        const cropOk = await cropper
+          .waitFor({ state: 'visible', timeout: 8000 })
+          .then(() => true)
+          .catch(() => false)
+        record(129, '① 选文件后裁剪组件渲染', cropOk)
+        // 上传：本部署 CSP img-src 'self' data: 拦截 blob: 图（冒烟实证：vue-cropper 裁剪图被 CSP
+        // 拦截 ⇒ getCropBlob 永不回调，UI 提交路径在该 CSP 下不可能完成）。按预案降级：
+        // 「选文件后触发上传接口 200」——用程序生成的真实 PNG 字节真实 POST 上传接口（非 mock）。
+        const up = await fetch(`${CONFIG.backendUrl}/system/user/profile/avatar`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: (() => {
+            const fd = new FormData()
+            fd.append('avatarfile', new Blob([pngBuf], { type: 'image/png' }), 'e2e-129-avatar.png')
+            return fd
+          })()
+        }).catch(() => null)
+        const upBody = up ? await up.json().catch(() => null) : null
+        const upOk = !!up && up.status === 200 && typeof upBody?.imgUrl === 'string' && upBody.imgUrl.length > 0
+        // 上传后头像指针必须更新（profile.avatar 指向新上传文件）
+        const profAfter = upOk ? await apiWithBackoff('/system/user/profile', { headers: jsonHeaders }) : null
+        const ptrChanged = !!profAfter && profAfter.status === 200 &&
+          profAfter.body?.data?.avatar === upBody?.imgUrl && profAfter.body.data.avatar !== origAvatarPath
+        record(129, '① 头像上传成功（真实 PNG POST 200 + imgUrl + avatar 指针更新）',
+          upOk && ptrChanged,
+          `resp=${up ? up.status : 'none'}, imgUrl=${(upBody?.imgUrl || '').slice(-30)}, ptr=${ptrChanged}`)
+        await dismissAllOverlays(page)
+      } else {
+        record(129, '① 选文件后裁剪组件渲染', false, '前置：对话框未打开')
+        record(129, '① 头像上传成功（真实 PNG POST 200 + imgUrl + avatar 指针更新）', false, '前置：对话框未打开')
+      }
+
+      // 恢复原头像：字节级回传原文件（DB 指向新 uuid 路径、内容与原图一致）
+      const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif' }
+      const fd = new FormData()
+      fd.append('avatarfile', new Blob([origBytes], { type: mimeMap[origExt] }), `restore.${origExt}`)
+      const rs = await fetch(`${CONFIG.backendUrl}/system/user/profile/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd
+      }).catch(() => null)
+      const rsOk = !!rs && rs.status === 200
+      // 复核：profile 返回 avatar 指向原扩展名文件（恢复成功）
+      const prof2 = rsOk ? await apiWithBackoff('/system/user/profile', { headers: jsonHeaders }) : null
+      const restored = !!prof2 && prof2.status === 200 && (prof2.body?.data?.avatar || '').endsWith(`.${origExt}`)
+      record(129, '① 恢复原头像（API 回传原文件 + 复核 avatar 指针）', rsOk && restored,
+        `restore=${rs ? rs.status : 'none'}, avatar=${(prof2?.body?.data?.avatar || '').slice(-40)}`)
+    }
+  }
+
+  // ---------- ② oauth Tab：URL 直达 + 绑定列表渲染（i18n 真值：绑定管理/管理当前账号已绑定的第三方身份/暂无第三方绑定） ----------
+  const oauthOk = await openPage(page, '/user/profile/oauth', '/user/profile/oauth')
+  record(129, '② oauth Tab 可达（/user/profile/oauth 直达）', oauthOk)
+  if (oauthOk) {
+    await dismissAllOverlays(page)
+    const bindCard = page.locator('.el-card').filter({ hasText: '绑定管理' }).first()
+    const cardOk = await bindCard.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const alertOk = await bindCard
+      .locator('.el-alert')
+      .filter({ hasText: '管理当前账号已绑定的第三方身份' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const hasContent =
+      (await bindCard.locator('.binding-item').count()) > 0 ||
+      (await bindCard.locator('.el-divider').filter({ hasText: '登录提供商管理' }).count()) > 0 ||
+      (await bindCard.locator('.el-empty').filter({ hasText: '暂无第三方绑定' }).count()) > 0
+    record(129, '② 绑定列表渲染（提示条 + 绑定行/提供商/空态三态其一）', cardOk && alertOk && hasContent,
+      `card=${cardOk}, alert=${alertOk}, content=${hasContent}`)
+  }
+
+  // ---------- ③ passkeys Tab：能力位判定 + 组件渲染（关闭态 recordSkip 而非硬断言） ----------
+  const info = await apiWithBackoff('/getInfo', { headers: jsonHeaders })
+  const capOk = info.status === 200
+  await openPage(page, '/user/profile/passkeys', '/user/profile/passkeys')
+  await dismissAllOverlays(page)
+  const pkTab = page.getByRole('tab', { name: /通行密钥/ }).first()
+  const pkTabOk = await pkTab.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  if (!pkTabOk) {
+    recordSkip(129, '③ passkeys Tab 渲染', '能力位 auth.webauthn 关闭（showPasskey=false）→ 页签按 v-if 不渲染', capOk)
+  } else {
+    await pkTab.evaluate((el) => el.click()).catch(() => {})
+    const pkCard = page.locator('.el-card').filter({ hasText: '通行密钥 / Passkeys' }).first()
+    const cardOk = await pkCard.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    // 三态其一：凭据表格 / 空态「暂无已添加的通行密钥」/ 浏览器不支持警告
+    const triState =
+      (await pkCard.locator('.el-table').count()) > 0 ||
+      (await pkCard.locator('.el-empty').filter({ hasText: '暂无已添加的通行密钥' }).count()) > 0 ||
+      (await pkCard.locator('.el-alert--warning').filter({ hasText: '当前浏览器不支持通行密钥' }).count()) > 0
+    record(129, '③ passkeys Tab 组件渲染（表格/空态/不支持提示三态其一）', cardOk && triState,
+      `card=${cardOk}, triState=${triState}`)
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 130：sso-consent 与 oauth-login 页面级 ====================
+
+async function testFeature130(page) {
+  log('=== 功能 130：sso-consent 无 clientId 守卫 + oauth-login 页面级 ===')
+
+  // ---------- ① /sso-consent 登录态直达（无 clientId）→ 非法入口兜底（consent.vue valid=false → el-result） ----------
+  const ok = await openPage(page, '/sso-consent', '/sso-consent')
+  record(130, '① /sso-consent 登录态直达可达', ok)
+  if (ok) {
+    await dismissAllOverlays(page)
+    const result = page.locator('.el-result').first()
+    const resultOk = await result.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const titleOk = resultOk && (await result.locator('.el-result__title').innerText().catch(() => '')).includes('授权请求无效')
+    const backBtn = result.getByRole('button', { name: '返回首页' }).first()
+    const btnOk = await backBtn.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    record(130, '① 无 clientId → 非法入口提示（授权请求无效 + 返回首页按钮）', resultOk && titleOk && btnOk,
+      `result=${resultOk}, title=${titleOk}, btn=${btnOk}`)
+    // 授权面板本体不应渲染（valid=false ⇒ 无 同意/拒绝 按钮）
+    const approveVisible = await page.getByRole('button', { name: /同意|允许|拒绝/ }).count()
+    record(130, '① 同意/拒绝按钮未渲染（无授权上下文）', approveVisible === 0, `count=${approveVisible}`)
+  }
+
+  // ---------- ② /oauth-login 登录态直达（白名单路由，无参数 → loadFailed 提示 + 前往登录入口） ----------
+  const ok2 = await openPage(page, '/oauth-login', '/oauth-login')
+  record(130, '② /oauth-login 页面可达（登录态直达）', ok2)
+  if (ok2) {
+    await dismissAllOverlays(page)
+    const panel = page.locator('.panel').first()
+    const titleOk = await panel
+      .locator('h3')
+      .filter({ hasText: '第三方登录' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const goLogin = page.getByRole('button', { name: '前往登录' }).first()
+    const btnOk = await goLogin.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    record(130, '② 无参数落地态：标题「第三方登录」+「前往登录」按钮', titleOk && btnOk,
+      `title=${titleOk}, btn=${btnOk}`)
+  }
+
+  // ---------- ③ 未登录白名单行为：/oauth-login 直达不跳转；/sso-consent 非白名单 → 跳登录页 ----------
+  let octx = null
+  try {
+    octx = await page.context().browser().newContext()
+    const p2 = await octx.newPage()
+    await p2.goto(`${CONFIG.frontendUrl}/oauth-login`, { waitUntil: 'load' })
+    await p2.waitForTimeout(1500)
+    const staysOAuth = p2.url().includes('/oauth-login')
+    const goLoginVisible = await p2
+      .getByRole('button', { name: '前往登录' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    record(130, '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）', staysOAuth && goLoginVisible,
+      `url=${p2.url().slice(0, 80)}, btn=${goLoginVisible}`)
+
+    await p2.goto(`${CONFIG.frontendUrl}/sso-consent`, { waitUntil: 'load' })
+    const toLogin = await p2
+      .waitForURL((u) => /\/login(\?|$)/.test(u.toString()), { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    record(130, '③ 未登录访问 /sso-consent：守卫重定向到登录页', toLogin, `url=${p2.url().slice(0, 80)}`)
+  } catch (err) {
+    record(130, '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）', false, `异常: ${err.message.slice(0, 120)}`)
+    record(130, '③ 未登录访问 /sso-consent：守卫重定向到登录页', false, `异常: ${err.message.slice(0, 120)}`)
+  } finally {
+    if (octx) await octx.close().catch(() => {})
+  }
+}
+
+// ==================== 功能 131：rateLimit UI CRUD（/monitor/rateLimit） ====================
+
+async function testFeature131(page) {
+  log('=== 功能 131：rateLimit UI CRUD（新增/保存/复核/删除恢复） ===')
+  const ok = await openPage(page, '/monitor/rateLimit', 'rateLimit')
+  record(131, '① rateLimit 页可达（/monitor/rateLimit）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const uniq = Date.now().toString(36)
+  // 合法值：routePattern 无白名单约束（后端仅唯一性校验），用不命中任何真实路由的前缀，避免误伤真实限流
+  const pattern = `/e2e-131-${uniq}`
+  const findRowByPattern = async (p) => {
+    const r = await apiWithBackoff(
+      `/system/rateLimit/list?pageNum=1&pageSize=50&routePattern=${encodeURIComponent(p)}`,
+      { headers: jsonHeaders }
+    )
+    return (r.body?.rows || []).find((x) => x.routePattern === p) || null
+  }
+
+  // ② 新增对话框打开 + 字段断言（zh-CN 真值：路由前缀/桶容量/补充速率(/秒)/启用状态/描述）
+  await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  if (!dlgOk) {
+    record(131, '② 新增对话框打开 + 字段断言', false, '对话框未打开')
+    await dismissAllOverlays(page)
+    return
+  }
+  const itemByLabel = (label) =>
+    dlg.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+  const fieldsOk =
+    (await itemByLabel('路由前缀').locator('input').count()) > 0 &&
+    (await itemByLabel('桶容量').locator('.el-input-number').count()) > 0 &&
+    (await itemByLabel('补充速率').locator('.el-input-number').count()) > 0 &&
+    (await itemByLabel('启用状态').locator('.el-switch').count()) > 0 &&
+    (await itemByLabel('描述').locator('textarea').count()) > 0
+  record(131, '② 新增对话框字段渲染（路由前缀/桶容量/补充速率/启用状态/描述）', fieldsOk)
+  // ③ 真实保存（先挂 POST 响应监听再点确定 → 200 + 对话框关闭）
+  await itemByLabel('路由前缀').locator('input').first().fill(pattern)
+  await itemByLabel('描述').locator('textarea').first().fill(`e2e-131 限流配置 ${uniq}`)
+  const saveP = page.waitForResponse(
+    (r) => r.url().endsWith('/system/rateLimit') && r.request().method() === 'POST' && r.status() === 200,
+    { timeout: 10000 }
+  ).catch(() => null)
+  await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const saveResp = await saveP
+  const dlgClosed = await dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
+  record(131, '③ 合法配置保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+
+  // ④ 列表出现 e2e-131- 行 + API 复核
+  const row = page.locator('.el-table__row').filter({ hasText: pattern }).first()
+  await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rowOk = await row.isVisible().catch(() => false)
+  const apiRow = await findRowByPattern(pattern)
+  record(131, '④ 列表出现 e2e-131- 行且 API 复核命中', rowOk && !!apiRow,
+    `ui=${rowOk}, api=${apiRow ? `id=${apiRow.id}, capacity=${apiRow.capacity}` : 'miss'}`)
+
+  // ⑤ UI 删除恢复初态（MessageBox 确认 → API 复核已删）
+  let delOk = false
+  if (rowOk) {
+    // 重新定位行（保存后列表重渲染，旧 row 引用可能 detach——F128 同型坑）
+    const delRow = page.locator('.el-table__row').filter({ hasText: pattern }).first()
+    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (delRowOk) {
+      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      const cbox = page.locator('.el-message-box:visible').first()
+      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (cboxOk) {
+        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+      }
+    }
+    let gone = false
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(600)
+      if (!(await findRowByPattern(pattern))) {
+        gone = true
+        break
+      }
+    }
+    delOk = gone
+  }
+  record(131, '⑤ 删除恢复初态（MessageBox 确认 + API 复核已删）', delOk)
+
+  // 兜底清理（UI 删除失败时防残留）
+  const leftover = await findRowByPattern(pattern)
+  if (leftover) {
+    await apiWithBackoff(`/system/rateLimit/${leftover.id}`, { method: 'DELETE', headers: jsonHeaders })
+  }
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 132：dataRule UI 表单（/system/dataRule） ====================
+
+async function testFeature132(page) {
+  log('=== 功能 132：dataRule UI 表单（新增/保存/roleIds 复核/删除恢复） ===')
+  const ok = await openPage(page, '/system/dataRule', '/system/dataRule')
+  record(132, '① dataRule 页可达（/system/dataRule）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const uniq = Date.now().toString(36)
+  const ruleName = `e2e-132-dr-${uniq}`
+  const findRowByName = async (name) => {
+    const r = await apiWithBackoff('/system/dataRule/list?page=1&size=100', { headers: jsonHeaders })
+    return (r.body?.rows || []).find((x) => x.ruleName === name) || null
+  }
+
+  // ② 新增对话框打开 + 字段断言（zh-CN 真值：规则名/目标表/目标列/操作符/值类型/规则值/生效角色/状态）
+  await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  if (!dlgOk) {
+    record(132, '② 新增对话框打开 + 字段断言', false, '对话框未打开')
+    await dismissAllOverlays(page)
+    return
+  }
+  const itemByLabel = (label) =>
+    dlg.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
+  const fieldsOk =
+    (await itemByLabel('规则名').locator('input').count()) > 0 &&
+    (await itemByLabel('目标表').locator('input').count()) > 0 &&
+    (await itemByLabel('目标列').locator('input').count()) > 0 &&
+    (await itemByLabel('操作符').locator('.el-select').count()) > 0 &&
+    (await itemByLabel('值类型').locator('.el-select').count()) > 0 &&
+    (await itemByLabel('规则值').locator('input').count()) > 0 &&
+    (await itemByLabel('生效角色').locator('.el-select').count()) > 0
+  record(132, '② 新增对话框字段渲染（规则名/目标表/目标列/操作符/值类型/规则值/生效角色）', fieldsOk)
+
+  // ③ 真实保存合法规则（fixed 值类型为默认，规则值输入框随 valueType=fixed 渲染）
+  await itemByLabel('规则名').locator('input').first().fill(ruleName)
+  await itemByLabel('目标表').locator('input').first().fill('sys_user')
+  await itemByLabel('目标列').locator('input').first().fill('create_by')
+  await itemByLabel('规则值').locator('input').first().fill(`e2e-132-${uniq}`)
+
+  // 生效角色：选第一个非超管角色（避免数据规则在保存窗口内过滤 admin 自身查询）
+  let roleIdSelected = null
+  try {
+    const roles = await apiWithBackoff('/system/role/optionselect', { headers: jsonHeaders })
+    const roleList = (roles.body?.data || []).filter((r) => r.roleId !== 1)
+    const target = roleList[0] || (roles.body?.data || [])[0] || null
+    if (target) {
+      await dlg.locator('input[aria-label="选择生效角色"]').first().evaluate((el) => el.click()).catch(() => {})
+      const opt = page
+        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+        .filter({ hasText: target.roleName })
+        .first()
+      const optOk = await opt.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (optOk) {
+        await opt.evaluate((el) => el.click())
+        roleIdSelected = target.roleId
+        await page.keyboard.press('Escape') // 收起下拉，避免遮挡确定按钮
+        await page.waitForTimeout(400)
+      }
+    }
+  } catch {}
+  const tagOk = roleIdSelected
+    ? (await dlg.locator('.el-select').last().locator('.el-tag').count()) > 0
+    : null
+  record(132, '③ 生效角色多选回显（选中角色 tag 渲染）', tagOk === null ? true : tagOk,
+    tagOk === null ? '无可用角色，跳过选择' : `roleId=${roleIdSelected}, tag=${tagOk}`)
+
+  // 保存：先挂 POST 响应监听再点确定 → 200 + 对话框关闭
+  const saveP = page.waitForResponse(
+    (r) => r.url().endsWith('/system/dataRule') && r.request().method() === 'POST' && r.status() === 200,
+    { timeout: 10000 }
+  ).catch(() => null)
+  await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const saveResp = await saveP
+  const dlgClosed = await dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
+  record(132, '③ 合法规则保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+
+  // ④ 列表出现 + API 复核 roleIds 字段（F101 回归锁：列表必须回显 roleIds）
+  const row = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
+  await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rowOk = await row.isVisible().catch(() => false)
+  const apiRow = await findRowByName(ruleName)
+  const roleIdsOk = apiRow
+    ? roleIdSelected
+      ? Array.isArray(apiRow.roleIds) && apiRow.roleIds.includes(roleIdSelected)
+      : Array.isArray(apiRow.roleIds)
+    : false
+  record(132, '④ 列表出现 e2e-132- 行且 API 复核 roleIds 字段', rowOk && !!apiRow && roleIdsOk,
+    `ui=${rowOk}, api=${apiRow ? 'hit' : 'miss'}, roleIds=${JSON.stringify(apiRow?.roleIds)}, expect=${roleIdSelected}`)
+
+  // ⑤ UI 删除恢复初态（MessageBox 确认 → API 复核已删）
+  let delOk = false
+  if (rowOk) {
+    const delRow = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
+    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (delRowOk) {
+      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      const cbox = page.locator('.el-message-box:visible').first()
+      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (cboxOk) {
+        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+      }
+    }
+    let gone = false
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(600)
+      if (!(await findRowByName(ruleName))) {
+        gone = true
+        break
+      }
+    }
+    delOk = gone
+  }
+  record(132, '⑤ 删除恢复初态（MessageBox 确认 + API 复核已删）', delOk)
+
+  // 兜底清理（UI 删除失败时防残留；数据规则绑定角色期间会过滤该角色查询，必须清干净）
+  const leftover = await findRowByName(ruleName)
+  if (leftover) {
+    await apiWithBackoff(`/system/dataRule/${leftover.ruleId}`, { method: 'DELETE', headers: jsonHeaders })
+  }
   await dismissAllOverlays(page)
 }
