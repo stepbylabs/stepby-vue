@@ -1253,6 +1253,9 @@ async function testFeature10(page) {
 
     if (configId) {
       // 1.2 触发 PUT 请求修改该配置的 remark（仅用于生成审计日志）
+      // 批三十六：记录原 remark，审计断言后还原（原实现不留还原步骤 → 列表首条配置 remark
+      // 被永久污染为「测试审计追踪 …」；对齐 F23-IP 用例的自清理模式）。
+      const originalRemark = configListResp.rows[0].remark ?? null
       const updateResp = await fetch(`${CONFIG.backendUrl}/system/config`, {
         method: 'PUT',
         headers: {
@@ -1328,6 +1331,22 @@ async function testFeature10(page) {
         record(10, 'oper_before 字段已写入', false, '未找到对应的参数配置 PUT 日志')
         record(10, 'oper_diff 字段级差异已写入', false, '依赖前置步骤失败')
       }
+
+      // 批三十六：还原原 remark（不留测试痕迹；configValue/configType 未变更无需回写校验）
+      await fetch(`${CONFIG.backendUrl}/system/config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await getAdminToken(page)}`
+        },
+        body: JSON.stringify({
+          configId,
+          configKey: configListResp.rows[0].configKey,
+          configValue: configListResp.rows[0].configValue,
+          configType: configListResp.rows[0].configType,
+          remark: originalRemark
+        })
+      }).catch(() => {})
     } else {
       record(10, '触发 PUT 修改配置', false, '未找到可修改的 sys_config 记录')
       record(10, 'oper_before 字段已写入', false, '依赖前置步骤失败')
@@ -16744,7 +16763,13 @@ async function cleanupE2eResidue() {
       ['depts', "DELETE FROM sys_dept WHERE del_flag='2'"],
       ['roles', "DELETE FROM sys_role WHERE del_flag='2'"],
       ['posts', "DELETE FROM sys_post WHERE del_flag='2' OR post_code LIKE 'test%'"],
-      ['tenants', "DELETE FROM sys_tenant WHERE del_flag='2'"]
+      ['tenants', "DELETE FROM sys_tenant WHERE del_flag='2'"],
+      // 批三十六：dict/pat/config 残留治理（r43 巡检实证：dict 软删 127 行、PAT 261 行、config 2 行
+      // 不在清理范围 → 每轮全量无限增长）。仅删 e2e 前缀 + 已软删/已吊销行，在册数据不受影响。
+      ['dict_data', "DELETE FROM sys_dict_data WHERE dict_type IN (SELECT dict_type FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2')"],
+      ['dict_type', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2'"],
+      ['pat', "DELETE FROM sys_pat WHERE name LIKE 'e2e%' AND status='1'"],
+      ['config', "DELETE FROM sys_config WHERE config_key LIKE 'e2e%'"]
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -17130,7 +17155,11 @@ async function main() {
       { id: 121, fn: testFeature121 },
       { id: 122, fn: testFeature122 },
       { id: 123, fn: testFeature123 },
-      { id: 124, fn: testFeature124 }
+      { id: 124, fn: testFeature124 },
+      { id: 125, fn: testFeature125 },
+      { id: 126, fn: testFeature126 },
+      { id: 127, fn: testFeature127 },
+      { id: 128, fn: testFeature128 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -18649,6 +18678,22 @@ async function testFeature94(page) {
   await gotoDynamicRoute(page, dsUrl, 'reportDataset')
   const not404 = !(await is404Page(page))
   record(94, '页面可达（/reportDataset）', not404)
+  // 加固：not404 只能证明没落 404 页，补工具栏真实渲染断言
+  // （搜索框 aria-label/placeholder=rp.searchByName「按名称搜索」+ rp.preview 前的新增按钮）
+  const dsToolbarOk =
+    not404 &&
+    (await page
+      .locator('input[aria-label="按名称搜索"], input[placeholder="按名称搜索"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)) &&
+    (await page
+      .getByRole('button', { name: /新增/ })
+      .first()
+      .isVisible()
+      .catch(() => false))
+  record(94, 'dataset 工具栏渲染（按名称搜索框+新增按钮）', dsToolbarOk)
 
   // 2. 新增数据集（无参 SELECT 模板）
   await page.getByRole('button', { name: '新增' }).first().click({ force: true })
@@ -18962,8 +19007,25 @@ async function testFeature97(page) {
   if ((await designBtn.count()) > 0) {
     await designBtn.click({ force: true })
     await page.waitForTimeout(600)
-    const designerMounted = (await page.locator('.el-dialog, .el-select, button').count()) > 0
-    record(97, '设计模式切换（designer 内嵌渲染）', designerMounted)
+    // 加固：原 `.el-dialog, .el-select, button` count>0 为恒真断言（任何页面都命中）。
+    // 改为 report/designer/index.vue 特有元素：rp.pickDataset「选择数据集」下拉（aria-label）
+    // 与 rp.addChart「添加图表」按钮——仅设计态 designer 工具栏渲染。
+    // 批三十六：EP 2.x 把 aria-label 透传到内部 input（F127 同型坑，.el-select 根上为 null）
+    const pickDatasetSel = page.locator('input[aria-label="选择数据集"]')
+    const pickDatasetOk = await pickDatasetSel
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const addChartOk =
+      pickDatasetOk &&
+      (await page
+        .locator('.el-select input[aria-label="图表类型"], button:has-text("添加图表"), .el-select input[aria-label*="图表"]')
+        .first()
+        .isVisible()
+        .catch(() => false))
+    record(97, '设计模式切换（designer 内嵌渲染：选择数据集下拉+添加图表按钮）', addChartOk,
+      `pickDataset=${pickDatasetOk}, addChart=${addChartOk}`)
   } else {
     record(97, '设计模式切换控件', false, '未找到 rp.modeDesign 单选钮')
   }
@@ -20684,6 +20746,22 @@ async function testFeature111(page) {
   const dsOk = await openPage(page, '/system/reportDataset', 'reportDataset')
   record(111, '① dataset 页可达（/system/reportDataset）', dsOk)
   if (dsOk) {
+    // 加固：仅 not404 不足，补工具栏真实渲染断言（搜索框 aria-label=rp.searchByName「按名称搜索」+ 新增按钮）
+    const dsToolbarOk =
+      (await page
+        .locator('input[aria-label="按名称搜索"], input[placeholder="按名称搜索"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)) &&
+      (await page
+        .getByRole('button', { name: /新增/ })
+        .first()
+        .isVisible()
+        .catch(() => false))
+    record(111, '①b dataset 工具栏渲染（按名称搜索框+新增按钮）', dsToolbarOk)
+  }
+  if (dsOk) {
     let dlgOk = false
     let dlgClosed = false
     try {
@@ -20790,11 +20868,31 @@ async function testFeature113(page) {
 
   // ① 消息日志页（菜单 143：目录 140 path=msg → /system/msg/log，component system/message/log/index）
   const logOk = await openPage(page, '/system/msg/log', '/msg/log')
-  const logTable =
-    logOk &&
-    ((await page.locator('.el-table__row').count()) > 0 ||
-      (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0)
-  record(113, '① 消息日志页表格/空态渲染', logTable, `not404=${logOk}`)
+  // 加固：原「rows>0 或 empty-block>0」二选一可空过（行与空态都没渲染也算过）。
+  // 改为 API 复核 /system/msg/log/list 真实行数：rows>0 → 断言 UI 表格行>0；
+  // rows==0 → 断言空态文案渲染；接口不可用才允许按 404 兜底口径判失败。
+  const logTk = await sessionTokenOf(page)
+  const logList = logTk
+    ? await apiWithBackoff('/system/msg/log/list?pageNum=1&pageSize=10', { headers: { Authorization: `Bearer ${logTk}` } })
+    : null
+  const logApiRows = (logList?.body?.rows || []).length
+  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  let logTable = false
+  let logDetail = `not404=${logOk}`
+  if (logList && logList.status === 200 && logApiRows > 0) {
+    const uiRows = await page.locator('.el-table__row').count()
+    logTable = logOk && uiRows > 0
+    logDetail += `, apiRows=${logApiRows}, uiRows=${uiRows}`
+  } else if (logList && logList.status === 200 && logApiRows === 0) {
+    const emptyText = await page.locator('.el-table__empty-block').first().innerText().catch(() => '')
+    const emptyOk =
+      emptyText.includes('暂无数据') || (await page.locator('.el-table .el-empty').count()) > 0
+    logTable = logOk && emptyOk
+    logDetail += `, apiRows=0, empty="${emptyText.slice(0, 24)}"`
+  } else {
+    logDetail += `, apiStatus=${logList ? logList.status : 'no-token'}`
+  }
+  record(113, '① 消息日志页表格/空态渲染（API 复核行数对齐 UI）', logTable, logDetail)
 
   // ② 自建公告（ExitGuard：尾部删除恢复初态——已读为单向状态且无未读还原接口，
   //    翻转既有公告不可逆，故采用「自建自清」保证零污染）
@@ -21560,4 +21658,484 @@ async function testFeature124(page) {
     page.off('pageerror', onErr)
     await dismissAllOverlays(page)
   }
+}
+
+// ==================== 功能 125：report/view 大屏渲染页（首个真数据渲染覆盖，F97/F111 仅冒烟） ====================
+async function testFeature125(page) {
+  log('=== 功能 125：report/view 大屏渲染页 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(125, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const uniq = Date.now().toString(36)
+  const dsCode = `e2e-125-ds-${uniq}`
+  const dashCode = `e2e-125-dash-${uniq}`
+  const dashName = `e2e-125-大屏-${uniq}`
+  const pageErrors = []
+  const onErr = (e) => pageErrors.push(String(e).slice(0, 80))
+  page.on('pageerror', onErr)
+
+  // ⓪ API 前置：建数据集（SELECT 1 AS v，白名单 SQL）+ 建大屏（layout_json 2 卡片，schemaVersion 2）
+  const ds = await apiWithBackoff('/report/dataset', {
+    method: 'POST', headers: jsonHeaders,
+    body: JSON.stringify({ datasetCode: dsCode, datasetName: `e2e-125 数据集 ${uniq}`, sqlTemplate: 'SELECT 1 AS v', status: '0' })
+  })
+  const dsList = await apiWithBackoff('/report/dataset/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+  const datasetId = (dsList.body?.rows || []).find((r) => r.datasetCode === dsCode)?.datasetId
+  record(125, '⓪ API 建数据集（白名单 SQL 落库）', ds.status === 200 && ds.body?.code === 200 && !!datasetId,
+    `code=${ds.body?.code}, datasetId=${datasetId}`)
+  if (!datasetId) {
+    page.off('pageerror', onErr)
+    return
+  }
+
+  let dashboardId = null
+  try {
+    // sanitizeChart 契约：datasetId>0 必带；stat 自渲染（不依赖 echarts canvas 时机）+ table 稳定
+    const layout = {
+      schemaVersion: 2,
+      charts: [
+        { chartId: 'chart_1', chartType: 'stat', datasetId, title: 'e2e-125 卡片A', span: 12, valueField: 'v' },
+        { chartId: 'chart_2', chartType: 'table', datasetId, title: 'e2e-125 卡片B', span: 12 }
+      ]
+    }
+    const dash = await apiWithBackoff('/report/dashboard', {
+      method: 'POST', headers: jsonHeaders,
+      body: JSON.stringify({ dashboardCode: dashCode, dashboardName: dashName, layoutJson: layout, status: '0' })
+    })
+    const dashList = await apiWithBackoff('/report/dashboard/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    dashboardId = (dashList.body?.rows || []).find((r) => r.dashboardCode === dashCode)?.dashboardId
+    record(125, '⓪b API 建大屏（layout_json 2 卡片，schema 校验通过）',
+      dash.status === 200 && dash.body?.code === 200 && !!dashboardId,
+      `code=${dash.body?.code}, dashboardId=${dashboardId}`)
+    if (!dashboardId) return
+
+    // ① 页面可达（菜单 4148 → /system/reportDashboard；view/index.vue 无路由参数，列表首屏自动选中）
+    const ok = await openPage(page, '/system/reportDashboard', 'reportDashboard')
+    record(125, '① 大屏 view 页可达（/system/reportDashboard）', ok)
+    if (!ok) return
+
+    // ② 确保选中自建大屏（首屏自动选中列表第一个；非自建则经 el-select 按 dashboardName 切换）
+    const firstIsOurs = (dashList.body?.rows || [])[0]?.dashboardId === dashboardId
+    if (!firstIsOurs) {
+      await page.locator('.el-select').first().click({ force: true })
+      await page
+        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+        .filter({ hasText: dashName })
+        .first()
+        .click({ force: true })
+      await page.waitForTimeout(400)
+    }
+    const boardOk = await page
+      .locator('.report-board')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    record(125, '② 画布容器 .report-board 渲染', boardOk)
+    if (!boardOk) return
+
+    // ③ 图表卡片数与 layout_json 数量一致（watch(selectedId) → getDashboard → parseLayout.charts）
+    await page.locator('.report-board .chart-card').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    const cardCount = await page.locator('.report-board .chart-card').count()
+    record(125, '③ 图表卡片数与 layout_json 一致（2）', cardCount === 2, `cards=${cardCount}`)
+
+    // ④ 卡片按标题渲染（ChartCard header = chart.title；stat 大数字容器 + table 表格）
+    const statCard = page.locator('.report-board .chart-card').filter({ hasText: 'e2e-125 卡片A' }).first()
+    const tableCard = page.locator('.report-board .chart-card').filter({ hasText: 'e2e-125 卡片B' }).first()
+    const statOk = await statCard.isVisible().catch(() => false)
+    const tableOk = await tableCard.isVisible().catch(() => false)
+    record(125, '④ 两张卡片按标题渲染（stat+table）', statOk && tableOk, `stat=${statOk}, table=${tableOk}`)
+
+    // ⑤ 全程无 unhandled pageerror
+    record(125, '⑤ 全程无 unhandled pageerror', pageErrors.length === 0, `errs=${pageErrors.length}`)
+  } finally {
+    // 尾部恢复初态：删自建大屏 + 数据集（ExitGuard 自清；dataset 是大屏卡片的数据绑定依赖，先删大屏）
+    if (dashboardId) {
+      const delDash = await apiWithBackoff(`/report/dashboard/${dashboardId}`, { method: 'DELETE', headers: jsonHeaders })
+      record(125, '⑥ 清理：删除自建大屏', delDash.status === 200 && delDash.body?.code === 200, `code=${delDash.body?.code}`)
+    }
+    const delDs = await apiWithBackoff(`/report/dataset/${datasetId}`, { method: 'DELETE', headers: jsonHeaders })
+    record(125, '⑦ 清理：删除自建数据集', delDs.status === 200 && delDs.body?.code === 200, `code=${delDs.body?.code}`)
+    page.off('pageerror', onErr)
+    await dismissAllOverlays(page)
+  }
+}
+
+// ==================== 功能 126：monitor/alert 告警规则 UI 深交互（新增→列表→删除闭环） ====================
+async function testFeature126(page) {
+  log('=== 功能 126：告警规则 UI 深交互 ===')
+  const ok = await openPage(page, '/monitor/alert', '/monitor/alert')
+  record(126, '① 告警规则页可达（/monitor/alert）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const ruleName = `e2e-126-alert-${Date.now().toString(36)}`
+
+  // ② 新增对话框表单字段完整（文案=i18n 真值：alert.form.name/metric/comparator/threshold/silentMinutes）
+  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  let fieldsOk = false
+  let fieldDetail = ''
+  if (dlgOk) {
+    const labels = (await dlg.locator('.el-form-item__label').allInnerTexts().catch(() => [])).join('|')
+    const need = ['规则名称', '监控指标', '比较器', '阈值', '静默期']
+    fieldsOk = need.every((k) => labels.includes(k))
+    fieldDetail = `labels=${labels.slice(0, 90)}`
+  }
+  record(126, '② 新增对话框表单字段完整（名称/指标/比较器/阈值/静默期）', dlgOk && fieldsOk, fieldDetail)
+  if (!dlgOk) {
+    await dismissAllOverlays(page)
+    return
+  }
+
+  // ③ 填写合法值真实保存（指标下拉选 alert.metric.online_users「在线用户数」，阈值 1）
+  await dlg
+    .locator('.el-form-item')
+    .filter({ has: page.locator('.el-form-item__label:text-is("规则名称")') })
+    .locator('input')
+    .first()
+    .fill(ruleName)
+  await dlg.locator('.el-select').first().click({ force: true })
+  await page
+    .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+    .filter({ hasText: '在线用户数' })
+    .first()
+    .click({ force: true })
+  await page.waitForTimeout(300)
+  await dlg.locator('.el-input-number input').first().fill('1')
+  const saveP = page.waitForResponse(
+    (r) => r.url().endsWith('/monitor/alert') && r.request().method() === 'POST',
+    { timeout: 10000 }
+  ).catch(() => null)
+  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveResp = await saveP
+  // 批三十六：对话框关闭是响应后动画（~300ms）——立即 count 恒 false（r44 实证 resp=200, closed=false）
+  const dlgClosed = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(126, '③ 合法值保存（POST 200 且对话框关闭）',
+    !!saveResp && saveResp.status() === 200 && dlgClosed,
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+
+  // ④ 列表出现 e2e-126- 行 + API 复核落库
+  const row = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
+  await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rowOk = await row.isVisible().catch(() => false)
+  const lst = await apiWithBackoff(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`, { headers: jsonHeaders })
+  const apiRow = (lst.body?.rows || []).find((r) => r.name === ruleName)
+  record(126, '④ 列表出现 e2e-126- 行且 API 复核落库', rowOk && !!apiRow,
+    `ui=${rowOk}, api=${!!apiRow}, id=${apiRow?.id}`)
+
+  // ⑤ 行级删除恢复初态（MessageBox 确认 → DELETE 200 → API 复核已删）
+  // 批三十六：行级按钮用 JS click（fixed 列/动画期遮罩吞 force click，§3.30-2 同型）；
+  // MessageBox 主按钮同样 JS click 兜底。
+  let delOk = false
+  if (apiRow && rowOk) {
+    await dismissAllOverlays(page)
+    const delP = page.waitForResponse(
+      (r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/alert/'),
+      { timeout: 10000 }
+    ).catch(() => null)
+    await row.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+    const cbox = page.locator('.el-message-box:visible').first()
+    const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    if (cboxOk) {
+      await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+    }
+    await delP
+    let gone = false
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(600)
+      const still = await apiWithBackoff(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`, { headers: jsonHeaders })
+      if (!(still.body?.rows || []).some((r) => r.name === ruleName)) { gone = true; break }
+    }
+    delOk = gone
+  }
+  record(126, '⑤ 行级删除恢复初态（DELETE 且 API 复核已删）', delOk)
+  // 兜底清理（UI 删除失败时防残留）
+  if (apiRow && !delOk) await apiWithBackoff(`/monitor/alert/${apiRow.id}`, { method: 'DELETE', headers: jsonHeaders })
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 127：webHook 事件目录 UI 交互（目录对话框 + 订阅勾选 + API 复核） ====================
+async function testFeature127(page) {
+  log('=== 功能 127：webHook 事件目录 UI 交互 ===')
+  // 菜单 158（parent 157 webHook → parent 1 系统管理）→ /system/webHook
+  // 批三十六：动态路由需 gotoDynamicRoute（addRoute 异步注册，openPage 直跳会 404 回首页，r44 实证）
+  await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
+  // gotoDynamicRoute 返回 void——可达性自判：URL 命中 + 非 404 页
+  const ok =
+    page.url().includes('webHook/index') && !(await is404Page(page, { timeout: 1500 }))
+  record(127, '① 回调配置页可达（/system/webHook）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const hookName = `e2e-127-hook-${Date.now().toString(36)}`
+
+  // ② 事件目录对话框（EventCatalogSection 子组件）：目录表渲染且有行（GET /system/webhook/event/list）
+  await page.getByRole('button', { name: /事件目录/ }).first().click({ force: true })
+  const catDlg = page.locator('.el-dialog:visible').filter({ hasText: 'Webhook 事件目录' }).first()
+  const catOk = await catDlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  await catDlg.locator('.el-table__row').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const catRows = await catDlg.locator('.el-table__row').count()
+  if (catOk && catRows === 0) {
+    // 环境无数据兜底：事件目录为空时后续订阅勾选无从进行，按 SKIP 口径（API 200 兜底断言）
+    const fb = await apiWithBackoff('/system/webhook/event/list?pageNum=1&pageSize=10', { headers: jsonHeaders })
+    recordSkip(127, '② 事件目录对话框打开且目录表有行', '事件目录为空（无可订阅事件）', fb.status === 200)
+    await dismissAllOverlays(page)
+    return
+  }
+  record(127, '② 事件目录对话框打开且目录表有行', catOk && catRows > 0, `rows=${catRows}`)
+  if (catOk) {
+    await catDlg.getByRole('button', { name: /关\s*闭/ }).first().click({ force: true }).catch(() => {})
+    await page.waitForTimeout(500)
+  }
+
+  // ③ UI 新增订阅：名称/URL → 订阅事件多选下拉（选项来自事件目录）勾选 1 项
+  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  if (!dlgOk) {
+    record(127, '③ 新增对话框打开', false, '对话框未打开')
+    await dismissAllOverlays(page)
+    return
+  }
+  await dlg
+    .locator('.el-form-item')
+    .filter({ has: page.locator('.el-form-item__label:text-is("回调名称")') })
+    .locator('input')
+    .first()
+    .fill(hookName)
+  await dlg
+    .locator('.el-form-item')
+    .filter({ has: page.locator('.el-form-item__label:text-is("目标 URL")') })
+    .locator('input')
+    .first()
+    // SSRF 校验拦截内网/localhost（铁律：IP 字面量+封闭端口，禁外网域名）
+    .fill('http://1.1.1.1:81/hook')
+  // 批三十六：EP 2.x 把 aria-label 透传到内部 input（探针实证 .el-select 根上为 null）
+  await dlg.locator('input[aria-label="订阅事件"]').first().click({ force: true })
+  const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').first()
+  const optOk = await opt.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+  let chosen = ''
+  if (optOk) {
+    chosen = (await opt.innerText().catch(() => '')).trim()
+    await opt.click({ force: true })
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Escape') // 收起下拉，避免遮挡确定按钮
+    await page.waitForTimeout(300)
+  }
+  record(127, '③ 订阅事件下拉出现目录选项并勾选 1 项', optOk && chosen.length > 0, `opt="${chosen.slice(0, 30)}"`)
+
+  // ④ 保存订阅（POST /monitor/webHook 200 且对话框关闭）
+  const saveP = page.waitForResponse(
+    (r) => r.url().endsWith('/monitor/webHook') && r.request().method() === 'POST',
+    { timeout: 10000 }
+  ).catch(() => null)
+  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveResp = await saveP
+  const dlgClosed = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(127, '④ 保存订阅（POST 200 且对话框关闭）',
+    !!saveResp && saveResp.status() === 200 && dlgClosed,
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+
+  // ⑤ API 复核订阅生效（subscribed_events 非空；后端以 JSON 数组串存储）
+  const lst = await apiWithBackoff(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
+  const hook = (lst.body?.rows || []).find((r) => r.hookName === hookName)
+  let subOk = false
+  if (hook) {
+    let subs = hook.subscribedEvents
+    if (typeof subs === 'string') {
+      try { subs = JSON.parse(subs) } catch { subs = subs ? String(subs).split(',') : [] }
+    }
+    subOk = Array.isArray(subs) && subs.length > 0
+  }
+  record(127, '⑤ API 复核订阅生效（subscribed_events 非空）', !!hook && subOk,
+    `hook=${!!hook}, subs=${JSON.stringify(hook?.subscribedEvents ?? null).slice(0, 60)}`)
+
+  // ⑥ UI 列表出现自建行 + 行级删除恢复初态
+  const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
+  await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rowOk = await row.isVisible().catch(() => false)
+  let delOk = false
+  if (rowOk && hook) {
+    await dismissAllOverlays(page)
+    const delP = page.waitForResponse(
+      (r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/webHook/'),
+      { timeout: 10000 }
+    ).catch(() => null)
+    await row.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+    const cbox = page.locator('.el-message-box:visible').first()
+    const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    if (cboxOk) {
+      await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+    }
+    await delP
+    let gone = false
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(600)
+      const still = await apiWithBackoff(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
+      if (!(still.body?.rows || []).some((r) => r.hookName === hookName)) { gone = true; break }
+    }
+    delOk = gone
+  }
+  record(127, '⑥ 列表出现自建行且删除恢复初态', rowOk && delOk, `row=${rowOk}, del=${delOk}`)
+  // 兜底清理（UI 删除失败时防残留）
+  if (hook && !delOk) await apiWithBackoff(`/monitor/webHook/${hook.id}`, { method: 'DELETE', headers: jsonHeaders })
+  await dismissAllOverlays(page)
+}
+
+// ==================== 功能 128：dataset 编辑器 UI（新增→试跑渲染→UPDATE 负例→删除闭环） ====================
+async function testFeature128(page) {
+  log('=== 功能 128：报表数据集编辑器 UI ===')
+  const ok = await openPage(page, '/system/reportDataset', 'reportDataset')
+  record(128, '① dataset 页可达（/system/reportDataset）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const token = await sessionTokenOf(page)
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const uniq = Date.now().toString(36)
+  const code = `e2e-128-ds-${uniq}`
+  const badCode = `e2e-128-bad-${uniq}`
+
+  /** 编辑对话框三件套填写（编码/名称输入框 + 首个 textarea=SQL 模板，结构对齐 F94） */
+  const fillDlg = async (scope, dsCode, dsName, sql) => {
+    await scope.locator('input').nth(0).fill(dsCode)
+    await scope.locator('input').nth(1).fill(dsName)
+    await scope.locator('textarea').first().fill(sql)
+  }
+  const findRowByCode = async (dsCode) => {
+    const r = await apiWithBackoff('/report/dataset/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    return (r.body?.rows || []).find((x) => x.datasetCode === dsCode) || null
+  }
+
+  // ② 新增对话框 + 合法白名单 SQL 保存
+  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  const dlg = page.locator('.el-dialog:visible').last()
+  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  if (!dlgOk) {
+    record(128, '② 新增对话框打开', false, '对话框未打开')
+    await dismissAllOverlays(page)
+    return
+  }
+  await fillDlg(dlg, code, 'e2e-128 数据集', 'SELECT 1 AS v')
+  const saveP = page.waitForResponse(
+    (r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST' && r.status() === 200,
+    { timeout: 10000 }
+  ).catch(() => null)
+  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveResp = await saveP
+  const dlgClosed = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(128, '② 合法 SQL 保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+
+  // ③ 列表出现 e2e-128- 行
+  const row = page.locator('.el-table__row').filter({ hasText: code }).first()
+  await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rowOk = await row.isVisible().catch(() => false)
+  record(128, '③ 列表出现 e2e-128- 行', rowOk)
+
+  // ④ 试跑按钮 → 预览对话框打开 → 返回结构渲染（列头 v + 数据行；openPreview 打开即自动 runPreview）
+  // 批三十六：行内 link 按钮用 JS click——force click 会被 fixed 列阴影/动画期遮罩吞掉
+  // （探针实证 elementFromPoint 命中遮罩、el.click() 直达，§3.30-2 同型）。
+  if (rowOk) {
+    await row.getByRole('button', { name: /试跑/ }).first().evaluate((el) => el.click())
+    const pdlg = page.locator('.el-dialog:visible').filter({ hasText: '数据集试跑' }).first()
+    const pOpen = await pdlg.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const colOk = pOpen
+      ? await pdlg.locator('.el-table__header')
+          .filter({ hasText: 'v' })
+          .first()
+          .waitFor({ state: 'visible', timeout: 8000 })
+          .then(() => true)
+          .catch(() => false)
+      : false
+    const dataRows = pOpen ? await pdlg.locator('.el-table__row').count() : 0
+    record(128, '④ 试跑预览返回结构渲染（列头 v + 数据行）', pOpen && colOk && dataRows > 0,
+      `open=${pOpen}, col=${colOk}, rows=${dataRows}`)
+    // 关闭预览对话框（优先 header 关闭钮，Escape 兜底）
+    const closeBtn = pdlg.locator('.el-dialog__headerbtn').first()
+    if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click({ force: true })
+    else await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+  } else {
+    record(128, '④ 试跑预览返回结构渲染（列头 v + 数据行）', false, '前置：列表无自建行')
+  }
+
+  // ⑤ 负例：UPDATE 被 SQL 白名单拒绝（错误提示 + 对话框不关闭 + API 不落库）
+  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  const bdlg = page.locator('.el-dialog:visible').last()
+  const bOpen = await bdlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  let negOk = false
+  if (bOpen) {
+    await fillDlg(bdlg, badCode, 'e2e-128 负例', "UPDATE sys_user SET user_name = 'e2e'")
+    // 批三十六：先挂 POST 响应监听再点击——拒绝语义以服务端响应为准（toast 时序不稳），
+    // 响应到达后再测 toast/对话框/落库三态。
+    const negP = page.waitForResponse(
+      (r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST',
+      { timeout: 10000 }
+    ).catch(() => null)
+    await bdlg.getByRole('button', { name: /确\s*定/ }).first().click()
+    const negResp = await negP
+    const negRejected = !negResp || negResp.status() !== 200
+    const errToast = await page
+      .locator('.el-message--error, .el-message--warning')
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const stillOpen = await bdlg.isVisible().catch(() => false)
+    const notPersisted = !(await findRowByCode(badCode))
+    negOk = negRejected && errToast && stillOpen && notPersisted
+    record(128, '⑤ 负例 UPDATE 被拒（错误提示+不落库）', negOk,
+      `resp=${negResp ? negResp.status() : 'none'}, toast=${errToast}, open=${stillOpen}, absent=${notPersisted}`)
+    await dismissAllOverlays(page)
+  } else {
+    record(128, '⑤ 负例 UPDATE 被拒（错误提示+不落库）', false, '负例对话框未打开')
+  }
+
+  // ⑥ UI 删除恢复初态（MessageBox 确认 → API 复核已删）
+  const cur = await findRowByCode(code)
+  let delOk = false
+  if (rowOk && cur) {
+    await dismissAllOverlays(page)
+    // 重新定位行（⑤ 负例后列表可能已重渲染，旧 row 引用 detach——r44 实证 click 30s 超时）
+    const delRow = page.locator('.el-table__row').filter({ hasText: code }).first()
+    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    if (delRowOk) {
+      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      const cbox = page.locator('.el-message-box:visible').first()
+      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      if (cboxOk) {
+        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+      }
+    }
+    let gone = false
+    for (let i = 0; i < 8; i++) {
+      await page.waitForTimeout(600)
+      if (!(await findRowByCode(code))) { gone = true; break }
+    }
+    delOk = gone
+  }
+  record(128, '⑥ 删除恢复初态（API 复核已删）', delOk)
+  // 兜底清理（UI 删除失败时防残留）
+  const leftover = await findRowByCode(code)
+  if (leftover) await apiWithBackoff(`/report/dataset/${leftover.datasetId}`, { method: 'DELETE', headers: jsonHeaders })
+  await dismissAllOverlays(page)
 }

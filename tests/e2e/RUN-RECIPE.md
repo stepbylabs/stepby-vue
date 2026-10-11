@@ -1422,3 +1422,24 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    （r43 实证 logtail `.level-badge` 11px × 500 行 = 500 违规）。日志正文可 12.5px，
    徽章/行号等重复元素一律 ≥12px。另：Git Bash 下传 `--route=/x` 会被 MSYS 路径转换改写
    成盘符路径 → 加 `MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"` 前缀。
+
+### 3.32 批三十六（循环第十二轮）：缺口落地 + 两类应用崩溃缺陷
+
+1. **try/finally 无 catch = ErrorBoundary 整页崩溃（真实应用缺陷，两视图 4 处）**：
+   `report/dataset/index.vue handleSave` 与 `flow/designer/index.vue`（load/保存/图提交）的
+   `await api()` rejection 直接冒泡 → ErrorBoundary 捕获 AxiosError（info=runtime-6）→
+   整页替换为「页面加载失败」。用户输入非法 SQL/撞唯一约束即触发（r44 fail 截图+探针复现）。
+   **修复范式**：catch{} 注释「拦截器已弹错，保持对话框打开修正重试」——与 useCrudTable
+   submitForm 的既有语义对齐。**新写视图一律禁止 try/finally 包 api 而无 catch**。
+2. **EP 2.x aria-label 透传到内部 input**：`.el-select[aria-label="X"]` 恒不命中（根上为 null，
+   input 上才是值，探针实证）→ 用 `input[aria-label="X"]`。F97/F127 双双踩中。
+3. **gotoDynamicRoute 返回 void**：不能 `const ok = await gotoDynamicRoute(...)`——恒 undefined
+   即恒 FAIL。可达性自判：`page.url().includes(token) && !is404Page(page)`。
+4. **webHook 目标 URL 受 SSRF 校验**：localhost/内网被拒 400——按铁律用
+   `http://1.1.1.1:81/hook`（IP 字面量+封闭端口）。
+5. **EP 对话框关闭判定**：POST 响应到达 ≠ 对话框已关（关闭动画 ~300ms）——立即 count 恒 false，
+   用 `dlg.waitFor({ state: 'hidden' })`。
+6. **e2e 残留自清理扩展**：dict_type/dict_data（软删 e2e 前缀）/sys_pat（e2e 前缀+已吊销）/
+   sys_config（e2e_gov 键）四类纳入——r43 巡检实证 127+261+2 行无限增长，r44 验证清零。
+7. **负例断言先挂响应监听**：`waitForResponse` 在 click 前挂载，以服务端响应（400）为
+   拒绝判定基准，toast/对话框状态在响应后测量（时序稳定）。
