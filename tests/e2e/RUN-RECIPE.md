@@ -1482,3 +1482,15 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
   503 拒绝全家族）。内存回升后 r56 同代码 1167/1167 零失败 + 仅 1 次超时——A/B 定案环境根因。
 - 失败特征识别：失败散布大量不相关 feature + 后端窗口闸门超时数暴涨 ⇒ 环境风暴，
   单跑复判 + 内存核查，勿改代码。
+
+### 3.37 批四十五：deep-e2e 复活（相位 1 完成，新基线）
+
+- **基线**：84 模块 / **1029 ✅ / 0 ❌** / SKIP 48 / 2333.5s（38.9min），headless 无过滤器。
+  运行：`STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 STEPBY_BASE_URL=http://localhost:8080
+  FRONTEND_URL=http://localhost:8080 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers"
+  node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
+- **改写**：networkidle→load ×27（逐处确认有 sleep/waitFor 缓冲）；isVisible({timeout})→waitFor
+  等价改写 ×741；跨行冗余 catch 去重 ×382；裸 isVisible() 6 处语义正确保留。
+- **修复 2 处**：M9 console 401 白名单补 `/system/notice/`（listTop 为批三十一新增的顶部通知）；
+  M79 doTest waitForApi 超时 10s→20s（真实外呼不可达目标耗时 10.07s）。
+- **警告**：不要传 `STEPBY_UI_URL` 指向非 8080 实例（登录异常）——默认嵌入式同进程 8080。
