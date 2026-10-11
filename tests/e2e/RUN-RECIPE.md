@@ -1456,3 +1456,9 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
    **runTest 曾缺 .catch**（失败时 Unhandled Rejection，批三十九修复——与 batch36 try/catch 族同型）。
 4. **flow_definition 软删清理口径**：API 删除=del_flag=1 软删，DB 累积——自清理按
    `del_flag=1 AND (it_*/flow_<digits>/e2e-*)` 物理清除（r50 巡检 6 行）。
+
+### 3.34 批四十（循环第十六轮）：命名前缀裁决 + integration teardown 落地
+
+1. **数据命名五风格裁决：维持现状**——`it_*`（integration_tests，teardown 自清）/`e2e-<feature>-<语义>-<ts>`（新范式）/`e2e75-doc-` 等老用例存量（自清理 LIKE 模式与之成对，改名=纯 churn 且需同步改清理契约）/`e2e.gov.*`（租户治理键格式约束）/`flow_<ts>`（designer 前端自动生成，应用行为）。**统一命名收益低于 churn 风险，有据否决**。
+2. **integration_tests teardown 落地**：`cleanup_flow_defs`/`cleanup_flow_demo_docs` helper（mod.rs，绑定参数防注入，先子后父按精确码删除）+ 25 处落点（flow.rs 19/flow_graph_doc.rs 4/flow_definition.rs 2——后者为任务外补充的真实创建点）。262 集成测试两遍全绿 + clippy 0 + 1345 lib tests 全绿。
+3. **事实修正**：现行集成测试用隔离临时库（unique_temp_db_path），data/stepby.db 的 it_ 残留系旧版共享库时代遗迹（批三十九已清 2047 行）。
