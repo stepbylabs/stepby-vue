@@ -1462,3 +1462,15 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 1. **数据命名五风格裁决：维持现状**——`it_*`（integration_tests，teardown 自清）/`e2e-<feature>-<语义>-<ts>`（新范式）/`e2e75-doc-` 等老用例存量（自清理 LIKE 模式与之成对，改名=纯 churn 且需同步改清理契约）/`e2e.gov.*`（租户治理键格式约束）/`flow_<ts>`（designer 前端自动生成，应用行为）。**统一命名收益低于 churn 风险，有据否决**。
 2. **integration_tests teardown 落地**：`cleanup_flow_defs`/`cleanup_flow_demo_docs` helper（mod.rs，绑定参数防注入，先子后父按精确码删除）+ 25 处落点（flow.rs 19/flow_graph_doc.rs 4/flow_definition.rs 2——后者为任务外补充的真实创建点）。262 集成测试两遍全绿 + clippy 0 + 1345 lib tests 全绿。
 3. **事实修正**：现行集成测试用隔离临时库（unique_temp_db_path），data/stepby.db 的 it_ 残留系旧版共享库时代遗迹（批三十九已清 2047 行）。
+
+### 3.35 批四十二（循环第十七轮）：initialize 拆分 + F16 切英文 localStorage 兜底
+
+1. **initialize/mod.rs 拆分（纯机械零行为变更）**：6778 行 → 10 文件（mod.rs 692 行编排 +
+   tenant/schema/menu/oauth_sso/flow/ledger/helpers/scim/tests），89 个顶层项逐字节唯一归属，
+   外部 `crate::initialize::` 引用 6 符号经 `pub(crate) use` 原路径转发。验证链：脚本级逐字节
+   校验 + clippy 0 + 1345 lib + 262 集成测试 + e2e 全量回归。
+2. **F16 切英文 localStorage 兜底**：UI 三连重试全败时（长跑负载下下拉点击链偶发，r52 实证）
+   写 `localStorage.language=en-US` + reload 强制生效——与切回中文路径同款确定性兜底，
+   彻底摆脱下拉交互时序依赖。守卫诚实判定 + 兜底兜住，杜绝假残留放大。
+3. **auth 闸门超时基线**：cmd_timeout=5 后每轮窗口稳定 ~3 条（SQLite 负载尖峰 fail-closed），
+   文案已档位无关；属环境基线而非回归信号。

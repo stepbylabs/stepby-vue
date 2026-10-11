@@ -2068,6 +2068,24 @@ async function testFeature16(page) {
     }
     if (!enSwitched) await dismissAllOverlays(page)
   }
+  // 批四十二：UI 三连重试仍失败时走确定性兜底（与切回中文路径同款）——
+  // r52 实证长跑负载下下拉点击链仍可全败（单跑全绿，三次偶发）。写 localStorage.language=en-US
+  // （i18n 持久化键，见 src/i18n/index.ts）+ reload 强制生效，摆脱下拉交互依赖。
+  if (!enSwitched) {
+    await page
+      .evaluate(() => {
+        try {
+          localStorage.setItem('language', 'en-US')
+        } catch {
+          /* noop */
+        }
+      })
+      .catch(() => {})
+    await page.reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {})
+    await sleep(2500)
+    enSwitched = (await page.evaluate(() => document.documentElement.lang || '').catch(() => '')) === 'en-US'
+    if (enSwitched) log('  ⚠️ F16 UI 切英文未生效，已写 localStorage language=en-US + reload 兜底')
+  }
   await sleep(1500)
   await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
   await sleep(1000)
