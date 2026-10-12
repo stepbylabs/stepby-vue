@@ -1641,3 +1641,38 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   重跑 1170/1172。§3.36 内存规则补充：**cargo build 链的 rustc/link 进程（合计可达 6GB+）
   是头号内存户，全量 e2e 前必须确认其已退场**。
 - 功能 33 两断言失败为已知负载型面孔（段内零改造点，干净单跑 16/16 全绿复现通过）。
+
+### 3.46 批五十七：种子 diff 复验（b56 落地验证）+ 保留机制全景补齐
+
+- **复验结论**：b56 全部修复落地——菜单多行 109→0、治理列漂移消失、role_menu 归零、
+  dict/role/dept/post 关系表零差异。剩余差异三类定性：①菜单种子文案/类型 4 处落后于
+  迁移终态（4102 remark/4115 menu_type F→C/4116 icon/4117 remark——迁移演进了生产库而
+  initialize 种子源未同步，**真种子源漂移**）；②config_id/template_id PK 演进（合法——
+  键经迁移后期补种，PK 序不同，内容零差异）；③sys.ai.base_url（**非漂移**：F90 快照恢复
+  按 effective 口径闭环，GET 返回双源合并值（sys 行空→回落 config.toml 默认），行级 openai
+  仅为 toml 值的合法物化，有效值零漂移）。
+- **菜单元数据装饰性差异定性留档**（4102 remark/4115 menu_type+icon/4116 icon/4117 remark）：
+  功能层（perms/parent/path/component）零差异，差异均为 remark/icon/menu_type 装饰性元数据、
+  方向不明（生产手调运营态 vs 不可变迁移种子）——按防打地鼠纪律**不迁移**（改历史迁移违不可
+  变性，追迁移纯为文案属 churn）；schema 等价性总锁只锁 menu_id+perms，此类装饰性漂移须靠
+  本 diff 配方定期捕获定性。
+- **保留机制全景补齐**（对齐 b54 范式接入 cleanup_expired_logs）：
+  - `sys_audit_change`（15,276 行无界增长，1.2k/天）：repo delete_older_than +
+    service clean_expired + `audit_change_retention_days` 默认 **180**（审计合规域长于
+    oper_log 的 90；无防篡改链直删安全）。
+  - `sys_msg_send_log`（593 行）：`msg_send_log_retention_days` 默认 **90**；
+    **send_time IS NULL（待发送/重试中）记录永不清理**。
+- 双源语义注意：GET /system/aiConfig 返回 effective（sys 行空→config.toml 回落）——
+  seed diff 工具对 sys.ai.* 的行级差异须按 effective 口径定性，勿误报。
+
+### 3.47 批五十七收尾：F122 响应监听竞态（b35 铁律又一实证）+ OOM 二次复发
+
+- **F122 ⑥ 攻坚**：缓存统计 tab 的 hotKeys/prefixStats 断言全量+单跑双败——根因 =
+  `waitForResponse` 在 `click()` **之后**挂载（违反 b35 铁律），shared_kv 清理后响应提速
+  （空数据序列化更快），监听挂载前响应已到达 → 竞态必败。修复 = 监听前置到 click 之前
+  （对齐既有铁律），单跑+全量双验证 ✅。**该铁律至此已三次实证（b35/r62），任何
+  waitForResponse 均须先于触发动作挂载。**
+- **OOM 二次复发**：b57 首跑 F87 起 68 失败（浏览器死亡，可用内存当时不足）——环境性
+  （桌面应用内存波动，事件日志仅外部 Tobii 崩溃），清理后重跑 1173/1173 EXIT=0。
+  内存纪律再确认：全量 e2e 前确认可用内存 ≥2GB 且无孤儿构建进程。
+- F90 快照恢复新增第 1173 项断言（写后读闭环）随全量通过。

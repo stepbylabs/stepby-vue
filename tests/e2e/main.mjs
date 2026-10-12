@@ -19716,12 +19716,16 @@ async function testFeature90(page) {
 
   // 批五十六：配置快照（r61 巡检实证——「空 Key 保存」交互会 PUT 前端表单默认值，
   // base_url 被固化为占位默认 https://api.openai.com/v1 → 运行配置漂移）；用例结束恢复
-  const adminToken90 = await getAdminToken(page)
-  const aiBefore = await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
-    headers: { Authorization: `Bearer ${adminToken90}` }
-  })
-    .then((r) => r.json())
-    .catch(() => null)
+  // 批五十七：apiLogin 替代页面取 token（getAdminToken 依赖页面态，套件上下文曾取空
+  // → 恢复 PUT 401 被静默吞掉 → base_url 漂移固化）；快照/恢复同源同 token
+  const { token: token90 } = await apiLogin()
+  const aiBefore = token90
+    ? await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
+        headers: { Authorization: `Bearer ${token90}` }
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+    : null
 
   // 表单关键字段存在（提供方/Base URL/API Key）
   const fieldsOk =
@@ -19769,24 +19773,37 @@ async function testFeature90(page) {
   record(90, '测试连通负路径无崩溃', testNegOk)
 
   // 批五十六：恢复快照（apiKey 留空 = 后端保留语义，不覆盖既有 Key）
-  try {
-    if (aiBefore?.code === 200 && aiBefore?.data) {
-      const d = aiBefore.data
-      await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken90}` },
-        body: JSON.stringify({
-          enabled: !!d.enabled,
-          provider: d.provider,
-          baseUrl: d.baseUrl || '',
-          apiKey: '',
-          model: d.model,
-          allowedTables: Array.isArray(d.allowedTables) ? d.allowedTables : []
-        })
-      }).catch(() => null)
+  // 批五十七：恢复结果显式断言——原实现 .catch 吞掉一切（token 失效/400 均静默），
+  // base_url 漂移固化无从发现；现在恢复失败本身记 FAIL
+  if (!token90 || !aiBefore || aiBefore?.code !== 200 || !aiBefore?.data) {
+    record(90, 'AI 配置快照恢复', false, `快照不可用 token=${!!token90} code=${aiBefore?.code}`)
+  } else {
+    const d = aiBefore.data
+    const restoreResp = await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token90}` },
+      body: JSON.stringify({
+        enabled: !!d.enabled,
+        provider: d.provider,
+        baseUrl: d.baseUrl || '',
+        apiKey: '',
+        model: d.model,
+        allowedTables: Array.isArray(d.allowedTables) ? d.allowedTables : []
+      })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    let restoredOk = restoreResp?.code === 200
+    if (restoredOk) {
+      // 复核：回读 GET 确认 base_url 与快照一致（写后读闭环，杜绝静默漂移）
+      const after = await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
+        headers: { Authorization: `Bearer ${token90}` }
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      restoredOk = after?.data?.baseUrl === (d.baseUrl || '')
     }
-  } catch {
-    /* 恢复失败不阻断（负路径用例本体已全部断言完毕） */
+    record(90, 'AI 配置快照恢复', restoredOk, `code=${restoreResp?.code}`)
   }
 }
 
@@ -23821,17 +23838,18 @@ async function testFeature122(page) {
   page.off('request', delH)
 
   // 切「缓存统计」（热 Key 提示）tab → loadStats 接口发生（hotKeys + prefixStats）+ 渲染
-  await page
-    .getByRole('tab', { name: /热\s*Key|统计/ })
-    .first()
-    .click()
+  // 批五十七：waitForResponse 必须在 click 前挂载（b35 铁律）——shared_kv 清理后响应
+  // 提速，后挂监听必失竞态（r62 全量+单跑双败实证）
   const hotP = page
     .waitForResponse((r) => r.url().includes('/monitor/cache/hotKeys') && r.status() === 200, { timeout: 8000 })
     .catch(() => null)
   const prefixP = page
     .waitForResponse((r) => r.url().includes('/monitor/cache/prefixStats') && r.status() === 200, { timeout: 8000 })
     .catch(() => null)
-  await page.waitForTimeout(300)
+  await page
+    .getByRole('tab', { name: /热\s*Key|统计/ })
+    .first()
+    .click()
   const hotResp = await hotP
   const prefixResp = await prefixP
   // 统计 tab 双表：前缀统计 + 热 Key（若聚合无数据走空态，接口 200 即渲染完成前提）
