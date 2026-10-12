@@ -1721,3 +1721,40 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - **批六十实测教训**：种子基线必须由**当前 HEAD 二进制**构建——本批首跑用 03:19 旧 exe
   构建 seed-check.db，skin 治理三元组误报 6 处（b56 迁移在旧二进制中不存在）；
   重建 b59 二进制后归零。**基线陈旧 = 整个 diff 无效。**
+
+### 3.50 批六十一：企业级交付补齐——公开仓 CI/Release 流水线首激活攻坚
+
+- **缺口审计结论**：v0.2.0 发布时公开仓（axum/vue）**零 CI workflow**（全部在未发布的
+  根仓，dormant 设计）+ Release 无构建产物（release.yml 未随 tag 生效）——开源门面两大缺口。
+- **单仓流水线下发**：axum（ci/security/release）+ vue（ci/security/release）六文件，
+  门禁与根仓编排版等价；根仓 ci.yml org 名漂移修正（stepby/ → stepbylabs/，9 处）。
+- **首激活三轮攻坚（每轮以 GitHub run 日志取证驱动）**：
+  - R1（6 红根因）：①build.rs 硬要求 frontend-dist/（rust-embed 编译期校验）→ CI/release
+    补前端真实构建链（checkout vue + build:embedded + cp，与本地 embedded 链同源）；
+    ②compose-config 缺 POSTGRES_PASSWORD 注入；③governance/migration 缺 license 字段
+    → 补 MIT；④cargo-deny 两项无补丁 advisory（RUSTSEC-2023-0071 rsa Marvin Attack
+    patched=[] 上游有意；RUSTSEC-2023-0089 atomic-polyfill 构建期传递引入）→ deny.toml
+    记录式豁免（理由+复评条件）+ bzip2/CDLA 许可白名单；⑤gitleaks-action 仓库 404
+    （zricethezdev 已删）→ 迁移 gitleaks/gitleaks-action@v2；⑥vue pnpm-audit 37 high
+    → vue 3.5.40→3.5.43（GHSA-g2v6-rqmx-r4w6 XSS 补丁）+ workspace.yaml overrides
+    （brace-expansion@5/ini@1/nanoid@3/source-map-js）+ audit 口径改 --prod。
+  - R2（2 红根因）：①CI 前端构建步骤 cd ../stepby-vue 越出 workspace → $GITHUB_WORKSPACE
+    路径修正；②docker-compose.prod.yml include 根仓 deploy/ 跨仓文件单仓不可解析 →
+    校验面收敛为自包含两文件（prod 留根仓编排 CI）。
+  - R3（3 红根因）：①gitleaks-action v2 对 **org 仓收费**（GITLEAKS_LICENSE 硬门槛）→
+    换官方免费 gitleaks/gitleaks@v8（三仓）；②CI Test 步 12 例红=两类：**webauthn 6 例
+    确定性**（部署态 config.toml 带 rp_id/origin 而 env-only 缺失 → 503「WebAuthn 未
+    配置」，本地移走 config.toml 复现实证）→ 用例自含化（webauthn_ctx() 注入 rp_id/
+    origin，8 处调用替换）；**6 例负载型偶发**（switch_states/oper_log 归档/ip_location
+    "写后读"类，本地并行不可复现）→ CI RUST_TEST_THREADS=4 钳制（§3.36 负载管理同源）。
+  - R4 起跑（axum 89adba6 / vue 779f473 基线）。
+- **vue overrides 深坑（本地实证）**：brace-expansion 维护版（1.1.20/2.1.6）**破坏
+  minimatch API**（expand is not a function，eslint/glob 构建链全断）——audit 的
+  patched>=2.1.6 字段与生态兼容性不同步，overrides 逐项二分后撤销 @1/@2，保留 @5/
+  ini/nanoid/source-map-js；**生产树 high 清零（audit --prod RC=0）**，@1/@2 链 DoS
+  属构建期风险由 lockfile 升级管理（pnpm-workspace.yaml 注释留档）。
+- **机制沉淀**：单跑红/组跑绿的判读——webauthn 首用例 503 确定性、组跑被 config-save
+  用例"预热"掩盖；复现 CI 环境的标准姿势=临时移走 config/config.toml（from_file 回退
+  env-only，Settings::default 语义）+ 显式 DATABASE_URL=sqlite::memory:。
+- **推送网络韧性**：github 443 间歇中断（curl 28），逐 ref 补推 + 真实退出码校验
+  （管道 tail -1 会吞失败码——`git push | tail -1 &&` 不可靠，须 `if git push ... &&`）。
