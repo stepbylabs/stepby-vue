@@ -1692,3 +1692,32 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   临时任务删除。**b54-b57 接线自此有运行栈级真实验证。**
 - 集成测试补齐（b58 的 retention_cleanup 2 用例覆盖方法级边界）+ 本批运行栈级触发验证
   构成双层验证。
+
+### 3.49 批六十：seed_diff.py 常驻工具固化（种子漂移审计标准化）
+
+- **背景**：b54-b57 的种子 diff 均为一次性内联 python 脚本，配方散落在日志里无法复用；
+  批六十固化为 `stepby-axum/scripts/seed_diff.py`（仅标准库，无第三方依赖）。
+- **标准流程（两步）**：
+  1. 构建纯种子库：`DATABASE_URL="sqlite://./data/seed-check.db?mode=rwc" SERVER_PORT=8094
+target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
+     **⚠️ 必须 `?mode=rwc`**——sqlx 默认不创建新文件，缺省时 `unable to open database file
+(code: 14)`（本批两次实证；testing-guide.md:107 早有正确写法）。
+  2. 比对：`python scripts/seed_diff.py data/seed-check.db data/stepby.db`
+     （退出码 0=零漂移 / 1=有漂移 / 2=用法错误，可直接接 CI）。
+- **比对口径（内建豁免，均为实证定性）**：
+  - R1 审计列豁免：create_time/update_time/update_by/created_at/updated_at；
+  - R2 业务键优先：sys_config=config_key、sys_msg_template=template_code、
+    dict 按 (dict_type,dict_value) 等——PK 经迁移补种必然演进（b57 ②）；
+  - K3 代理 PK 列不参与比对（config_id/template_id 漂移=合法演进）；
+  - K1 双源物化：sys.ai.* 前缀 + sys.upload.s3.path_style（F89 PUT 回显 toml effective
+    物化进 sys 行，有效值零漂移——与 §3.46 sys.ai.base_url 同源语义）；
+  - K2 菜单装饰性留档：4102 remark/4115 menu_type+icon+remark/4116 icon+remark/
+    4117 remark（防打地鼠；b60 补 4115/4116 remark，同为生产手调态）；
+  - K4 运行态：sys_user 账号态六列（password/头像/登录时间等）、sys_shared_kv 整表
+    （config:def:* 为 TTL 300s 缓存层读时重建；sso:v4_legacy_at_migrated 幂等 SETNX 自愈）；
+  - P1 待拍板（不计失败）：captchaEnabled 种子 true vs 运行态 false。
+- **方向语义**：种子有→运行库无 = 漂移（丢失）；值不同 = 漂移（篡改）；
+  运行库有→种子无 = 运行数据（只汇总不计失败）。
+- **批六十实测教训**：种子基线必须由**当前 HEAD 二进制**构建——本批首跑用 03:19 旧 exe
+  构建 seed-check.db，skin 治理三元组误报 6 处（b56 迁移在旧二进制中不存在）；
+  重建 b59 二进制后归零。**基线陈旧 = 整个 diff 无效。**
