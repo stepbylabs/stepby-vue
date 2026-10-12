@@ -98,12 +98,12 @@ node main.mjs --headless
   且浏览器无 console error / requestfailed（功能 69=租户 CRUD+三态 PATCH、70=租户配额上限+生命周期（回收站/恢复）+停用即时吊销会话、
   71=域名绑定+DNS TXT 验证、72=config/dict 租户治理列与覆盖层 + 步骤 10.5 读路径租户隔离 4 条、
   **73=多租户 Phase 3 套餐白名单三处生效点（授权∩白名单 403 / getRouters 剪枝 / 套餐变更收敛）+ 到期三态（宽限只读 403 / 超宽限拒登）
-  + 文件跨租户隔离 403（`/common/download/resource`、`/uploads/{tid}/...`）**）。
-  命令与 §3 相同，仅加 `--feature=69-73`。（轮11 基线为 62/62；轮12 新增 4 条读路径隔离断言 → 66/66；
-  轮13 新增功能 73（15 项断言，含 finally 闭环清理）→ 69-73 全绿。）
-  （页面级循环轮10（收官）：功能 67 个人中心资料保存链+改密校验拦截 7 项、功能 68 执行一次→调度日志
-  生成→详情→删除闭环 11 项，628→646，两功能均首轮全绿；应用零改动。
-  运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
+  - 文件跨租户隔离 403（`/common/download/resource`、`/uploads/{tid}/...`）**）。
+    命令与 §3 相同，仅加 `--feature=69-73`。（轮11 基线为 62/62；轮12 新增 4 条读路径隔离断言 → 66/66；
+    轮13 新增功能 73（15 项断言，含 finally 闭环清理）→ 69-73 全绿。）
+    （页面级循环轮10（收官）：功能 67 个人中心资料保存链+改密校验拦截 7 项、功能 68 执行一次→调度日志
+    生成→详情→删除闭环 11 项，628→646，两功能均首轮全绿；应用零改动。
+    运行方式同上：`--feature=N` 等号形式，环境变量同 §3。）
 - **功能 74** 通过判据（已验证基线，轮14）：`--feature=74` → `总计 20 通过 20 失败 0`（EXIT=0）；
   `--feature=69-74` → `总计 103 通过 103 失败 0`（EXIT=0，未破坏既有 69-73）。功能 74 = **跨租户越权防护**
   （user 写越权 / post 与 frontendError 跨租户读）：A 前置建租户 A/B，并以平台 admin 给 A 管理员角色补
@@ -374,13 +374,23 @@ DATABASE_URL="sqlite://./data/mig-verify.db?mode=rwc" cargo run -p migration   #
 //    文件名：stepby-axum/.mig-verify.mjs
 import { DatabaseSync } from 'node:sqlite'
 const db = new DatabaseSync('data/mig-verify.db')
-const P = ['system:tenant:domain:', 'tool:gen:', 'tool:httpDebug:', 'monitor:cache:',
-  'monitor:log:', 'monitor:slowSql:', 'monitor:health:', 'system:backup:']
+const P = [
+  'system:tenant:domain:',
+  'tool:gen:',
+  'tool:httpDebug:',
+  'monitor:cache:',
+  'monitor:log:',
+  'monitor:slowSql:',
+  'monitor:health:',
+  'system:backup:'
+]
 const like = P.map((p) => `perms LIKE '${p}%'`).join(' OR ')
-const rows = db.prepare(
-  `SELECT COUNT(*) AS c FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id
+const rows = db
+  .prepare(
+    `SELECT COUNT(*) AS c FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id
    WHERE rm.role_id = 2 AND (${like.replaceAll('m.', '')})`
-).all()
+  )
+  .all()
 console.log('[verify] role2 持平台专属菜单数（期望 0）:', JSON.stringify(rows))
 const domain = db.prepare("SELECT menu_id FROM sys_menu WHERE perms LIKE 'system:tenant:domain:%'").all()
 console.log('[verify] domain 菜单应存在:', JSON.stringify(domain))
@@ -428,12 +438,12 @@ rm -f .mig-verify.mjs data/mig-verify.db*
 
 第三批排查「看板卡片不可见」时发现：**断言恒失败的真因是选择器语法，而非功能缺陷**。实测四种写法：
 
-| 写法 | 实测结果 | 结论 |
-| --- | --- | --- |
-| `text=我的待办` | `count=1` | ✅ 单条可用 |
-| `text=我的待办, text=My Pending Approvals` | `count=0` | ❌ text 引擎把逗号后整串当**字面文本** |
-| `.el-message--error, text=注册失败` | **抛异常** `Unexpected token "=" while parsing css selector` | ❌ 列表首项是 CSS 时整串按 CSS 解析，`text=` 非法 |
-| `.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")` | `count=1` | ✅ 多语言并列的**推荐**写法 |
+| 写法                                                                                             | 实测结果                                                     | 结论                                              |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------- |
+| `text=我的待办`                                                                                  | `count=1`                                                    | ✅ 单条可用                                       |
+| `text=我的待办, text=My Pending Approvals`                                                       | `count=0`                                                    | ❌ text 引擎把逗号后整串当**字面文本**            |
+| `.el-message--error, text=注册失败`                                                              | **抛异常** `Unexpected token "=" while parsing css selector` | ❌ 列表首项是 CSS 时整串按 CSS 解析，`text=` 非法 |
+| `.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")` | `count=1`                                                    | ✅ 多语言并列的**推荐**写法                       |
 
 - **铁律**：多语言并列一律用 **CSS 选择器列表 + `:has-text()`**；不要混用 `text=` 引擎，也不要写 `text=A, text=B`。
 - 历史影响面：`main.mjs` 曾有 2 处违反（功能 15 的注册拦截、功能 75 的 G4 看板卡片）。前者因
@@ -510,6 +520,7 @@ NODE_OPTIONS="" npm run lint                                        # 期望 0 e
 
 **根因（探针实证）**：该页会由前端 web-vitals 上报 `POST /monitor/frontendError/report`
 （`level:"info", source:"vital", name:"TTFB"…`，类 beacon 发送）。实测：
+
 - 后端**已返回 200**（`response` 事件可见）；
 - 但 Chromium/Playwright 对该请求**永不触发 `requestfinished`** ⇒ 它被永久计为 in-flight
   ⇒ `networkidle`（= 500ms 内无网络连接）**永远不成立**，必然吃满 30s 超时。
@@ -522,7 +533,9 @@ NODE_OPTIONS="" npm run lint                                        # 期望 0 e
 // ❌ 会被 vitals beacon 卡死
 await page.goto(url, { waitUntil: 'networkidle' })
 // ✅ 等"数据驱动渲染"的那条响应（比全局空闲启发式更确定）
-const listResp = page.waitForResponse(r => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 }).catch(() => null)
+const listResp = page
+  .waitForResponse((r) => r.url().includes('/system/oauth/client/list') && r.status() === 200, { timeout: 15000 })
+  .catch(() => null)
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 await listResp
 ```
@@ -543,11 +556,13 @@ e2e 无法在单次运行内完成"改配置 + 重启 + 断言"。故能力位�
 **步骤（以 `nav.l3` = 批次 3 为例，其它能力位同构）**
 
 1. **打开平台层开关**（键**含点号必须加引号**，否则 TOML 解析成嵌套表、启动直接失败）：
+
    ```toml
    # stepby-axum/config/config.toml（本地文件，已 gitignore）
    [features]
    "nav.l3" = "full"
    ```
+
    重启后端，启动日志必须出现两行证据：
    - `WARN ... 能力位：平台层已放开以下能力 ... enabled=nav.l3=full`
    - `Phase 3.5h 已按能力位回填平台普通角色的已解锁菜单授权（perms 粒度） granted=N perms=...`
@@ -587,26 +602,28 @@ e2e 无法在单次运行内完成"改配置 + 重启 + 断言"。故能力位�
 [features]
 "backup.visibility" = "view_only"   # 先只读档
 ```
+
 重启后端后（租户管理员 token）：
 
-| 断言 | 期望 |
-|---|---|
-| `GET /system/backup/list` | **200**（仅本租户 `backup_type='tenant_export'` 行） |
-| `GET /system/backup/{backupId}`（纯数字，本租户） | **200** |
-| `GET /system/backup/download/{backupId}` | **403**（`view_only` **不含**下载） |
-| `POST /system/backup` / `PUT /system/backup`（创建/恢复）/ `DELETE /system/backup/{id}` | **403 恒**（写面属平台专属，**不属任何档位**） |
+| 断言                                                                                    | 期望                                                 |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `GET /system/backup/list`                                                               | **200**（仅本租户 `backup_type='tenant_export'` 行） |
+| `GET /system/backup/{backupId}`（纯数字，本租户）                                       | **200**                                              |
+| `GET /system/backup/download/{backupId}`                                                | **403**（`view_only` **不含**下载）                  |
+| `POST /system/backup` / `PUT /system/backup`（创建/恢复）/ `DELETE /system/backup/{id}` | **403 恒**（写面属平台专属，**不属任何档位**）       |
 
 再把 `"backup.visibility" = "full"` 重启 ⇒ `download` 变 **200**（其余写面仍 403）。
 **反向验证**：改回 `off` 重启 ⇒ 上表四行**全部 403**，且启动日志回到「能力位：平台层全部关闭」。
+
 > ⚠️ 旧键 `backup.readonly_visible` 已**失效**（未知 key 静默忽略 ⇒ 回落 `off`）。若改配置后行为"没变"，先确认没有写成旧键名。
 
 **(2) `[sso]` 三个可选开关（批次 D，默认 `false`；需先 `sso.enabled = true`）**
 
-| 开关 | OFF 断言（关闭态即现状） | ON 断言 |
-|---|---|---|
-| `introspection_enabled` | `POST /sso/introspect` ⇒ **404** | **200** + `{ "active": true, "client_id": ... }`；用**他客户端**签发的 AT 调 ⇒ `{"active": false}`；`discovery` 文档含 `introspection_endpoint` |
-| `audit_authorize_get` | 走一次 `authorize` 后**操作日志无新增** | 操作日志新增 1 条（含 `client_id` / `redirect_uri` / `scope`），`oper_name=anonymous`、`tenant_id=0`（预认证端点无租户上下文，**属预期**） |
-| `proxy_logo_uri` | consent 页 logo 直接指向 RP 的 `logoUri` | consent 页 logo 指向 `/sso/client-logo/{clientId}`；该端点仅 `image/*`、超 256KB 或 5s 超时 ⇒ 失败（**不跟随重定向**） |
+| 开关                    | OFF 断言（关闭态即现状）                 | ON 断言                                                                                                                                         |
+| ----------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `introspection_enabled` | `POST /sso/introspect` ⇒ **404**         | **200** + `{ "active": true, "client_id": ... }`；用**他客户端**签发的 AT 调 ⇒ `{"active": false}`；`discovery` 文档含 `introspection_endpoint` |
+| `audit_authorize_get`   | 走一次 `authorize` 后**操作日志无新增**  | 操作日志新增 1 条（含 `client_id` / `redirect_uri` / `scope`），`oper_name=anonymous`、`tenant_id=0`（预认证端点无租户上下文，**属预期**）      |
+| `proxy_logo_uri`        | consent 页 logo 直接指向 RP 的 `logoUri` | consent 页 logo 指向 `/sso/client-logo/{clientId}`；该端点仅 `image/*`、超 256KB 或 5s 超时 ⇒ 失败（**不跟随重定向**）                          |
 
 **(3) `[acme] mode = "webhook"` 输出契约（批次 C，默认 `off` 无副作用）**
 
@@ -630,6 +647,7 @@ e2e 无法在单次运行内完成"改配置 + 重启 + 断言"。故能力位�
 replicas = 2
 cluster_mode = "auto"   # 默认值
 ```
+
 重启 ⇒ 启动日志**必须**出现 WARN（提示"多副本 + auto 可能重复扫描"）；改 `cluster_mode = "leader"` 重启 ⇒ WARN 消失。**该开关不改变任何调度行为**（仅日志与自检）。
 
 ### 3.19 本轮（第十三批）新增开关的开启态配方（改这批代码必跑）
@@ -707,15 +725,15 @@ tenant_filter = "platform"   # off | platform | always
 
 重启后端后：
 
-| 断言（**平台**操作者） | 期望 |
-|---|---|
-| `getInfo` 返回体 | `showTenantFilter: true` |
-| 操作日志 / 登录日志 / 前端错误 / 用户管理 搜索栏 | 出现「租户号」输入框（组件 `TenantFilter`） |
-| 输入某租户号后查询 | 结果**仅**该租户行（显式 `tenantId` 与行级 `tenant_scope` **相与**） |
+| 断言（**平台**操作者）                           | 期望                                                                 |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| `getInfo` 返回体                                 | `showTenantFilter: true`                                             |
+| 操作日志 / 登录日志 / 前端错误 / 用户管理 搜索栏 | 出现「租户号」输入框（组件 `TenantFilter`）                          |
+| 输入某租户号后查询                               | 结果**仅**该租户行（显式 `tenantId` 与行级 `tenant_scope` **相与**） |
 
-| 断言（**租户**操作者） | 期望 |
-|---|---|
-| `getInfo` 返回体（`platform` 档） | `showTenantFilter: false` |
+| 断言（**租户**操作者）                                 | 期望                                                        |
+| ------------------------------------------------------ | ----------------------------------------------------------- |
+| `getInfo` 返回体（`platform` 档）                      | `showTenantFilter: false`                                   |
 | 手工构造 `GET /monitor/operlog/list?tenantId=<他租户>` | **200 但空集**（只收窄、不放宽 ⇒ 该筛选**不构成安全边界**） |
 
 - 置 `always` 重启 ⇒ 租户操作者也出现输入框（传自己 = 结果不变，传他人 = 空集）；
@@ -728,13 +746,13 @@ tenant_filter = "platform"   # off | platform | always
 
 #### (1) SSO D9：`client_secret` 零停机轮换（双密钥读取期）
 
-| 步骤 | 操作 | 期望 |
-|---|---|---|
-| 1 | 客户端列表任选一行 → 点「轮换密钥」 | 弹确认 → 弹"一次性密钥"框，含**新密钥明文**（关闭后不可再查看） |
-| 2 | 用**旧** `client_secret` 走 `POST /sso/token` | **仍可鉴权**（读到"旧密钥"WARN 即读取期生效）：密钥错 ⇒ `invalid_grant`；密钥对但码错 ⇒ 也是 `invalid_grant` |
-| 3 | 用**新** `client_secret` 同上 | 立即可用 |
-| 4 | 点「结束读取期」 | 再用**旧**密钥 ⇒ `401 invalid_client`（立即失效）；新密钥不受影响 |
-| 5 | 再次点「结束读取期」 | 幂等成功 |
+| 步骤 | 操作                                          | 期望                                                                                                         |
+| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1    | 客户端列表任选一行 → 点「轮换密钥」           | 弹确认 → 弹"一次性密钥"框，含**新密钥明文**（关闭后不可再查看）                                              |
+| 2    | 用**旧** `client_secret` 走 `POST /sso/token` | **仍可鉴权**（读到"旧密钥"WARN 即读取期生效）：密钥错 ⇒ `invalid_grant`；密钥对但码错 ⇒ 也是 `invalid_grant` |
+| 3    | 用**新** `client_secret` 同上                 | 立即可用                                                                                                     |
+| 4    | 点「结束读取期」                              | 再用**旧**密钥 ⇒ `401 invalid_client`（立即失效）；新密钥不受影响                                            |
+| 5    | 再次点「结束读取期」                          | 幂等成功                                                                                                     |
 
 - 判定技巧：客户端鉴权**先于**授权码校验 ⇒ 用任意无效 `code` 即可把两段解耦 —— 密钥被接受 = `invalid_grant`；被拒 = `401 invalid_client`。
 - 连续轮换两次 ⇒ 只有"最近一把"在读取期内，更早的密钥**不得复活**。
@@ -742,10 +760,10 @@ tenant_filter = "platform"   # off | platform | always
 
 #### (2) P2-33：`[server].http_status_convention`
 
-| 档位 | 自定义业务码（如 TOTP `1003`） | 已知码（400/401/403/404/409/422/429/500/503） |
-|---|---|---|
-| `legacy`（**默认 = 现状**） | HTTP **200** + `body.code=1003` | 映射为同名真实 HTTP 状态 |
-| `restful` | HTTP **400** + `body.code=1003` | **完全相同**（两档只在未归类码上分叉） |
+| 档位                        | 自定义业务码（如 TOTP `1003`）  | 已知码（400/401/403/404/409/422/429/500/503） |
+| --------------------------- | ------------------------------- | --------------------------------------------- |
+| `legacy`（**默认 = 现状**） | HTTP **200** + `body.code=1003` | 映射为同名真实 HTTP 状态                      |
+| `restful`                   | HTTP **400** + `body.code=1003` | **完全相同**（两档只在未归类码上分叉）        |
 
 - `restful` 装配后：网关/监控可直接按 HTTP 状态码告警；前端 `request.ts` 的成功/失败**两个**分支都识别 `body.code`，故 TOTP（1003）登录流程不受影响（错误分支已显式保留 `err.code = 1003` 供 `login.vue` 进入验证码步骤）。
 - 负路径：写非法值（如 `"strict"`）⇒ 启动 **WARN** 并回落 `legacy`，**不**拒绝启动。
@@ -784,13 +802,13 @@ origin = "http://localhost:8080"    # 含 scheme；留空同上
 
 #### (2) 手工验证（浏览器）
 
-| 步骤 | 期望 |
-|---|---|
-| 个人中心 → 「通行密钥」→ 添加 | 浏览器弹出 passkey 创建（Windows Hello / 安全密钥 / 手机）；成功后列表出现 1 条 |
-| 退出登录 → 登录页「使用通行密钥登录」+ 填用户名 | 弹出凭据选择 → 通过后**直接进入系统**（无需密码/TOTP） |
-| 删除该凭据后再用 passkey 登录 | 失败（无凭据）；用户名不存在 与 无凭据用户 的**提示必须同形**（防枚举） |
-| **关闭能力位重启** | 登录页分隔线与按钮**都不出现**、个人中心**无**「通行密钥」页签，且控制台**无** `/system/user/webauthn/*` 404（第二十一批前的旧行为：入口在但请求 404 —— 假入口） |
-| **开启能力位重启** | 上述两处入口**都要出现**（验证门控不会"误藏真入口"） |
+| 步骤                                            | 期望                                                                                                                                                             |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 个人中心 → 「通行密钥」→ 添加                   | 浏览器弹出 passkey 创建（Windows Hello / 安全密钥 / 手机）；成功后列表出现 1 条                                                                                  |
+| 退出登录 → 登录页「使用通行密钥登录」+ 填用户名 | 弹出凭据选择 → 通过后**直接进入系统**（无需密码/TOTP）                                                                                                           |
+| 删除该凭据后再用 passkey 登录                   | 失败（无凭据）；用户名不存在 与 无凭据用户 的**提示必须同形**（防枚举）                                                                                          |
+| **关闭能力位重启**                              | 登录页分隔线与按钮**都不出现**、个人中心**无**「通行密钥」页签，且控制台**无** `/system/user/webauthn/*` 404（第二十一批前的旧行为：入口在但请求 404 —— 假入口） |
+| **开启能力位重启**                              | 上述两处入口**都要出现**（验证门控不会"误藏真入口"）                                                                                                             |
 
 #### (3) 自动化验证（本批已落地，改这批必跑）
 
@@ -858,13 +876,13 @@ failure_threshold = 3      # 连续失败达该次数 ⇒ 打开（夹取 1..=10
 cooldown_secs = 10         # 打开后的冷却秒数（夹取 1..=86400）
 ```
 
-| 步骤 | 操作 | 期望 |
-|---|---|---|
-| 1 | `[events] outbound="webhook"` 指向一个**必然失败**的地址（如 `http://127.0.0.1:9/hook`），触发 3 次租户状态变更 | 每次事件打 1 条 WARN；第 3 次出现「连续失败达阈值，熔断打开」WARN |
-| 2 | 再触发 1 次事件 | **不再发请求**（只打 1 条 DEBUG「已被出站熔断跳过」），业务结果不受影响 |
-| 3 | 等过 `cooldown_secs` 再触发 | 放行**一次**探测（半开）：失败 ⇒ WARN「熔断保持打开」并重新计时 |
-| 4 | 把目标地址改回可用端点再触发 | 探测成功 ⇒ WARN「熔断恢复」，之后每次照常发送 |
-| 5 | 关掉熔断（`off`）复跑第 1 步 | 每次都尝试发送（**关闭态零行为变更**），且 `sso`/`events` 的行为与改造前逐字一致 |
+| 步骤 | 操作                                                                                                            | 期望                                                                             |
+| ---- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1    | `[events] outbound="webhook"` 指向一个**必然失败**的地址（如 `http://127.0.0.1:9/hook`），触发 3 次租户状态变更 | 每次事件打 1 条 WARN；第 3 次出现「连续失败达阈值，熔断打开」WARN                |
+| 2    | 再触发 1 次事件                                                                                                 | **不再发请求**（只打 1 条 DEBUG「已被出站熔断跳过」），业务结果不受影响          |
+| 3    | 等过 `cooldown_secs` 再触发                                                                                     | 放行**一次**探测（半开）：失败 ⇒ WARN「熔断保持打开」并重新计时                  |
+| 4    | 把目标地址改回可用端点再触发                                                                                    | 探测成功 ⇒ WARN「熔断恢复」，之后每次照常发送                                    |
+| 5    | 关掉熔断（`off`）复跑第 1 步                                                                                    | 每次都尝试发送（**关闭态零行为变更**），且 `sso`/`events` 的行为与改造前逐字一致 |
 
 - 单测证据（不需要网络）：`cd stepby-axum; cargo test --lib common::breaker`（11 例：关闭态不记账、阈值打开、冷却到期单探测、探测成功恢复、探测失败重计时、成功清零、多 URL 隔离、解析与夹取、未 init 恒放行、host 脱敏）。
 - ⚠️ 熔断是**进程内**状态；多副本部署各实例独立判定（本能力不引入跨实例共享态）。
@@ -880,15 +898,15 @@ consent_ticket = "required"
 consent_ticket_ttl_secs = 300   # 夹取 60..=1800
 ```
 
-| 步骤 | 操作 | 期望 |
-|---|---|---|
-| 1 | 建一个 `consentRequired=1` 的客户端，浏览器走 `/sso/authorize?...` | 302 到 `/sso-consent?...&ticket=<32 位随机 id>`（**query 里必须出现 ticket**） |
-| 2 | 同意页点「批准」 | 正常签发 code 并回跳 RP（前端已自动回传 ticket） |
-| 3 | 用 curl 直发 `POST /sso/consent`（**不带** ticket） | `400`，文案「同意票据无效或已过期，请重新发起授权」 |
-| 4 | 同请求带上任意伪造 ticket | 同上 400（不区分"票不存在"与"参数不符"，防探测） |
-| 5 | 带**合法** ticket 但改 `scope` / `state` | 同上 400，且该票**未被消费**（用原参数再发一次仍成功） |
-| 6 | 用合法 ticket 且参数一致再发一次 | 成功；**同票重放** ⇒ 400（一次性） |
-| 7 | 把 `consent_ticket` 改回 `off` 复跑 | 不带 ticket 也能成功（**关闭态零行为变更**，与历史行为逐字节一致） |
+| 步骤 | 操作                                                               | 期望                                                                           |
+| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| 1    | 建一个 `consentRequired=1` 的客户端，浏览器走 `/sso/authorize?...` | 302 到 `/sso-consent?...&ticket=<32 位随机 id>`（**query 里必须出现 ticket**） |
+| 2    | 同意页点「批准」                                                   | 正常签发 code 并回跳 RP（前端已自动回传 ticket）                               |
+| 3    | 用 curl 直发 `POST /sso/consent`（**不带** ticket）                | `400`，文案「同意票据无效或已过期，请重新发起授权」                            |
+| 4    | 同请求带上任意伪造 ticket                                          | 同上 400（不区分"票不存在"与"参数不符"，防探测）                               |
+| 5    | 带**合法** ticket 但改 `scope` / `state`                           | 同上 400，且该票**未被消费**（用原参数再发一次仍成功）                         |
+| 6    | 用合法 ticket 且参数一致再发一次                                   | 成功；**同票重放** ⇒ 400（一次性）                                             |
+| 7    | 把 `consent_ticket` 改回 `off` 复跑                                | 不带 ticket 也能成功（**关闭态零行为变更**，与历史行为逐字节一致）             |
 
 - 集成测试（主证据，无需手动）：`cd stepby-axum; cargo test --lib test_sso_consent_ticket_required`（覆盖 ①无票 ②伪造票 ③改参不消费票 ④一致成功 ⑤同票重放拒绝）；默认档对照见 `test_sso_consent_flow`（不带票也成功）。
 - 前端守卫：`cd stepby-vue; npx vitest run src/views/sso/consent.ticket.test.ts`（断言同意页读取并回传 `ticket`，且不把它渲染到页面上）。
@@ -942,13 +960,13 @@ EXPECT_CONVENTION=legacy node http-status-convention.mjs      # 期望「总计 
 
 #### (1) 修复前的真实 DOM 现状（Chromium，公告管理「新增」弹窗内）
 
-| 元素 | 修复前 | 影响 |
-|---|---|---|
-| `.ql-editor`（contenteditable 编辑区） | 无 `role` / 无 `aria-label` / 无 `aria-multiline`，`tabIndex = -1` | 读屏只读到"无名可编辑区域"；键盘无法 Tab 进入 |
-| `.ql-picker-label`（字号/标题/颜色/背景/对齐 5 个下拉） | 有 `role="button"` + `tabindex="0"`，但**无可访问名称** | 读屏只念"按钮" |
-| `.ql-toolbar` | 有 `role="toolbar"`，无名称 | 区域不可定位 |
-| 工具栏 `button` | 有 `aria-label`，但是 **Quill 硬编码英文**（`list: ordered` / `indent: -1`） | 中文界面下读屏念英文 |
-| `.ql-picker-item`（尤其色板项） | 免文本项**无可访问名称** | 读屏念不出颜色/对齐 |
+| 元素                                                    | 修复前                                                                       | 影响                                          |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------- |
+| `.ql-editor`（contenteditable 编辑区）                  | 无 `role` / 无 `aria-label` / 无 `aria-multiline`，`tabIndex = -1`           | 读屏只读到"无名可编辑区域"；键盘无法 Tab 进入 |
+| `.ql-picker-label`（字号/标题/颜色/背景/对齐 5 个下拉） | 有 `role="button"` + `tabindex="0"`，但**无可访问名称**                      | 读屏只念"按钮"                                |
+| `.ql-toolbar`                                           | 有 `role="toolbar"`，无名称                                                  | 区域不可定位                                  |
+| 工具栏 `button`                                         | 有 `aria-label`，但是 **Quill 硬编码英文**（`list: ordered` / `indent: -1`） | 中文界面下读屏念英文                          |
+| `.ql-picker-item`（尤其色板项）                         | 免文本项**无可访问名称**                                                     | 读屏念不出颜色/对齐                           |
 
 #### (2) 修复要点（`components/Editor/index.vue`）
 
@@ -1061,7 +1079,8 @@ curl.exe -sI http://localhost:18080/system/user             # SPA fallback 亦 n
 ### 3.26 本轮（第二十一批）新增开关的开启态配方（改这批代码必跑）
 
 **本批有「运行时语义」的改动**：能力位前端下发（假入口收敛）+ 登录风控 / 上传扫描集成点（均默认 `off`）
-+ `menu_type` 常量化（纯重构，无行为变更）+ cron DTO 上限对齐 `64`。
+
+- `menu_type` 常量化（纯重构，无行为变更）+ cron DTO 上限对齐 `64`。
 
 #### (1) 能力位前端下发（`auth.webauthn`）——**本批最重要的可证伪点**
 
@@ -1185,17 +1204,18 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 命令同 §3，`--feature=87-93` → `总计 28 通过 28 失败 0`（EXIT=0，已验证基线）。
 
-| 功能 | 覆盖 | 关键断言 |
-|---|---|---|
-| 87 | 消息渠道编辑全链 | 新增重复编码被唯一约束拒绝（负路径，`channelCode=channelType` 与种子冲突是产品语义）；编辑对话框 configJson **明文回显**（EncryptedString 读路径解密，非 `enc*:` 密文）；仅改备注配置保持；`clearFields` 显式清空；**零污染闭环**（清空验证后写回原配置并回显一致） |
-| 88 | 消息模板增改删 | email 渠道 + 变量占位 `{{nickName}}`；主题编辑生效；删除后行消失 |
-| 89 | OSS 存储配置页（G-11） | GET 出参掩码（accessKeyMasked/secretKeyMasked 不回明文）；页面可达（**菜单 4103 孤儿占位修复回归点**）；档位提示；PUT 空 secretKey 保留原值（掩码不变） |
-| 90 | AI 助手配置页 | 表单关键字段；API Key 保留语义；空 Key 保存；测试连通负路径无崩溃 |
-| 91 | 盲区冒烟 | /monitor/task、/system/dataRule、**/system/log/auditChange**（注意前缀是 /system/log） |
-| 92 | 盲区冒烟 | /system/oauth/scimGroup、/tool/http-debugger、/tool/swagger |
-| 93 | e2e 孤儿数据巡检 | `test-menu-*` 孤儿菜单清零；e2e 用户残留清理（防测试污染复发——历史 F23 孤儿占位 menu_id=4101-4147 导致固定 ID 菜单 INSERT OR IGNORE 静默失效的教训） |
+| 功能 | 覆盖                   | 关键断言                                                                                                                                                                                                                                                            |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 87   | 消息渠道编辑全链       | 新增重复编码被唯一约束拒绝（负路径，`channelCode=channelType` 与种子冲突是产品语义）；编辑对话框 configJson **明文回显**（EncryptedString 读路径解密，非 `enc*:` 密文）；仅改备注配置保持；`clearFields` 显式清空；**零污染闭环**（清空验证后写回原配置并回显一致） |
+| 88   | 消息模板增改删         | email 渠道 + 变量占位 `{{nickName}}`；主题编辑生效；删除后行消失                                                                                                                                                                                                    |
+| 89   | OSS 存储配置页（G-11） | GET 出参掩码（accessKeyMasked/secretKeyMasked 不回明文）；页面可达（**菜单 4103 孤儿占位修复回归点**）；档位提示；PUT 空 secretKey 保留原值（掩码不变）                                                                                                             |
+| 90   | AI 助手配置页          | 表单关键字段；API Key 保留语义；空 Key 保存；测试连通负路径无崩溃                                                                                                                                                                                                   |
+| 91   | 盲区冒烟               | /monitor/task、/system/dataRule、**/system/log/auditChange**（注意前缀是 /system/log）                                                                                                                                                                              |
+| 92   | 盲区冒烟               | /system/oauth/scimGroup、/tool/http-debugger、/tool/swagger                                                                                                                                                                                                         |
+| 93   | e2e 孤儿数据巡检       | `test-menu-*` 孤儿菜单清零；e2e 用户残留清理（防测试污染复发——历史 F23 孤儿占位 menu_id=4101-4147 导致固定 ID 菜单 INSERT OR IGNORE 静默失效的教训）                                                                                                                |
 
 **本批修复的真实缺陷（测试反哺产品）**：
+
 1. 38 个 e2e 孤儿菜单占位 → AI 配置(4102)/OSS 配置(4103)/告警规则(4110) 等业务菜单从未落库（固定 ID + OR IGNORE 静默失效）——已数据修复 + `ensure_upload_config_menu` 加内容校验 warn + F23 finally 兜底清理 + F93 巡检。
 2. F23 删除失败无兜底 → 加"菜单删除兜底清理"断言。
 3. admin 密码漂移（历史改密测试残留）→ 本地库重置 admin123；e2e 依赖 `sys_config.sys.account.captchaEnabled=false`。
@@ -1206,35 +1226,39 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
 
 命令同 §3，`--feature=94-97` → `总计 14 通过 14 失败 0`（EXIT=0，embedded 8080 基线已验证）。
 
-| 功能 | 覆盖 | 关键断言 |
-|---|---|---|
-| 94 | 报表数据集页全链（G-01 e2e 盲区） | 新增落库→SQL 明文端点回填（admin 持 edit 键 200 且含明文）→试跑对话框开/**关**→删除后列表轮询复查不再命中 |
-| 95 | 图驱动审批全链（含批次十七 UI 入口） | API 建图发布→UI「提交测试单据」按钮→对话框提交 Toast→stepby 会话按图两级办结（条件 days>3 真走长链 a1→a2） |
-| 96 | actions 白名单收窄 | 图节点未勾 delegate → 403；勾选 countersign_add → 非 403（**属主会话调用**，白名单 403 与属主 403 不混淆） |
-| 97 | 大屏 view 页冒烟 | `/system/reportDashboard` 可达（菜单 4148，parent=1 前缀 /system）→ 运行/设计模式切换 |
+| 功能 | 覆盖                                 | 关键断言                                                                                                   |
+| ---- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| 94   | 报表数据集页全链（G-01 e2e 盲区）    | 新增落库→SQL 明文端点回填（admin 持 edit 键 200 且含明文）→试跑对话框开/**关**→删除后列表轮询复查不再命中  |
+| 95   | 图驱动审批全链（含批次十七 UI 入口） | API 建图发布→UI「提交测试单据」按钮→对话框提交 Toast→stepby 会话按图两级办结（条件 days>3 真走长链 a1→a2） |
+| 96   | actions 白名单收窄                   | 图节点未勾 delegate → 403；勾选 countersign_add → 非 403（**属主会话调用**，白名单 403 与属主 403 不混淆） |
+| 97   | 大屏 view 页冒烟                     | `/system/reportDashboard` 可达（菜单 4148，parent=1 前缀 /system）→ 运行/设计模式切换                      |
 
 **批次十八新坑（写新 UI 用例必读，均有探针/截图实证）**：
+
 1. **「按钮可见」≠「交互可用」**：v-if 的对话框若误嵌在未激活的 v-if/v-else 分支，组件不挂载、点击零响应**且零报错**（F95 提交对话框曾误嵌 designer 分支）。新用例必须点到底断言对话框可见，不能止步于按钮 count。
 2. **裸 `permissions.includes('xxx')` 不识别超管 `*:*:*`**：超管看不到按钮（dataset 页 canEdit 实证）。一律用 `checkPermi([...])`（utils/permission.ts，P0-47 空值防护）。
 3. **ElMessageBox 确认键文案**：未显式传 confirmButtonText 时是 EP locale 默认「确定」（**无空格**），`hasText: '确 定'` 匹配失败。结构化定位：`.el-message-box:visible .el-message-box__btns .el-button--primary`。
 4. **Escape 关框不可靠**（force 点击后焦点不在框内）：改点 `.el-dialog__headerbtn`，并断言「对话框已关闭」。
 5. **动态路由竞态**：登录后立即 goto 未注册路由 → 404 回首页，`is404Page` 对首页误判 PASS（假绿）。goto 重试至 URL 命中（F95 范式）：
    ```js
-   for (let i = 0; i < 5; i++) { await page.goto(url); await page.waitForTimeout(1500); if (page.url().includes('xxx')) break }
+   for (let i = 0; i < 5; i++) {
+     await page.goto(url)
+     await page.waitForTimeout(1500)
+     if (page.url().includes('xxx')) break
+   }
    ```
 6. **图流程测试的自审禁区**：admin 提交 + 审批人全为 role:admin = 「禁止全链自审」400。审批人用 `role:common`，推进用 stepby/admin123 独立 API 会话（todo/action 端点仅登录、归属校验在 service 层）——与集成测试同范式。
 7. **embedded 链路铁律**：main.mjs 默认 `frontendUrl = FRONTEND_URL || STEPBY_UI_URL || BASE_URL` = **8080 embedded**。改前端源码后必须 `vite build → cp dist/* stepby-axum/frontend-dist/ → 重启后端`（build.rs include 重编），否则测到"不存在的修复"。
 8. `ResizeObserver loop` 控制台噪声已入 EXT_NOISE_RE 过滤（良性，非应用缺陷）。
 
-**10 轮循环沉淀（run-rounds.mjs，2026-10-08 批次十八）**：
-9. **API 连发段必遇 sys_rate_limit 令牌桶 429**（"请求过于频繁"）：M 级簇 76-83 每功能 10-20 连发 API，多轮满载下令牌桶耗尽 → R6-R9 连环 429 假失败。`mLevelApiSetup` 的 `api` 助手已内建 429 退避（1.2s × 3，令牌桶按秒回填）——**尊重限流语义的确定性化，非绕过**；新功能用 mLevelApiSetup 即自动获得。无任何用例以 429 为期望值，重试不改变断言语义。
-10. **链路中断会污染下一轮状态**：F83「停用→恢复」链在 E1 429 中断会把种子事件 user.created 留在 disabled=0，下一轮 A1 前置断言假失败——尾部已加 best-effort 恢复启用态（幂等）。教训：**有状态翻转的用例必须在尾部恢复初态，不能假设链路必然走完**。
+**10 轮循环沉淀（run-rounds.mjs，2026-10-08 批次十八）**：9. **API 连发段必遇 sys_rate_limit 令牌桶 429**（"请求过于频繁"）：M 级簇 76-83 每功能 10-20 连发 API，多轮满载下令牌桶耗尽 → R6-R9 连环 429 假失败。`mLevelApiSetup` 的 `api` 助手已内建 429 退避（1.2s × 3，令牌桶按秒回填）——**尊重限流语义的确定性化，非绕过**；新功能用 mLevelApiSetup 即自动获得。无任何用例以 429 为期望值，重试不改变断言语义。10. **链路中断会污染下一轮状态**：F83「停用→恢复」链在 E1 429 中断会把种子事件 user.created 留在 disabled=0，下一轮 A1 前置断言假失败——尾部已加 best-effort 恢复启用态（幂等）。教训：**有状态翻转的用例必须在尾部恢复初态，不能假设链路必然走完**。
 
 ## 8. 批次二十四：后台管理系统审计修复轮（2026-10-09）— 通过判据与长跑漂移根治
 
 命令同 §3（embedded :8080 权威环境），全量 **939 项**。
 
 ### 8.1 本轮通过判据
+
 - 首轮全量：939 项 / 932 通过 / **7 失败**（此前一轮 936 项 / 926 通过 / 10 失败）。
 - 失败项**全部定性为测试脚本竞态/靶点问题**，逐条根因修正后单跑全绿：
   - `--feature=8,42,59,60,61` → **59 / 59 通过**
@@ -1259,19 +1283,20 @@ const visible = await el.isVisible({ timeout: 1500 }).catch(() => false)
 ```
 
 覆盖点：
-| 功能 | 元素 | 改造 |
-|---|---|---|
-| 8 | 限流页表格行 | 等 `.el-table__row` 出现；断言升级为「可见**且**行数>0」（骨架态不算通过） |
-| 42 | 后端 VO 源码扫描 | **靶点迁移**：B-2 重构把聚合下沉 `service/dashboard_service.rs`，断言随 source of truth 迁移，**并新增** handler `pub use` 重导出 + 委托调用断言（保对外契约） |
-| 53 | frontendError 清空按钮 | waitFor 10s |
-| 54 | 各页 `.el-tabs__item` | 等首个页签挂载再断言 tabs 数 |
-| 59 | 导航栏语言入口 | waitFor 10s |
-| 60 | 菜单/部门页展开折叠按钮 | waitFor 10s |
-| 61 | 数据权限对话框 | 点击后 waitFor 再断言（非固定 timeout） |
-| 67 | 个人中心昵称输入 | waitFor 10s；**并修监听窗口**——原 `sleep(1500)` 后即 `off`，慢响应漏采致 `status=null`，改为轮询等响应（上限 8s） |
-| 84 | 定时任务页 el-table | waitFor 10s |
-| 75 | 看板「我的待办」卡片（G4） | 等 `.widget-card` 容器出现后再对目标卡片 waitFor 15s——卡片数量来自异步 `pending-count`，固定 `sleep(2500)` 在长跑下不足（**全量 954/1 实证**，单跑 75 恒 16/16 通过 ⇒ 判定为漂移非缺陷） |
-| 52 | 用户页搜索回查（新增/编辑/删除三处） | `searchBy` 三点加固：①**先挂响应监听再点击**，且等请求 URL 含本次 `userName=<name>` 参数的响应（旧写法只匹配 `/system/user/list`，会被**点击前在途的旧响应**提前满足）；②响应到后再**等目标行 `waitFor` 可见**——根因为该页 `syncUrlQuery()→router.replace({query})` 会触发路由**卸载→重挂**，中间存在**表格短暂消失的空白窗口**（实测时序 `el-table` 计数 1→1→1→(sleep后)0→(更晚)1），断言落在窗口内即误判 `rows=0`；③回查重试 3~4×1.2~1.5s → **6×2s**。`--feature=51,52` 曾稳定复现（37/37→28/27），修复后 53/53 全通过 |
+
+| 功能 | 元素                                 | 改造                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 8    | 限流页表格行                         | 等 `.el-table__row` 出现；断言升级为「可见**且**行数>0」（骨架态不算通过）                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 42   | 后端 VO 源码扫描                     | **靶点迁移**：B-2 重构把聚合下沉 `service/dashboard_service.rs`，断言随 source of truth 迁移，**并新增** handler `pub use` 重导出 + 委托调用断言（保对外契约）                                                                                                                                                                                                                                                                                                                                                             |
+| 53   | frontendError 清空按钮               | waitFor 10s                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 54   | 各页 `.el-tabs__item`                | 等首个页签挂载再断言 tabs 数                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 59   | 导航栏语言入口                       | waitFor 10s                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 60   | 菜单/部门页展开折叠按钮              | waitFor 10s                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 61   | 数据权限对话框                       | 点击后 waitFor 再断言（非固定 timeout）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 67   | 个人中心昵称输入                     | waitFor 10s；**并修监听窗口**——原 `sleep(1500)` 后即 `off`，慢响应漏采致 `status=null`，改为轮询等响应（上限 8s）                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 84   | 定时任务页 el-table                  | waitFor 10s                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 75   | 看板「我的待办」卡片（G4）           | 等 `.widget-card` 容器出现后再对目标卡片 waitFor 15s——卡片数量来自异步 `pending-count`，固定 `sleep(2500)` 在长跑下不足（**全量 954/1 实证**，单跑 75 恒 16/16 通过 ⇒ 判定为漂移非缺陷）                                                                                                                                                                                                                                                                                                                                   |
+| 52   | 用户页搜索回查（新增/编辑/删除三处） | `searchBy` 三点加固：①**先挂响应监听再点击**，且等请求 URL 含本次 `userName=<name>` 参数的响应（旧写法只匹配 `/system/user/list`，会被**点击前在途的旧响应**提前满足）；②响应到后再**等目标行 `waitFor` 可见**——根因为该页 `syncUrlQuery()→router.replace({query})` 会触发路由**卸载→重挂**，中间存在**表格短暂消失的空白窗口**（实测时序 `el-table` 计数 1→1→1→(sleep后)0→(更晚)1），断言落在窗口内即误判 `rows=0`；③回查重试 3~~4×1.2~~1.5s → **6×2s**。`--feature=51,52` 曾稳定复现（37/37→28/27），修复后 53/53 全通过 |
 
 **漂移诊断口诀（本轮多次实证）**：全量失败但**单跑该功能段全通过** ⇒ 多为长跑漂移（改等待），
 不是业务缺陷；反之单跑亦失败 ⇒ 真缺陷。失败 evidence 里若夹杂**上一条用例的 toast/net 残留**，
@@ -1288,12 +1313,14 @@ const visible = await el.isVisible({ timeout: 1500 }).catch(() => false)
 迁移靶点时**必须同时断言旧位置的对外契约仍成立**（重导出/委托），否则等于放弃该契约的回归保护。
 
 ### 8.3 附带修复的既有问题（用户指令「预先存在的问题也要一并优化修复」）
+
 - e2e 异步元素等待范式统一（§8.2）：消除长跑漂移这一**长期存在的测试脆弱性**。
 - e2e 断言点与架构同步（功能 42）+ 契约保持断言。
 
 ### 8.4 a11y 全站巡检基线（2026-10-09 本批闭环）
 
 命令：
+
 ```bash
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
@@ -1308,6 +1335,7 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 - 演变：**461/99（暴露存量）→ 529/31（修字号）→ 534/26（修 label/iframe）→ 560/0（全口径）**。
 
 **a11y 修复两类根因**：
+
 1. **真实应用缺陷（2 处，已修源码）**：`HeaderNotice` 角标 10px、`notice-center` badge 11px
    （低于全站 12px 可读性基线；前者全站每页渲染 → 单点缺陷放大为 56 条 FAIL）。
 2. **扫描器口径缺口（7 类，已修脚本）**：`unnamed` 判定 `!text && !ariaLabel && !title` 过窄，
@@ -1341,8 +1369,6 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 5. **i18n 残留数与 HTML `lang` 交叉判定**：判断「英文模式残留中文」是真缺陷还是假失败，**先看
    `document.documentElement.lang`**——若仍为 `zh-CN`，说明**语言根本没切成功**（浮层拦截了语言图标点击），
    报告里的「残留中文」是**整页中文**的假象，非逐条硬编码。真缺陷的形态是「lang=en-US 且仍有零星中文」。
-
-
 
 ### 3.28 批三十二（循环第八轮）：el-switch 隐藏 input 与菜单父链陷阱
 
@@ -1487,8 +1513,8 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 
 - **基线**：84 模块 / **1029 ✅ / 0 ❌** / SKIP 48 / 2333.5s（38.9min），headless 无过滤器。
   运行：`STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 STEPBY_BASE_URL=http://localhost:8080
-  FRONTEND_URL=http://localhost:8080 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers"
-  node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
+FRONTEND_URL=http://localhost:8080 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers"
+node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
 - **改写**：networkidle→load ×27（逐处确认有 sleep/waitFor 缓冲）；isVisible({timeout})→waitFor
   等价改写 ×741；跨行冗余 catch 去重 ×382；裸 isVisible() 6 处语义正确保留。
 - **修复 2 处**：M9 console 401 白名单补 `/system/notice/`（listTop 为批三十一新增的顶部通知）；
@@ -1514,3 +1540,25 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
   site 投递语义=系统内记录（sys_msg_service.rs:1164，不写 notice 表）。
 - 覆盖率首测：Vue 单测 51.0% 语句/39.0% 函数（api 层盲区由 e2e 真链路互补）；Rust lib
   **76.38% 行/74.49% 分支/79.12% 函数**（llvm-cov，1347 tests）。
+
+### 3.40 批五十一：cargo-audit 离线扫描配方（security.yml 休眠期本地替代）
+
+- **配方**：`cargo audit --no-fetch --stale`（advisory-db 更新需 github.com，受限网络下本地库
+  上次同步 2026-08-24/1226 advisories 可用）；cargo-audit 0.22.2 已在位。
+- **配置位置坑**：0.22.x 读 **`.cargo/audit.toml`**（工作区根的 `audit.toml` 不被读取）；
+  schema=`[advisories] ignore=["RUSTSEC-ID"]`（**无 version 字段**——加了直接报 unknown field）。
+- **首扫结果**：rsa 0.9.10 RUSTSEC-2023-0071（Marvin Attack，无 stable 修复）→ 攻击面取证
+  （全仓零 RSA 解密，唯一用点为 SSO RS256 私钥签名——非攻击向量）→ `.cargo/audit.toml`
+  ignore 登记；atomic-polyfill unmaintained 为非阻断警告。**EXIT=0**。
+
+### 3.41 批五十二：Vue 单测盲区补齐 + npm audit 配方修正
+
+- **单测盲区**：`src/utils/` 四个零覆盖模块补齐——safeI18n（8）/progress（7）/passwordRule（15）/
+  navigation（5），共 **35 用例**；vitest 总量 **973/973 全绿**（基线 938 + 35）。passwordRule
+  两个有意行为（null/undefined 传入、纯空白密码路径）已用测试锁定。vue-tsc/eslint 全绿。
+- **npm audit "不可用"过时结论修正**：旧结论来自默认 registry（淘宝镜像不支持 audit 端点）→
+  **新配方 `pnpm audit --registry=https://registry.npmjs.org`** 可用。首测 96 条，axios
+  1.18.1→1.20.0 直升后清零生产可达 7 条 high，余 84 条均为 dev 链（vite/esbuild/playwright）
+  或上游未发布修复（braces <3.0.3 无新版）。
+- **pnpm 10 overrides 坑**：package.json 的 `pnpm.overrides` 字段被 pnpm 10 忽略 → 必须
+  迁移到 `pnpm-workspace.yaml`；非 TTY 需 `CI=true`；allowBuilds 占位符需填 true。
