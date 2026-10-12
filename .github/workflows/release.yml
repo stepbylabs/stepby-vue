@@ -1,0 +1,88 @@
+# Stepby Vue Release 流水线（单仓版）
+#
+# 触发条件：推送语义化版本 tag（v*）。
+#
+# 产物（附到 GitHub Release）：
+#   - stepby-frontend-<tag>.tar.gz   (dist/ 静态产物，Nginx/SPA 部署直接可用)
+#
+# Release 正文取仓库内 CHANGELOG.md（与 tag 同源）。
+# 质量门禁（typecheck/lint/test/build/perf-budget）由 ci.yml 完成。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Build frontend dist
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (production)
+        run: npm run build:prod
+
+      - name: Performance budget gate
+        run: node scripts/check-perf-budget.mjs --dir dist
+
+      - name: Stage dist archive
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          tar -czf "stepby-frontend-$TAG.tar.gz" dist/
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend
+          path: stepby-frontend-${{ github.ref_name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (CHANGELOG source)
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-assets
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Stepby ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: |
+            dist-assets/stepby-frontend-*.tar.gz
+          draft: false
