@@ -1,0 +1,4 @@
+# 批六十一：generic-api-key 误报——i18nKey 是菜单国际化键字段（translateTitle
+# 参数名），非任何凭据；file:line:rule 指纹不含 commit，覆盖全部历史提交。
+# 实证：GitHub run 38288037738（4 findings 同源）。
+src/views/system/menu/index.vue:73:generic-api-key
