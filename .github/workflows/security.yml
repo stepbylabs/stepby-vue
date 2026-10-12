@@ -42,7 +42,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run pnpm audit
-        run: pnpm audit --audit-level=high
+        # 口径：--prod 聚焦运行时依赖面（浏览器产物实际携带的依赖树）。
+        # devDependencies（构建工具链 postcss/svgo/glob 等）不进产物，其漏洞
+        # 由 pnpm-workspace.yaml overrides + 定期 lockfile 升级管理；
+        # 生产树 high 已于 2026-10-12 清零（vue 3.5.43 + patch 级 overrides）。
+        run: pnpm --registry=https://registry.npmjs.org audit --prod --audit-level=high
 
   gitleaks:
     name: 密钥泄露扫描 (gitleaks)
@@ -54,6 +58,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run gitleaks
-        uses: zricethezdev/gitleaks-action@v2
+        # zricethezdev/gitleaks-action 已迁移至 gitleaks org（旧仓库 404，run 38275496005 实证）
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

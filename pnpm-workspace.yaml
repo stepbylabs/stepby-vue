@@ -6,3 +6,11 @@ onlyBuiltDependencies:
   - '@parcel/watcher'
   - core-js
   - vue-demi
+# 安全 overrides：传递依赖 patch 级漏洞强制升级（audit --prod high 清零，2026-10-12）
+overrides:
+  'brace-expansion@1': '>=1.1.20'
+  'brace-expansion@2': '>=2.1.6'
+  'brace-expansion@5': '>=5.0.11'
+  'ini@1': '>=1.3.8'
+  'nanoid@3': '>=3.3.18'
+  'source-map-js': '>=1.2.2'

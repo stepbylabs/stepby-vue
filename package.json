@@ -60,7 +60,7 @@
     "prismjs": "^1.30.0",
     "quill": "^2.0.3",
     "sortablejs": "^1.15.6",
-    "vue": "3.5.40",
+    "vue": "3.5.43",
     "vue-cropper": "1.1.4",
     "vue-i18n": "^10.0.8",
     "vue-router": "5.2.0",
