@@ -1597,3 +1597,47 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   logininfor 非种子行（2108，删除用户的历史登录日志=合法审计保留）与 audit_change 均为设计内。
 - **方法论沉淀**：巡检按「关联族」推进——发现单表残留后必须沿外键（biz_id/hook_id/report_id）
   查全族，孤儿判定=「父行已删而子行留存」，清理顺序=先子后父。
+
+### 3.44 批五十六：种子漂移审计（临时库 diff 法）+ config 部分更新语义补全
+
+- **方法升级**：以 `DATABASE_URL=sqlite://./data/seed-check.db` + `SERVER_PORT=8093` 启动第二
+  实例构建**纯种子临时库**，python 逐行逐列 diff 生产库种子表（menu/dict/config/role/dept/
+  post/user/role_menu/msg_template）——比残留模式扫描更强，直接暴露"种子 vs 运行库"语义漂移。
+  比对口径：跳过 create_time/update_time/update_by 审计列；config/msg_template 按**业务键**
+  （config_key/template_code）而非 PK（PK 随演进重排）；role_menu 按复合键。
+- **真产品缺陷一（已修，axum）**：`edit_config` 对 config_name/config_value/config_type/remark
+  无条件 `Set(dto.*)` ——DTO 全 Option，前端"只改 remark"的部分载荷把未提交列抹成 NULL。
+  e2e F10 实证 skinName 的 config_name 被清空。修复=四列对齐治理列的 2026-09-26 部分更新
+  语义（None=保留现值，Some("")=清空）。
+- **真产品缺陷二（已修，axum 迁移 m20261012_000001）**：皮肤/主题键种子治理列缺失
+  （init 迁移未指定→列默认 platform_only），与功能 72「租户覆盖 platform_default 键」的
+  产品语义冲突（**全新部署该测试必失败**）→ 迁移落定 platform_default/1/1；同迁移补种
+  4180/4181 两个 F 型按钮菜单（批次十九手工创建未登记种子，全新部署缺归档下载/链校验入口）；
+  initialize 兜底镜像 `ensure_archive_menus`（幂等 INSERT，治理 UPDATE 不镜像防覆盖管理员变更）。
+- **e2e 缺陷修复**：F90「空 Key 保存」PUT 固化前端表单默认值（base_url 被写为
+  api.openai.com/v1 占位）→ 加配置快照恢复段；cleanupE2eResidue +3 步（F23 软删菜单 107 行
+  物理清除、role2 授权漂移 4 行）。
+- **一次性数据修复 118 行**：治理/名称/备注回种子值、ai.base_url 清空、admin avatar 指针
+  （指向已丢失文件）与 country_code 回种子态、role_menu 4 行、软删菜单 107 行。
+- **定性不动**：captchaEnabled 种子 'true' vs 运行态 'false' —— RuoYi 上游传统默认 true，
+  e2e 恢复逻辑固化为 false（套件便利态）；属产品默认值决策项，留档待福哥拍板。
+- **教训**：种子审计必须做——残留清零 ≠ 种子未漂移；「临时种子库 diff」是可复用配方。
+
+### 3.45 批五十六收尾：F106 ssoGrants 语义分歧攻坚 + OOM 环境风暴复现
+
+- **F106 ② 攻坚实录**（全量 1171/1172 唯一失败 → 6 轮取证）：goto 后 sso-grants API 1.6s
+  即 200、DOM/截图/时间线轮询全程显示「Tab 激活 + el-empty 已渲染 + CSS 链全 visible」，
+  而 Playwright `locator('.el-card:has(.grant-list)').waitFor(visible)` 持续 false（15s/30s
+  双窗均败，无 waitFor 异常、无中途导航）。已知差异：`.el-card:has(.grant-list)` 在此页
+  **双匹配**（外层「基本资料」卡因嵌套 ssoGrants 卡而同样命中 :has()）+ EP tab-pane 渲染
+  时序。**终局解 = ② 断言改 DOM 真值轮询**（page.evaluate + offsetParent 启发式，30×1s
+  预算）——断言语义不变，Playwright 语义分歧绕行；②b 同步去 card 依赖改 #pane-ssoGrants
+  作用域。单跑+全量双验证 ✅。
+- **教训**：locator.waitFor 持续 false 而 DOM/截图证真时，先做「CSS 真值 vs Playwright
+  语义」对照取证（getComputedStyle 链 + pwCount/pwVis），证实分歧后改 evaluate 轮询，
+  不无限加 timeout。
+- **OOM 环境风暴复现**：终验首跑 F65 起浏览器进程崩溃（"Target page closed" ×76）——
+  **可用内存 0.74GB**（孤儿 link 3.64GB + rustc×2 2.8GB 未退场）。清孤儿进程 → 4.75GB →
+  重跑 1170/1172。§3.36 内存规则补充：**cargo build 链的 rustc/link 进程（合计可达 6GB+）
+  是头号内存户，全量 e2e 前必须确认其已退场**。
+- 功能 33 两断言失败为已知负载型面孔（段内零改造点，干净单跑 16/16 全绿复现通过）。

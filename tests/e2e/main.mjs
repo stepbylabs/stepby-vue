@@ -17529,7 +17529,15 @@ async function cleanupE2eResidue() {
         "DELETE FROM sys_flow_log WHERE biz_type='flow_graph_doc' AND biz_id NOT IN (SELECT doc_id FROM flow_graph_doc)"
       ],
       ['ai_chat_e2e', "DELETE FROM ai_chat_history WHERE question LIKE 'e2e%'"],
-      ['oauth_provider_e2e', "DELETE FROM sys_oauth_provider WHERE lower(provider_name) LIKE 'e2e%'"]
+      ['oauth_provider_e2e', "DELETE FROM sys_oauth_provider WHERE lower(provider_name) LIKE 'e2e%'"],
+      // 批五十六：r61 巡检实证——F23 菜单 CRUD 链软删 107 行物理残留（API 删除=软删，
+      // 既有兜底清理仅断言不遗留活跃行）+ role2 授权漂移 4 行（权限树用例中断轮遗留）
+      [
+        'menu_rolemenu_e2e',
+        "DELETE FROM sys_role_menu WHERE menu_id IN (SELECT menu_id FROM sys_menu WHERE menu_name LIKE '测试菜单改%')"
+      ],
+      ['menu_softdel_e2e', "DELETE FROM sys_menu WHERE menu_name LIKE '测试菜单改%'"],
+      ['rolemenu_role2_residue', 'DELETE FROM sys_role_menu WHERE role_id=2 AND menu_id IN (4103,4111,4116,4117)']
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -19706,6 +19714,15 @@ async function testFeature90(page) {
   record(90, 'AI 配置页加载', !is404)
   if (is404) return
 
+  // 批五十六：配置快照（r61 巡检实证——「空 Key 保存」交互会 PUT 前端表单默认值，
+  // base_url 被固化为占位默认 https://api.openai.com/v1 → 运行配置漂移）；用例结束恢复
+  const adminToken90 = await getAdminToken(page)
+  const aiBefore = await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
+    headers: { Authorization: `Bearer ${adminToken90}` }
+  })
+    .then((r) => r.json())
+    .catch(() => null)
+
   // 表单关键字段存在（提供方/Base URL/API Key）
   const fieldsOk =
     (await page.locator('text=LLM 提供方').count()) > 0 &&
@@ -19750,6 +19767,27 @@ async function testFeature90(page) {
     log(`  AI 测试连通异常: ${err.message.slice(0, 300)}`)
   }
   record(90, '测试连通负路径无崩溃', testNegOk)
+
+  // 批五十六：恢复快照（apiKey 留空 = 后端保留语义，不覆盖既有 Key）
+  try {
+    if (aiBefore?.code === 200 && aiBefore?.data) {
+      const d = aiBefore.data
+      await fetch(`${CONFIG.backendUrl}/system/aiConfig`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken90}` },
+        body: JSON.stringify({
+          enabled: !!d.enabled,
+          provider: d.provider,
+          baseUrl: d.baseUrl || '',
+          apiKey: '',
+          model: d.model,
+          allowedTables: Array.isArray(d.allowedTables) ? d.allowedTables : []
+        })
+      }).catch(() => null)
+    }
+  } catch {
+    /* 恢复失败不阻断（负路径用例本体已全部断言完毕） */
+  }
 }
 
 // ==================== 功能 91：盲区冒烟（任务进度/数据权限规则/变更留痕）====================
@@ -22164,25 +22202,64 @@ async function testFeature106(page) {
   // ② ssoGrants：列表/空态渲染 + 撤销确认取消路径
   try {
     await presetTourDisabled(page)
+    // 批五十六：F4 确定性等待——先挂 sso-grants 200 响应探针再 goto。
+    // r61 实证：套件上下文该请求耗时 >15s（退避重试族），固定时间等待双跑双败；
+    // 响应到达即 loading=false、el-empty/grant-item 必然就绪（探针+富快照取证）。
+    page.on('framenavigated', (f) => {
+      if (f === page.mainFrame()) log(`  ⚠ [F106 ②] 导航发生: ${f.url().slice(0, 80)} @${Date.now() - gotoT0}ms`)
+    })
+    const grantsRespReady = page
+      .waitForResponse((r) => r.url().includes('/system/user/profile/sso-grants') && r.status() === 200, {
+        timeout: 60000
+      })
+      .then(() => true)
+      .catch(() => false)
     await page.goto(`${CONFIG.frontendUrl}/user/profile/ssoGrants`, { waitUntil: 'load', timeout: 20000 })
-    await sleep(1500)
     await skipTour(page)
-    // 个人中心页首个 .el-card 是基本资料卡——用 grant-list 容器精确定位 ssoGrants 卡
-    const card = page.locator('.el-card:has(.grant-list)').first()
-    const rendered = await card
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false)
-    await page.waitForTimeout(1500)
-    const hasList = (await card.locator('.grant-item').count()) > 0
-    const hasEmpty = await card
-      .locator('.el-empty')
+    const grantsReady = await grantsRespReady
+    // 个人中心 ssoGrants 卡断言（批五十六：DOM 真值轮询）
+    //
+    // 弃用 Playwright locator.waitFor(visible)：r61 取证实证该页在套件上下文存在
+    // 「DOM 已渲染（grantHTML=el-empty、Tab 激活、CSS 链全 visible）而 Playwright
+    // visible=false 长达 30s+」的语义分歧（el-card:has(.grant-list) 双匹配 +
+    // EP tab-pane 渲染时序叠加），时间线快照与截图均证实 DOM 真值可靠。
+    // 断言语义不变：ssoGrants 卡渲染且（授权列表非空 或 空态组件可见）。
+    let rendered = false
+    let hasList = false
+    let hasEmpty = false
+    for (let i = 0; i < 30 && !(rendered && (hasList || hasEmpty)); i++) {
+      const s = await page
+        .evaluate(() => {
+          const cards = [...document.querySelectorAll('.el-card:has(.grant-list)')]
+          const card = cards.find((c) => c.closest('.el-tab-pane')) || cards[0]
+          if (!card) return null
+          const empty = card.querySelector('.el-empty')
+          return {
+            rendered: card.offsetParent !== null,
+            hasList: card.querySelectorAll('.grant-item').length > 0,
+            hasEmpty: !!empty && empty.offsetParent !== null
+          }
+        })
+        .catch(() => null)
+      if (s) {
+        rendered = s.rendered
+        hasList = s.hasList
+        hasEmpty = s.hasEmpty
+      }
+      if (rendered && (hasList || hasEmpty)) break
+      await page.waitForTimeout(1000)
+    }
+    record(
+      106,
+      '② ssoGrants：列表或空态渲染',
+      rendered && (hasList || hasEmpty),
+      `list=${hasList}, empty=${hasEmpty}, api200=${grantsReady}`
+    )
+
+    const revokeBtn = page
+      .locator('#pane-ssoGrants')
+      .getByRole('button', { name: /撤销|revoke/i })
       .first()
-      .waitFor({ state: 'visible', timeout: 1500 })
-      .then(() => true)
-      .catch(() => false)
-    record(106, '② ssoGrants：列表或空态渲染', rendered && (hasList || hasEmpty), `list=${hasList}, empty=${hasEmpty}`)
-    const revokeBtn = card.getByRole('button', { name: /撤销|revoke/i }).first()
     if (
       hasList &&
       (await revokeBtn
@@ -22195,7 +22272,12 @@ async function testFeature106(page) {
       await box.waitFor({ state: 'visible', timeout: 4000 })
       await box.locator('.el-message-box__btns button:not(.el-button--primary)').first().click()
       await page.waitForTimeout(600)
-      const stillList = (await card.locator('.grant-item').count()) > 0
+      const stillList = await page
+        .evaluate(() => {
+          const pane = document.querySelector('#pane-ssoGrants')
+          return !!pane && pane.querySelectorAll('.grant-item').length > 0
+        })
+        .catch(() => false)
       record(106, '②b 撤销确认「取消」→ 授权仍在', stillList)
     } else {
       // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
