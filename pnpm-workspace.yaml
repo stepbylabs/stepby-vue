@@ -6,10 +6,11 @@ onlyBuiltDependencies:
   - '@parcel/watcher'
   - core-js
   - vue-demi
-# 安全 overrides：传递依赖 patch 级漏洞强制升级（audit --prod high 清零，2026-10-12）
+# 安全 overrides：传递依赖 patch 级漏洞强制升级（2026-10-12）。
+# 注意：不 override brace-expansion@1/@2——其维护版（1.1.20/2.1.6）与 minimatch
+# 不兼容（expand is not a function，破坏 eslint/glob 构建链，本地实证）；
+# 该链 DoS 属构建期风险，由 lockfile 升级管理。
 overrides:
-  'brace-expansion@1': '>=1.1.20'
-  'brace-expansion@2': '>=2.1.6'
   'brace-expansion@5': '>=5.0.11'
   'ini@1': '>=1.3.8'
   'nanoid@3': '>=3.3.18'
