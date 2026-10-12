@@ -52,3 +52,7 @@ tests/e2e/.browsers/
 # e2e 批跑器运行状态产物
 tests/e2e/_rounds*_done.json
 tsconfig.tsbuildinfo
+
+# e2e 归档与覆盖率产物（批五十：可再生数据不入库）
+tests/e2e/_archive/
+coverage/

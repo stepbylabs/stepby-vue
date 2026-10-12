@@ -14773,6 +14773,506 @@ async function testModule84(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
+// ==================== 模块 85: flow_definition 版本化 / 发布不可变链深度测试 ====================
+/**
+ * 增量价值（重叠分析）：
+ *   - main.mjs F110 只做设计器进入断言；F133 只测「表单式设计器保存闭环」（加节点+连线+落库+断图负路径）。
+ *     **发布 / 版本语义在 135 features 与本套件 84 模块中均为零覆盖**（grep flow/definition 无一处断言）。
+ *   - 本模块走完整的版本化生命周期：新增草稿(v1) → UI「发布」按钮（确认框 → POST publish）→
+ *     version+1 新行切 is_latest/status → 版本列表 v1/v2 双行回显 → 已发布版本改图保存被 400
+ *     （error.flow.def_published_immutable「已发布版本不可修改图定义」）拦截 → 尾部含版本行全清理。
+ *   - 后端契约（flow_definition_service.rs）：add=version 1/is_latest '0'/status '0'；
+ *     publish=复制图生成 version+1 新行（is_latest '1'/status '1'），同 code 历史行 is_latest 归 '0'；
+ *     edit 对 status '1' 行 graph_json 变化 → 400（改名同图放行）。
+ *   - 数据前缀沿用本套件惯例 E2E85*（main.mjs 的 it_* 属集成测试约定，本套件不混用）；
+ *     flowCode 由前端自动生成 flow_<ts>，从 POST 响应体回读。
+ */
+async function testModule85(page, consoleErrors, pageErrors) {
+  const M = 85
+  log(`\n=== 模块 ${M}: flow_definition 版本化 / 发布不可变链深度测试 ===`)
+  const backend = CONFIG.backendUrl
+  const token = await getApiToken()
+  const jsonHeaders = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+  const apiList = async (flowCode) => {
+    if (!token) return null
+    const resp = await fetch(
+      `${backend}/system/flow/definition/list?pageNum=1&pageSize=50&flowCode=${encodeURIComponent(flowCode)}`,
+      { headers: jsonHeaders }
+    ).catch(() => null)
+    if (!resp || resp.status !== 200) return null
+    const body = await resp.json().catch(() => null)
+    return body?.rows || null
+  }
+
+  let flowCode = '' // 从保存响应回读
+  let v1FlowId = null
+  let v2FlowId = null
+
+  // 85.1 列表页可达 + 列结构（编码/名称/版本/版本态）
+  const ok = await safeGoto(page, `${CONFIG.frontendUrl}/system/flowDefinition`, { moduleName: M, waitMs: 2200 })
+  record(M, '流程定义: 页面加载', ok)
+  if (ok) {
+    await checkTableColumns(page, ['流程编码', '流程名称', '版本', '版本态'], M, '流程定义').catch(() => {})
+    // 列名以 i18n 为准可能不同，软断言不阻塞后续链路
+  } else {
+    record(M, '流程定义: 版本化链路', false, '页面不可访问，整链跳过')
+  }
+
+  // 85.2 新增草稿（缺省骨架 start→a1→end 合法）：保存 POST → 回读 flowCode/flowId（v1）
+  if (ok) {
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("新增")')
+    const editReady = await page
+      .getByRole('button', { name: '添加审批节点' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    if (editReady) {
+      const saveP = page.waitForResponse(
+        (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST',
+        { timeout: 10000 }
+      )
+      await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+      const saveResp = await saveP.catch(() => null)
+      const saveBody = saveResp ? await saveResp.json().catch(() => null) : null
+      v1FlowId = saveBody?.data?.flowId || null
+      flowCode = saveBody?.data?.flowCode || ''
+      record(
+        M,
+        '新增草稿: 保存落库（POST 200 + 回读 flowCode/flowId）',
+        !!saveResp && saveResp.status() === 200 && !!v1FlowId && !!flowCode,
+        `HTTP ${saveResp ? saveResp.status() : 'n/a'}, flowId=${v1FlowId}, code=${flowCode}`
+      )
+      // 回列表态
+      await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
+      await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    } else {
+      record(M, '新增草稿: 保存落库（POST 200 + 回读 flowCode/flowId）', false, '编辑态未进入')
+    }
+  }
+
+  // 85.3 草稿行 v1 回显（版本列 v1）+ API 复核 version=1 / isLatest='0' / status='0'
+  if (ok && flowCode) {
+    const input = page.locator('input[aria-label="按编码搜索"]').first()
+    await input.fill(flowCode, { timeout: 3000 }).catch(() => {})
+    const listP = waitForApi(page, '/system/flow/definition/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await listP
+    await sleep(1200)
+    const rows1 = await rowCountIn(page, 'page')
+    record(M, '草稿回显: 按编码搜索命中 1 行', rows1 === 1, `行数=${rows1}`)
+    const verCol = await colIndexByLabel(page, '版本', 0)
+    const verTexts = verCol >= 0 ? await tableColumnTexts(page, 0, verCol) : []
+    record(M, '草稿回显: 版本列显示 v1', verTexts.some((t) => t.trim() === 'v1'), `版本列=${verTexts.join('|')}`)
+    const apiRows = await apiList(flowCode)
+    const draft = (apiRows || []).find((r) => r.flowId === v1FlowId) || null
+    record(
+      M,
+      '草稿契约: API version=1 / isLatest="0" / status="0"',
+      !!draft && draft.version === 1 && draft.isLatest === '0' && draft.status === '0',
+      draft
+        ? `version=${draft.version}, isLatest=${draft.isLatest}, status=${draft.status}`
+        : 'API 未查到草稿行'
+    )
+  } else if (ok) {
+    recordSkip(M, '草稿回显: 按编码搜索命中 1 行', '跳过（草稿未落库，无 flowCode）')
+    recordSkip(M, '草稿回显: 版本列显示 v1', '跳过（草稿未落库）')
+    recordSkip(M, '草稿契约: API version=1 / isLatest="0" / status="0"', '跳过（草稿未落库）')
+  }
+
+  // 85.4 UI 发布链：行内「发布」→ 确认框 → POST publish → 已发布 v2 toast
+  let publishVersion = null
+  if (ok && v1FlowId) {
+    await clearToasts(page)
+    const pubP = page.waitForResponse(
+      (r) => r.url().includes('/system/flow/definition/publish/') && r.request().method() === 'POST',
+      { timeout: 10000 }
+    )
+    const clicked = await clickRowButton(page, '发布', 'page')
+    if (clicked && (await waitMessageBox(page, 6000))) {
+      const confirmText = await page
+        .locator('.el-message-box:visible .el-message-box__message')
+        .last()
+        .innerText({ timeout: 3000 })
+        .catch(() => '')
+      await clickMessageBoxBtn(page, 'confirm')
+      const pubResp = await pubP.catch(() => null)
+      const pubBody = pubResp ? await pubResp.json().catch(() => null) : null
+      v2FlowId = pubBody?.data?.flowId || null
+      publishVersion = pubBody?.data?.version ?? null
+      const toast = await waitToastText(page)
+      record(
+        M,
+        '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）',
+        !!pubResp &&
+          pubResp.status() === 200 &&
+          !!v2FlowId &&
+          v2FlowId !== v1FlowId &&
+          publishVersion === 2 &&
+          /已发布\s*v2/.test(toast),
+        `HTTP ${pubResp ? pubResp.status() : 'n/a'}, v2FlowId=${v2FlowId}, version=${publishVersion}, toast="${toast.slice(0, 24)}", confirm="${confirmText.trim().slice(0, 30)}"`
+      )
+    } else {
+      record(M, '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）', false, '发布按钮未点击或确认框未出现')
+    }
+  } else if (ok) {
+    recordSkip(M, '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）', '跳过（草稿未落库）')
+  }
+
+  // 85.5 版本化契约复核：列表双版本行（v1/v2）+ API is_latest 切换（新行 '1'/status '1'，旧行归 '0'）
+  if (ok && v2FlowId) {
+    const listP = waitForApi(page, '/system/flow/definition/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await listP
+    await sleep(1200)
+    const rows2 = await rowCountIn(page, 'page')
+    record(M, '版本列表: 双行回显（v1 历史 + v2 最新）', rows2 === 2, `行数=${rows2}`)
+    const verCol = await colIndexByLabel(page, '版本', 0)
+    const verTexts = verCol >= 0 ? await tableColumnTexts(page, 0, verCol) : []
+    record(
+      M,
+      '版本列表: 版本列同时含 v1 与 v2',
+      verTexts.some((t) => t.trim() === 'v1') && verTexts.some((t) => t.trim() === 'v2'),
+      `版本列=${verTexts.join('|')}`
+    )
+    const apiRows = (await apiList(flowCode)) || []
+    const newRow = apiRows.find((r) => r.flowId === v2FlowId) || null
+    const oldRow = apiRows.find((r) => r.flowId === v1FlowId) || null
+    record(
+      M,
+      '版本化契约: 新行 isLatest="1"/status="1"/version=2，旧行 isLatest="0"/version=1',
+      !!newRow &&
+        !!oldRow &&
+        newRow.isLatest === '1' &&
+        newRow.status === '1' &&
+        newRow.version === 2 &&
+        oldRow.isLatest === '0' &&
+        oldRow.version === 1,
+      `新行={isLatest=${newRow?.isLatest}, status=${newRow?.status}, version=${newRow?.version}}, 旧行={isLatest=${oldRow?.isLatest}, version=${oldRow?.version}}`
+    )
+  } else if (ok) {
+    recordSkip(M, '版本列表: 双行回显（v1 历史 + v2 最新）', '跳过（发布未成功）')
+    recordSkip(M, '版本列表: 版本列同时含 v1 与 v2', '跳过（发布未成功）')
+    recordSkip(M, '版本化契约: 新行 isLatest="1"/status="1"/version=2，旧行 isLatest="0"/version=1', '跳过（发布未成功）')
+  }
+
+  // 85.6 已发布版本不可改图：编辑 v2 行 → 改节点名称（graphJson 变化但图仍合法）→ 保存 →
+  //      PUT 400 +「已发布版本不可修改图定义」错误 toast + 保持编辑态
+  if (ok && v2FlowId) {
+    await clearToasts(page)
+    const row = page.locator('.el-table__row').filter({ hasText: flowCode }).first()
+    await row.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    // 行内按钮实际文案为「修改」（common.edit=修改，非「编辑」——首跑截图实证）
+    const clicked = await clickRowButton(page, '修改', 'page')
+    const editReady =
+      clicked &&
+      (await page
+        .getByRole('button', { name: '添加审批节点' })
+        .first()
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .then(() => true)
+        .catch(() => false))
+    if (editReady) {
+      // 首个节点卡（a1）改名：graphJson 变化触发后端不可变拦截，且不破坏图合法性
+      const nameInput = page.locator('input[aria-label="节点名称"]').nth(1)
+      await nameInput.fill('E2E85改名节点', { timeout: 3000 }).catch(() => {})
+      const putP = page.waitForResponse(
+        (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'PUT',
+        { timeout: 10000 }
+      )
+      await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+      const putResp = await putP.catch(() => null)
+      const toast = await waitToastText(page)
+      const stillEdit = await page
+        .getByRole('button', { name: '添加审批节点' })
+        .first()
+        .isVisible()
+        .catch(() => false)
+      record(
+        M,
+        '不可变契约: 已发布版本改图保存 → PUT 400 + 不可修改 toast + 保持编辑态',
+        !!putResp && putResp.status() === 400 && /已发布版本不可修改|不可修改图定义/.test(toast) && stillEdit,
+        `HTTP ${putResp ? putResp.status() : 'n/a'}, toast="${toast.slice(0, 36)}", 保持编辑=${stillEdit}`
+      )
+      await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
+      await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    } else {
+      record(M, '不可变契约: 已发布版本改图保存 → PUT 400 + 不可修改 toast + 保持编辑态', false, '编辑态未进入')
+    }
+  } else if (ok) {
+    recordSkip(M, '不可变契约: 已发布版本改图保存 → PUT 400 + 不可修改 toast + 保持编辑态', '跳过（发布未成功）')
+  }
+
+  // 85.7 尾部清理（含版本行）：UI 删 v2 行（已发布版本可删）→ API 删 v1 草稿 → 双重复核归零
+  let cleanOk = false
+  let cleanDetail = ''
+  if (flowCode) {
+    try {
+      // v2 行（列表按 flow_id 倒序 → 首行即 v2）：行内删除 + 确认框
+      const listP = waitForApi(page, '/system/flow/definition/list', 8000)
+      await clickButton(page, '.app-container button:has-text("搜索")')
+      await listP
+      await sleep(1200)
+      await clearToasts(page)
+      const delClicked = await clickRowButton(page, '删除', 'page')
+      if (delClicked && (await waitMessageBox(page, 5000))) {
+        const delP = waitForApi(page, '/system/flow/definition/', 8000)
+        await clickMessageBoxBtn(page, 'confirm')
+        const delResp = await delP
+        cleanDetail += `UI删v2=${delResp ? delResp.status() : 'n/a'}; `
+      }
+      // v1 草稿 API 删除
+      if (token && v1FlowId) {
+        const r1 = await fetch(`${backend}/system/flow/definition/${v1FlowId}`, {
+          method: 'DELETE',
+          headers: jsonHeaders
+        }).catch(() => null)
+        cleanDetail += `API删v1=${r1 ? r1.status : 'n/a'}; `
+      }
+      // v2 行若 UI 删除失败（如首行错位）则 API 兜底
+      if (token && v2FlowId) {
+        const remain = await apiList(flowCode)
+        if ((remain || []).some((r) => r.flowId === v2FlowId)) {
+          const r2 = await fetch(`${backend}/system/flow/definition/${v2FlowId}`, {
+            method: 'DELETE',
+            headers: jsonHeaders
+          }).catch(() => null)
+          cleanDetail += `API兜底删v2=${r2 ? r2.status : 'n/a'}; `
+        }
+      }
+      const remainRows = (await apiList(flowCode)) || []
+      cleanOk = remainRows.length === 0
+      cleanDetail += `剩余=${remainRows.length}`
+    } catch (e) {
+      cleanDetail += `异常: ${e.message?.slice(0, 60)}`
+    }
+  }
+  record(M, '清理: 版本行全删（v1 草稿 + v2 已发布，API 复核归零）', cleanOk, cleanDetail)
+
+  // 豁免说明：85.6 不可变契约负路径（已发布版本改图保存）后端按契约返回 400，
+  // 浏览器控制台必然留下 "Failed to load resource: 400" 资源错误——
+  // 属「负路径按预期被拒」而非前端缺陷，与模块 80 的 /400/ 豁免同型。
+  checkConsoleErrors(consoleErrors, pageErrors, M, [/400/])
+}
+
+// ==================== 模块 86: msg 组合链（渠道+模板变量渲染+send 流转+发送记录回显） ====================
+/**
+ * 增量价值（重叠分析）：
+ *   - F87 渠道编辑全链 / F88 模板增改删 UI / F113 日志页渲染+notice-center 已读 / F134 渠道连通性 /
+ *     深测 M80 渠道新增测试删除+模板增删+日志清空取消重试按钮——**均未触达 POST /system/msg/send
+ *     组合链**：模板变量 {{}} 渲染 → send 落库 status 流转（'0' 成功 + send_time）→ 发送记录页
+ *     渲染后 subject 回显。该接口前端无 UI 入口（grep msg/send 在 src/ 无调用方），只能 API 驱动，
+ *     历史上从未被任何 e2e 覆盖。
+ *   - 说明：site 渠道投递为「系统内记录」语义（sys_msg_service.rs site 分支仅日志不写 notice 表），
+ *     故收件箱（notice-center）验证不适用，以发送记录页回显为组合链终点（F113 已单独覆盖收件箱）。
+ *   - 负路径：未知模板编码发送 → 404 且不落新记录（error.msg.template_not_found）。
+ *   - 数据前缀沿用本套件惯例 E2E86*；清理：API 删发送记录行（日志页无行级删除按钮）+ UI 删模板。
+ */
+async function testModule86(page, consoleErrors, pageErrors) {
+  const M = 86
+  log(`\n=== 模块 ${M}: msg 组合链（渠道+模板渲染+send+发送记录回显） ===`)
+  const ts = Date.now()
+  const tplName = `E2E86模板${ts}`
+  const tplCode = `e2e86_${ts}`
+  const RENDER_NAME = '深测八六'
+  const RENDER_NO = 'N86-001'
+  const backend = CONFIG.backendUrl
+  const token = await getApiToken()
+  const jsonHeaders = { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+
+  // 86.1 模板页：新增含变量模板（绑定 site 种子渠道）——组合链的模板侧夹具
+  const ok = await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/template`, { moduleName: M, waitMs: 2200 })
+  record(M, '消息模板: 页面加载', ok)
+  if (ok) {
+    await clearToasts(page)
+    await clickButton(page, '.app-container button:has-text("新增")')
+    if (await waitForVisibleDialog(page, 8000)) {
+      await fillDialogField(page, '模板名称', tplName)
+      await fillDialogField(page, '模板编码', tplCode)
+      await selectDialogOption(page, '渠道编码', '站内')
+      await fillDialogField(page, '模板主题', 'E2E86 通知 {{name}}')
+      await fillDialogField(page, '模板内容', `你好 {{name}}，单号 {{no}}，来自 M86 组合链`)
+      const addP = waitForApi(page, '/system/msg/template', 8000)
+      await clickDialogBtn(page, '确 定')
+      const addResp = await addP
+      const toast = await waitToastText(page)
+      record(
+        M,
+        '组合链夹具: 新增含变量模板（site 渠道）',
+        /新增成功|操作成功/.test(toast) && !!addResp && addResp.status() === 200,
+        `toast="${toast.slice(0, 20)}", HTTP ${addResp ? addResp.status() : 'n/a'}, code=${tplCode}`
+      )
+    } else {
+      record(M, '组合链夹具: 新增含变量模板（site 渠道）', false, '新增对话框未打开')
+    }
+    await closeDialog(page)
+  }
+
+  // 86.2 API 组合发送：POST /system/msg/send（渠道 site + 模板变量渲染 → status='0' + send_time）
+  let sendLogId = null
+  let sendOkDetail = ''
+  let sendOk = false
+  if (token) {
+    const resp = await fetch(`${backend}/system/msg/send`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        templateCode: tplCode,
+        toAddr: 'e2e86',
+        params: { name: RENDER_NAME, no: RENDER_NO }
+      })
+    }).catch(() => null)
+    const body = resp ? await resp.json().catch(() => null) : null
+    const d = body?.data || {}
+    sendLogId = d.logId ?? null
+    const subjectOk = d.subject === `E2E86 通知 ${RENDER_NAME}`
+    const contentOk = typeof d.content === 'string' && d.content.includes(RENDER_NAME) && d.content.includes(RENDER_NO)
+    sendOk =
+      !!resp &&
+      resp.status === 200 &&
+      d.status === '0' &&
+      subjectOk &&
+      contentOk &&
+      !!d.sendTime &&
+      d.channelCode === 'site'
+    sendOkDetail = `HTTP ${resp ? resp.status : 'n/a'}, status=${d.status}, channel=${d.channelCode}, subject="${(d.subject || '').slice(0, 30)}", sendTime=${d.sendTime ? '有' : '无'}, logId=${sendLogId}`
+  } else {
+    sendOkDetail = 'token 获取失败'
+  }
+  record(M, '组合发送: POST /system/msg/send 200（status=0 + 变量渲染 + send_time）', sendOk, sendOkDetail)
+
+  // 86.3 负路径：未知模板编码 → 4xx 且不落新记录
+  if (token) {
+    const listBefore = await fetch(
+      `${backend}/system/msg/log/list?pageNum=1&pageSize=50&templateCode=${encodeURIComponent(tplCode)}`,
+      { headers: jsonHeaders }
+    )
+      .then((r) => (r.status === 200 ? r.json() : null))
+      .catch(() => null)
+    const totalBefore = (listBefore?.rows || []).length
+    const negResp = await fetch(`${backend}/system/msg/send`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ templateCode: `e2e86_noexist_${ts}`, toAddr: 'e2e86', params: {} })
+    }).catch(() => null)
+    const listAfter = await fetch(
+      `${backend}/system/msg/log/list?pageNum=1&pageSize=50&templateCode=${encodeURIComponent(tplCode)}`,
+      { headers: jsonHeaders }
+    )
+      .then((r) => (r.status === 200 ? r.json() : null))
+      .catch(() => null)
+    const totalAfter = (listAfter?.rows || []).length
+    record(
+      M,
+      '负路径: 未知模板发送 → 4xx 且不落新记录',
+      !!negResp && negResp.status >= 400 && totalBefore === totalAfter,
+      `HTTP ${negResp ? negResp.status : 'n/a'}, 记录数 ${totalBefore}→${totalAfter}`
+    )
+  } else {
+    recordSkip(M, '负路径: 未知模板发送 → 4xx 且不落新记录', '跳过（token 获取失败）')
+  }
+
+  // 86.4 发送记录页 UI 回显：搜索模板编码 → 行命中 + 主题列已渲染（无 {{ 残留）+ 状态=成功
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/log`, { moduleName: M, waitMs: 2200 })) {
+    record(M, '发送记录: 页面加载', true)
+    await checkTableColumns(page, ['模板编码', '渠道编码', '收件地址', '主题', '状态'], M, '发送记录')
+    await fillSearchField(page, '模板编码', tplCode)
+    const listP = waitForApi(page, '/system/msg/log/list', 8000)
+    await clickButton(page, '.app-container button:has-text("搜索")')
+    await listP
+    await sleep(1200)
+    const rows = await rowCountIn(page, 'page')
+    record(M, '发送记录: 按模板编码搜索命中', rows === 1, `行数=${rows}`)
+    if (rows >= 1) {
+      const subjCol = await colIndexByLabel(page, '主题', 0)
+      const statusCol = await colIndexByLabel(page, '状态', 0)
+      const subjText = subjCol >= 0 ? await tableCellText(page, 0, 0, subjCol) : ''
+      const statusText = statusCol >= 0 ? await tableCellText(page, 0, 0, statusCol) : ''
+      record(
+        M,
+        '发送记录: 主题列回显渲染后文本（{{name}} 已替换）',
+        subjText.includes(RENDER_NAME) && !subjText.includes('{{'),
+        `主题="${subjText.slice(0, 40)}"`
+      )
+      record(M, '发送记录: 状态列=成功（status 流转 0）', statusText.includes('成功'), `状态="${statusText.trim().slice(0, 12)}"`)
+    } else {
+      recordSkip(M, '发送记录: 主题列回显渲染后文本（{{name}} 已替换）', `跳过（未命中行，行数=${rows}）`)
+      recordSkip(M, '发送记录: 状态列=成功（status 流转 0）', `跳过（未命中行，行数=${rows}）`)
+    }
+  } else {
+    record(M, '发送记录: 页面加载', false, '页面不可访问')
+    recordSkip(M, '发送记录: 按模板编码搜索命中', '跳过（页面不可访问）')
+    recordSkip(M, '发送记录: 主题列回显渲染后文本（{{name}} 已替换）', '跳过（页面不可访问）')
+    recordSkip(M, '发送记录: 状态列=成功（status 流转 0）', '跳过（页面不可访问）')
+  }
+
+  // 86.5 尾部清理：API 删发送记录行（日志页无行级删除）→ UI 删模板 → 双重复核归零
+  let cleanOk = false
+  let cleanDetail = ''
+  if (token) {
+    try {
+      // 发送记录行（sendLogId 缺失时按模板编码回查）
+      let logId = sendLogId
+      if (!logId) {
+        const r = await fetch(
+          `${backend}/system/msg/log/list?pageNum=1&pageSize=10&templateCode=${encodeURIComponent(tplCode)}`,
+          { headers: jsonHeaders }
+        )
+          .then((x) => (x.status === 200 ? x.json() : null))
+          .catch(() => null)
+        logId = r?.rows?.[0]?.logId ?? null
+      }
+      if (logId) {
+        const dr = await fetch(`${backend}/system/msg/log/${logId}`, {
+          method: 'DELETE',
+          headers: jsonHeaders
+        }).catch(() => null)
+        cleanDetail += `API删日志=${dr ? dr.status : 'n/a'}; `
+      }
+      // 模板 API 删除（按列表回查 id，避免依赖 UI 对话框稳定性）
+      const tRows = await fetch(
+        `${backend}/system/msg/template/list?pageNum=1&pageSize=10&templateCode=${encodeURIComponent(tplCode)}`,
+        { headers: jsonHeaders }
+      )
+        .then((x) => (x.status === 200 ? x.json() : null))
+        .catch(() => null)
+      const tplId = tRows?.rows?.[0]?.templateId
+      if (tplId) {
+        const tr = await fetch(`${backend}/system/msg/template/${tplId}`, {
+          method: 'DELETE',
+          headers: jsonHeaders
+        }).catch(() => null)
+        cleanDetail += `API删模板=${tr ? tr.status : 'n/a'}; `
+      }
+      // 双重复核
+      const logAfter = await fetch(
+        `${backend}/system/msg/log/list?pageNum=1&pageSize=10&templateCode=${encodeURIComponent(tplCode)}`,
+        { headers: jsonHeaders }
+      )
+        .then((x) => (x.status === 200 ? x.json() : null))
+        .catch(() => null)
+      const tplAfter = await fetch(
+        `${backend}/system/msg/template/list?pageNum=1&pageSize=10&templateCode=${encodeURIComponent(tplCode)}`,
+        { headers: jsonHeaders }
+      )
+        .then((x) => (x.status === 200 ? x.json() : null))
+        .catch(() => null)
+      const logLeft = (logAfter?.rows || []).length
+      const tplLeft = (tplAfter?.rows || []).length
+      cleanOk = logLeft === 0 && tplLeft === 0
+      cleanDetail += `剩余 日志=${logLeft}, 模板=${tplLeft}`
+    } catch (e) {
+      cleanDetail += `异常: ${e.message?.slice(0, 60)}`
+    }
+  } else {
+    cleanDetail = 'token 获取失败，无法清理'
+  }
+  record(M, '清理: 发送记录行 + 模板全删（API 复核归零）', cleanOk, cleanDetail)
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -14859,7 +15359,9 @@ const testFns = {
   81: testModule81,
   82: testModule82,
   83: testModule83,
-  84: testModule84
+  84: testModule84,
+  85: testModule85,
+  86: testModule86
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

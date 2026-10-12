@@ -1503,3 +1503,14 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
 - **坑**：①计数器为进程启动以来累计值，固定阈值必错（首轮即 76 含风暴史）——必须 delta 语义；
   ②shared_store_kind/db_connected 为带 label 形态（前缀匹配，裸名查不到）；③local 档 SQLite
   池 size=1，单次抓取 busy=1/1 属瞬时正常（断言 busy ≤ size）。
+
+### 3.39 批五十（相位 2）：M85/M86 深测模块（新基线 87 模块 / 1053✅）
+
+- **M85（13 断言）flow_definition 版本化/发布不可变链**：草稿 v1→UI 发布→v2 isLatest 切换→
+  版本列表双行→**已发布版本修改图定义 = PUT 400**（不可变契约）→ 全清理。publish/version/
+  is_latest 语义此前全套件零断言。
+- **M86（11 断言）msg 组合链**：变量模板 + `POST /system/msg/send`（**史上零覆盖**）→
+  status='0' + 变量渲染精确命中 → 发送记录 UI 回显无 `{{` 残留 → 负路径 404 不落库。
+  site 投递语义=系统内记录（sys_msg_service.rs:1164，不写 notice 表）。
+- 覆盖率首测：Vue 单测 51.0% 语句/39.0% 函数（api 层盲区由 e2e 真链路互补）；Rust lib
+  **76.38% 行/74.49% 分支/79.12% 函数**（llvm-cov，1347 tests）。
