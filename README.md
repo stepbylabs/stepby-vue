@@ -1,24 +1,27 @@
 # Stepby Vue
 
+![Release](https://img.shields.io/badge/release-v0.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Vue](https://img.shields.io/badge/Vue-3-brightgreen?logo=vuedotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
-![Vite](https://img.shields.io/badge/Vite-7-purple?logo=vite)
+![Vite](https://img.shields.io/badge/Vite-8-purple?logo=vite)
 ![Element Plus](https://img.shields.io/badge/Element%20Plus-2-409EFF?logo=elementplus)
-![Tests](https://img.shields.io/badge/e2e-75%20features-brightgreen)
+![Tests](https://img.shields.io/badge/e2e-135%20features%20%2F%201173%20assertions-brightgreen)
 
 Stepby 开源中后台管理系统前端，基于 **Vue 3 + TypeScript + Vite + Element Plus + TailwindCSS 4 + Pinia + Vue I18n** 构建。配套后端：[stepby-axum](https://github.com/stepbylabs/stepby-axum)（Rust / axum）。
 
 ## ✨ 功能特性
 
-- **登录认证**：账号密码 + 验证码、TOTP 双因子、Passkey、首次登录强制改密
-- **用户 / 角色 / 菜单**：RBAC 权限管理、动态菜单路由、数据权限
-- **多租户**：租户管理、套餐能力位
-- **SSO 登录**：OIDC 授权码登录、SSO 客户端管理
-- **工作流审批**：两级审批流程可视化操作
-- **审计大屏**：操作日志差异、审计数据可视化
+- **登录认证**：账号密码 + 验证码、TOTP 双因子、Passkey、SSO 客户端管理、首次登录强制改密
+- **用户 / 角色 / 菜单**：RBAC 权限管理、动态菜单路由、数据权限规则、字段级权限矩阵
+- **多租户**：租户管理、套餐能力位、租户域名
+- **工作流审批**：流程定义可视化、加签/减签/委派、审批待办与图驱动单据
+- **AI 助手**：LLM 双源配置页、AI 问数（受控 NL2SQL + 问数历史）
+- **报表中心**：受控数据集、可视化大屏、报表订阅推送
+- **审计合规**：操作日志差异、审计数据可视化大屏、审计归档（链完整性校验 + 下载）
+- **运维面板**：告警规则、webhook 事件目录、限流管理、消息渠道（邮件/短信/IM 群机器人）
 - **国际化**：中文 / 英文（Vue I18n，菜单文案由后端 i18n key 驱动）
-- **移动端响应式**：适配移动设备的响应式布局
+- **移动端响应式 + PWA**：可安装主屏、离线缓存、响应式三档布局
 - **多主题**：亮 / 暗模式、侧边栏三档主题、主题编辑器
 - **代码生成器配套**：与后端代码生成器配套的前端页面模板
 
@@ -81,7 +84,7 @@ npm run typecheck
 npm run typecheck    # vue-tsc 类型检查
 ```
 
-E2E 测试基于 Playwright，共 75 个功能、分三段执行，入口为 `tests/e2e/main.mjs`。运行前需：
+E2E 测试基于 Playwright，共 **135 个功能 / 1173 项断言**（单套件全量），入口为 `tests/e2e/main.mjs`。运行前需：
 
 1. 后端启动在 `http://localhost:8080`（零配置单文件即可）
 2. 前端启动在 `http://localhost:5173`（或通过 `FRONTEND_URL` 环境变量指定）
@@ -90,3 +93,7 @@ E2E 测试基于 Playwright，共 75 个功能、分三段执行，入口为 `te
 ## 📄 License
 
 [MIT](LICENSE) © 2026 Stepby
+
+## 📦 版本
+
+变更历史见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v0.2.0**（2026-10-12）。
