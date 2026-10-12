@@ -1676,3 +1676,19 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   （桌面应用内存波动，事件日志仅外部 Tobii 崩溃），清理后重跑 1173/1173 EXIT=0。
   内存纪律再确认：全量 e2e 前确认可用内存 ≥2GB 且无孤儿构建进程。
 - F90 快照恢复新增第 1173 项断言（写后读闭环）随全量通过。
+
+### 3.48 批五十九：cleanup 手动触发能力补全（真实执行验证闭环）
+
+- **运营缺口发现**：b54-b57 的七类清理接线仅有 03:00 cron 一条触发路径，且手动触发入口
+  `cleanup_expired_logs`（registry 项，b54 建）的清理体**未随接线同步**（仅覆盖
+  oper_log/logininfor 两类，b56/b57 新增五类在手动路径缺失）。
+- **修复（axum）**：清理体抽取为独立函数 `run_cleanup_expired_logs(db, &config, archive_storage)`
+  （cron 闭包与 registry 项完全同源，七类清理全覆盖）；registry 项改为调用统一清理体。
+  抽取时的所有权坑：cron 闭包内 clone 必须捕获**外层前置 clone 变量**（cleanup_db/
+  cleanup_config/cleanup_archive），否则 post-closure 的 `config.sys_log` 借用冲突
+  （E0382）；`retention_mode=keep` 分支 return 改 `return Ok(...)`。
+- **真实执行验证闭环**：临时 sys_job（invoke_target=cleanup_expired_logs）→ 执行一次 →
+  后端日志七类清理全部真实发生（前端错误/埋点实清 **2219 条**，100,350→98,131）→
+  临时任务删除。**b54-b57 接线自此有运行栈级真实验证。**
+- 集成测试补齐（b58 的 retention_cleanup 2 用例覆盖方法级边界）+ 本批运行栈级触发验证
+  构成双层验证。
