@@ -1562,3 +1562,24 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   或上游未发布修复（braces <3.0.3 无新版）。
 - **pnpm 10 overrides 坑**：package.json 的 `pnpm.overrides` 字段被 pnpm 10 忽略 → 必须
   迁移到 `pnpm-workspace.yaml`；非 TTY 需 `CI=true`；allowBuilds 占位符需填 true。
+
+### 3.42 批五十四：测试数据治理审计与清理配方（数据污染全景）
+
+- **审计方法**：SQLite 直连逐表计数（66 表）→ 可疑膨胀表按 `del_flag`/命名模式/时间分布下钻
+  → 逐消费方 grep 定性（HTTP 面 vs 仅日志）→ 命中条件先验证"非命中行=种子/合法"再清理。
+- **两大机制缺口（已修复）**：①`sys_frontend_error` 保留期清理是死方法（service `clean()`
+  零调用点）——e2e 埋点 10 天 12 万行（97% vitals info）；②local 档 `sys_shared_kv` 过期键
+  无物理清扫（`is_expired` 仅读时过滤，10 天 3387 行 100% 过期堆积）。修复=两者均接入
+  `cleanup_expired_logs`（每日 03:00），frontend_error 独立短保留
+  `[sys_log].frontend_error_retention_days` 默认 7（`FRONTEND_ERROR_RETENTION_DAYS`）。
+- **e2e 残留命名规律（cleanupE2eResidue 已扩展的命中条件）**：webhook
+  `e2e*/E2E79_*/probe-diag-*`（活跃中断遗留 9 个 + 软删 404）、oauth client `E2E-*`
+  （活跃 4 + 软删 197）、PAT 过期（`expires_at < CURRENT_TIMESTAMP`，命名 mlevel-ak/akprobe
+  不带 e2e 前缀！）、报表族 `e2e%`（report 38/dashboard 16/dataset 131/sub 7）、字典改名软删链
+  `i18n_test_*`（306）与 `testdict*`（161）。
+- **一次性清理实绩**：104,797+161 行，VACUUM 后 174MB→114MB；种子零损伤（dict 活跃 13、
+  config 29、user 2、menu 无重名逐一复核）。
+- **前端降噪**：`frontendErrorReporter.transport` 增加良性错误过滤
+  （ResizeObserver loop——浏览器渲染循环警告，errorHub 本地展示不受影响）。
+- **教训**：审计先验证清理条件反例（非命中行必须是种子/合法数据）再执行；
+  LIKE 对 ASCII 大小写不敏感（`'e2e%'` 同时命中 `E2E79_`）。

@@ -117,4 +117,36 @@ describe('frontendErrorReporter', () => {
     // FCP-011：设备类型分桶随每条上报携带（jsdom 视口宽 1024 → desktop）
     expect(['mobile', 'tablet', 'desktop']).toContain(item.deviceType)
   })
+
+  it('良性错误（ResizeObserver loop）不入持久化缓冲（批五十四）', () => {
+    // e2e 实测集中污染源：http-debugger 页图表 resize 触发的浏览器良性警告
+    __testables.transport(new Error('ResizeObserver loop completed with undelivered notifications.'), {
+      level: 'error',
+      source: 'global'
+    })
+    __testables.flush()
+    expect(fetchCalls).toHaveLength(0)
+    // 变体消息同样命中
+    __testables.transport(new Error('ResizeObserver loop'), { level: 'error', source: 'global' })
+    __testables.flush()
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it('isBenignError 精确匹配良性名单且不误伤正常错误', () => {
+    expect(__testables.isBenignError('ResizeObserver loop completed with undelivered notifications.')).toBe(true)
+    expect(__testables.isBenignError('  ResizeObserver loop  ')).toBe(true) // 前后空白容忍
+    expect(__testables.isBenignError('ResizeObserver loop limit exceeded')).toBe(false) // 非名单变体不豁免
+    expect(__testables.isBenignError('AxiosError: Request failed with status code 400')).toBe(false)
+    expect(__testables.isBenignError('TypeError: Cannot read properties of undefined')).toBe(false)
+  })
+
+  it('良性错误过滤不影响后续正常错误入队（过滤为单条级）', () => {
+    __testables.transport(new Error('ResizeObserver loop'), { level: 'error', source: 'global' })
+    __testables.transport(new Error('real business error'), { level: 'error', source: 'vue' })
+    __testables.flush()
+    expect(fetchCalls).toHaveLength(1)
+    const items = JSON.parse(fetchCalls[0].init.body as string).items
+    expect(items).toHaveLength(1)
+    expect(items[0].message).toBe('real business error')
+  })
 })

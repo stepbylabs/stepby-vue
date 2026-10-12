@@ -81,12 +81,7 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { createCaptureHub } from './capture-kit.mjs'
-import {
-  capturePageCaptcha,
-  fillCaptchaOnPage,
-  fetchCaptchaForApi,
-  readCaptchaCodeFromRedis
-} from './e2e/run/auth.mjs'
+import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
 const __filename = fileURLToPath(import.meta.url)
@@ -180,7 +175,12 @@ async function is404Page(page, options = {}) {
   }
   // 2. 检查专门的 404 错误组件（el-result 或 .error-page 容器中包含 404 标题）
   const errorContainer = page.locator('.el-result, .error-page, .page-404, [class*="error-container"]').first()
-  if (await errorContainer.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false)) {
+  if (
+    await errorContainer
+      .waitFor({ state: 'visible', timeout })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     const text = await errorContainer.innerText().catch(() => '')
     if (/^\s*404\s*$/.test(text) || /404.*Not Found|页面不存在|Page Not Found/i.test(text)) {
       return true
@@ -402,7 +402,12 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
 
   // 关闭 Cookie 同意横幅（若存在）
   const cookieBtn = page.locator('button:has-text("同意")').first()
-  if (await cookieBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+  if (
+    await cookieBtn
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await cookieBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(300)
     log('  已关闭 Cookie 同意横幅')
@@ -470,7 +475,9 @@ async function presetTourDisabled(page) {
       localStorage.setItem('stepby-layout-tour', 'completed')
       localStorage.setItem('workbench-tour', 'completed')
       localStorage.setItem('home-tour', 'completed')
-    } catch { /* localStorage 不可用时保持原行为 */ }
+    } catch {
+      /* localStorage 不可用时保持原行为 */
+    }
   })
 }
 
@@ -519,7 +526,12 @@ async function skipTour(page) {
       await skipBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(500)
     }
-  } else if (await skipBtn.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)) {
+  } else if (
+    await skipBtn
+      .waitFor({ state: 'visible', timeout: 2500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await skipBtn.click({ timeout: 3000 }).catch(() => {})
     await sleep(500)
   }
@@ -528,7 +540,12 @@ async function skipTour(page) {
   const mbCancel = page
     .locator('.el-overlay-message-box button:has-text("取消"), .el-message-box button:has-text("取消")')
     .first()
-  if (await mbCancel.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+  if (
+    await mbCancel
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await mbCancel.click({ timeout: 3000 }).catch(() => {})
     await sleep(300)
   }
@@ -561,7 +578,10 @@ async function testFeature1(page) {
 
   // 验证强退按钮存在
   const forceLogoutBtn = page.locator('button:has-text("强退"), button:has-text("强制下线"), [class*="danger"]').first()
-  const hasForceBtn = await forceLogoutBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasForceBtn = await forceLogoutBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(1, '强退按钮存在', hasForceBtn)
 }
 
@@ -607,7 +627,10 @@ async function testFeature3(page) {
       'button:has-text("创建备份"), button:has-text("新建备份"), button:has-text("新增"), button:has-text("备份")'
     )
     .first()
-  const hasCreateBtn = await createBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasCreateBtn = await createBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(3, '创建备份按钮存在', hasCreateBtn)
 
   if (hasCreateBtn) {
@@ -617,7 +640,12 @@ async function testFeature3(page) {
     // 处理 ElMessageBox.confirm 确认弹窗（前端 backup/index.vue:262 confirmCreate）——
     // 不点确认则请求根本不会发出（此前表格 0 行的根因）
     const confirmBtn = page.locator('.el-message-box__btns button.el-button--primary').first()
-    if (await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await confirmBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await confirmBtn.click({ timeout: 3000 }).catch(() => {})
       log('  已确认创建备份弹窗')
     }
@@ -630,7 +658,12 @@ async function testFeature3(page) {
       await sleep(2000)
       // 检查是否有成功提示
       const successMsg = page.locator('.el-message--success, text=成功').first()
-      if (await successMsg.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+      if (
+        await successMsg
+          .waitFor({ state: 'visible', timeout: 500 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         break
       }
     }
@@ -786,7 +819,10 @@ async function testFeature4(page) {
 
   // 验证时间范围按钮（el-radio-button 文本"7天"在 label 内）
   const rangeBtn = page.locator('text=7天').first()
-  const hasRange = await rangeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasRange = await rangeBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(4, '时间范围选择器', hasRange)
 }
 
@@ -813,7 +849,10 @@ async function testFeature5(page) {
 
   // 点击导出按钮
   const exportBtn = page.locator('button:has-text("导出")').first()
-  const hasExportBtn = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasExportBtn = await exportBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(5, '导出按钮存在', hasExportBtn)
 
   if (hasExportBtn) {
@@ -824,7 +863,10 @@ async function testFeature5(page) {
     const dialog = page
       .locator('.el-dialog:visible, .el-dialog__wrapper:visible, [class*="export-dialog"]:visible')
       .first()
-    const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const dialogVisible = await dialog
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(5, '导出字段选择对话框弹出', dialogVisible)
 
     if (dialogVisible) {
@@ -832,12 +874,20 @@ async function testFeature5(page) {
 
       // 验证"全部字段"和"自选字段"单选按钮存在
       const allRadio = dialog.locator('text=全部字段').first()
-      const hasAllRadio = await allRadio.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const hasAllRadio = await allRadio
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(5, '导出范围选择器', hasAllRadio)
 
       // 点击"自选字段"以显示字段列表
       const selectedRadio = dialog.locator('text=自选字段').first()
-      if (await selectedRadio.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await selectedRadio
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await selectedRadio.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
 
@@ -848,7 +898,10 @@ async function testFeature5(page) {
 
         // 验证全选/清空按钮（按钮文本是"全选"和"清空"）
         const selectAllBtn = dialog.locator('button:has-text("全选")').first()
-        const hasSelectAll = await selectAllBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        const hasSelectAll = await selectAllBtn
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
         record(5, '全选/清空按钮', hasSelectAll)
       } else {
         record(5, '字段列表', false, '无法切换到自选字段')
@@ -860,8 +913,14 @@ async function testFeature5(page) {
         .locator('button:has-text("确定导出"), button:has-text("确定"), button:has-text("导出")')
         .first()
       const cancelBtn = dialog.locator('button:has-text("取消")').first()
-      const hasConfirm = await confirmBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      const hasCancel = await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+      const hasConfirm = await confirmBtn
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
+      const hasCancel = await cancelBtn
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       record(5, '确认/取消按钮', hasConfirm && hasCancel)
 
       // 取消对话框
@@ -875,14 +934,26 @@ async function testFeature5(page) {
     // 断言弹性：弹窗数据由页面内请求拉取（无 mLevelApiSetup 429 退避保护），
     // 首次不可见时退避 1.5s 重试一轮（令牌桶按秒回填）
     const visibleWithRetry = async (loc, timeout = 3000) => {
-      if (await loc.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false)) return true
+      if (
+        await loc
+          .waitFor({ state: 'visible', timeout })
+          .then(() => true)
+          .catch(() => false)
+      )
+        return true
       await sleep(1500)
-      return loc.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false)
+      return loc
+        .waitFor({ state: 'visible', timeout })
+        .then(() => true)
+        .catch(() => false)
     }
 
     // 1) 链完整性校验（平台专属按钮 + 弹窗展示；本地库链状态不定——valid/broken 均为弹窗正常）
     const verifyBtn = page.locator('button:has-text("链完整性校验")').first()
-    const hasVerifyBtn = await verifyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasVerifyBtn = await verifyBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(5, '链校验按钮存在', hasVerifyBtn)
     if (hasVerifyBtn) {
       // 批三十四韧性：verify-chain 全量扫 44k+ 行 HMAC（实测 5.4-15s 波动），后端冷启动首击
@@ -896,10 +967,15 @@ async function testFeature5(page) {
         const box = await verifyBtn.boundingBox().catch(() => null)
         const blocker = box
           ? await page
-              .evaluate(({ x, y }) => {
-                const el = document.elementFromPoint(x, y)
-                return el ? `${el.tagName}.${String(el.className).slice(0, 80)} text=${(el.textContent || '').slice(0, 40)}` : 'null'
-              }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
+              .evaluate(
+                ({ x, y }) => {
+                  const el = document.elementFromPoint(x, y)
+                  return el
+                    ? `${el.tagName}.${String(el.className).slice(0, 80)} text=${(el.textContent || '').slice(0, 40)}`
+                    : 'null'
+                },
+                { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+              )
               .catch(() => 'diag-fail')
           : 'no-box'
         log(`  🔍 链校验按钮点击失败拦截者: ${blocker}`)
@@ -915,9 +991,28 @@ async function testFeature5(page) {
         await verifyBtn.click({ timeout: 3000 }).catch(() => {})
         verifyShown = await visibleWithRetry(verifyDialog, 15000)
       }
-      const verifyValid = verifyShown && (await verifyDialog.locator('text=链完整，未被篡改').first().waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false))
-      const verifyBroken = verifyShown && (await verifyDialog.locator('text=检测到链断裂').first().waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false))
-      record(5, '链校验弹窗（valid/broken 结果展示）', verifyValid || verifyBroken, verifyValid ? 'valid' : verifyBroken ? 'broken' : '未渲染')
+      const verifyValid =
+        verifyShown &&
+        (await verifyDialog
+          .locator('text=链完整，未被篡改')
+          .first()
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false))
+      const verifyBroken =
+        verifyShown &&
+        (await verifyDialog
+          .locator('text=检测到链断裂')
+          .first()
+          .waitFor({ state: 'visible', timeout: 800 })
+          .then(() => true)
+          .catch(() => false))
+      record(
+        5,
+        '链校验弹窗（valid/broken 结果展示）',
+        verifyValid || verifyBroken,
+        verifyValid ? 'valid' : verifyBroken ? 'broken' : '未渲染'
+      )
       await screenshot(page, 'feat5_verify_chain')
       // 关闭用 Escape（"确定"按钮点击曾因 modal actionability 被吞——verify 弹窗
       // 残留会以遮罩拦截后续 compliance/archive 弹窗，Playwright 三连 FAIL）。
@@ -930,7 +1025,10 @@ async function testFeature5(page) {
 
     // 2) 合规报告（compliance-report 消费闭环）
     const compBtn = page.locator('button:has-text("合规报告")').first()
-    const hasCompBtn = await compBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasCompBtn = await compBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(5, '合规报告按钮存在', hasCompBtn)
     if (hasCompBtn) {
       await compBtn.click({ timeout: 3000 }).catch(() => {})
@@ -946,7 +1044,10 @@ async function testFeature5(page) {
 
     // 3) 归档下载（锚点列表对话框；本地库锚点可能为 0——断言对话框与表头）
     const archBtn = page.locator('button:has-text("归档下载")').first()
-    const hasArchBtn = await archBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasArchBtn = await archBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(5, '归档下载按钮存在', hasArchBtn)
     if (hasArchBtn) {
       await archBtn.click({ timeout: 3000 }).catch(() => {})
@@ -986,12 +1087,18 @@ async function testFeature6(page) {
 
   // 验证删除按钮（即使在空列表也应有按钮模板）
   const deleteBtn = page.locator('button:has-text("删除"), [class*="delete"]').first()
-  const hasDelete = await deleteBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+  const hasDelete = await deleteBtn
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false)
   record(6, '删除按钮存在', hasDelete)
 
   // 验证右下角 TaskProgress 浮层（可能折叠状态）
   const floatPanel = page.locator('[class*="task-progress"], [class*="float"], [class*="fixed"]').last()
-  const hasFloat = await floatPanel.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+  const hasFloat = await floatPanel
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false)
   record(6, 'TaskProgress 浮层组件', hasFloat, '即使无任务也应显示折叠状态')
 }
 
@@ -1014,7 +1121,10 @@ async function testFeature7(page) {
 
   // 点击新增按钮
   const addBtn = page.locator('button:has-text("新增"), button:has-text("新建")').first()
-  const hasAddBtn = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasAddBtn = await addBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(7, '新增按钮存在', hasAddBtn)
 
   if (hasAddBtn) {
@@ -1023,7 +1133,10 @@ async function testFeature7(page) {
 
     // 验证新增对话框弹出
     const dialog = page.locator('.el-dialog:visible').first()
-    const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const dialogVisible = await dialog
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(7, '新增对话框弹出', dialogVisible)
 
     if (dialogVisible) {
@@ -1031,12 +1144,20 @@ async function testFeature7(page) {
 
       // 验证邮件通知选项存在（el-form-item label="邮件通知" + el-switch）
       const emailCheckbox = dialog.locator('text=邮件通知').first()
-      const hasEmailCheckbox = await emailCheckbox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const hasEmailCheckbox = await emailCheckbox
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(7, '邮件通知选项存在', hasEmailCheckbox)
 
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取消"), button:has-text("关闭")').first()
-      if (await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await cancelBtn
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
@@ -1072,24 +1193,35 @@ async function testFeature8(page) {
   // 验证表格存在且含数据行（骨架态不算通过）
   const table = page.locator('.el-table, table').first()
   const hasTable = await table.isVisible().catch(() => false)
-  const rowCount = await page.locator('.el-table__row').count().catch(() => 0)
+  const rowCount = await page
+    .locator('.el-table__row')
+    .count()
+    .catch(() => 0)
   record(8, '限流配置表格', hasTable && rowCount > 0, `行数=${rowCount}`)
 
   // 验证表格中存在默认全局配置（routePattern='*'，显示为"全局默认" tag）
   const hasGlobalConfig = await page
     .locator('.el-tag:has-text("全局默认")')
     .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(8, '默认全局配置存在', hasGlobalConfig)
 
   // 验证启用状态 switch 开关存在
   const switchBtn = page.locator('.el-table .el-switch').first()
-  const hasSwitch = await switchBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasSwitch = await switchBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(8, '启用状态 switch 开关', hasSwitch)
 
   // 验证新增按钮存在
   const addBtn = page.locator('button:has-text("新增")').first()
-  const hasAddBtn = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasAddBtn = await addBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(8, '新增按钮存在', hasAddBtn)
 
   if (hasAddBtn) {
@@ -1098,7 +1230,10 @@ async function testFeature8(page) {
 
     // 验证新增对话框弹出
     const dialog = page.locator('.el-dialog:visible').first()
-    const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const dialogVisible = await dialog
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(8, '新增对话框弹出', dialogVisible)
 
     if (dialogVisible) {
@@ -1110,10 +1245,22 @@ async function testFeature8(page) {
       const refillInput = dialog.locator('label:has-text("补充速率")').first()
       const descInput = dialog.locator('label:has-text("描述")').first()
 
-      const hasRoutePattern = await routePatternInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      const hasCapacity = await capacityInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      const hasRefill = await refillInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      const hasDesc = await descInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+      const hasRoutePattern = await routePatternInput
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
+      const hasCapacity = await capacityInput
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
+      const hasRefill = await refillInput
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
+      const hasDesc = await descInput
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         8,
         '表单字段完整',
@@ -1123,7 +1270,12 @@ async function testFeature8(page) {
 
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取 消"), button:has-text("取消")').first()
-      if (await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await cancelBtn
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
@@ -1132,7 +1284,10 @@ async function testFeature8(page) {
 
   // 验证搜索表单
   const searchInput = page.locator('input[placeholder*="路由前缀"], input[placeholder*="route"]').first()
-  const hasSearch = await searchInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+  const hasSearch = await searchInput
+    .waitFor({ state: 'visible', timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   record(8, '搜索表单（路由前缀过滤）', hasSearch)
 }
 
@@ -1172,7 +1327,10 @@ async function testFeature9(page) {
     .first()
     .locator('button:has-text("列表"), button:has-text("详细"), button:has-text("Detail"), button:has-text("List")')
     .first()
-  const hasDataBtn = await dataListBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasDataBtn = await dataListBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(9, '字典数据列表入口', hasDataBtn)
 
   if (!hasDataBtn) {
@@ -1202,7 +1360,10 @@ async function testFeature9(page) {
   const enLabelHeader = page
     .locator('.el-table__header-wrapper th:has-text("英文标签"), .el-table__header th:has-text("英文标签")')
     .first()
-  const hasEnColumn = await enLabelHeader.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const hasEnColumn = await enLabelHeader
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(9, '英文标签列存在', hasEnColumn)
 
   // 验证新增对话框中存在"英文标签"输入框
@@ -1212,7 +1373,10 @@ async function testFeature9(page) {
       '.app-container button:has-text("新增"), .app-container button:has-text("新建"), .app-container button:has-text("Add")'
     )
     .first()
-  const hasAddBtn = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasAddBtn = await addBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(9, '新增按钮存在', hasAddBtn)
 
   if (hasAddBtn) {
@@ -1220,7 +1384,10 @@ async function testFeature9(page) {
     await sleep(1500)
 
     const dialog = page.locator('.el-dialog:visible').first()
-    const dialogVisible = await dialog.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const dialogVisible = await dialog
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(9, '新增对话框弹出', dialogVisible)
 
     if (dialogVisible) {
@@ -1228,12 +1395,20 @@ async function testFeature9(page) {
 
       // 验证英文标签表单项
       const enLabelForm = dialog.locator('label:has-text("英文标签")').first()
-      const hasEnLabel = await enLabelForm.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const hasEnLabel = await enLabelForm
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(9, '新增对话框英文标签字段', hasEnLabel)
 
       // 取消对话框
       const cancelBtn = dialog.locator('button:has-text("取 消"), button:has-text("取消")').first()
-      if (await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await cancelBtn
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await cancelBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
       }
@@ -1507,7 +1682,10 @@ async function testFeature11(page) {
 
   // 验证"导出合规报告"按钮存在
   const exportBtn = page.locator('button:has-text("导出合规报告")').first()
-  const hasExportBtn = await exportBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const hasExportBtn = await exportBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(11, '导出合规报告按钮存在', hasExportBtn)
 
   if (!hasExportBtn) {
@@ -1536,7 +1714,10 @@ async function testFeature11(page) {
       const payload = await reportResp.json().catch(() => null)
       const bizOk = payload && (payload.code === 200 || payload.code === 0)
       const successMsg = page.locator('.el-message--success').first()
-      const hasSuccessMsg = await successMsg.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+      const hasSuccessMsg = await successMsg
+        .waitFor({ state: 'visible', timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
       downloadTriggered = !!(bizOk && hasSuccessMsg)
       record(11, 'PDF 导出功能触发', downloadTriggered, `报告API=200/biz${bizOk}, 成功Toast=${hasSuccessMsg}`)
     } else {
@@ -1548,7 +1729,10 @@ async function testFeature11(page) {
 
   // 验证报告周期选择器存在（7天/30天/90天）
   const rangeBtn = page.locator('text=7天').first()
-  const hasRange = await rangeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasRange = await rangeBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(11, '报告周期选择器', hasRange)
 }
 
@@ -1565,20 +1749,29 @@ async function testFeature12(page) {
 
   // 验证中文模式下列标题为中文
   const zhHeader = page.locator('.el-table__header-wrapper th:has-text("路由前缀")').first()
-  const hasZhHeader = await zhHeader.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasZhHeader = await zhHeader
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(12, '中文模式列标题（路由前缀）', hasZhHeader)
 
   // 步骤 2：切换语言到 English
   // Navbar 中 <lang-select id="lang-select">，内部渲染 el-dropdown > div.lang-icon--style
   const langIcon = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
-  const hasLangIcon = await langIcon.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasLangIcon = await langIcon
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
 
   if (!hasLangIcon) {
     // 备用选择器：查找 navbar 中包含 language 图标的元素
     const altLangBtn = page
       .locator('.navbar [class*="lang"], .right-menu-item [class*="lang"], svg[class*="lang"]')
       .last()
-    const altVisible = await altLangBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+    const altVisible = await altLangBtn
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)
     if (!altVisible) {
       record(12, '语言切换按钮存在', false, '未找到语言切换图标')
       record(12, '英文模式列标题', false, '依赖前置步骤失败')
@@ -1592,7 +1785,10 @@ async function testFeature12(page) {
 
   // 在下拉菜单中点击 "English"
   const englishOption = page.locator('.el-dropdown-menu__item:has-text("English")').first()
-  const hasEnglishOption = await englishOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasEnglishOption = await englishOption
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(12, '语言切换菜单 English 选项', hasEnglishOption)
 
   if (!hasEnglishOption) {
@@ -1624,22 +1820,38 @@ async function testFeature12(page) {
   const enHeader = page
     .locator('.el-table__header-wrapper th:has-text("Route Pattern"), .el-table__header-wrapper th:has-text("Route")')
     .first()
-  const hasEnHeader = await enHeader.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const hasEnHeader = await enHeader
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(12, '英文模式列标题（Route Pattern）', hasEnHeader)
 
   // 验证按钮文本变为英文（"新增" → "Add" 或类似）
   // 由于 i18n 配置中按钮文本可能未完全翻译，这里宽松校验：页面无中文按钮"新增"
   const zhAddBtn = page.locator('button:has-text("新增")').first()
-  const zhAddVisible = await zhAddBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)
+  const zhAddVisible = await zhAddBtn
+    .waitFor({ state: 'visible', timeout: 500 })
+    .then(() => true)
+    .catch(() => false)
   record(12, '英文模式按钮文本切换', !zhAddVisible, !zhAddVisible ? '已切换为英文' : '仍显示中文"新增"')
 
   // 步骤 3：切回中文（恢复其他测试的环境）
   const langIcon2 = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
-  if (await langIcon2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await langIcon2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await langIcon2.click()
     await sleep(800)
     const zhOption = page.locator('.el-dropdown-menu__item:has-text("简体中文")').first()
-    if (await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await zhOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await zhOption.click()
       await sleep(3000)
       await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
@@ -1675,9 +1887,11 @@ async function ensureSecondaryUser() {
       return
     }
     const auth = { Authorization: `Bearer ${loginJson.token}` }
-    const listRes = await fetch(`${base}/system/user/list?pageNum=1&pageSize=20&userName=${CONFIG.secondaryUsername}`, { headers: auth })
+    const listRes = await fetch(`${base}/system/user/list?pageNum=1&pageSize=20&userName=${CONFIG.secondaryUsername}`, {
+      headers: auth
+    })
     const listJson = await listRes.json()
-    const exists = (listJson.rows || []).some(u => u.userName === CONFIG.secondaryUsername)
+    const exists = (listJson.rows || []).some((u) => u.userName === CONFIG.secondaryUsername)
     if (exists) {
       log(`  ✅ stepby 测试用户已存在（自检通过）`)
       return
@@ -1696,7 +1910,9 @@ async function ensureSecondaryUser() {
       })
     })
     const createJson = await createRes.json()
-    log(`  ${createJson.code === 200 ? '✅ 已自建' : '⚠ 自建失败'} stepby 用户: code=${createJson.code} msg=${createJson.msg}`)
+    log(
+      `  ${createJson.code === 200 ? '✅ 已自建' : '⚠ 自建失败'} stepby 用户: code=${createJson.code} msg=${createJson.msg}`
+    )
   } catch (e) {
     log(`  ⚠ ensureSecondaryUser 异常（不影响后续用例的独立判定）: ${e.message}`)
   }
@@ -1810,7 +2026,12 @@ async function testFeature14(page) {
   await screenshot(page, 'feat14_stepby_ratelimit_page')
   const rateLimitBtns = await visibleBtnState()
   const rateLimitIsolated = !rateLimitBtns.add && !rateLimitBtns.del
-  record(14, '限流配置页面权限隔离', rateLimitIsolated, `新增可见=${rateLimitBtns.add}, 删除可见=${rateLimitBtns.del}（均应隐藏）`)
+  record(
+    14,
+    '限流配置页面权限隔离',
+    rateLimitIsolated,
+    `新增可见=${rateLimitBtns.add}, 删除可见=${rateLimitBtns.del}（均应隐藏）`
+  )
 
   // 步骤 4：访问审计大屏（stepby 用户可能无权限）
   const statsReadyN = page
@@ -1860,11 +2081,17 @@ async function testFeature15(page) {
       'input[placeholder="账号"], input[placeholder="Username"], input[placeholder*="账号"], input[placeholder*="user"]'
     )
     .first()
-  const hasUsername = await userInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasUsername = await userInput
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(15, '注册表单-用户名字段', hasUsername)
 
   const passInput = page.locator('input[type="password"]').first()
-  const hasPassword = await passInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+  const hasPassword = await passInput
+    .waitFor({ state: 'visible', timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   record(15, '注册表单-密码字段', hasPassword)
 
   // 验证是否有第二个密码输入框（确认密码）
@@ -1876,7 +2103,10 @@ async function testFeature15(page) {
   const registerBtn = page
     .locator('button:has-text("注 册"), button:has-text("注册"), button:has-text("Register"), button[type="submit"]')
     .first()
-  const hasRegisterBtn = await registerBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hasRegisterBtn = await registerBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(15, '注册提交按钮', hasRegisterBtn)
 
   // 步骤 4：尝试填写表单并提交（注册功能后端默认关闭，预期失败或返回错误）
@@ -1907,10 +2137,9 @@ async function testFeature15(page) {
       //    故弹层反馈一律用**纯 CSS 选择器**（多语言并列用 `:has-text()` 的 CSS 列表）。
       const [regResp] = await Promise.all([
         page
-          .waitForResponse(
-            (r) => /\/register$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST',
-            { timeout: 6000 }
-          )
+          .waitForResponse((r) => /\/register$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST', {
+            timeout: 6000
+          })
           .catch(() => null),
         registerBtn.click({ timeout: 3000 }).catch(() => {})
       ])
@@ -1919,10 +2148,11 @@ async function testFeature15(page) {
       const feedback = page.locator('.el-message--error, .el-message--warning, .el-form-item__error')
       const feedbackCount = await feedback.count().catch(() => 0)
       const feedbackText = feedbackCount
-        ? ((await feedback
-            .first()
-            .textContent()
-            .catch(() => '')) || ''
+        ? (
+            (await feedback
+              .first()
+              .textContent()
+              .catch(() => '')) || ''
           ).trim()
         : ''
 
@@ -2044,12 +2274,25 @@ async function testFeature16(page) {
   await dismissAllOverlays(page)
   let enSwitched = false
   for (let attempt = 1; attempt <= 3 && !enSwitched; attempt++) {
-    const langIcon = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
-    if (!(await langIcon.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))) break
+    const langIcon = page
+      .locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style')
+      .first()
+    if (
+      !(await langIcon
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
+    )
+      break
     await langIcon.click({ timeout: 5000 }).catch(() => {})
     await sleep(800)
     const englishOption = page.locator('.el-dropdown-menu__item:has-text("English")').first()
-    if (await englishOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await englishOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       const enDisabled = await englishOption.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
       if (!enDisabled) {
         await englishOption.click({ timeout: 5000 }).catch(() => {})
@@ -2143,11 +2386,24 @@ async function testFeature16(page) {
   const langIcon2 = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
   let zhRestored = false
   for (let attempt = 0; attempt < 3 && !zhRestored; attempt++) {
-    if (!(await langIcon2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))) break
+    if (
+      !(await langIcon2
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
+    )
+      break
     await langIcon2.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
-    const zhOption = page.locator('.el-dropdown-menu__item:has-text("简体中文"), .el-dropdown-menu__item:has-text("Simplified Chinese")').first()
-    if (await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    const zhOption = page
+      .locator('.el-dropdown-menu__item:has-text("简体中文"), .el-dropdown-menu__item:has-text("Simplified Chinese")')
+      .first()
+    if (
+      await zhOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 当前项若为禁用态（已处于中文）→ 视为已恢复；否则点击
       const zhDisabled = await zhOption.evaluate((el) => el.classList.contains('is-disabled')).catch(() => false)
       if (zhDisabled) {
@@ -2167,7 +2423,15 @@ async function testFeature16(page) {
   }
   if (!zhRestored) {
     // localStorage 兜底：强制 language=zh-CN 并 reload，避免污染后续用例（i18n 持久化键见 src/i18n/index.ts:13）
-    await page.evaluate(() => { try { localStorage.setItem('language', 'zh-CN') } catch { /* noop */ } }).catch(() => {})
+    await page
+      .evaluate(() => {
+        try {
+          localStorage.setItem('language', 'zh-CN')
+        } catch {
+          /* noop */
+        }
+      })
+      .catch(() => {})
     await page.reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(1500)
     log('  ⚠️ F16 语言切回中文未确认，已写 localStorage language=zh-CN 并 reload 兜底')
@@ -2394,15 +2658,21 @@ async function testFeature18(page) {
   const reloadBtnVisible = await page
     .locator('button:has-text("热加载")')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   const updateBtnVisible = await page
     .locator('button:has-text("立即更新")')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   const configBtnVisible = await page
     .locator('button:has-text("配置")')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(
     18,
     'admin 操作按钮可见',
@@ -2430,7 +2700,10 @@ async function testFeature18(page) {
 
     // 验证对话框标题可见（使用更精确的选择器）
     const dialogTitle = page.locator('.el-dialog__title:has-text("IP 库管理配置")')
-    const dialogVisible = await dialogTitle.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const dialogVisible = await dialogTitle
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (dialogVisible) {
       // 验证表单字段（使用 count 更稳健）
       const p3terxRadioCount = await page.locator('.el-dialog input[type="radio"][value="p3terx"]').count()
@@ -2543,15 +2816,21 @@ async function testFeature18(page) {
     const stepbyReloadBtn = await page
       .locator('button:has-text("热加载")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const stepbyUpdateBtn = await page
       .locator('button:has-text("立即更新")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const stepbyConfigBtn = await page
       .locator('button:has-text("配置")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     // stepby 不应看到任何写操作按钮（安全策略）
     stepbyButtonsOk = !stepbyReloadBtn && !stepbyUpdateBtn && !stepbyConfigBtn
 
@@ -2903,7 +3182,12 @@ async function testFeature19(page) {
   } catch (err) {
     log(`  stepby 权限测试异常: ${err.message.slice(0, 80)}`)
   }
-  record(19, 'stepby 用户 reloadXdb 权限一致', stepbyPermissionOk, 'stepby 已分配权限，应可访问（200）或被拒（403），不应 401/404')
+  record(
+    19,
+    'stepby 用户 reloadXdb 权限一致',
+    stepbyPermissionOk,
+    'stepby 已分配权限，应可访问（200）或被拒（403），不应 401/404'
+  )
 
   // ---------- 步骤 9：前端 IP 库管理页面可访问 ----------
   let pageOk = false
@@ -2917,7 +3201,9 @@ async function testFeature19(page) {
     const cronTextVisible = await page
       .locator('text=0 0 4')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     pageOk = cronTextVisible
   } catch (err) {
     log(`  页面测试异常: ${err.message.slice(0, 80)}`)
@@ -3421,12 +3707,21 @@ async function testFeature21(page) {
           continue
         }
         const text = res ? await res.text().catch(() => '') : ''
-        try { return { status: res ? res.status : 0, body: JSON.parse(text) } } catch { return { status: res ? res.status : 0, body: { __raw: text.slice(0, 100) } } }
+        try {
+          return { status: res ? res.status : 0, body: JSON.parse(text) }
+        } catch {
+          return { status: res ? res.status : 0, body: { __raw: text.slice(0, 100) } }
+        }
       }
     }
     const locked = await govJson('/system/config/governance-locked', { headers: authHeaders })
     const lockedKeys = locked.body?.data || []
-    record(21, '治理锁定键清单（平台）', Array.isArray(lockedKeys) && lockedKeys.length > 0, `${lockedKeys.length} 个锁定键`)
+    record(
+      21,
+      '治理锁定键清单（平台）',
+      Array.isArray(lockedKeys) && lockedKeys.length > 0,
+      `${lockedKeys.length} 个锁定键`
+    )
 
     const add = await govJson('/system/config', {
       method: 'POST',
@@ -3441,13 +3736,29 @@ async function testFeature21(page) {
         visibleToTenant: '1'
       })
     })
-    const list = await govJson(`/system/config/list?configKey=${encodeURIComponent(`e2e.gov.${uniq}`)}`, { headers: authHeaders })
+    const list = await govJson(`/system/config/list?configKey=${encodeURIComponent(`e2e.gov.${uniq}`)}`, {
+      headers: authHeaders
+    })
     const grow = list.body?.rows?.[0] || {}
     const addOk = add.body?.code === 200
     const scopeOk = grow.scope === 'platform_default' && grow.tenantEditable === '1'
-    record(21, '治理属性建参回读（platform_default/1/1）', addOk && scopeOk, JSON.stringify({ addStatus: add.status, addCode: add.body?.code, rows: list.body?.rows?.length, scope: grow.scope, te: grow.tenantEditable }))
+    record(
+      21,
+      '治理属性建参回读（platform_default/1/1）',
+      addOk && scopeOk,
+      JSON.stringify({
+        addStatus: add.status,
+        addCode: add.body?.code,
+        rows: list.body?.rows?.length,
+        scope: grow.scope,
+        te: grow.tenantEditable
+      })
+    )
     if (grow.configId) {
-      await fetch(`${CONFIG.backendUrl}/system/config/${grow.configId}`, { method: 'DELETE', headers: authHeaders }).catch(() => null)
+      await fetch(`${CONFIG.backendUrl}/system/config/${grow.configId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      }).catch(() => null)
     }
   }
 
@@ -3952,15 +4263,28 @@ async function testFeature22(page) {
     await skipTour(page)
     serverPageOk = !(await is404Page(page))
     // echarts canvas 真实挂载（性能图表区）
-    serverChartOk = (await page.locator('canvas').first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false))
+    serverChartOk = await page
+      .locator('canvas')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
     record(22, '服务器监控页渲染（路由可达）', serverPageOk)
     record(22, '服务器监控页图表 canvas 挂载', serverChartOk)
     // 刷新按钮存在并点击一次（不产生副作用，只重拉数据）
     // 注：布局多标签栏自身也有「刷新」——必须限定在服务器监控卡片头部，避免误点全局按钮
-    const refreshBtn = page.locator('.card-header-actions button').filter({ hasText: /刷新|Refresh/i }).first()
-    serverRefreshOk = await refreshBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const refreshBtn = page
+      .locator('.card-header-actions button')
+      .filter({ hasText: /刷新|Refresh/i })
+      .first()
+    serverRefreshOk = await refreshBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (serverRefreshOk) {
-      const respPromise = page.waitForResponse((r) => r.url().includes('/monitor/server') && r.status() === 200, { timeout: 10000 }).catch(() => null)
+      const respPromise = page
+        .waitForResponse((r) => r.url().includes('/monitor/server') && r.status() === 200, { timeout: 10000 })
+        .catch(() => null)
       await refreshBtn.click({ force: true })
       const resp = await respPromise
       serverRefreshOk = !!resp
@@ -5855,7 +6179,12 @@ async function testFeature31(page) {
   } catch (err) {
     stepbyQueryDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）', stepbyQueryOk, stepbyQueryDetail)
+  record(
+    31,
+    'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）',
+    stepbyQueryOk,
+    stepbyQueryDetail
+  )
 
   // ---------- 步骤 4b：admin 对照：同一接口仍应为 200 ----------
   let adminQueryOk = false
@@ -5929,7 +6258,12 @@ async function testFeature31(page) {
   } catch (err) {
     stepbyRestorePermDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(31, 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）', stepbyRestorePermOk, stepbyRestorePermDetail)
+  record(
+    31,
+    'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）',
+    stepbyRestorePermOk,
+    stepbyRestorePermDetail
+  )
 
   // ---------- 步骤 7：stepby 调用 POST /system/backup（system:backup:add） ----------
   // 设计意图：stepby 普通角色不应有 system:backup:add 权限（备份创建是敏感操作），
@@ -5974,9 +6308,8 @@ async function testFeature31(page) {
         r.feature === 31 &&
         r.name === 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）'
     )?.passed || false,
-    results.find(
-      (r) => r.feature === 31 && r.name === 'admin GET /system/backup/download/{id}（对照，期望 200）'
-    )?.passed || false,
+    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/download/{id}（对照，期望 200）')
+      ?.passed || false,
     results.find(
       (r) => r.feature === 31 && r.name === 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）'
     )?.passed || false,
@@ -6162,7 +6495,8 @@ async function testFeature32(page) {
       false,
     results.find((r) => r.feature === 32 && r.name === 'days 参数边界（1/365/1000）')?.passed || false,
     results.find((r) => r.feature === 32 && r.name === 'stepby 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/stats（monitor:audit:list）')?.passed || false,
+    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/stats（monitor:audit:list）')?.passed ||
+      false,
     results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/compliance-report（monitor:audit:list）')
       ?.passed || false,
     results.find((r) => r.feature === 32 && r.name === '无 token 鉴权 401')?.passed || false
@@ -6259,8 +6593,14 @@ async function testFeature33(page) {
     const retryBtn = page.getByRole('button', { name: /重试|重連|Retry/i }).first()
     const backBtn = page.getByRole('button', { name: /返回|首页|Home|Back/i }).first()
     networkBtnsOk =
-      (await retryBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) &&
-      (await backBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+      (await retryBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)) &&
+      (await backBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
   } catch (err) {
     log(`  network-error 按钮检测异常: ${err.message.slice(0, 80)}`)
   }
@@ -6282,7 +6622,11 @@ async function testFeature33(page) {
   try {
     const lockToken = await sessionTokenOf(page)
     if (!lockToken) throw new Error('token 获取失败，无法构造锁屏签名')
-    const sha = (v) => crypto.createHash('sha256').update(v + lockToken).digest('hex')
+    const sha = (v) =>
+      crypto
+        .createHash('sha256')
+        .update(v + lockToken)
+        .digest('hex')
     const signed = (v) => JSON.stringify({ value: v, signature: sha(v) })
     const lockVal = signed('true')
     const lockPathVal = signed('/index')
@@ -6296,23 +6640,42 @@ async function testFeature33(page) {
     await page.goto(`${CONFIG.frontendUrl}/lock`, { waitUntil: 'load', timeout: 15000 })
     await page.waitForTimeout(1500)
     const pwdInput = page.locator('input[type="password"]').first()
-    if (await pwdInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+    if (
+      await pwdInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 错误密码：后端 401 → 拦截器弹「重新登录」ElMessageBox（也可能错误 Toast），锁屏不解除
       await pwdInput.fill('wrong-pass-123')
       await pwdInput.press('Enter')
       const errToast = page.locator('.el-message--error').first()
       const reloginBox = page.locator('.el-message-box:visible').first()
       // 注意 isVisible({timeout}) 不等待——toast/弹窗在 401 后 2~3s 才出现，必须 waitFor
-      const rejected =
-        (await Promise.race([
-          errToast.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false),
-          reloginBox.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
-        ]))
+      const rejected = await Promise.race([
+        errToast
+          .waitFor({ state: 'visible', timeout: 6000 })
+          .then(() => true)
+          .catch(() => false),
+        reloginBox
+          .waitFor({ state: 'visible', timeout: 6000 })
+          .then(() => true)
+          .catch(() => false)
+      ])
       const stillLock = page.url().includes('/lock')
       lockWrongOk = rejected && stillLock
       // 关闭「重新登录」确认框（取消 → 留在锁屏页），再继续解锁链
-      if (await reloginBox.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
-        await reloginBox.locator('button:not(.el-button--primary)').first().click().catch(() => {})
+      if (
+        await reloginBox
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
+        await reloginBox
+          .locator('button:not(.el-button--primary)')
+          .first()
+          .click()
+          .catch(() => {})
         await page.waitForTimeout(600)
       }
       // 正确密码解锁 → 回到原页（非 /lock）
@@ -7237,7 +7600,10 @@ async function testFeature37(page) {
 
     // 查找"查看全部"按钮（el-button link 类型）
     const viewAllBtn = page.locator('.el-button:has-text("查看全部"), .el-button:has-text("View All")').first()
-    const btnVisible = await viewAllBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const btnVisible = await viewAllBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
 
     if (btnVisible) {
       // 监听路由变化
@@ -7557,12 +7923,12 @@ async function testFeature37(page) {
     // 会把提示逻辑挪入异步 chunk 导致断言随构建波动。改为直接断言源码——
     // U12 提示已演进为 errorHub.report('warning') + i18n menu.componentNotFound，
     // 防御性 fallback 到 404 页（store/modules/permission.ts loadView 尾部）。
-    const permSrc = fs.readFileSync(
-      path.resolve(__dirname, '../../src/store/modules/permission.ts'),
-      'utf-8'
-    )
+    const permSrc = fs.readFileSync(path.resolve(__dirname, '../../src/store/modules/permission.ts'), 'utf-8')
     const hasLoadViewWarn = {
-      hasWarn: permSrc.includes('componentNotFound') && permSrc.includes('errorHub.report') && permSrc.includes("fallback to 404 page")
+      hasWarn:
+        permSrc.includes('componentNotFound') &&
+        permSrc.includes('errorHub.report') &&
+        permSrc.includes('fallback to 404 page')
     }
     record(37, 'U12 loadView 组件不存在提示', hasLoadViewWarn?.hasWarn, `提示逻辑存在=${hasLoadViewWarn?.hasWarn}`)
   } catch (err) {
@@ -7737,11 +8103,15 @@ async function testFeature38(page) {
     const hasTimeline = await page
       .locator('.el-timeline')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasSearchInput = await page
       .locator('input[placeholder*="搜索"], input[placeholder*="search"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     // 真实路由不应落到 404 页
     const is404 = await page.evaluate(() => !!document.querySelector('.wscn-http404-container')).catch(() => false)
 
@@ -8008,7 +8378,10 @@ async function testFeature38(page) {
       await sleep(1500)
       // RightToolbar 列设置按钮通常含 Setting 图标
       const colBtn = page.locator('.top-right-btn .el-button:has(.el-icon)').nth(2)
-      const btnVisible = await colBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const btnVisible = await colBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (btnVisible) {
         await colBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
@@ -8016,7 +8389,9 @@ async function testFeature38(page) {
         columnSettingVisible = await page
           .locator('.el-transfer, .el-checkbox-group')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         // 按 ESC 关闭
         await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
       }
@@ -8295,7 +8670,12 @@ async function testFeature39(page) {
 
     // 输入密码触发强度显示
     const pwdInput = page.locator('input[type="password"]').first()
-    if (await pwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await pwdInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await pwdInput.fill('Test@12345')
       await sleep(500)
     }
@@ -8408,7 +8788,10 @@ async function testFeature39(page) {
           '.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("Reset Password"), .el-tabs__item:has-text("ResetPwd")'
         )
         .first()
-      const tabVisible = await resetPwdTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const tabVisible = await resetPwdTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (tabVisible) {
         await resetPwdTab.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
@@ -8677,7 +9060,10 @@ async function testFeature40(page) {
       await sleep(300)
       // 触发查询（让 persistQuery 保存）- 使用 type=primary 的搜索按钮
       const searchBtn = page.locator('.el-form .el-button[type="primary"]').first()
-      const btnVisible = await searchBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const btnVisible = await searchBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (btnVisible) {
         await searchBtn.click({ timeout: 3000 }).catch(() => {})
       } else {
@@ -8730,7 +9116,9 @@ async function testFeature40(page) {
     const hasAvatarHead = await page
       .locator('.user-info-head')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
 
     const sourceCheck = await page.evaluate(async () => {
       try {
@@ -8948,7 +9336,11 @@ async function testFeature41(page) {
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) && fs.existsSync(path.join(d, 'stepby-axum'))) return d
+      if (
+        (fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) &&
+        fs.existsSync(path.join(d, 'stepby-axum'))
+      )
+        return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -8979,10 +9371,7 @@ async function testFeature41(page) {
     // （后者 import @/utils/echarts + useChart），故按「整个 dashboard 目录 + useEchartsWidget」聚合判定。
     // 批三十一落地后 monitor/cache 拆为 CacheOverview/CacheKeys/CacheStats 子组件，
     // 图表代码移入子组件 → 与 dashboard 同口径按「整个目录聚合」判定。
-    const echartsPages = [
-      'src/views/index.vue',
-      'src/views/monitor/audit-dashboard/index.vue'
-    ]
+    const echartsPages = ['src/views/index.vue', 'src/views/monitor/audit-dashboard/index.vue']
     const collectSources = (relDir) => {
       const abs = path.join(uiRoot, relDir)
       if (!fs.existsSync(abs)) return []
@@ -9173,7 +9562,11 @@ async function testFeature42(page) {
   const projectRoot = (() => {
     let d = path.resolve(__dirname)
     for (;;) {
-      if ((fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) && fs.existsSync(path.join(d, 'stepby-axum'))) return d
+      if (
+        (fs.existsSync(path.join(d, 'stepby-vue')) || fs.existsSync(path.join(d, 'stepby-vue'))) &&
+        fs.existsSync(path.join(d, 'stepby-axum'))
+      )
+        return d
       const p = path.dirname(d)
       if (p === d) break
       d = p
@@ -9220,8 +9613,7 @@ async function testFeature42(page) {
       handlerContent.includes('pub use crate::service::dashboard_service::') &&
       handlerContent.includes('dashboard_stats')
 
-    const passed =
-      missingFields.length === 0 && hasRecentOperLog && hasTokioJoin && hasScanKeys && handlerReExports
+    const passed = missingFields.length === 0 && hasRecentOperLog && hasTokioJoin && hasScanKeys && handlerReExports
     record(
       42,
       'U5 后端 DashboardStatsVo 扩展 8 字段 + RecentOperLog + tokio::join! 聚合',
@@ -9278,8 +9670,7 @@ async function testFeature42(page) {
     const serviceContent = fs.readFileSync(servicePath, 'utf-8')
 
     // 检查 user_stats handler 存在（且委托 service）
-    const hasUserStatsHandler =
-      /pub async fn user_stats/.test(handlerContent) && handlerContent.includes('user_stats(')
+    const hasUserStatsHandler = /pub async fn user_stats/.test(handlerContent) && handlerContent.includes('user_stats(')
 
     // 检查 UserStatsVo 结构体包含全部字段（定义在 service）
     const requiredFields = ['total_users', 'new_users_this_week', 'active_users', 'disabled_users', 'create_trend']
@@ -9289,8 +9680,7 @@ async function testFeature42(page) {
     const hasTrendItem = serviceContent.includes('pub struct UserCreateTrendItem')
 
     // 检查 30 天时间窗口
-    const has30Days =
-      serviceContent.includes('Duration::days(29)') || serviceContent.includes('Duration::days(30)')
+    const has30Days = serviceContent.includes('Duration::days(29)') || serviceContent.includes('Duration::days(30)')
 
     const passed = hasUserStatsHandler && missingFields.length === 0 && hasTrendItem && has30Days
     record(
@@ -10422,15 +10812,15 @@ async function testFeature47(page) {
   let pageOk = false
   let pageDetail = '未请求'
   try {
-    await page
-      .goto(`${CONFIG.frontendUrl}/monitor/logtail`, { waitUntil: 'load', timeout: 15000 })
-      .catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/monitor/logtail`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(2500)
     await skipTour(page)
     const hasTitle = await page
       .locator('.log-tail')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     pageOk = hasTitle
     pageDetail = hasTitle ? '页面渲染成功' : '页面未渲染到 .log-tail 容器'
     record(47, '实时日志前端页面渲染', pageOk, pageDetail)
@@ -10468,7 +10858,11 @@ async function testFeature48(page) {
 
   // ---------- 48-3 创建受限令牌（system:config:list）返回一次性明文 + 脱敏 ----------
   // 循环轮 8 修复：先清理历史 e2e PAT，防累积触发每用户 PAT 上限守卫
-  try { await mLevelCleanupPats(adminHeaders.Authorization.slice(7)) } catch { /* 清理失败不阻断 */ }
+  try {
+    await mLevelCleanupPats(adminHeaders.Authorization.slice(7))
+  } catch {
+    /* 清理失败不阻断 */
+  }
   let createOk = false
   let patId = null
   let patToken = null
@@ -10562,15 +10956,15 @@ async function testFeature48(page) {
   // ---------- 48-9 个人中心「API 令牌」标签页渲染 ----------
   let profileTabOk = false
   try {
-    await page
-      .goto(`${CONFIG.frontendUrl}/user/profile/pat`, { waitUntil: 'load', timeout: 15000 })
-      .catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/user/profile/pat`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(2200)
     await skipTour(page)
     profileTabOk = await page
       .getByRole('button', { name: /新建令牌|Create|新建/ })
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(48, '个人中心「API 令牌」标签页渲染', profileTabOk, profileTabOk ? '令牌面板可见' : '未找到新建令牌按钮')
   } catch (err) {
     record(48, '个人中心「API 令牌」标签页渲染', false, `异常: ${err.message.slice(0, 80)}`)
@@ -10592,13 +10986,22 @@ async function testFeature48(page) {
     const hasTable = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     const hasFilter = await page
       .getByPlaceholder(/用户 ID|User ID|用户ID/)
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     adminPageOk = gotoOk && hasTable
-    record(48, '监控/PAT 管理页面渲染', adminPageOk, gotoOk ? (hasTable ? `页面渲染成功(过滤器=${hasFilter})` : '页面未渲染') : 'goto 导航失败')
+    record(
+      48,
+      '监控/PAT 管理页面渲染',
+      adminPageOk,
+      gotoOk ? (hasTable ? `页面渲染成功(过滤器=${hasFilter})` : '页面未渲染') : 'goto 导航失败'
+    )
   } catch (err) {
     record(48, '监控/PAT 管理页面渲染', false, `异常: ${err.message.slice(0, 80)}`)
   }
@@ -10631,15 +11034,15 @@ async function testFeature49(page) {
   let renderOk = false
   let chartOk = false
   try {
-    await page
-      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
-      .catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(2600)
     await skipTour(page)
     renderOk = await page
       .getByRole('button', { name: /自定义|Customize/ })
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     // echarts 渲染出 canvas
     chartOk = (await page.locator('.chart-box canvas').count()) > 0
     record(49, '仪表盘工具栏渲染（自定义按钮）', renderOk, renderOk ? '工具栏可见' : '未找到自定义按钮')
@@ -10701,7 +11104,12 @@ async function testFeature49(page) {
       parsed.length === totalCards &&
       ids.every((i) => knownIds.includes(i)) &&
       hasHidden
-    record(49, '布局写入 localStorage 且含隐藏标记', persistOk, `长度=${Array.isArray(parsed) ? parsed.length : 'N/A'}/${totalCards}`)
+    record(
+      49,
+      '布局写入 localStorage 且含隐藏标记',
+      persistOk,
+      `长度=${Array.isArray(parsed) ? parsed.length : 'N/A'}/${totalCards}`
+    )
   } catch (err) {
     record(49, '隐藏卡片生效（出现隐藏占位）', false, `异常: ${err.message.slice(0, 80)}`)
     record(49, '布局写入 localStorage 且含隐藏标记', false, `异常: ${err.message.slice(0, 80)}`)
@@ -10710,9 +11118,7 @@ async function testFeature49(page) {
   // ---------- 49-4 刷新后布局持久化恢复（隐藏卡片仍隐藏） ----------
   let reloadPersistOk = false
   try {
-    await page
-      .goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 })
-      .catch(() => {})
+    await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(2400)
     await skipTour(page)
     // 非编辑态：可见卡片数应为 totalCards-1（隐藏了 1 张）；隐藏卡片不渲染内容体
@@ -10741,7 +11147,9 @@ async function testFeature49(page) {
     if (
       await confirmBtn
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
     ) {
       await confirmBtn.first().click()
     }
@@ -10839,7 +11247,9 @@ async function testFeature50(page) {
     const toastOk = await page
       .locator('.el-message--success')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     await sleep(400)
     const shownText = (
       await cell
@@ -10873,7 +11283,9 @@ async function testFeature50(page) {
     const errToast = await page
       .locator('.el-message--error')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       50,
       '空值被必填校验拦截（不发 PUT + 错误提示）',
@@ -10975,7 +11387,12 @@ async function testFeature51(page) {
       `issuer=${issuer}, alg=${disc.id_token_signing_alg_values_supported?.join(',')}`
     )
   } catch (err) {
-    record(51, 'OIDC 发现文档标准端点齐全（authorization/token/userinfo/end_session + PKCE S256）', false, `异常: ${err.message.slice(0, 80)}`)
+    record(
+      51,
+      'OIDC 发现文档标准端点齐全（authorization/token/userinfo/end_session + PKCE S256）',
+      false,
+      `异常: ${err.message.slice(0, 80)}`
+    )
   }
 
   // ---- 1. 新增客户端（应用私有面，Bearer + camelCase） ----
@@ -11144,7 +11561,9 @@ async function testFeature51(page) {
         'button:has-text("允许"), button:has-text("同意"), button:has-text("授权"), button:has-text("Allow"), button:has-text("Approve")'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const bodyHas = await p2.evaluate(() => document.body.innerText).catch(() => '')
     const notInvalid = !bodyHas.includes('授权请求无效') && !bodyHas.includes('Invalid')
     const named = bodyHas.includes(created.clientId) || /E2E-SSO/.test(bodyHas)
@@ -11218,7 +11637,9 @@ async function testFeature51(page) {
         'button:has-text("允许"), button:has-text("同意"), button:has-text("授权"), button:has-text("Allow"), button:has-text("Approve")'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const bodyHas3 = await p3.evaluate(() => document.body.innerText).catch(() => '')
     const notInvalid3 = !bodyHas3.includes('授权请求无效') && !bodyHas3.includes('Invalid')
     await ctx3.close()
@@ -11249,7 +11670,9 @@ async function testFeature51(page) {
         localStorage.setItem('stepby-layout-tour', 'completed')
         localStorage.setItem('workbench-tour', 'completed')
         localStorage.setItem('home-tour', 'completed')
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })
     const p4 = await ctx4.newPage()
     // 验证码捕获须在 goto 前注册（与登录页显示图同源）
@@ -11554,22 +11977,23 @@ async function testFeature51(page) {
     const freshToken = lg?.token || lg?.data?.token
     if (freshToken) freshAuth = { Authorization: `Bearer ${freshToken}` }
     if (!accessToken || !created) throw new Error('前置失败：无 access_token/客户端')
-    const list = await fetch(`${B}/system/user/profile/sso-grants`, { headers: auth }).then((r) =>
-      r.json()
-    )
+    const list = await fetch(`${B}/system/user/profile/sso-grants`, { headers: auth }).then((r) => r.json())
     const grant = (list?.data || []).find((g) => g.clientId === created.clientId)
     // grant 已按 clientId 精确命中；断言 clientName 非空展示名 + consentedAt 快照为字符串
     // （旧断言 grant.clientName === created.clientId 恒假：clientName 是展示名，永远不会等于随机 clientId）
     record(
       51,
       'grants 列表含刚授权的客户端（含 consentedAt 快照）',
-      !!grant && typeof grant.clientName === 'string' && grant.clientName.length > 0 && typeof grant.consentedAt === 'string',
+      !!grant &&
+        typeof grant.clientName === 'string' &&
+        grant.clientName.length > 0 &&
+        typeof grant.consentedAt === 'string',
       `rows=${(list?.data || []).length}, hit=${!!grant}, clientName=${grant?.clientName}`
     )
-    const rv = await fetch(
-      `${B}/system/user/profile/sso-grants/${encodeURIComponent(created.clientId)}`,
-      { method: 'DELETE', headers: auth }
-    ).then((r) => r.json())
+    const rv = await fetch(`${B}/system/user/profile/sso-grants/${encodeURIComponent(created.clientId)}`, {
+      method: 'DELETE',
+      headers: auth
+    }).then((r) => r.json())
     const ui = await fetch(`${B}/sso/userinfo`, { headers: { Authorization: `Bearer ${accessToken}` } })
     record(
       51,
@@ -11590,10 +12014,9 @@ async function testFeature51(page) {
     const ru = encodeURIComponent(redirectUri)
     const res = await page
       .context()
-      .request.get(
-        `${B}/sso/logout?id_token_hint=${encodeURIComponent(idToken)}&post_logout_redirect_uri=${ru}`,
-        { maxRedirects: 0 }
-      )
+      .request.get(`${B}/sso/logout?id_token_hint=${encodeURIComponent(idToken)}&post_logout_redirect_uri=${ru}`, {
+        maxRedirects: 0
+      })
     const loc = res.headers()['location'] || ''
     record(
       51,
@@ -11628,7 +12051,7 @@ async function testFeature51(page) {
     const relogin = await fetch(`${B}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: TEST_USER, password: CONFIG.password, code: '', uuid: capForClean.uuid || '' }),
+      body: JSON.stringify({ username: TEST_USER, password: CONFIG.password, code: '', uuid: capForClean.uuid || '' })
     }).then((r) => r.json())
     const delHeaders = relogin.token ? { Authorization: `Bearer ${relogin.token}` } : freshAuth || auth
     const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, {
@@ -11682,10 +12105,13 @@ async function dismissAllOverlays(page) {
   for (let i = 0; i < 3; i++) {
     // 收尾十三：引导 tour（1/4 步遮罩）不在 el-dialog/message-box 体系内——
     // 点「跳过引导」终止（探针实证 tour 遮罩拦截按钮点击）
-    const tourSkip = page
-      .locator('button:has-text("跳过引导"), [class*="tour"] button:has-text("跳")')
-      .first()
-    if (await tourSkip.waitFor({ state: 'visible', timeout: 300 }).then(() => true).catch(() => false)) {
+    const tourSkip = page.locator('button:has-text("跳过引导"), [class*="tour"] button:has-text("跳")').first()
+    if (
+      await tourSkip
+        .waitFor({ state: 'visible', timeout: 300 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await tourSkip.click({ timeout: 2000 }).catch(() => {})
       await sleep(400)
     }
@@ -11761,7 +12187,10 @@ async function testFeature52(page) {
 
   // ---- (1) UI 新增 ----
   await page.locator('button:has-text("新增")').first().click()
-  const dlgOpen = await dialog.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOpen = await dialog
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   record(52, '新增对话框打开', dlgOpen)
   let added = false
   if (!dlgOpen) {
@@ -11826,7 +12255,10 @@ async function testFeature52(page) {
     .getByRole('button', { name: /修改|编辑/ })
     .or(row1.locator('button:has-text("修改"), button:has-text("编辑")'))
     .first()
-  const editVisible = await editBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const editVisible = await editBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(52, '行内编辑按钮可见', editVisible)
   if (editVisible) {
     await editBtn.click()
@@ -11860,7 +12292,12 @@ async function testFeature52(page) {
       rowDump = await row.innerText().catch(() => '')
       showsNew = rowDump.includes(nick2)
     }
-    record(52, '编辑后列表即时反映新昵称', showsNew, showsNew ? `nick=${nick2}` : `nick=${nick2} rowDump=${rowDump.replace(/\s+/g, '|').slice(0, 160)}`)
+    record(
+      52,
+      '编辑后列表即时反映新昵称',
+      showsNew,
+      showsNew ? `nick=${nick2}` : `nick=${nick2} rowDump=${rowDump.replace(/\s+/g, '|').slice(0, 160)}`
+    )
   } else {
     record(52, '编辑对话框回填原昵称', false, '编辑按钮不可见')
     record(52, 'UI 编辑提交成功（Toast 恰1成功0错误）', false, '未进入编辑')
@@ -11882,12 +12319,20 @@ async function testFeature52(page) {
     .getByRole('button', { name: /删除/ })
     .or(rowsOf(uname).first().locator('button:has-text("删除")'))
     .first()
-  const delVisible = delRowReady && (await delBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))
+  const delVisible =
+    delRowReady &&
+    (await delBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false))
   let deleted = false
   if (delVisible) {
     await delBtn.click()
     const mbox = page.locator('.el-message-box:visible')
-    const mboxShown = await mbox.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const mboxShown = await mbox
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(52, '删除弹出确认框', mboxShown)
     if (mboxShown) {
       await mbox
@@ -11995,7 +12440,10 @@ async function testFeature53(page) {
   const cancelChain = async (trigger, label) => {
     await trigger.click({ timeout: 2000 }).catch(() => {})
     await sleep(600)
-    const shown = await mbox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+    const shown = await mbox
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(53, `${label}弹出确认框`, shown)
     if (!shown) {
       record(53, `${label}取消后无副作用`, false, '未出现确认框，取消路径无从验证')
@@ -12080,7 +12528,10 @@ async function testFeature53(page) {
     const cleanBtn = page.locator('button:has-text("清空")').first()
     // 长跑后期 chunk 加载慢——显式 waitFor 消除竞态（固定 1500ms 会漂移假失败）
     await cleanBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-    const visible = await cleanBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+    const visible = await cleanBtn
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(53, '前端错误页清空按钮可见', visible)
     if (visible) await cancelChain(cleanBtn, '清空(frontendError)')
     else record(53, '清空(frontendError)弹出确认框', false, '按钮不可见')
@@ -12138,8 +12589,7 @@ async function testFeature54(page) {
             .last()
             .innerText()
             .catch(() => '')
-          hasCanvasOrTable =
-            (await page.locator('.el-tab-pane:visible canvas, .el-tab-pane:visible table').count()) > 0
+          hasCanvasOrTable = (await page.locator('.el-tab-pane:visible canvas, .el-tab-pane:visible table').count()) > 0
           if (paneTxt.trim().length > 0 || hasCanvasOrTable) break
           await sleep(500)
         }
@@ -12168,7 +12618,10 @@ async function testFeature55(page) {
   // 已登录会话访问 /login 会被守卫重定向到首页——必须先真注销再测登录页
   await logout(page)
   const form = page.locator('.login-form').first()
-  const formReady = await form.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+  const formReady = await form
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
   record(55, '注销后登录页表单可见', formReady)
   if (!formReady) {
     await login(page)
@@ -12188,7 +12641,10 @@ async function testFeature55(page) {
     .first()
   const pwdInput = pwdItem.locator('input')
   const captchaInput = form.locator('input[placeholder="验证码"]').first()
-  const captchaVisible = await captchaInput.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)
+  const captchaVisible = await captchaInput
+    .waitFor({ state: 'visible', timeout: 500 })
+    .then(() => true)
+    .catch(() => false)
   // 必填错误条数随环境开关（captchaEnabled）变化，按可见字段数精确断言，不做猜测性放宽
   const requiredErrs = captchaVisible ? 3 : 2
 
@@ -12203,7 +12659,11 @@ async function testFeature55(page) {
     const capResp = page
       .waitForResponse((r) => r.url().includes('/captchaImage') && r.status() === 200, { timeout: 10000 })
       .catch(() => null)
-    await form.locator('img[src^="data:image"]').first().click({ timeout: 3000 }).catch(() => {})
+    await form
+      .locator('img[src^="data:image"]')
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
     const resp = await capResp
     if (!resp) return false
     const data = await resp.json().catch(() => null)
@@ -12245,7 +12705,10 @@ async function testFeature55(page) {
 
   // (3) 密码显隐切换：自定义 suffix el-icon（View/Hide）翻转 input type，再点翻回
   const toggle = pwdItem.locator('.el-input__suffix .el-icon').first()
-  const tVisible = await toggle.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+  const tVisible = await toggle
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false)
   record(55, '密码显隐切换图标可见', tVisible)
   if (tVisible) {
     const typeBefore = await pwdInput.getAttribute('type')
@@ -12367,7 +12830,10 @@ async function testFeature56(page) {
 
   // (A1) 取消路径：点开关→确认框→取消→回弹+无 Toast
   await row.locator('.el-switch').click()
-  const shown1 = await mbox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+  const shown1 = await mbox
+    .waitFor({ state: 'visible', timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   record(56, '停用弹出确认框', shown1)
   if (shown1) {
     await mbox.getByRole('button', { name: /取\s*消/ }).click()
@@ -12390,7 +12856,10 @@ async function testFeature56(page) {
 
   // (A2) 确定路径：点开关→确定→成功Toast→API 复核 status=1→再启用恢复→API 复核 status=0
   await row.locator('.el-switch').click()
-  const shown2 = await mbox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+  const shown2 = await mbox
+    .waitFor({ state: 'visible', timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   record(56, '再次停用弹出确认框', shown2)
   if (shown2) {
     await mbox.getByRole('button', { name: /确\s*定/ }).click()
@@ -12408,7 +12877,12 @@ async function testFeature56(page) {
     record(56, '停用已落库（API status=1）', stNow === '1', `status=${stNow}`)
     // 恢复启用（同链反向），保证删除前状态路径双向都真实走通
     await row.locator('.el-switch').click()
-    if (await mbox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+    if (
+      await mbox
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await mbox.getByRole('button', { name: /确\s*定/ }).click()
       await sleep(1600)
       const chk2 = await fetch(
@@ -12515,7 +12989,10 @@ async function testFeature57(page) {
     .locator('.el-dialog:visible')
     .filter({ has: page.locator('button:has-text("生成表达式")') })
     .first()
-  const opened = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const opened = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   record(57, '任务新增对话框打开（含生成表达式按钮）', opened)
   if (!opened) return
   const cronInput = dlg
@@ -12531,7 +13008,9 @@ async function testFeature57(page) {
 
   await dlg.locator('button:has-text("生成表达式")').first().click()
   const genOpen = await gen()
-    .waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(57, '生成器对话框打开', genOpen)
   if (!genOpen) {
     await dlg
@@ -12575,7 +13054,9 @@ async function testFeature57(page) {
 
   await dlg.locator('button:has-text("生成表达式")').first().click()
   const reopen = await gen()
-    .waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   let reopenOk = false
   let cancelUnchanged = false
   if (reopen) {
@@ -12595,14 +13076,14 @@ async function testFeature57(page) {
   // UX-5 未保存守卫：cron 已被生成器回填 ⇒ 表单脏 ⇒ 点取消应弹确认框（而非直接关闭）
   await dlg.locator('button:has-text("取 消"), button:has-text("取消")').last().click()
   await sleep(600)
-  const guardVisible = await page.locator('.el-message-box:visible').isVisible().catch(() => false)
+  const guardVisible = await page
+    .locator('.el-message-box:visible')
+    .isVisible()
+    .catch(() => false)
   record(57, '脏表单取消触发确认守卫（UX-5）', guardVisible)
   if (guardVisible) {
     // 确认继续关闭（主按钮 = leaveWithoutSaving「离开不保存」）
-    await page
-      .locator('.el-message-box:visible .el-message-box__btns button.el-button--primary')
-      .first()
-      .click()
+    await page.locator('.el-message-box:visible .el-message-box__btns button.el-button--primary').first().click()
     await sleep(600)
   }
   const dlgClosed = !(await dlg.isVisible().catch(() => false))
@@ -12632,7 +13113,10 @@ async function testFeature58(page) {
       .first()
       .click()
     const dlg = page.locator('.el-dialog:visible').last()
-    const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const dlgOk = await dlg
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     if (!dlgOk) {
       record(58, `${tg.name}：新增对话框打开`, false)
       continue
@@ -12714,7 +13198,10 @@ async function testFeature59(page) {
   const langIcon = page.locator('.lang-icon--style').first()
   // 首屏元素在长跑下可能晚于固定 sleep 出现——显式 waitFor 消除竞态（避免漂移假失败）
   await langIcon.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-  const iconOk = await langIcon.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const iconOk = await langIcon
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(59, '导航栏语言入口可见', iconOk)
   if (!iconOk) return
 
@@ -12770,7 +13257,10 @@ async function testFeature59(page) {
     .first()
     .click()
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(59, 'EN态：用户新增对话框打开', dlgOk)
   let restoreOk = false
   if (dlgOk) {
@@ -12906,7 +13396,10 @@ async function testFeature60(page) {
   const mBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
   // 首屏按钮可能晚于固定 sleep 出现——显式 waitFor 消除长跑竞态
   await mBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-  const btnOk = await mBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const btnOk = await mBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(60, '菜单页展开/折叠按钮可见', btnOk)
   if (btnOk) {
     const n0 = await visibleRows()
@@ -12933,7 +13426,10 @@ async function testFeature60(page) {
   await skipTour(page)
   const dBtn = page.locator('.el-button:visible').filter({ hasText: toggleRe }).first()
   await dBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-  const dOk = await dBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const dOk = await dBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(60, '部门页展开/折叠按钮可见', dOk)
   if (dOk) {
     const d0 = await visibleRows()
@@ -12955,14 +13451,22 @@ async function testFeature60(page) {
     .first()
     .click()
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   const tsItem = dlg
     .locator('.el-form-item')
     .filter({ hasText: /上级部门|Parent/ })
     .first()
   // el-select 的 placeholder 层拦截内层 input 点击 → 点外层 wrapper
   const tsWrap = tsItem.locator('.el-select__wrapper').first()
-  const tsOk = dlgOk && (await tsWrap.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+  const tsOk =
+    dlgOk &&
+    (await tsWrap
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false))
   record(60, '添加下级对话框：上级部门树选择器可见', tsOk, `dlg=${dlgOk}`)
   if (tsOk) {
     await tsWrap.click()
@@ -12973,7 +13477,10 @@ async function testFeature60(page) {
     // 树选择器默认折叠只显示根节点（正常形态），"多节点"由下一步展开断言覆盖
     record(60, '树选择下拉展开：根节点显示', n0 >= 1, `nodes=${n0}`)
     const arrow = dd.locator('.el-tree-node__expand-icon:not(.is-leaf)').first()
-    const aOk = await arrow.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+    const aOk = await arrow
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     if (aOk) {
       await arrow.click()
       await sleep(600)
@@ -13026,14 +13533,21 @@ async function testFeature60(page) {
   // 测试债修复：原「守卫出现」与「关闭成功」两条独立断言合并为单一复合条件，
   // 消除「守卫弹了但对话框没关仍双 PASS」的假阳性空间。
   const guardBox = page.locator('.el-message-box:visible')
-  const guardShown = await guardBox.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+  const guardShown = await guardBox
+    .waitFor({ state: 'visible', timeout: 1500 })
+    .then(() => true)
+    .catch(() => false)
   if (guardShown) {
     await guardBox.locator('.el-message-box__btns .el-button--primary').first().click()
     await sleep(600)
   }
   const vis = await page.locator('.el-dialog:visible').count()
-  record(60, '脏表单守卫：取消后弹「离开且不保存」确认框且确认后对话框关闭（未写入数据）',
-    guardShown && vis === 0, `guard=${guardShown}, visible=${vis}`)
+  record(
+    60,
+    '脏表单守卫：取消后弹「离开且不保存」确认框且确认后对话框关闭（未写入数据）',
+    guardShown && vis === 0,
+    `guard=${guardShown}, visible=${vis}`
+  )
 }
 
 /** 功能 61：角色菜单权限树联动 + 数据权限自定义范围（轮7） */
@@ -13045,14 +13559,20 @@ async function testFeature61(page) {
   const rows = page.locator('.el-table .el-table__body-wrapper .el-table__row')
   // 批三十七：等列表行就绪再断言——长跑负载下列表渲染滞后（r47 实证 rows=0 瞬时窗口假失败，
   // 单跑 15/15 全绿），固定 sleep(1500) 不足。
-  await rows.first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  await rows
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
   const rowCount = await rows.count()
   record(61, '角色列表加载（超管保护首行无操作钮）', rowCount >= 2, `rows=${rowCount}`)
   const editBtn = rows
     .nth(1)
     .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
     .first()
-  const eOk = await editBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const eOk = await editBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(61, '第二行角色「修改」按钮可见', eOk)
   if (!eOk) return
   let putSent = false
@@ -13062,7 +13582,10 @@ async function testFeature61(page) {
   page.on('request', reqH)
   await editBtn.click()
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(61, '修改角色对话框打开', dlgOk)
   if (!dlgOk) {
     page.off('request', reqH)
@@ -13158,14 +13681,20 @@ async function testFeature61(page) {
     .nth(1)
     .getByRole('button', { name: /数据权限|Data Scope/i })
     .first()
-  const dOk = await dsBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const dOk = await dsBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(61, '行内「数据权限」按钮可见', dOk)
   if (dOk) {
     await dsBtn.click()
     const ddlg = page.locator('.el-dialog:visible').last()
     // 对话框为异步挂载——先 waitFor 再断言（固定 timeout 在长跑下会漂移假失败）
     await ddlg.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-    const ddOk = await ddlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const ddOk = await ddlg
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     record(61, '数据权限对话框打开', ddOk)
     if (ddOk) {
       const deptItem = ddlg.locator('.el-form-item').filter({ hasText: /数据权限/ })
@@ -13279,7 +13808,10 @@ async function testFeature62(page) {
   await page.locator('button:has-text("搜索")').first().click()
   await sleep(1200)
   const row = page.locator('.el-table .el-table__body-wrapper .el-table__row').filter({ hasText: uname }).first()
-  const rowOk = await row.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const rowOk = await row
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(62, '搜索定位测试用户行', rowOk)
   if (!rowOk) {
     await cleanup()
@@ -13295,7 +13827,10 @@ async function testFeature62(page) {
     .first()
     .click()
   const box = page.locator('.el-message-box:visible').first()
-  const boxOk = await box.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const boxOk = await box
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(62, '重置密码 Prompt 弹出', boxOk)
   if (boxOk) {
     await box.locator('input').first().fill('123')
@@ -13350,7 +13885,9 @@ async function testFeature62(page) {
   const tableOk = await page
     .locator('.el-table')
     .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(
     62,
     '分配角色跳转到 /system/user-auth/role/:id 且页面渲染',
@@ -13381,9 +13918,18 @@ async function testFeature63(page) {
   const refreshBtn = page.getByRole('button', { name: /^刷\s*新$|Refresh/i }).first()
   const colsBtn = page.getByRole('button', { name: /显隐列|Columns/i }).first()
   const btnsOk =
-    (await toggleBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) &&
-    (await refreshBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) &&
-    (await colsBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+    (await toggleBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)) &&
+    (await refreshBtn
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)) &&
+    (await colsBtn
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false))
   record(63, '右工具栏三按钮可见（搜索切换/刷新/显隐列）', btnsOk)
   const s0 = await searchInput.isVisible().catch(() => false)
   record(63, '搜索区初始可见', s0)
@@ -13478,7 +14024,10 @@ async function testFeature64(page) {
       .locator('.el-button:visible')
       .filter({ hasText: /^\s*(刷新|Refresh)\s*$/ })
       .first()
-    const bOk = await btn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const bOk = await btn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(64, `${tg.name}：工具栏「刷新」按钮可见`, bOk)
     if (!bOk) continue
     let hit = null
@@ -13651,7 +14200,9 @@ async function testFeature65(page) {
   const logTable = await page
     .locator('.el-table')
     .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(
     65,
     '调度日志跳 /monitor/job-log/index/:jobId 且非404渲染',
@@ -14119,7 +14670,12 @@ async function testFeature68(page) {
   page.on('response', respDel)
   // 被删行指纹必须在删除动作之前采集（收尾八 bug 修正：放在删除后会导致
   // firstBefore=firstAfter 恒成立、断言恒败）
-  const firstBefore = (await logRows.first().innerText().catch(() => '')).replace(/\s+/g, ' ')
+  const firstBefore = (
+    await logRows
+      .first()
+      .innerText()
+      .catch(() => '')
+  ).replace(/\s+/g, ' ')
   await logRows.first().locator('.el-checkbox').first().click()
   await sleep(400)
   await page
@@ -14146,7 +14702,14 @@ async function testFeature68(page) {
     rowsAfterDel = await logRows.count()
   }
   const firstAfter =
-    rowsAfterDel > 0 ? (await logRows.first().innerText().catch(() => '')).replace(/\s+/g, ' ') : ''
+    rowsAfterDel > 0
+      ? (
+          await logRows
+            .first()
+            .innerText()
+            .catch(() => '')
+        ).replace(/\s+/g, ' ')
+      : ''
   const deletedGone = rowsAfterDel === 0 || firstAfter !== firstBefore
   record(
     68,
@@ -14239,10 +14802,9 @@ async function testFeature69(page) {
       rootDeptId = addResp?.data?.deptId || null
       if (key === 'A') adminUserNameA = addResp?.data?.adminUserName || null
       else adminUserNameB = addResp?.data?.adminUserName || null
-      const listResp = await fetch(
-        `${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(name)}`,
-        { headers: authHeaders }
-      )
+      const listResp = await fetch(`${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(name)}`, {
+        headers: authHeaders
+      })
         .then((r) => r.json())
         .catch(() => null)
       const found = listResp?.data?.find((t) => t.tenantName === name)
@@ -14272,10 +14834,9 @@ async function testFeature69(page) {
     let ok = true
     for (const adminName of [adminUserNameA, adminUserNameB]) {
       if (!adminName) continue
-      const listResp = await fetch(
-        `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(adminName)}`,
-        { headers: authHeaders }
-      )
+      const listResp = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(adminName)}`, {
+        headers: authHeaders
+      })
         .then((r) => r.json())
         .catch(() => null)
       const uid = (listResp?.rows || []).find((u) => u.userName === adminName)?.userId || null
@@ -14442,7 +15003,9 @@ async function testFeature69(page) {
     // 闭环清理：已建的租户要删掉（先清管理员用户），避免污染
     await purgeTenantAdminUsers()
     for (const id of [tenantIdB, tenantIdA]) {
-      await fetch(`${CONFIG.backendUrl}/system/tenant/${id}`, { method: 'DELETE', headers: authHeaders }).catch(() => null)
+      await fetch(`${CONFIG.backendUrl}/system/tenant/${id}`, { method: 'DELETE', headers: authHeaders }).catch(
+        () => null
+      )
     }
     return
   }
@@ -14470,30 +15033,46 @@ async function testFeature69(page) {
   if (uBToken) {
     // 6.1 用户列表：不得出现平台用户（admin tid=0），仅本租户
     try {
-      const resp = await fetch(`${CONFIG.backendUrl}/system/user/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+      const resp = await fetch(`${CONFIG.backendUrl}/system/user/list`, {
+        headers: { Authorization: `Bearer ${uBToken}` }
+      })
         .then((r) => r.json())
         .catch(() => null)
       const rows = resp?.rows || []
       const leakAdmin = rows.some((u) => u.userName === 'admin')
-      record(69, '隔离：用户列表不见平台用户', resp?.code === 200 && !leakAdmin, `rows=${rows.length}, leakAdmin=${leakAdmin}`)
+      record(
+        69,
+        '隔离：用户列表不见平台用户',
+        resp?.code === 200 && !leakAdmin,
+        `rows=${rows.length}, leakAdmin=${leakAdmin}`
+      )
     } catch (err) {
       record(69, '隔离：用户列表不见平台用户', false, `异常: ${err.message.slice(0, 60)}`)
     }
     // 6.2 部门树：不含平台根/他租数据（common 角色 data_scope=仅本人时 rows 可为空，
     //     属既有数据权限语义；关键断言是零跨租户泄漏）
     try {
-      const resp = await fetch(`${CONFIG.backendUrl}/system/dept/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+      const resp = await fetch(`${CONFIG.backendUrl}/system/dept/list`, {
+        headers: { Authorization: `Bearer ${uBToken}` }
+      })
         .then((r) => r.json())
         .catch(() => null)
       const rows = resp?.data || []
       const leak = rows.some((d) => d.deptId === 100 || (d.tenantId != null && d.tenantId !== tenantIdB))
-      record(69, '隔离：部门树不含平台外数据', resp?.code === 200 && !leak, `rows=${rows.length}（仅本人 data_scope 时可为空）`)
+      record(
+        69,
+        '隔离：部门树不含平台外数据',
+        resp?.code === 200 && !leak,
+        `rows=${rows.length}（仅本人 data_scope 时可为空）`
+      )
     } catch (err) {
       record(69, '隔离：部门树不含平台外数据', false, `异常: ${err.message.slice(0, 60)}`)
     }
     // 6.3 租户列表：仅本租户（3700 只读权限已授 common，归属过滤防跨租户窥探）
     try {
-      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant/list`, { headers: { Authorization: `Bearer ${uBToken}` } })
+      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant/list`, {
+        headers: { Authorization: `Bearer ${uBToken}` }
+      })
         .then((r) => r.json())
         .catch(() => null)
       const rows = resp?.data || []
@@ -14516,7 +15095,12 @@ async function testFeature69(page) {
       record(69, '越权：租户用户改他租被拒', false, `异常: ${err.message.slice(0, 60)}`)
     }
   } else {
-    for (const n of ['隔离：用户列表不见平台用户', '隔离：部门树不含平台外数据', '隔离：租户列表仅本租户', '越权：租户用户改他租被拒']) {
+    for (const n of [
+      '隔离：用户列表不见平台用户',
+      '隔离：部门树不含平台外数据',
+      '隔离：租户列表仅本租户',
+      '越权：租户用户改他租被拒'
+    ]) {
       record(69, n, false, '租户用户登录失败，无法执行')
     }
   }
@@ -14578,21 +15162,35 @@ async function testFeature69(page) {
     let userDelOk = false
     let tenantBDelOk = false
     let tenantADelOk = false
-    const userDel = await fetch(`${CONFIG.backendUrl}/system/user/${uBUserId}`, { method: 'DELETE', headers: authHeaders })
+    const userDel = await fetch(`${CONFIG.backendUrl}/system/user/${uBUserId}`, {
+      method: 'DELETE',
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     userDelOk = userDel?.code === 200
     // 租户初始化自动创建的管理员用户必须先删（否则后端按"租户下有用户"正确拒绝删除租户）
     const adminDelOk = await purgeTenantAdminUsers()
-    const tenantBDel = await fetch(`${CONFIG.backendUrl}/system/tenant/${tenantIdB}`, { method: 'DELETE', headers: authHeaders })
+    const tenantBDel = await fetch(`${CONFIG.backendUrl}/system/tenant/${tenantIdB}`, {
+      method: 'DELETE',
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     tenantBDelOk = tenantBDel?.code === 200
-    const tenantADel = await fetch(`${CONFIG.backendUrl}/system/tenant/${tenantIdA}`, { method: 'DELETE', headers: authHeaders })
+    const tenantADel = await fetch(`${CONFIG.backendUrl}/system/tenant/${tenantIdA}`, {
+      method: 'DELETE',
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     tenantADelOk = tenantADel?.code === 200
-    record(69, '清理：用户与租户删除', userDelOk && adminDelOk && tenantBDelOk && tenantADelOk, `user=${userDelOk}, admin=${adminDelOk}, B=${tenantBDelOk}, A=${tenantADelOk}`)
+    record(
+      69,
+      '清理：用户与租户删除',
+      userDelOk && adminDelOk && tenantBDelOk && tenantADelOk,
+      `user=${userDelOk}, admin=${adminDelOk}, B=${tenantBDelOk}, A=${tenantADelOk}`
+    )
   } catch (err) {
     record(69, '清理：用户与租户删除', false, `异常: ${err.message.slice(0, 60)}`)
   }
@@ -14634,12 +15232,7 @@ async function testFeature70(page) {
     adminUserName = addResp?.data?.adminUserName || null
     adminInitPassword = addResp?.data?.adminInitPassword || null
     record(70, '建租户（accountCount=1）', addResp?.code === 200 && !!tenantId, `tenantId=${tenantId}`)
-    record(
-      70,
-      '一次性返回租户管理员初始凭据',
-      !!adminUserName && !!adminInitPassword,
-      `adminUserName=${adminUserName}`
-    )
+    record(70, '一次性返回租户管理员初始凭据', !!adminUserName && !!adminInitPassword, `adminUserName=${adminUserName}`)
   } catch (err) {
     record(70, '建租户（accountCount=1）', false, `异常: ${err.message.slice(0, 60)}`)
   }
@@ -14706,11 +15299,7 @@ async function testFeature70(page) {
   }
 
   // ---------- 步骤 6：租户管理员登录 → 平台停用 → 已签发 token 立即失效 ----------
-  const { token: tenantAdminToken, detail: tenantLoginDetail } = await apiLogin(
-    {},
-    adminUserName,
-    adminInitPassword
-  )
+  const { token: tenantAdminToken, detail: tenantLoginDetail } = await apiLogin({}, adminUserName, adminInitPassword)
   record(70, '租户管理员用初始密码登录', !!tenantAdminToken, tenantLoginDetail || `user=${adminUserName}`)
   if (tenantAdminToken) {
     try {
@@ -15200,12 +15789,7 @@ async function testFeature72(page) {
   }
   const ta = await mkTenant('ga')
   const tb = await mkTenant('gb')
-  record(
-    72,
-    '前置：建立两个租户（A/B）',
-    !!ta.tenantId && !!tb.tenantId,
-    `A=${ta.tenantId}, B=${tb.tenantId}`
-  )
+  record(72, '前置：建立两个租户（A/B）', !!ta.tenantId && !!tb.tenantId, `A=${ta.tenantId}, B=${tb.tenantId}`)
   if (!ta.tenantId || !tb.tenantId) {
     record(72, '后续治理用例', false, '前置失败：租户未创建')
     return
@@ -15355,10 +15939,9 @@ async function testFeature72(page) {
     })
       .then((r) => r.json())
       .catch(() => null)
-    const tenantRead = await fetch(
-      `${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent(overrideKey)}`,
-      { headers: authA }
-    )
+    const tenantRead = await fetch(`${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent(overrideKey)}`, {
+      headers: authA
+    })
       .then((r) => r.json())
       .catch(() => null)
     const platformRead = await fetch(
@@ -15408,16 +15991,14 @@ async function testFeature72(page) {
     })
       .then((r) => r.json())
       .catch(() => null)
-    const listA = await fetch(
-      `${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(privateKey)}`,
-      { headers: authA }
-    )
+    const listA = await fetch(`${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(privateKey)}`, {
+      headers: authA
+    })
       .then((r) => r.json())
       .catch(() => null)
-    const listB = await fetch(
-      `${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(privateKey)}`,
-      { headers: authB }
-    )
+    const listB = await fetch(`${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(privateKey)}`, {
+      headers: authB
+    })
       .then((r) => r.json())
       .catch(() => null)
     record(
@@ -15535,11 +16116,7 @@ async function testFeature72(page) {
     record(
       72,
       '(读)用户表单下拉：角色/岗位均限本租户',
-      platformRoleCnt > 0 &&
-        aForm?.code === 200 &&
-        roles.length > 0 &&
-        roleLeak === 0 &&
-        postLeak === 0,
+      platformRoleCnt > 0 && aForm?.code === 200 && roles.length > 0 && roleLeak === 0 && postLeak === 0,
       `平台角色=${platformRoleCnt}，A 角色=${roles.length}/越界=${roleLeak}，岗位=${posts.length}/越界=${postLeak}`
     )
   } catch (err) {
@@ -15552,9 +16129,7 @@ async function testFeature72(page) {
       .then((r) => r.json())
       .catch(() => null)
     // 注：/system/dept/list 返回 AjaxResult<List>，列表在 data（非分页 rows）。
-    const platformDeptIds = new Set(
-      (deptList?.data || []).filter((d) => d.tenantId === 0).map((d) => d.deptId)
-    )
+    const platformDeptIds = new Set((deptList?.data || []).filter((d) => d.tenantId === 0).map((d) => d.deptId))
     const treeA = await fetch(`${CONFIG.backendUrl}/system/user/deptTree`, { headers: authA })
       .then((r) => r.json())
       .catch(() => null)
@@ -15568,11 +16143,7 @@ async function testFeature72(page) {
     record(
       72,
       '(读)部门树：租户仅见本租户部门（A/B 互不可见、不含平台部门）',
-      platformDeptIds.size > 0 &&
-        treeA?.code === 200 &&
-        idsA.length > 0 &&
-        leakA.length === 0 &&
-        overlap.length === 0,
+      platformDeptIds.size > 0 && treeA?.code === 200 && idsA.length > 0 && leakA.length === 0 && overlap.length === 0,
       `平台部门=${platformDeptIds.size}，A=${idsA.length} 节点/越界=${leakA.length}，B=${idsB.length}/交集=${overlap.length}`
     )
   } catch (err) {
@@ -15613,10 +16184,9 @@ async function testFeature72(page) {
   try {
     // A 侧：清掉自建 config 行与自建字典类型
     for (const key of [privateKey, overrideKey]) {
-      const listResp = await fetch(
-        `${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(key)}`,
-        { headers: authA }
-      )
+      const listResp = await fetch(`${CONFIG.backendUrl}/system/config/list?configKey=${encodeURIComponent(key)}`, {
+        headers: authA
+      })
         .then((r) => r.json())
         .catch(() => null)
       const ids = (listResp?.rows || []).filter((r) => r.tenantId === ta.tenantId).map((r) => r.configId)
@@ -15641,10 +16211,9 @@ async function testFeature72(page) {
     }
     // 管理员用户 → 租户
     for (const t of [ta, tb]) {
-      const userList = await fetch(
-        `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(t.userName)}`,
-        { headers: authHeaders }
-      )
+      const userList = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(t.userName)}`, {
+        headers: authHeaders
+      })
         .then((r) => r.json())
         .catch(() => null)
       const uid = (userList?.rows || []).find((u) => u.userName === t.userName)?.userId || null
@@ -15658,9 +16227,12 @@ async function testFeature72(page) {
         headers: authHeaders
       }).catch(() => null)
     }
-    const check = await fetch(`${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(`治理租户${uniq}`)}`, {
-      headers: authHeaders
-    })
+    const check = await fetch(
+      `${CONFIG.backendUrl}/system/tenant/list?tenantName=${encodeURIComponent(`治理租户${uniq}`)}`,
+      {
+        headers: authHeaders
+      }
+    )
       .then((r) => r.json())
       .catch(() => null)
     record(72, '清理：测试租户与自建数据已回收', (check?.rows || []).length === 0, '闭环自清理')
@@ -15726,7 +16298,9 @@ async function testFeature73(page) {
       db.prepare(
         "INSERT INTO sys_tenant_package (package_name, menu_ids, default_account_count, status, del_flag, create_by, create_time, update_by, update_time, remark) VALUES (?, ?, ?, '0', '0', 'e2e', ?, 'e2e', ?, 'e2e 功能73 夹具套餐')"
       ).run(name, menuIds, 50, nowStr, nowStr)
-      return db.prepare('SELECT package_id FROM sys_tenant_package WHERE package_name = ?').get(name)?.package_id || null
+      return (
+        db.prepare('SELECT package_id FROM sys_tenant_package WHERE package_name = ?').get(name)?.package_id || null
+      )
     }
     pkgBigId = mkPkg(PKG_BIG_NAME, BIG.join(','))
     pkgSmallId = mkPkg(PKG_SMALL_NAME, SMALL.join(','))
@@ -15785,7 +16359,12 @@ async function testFeature73(page) {
     const loginB = await apiLogin({}, tb.userName, tb.pw)
     tokenA = loginA.token
     tokenB = loginB.token
-    record(73, '前置：租户 A/B 管理员登录', !!tokenA && !!tokenB, `A=${loginA.detail || 'ok'}, B=${loginB.detail || 'ok'}`)
+    record(
+      73,
+      '前置：租户 A/B 管理员登录',
+      !!tokenA && !!tokenB,
+      `A=${loginA.detail || 'ok'}, B=${loginB.detail || 'ok'}`
+    )
     if (!tokenA || !tokenB) {
       record(73, '后续套餐/到期/文件用例', false, '前置失败：租户管理员未登录')
       return
@@ -15802,7 +16381,9 @@ async function testFeature73(page) {
       )
         .then((r) => r.json())
         .catch(() => null)
-      roleAuthA = (listResp?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId || null
+      roleAuthA =
+        (listResp?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId ||
+        null
       if (!roleAuthA) {
         const l2 = await fetch(`${CONFIG.backendUrl}/system/role/list?pageSize=200`, { headers: authHeaders })
           .then((r) => r.json())
@@ -15968,14 +16549,20 @@ async function testFeature73(page) {
       uploadedName = upResp?.newFileName || null
       const url = upResp?.url || ''
       const resource = url.replace(/^\//, '')
-      const aRes = await fetch(`${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`, {
-        headers: authA
-      })
+      const aRes = await fetch(
+        `${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`,
+        {
+          headers: authA
+        }
+      )
       const aStatus = aRes.status
       const aText = await aRes.text().catch(() => '')
-      const bRes = await fetch(`${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`, {
-        headers: authB
-      })
+      const bRes = await fetch(
+        `${CONFIG.backendUrl}/common/download/resource?resource=${encodeURIComponent(resource)}`,
+        {
+          headers: authB
+        }
+      )
       const bStatus = bRes.status
       record(
         73,
@@ -16043,10 +16630,7 @@ async function testFeature73(page) {
       record(
         73,
         '到期宽限期只读：读 200 / 写 403（Active 下同写 200 作对照）',
-        activeWrite?.code === 200 &&
-          setGrace?.code === 200 &&
-          graceRead?.code === 200 &&
-          graceWrite?.code === 403,
+        activeWrite?.code === 200 && setGrace?.code === 200 && graceRead?.code === 200 && graceWrite?.code === 403,
         `active写=${activeWrite?.code}, setGrace=${setGrace?.code}, grace读=${graceRead?.code}, grace写=${graceWrite?.code}, msg=${String(graceWrite?.msg || '').slice(0, 40)}`
       )
       // 设为超宽限（过去 30 天）→ 登录被拒
@@ -16065,7 +16649,12 @@ async function testFeature73(page) {
         `setExpired=${setExpired?.code}, login=${relogin?.code}, msg=${String(relogin?.msg || '').slice(0, 40)}`
       )
     } catch (err) {
-      record(73, '到期宽限期只读：读 200 / 写 403（Active 下同写 200 作对照）', false, `异常: ${err.message.slice(0, 60)}`)
+      record(
+        73,
+        '到期宽限期只读：读 200 / 写 403（Active 下同写 200 作对照）',
+        false,
+        `异常: ${err.message.slice(0, 60)}`
+      )
       record(73, '到期（超宽限）拒绝登录', false, `异常: ${err.message.slice(0, 60)}`)
     }
   } finally {
@@ -16082,10 +16671,9 @@ async function testFeature73(page) {
       }
       // 2) 删除上传文件（走存储后端，租户维度；download 为读路径，宽限内亦可用）
       if (uploadedName && tokenA) {
-        await fetch(
-          `${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(uploadedName)}&delete=true`,
-          { headers: { Authorization: `Bearer ${tokenA}` } }
-        ).catch(() => null)
+        await fetch(`${CONFIG.backendUrl}/common/download?fileName=${encodeURIComponent(uploadedName)}&delete=true`, {
+          headers: { Authorization: `Bearer ${tokenA}` }
+        }).catch(() => null)
       }
       // 3) 删除越界角色菜单残留（DB 直连，确定性；租户删除为软删不清关联表）
       if (db && roleAuthA) {
@@ -16114,7 +16702,10 @@ async function testFeature73(page) {
       // 5) 删除租户 A/B
       for (const t of [ta, tb]) {
         if (!t?.tenantId) continue
-        const d = await fetch(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, { method: 'DELETE', headers: authHeaders })
+        const d = await fetch(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
           .then((r) => r.json())
           .catch(() => null)
         if (d?.code !== 200) cleanupOk = false
@@ -16285,10 +16876,14 @@ async function testFeature74(page) {
     )
 
     // ---------- A5/A6：定位租户 A 管理员角色 + 平台补权（可证伪前提） ----------
-    const roleList = await api(`${CONFIG.backendUrl}/system/role/list?roleKey=${encodeURIComponent(`${ta.code}_admin`)}`, {
-      headers: authHeaders
-    })
-    roleAuthA = (roleList?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId || null
+    const roleList = await api(
+      `${CONFIG.backendUrl}/system/role/list?roleKey=${encodeURIComponent(`${ta.code}_admin`)}`,
+      {
+        headers: authHeaders
+      }
+    )
+    roleAuthA =
+      (roleList?.rows || []).find((r) => r.tenantId === ta.tenantId && r.roleKey === `${ta.code}_admin`)?.roleId || null
     let roleMenuBefore = []
     if (roleAuthA) {
       const d = await api(`${CONFIG.backendUrl}/system/role/${roleAuthA}`, { headers: authHeaders })
@@ -16333,9 +16928,12 @@ async function testFeature74(page) {
       body: JSON.stringify({ postCode, postName: `e2e74岗位${uniq}`, postSort: 999, status: '0' })
     })
     if (addPost?.code === 200) {
-      const pl = await api(`${CONFIG.backendUrl}/system/post/list?postCode=${encodeURIComponent(postCode)}&pageNum=1&pageSize=50`, {
-        headers: authHeaders
-      })
+      const pl = await api(
+        `${CONFIG.backendUrl}/system/post/list?postCode=${encodeURIComponent(postCode)}&pageNum=1&pageSize=50`,
+        {
+          headers: authHeaders
+        }
+      )
       platformPostId = (pl?.rows || []).find((p) => p.postCode === postCode)?.postId || null
     }
     record(
@@ -16348,8 +16946,18 @@ async function testFeature74(page) {
       const aPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authA })
       const bPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authB })
       const admPost = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { headers: authHeaders })
-      record(74, 'C2 A 读平台岗位详情 => 403（跨租户读被拒）', aPost.status === 403, `status=${aPost.status}, code=${aPost.code}`)
-      record(74, 'C3 B 读平台岗位详情 => 403（跨租户读被拒）', bPost.status === 403, `status=${bPost.status}, code=${bPost.code}`)
+      record(
+        74,
+        'C2 A 读平台岗位详情 => 403（跨租户读被拒）',
+        aPost.status === 403,
+        `status=${aPost.status}, code=${aPost.code}`
+      )
+      record(
+        74,
+        'C3 B 读平台岗位详情 => 403（跨租户读被拒）',
+        bPost.status === 403,
+        `status=${bPost.status}, code=${bPost.code}`
+      )
       record(
         74,
         'C4 对照：平台 admin 读同一岗位 => 200（岗位存在、接口正常，403 系租户边界所致）',
@@ -16364,15 +16972,23 @@ async function testFeature74(page) {
 
     // ---------- D. 跨租户读前端错误（平台上报→平台可见；A/B 检索同一 marker 为 0） ----------
     const feList = (headers) =>
-      api(`${CONFIG.backendUrl}/monitor/frontendError/list?pageNum=1&pageSize=50&name=${encodeURIComponent(feMarker)}`, {
-        headers
-      })
+      api(
+        `${CONFIG.backendUrl}/monitor/frontendError/list?pageNum=1&pageSize=50&name=${encodeURIComponent(feMarker)}`,
+        {
+          headers
+        }
+      )
     const report = await api(`${CONFIG.backendUrl}/monitor/frontendError/report`, {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({ items: [{ level: 'error', source: 'vue', name: feMarker, message: feMarker }] })
     })
-    record(74, 'D1 平台 admin 上报带独特 marker 的前端错误（POST /monitor/frontendError/report）', report.code === 200, `code=${report.code}, msg=${String(report.msg).slice(0, 40)}`)
+    record(
+      74,
+      'D1 平台 admin 上报带独特 marker 的前端错误（POST /monitor/frontendError/report）',
+      report.code === 200,
+      `code=${report.code}, msg=${String(report.msg).slice(0, 40)}`
+    )
 
     const adminSearch = await feList(authHeaders)
     feRecordIds = (adminSearch.rows || []).filter((r) => r.name === feMarker).map((r) => r.id)
@@ -16403,17 +17019,32 @@ async function testFeature74(page) {
       headers: jsonA,
       body: JSON.stringify({ userId: userBId, status: '1' })
     })
-    record(74, 'B1 A 跨租户停用 B 管理员（PUT /system/user/changeStatus）=> 403', !!userBId && cs.status === 403, `status=${cs.status}, code=${cs.code}`)
+    record(
+      74,
+      'B1 A 跨租户停用 B 管理员（PUT /system/user/changeStatus）=> 403',
+      !!userBId && cs.status === 403,
+      `status=${cs.status}, code=${cs.code}`
+    )
 
     const rp = await api(`${CONFIG.backendUrl}/system/user/resetPwd`, {
       method: 'PUT',
       headers: jsonA,
       body: JSON.stringify({ userId: userBId, password: `Zq74x${uniq}` })
     })
-    record(74, 'B2 A 跨租户重置 B 管理员密码（PUT /system/user/resetPwd）=> 403', !!userBId && rp.status === 403, `status=${rp.status}, code=${rp.code}`)
+    record(
+      74,
+      'B2 A 跨租户重置 B 管理员密码（PUT /system/user/resetPwd）=> 403',
+      !!userBId && rp.status === 403,
+      `status=${rp.status}, code=${rp.code}`
+    )
 
     const delB = await api(`${CONFIG.backendUrl}/system/user/${userBId}`, { method: 'DELETE', headers: authA })
-    record(74, 'B3 A 跨租户删除 B 管理员（DELETE /system/user/{id}）=> 403', !!userBId && delB.status === 403, `status=${delB.status}, code=${delB.code}`)
+    record(
+      74,
+      'B3 A 跨租户删除 B 管理员（DELETE /system/user/{id}）=> 403',
+      !!userBId && delB.status === 403,
+      `status=${delB.status}, code=${delB.code}`
+    )
 
     // 对照：A 对本租户（自身）changeStatus。用 status='0'（幂等启用）——停用自己会 INCR pwd_ver 令 token 立即
     // 失效并摧毁后续共享会话，故不做 "1→0" 来回切；'0' 同租户写成功即可证明"并非全部拒绝"。
@@ -16434,7 +17065,10 @@ async function testFeature74(page) {
     // 1) 删除本功能上报的前端错误记录
     try {
       for (const id of feRecordIds) {
-        const d = await api(`${CONFIG.backendUrl}/monitor/frontendError/${id}`, { method: 'DELETE', headers: authHeaders })
+        const d = await api(`${CONFIG.backendUrl}/monitor/frontendError/${id}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
         if (d.code !== 200) cleanupOk = false
       }
     } catch {
@@ -16442,7 +17076,10 @@ async function testFeature74(page) {
     }
     // 2) 删除平台岗位
     if (typeof platformPostId === 'number') {
-      const d = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, { method: 'DELETE', headers: authHeaders })
+      const d = await api(`${CONFIG.backendUrl}/system/post/${platformPostId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      })
       if (d.code !== 200) cleanupOk = false
     }
     // 3) 删除租户管理员用户（否则租户删除被"租户内仍有用户"正确拒绝）
@@ -16460,7 +17097,10 @@ async function testFeature74(page) {
     // 4) 删除租户 A/B
     for (const t of [ta, tb]) {
       if (!t?.tenantId) continue
-      const d = await api(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, { method: 'DELETE', headers: authHeaders })
+      const d = await api(`${CONFIG.backendUrl}/system/tenant/${t.tenantId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      })
       if (d.code !== 200) cleanupOk = false
     }
     // 5) DB 直连清理租户 A 角色菜单残留（租户 remove 为软删且不清 sys_role_menu）
@@ -16644,7 +17284,10 @@ async function testFeature75(page) {
       75,
       'D2 已办不含非裁决动作（submit 不入选）',
       !done.rows?.some((r) => Number(r.bizId) === docId && r.action === 'submit'),
-      `actions=${done.rows?.filter((r) => Number(r.bizId) === docId).map((r) => r.action).join(',')}`
+      `actions=${done.rows
+        ?.filter((r) => Number(r.bizId) === docId)
+        .map((r) => r.action)
+        .join(',')}`
     )
 
     // ---------- E. 导出（W-11）：真 xlsx 物证 ----------
@@ -16677,21 +17320,30 @@ async function testFeature75(page) {
     await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'load' }).catch(() => {})
     await sleep(2000)
     const doneTab = page.locator('.el-tabs__item:has-text("已办"), .el-tabs__item:has-text("Done")').first()
-    const hasDoneTab = await doneTab.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const hasDoneTab = await doneTab
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(75, 'G1 审批页出现「已办」tab', hasDoneTab, `visible=${hasDoneTab}`)
 
     if (hasDoneTab) {
       await doneTab.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const doneCell = page.locator(`.el-table__row:has-text("${docTitle}")`).first()
-      const hasDoneRow = await doneCell.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      const hasDoneRow = await doneCell
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(75, 'G2 已办 tab 渲染出单据标题行', hasDoneRow, `visible=${hasDoneRow}`)
     } else {
       record(75, 'G2 已办 tab 渲染出单据标题行', false, '前置 G1 未通过')
     }
 
     const allTab = page.locator('.el-tabs__item:has-text("全部"), .el-tabs__item:has-text("All")').first()
-    const hasAllTab = await allTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const hasAllTab = await allTab
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     let hasExportBtn = false
     if (hasAllTab) {
       await allTab.click({ timeout: 3000 }).catch(() => {})
@@ -16699,7 +17351,9 @@ async function testFeature75(page) {
       hasExportBtn = await page
         .locator('button:has-text("导出"), button:has-text("Export")')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
     }
     record(75, 'G3 管理视图出现「导出」按钮', hasExportBtn, `visible=${hasExportBtn}`)
 
@@ -16715,12 +17369,13 @@ async function testFeature75(page) {
     // ⚠️ 不可写 `text=A, text=B`：text 引擎会把逗号后整串当字面文本 → 恒 0 匹配（已实测）。
     //    多语言并列必须用 CSS 列表 + :has-text()。
     const cardLocator = page
-      .locator(
-        '.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")'
-      )
+      .locator('.widget-card__label:has-text("我的待办"), .widget-card__label:has-text("My Pending Approvals")')
       .first()
     await cardLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
-    const cardTitle = await cardLocator.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const cardTitle = await cardLocator
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(75, 'G4 看板出现「我的待办」卡片', cardTitle, `visible=${cardTitle}`)
 
     // ---------- H. 移动端（W-17）：小屏取消操作列固定 ----------
@@ -16728,10 +17383,7 @@ async function testFeature75(page) {
     await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'load' }).catch(() => {})
     await sleep(2500)
     const fixedCount = await page
-      .evaluate(
-        () =>
-          document.querySelectorAll('.el-table-fixed-column--right, .el-table__fixed-right').length
-      )
+      .evaluate(() => document.querySelectorAll('.el-table-fixed-column--right, .el-table__fixed-right').length)
       .catch(() => -1)
     record(75, 'H1 375px 下操作列不再固定（sticky 固定列计数为 0）', fixedCount === 0, `fixed=${fixedCount}`)
     await page.setViewportSize({ width: 1280, height: 800 }).catch(() => {})
@@ -16741,10 +17393,10 @@ async function testFeature75(page) {
     if (docId) {
       const { token: stepbyToken2 } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
       if (stepbyToken2) {
-        await api(
-          `/system/flow/demo/${docId}/withdraw`,
-          { method: 'POST', headers: { Authorization: `Bearer ${stepbyToken2}` } }
-        ).catch(() => {})
+        await api(`/system/flow/demo/${docId}/withdraw`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${stepbyToken2}` }
+        }).catch(() => {})
       }
       const mineAfter = await api('/system/flow/mine?pageNum=1&pageSize=50', {
         headers: { Authorization: `Bearer ${stepbyToken2}` }
@@ -16754,9 +17406,10 @@ async function testFeature75(page) {
     }
     // 删除加签目标用户（软删，释放 user_name 唯一索引）
     if (csUidCreated && csUid) {
-      await api(`/system/user/${csUid}`, { method: 'DELETE', headers: { Authorization: `Bearer ${adminToken}` } }).catch(
-        () => {}
-      )
+      await api(`/system/user/${csUid}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${adminToken}` }
+      }).catch(() => {})
       log(`  清理复核：加签目标用户 ${csUid} 已删除`)
     }
   }
@@ -16790,7 +17443,10 @@ async function cleanupE2eResidue() {
     const steps = [
       ['role_menu', "DELETE FROM sys_role_menu WHERE role_id IN (SELECT role_id FROM sys_role WHERE del_flag='2')"],
       ['user_role', "DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2')"],
-      ['user_post', "DELETE FROM sys_user_post WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2') OR post_id IN (SELECT post_id FROM sys_post WHERE del_flag='2')"],
+      [
+        'user_post',
+        "DELETE FROM sys_user_post WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2') OR post_id IN (SELECT post_id FROM sys_post WHERE del_flag='2')"
+      ],
       ['tenant_domain', 'DELETE FROM sys_tenant_domain WHERE tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
       ['users', "DELETE FROM sys_user WHERE del_flag='2'"],
       ['depts', "DELETE FROM sys_dept WHERE del_flag='2'"],
@@ -16799,21 +17455,59 @@ async function cleanupE2eResidue() {
       ['tenants', "DELETE FROM sys_tenant WHERE del_flag='2'"],
       // 批三十六：dict/pat/config 残留治理（r43 巡检实证：dict 软删 127 行、PAT 261 行、config 2 行
       // 不在清理范围 → 每轮全量无限增长）。仅删 e2e 前缀 + 已软删/已吊销行，在册数据不受影响。
-      ['dict_data', "DELETE FROM sys_dict_data WHERE dict_type IN (SELECT dict_type FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2')"],
+      [
+        'dict_data',
+        "DELETE FROM sys_dict_data WHERE dict_type IN (SELECT dict_type FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2')"
+      ],
       ['dict_type', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2'"],
       ['pat', "DELETE FROM sys_pat WHERE name LIKE 'e2e%' AND status='1'"],
       ['config', "DELETE FROM sys_config WHERE config_key LIKE 'e2e%'"],
       // 批三十九：F75 请假单链路残留（doc/task/log 三表，每轮 +1 链）——r49 巡检实证 136 链
-      ['f75_log', "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"],
-      ['f75_task', "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"],
+      [
+        'f75_log',
+        "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"
+      ],
+      [
+        'f75_task',
+        "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75-%')"
+      ],
       ['f75_doc', "DELETE FROM flow_demo_doc WHERE title LIKE 'e2e75-%'"],
       // 批三十九：flow_definition 软删行物理清除（F89 it_graph_* / F133 designer 自动码 flow_<ts>
       // ——API 删除为软删 del_flag=1，list 已过滤但 DB 持续累积；r50 巡检 6 行）
       [
         'flow_def',
-        "DELETE FROM flow_definition WHERE del_flag=1 AND (flow_code GLOB 'it_*' OR flow_code GLOB 'flow_[0-9]*' OR flow_code GLOB 'e2e-*')",
+        "DELETE FROM flow_definition WHERE del_flag=1 AND (flow_code GLOB 'it_*' OR flow_code GLOB 'flow_[0-9]*' OR flow_code GLOB 'e2e-*')"
       ],
-      ['flow_graphdoc', "DELETE FROM flow_graph_doc WHERE del_flag=1 AND flow_code GLOB 'it_*'"]
+      ['flow_graphdoc', "DELETE FROM flow_graph_doc WHERE del_flag=1 AND flow_code GLOB 'it_*'"],
+      // 批五十四：r59 巡检实证新增残留类别（历史中断轮遗留）——webhook 413 行全 e2e
+      // （9 个活跃 E2E79_* 直接产生 7.1 万条失败投递日志）、oauth client 201 行全 e2e
+      // （4 个活跃 E2E-SSO-* 残留）、PAT 过期 11 枚、报表族全 e2e 命名（report 38 /
+      // dashboard 16 / dataset 131 / sub 7）。仅删 e2e/probe 命名与孤儿行，种子数据零命中。
+      [
+        'webhook_log_e2e',
+        "DELETE FROM sys_web_hook_log WHERE hook_id IN (SELECT id FROM sys_web_hook WHERE lower(hook_name) LIKE 'e2e%' OR hook_name LIKE 'probe-diag-%')"
+      ],
+      ['webhook_e2e', "DELETE FROM sys_web_hook WHERE lower(hook_name) LIKE 'e2e%' OR hook_name LIKE 'probe-diag-%'"],
+      ['oauth_client_e2e', "DELETE FROM sys_oauth_client WHERE lower(client_name) LIKE 'e2e-%' OR remark LIKE 'e2e%'"],
+      ['pat_expired', 'DELETE FROM sys_pat WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP'],
+      ['report_sub_orphan', 'DELETE FROM sys_report_sub WHERE report_id NOT IN (SELECT report_id FROM sys_report)'],
+      ['report_e2e', "DELETE FROM sys_report WHERE lower(report_name) LIKE 'e2e%'"],
+      ['dashboard_e2e', "DELETE FROM report_dashboard WHERE lower(dashboard_name) LIKE 'e2e-%'"],
+      [
+        'dataset_e2e',
+        "DELETE FROM report_dataset WHERE lower(dataset_name) LIKE 'e2e%' OR dataset_name LIKE 'probe %'"
+      ],
+      // local 档共享态过期键物理清扫（对齐后端 cleanup_expired_logs 批五十四新增步骤）
+      [
+        'shared_kv_expired',
+        "DELETE FROM sys_shared_kv WHERE expire_at IS NOT NULL AND expire_at < CAST(strftime('%s','now') AS INTEGER) * 1000"
+      ],
+      // F15 i18n 字典测试链：改名 *_deleted_N 后软删（r59 巡检 306 行）
+      ['dict_data_i18n', "DELETE FROM sys_dict_data WHERE dict_type LIKE 'i18n_test_%'"],
+      ['dict_type_i18n', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'i18n_test_%'"],
+      // F14 字典 CRUD 链：改名 testdict<ts>_deleted 后软删（r59 巡检 161 行）
+      ['dict_data_testdict', "DELETE FROM sys_dict_data WHERE dict_type LIKE 'testdict%'"],
+      ['dict_type_testdict', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'testdict%'"]
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -16864,7 +17558,10 @@ async function restoreCaptchaDisabled() {
     }
     const auth = { Authorization: `Bearer ${lj.token}` }
     const lst = await (
-      await fetch(`${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=10&configKey=sys.account.captchaEnabled`, { headers: auth })
+      await fetch(
+        `${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=10&configKey=sys.account.captchaEnabled`,
+        { headers: auth }
+      )
     ).json()
     const row = (lst.rows || [])[0]
     if (!row) {
@@ -16951,7 +17648,9 @@ async function ensureB4Clean() {
     const cap = await fetch(`${CONFIG.backendUrl}/captchaImage`).then((r) => r.json())
     const body = { username: 'admin', password: 'admin123', code: '', uuid: cap.uuid || '' }
     const login = await fetch(`${CONFIG.backendUrl}/login`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     }).then((r) => r.json())
     if (!login.token) return console.log('[B4 前置] 登录失败：', login.msg)
     const h = { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' }
@@ -16959,29 +17658,38 @@ async function ensureB4Clean() {
     if (info.mustChangePassword === true) {
       console.log('[B4 前置] admin 处于强改密态，执行两步改密复位')
       const s1 = await fetch(`${CONFIG.backendUrl}/system/user/profile/updatePwd`, {
-        method: 'PUT', headers: h,
-        body: JSON.stringify({ oldPassword: 'admin123', newPassword: 'Temp!2026a' }),
+        method: 'PUT',
+        headers: h,
+        body: JSON.stringify({ oldPassword: 'admin123', newPassword: 'Temp!2026a' })
       }).then((r) => r.json())
       const s2 = await fetch(`${CONFIG.backendUrl}/system/user/profile/updatePwd`, {
-        method: 'PUT', headers: h,
-        body: JSON.stringify({ oldPassword: 'Temp!2026a', newPassword: 'admin123' }),
+        method: 'PUT',
+        headers: h,
+        body: JSON.stringify({ oldPassword: 'Temp!2026a', newPassword: 'admin123' })
       }).then((r) => r.json())
       console.log('[B4 前置] 改密复位：', s1.code, s2.code)
     }
     const cfg = await fetch(
       `${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent('sys.user.forceFirstLoginChangePwd')}`,
-      { headers: h },
+      { headers: h }
     ).then((r) => r.json())
     if (String(cfg.data) !== 'false') {
       const list = await fetch(
         `${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=50&configKey=sys.user.forceFirstLoginChangePwd`,
-        { headers: h },
+        { headers: h }
       ).then((r) => r.json())
       const row = (list.rows || []).find((r) => r.configKey === 'sys.user.forceFirstLoginChangePwd')
       if (row) {
         await fetch(`${CONFIG.backendUrl}/system/config`, {
-          method: 'PUT', headers: h,
-          body: JSON.stringify({ configId: row.configId, configName: row.configName, configKey: row.configKey, configValue: 'false', configType: row.configType }),
+          method: 'PUT',
+          headers: h,
+          body: JSON.stringify({
+            configId: row.configId,
+            configName: row.configName,
+            configKey: row.configKey,
+            configValue: 'false',
+            configType: row.configType
+          })
         }).then((r) => r.json())
         await fetch(`${CONFIG.backendUrl}/system/config/refreshCache`, { method: 'DELETE', headers: h })
         console.log('[B4 前置] 开关复位 false')
@@ -17319,7 +18027,11 @@ async function main() {
     log(`💥 测试脚本异常: ${err.message}`)
     console.error(err)
     await browser.close()
-    try { await cleanupE2eResidue() } catch { /* best-effort */ }
+    try {
+      await cleanupE2eResidue()
+    } catch {
+      /* best-effort */
+    }
     process.exit(2)
   }
 }
@@ -17338,7 +18050,6 @@ main().catch((err) => {
   console.error('未捕获异常:', err)
   process.exit(3)
 })
-
 
 // ==================== 2026-10-03 M 级功能扩展（feature 76-80） ====================
 // 覆盖：变更留痕 / 告警规则 / webhook 事件目录与订阅收敛 / AK-SK / 字段级权限+PII 掩码
@@ -17364,7 +18075,15 @@ async function mLevelApiSetup(featureId) {
       return api(url, opts, _tries - 1)
     }
     const body = await res.json().catch(() => null)
-    return { status: res.status, body, code: body?.code ?? null, rows: body?.rows ?? [], total: body?.total ?? null, data: body?.data ?? null, msg: body?.msg ?? '' }
+    return {
+      status: res.status,
+      body,
+      code: body?.code ?? null,
+      rows: body?.rows ?? [],
+      total: body?.total ?? null,
+      data: body?.data ?? null,
+      msg: body?.msg ?? ''
+    }
   }
   return { token, jsonHeaders, api }
 }
@@ -17440,27 +18159,73 @@ async function testFeature76(page) {
   // A. 造一笔真实变更：创建用户 → 修改昵称（触发 record_change）
   const userName = `e2e76u_${uniq}`
   const created = await api('/system/user', {
-    method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ deptId: 103, userName, nickName: 'e2e76 原始', email: `${userName}@tzkj.net`, phonenumber: phone76, password: 'Stepby@12345', status: '0', roleIds: [2] })
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      deptId: 103,
+      userName,
+      nickName: 'e2e76 原始',
+      email: `${userName}@tzkj.net`,
+      phonenumber: phone76,
+      password: 'Stepby@12345',
+      status: '0',
+      roleIds: [2]
+    })
   })
   record(76, 'A1 创建目标用户（触发 INSERT 留痕）', created.code === 200, `code=${created.code} ${created.msg}`)
   if (created.code !== 200) return
   const found = await api(`/system/user/list?userName=${encodeURIComponent(userName)}`, { headers: jsonHeaders })
   const uid = Number(found.rows?.[0]?.userId || 0)
   const edited = await api('/system/user', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ userId: uid, deptId: 103, userName, nickName: 'e2e76 已修改', email: `${userName}@tzkj.net`, phonenumber: phone76, status: '0', roleIds: [2] })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      userId: uid,
+      deptId: 103,
+      userName,
+      nickName: 'e2e76 已修改',
+      email: `${userName}@tzkj.net`,
+      phonenumber: phone76,
+      status: '0',
+      roleIds: [2]
+    })
   })
   record(76, 'A2 修改用户昵称（触发 UPDATE 留痕）', edited.code === 200, `code=${edited.code}`)
 
   // B. 查询留痕列表：table_name=sys_user + row_pk=uid
-  const list = await api(`/system/audit-change/list?pageNum=1&pageSize=20&tableName=sys_user&rowPk=${uid}`, { headers: jsonHeaders })
-  record(76, 'B1 留痕列表按表+主键过滤', list.code === 200 && Array.isArray(list.rows) && list.rows.length >= 1, `rows=${list.rows?.length}`)
+  const list = await api(`/system/audit-change/list?pageNum=1&pageSize=20&tableName=sys_user&rowPk=${uid}`, {
+    headers: jsonHeaders
+  })
+  record(
+    76,
+    'B1 留痕列表按表+主键过滤',
+    list.code === 200 && Array.isArray(list.rows) && list.rows.length >= 1,
+    `rows=${list.rows?.length}`
+  )
   const updRow = list.rows?.find((r) => r.action === 'UPDATE')
   record(76, 'B2 UPDATE 留痕行存在', !!updRow, updRow ? `changed=${updRow.changedFields}` : '未找到 UPDATE 行')
-  const changedOk = updRow && (() => { try { const arr = JSON.parse(updRow.changedFields); return Array.isArray(arr) && arr.includes('nickName') } catch { return false } })()
+  const changedOk =
+    updRow &&
+    (() => {
+      try {
+        const arr = JSON.parse(updRow.changedFields)
+        return Array.isArray(arr) && arr.includes('nickName')
+      } catch {
+        return false
+      }
+    })()
   record(76, 'B3 changed_fields 含 nickName', !!changedOk)
-  const beforeAfterOk = updRow && (() => { try { const b = JSON.parse(updRow.beforeData); const a = JSON.parse(updRow.afterData); return b.nickName === 'e2e76 原始' && a.nickName === 'e2e76 已修改' } catch { return false } })()
+  const beforeAfterOk =
+    updRow &&
+    (() => {
+      try {
+        const b = JSON.parse(updRow.beforeData)
+        const a = JSON.parse(updRow.afterData)
+        return b.nickName === 'e2e76 原始' && a.nickName === 'e2e76 已修改'
+      } catch {
+        return false
+      }
+    })()
   record(76, 'B4 before/after 快照正确（敏感列不在此）', !!beforeAfterOk)
   record(76, 'B5 敏感列打码（password 不出现原值）', updRow && !(updRow.afterData || '').includes('Stepby@12345'))
 
@@ -17469,7 +18234,9 @@ async function testFeature76(page) {
     const detail = await api(`/system/audit-change/${updRow.id}`, { headers: jsonHeaders })
     record(76, 'C1 留痕详情接口', detail.code === 200 && detail.data?.id == updRow.id)
   }
-  const csv = await fetch(`${CONFIG.backendUrl}/system/audit-change/export?pageNum=1&pageSize=10`, { headers: jsonHeaders }).catch(() => null)
+  const csv = await fetch(`${CONFIG.backendUrl}/system/audit-change/export?pageNum=1&pageSize=10`, {
+    headers: jsonHeaders
+  }).catch(() => null)
   record(76, 'C2 CSV 导出可达', !!csv && csv.status === 200)
 
   // D. 清理
@@ -17486,18 +18253,38 @@ async function testFeature77(page) {
   const uniq = Date.now()
 
   const add = await api('/monitor/alert', {
-    method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ name: `e2e77-alarm-${uniq}`, metric: 'login_failed_5m', comparator: 'gt', threshold: 999, silentMinutes: 1, enabled: '0' })
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      name: `e2e77-alarm-${uniq}`,
+      metric: 'login_failed_5m',
+      comparator: 'gt',
+      threshold: 999,
+      silentMinutes: 1,
+      enabled: '0'
+    })
   })
   record(77, 'A1 新增告警规则（禁用态）', add.code === 200, `code=${add.code} ${add.msg}`)
-  const list = await api(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(`e2e77-alarm-${uniq}`)}`, { headers: jsonHeaders })
+  const list = await api(
+    `/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(`e2e77-alarm-${uniq}`)}`,
+    { headers: jsonHeaders }
+  )
   const rule = list.rows?.[0]
   record(77, 'A2 列表可查（name 过滤）', !!rule, `rows=${list.rows?.length}`)
   if (!rule) return
 
   const edited = await api('/monitor/alert', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ id: rule.id, name: `e2e77-alarm-${uniq}`, metric: 'login_failed_5m', comparator: 'ge', threshold: 999, silentMinutes: 1, enabled: '0' })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      id: rule.id,
+      name: `e2e77-alarm-${uniq}`,
+      metric: 'login_failed_5m',
+      comparator: 'ge',
+      threshold: 999,
+      silentMinutes: 1,
+      enabled: '0'
+    })
   })
   record(77, 'B1 修改比较器 gt→ge', edited.code === 200, `code=${edited.code} ${edited.msg}`)
 
@@ -17505,14 +18292,30 @@ async function testFeature77(page) {
   record(77, 'B2 详情 comparator=ge', detail.data?.comparator === 'ge', `comparator=${detail.data?.comparator}`)
 
   const ev = await api(`/monitor/alert/${rule.id}/evaluate`, { method: 'POST', headers: jsonHeaders, body: '{}' })
-  record(77, 'C1 手动评估返回指标与判定', ev.code === 200 && ev.data && 'fired' in ev.data && 'metricValue' in ev.data, JSON.stringify(ev.data || {}).slice(0, 120))
+  record(
+    77,
+    'C1 手动评估返回指标与判定',
+    ev.code === 200 && ev.data && 'fired' in ev.data && 'metricValue' in ev.data,
+    JSON.stringify(ev.data || {}).slice(0, 120)
+  )
 
-  const en = await api('/monitor/alert/changeEnabled', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ id: rule.id, enabled: '1' }) })
+  const en = await api('/monitor/alert/changeEnabled', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ id: rule.id, enabled: '1' })
+  })
   record(77, 'C2 启停切换 enabled=1', en.code === 200, `code=${en.code} ${en.msg}`)
 
   const bad = await api('/monitor/alert', {
-    method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ name: `e2e77-bad-${uniq}`, metric: 'not_a_metric', comparator: 'gt', threshold: 1, enabled: '0' })
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      name: `e2e77-bad-${uniq}`,
+      metric: 'not_a_metric',
+      comparator: 'gt',
+      threshold: 1,
+      enabled: '0'
+    })
   })
   record(77, 'D1 非法 metric 白名单拒绝', bad.code !== 200, `code=${bad.code}`)
 
@@ -17540,36 +18343,78 @@ async function testFeature78(page) {
   // 不用公网域名（httpbin.org 等）：依赖外网 DNS，离线/被墙环境样例必挂（e2e 批二十九修复）。
   const target = 'http://1.1.1.1:81/hook'
   const created = await api('/monitor/webHook', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ hookName, targetUrl: target, subscribedEvents: 'login.success,user.created', status: '0' })
   })
-  record(78, 'B1 创建 hook（subscribedEvents 逗号串兼容写入）', created.code === 200, `code=${created.code} ${created.msg}`)
-  const hlist = await api(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
+  record(
+    78,
+    'B1 创建 hook（subscribedEvents 逗号串兼容写入）',
+    created.code === 200,
+    `code=${created.code} ${created.msg}`
+  )
+  const hlist = await api(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, {
+    headers: jsonHeaders
+  })
   const hook = hlist.rows?.[0]
   record(78, 'B2 回读 hook', !!hook, `rows=${hlist.rows?.length}`)
   if (!hook) return
-  const subOk = (() => { try { const arr = JSON.parse(hook.subscribedEvents || '[]'); return arr.includes('login.success') } catch { return false } })()
+  const subOk = (() => {
+    try {
+      const arr = JSON.parse(hook.subscribedEvents || '[]')
+      return arr.includes('login.success')
+    } catch {
+      return false
+    }
+  })()
   record(78, 'B3 逗号串已转换 subscribedEvents 含 login.success', subOk, `subscribedEvents=${hook.subscribedEvents}`)
 
   // C. 新形态：subscribedEvents 数组直接写
   const hookId = hook.hookId ?? hook.id
   const edited = await api('/monitor/webHook', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ id: hookId, hookName, targetUrl: target, subscribedEvents: ['login.success', 'user.created'], status: '0' })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      id: hookId,
+      hookName,
+      targetUrl: target,
+      subscribedEvents: ['login.success', 'user.created'],
+      status: '0'
+    })
   })
   record(78, 'C1 subscribedEvents 数组直写', edited.code === 200, `code=${edited.code}`)
-  const reread = await api(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
-  const sub2 = (() => { try { const arr = JSON.parse(reread.rows?.[0]?.subscribedEvents || '[]'); return arr.includes('user.created') } catch { return false } })()
+  const reread = await api(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, {
+    headers: jsonHeaders
+  })
+  const sub2 = (() => {
+    try {
+      const arr = JSON.parse(reread.rows?.[0]?.subscribedEvents || '[]')
+      return arr.includes('user.created')
+    } catch {
+      return false
+    }
+  })()
   record(78, 'C2 回读含 user.created', sub2, `subscribedEvents=${reread.rows?.[0]?.subscribedEvents}`)
 
   // D. test-send（不可达目标 → 200+error 结构，真实发送链路）
-  const ts = await api(`/system/webhook/${hookId}/test-send`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ eventKey: 'login.success' }) })
+  const ts = await api(`/system/webhook/${hookId}/test-send`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ eventKey: 'login.success' })
+  })
   record(78, 'D1 test-send 走真实发送链路', ts.code === 200, JSON.stringify(ts.data || {}).slice(0, 100))
 
   // E. 非法事件键拒绝
   const bad = await api('/monitor/webHook', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ id: hookId, hookName, targetUrl: target, subscribedEvents: ['not.exists.event'], status: '0' })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      id: hookId,
+      hookName,
+      targetUrl: target,
+      subscribedEvents: ['not.exists.event'],
+      status: '0'
+    })
   })
   record(78, 'E1 白名单外事件键拒绝', bad.code !== 200, `code=${bad.code}`)
 
@@ -17590,7 +18435,8 @@ async function testFeature79(page) {
   await mLevelCleanupPats(setup.token)
 
   const created = await api('/system/user/profile/tokens', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ name: `e2e79-ak-${Date.now()}`, scopes: ['read'], expireDays: 1, withAk: true })
   })
   record(79, 'A1 创建 PAT(withAk)', created.code === 200, `code=${created.code}`)
@@ -17605,7 +18451,10 @@ async function testFeature79(page) {
     const bodyHash = crypto.createHash('sha256').update('').digest('hex')
     const sts = ['GET', '/open/v1/profile', ts, nonce, bodyHash].join('\n')
     const sig = await mLevelSign(secret, sts)
-    return { method: 'GET', headers: { 'X-CA-Key': key, 'X-CA-Timestamp': ts, 'X-CA-Nonce': nonce, 'X-CA-Signature': sig } }
+    return {
+      method: 'GET',
+      headers: { 'X-CA-Key': key, 'X-CA-Timestamp': ts, 'X-CA-Nonce': nonce, 'X-CA-Signature': sig }
+    }
   }
   const raw = async (opts) => {
     const res = await fetch(`${CONFIG.backendUrl}/open/v1/profile`, opts).catch(() => null)
@@ -17643,7 +18492,7 @@ async function testFeature79(page) {
   const patDel = await api(`/system/user/profile/tokens/${patId}`, { method: 'DELETE', headers: jsonHeaders })
   record(79, 'D3 清理测试 PAT', patDel.code === 200 || patDel.status === 200, `code=${patDel.code}`)
   const list = await api('/system/user/profile/tokens', { headers: jsonHeaders })
-  record(79, 'D3 列表不泄露 SK 明文', !(JSON.stringify(list.body || '')).includes(newSk))
+  record(79, 'D3 列表不泄露 SK 明文', !JSON.stringify(list.body || '').includes(newSk))
 }
 
 // ---------- feature 80：字段级权限 + PII 掩码 ----------
@@ -17659,7 +18508,12 @@ async function testFeature80(page) {
 
   // B. 关闭态 field-hidden 恒空（fail-safe）
   const fh = await api('/system/user/field-hidden?tableKey=sys_user', { headers: jsonHeaders })
-  record(80, 'A2 关闭态 field-hidden 空数组', fh.code === 200 && Array.isArray(fh.data) && fh.data.length === 0, `data=${JSON.stringify(fh.data)}`)
+  record(
+    80,
+    'A2 关闭态 field-hidden 空数组',
+    fh.code === 200 && Array.isArray(fh.data) && fh.data.length === 0,
+    `data=${JSON.stringify(fh.data)}`
+  )
 
   // C. 非法 tableKey 400
   const bad = await api('/system/user/field-hidden?tableKey=evil', { headers: jsonHeaders })
@@ -17667,22 +18521,42 @@ async function testFeature80(page) {
 
   // D. PII 掩码三口径：admin（超管）看他人 = 原值；本人查自己 = 原值；掩码不泄露判断以 secondary 视角补足（feature 75 范式）
   const list = await api('/system/user/list?pageNum=1&pageSize=5', { headers: jsonHeaders })
-  record(80, 'B1 admin 视角列表 phonenumber 原值（超管豁免）', list.rows?.every((r) => !String(r.phonenumber || '').includes('****')), '无 **** 形态')
+  record(
+    80,
+    'B1 admin 视角列表 phonenumber 原值（超管豁免）',
+    list.rows?.every((r) => !String(r.phonenumber || '').includes('****')),
+    '无 **** 形态'
+  )
   const me = await api('/system/user/profile', { headers: jsonHeaders })
   record(80, 'B2 本人 profile 原值', me.code === 200 && !String(me.data?.user?.phonenumber || '').includes('****'))
 
   // E. secondary（普通角色 stepby/admin123）视角：掩码三口径（DB 级由集成测试 user_pii_masking 兜底）
   const sec = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
-  if (!sec.token) { record(80, 'C1 secondary 登录', false, '登录失败'); return }
+  if (!sec.token) {
+    record(80, 'C1 secondary 登录', false, '登录失败')
+    return
+  }
   const secHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${sec.token}` }
   const secList = await api('/system/user/list?pageNum=1&pageSize=10', { headers: secHeaders })
   const other = secList.rows?.find((r) => r.phonenumber !== undefined && r.phonenumber !== null && r.phonenumber !== '')
   if (other) {
-    record(80, 'C1 secondary 看他人手机号掩码', String(other.phonenumber).includes('****'), `phonenumber=${other.phonenumber}`)
+    record(
+      80,
+      'C1 secondary 看他人手机号掩码',
+      String(other.phonenumber).includes('****'),
+      `phonenumber=${other.phonenumber}`
+    )
   } else {
-    record(80, 'C1 secondary 无 user 列表权限（掩码 DB 断言由集成测试 user_pii_masking 覆盖）', true, '分层测试策略：接口层权限隔离符合预期')
+    record(
+      80,
+      'C1 secondary 无 user 列表权限（掩码 DB 断言由集成测试 user_pii_masking 覆盖）',
+      true,
+      '分层测试策略：接口层权限隔离符合预期'
+    )
   }
-  const secMe = await fetch(`${CONFIG.backendUrl}/system/user/profile`, { headers: secHeaders }).then((r) => r.json()).catch(() => null)
+  const secMe = await fetch(`${CONFIG.backendUrl}/system/user/profile`, { headers: secHeaders })
+    .then((r) => r.json())
+    .catch(() => null)
   record(80, 'C2 secondary profile 接口可达且含数据', secMe?.code === 200 && !!secMe?.data, `code=${secMe?.code}`)
 }
 
@@ -17695,7 +18569,12 @@ async function testFeature81(page) {
 
   // A. 数据源白名单
   const src = await api('/tool/report-board/sources', { headers: jsonHeaders })
-  record(81, 'A1 sources 白名单返回', src.code === 200 && Array.isArray(src.data) && src.data.length >= 4, `keys=${(src.data || []).map((s) => s.sourceKey).join('|')}`)
+  record(
+    81,
+    'A1 sources 白名单返回',
+    src.code === 200 && Array.isArray(src.data) && src.data.length >= 4,
+    `keys=${(src.data || []).map((s) => s.sourceKey).join('|')}`
+  )
 
   // B. 白名单外 sourceKey 400
   const bad = await api('/tool/report-board/data/evil_source?range=7d', { headers: jsonHeaders })
@@ -17703,7 +18582,12 @@ async function testFeature81(page) {
 
   // C. 真实数据源取数（login_trend 多范围；白名单仅 7d/30d，其余 400）
   const d7 = await api('/tool/report-board/data/login_trend?range=7d', { headers: jsonHeaders })
-  record(81, 'A3 login_trend 7d 真实取数', d7.code === 200 && d7.data !== null, JSON.stringify(d7.data || {}).slice(0, 80))
+  record(
+    81,
+    'A3 login_trend 7d 真实取数',
+    d7.code === 200 && d7.data !== null,
+    JSON.stringify(d7.data || {}).slice(0, 80)
+  )
   const d30 = await api('/tool/report-board/data/login_trend?range=30d', { headers: jsonHeaders })
   record(81, 'A4 login_trend 30d 范围取数', d30.code === 200 && d30.data !== null, `code=${d30.code}`)
   const dBad = await api('/tool/report-board/data/login_trend?range=1d', { headers: jsonHeaders })
@@ -17711,17 +18595,45 @@ async function testFeature81(page) {
 
   // D. 看板配置：保存 → 回读含卡片 → 更新 → 删除（list 返回 data 数组，非分页 rows）
   const name = `e2e-board-${Date.now()}`
-  const save = await api('/tool/report-board', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name, config: { cards: [{ id: 'c1', title: '登录趋势', chartType: 'line', sourceKey: 'login_trend', size: { w: 2, h: 1 } }] } }) })
+  const save = await api('/tool/report-board', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      name,
+      config: {
+        cards: [{ id: 'c1', title: '登录趋势', chartType: 'line', sourceKey: 'login_trend', size: { w: 2, h: 1 } }]
+      }
+    })
+  })
   record(81, 'B1 保存看板配置', save.code === 200, `code=${save.code} ${save.msg}`)
   const list = await api('/tool/report-board/list', { headers: jsonHeaders })
   const row = (list.data || []).find((r) => r.name === name)
-  record(81, 'B2 回读含卡片', !!row && JSON.stringify(row.config || {}).includes('login_trend') && row.id > 0, `id=${row?.id}`)
+  record(
+    81,
+    'B2 回读含卡片',
+    !!row && JSON.stringify(row.config || {}).includes('login_trend') && row.id > 0,
+    `id=${row?.id}`
+  )
   if (row) {
     // 更新语义（对齐前端 api/tool/reportBoard.ts）：PUT /tool/report-board/{id} 全量覆盖
-    const upd = await api(`/tool/report-board/${row.id}`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ name, config: { cards: [{ id: 'c1', title: '登录趋势V2', chartType: 'bar', sourceKey: 'login_trend', size: { w: 2, h: 1 } }] } }) })
+    const upd = await api(`/tool/report-board/${row.id}`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        name,
+        config: {
+          cards: [{ id: 'c1', title: '登录趋势V2', chartType: 'bar', sourceKey: 'login_trend', size: { w: 2, h: 1 } }]
+        }
+      })
+    })
     const list2 = await api('/tool/report-board/list', { headers: jsonHeaders })
     const row2 = (list2.data || []).find((r) => r.id === row.id)
-    record(81, 'B3 更新看板配置生效', upd.code === 200 && JSON.stringify(row2?.config || {}).includes('登录趋势V2'), `code=${upd.code}`)
+    record(
+      81,
+      'B3 更新看板配置生效',
+      upd.code === 200 && JSON.stringify(row2?.config || {}).includes('登录趋势V2'),
+      `code=${upd.code}`
+    )
     const del = await api(`/tool/report-board/${row.id}`, { method: 'DELETE', headers: jsonHeaders })
     record(81, 'B4 删除看板', del.code === 200)
   }
@@ -17737,7 +18649,12 @@ async function testFeature82(page) {
   // A. 全量拉取（pageSize=500，前端下拉数据源口径）：rows.length 必须等于 total
   const full = await api('/system/webhook/event/list?pageNum=1&pageSize=500', { headers: jsonHeaders })
   const total = full.total ?? 0
-  record(82, 'A1 全量拉取 rows.length === total', full.code === 200 && (full.rows?.length || 0) === total, `rows=${full.rows?.length} total=${total}`)
+  record(
+    82,
+    'A1 全量拉取 rows.length === total',
+    full.code === 200 && (full.rows?.length || 0) === total,
+    `rows=${full.rows?.length} total=${total}`
+  )
 
   // B. 目录量级（16 种子事件起步）
   record(82, 'A2 事件目录 total >= 16', total >= 16, `total=${total}`)
@@ -17745,18 +18662,33 @@ async function testFeature82(page) {
   // C. 第一页（pageSize=10）是全量的真子集（超一页时下拉此前会缺失——回归锚点）
   const p1 = await api('/system/webhook/event/list?pageNum=1&pageSize=10', { headers: jsonHeaders })
   if (total > 10) {
-    record(82, 'A3 第一页 10 条 < 全量（回归锚点成立）', p1.rows?.length === 10 && full.rows.length > p1.rows.length, `p1=${p1.rows?.length} full=${full.rows.length}`)
+    record(
+      82,
+      'A3 第一页 10 条 < 全量（回归锚点成立）',
+      p1.rows?.length === 10 && full.rows.length > p1.rows.length,
+      `p1=${p1.rows?.length} full=${full.rows.length}`
+    )
   } else {
     record(82, 'A3 第一页 10 条 < 全量（回归锚点成立）', p1.rows?.length === total, `目录未超一页 total=${total}`)
   }
 
   // D. 全量无重复 eventKey（UNIQUE 契约）
   const keys = (full.rows || []).map((r) => r.eventKey)
-  record(82, 'A4 eventKey 无重复（UNIQUE）', new Set(keys).size === keys.length, `unique=${new Set(keys).size}/${keys.length}`)
+  record(
+    82,
+    'A4 eventKey 无重复（UNIQUE）',
+    new Set(keys).size === keys.length,
+    `unique=${new Set(keys).size}/${keys.length}`
+  )
 
   // E. 目录行含前端下拉所需字段（eventKey/name/enabled/payloadExample）
   const sample = (full.rows || [])[0] || {}
-  record(82, 'A5 目录行字段完整', 'eventKey' in sample && 'name' in sample && 'enabled' in sample, `fields=${Object.keys(sample).slice(0, 8).join(',')}`)
+  record(
+    82,
+    'A5 目录行字段完整',
+    'eventKey' in sample && 'name' in sample && 'enabled' in sample,
+    `fields=${Object.keys(sample).slice(0, 8).join(',')}`
+  )
 }
 
 // ---------- feature 83：webhook 事件目录停用/启用全链路（m20261004_000002） ----------
@@ -17785,40 +18717,98 @@ async function testFeature83(page) {
   // A. 目录含种子事件且默认启用
   const list = await api('/system/webhook/event/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
   const event = (list.rows || []).find((r) => r.eventKey === catalogKey)
-  record(83, 'A1 目录含 user.created 且默认启用', !!event && event.enabled === '1', `id=${event?.id} enabled=${event?.enabled}`)
+  record(
+    83,
+    'A1 目录含 user.created 且默认启用',
+    !!event && event.enabled === '1',
+    `id=${event?.id} enabled=${event?.enabled}`
+  )
   if (!event) return
   const eventId = event.id
 
   // B. 停用 → enabled=0 过滤命中
-  const off = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '0' }) })
+  const off = await api(`/system/webhook/event/${eventId}/enabled`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled: '0' })
+  })
   record(83, 'B1 停用成功', off.code === 200, `code=${off.code} ${off.msg}`)
   const offList = await api(`/system/webhook/event/list?eventKey=${catalogKey}&enabled=0`, { headers: jsonHeaders })
   record(83, 'B2 停用过滤命中', offList.rows?.length === 1, `rows=${offList.rows?.length}`)
 
   // C. 停用事件订阅被拒（400）
-  const sub = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const sub = await api429('/monitor/webHook', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      hookName: `e2e_停用订阅_${Date.now()}`,
+      subscribedEvents: [catalogKey],
+      targetUrl: target,
+      contentType: 'json',
+      timeoutSecs: 2,
+      status: '0'
+    })
+  })
   record(83, 'C1 停用事件订阅 400', sub.status === 400, `status=${sub.status} msg=${sub.msg}`)
 
   // D. 载体 hook（订阅其它目录键）→ 停用事件 test-send 400
-  const carrier = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_停用测试载体_${Date.now()}`, subscribedEvents: ['login.failed'], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const carrier = await api429('/monitor/webHook', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      hookName: `e2e_停用测试载体_${Date.now()}`,
+      subscribedEvents: ['login.failed'],
+      targetUrl: target,
+      contentType: 'json',
+      timeoutSecs: 2,
+      status: '0'
+    })
+  })
   record(83, 'D1 载体 hook 创建', carrier.code === 200, `code=${carrier.code}`)
   const carrierList = await api('/monitor/webHook/list?hookName=e2e_停用测试载体_', { headers: jsonHeaders })
   const carrierId = (carrierList.rows || [])[0]?.id
   if (carrierId) {
-    const ts = await api429(`/system/webhook/${carrierId}/test-send`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ eventKey: catalogKey }) })
+    const ts = await api429(`/system/webhook/${carrierId}/test-send`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ eventKey: catalogKey })
+    })
     record(83, 'D2 停用事件 test-send 400', ts.status === 400, `status=${ts.status}`)
   }
 
   // E. 启用恢复 → 订阅成功
-  const on = await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+  const on = await api(`/system/webhook/event/${eventId}/enabled`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled: '1' })
+  })
   record(83, 'E1 启用成功', on.code === 200, `code=${on.code}`)
-  const resub = await api429('/monitor/webHook', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ hookName: `e2e_恢复订阅_${Date.now()}`, subscribedEvents: [catalogKey], targetUrl: target, contentType: 'json', timeoutSecs: 2, status: '0' }) })
+  const resub = await api429('/monitor/webHook', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      hookName: `e2e_恢复订阅_${Date.now()}`,
+      subscribedEvents: [catalogKey],
+      targetUrl: target,
+      contentType: 'json',
+      timeoutSecs: 2,
+      status: '0'
+    })
+  })
   record(83, 'E2 恢复后订阅成功', resub.code === 200, `code=${resub.code}`)
 
   // F. 校验分支：非法值 400 / 不存在 404
-  const badVal = await api429(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: 'x' }) })
+  const badVal = await api429(`/system/webhook/event/${eventId}/enabled`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled: 'x' })
+  })
   record(83, 'F1 非法 enabled 400', badVal.status === 400, `status=${badVal.status}`)
-  const notFound = await api429('/system/webhook/event/999999999/enabled', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+  const notFound = await api429('/system/webhook/event/999999999/enabled', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ enabled: '1' })
+  })
   record(83, 'F2 不存在事件 404', notFound.status === 404, `status=${notFound.status}`)
 
   // 清理测试 hook（目录事件为种子数据恢复原状，无需清理）
@@ -17831,7 +18821,11 @@ async function testFeature83(page) {
   // 批次十八（R7→R8 状态继承教训）：链路中途 429/失败会把 user.created 留在 disabled=0，
   // 污染下一轮 A1 前置断言——尾部 best-effort 恢复启用态（幂等，正常路径已启用时无副作用）
   if (eventId) {
-    await api(`/system/webhook/event/${eventId}/enabled`, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ enabled: '1' }) })
+    await api(`/system/webhook/event/${eventId}/enabled`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ enabled: '1' })
+    })
   }
 }
 
@@ -17845,12 +18839,23 @@ async function testFeature83(page) {
 async function testFeature84(page) {
   log('=== 功能 84：列显隐偏好持久化（定时任务页 useTableColumns + user-prefs） ===')
   // 1. 导航到定时任务页（路由 /monitor/task，同 feature 6 先例；组件 src/views/system/task/index.vue）
-  await page.goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' }).catch(() => log('  ⚠️ load 等待超时，降级继续'))
+  await page
+    .goto(`${CONFIG.frontendUrl}/monitor/task`, { waitUntil: 'load' })
+    .catch(() => log('  ⚠️ load 等待超时，降级继续'))
   await sleep(2000)
   await skipTour(page)
   // 表格异步挂载——显式 waitFor 消除长跑竞态（固定 2000ms+5s 可见性仍会漂移失败）
-  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
-  const tableVisible = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
+  const tableVisible = await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   record(84, 'A1 定时任务页加载且 el-table 渲染', tableVisible, `url=${page.url()}`)
   if (!tableVisible) return
 
@@ -17866,7 +18871,10 @@ async function testFeature84(page) {
 
   // 2. 打开 RightToolbar 列设置下拉（el-dropdown trigger=click，hide-on-click=false）
   const colsBtn = page.locator('.top-right-btn .el-dropdown button').first()
-  const btnOk = await colsBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const btnOk = await colsBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(84, 'A3 RightToolbar 列设置按钮可见', btnOk)
   if (!btnOk) return
   await colsBtn.click()
@@ -17891,7 +18899,12 @@ async function testFeature84(page) {
   await sleep(2500)
   await skipTour(page)
   const h2 = await headerTexts()
-  record(84, 'C1 reload 后该列仍隐藏（偏好恢复链生效）', lost.length === 1 && !h2.includes(lost[0]), `cols=${h2.length}, lost=${JSON.stringify(lost)}`)
+  record(
+    84,
+    'C1 reload 后该列仍隐藏（偏好恢复链生效）',
+    lost.length === 1 && !h2.includes(lost[0]),
+    `cols=${h2.length}, lost=${JSON.stringify(lost)}`
+  )
   const savedKeys = await page.evaluate(() => {
     try {
       const prefs = JSON.parse(localStorage.getItem('user-prefs') || '{}')
@@ -17915,7 +18928,12 @@ async function testFeature84(page) {
   await page.locator('.el-dropdown-menu:visible .el-checkbox').nth(1).click()
   await sleep(800)
   const h3 = await headerTexts()
-  record(84, 'D1 重新勾选 → 列恢复且表头数回到初始水平', h3.includes(lost[0]) && h3.length === h0.length, `len0=${h0.length}, len3=${h3.length}`)
+  record(
+    84,
+    'D1 重新勾选 → 列恢复且表头数回到初始水平',
+    h3.includes(lost[0]) && h3.length === h0.length,
+    `len0=${h0.length}, len3=${h3.length}`
+  )
   const savedKeys2 = await page.evaluate(() => {
     try {
       const prefs = JSON.parse(localStorage.getItem('user-prefs') || '{}')
@@ -17925,7 +18943,12 @@ async function testFeature84(page) {
       return null
     }
   })
-  record(84, 'D2 恢复后偏好含全部 9 个业务列 key（不留残留）', Array.isArray(savedKeys2) && savedKeys2.length === 9, `keys=${savedKeys2 ? savedKeys2.length : 'null'}`)
+  record(
+    84,
+    'D2 恢复后偏好含全部 9 个业务列 key（不留残留）',
+    Array.isArray(savedKeys2) && savedKeys2.length === 9,
+    `keys=${savedKeys2 ? savedKeys2.length : 'null'}`
+  )
   await page.keyboard.press('Escape')
 }
 
@@ -17982,8 +19005,16 @@ async function testFeature85(page) {
 
   // A. 建测试用户（deptId=100 种子部门）→ 查回 userId
   const created = await api('/system/user', {
-    method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ deptId: 100, userName, nickName: 'e2e85 强改密', password: initPwd, status: '0', roleIds: [2] })
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      deptId: 100,
+      userName,
+      nickName: 'e2e85 强改密',
+      password: initPwd,
+      status: '0',
+      roleIds: [2]
+    })
   })
   record(85, 'A1 创建测试用户（deptId=100）', created.code === 200, `code=${created.code} ${created.msg}`)
   const found = await api(`/system/user/list?userName=${encodeURIComponent(userName)}`, { headers: jsonHeaders })
@@ -17992,12 +19023,21 @@ async function testFeature85(page) {
   if (!userId) return
 
   // B. 管理员 resetPwd → must_change_pwd='1'（下发初始密码语义）
-  const reset = await api('/system/user/resetPwd', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ userId, password: initPwd }) })
+  const reset = await api('/system/user/resetPwd', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ userId, password: initPwd })
+  })
   record(85, 'B1 管理员 resetPwd（置 must_change_pwd=1）', reset.code === 200, `code=${reset.code} ${reset.msg}`)
 
   // C. 开关关闭基线（默认 false）：登录不被拦截
   const base = await forcePwdLogin(userName, initPwd)
-  record(85, 'C1 测试用户登录（开关关闭基线）', base.ok && !!base.token, base.ok ? '' : `status=${base.status} err=${base.error || ''}`)
+  record(
+    85,
+    'C1 测试用户登录（开关关闭基线）',
+    base.ok && !!base.token,
+    base.ok ? '' : `status=${base.status} err=${base.error || ''}`
+  )
   if (!base.ok) {
     // 清理后退出，避免残留
     await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
@@ -18005,20 +19045,50 @@ async function testFeature85(page) {
   }
   const baseFieldPresent = base.info && 'mustChangePassword' in (base.info.data || base.info)
   const baseInfo = base.info?.data || base.info
-  record(85, 'C2 /getInfo 含 mustChangePassword 字段（B4 后端产物）', !!baseFieldPresent, `fields=${baseInfo ? Object.keys(baseInfo).filter((k) => /pwd|password/i.test(k)).join(',') : 'null'}`)
-  record(85, 'C3 开关关闭时 mustChangePassword === false（不拦截）', baseInfo?.mustChangePassword === false, `mustChangePassword=${baseInfo?.mustChangePassword}`)
+  record(
+    85,
+    'C2 /getInfo 含 mustChangePassword 字段（B4 后端产物）',
+    !!baseFieldPresent,
+    `fields=${
+      baseInfo
+        ? Object.keys(baseInfo)
+            .filter((k) => /pwd|password/i.test(k))
+            .join(',')
+        : 'null'
+    }`
+  )
+  record(
+    85,
+    'C3 开关关闭时 mustChangePassword === false（不拦截）',
+    baseInfo?.mustChangePassword === false,
+    `mustChangePassword=${baseInfo?.mustChangePassword}`
+  )
 
   // D. 置开关 true：读 config → PUT /system/config → refreshCache
-  const cfgList = await api(`/system/config/list?pageNum=1&pageSize=10&configKey=${encodeURIComponent(cfgKey)}`, { headers: jsonHeaders })
+  const cfgList = await api(`/system/config/list?pageNum=1&pageSize=10&configKey=${encodeURIComponent(cfgKey)}`, {
+    headers: jsonHeaders
+  })
   const cfgRow = cfgList.rows?.[0]
-  record(85, 'D1 参数配置存在且当前 false', !!cfgRow && cfgRow.configValue === 'false', `configId=${cfgRow?.configId} value=${cfgRow?.configValue}`)
+  record(
+    85,
+    'D1 参数配置存在且当前 false',
+    !!cfgRow && cfgRow.configValue === 'false',
+    `configId=${cfgRow?.configId} value=${cfgRow?.configValue}`
+  )
   if (!cfgRow) {
     await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
     return
   }
   const cfgOn = await api('/system/config', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'true', configType: cfgRow.configType })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      configId: cfgRow.configId,
+      configName: cfgRow.configName,
+      configKey: cfgKey,
+      configValue: 'true',
+      configType: cfgRow.configType
+    })
   })
   record(85, 'D2 置开关 true（PUT /system/config）', cfgOn.code === 200, `code=${cfgOn.code} ${cfgOn.msg}`)
   await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
@@ -18028,10 +19098,25 @@ async function testFeature85(page) {
   const forced = await forcePwdLogin(userName, initPwd)
   const forcedInfo = forced.info?.data || forced.info
   record(85, 'E1 开关开启后重新登录', forced.ok, forced.ok ? '' : `status=${forced.status} err=${forced.error || ''}`)
-  record(85, 'E2 mustChangePassword === true（拦截生效）', forcedInfo?.mustChangePassword === true, `mustChangePassword=${forcedInfo?.mustChangePassword}`)
+  record(
+    85,
+    'E2 mustChangePassword === true（拦截生效）',
+    forcedInfo?.mustChangePassword === true,
+    `mustChangePassword=${forcedInfo?.mustChangePassword}`
+  )
   if (!forced.ok || !forced.token) {
     // 兜底恢复开关 + 删除用户
-    await api('/system/config', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'false', configType: cfgRow.configType }) })
+    await api('/system/config', {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        configId: cfgRow.configId,
+        configName: cfgRow.configName,
+        configKey: cfgKey,
+        configValue: 'false',
+        configType: cfgRow.configType
+      })
+    })
     await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
     await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
     return
@@ -18039,7 +19124,11 @@ async function testFeature85(page) {
 
   // F. 该用户 token 个人改密 → 清除标志
   const userHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${forced.token}` }
-  const chg = await api('/system/user/profile/updatePwd', { method: 'PUT', headers: userHeaders, body: JSON.stringify({ oldPassword: initPwd, newPassword: newPwd }) })
+  const chg = await api('/system/user/profile/updatePwd', {
+    method: 'PUT',
+    headers: userHeaders,
+    body: JSON.stringify({ oldPassword: initPwd, newPassword: newPwd })
+  })
   record(85, 'F1 个人改密 profile/updatePwd 200', chg.code === 200, `code=${chg.code} ${chg.msg}`)
 
   // G. 新密码重新登录 → 标志已清除
@@ -18047,17 +19136,34 @@ async function testFeature85(page) {
   const after = await forcePwdLogin(userName, newPwd)
   const afterInfo = after.info?.data || after.info
   record(85, 'G1 新密码重新登录成功', after.ok, after.ok ? '' : `status=${after.status} err=${after.error || ''}`)
-  record(85, 'G2 改密后 mustChangePassword === false（标志清除）', afterInfo?.mustChangePassword === false, `mustChangePassword=${afterInfo?.mustChangePassword}`)
+  record(
+    85,
+    'G2 改密后 mustChangePassword === false（标志清除）',
+    afterInfo?.mustChangePassword === false,
+    `mustChangePassword=${afterInfo?.mustChangePassword}`
+  )
 
   // H. 恢复：开关置回 false + 删除测试用户（绝不动 admin）
   const cfgOff = await api('/system/config', {
-    method: 'PUT', headers: jsonHeaders,
-    body: JSON.stringify({ configId: cfgRow.configId, configName: cfgRow.configName, configKey: cfgKey, configValue: 'false', configType: cfgRow.configType })
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      configId: cfgRow.configId,
+      configName: cfgRow.configName,
+      configKey: cfgKey,
+      configValue: 'false',
+      configType: cfgRow.configType
+    })
   })
   await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
   record(85, 'H1 开关恢复 false + refreshCache', cfgOff.code === 200, `code=${cfgOff.code}`)
   const cfgVerify = await api(`/system/config/configKey/${encodeURIComponent(cfgKey)}`, { headers: jsonHeaders })
-  record(85, 'H2 回读开关值确认 false', String(cfgVerify.data ?? cfgVerify.msg) === 'false', `value=${JSON.stringify(cfgVerify.data ?? cfgVerify.msg)}`)
+  record(
+    85,
+    'H2 回读开关值确认 false',
+    String(cfgVerify.data ?? cfgVerify.msg) === 'false',
+    `value=${JSON.stringify(cfgVerify.data ?? cfgVerify.msg)}`
+  )
   const del = await api(`/system/user/${userId}`, { method: 'DELETE', headers: jsonHeaders })
   record(85, 'H3 删除测试用户', del.code === 200, `code=${del.code} ${del.msg}`)
 }
@@ -18081,8 +19187,15 @@ async function testFeature86(page) {
   const cfgId = cfgList?.rows?.[0]?.configId || 9030
   const setEnabled = async (v) => {
     const put = await api('/system/config', {
-      method: 'PUT', headers: jsonHeaders,
-      body: JSON.stringify({ configId: cfgId, configName: 'AI 助手总开关', configKey: cfgKey, configValue: String(v), configType: 'Y' })
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        configId: cfgId,
+        configName: 'AI 助手总开关',
+        configKey: cfgKey,
+        configValue: String(v),
+        configType: 'Y'
+      })
     })
     await api('/system/config/refreshCache', { method: 'DELETE', headers: jsonHeaders })
     return put.code === 200
@@ -18094,15 +19207,22 @@ async function testFeature86(page) {
 
   // A2 热开启后 /ai/chat 不再 403（base_url 未配 → 结构化错误 400，非 403 语义）
   const chatOpen = await api('/ai/chat', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ question: 'e2e86 探针' })
   })
-  record(86, 'A2 热开启后 /ai/chat 非 403', chatOpen.code !== 403, `code=${chatOpen.code} msg=${(chatOpen.msg || '').slice(0, 60)}`)
+  record(
+    86,
+    'A2 热开启后 /ai/chat 非 403',
+    chatOpen.code !== 403,
+    `code=${chatOpen.code} msg=${(chatOpen.msg || '').slice(0, 60)}`
+  )
 
   // A3 热关闭 → 403（error.ai.disabled）
   const off = await setEnabled(false)
   const chatClosed = await api('/ai/chat', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ question: 'e2e86 探针' })
   })
   record(86, 'A3 热关闭后 /ai/chat 403', chatClosed.code === 403, `code=${chatClosed.code}`)
@@ -18114,16 +19234,30 @@ async function testFeature86(page) {
   // B. 历史留痕 API 断言（A3 的失败 chat 已写入 success='0' 行——双路径留痕实测）
   const hist = await api('/system/ai/history?page=1&size=20', { headers: jsonHeaders })
   const histItems = hist.data?.items || []
-  record(86, 'B1 历史留痕非空（含失败路径 success=0）', hist.code === 200 && histItems.length >= 1, `items=${histItems.length}`)
+  record(
+    86,
+    'B1 历史留痕非空（含失败路径 success=0）',
+    hist.code === 200 && histItems.length >= 1,
+    `items=${histItems.length}`
+  )
   const failedRow = histItems.find((r) => r.success === false)
-  record(86, 'B2 失败路径留痕（success=0）', !!failedRow, failedRow ? `q=${(failedRow.question || '').slice(0, 30)}` : '未找到失败行')
+  record(
+    86,
+    'B2 失败路径留痕（success=0）',
+    !!failedRow,
+    failedRow ? `q=${(failedRow.question || '').slice(0, 30)}` : '未找到失败行'
+  )
 
   // C. 收尾：开关恢复 false（幂等）——测试债修复：原常量 true 改为真断言
   //（setEnabled 返回值 + configKey 直查后端落库值双确认）
   const offOk = await setEnabled(false)
   const cfgAfter = await api(`/system/config/configKey/${cfgKey}`, { headers: jsonHeaders })
-  record(86, 'C1 开关恢复 false', offOk && cfgAfter?.code === 200 && cfgAfter?.data === 'false',
-    `put=${offOk}, configValue=${cfgAfter?.data}`)
+  record(
+    86,
+    'C1 开关恢复 false',
+    offOk && cfgAfter?.code === 200 && cfgAfter?.data === 'false',
+    `put=${offOk}, configValue=${cfgAfter?.data}`
+  )
 }
 // ==================== 功能 87：消息渠道管理（编辑全链 + EncryptedString 明文回显契约）====================
 /**
@@ -18160,19 +19294,29 @@ async function testFeature87(page) {
     dialog.locator('.el-form-item').filter({ has: page.locator(`.el-form-item__label:text-is("${label}")`) })
   const rowsOf = (txt) => page.locator('.el-table__body-wrapper tbody tr').filter({ hasText: txt })
   const errToasts = () =>
-    page.evaluate(() => [...document.querySelectorAll('.el-message--error, .el-message--warning')].map((e) => e.textContent.slice(0, 60)))
+    page.evaluate(() =>
+      [...document.querySelectorAll('.el-message--error, .el-message--warning')].map((e) => e.textContent.slice(0, 60))
+    )
   const closeGuardThenDialog = async () => {
     // 未保存守卫（"确定要离开吗"）可能晚于取消弹出——循环收敛最多 3 轮：
     // 有守卫点"不保存并离开"；对话框还开则点取消；最后 Escape 兜底
     for (let i = 0; i < 3; i++) {
       const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
-      if (await leaveBtn.waitFor({ state: 'visible', timeout: 600 }).then(() => true).catch(() => false)) {
+      if (
+        await leaveBtn
+          .waitFor({ state: 'visible', timeout: 600 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
         await sleep(500)
         continue
       }
       if (await dialog.isVisible().catch(() => false)) {
-        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
+        await dialog
+          .getByRole('button', { name: /取\s*消/ })
+          .click({ force: true, timeout: 3000 })
+          .catch(() => {})
         await sleep(600)
         continue
       }
@@ -18184,7 +19328,12 @@ async function testFeature87(page) {
   const submitDialog = async () => {
     const btn = dialog.getByRole('button', { name: /确\s*定/ })
     await btn.click({ force: true, timeout: 3000 }).catch(() => {})
-    await page.waitForResponse((r) => r.url().includes('/system/msg/channel') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
+    await page
+      .waitForResponse(
+        (r) => r.url().includes('/system/msg/channel') && ['POST', 'PUT'].includes(r.request().method()),
+        { timeout: 8000 }
+      )
+      .catch(() => null)
     await sleep(1800)
   }
 
@@ -18201,7 +19350,10 @@ async function testFeature87(page) {
     const before = await errToasts()
     await submitDialog()
     const after = await errToasts()
-    negDetail = after.filter((t) => !before.includes(t)).join(';').slice(0, 100)
+    negDetail = after
+      .filter((t) => !before.includes(t))
+      .join(';')
+      .slice(0, 100)
     await closeGuardThenDialog()
     // 判定收紧为业务结果：该渠道未出现在列表（400 唯一约束 / 前端校验拦截均属"被拒"）
     await sleep(400)
@@ -18343,7 +19495,9 @@ async function testFeature88(page) {
   const searchBy = async (name) => {
     await page.locator('input[placeholder="请输入模板名称"]').first().fill(name)
     await page.locator('button:has-text("搜索")').first().click()
-    await page.waitForResponse((r) => r.url().includes('/system/msg/template/list') && r.status() === 200, { timeout: 10000 }).catch(() => null)
+    await page
+      .waitForResponse((r) => r.url().includes('/system/msg/template/list') && r.status() === 200, { timeout: 10000 })
+      .catch(() => null)
     await sleep(600)
   }
 
@@ -18363,22 +19517,38 @@ async function testFeature88(page) {
     await itemByLabel('模板内容').locator('textarea').fill('您好 {{nickName}}，这是 e2e 批次五模板测试。')
     const before = await toastCounts()
     const respP = page
-      .waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 6000 })
+      .waitForResponse(
+        (r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()),
+        { timeout: 6000 }
+      )
       .catch(() => null)
     const okBtn = dialog.getByRole('button', { name: /确\s*定/ })
     await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
     let resp = await respP
     if (!resp) {
       await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
-      resp = await page.waitForResponse((r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()), { timeout: 8000 }).catch(() => null)
+      resp = await page
+        .waitForResponse(
+          (r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()),
+          { timeout: 8000 }
+        )
+        .catch(() => null)
     }
     await sleep(2000)
     if (await dialog.isVisible().catch(() => false)) {
       const leaveBtn = page.getByRole('button', { name: /不保存并离开/ })
-      if (await leaveBtn.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)) {
+      if (
+        await leaveBtn
+          .waitFor({ state: 'visible', timeout: 800 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
       } else {
-        await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
+        await dialog
+          .getByRole('button', { name: /取\s*消/ })
+          .click({ force: true, timeout: 3000 })
+          .catch(() => {})
       }
       await sleep(500)
     }
@@ -18401,7 +19571,10 @@ async function testFeature88(page) {
     await eBtn.click({ force: true, timeout: 3000 }).catch(() => {})
     await sleep(2200)
     if (await dialog.isVisible().catch(() => false)) {
-      await dialog.getByRole('button', { name: /取\s*消/ }).click({ force: true, timeout: 3000 }).catch(() => {})
+      await dialog
+        .getByRole('button', { name: /取\s*消/ })
+        .click({ force: true, timeout: 3000 })
+        .catch(() => {})
       await sleep(500)
     }
     await searchBy(tname)
@@ -18416,7 +19589,11 @@ async function testFeature88(page) {
   try {
     await rowsOf(tname).first().locator('button:has-text("删除")').first().click()
     await sleep(800)
-    await page.locator('.el-message-box:visible, .el-popconfirm:visible, .el-popper:visible').last().getByRole('button', { name: /确\s*定/ }).click()
+    await page
+      .locator('.el-message-box:visible, .el-popconfirm:visible, .el-popper:visible')
+      .last()
+      .getByRole('button', { name: /确\s*定/ })
+      .click()
     await sleep(2200)
     delOk = (await rowsOf(tname).count()) === 0
   } catch (err) {
@@ -18446,7 +19623,8 @@ async function testFeature89(page) {
     if (vo?.code === 200 && vo?.data) {
       const d = vo.data
       const maskedLike = (s) =>
-        typeof s === 'string' && (s === '' || /^\*+$/.test(s) || (s.includes('*') && !s.replace(/\*/g, '').match(/^[A-Za-z0-9+/=_-]{20,}$/)))
+        typeof s === 'string' &&
+        (s === '' || /^\*+$/.test(s) || (s.includes('*') && !s.replace(/\*/g, '').match(/^[A-Za-z0-9+/=_-]{20,}$/)))
       maskOk = maskedLike(d.accessKeyMasked) && maskedLike(d.secretKeyMasked)
       maskDetail = `accessKeyMasked=${d.accessKeyMasked} secretKeyMasked=${d.secretKeyMasked} backendMode=${d.backendMode}`
     } else {
@@ -18469,19 +19647,25 @@ async function testFeature89(page) {
   // 3. UI：掩码/保留提示存在
   const tipOk =
     (await page.locator('text=当前存储档位').count()) > 0 &&
-    ((await page.locator('text=当前值').count()) > 0 || (await page.locator('input[placeholder="输入值"]').count()) > 0 || (await page.locator('text=留空保留已保存的值').count()) > 0)
+    ((await page.locator('text=当前值').count()) > 0 ||
+      (await page.locator('input[placeholder="输入值"]').count()) > 0 ||
+      (await page.locator('text=留空保留已保存的值').count()) > 0)
   record(89, '页面掩码/保留提示存在', tipOk)
 
   // 4. API：空 secret 保存（保留语义：PUT 不破坏既有值，掩码前后一致）
   let keepOk = false
   try {
-    const before = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) => r.json())
+    const before = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) =>
+      r.json()
+    )
     const put = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, {
       method: 'PUT',
       headers: jsonHeaders,
       body: JSON.stringify({ pathStyle: !!before?.data?.pathStyle })
     }).then((r) => r.json())
-    const after = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) => r.json())
+    const after = await fetch(`${CONFIG.backendUrl}/system/uploadConfig`, { headers: authHeaders }).then((r) =>
+      r.json()
+    )
     keepOk = put?.code === 200 && after?.data?.secretKeyMasked === before?.data?.secretKeyMasked
   } catch (err) {
     log(`  保留语义异常: ${err.message.slice(0, 300)}`)
@@ -18519,7 +19703,11 @@ async function testFeature90(page) {
   try {
     const saveBtn = page.locator('button:has-text("保存"), button:has-text("确 定"), button:has-text("确定")').first()
     await saveBtn.click()
-    await page.waitForResponse((r) => r.url().includes('/system/aiConfig') && r.request().method() === 'PUT', { timeout: 10000 }).catch(() => null)
+    await page
+      .waitForResponse((r) => r.url().includes('/system/aiConfig') && r.request().method() === 'PUT', {
+        timeout: 10000
+      })
+      .catch(() => null)
     await sleep(1500)
     saveOk = true
   } catch (err) {
@@ -18559,8 +19747,18 @@ async function testFeature91(page) {
       ok = await openPage(page, route)
       // 批次三十六：冒烟必须补主内容断言（表格或主按钮可见），避免任意接口 500 也算 PASS
       contentOk =
-        (await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) ||
-        (await page.locator('.app-container .el-button, form.el-form--inline').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+        (await page
+          .locator('.el-table')
+          .first()
+          .waitFor({ state: 'visible', timeout: 4000 })
+          .then(() => true)
+          .catch(() => false)) ||
+        (await page
+          .locator('.app-container .el-button, form.el-form--inline')
+          .first()
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false))
       detail = `可达=${ok}, 主内容=${contentOk}`
     } catch (err) {
       detail = `异常: ${err.message.slice(0, 200)}`
@@ -18587,8 +19785,18 @@ async function testFeature92(page) {
       ok = await openPage(page, route)
       // 批次三十六：补主内容断言（主表格或主按钮/主容器可见），避免任意接口 500 也算 PASS
       contentOk =
-        (await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) ||
-        (await page.locator('.app-container .el-button, form.el-form--inline, iframe').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+        (await page
+          .locator('.el-table')
+          .first()
+          .waitFor({ state: 'visible', timeout: 4000 })
+          .then(() => true)
+          .catch(() => false)) ||
+        (await page
+          .locator('.app-container .el-button, form.el-form--inline, iframe')
+          .first()
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false))
       detail = `可达=${ok}, 主内容=${contentOk}`
     } catch (err) {
       detail = `异常: ${err.message.slice(0, 200)}`
@@ -18623,7 +19831,9 @@ async function testFeature93(page) {
       .then((r) => r.json())
       .catch(() => null)
     const rows = list?.data || list?.rows || []
-    const nameList = await fetch(`${CONFIG.backendUrl}/system/menu/list?menuName=${encodeURIComponent('测试菜单')}`, { headers: authHeaders })
+    const nameList = await fetch(`${CONFIG.backendUrl}/system/menu/list?menuName=${encodeURIComponent('测试菜单')}`, {
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     const rowsByName = nameList?.data || nameList?.rows || []
@@ -18637,7 +19847,12 @@ async function testFeature93(page) {
     } else {
       let cleaned = 0
       for (const o of orphans) {
-        const del = await fetch(`${CONFIG.backendUrl}/system/menu/${o.menuId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        const del = await fetch(`${CONFIG.backendUrl}/system/menu/${o.menuId}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
+          .then((r) => r.json())
+          .catch(() => null)
         if (del?.code === 200) cleaned++
       }
       menuOk = cleaned === orphans.length
@@ -18653,7 +19868,9 @@ async function testFeature93(page) {
   let userOk = true
   let userDetail = '无残留'
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=100&userName=e2e`, { headers: authHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=100&userName=e2e`, {
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     const rows = resp?.rows || []
@@ -18661,7 +19878,12 @@ async function testFeature93(page) {
     if (deletable.length > 0) {
       let cleaned = 0
       for (const u of deletable) {
-        const del = await fetch(`${CONFIG.backendUrl}/system/user/${u.userId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        const del = await fetch(`${CONFIG.backendUrl}/system/user/${u.userId}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
+          .then((r) => r.json())
+          .catch(() => null)
         if (del?.code === 200) cleaned++
       }
       userOk = cleaned === deletable.length
@@ -18677,14 +19899,21 @@ async function testFeature93(page) {
   let hookOk = true
   let hookDetail = '无残留'
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=100`, { headers: authHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=100`, {
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     const rows = (resp?.rows || []).filter((r) => (r.hookName || '').startsWith('e2e'))
     if (rows.length > 0) {
       let cleaned = 0
       for (const h of rows) {
-        const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${h.id}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+        const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${h.id}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
+          .then((r) => r.json())
+          .catch(() => null)
         if (del?.code === 200) cleaned++
       }
       hookOk = cleaned === rows.length
@@ -18700,13 +19929,20 @@ async function testFeature93(page) {
   let provOk = true
   let provDetail = '无残留'
   try {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=100`, { headers: authHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=100`, {
+      headers: authHeaders
+    })
       .then((r) => r.json())
       .catch(() => null)
     const rows = (resp?.rows || []).filter((r) => (r.providerName || '').startsWith('e2e_oauth_'))
     if (rows.length > 0) {
       const ids = rows.map((r) => r.providerId).join(',')
-      const del = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const del = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      })
+        .then((r) => r.json())
+        .catch(() => null)
       provOk = del?.code === 200
       provDetail = `发现 ${rows.length} 个 e2e provider 残留，清理 del=${del?.code}`
     }
@@ -18727,7 +19963,12 @@ async function testFeature93(page) {
     if (rows.length > 0) {
       let cleaned = 0
       for (const r of rows) {
-        const del = await fetch(`${CONFIG.backendUrl}/system/report/${r.reportId}`, { method: 'DELETE', headers: authHeaders }).then((x) => x.json()).catch(() => null)
+        const del = await fetch(`${CONFIG.backendUrl}/system/report/${r.reportId}`, {
+          method: 'DELETE',
+          headers: authHeaders
+        })
+          .then((x) => x.json())
+          .catch(() => null)
         if (del?.code === 200) cleaned++
       }
       rptOk = cleaned === rows.length
@@ -18793,18 +20034,24 @@ async function testFeature94(page) {
   }
   await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click({ force: true })
   await page.waitForTimeout(800)
-  const listHit = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders })
+  const listHit = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, {
+    headers: authHeaders
+  })
     .then((r) => r.json())
     .then((j) => (j.rows || []).some((r) => r.datasetCode === code))
   record(94, '新增数据集落库', listHit)
 
   // 3. SQL 明文专用端点（admin 持 edit 键 → 200 且含明文）
-  const list = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders }).then((r) => r.json())
+  const list = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, {
+    headers: authHeaders
+  }).then((r) => r.json())
   const row = (list.rows || []).find((r) => r.datasetCode === code)
   let sqlOk = false
   if (row) {
     const sqlResp = await fetch(`${CONFIG.backendUrl}/report/dataset/${row.datasetId}/sql`, {
-      method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: '{}'
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: '{}'
     }).then((r) => r.json())
     sqlOk = sqlResp?.code === 200 && String(sqlResp?.data || '').includes('SELECT user_id')
   }
@@ -18815,7 +20062,8 @@ async function testFeature94(page) {
     const previewBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '试跑' })
     await previewBtn.click({ force: true })
     await page.waitForTimeout(1500)
-    const dialogVisible = (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
+    const dialogVisible =
+      (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
     record(94, '试跑对话框打开', dialogVisible > 0)
     // 批次十八：Escape 依赖焦点在对话框内（force 点击后不可靠），优先点关闭按钮
     const closeBtn = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
@@ -18825,7 +20073,8 @@ async function testFeature94(page) {
       await page.keyboard.press('Escape')
     }
     await page.waitForTimeout(400)
-    const dialogLeft = (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
+    const dialogLeft =
+      (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
     record(94, '试跑对话框已关闭', dialogLeft === 0)
   }
 
@@ -18840,10 +20089,15 @@ async function testFeature94(page) {
     let gone = false
     for (let i = 0; i < 10; i++) {
       await page.waitForTimeout(600)
-      const still = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, { headers: authHeaders })
+      const still = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, {
+        headers: authHeaders
+      })
         .then((r) => r.json())
         .then((j) => (j.rows || []).some((r) => r.datasetCode === code))
-      if (!still) { gone = true; break }
+      if (!still) {
+        gone = true
+        break
+      }
     }
     record(94, '删除后列表不再命中', gone)
   }
@@ -18870,8 +20124,24 @@ async function testFeature95(page) {
   const graph = {
     nodes: [
       { id: 's', type: 'start', name: '开始' },
-      { id: 'a1', type: 'approve', name: '主管审批', assignees: ['role:common'], multi: 'single', threshold: 1, actions: ['delegate', 'countersign_add', 'countersign_del'] },
-      { id: 'a2', type: 'approve', name: '总监加权', assignees: ['role:common'], multi: 'weighted', threshold: 1, actions: ['delegate', 'countersign_add', 'countersign_del'] },
+      {
+        id: 'a1',
+        type: 'approve',
+        name: '主管审批',
+        assignees: ['role:common'],
+        multi: 'single',
+        threshold: 1,
+        actions: ['delegate', 'countersign_add', 'countersign_del']
+      },
+      {
+        id: 'a2',
+        type: 'approve',
+        name: '总监加权',
+        assignees: ['role:common'],
+        multi: 'weighted',
+        threshold: 1,
+        actions: ['delegate', 'countersign_add', 'countersign_del']
+      },
       { id: 'e', type: 'end', name: '结束' }
     ],
     edges: [
@@ -18882,7 +20152,8 @@ async function testFeature95(page) {
     ]
   }
   const addResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition`, {
-    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ flowCode: code, flowName: 'e2e 图驱动', graphJson: JSON.stringify(graph) })
   }).then((r) => r.json())
   if (addResp?.code !== 200) {
@@ -18891,7 +20162,8 @@ async function testFeature95(page) {
   }
   const flowId = addResp.data.flowId
   const pubResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition/publish/${flowId}`, {
-    method: 'POST', headers: authHeaders
+    method: 'POST',
+    headers: authHeaders
   }).then((r) => r.json())
   record(95, 'API 发布（version+1）', pubResp?.code === 200 && pubResp?.data?.version === 2)
 
@@ -18921,7 +20193,8 @@ async function testFeature95(page) {
   // 3. 审批链：stepby（role:common 成员）推进 → approve a1 → 推进 a2 → approve → 办结
   // 批次十八：待办/动作端点仅登录即可（归属校验在 service 层），用 stepby 独立会话推进
   const sbLogin = await fetch(`${CONFIG.backendUrl}/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'stepby', password: 'admin123' })
   }).then((r) => r.json())
   const sbToken = sbLogin?.data?.token || sbLogin?.token || ''
@@ -18932,21 +20205,25 @@ async function testFeature95(page) {
   const sbHeaders = { Authorization: `Bearer ${sbToken}` }
   // ⚠️ pageSize 用 100（后端 clamp 上限）：待办可能被前序用例残留数据占据首页，
   //    取 50 会漏掉本次刚提交的单据（实证：积压 50 条 e2e 动作收窄单 → t1 找不到 → 链失败）。
-  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, { headers: sbHeaders })
-    .then((r) => r.json())
+  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, { headers: sbHeaders }).then(
+    (r) => r.json()
+  )
   const t1 = (todo.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.title === 'e2e 图驱动单据（长链）')
   let chainOk = false
   if (t1) {
     const act1 = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
-      method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { ...sbHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'approve', comment: 'e2e a1' })
     }).then((r) => r.json())
-    const todo2 = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders })
-      .then((r) => r.json())
+    const todo2 = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, {
+      headers: sbHeaders
+    }).then((r) => r.json())
     const t2 = (todo2.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.nodeSeq === 2 && r.bizId === t1.bizId)
     if (act1?.code === 200 && t2) {
       const act2 = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t2.taskId}/action`, {
-        method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { ...sbHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'approve' })
       }).then((r) => r.json())
       chainOk = act2?.code === 200
@@ -18956,12 +20233,16 @@ async function testFeature95(page) {
 
   // 批次十八：自清理测试流程（best-effort——已产生单据的流程可能被引用校验拒绝，静默即可）
   try {
-    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, { headers: authHeaders }).then((r) => r.json())
+    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, {
+      headers: authHeaders
+    }).then((r) => r.json())
     const mine = (listAll.rows || []).filter((r) => String(r.flowCode).startsWith('it_graph_e2e_'))
     for (const f of mine) {
       await fetch(`${CONFIG.backendUrl}/system/flow/definition/${f.flowId}`, { method: 'DELETE', headers: authHeaders })
     }
-  } catch { /* best-effort 清理 */ }
+  } catch {
+    /* best-effort 清理 */
+  }
 }
 
 // ==================== 功能 96：actions 白名单收窄（批次十七：未勾 delegate → 403）====================
@@ -18983,7 +20264,15 @@ async function testFeature96(page) {
   const graph = {
     nodes: [
       { id: 's', type: 'start', name: '开始' },
-      { id: 'a1', type: 'approve', name: '主管', assignees: ['role:common'], multi: 'single', threshold: 1, actions: ['countersign_add'] },
+      {
+        id: 'a1',
+        type: 'approve',
+        name: '主管',
+        assignees: ['role:common'],
+        multi: 'single',
+        threshold: 1,
+        actions: ['countersign_add']
+      },
       { id: 'e', type: 'end', name: '结束' }
     ],
     edges: [
@@ -18992,7 +20281,8 @@ async function testFeature96(page) {
     ]
   }
   const addResp = await fetch(`${CONFIG.backendUrl}/system/flow/definition`, {
-    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ flowCode: code, flowName: 'e2e 动作收窄', graphJson: JSON.stringify(graph) })
   }).then((r) => r.json())
   const flowId = addResp?.data?.flowId
@@ -19004,7 +20294,8 @@ async function testFeature96(page) {
 
   // API 提交图驱动单据（days=1 默认边单节点）
   const subResp = await fetch(`${CONFIG.backendUrl}/system/flow/graph/submit`, {
-    method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ flowCode: code, title: 'e2e 动作收窄单', fields: { days: 1 } })
   }).then((r) => r.json())
   const docId = subResp?.data?.docId
@@ -19014,7 +20305,8 @@ async function testFeature96(page) {
   }
   // 待办属主 = role:common 成员（stepby）——动作用属主会话调，白名单 403 与属主 403 不混淆
   const sbLogin = await fetch(`${CONFIG.backendUrl}/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: 'stepby', password: 'admin123' })
   }).then((r) => r.json())
   const sbToken = sbLogin?.data?.token || sbLogin?.token || ''
@@ -19023,7 +20315,9 @@ async function testFeature96(page) {
     return
   }
   const sbHeaders = { Authorization: `Bearer ${sbToken}` }
-  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders }).then((r) => r.json())
+  const todo = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=50`, { headers: sbHeaders }).then(
+    (r) => r.json()
+  )
   const t1 = (todo.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.bizId === docId)
   if (!t1) {
     record(96, '待办出现', false)
@@ -19031,13 +20325,15 @@ async function testFeature96(page) {
   }
   // delegate 未勾 → 403
   const del = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
-    method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...sbHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'delegate', toUserId: 2, comment: '不在白名单' })
   })
   record(96, '未勾 delegate → 403', del.status === 403)
   // countersign_add 在白名单 → 非 403（自委派等业务校验可能 400，但不是白名单 403）
   const csAdd = await fetch(`${CONFIG.backendUrl}/system/flow/task/${t1.taskId}/action`, {
-    method: 'POST', headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { ...sbHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'countersign_add', toUserId: 2 })
   })
   record(96, '勾选 countersign_add 非 403（白名单放行到业务校验）', csAdd.status !== 403)
@@ -19046,7 +20342,9 @@ async function testFeature96(page) {
   // 防止待办长期积压淹没后续「我的待办」查询（实测积压 50 条致功能 95 链失败）。
   try {
     // 加签可能已改变节点形态——重新取该单据当前待办再办结（best-effort）
-    const todoNow = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, { headers: sbHeaders }).then((r) => r.json())
+    const todoNow = await fetch(`${CONFIG.backendUrl}/system/flow/todo?pageNum=1&pageSize=100`, {
+      headers: sbHeaders
+    }).then((r) => r.json())
     const tn = (todoNow.rows || []).find((r) => r.bizType === 'flow_graph_doc' && r.bizId === docId)
     if (tn) {
       await fetch(`${CONFIG.backendUrl}/system/flow/task/${tn.taskId}/action`, {
@@ -19055,16 +20353,22 @@ async function testFeature96(page) {
         body: JSON.stringify({ action: 'approve', comment: 'e2e 清理办结' })
       }).catch(() => {})
     }
-  } catch { /* best-effort 办结 */ }
+  } catch {
+    /* best-effort 办结 */
+  }
 
   // 批次十八：自清理测试流程（best-effort）
   try {
-    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, { headers: authHeaders }).then((r) => r.json())
+    const listAll = await fetch(`${CONFIG.backendUrl}/system/flow/definition/list?pageNum=1&pageSize=100`, {
+      headers: authHeaders
+    }).then((r) => r.json())
     const mine = (listAll.rows || []).filter((r) => String(r.flowCode).startsWith('it_graph_act_'))
     for (const f of mine) {
       await fetch(`${CONFIG.backendUrl}/system/flow/definition/${f.flowId}`, { method: 'DELETE', headers: authHeaders })
     }
-  } catch { /* best-effort 清理 */ }
+  } catch {
+    /* best-effort 清理 */
+  }
 }
 
 // ==================== 功能 97：大屏 view 页冒烟（运行/设计双模式）====================
@@ -19104,12 +20408,18 @@ async function testFeature97(page) {
     const addChartOk =
       pickDatasetOk &&
       (await page
-        .locator('.el-select input[aria-label="图表类型"], button:has-text("添加图表"), .el-select input[aria-label*="图表"]')
+        .locator(
+          '.el-select input[aria-label="图表类型"], button:has-text("添加图表"), .el-select input[aria-label*="图表"]'
+        )
         .first()
         .isVisible()
         .catch(() => false))
-    record(97, '设计模式切换（designer 内嵌渲染：选择数据集下拉+添加图表按钮）', addChartOk,
-      `pickDataset=${pickDatasetOk}, addChart=${addChartOk}`)
+    record(
+      97,
+      '设计模式切换（designer 内嵌渲染：选择数据集下拉+添加图表按钮）',
+      addChartOk,
+      `pickDataset=${pickDatasetOk}, addChart=${addChartOk}`
+    )
   } else {
     record(97, '设计模式切换控件', false, '未找到 rp.modeDesign 单选钮')
   }
@@ -19148,7 +20458,12 @@ async function testFeature98(page) {
   }).then((r) => r.json())
   const sessionId = initRes?.data?.sessionId
   // chunkSize 为服务端推导（ceil(total/parts)），非客户端声明的 partSize
-  record(98, 'init 创建会话', initRes?.code === 200 && !!sessionId && initRes.data.chunkSize === Math.ceil(TOTAL / totalParts), `sessionId=${sessionId} chunkSize=${initRes?.data?.chunkSize}`)
+  record(
+    98,
+    'init 创建会话',
+    initRes?.code === 200 && !!sessionId && initRes.data.chunkSize === Math.ceil(TOTAL / totalParts),
+    `sessionId=${sessionId} chunkSize=${initRes?.data?.chunkSize}`
+  )
 
   // 2. 断点续传重演：先只传第 0 片 → session 查缺失 → 补传 1、2 片
   async function uploadPart(idx) {
@@ -19158,7 +20473,9 @@ async function testFeature98(page) {
     const blob = new Blob([buf.subarray(idx * PART_SIZE, Math.min((idx + 1) * PART_SIZE, TOTAL))])
     form.append('file', blob, `part-${idx}`)
     return fetch(`${CONFIG.backendUrl}/common/upload/chunk/part`, {
-      method: 'POST', headers: authHeaders, body: form
+      method: 'POST',
+      headers: authHeaders,
+      body: form
     }).then((r) => r.json())
   }
   const part0 = await uploadPart(0)
@@ -19168,11 +20485,21 @@ async function testFeature98(page) {
     headers: authHeaders
   }).then((r) => r.json())
   const idx1 = sess1?.data?.receivedIndexes
-  record(98, 'session 返回已收索引（断点续传语义）', sess1?.code === 200 && Array.isArray(idx1) && idx1.length === 1 && idx1[0] === 0, `receivedIndexes=${JSON.stringify(idx1)}`)
+  record(
+    98,
+    'session 返回已收索引（断点续传语义）',
+    sess1?.code === 200 && Array.isArray(idx1) && idx1.length === 1 && idx1[0] === 0,
+    `receivedIndexes=${JSON.stringify(idx1)}`
+  )
   const missing = [1, 2].filter((i) => !idx1.includes(i))
   const part1 = await uploadPart(missing[0])
   const part2 = await uploadPart(missing[1])
-  record(98, '补传缺失片 1、2', part1?.code === 200 && part2?.code === 200 && part2.data.complete === true, `complete=${part2?.data?.complete}`)
+  record(
+    98,
+    '补传缺失片 1、2',
+    part1?.code === 200 && part2?.code === 200 && part2.data.complete === true,
+    `complete=${part2?.data?.complete}`
+  )
 
   // 3. complete
   const completeRes = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/complete`, {
@@ -19207,10 +20534,12 @@ async function testFeature98(page) {
   }).then((r) => r.json())
   const sid2 = init2?.data?.sessionId
   const abortRes = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/${sid2}`, {
-    method: 'DELETE', headers: authHeaders
+    method: 'DELETE',
+    headers: authHeaders
   }).then((r) => r.json())
   const partAfterAbort = await fetch(`${CONFIG.backendUrl}/common/upload/chunk/part`, {
-    method: 'POST', headers: authHeaders,
+    method: 'POST',
+    headers: authHeaders,
     body: (() => {
       const f = new FormData()
       f.append('sessionId', sid2)
@@ -19219,7 +20548,12 @@ async function testFeature98(page) {
       return f
     })()
   }).then((r) => r.status)
-  record(98, 'abort 清理后 part 拒绝', abortRes?.code === 200 && partAfterAbort === 400, `abort=${abortRes?.code} partStatus=${partAfterAbort}`)
+  record(
+    98,
+    'abort 清理后 part 拒绝',
+    abortRes?.code === 200 && partAfterAbort === 400,
+    `abort=${abortRes?.code} partStatus=${partAfterAbort}`
+  )
 }
 
 // ==================== 功能 99：IM 群机器人渠道（批次十八：G-15b 更优替代落地验证）====================
@@ -19277,22 +20611,35 @@ async function testFeature99(page) {
 
   // 3. 无 config_json → 测试 400 且提示配置无效
   const test1 = await fetch(`${CONFIG.backendUrl}/system/msg/channel/test/${channelId}`, {
-    method: 'POST', headers: authHeaders, body: '{}'
+    method: 'POST',
+    headers: authHeaders,
+    body: '{}'
   })
   const t1body = await test1.json().catch(() => ({}))
-  record(99, '缺 webhookUrl 连通测试 400', test1.status === 400 && String(t1body.msg || '').includes('配置无效'), `status=${test1.status}`)
+  record(
+    99,
+    '缺 webhookUrl 连通测试 400',
+    test1.status === 400 && String(t1body.msg || '').includes('配置无效'),
+    `status=${test1.status}`
+  )
 
   // 4. 补全 config_json（webhookUrl 指向本地不在线端口——probe 仅校验形态）→ 测试 200
   const upd = await fetch(`${CONFIG.backendUrl}/system/msg/channel`, {
     method: 'PUT',
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      channelId, channelName: 'e2e 企微机器人', channelCode: code, channelType: 'wecom_robot', status: '0',
+      channelId,
+      channelName: 'e2e 企微机器人',
+      channelCode: code,
+      channelType: 'wecom_robot',
+      status: '0',
       configJson: JSON.stringify({ webhookUrl: 'http://127.0.0.1:1/cgi-bin/webhook/send?key=K' })
     })
   }).then((r) => r.json())
   const test2 = await fetch(`${CONFIG.backendUrl}/system/msg/channel/test/${channelId}`, {
-    method: 'POST', headers: authHeaders, body: '{}'
+    method: 'POST',
+    headers: authHeaders,
+    body: '{}'
   })
   record(99, '补全 webhookUrl 后测试 200', upd?.code === 200 && test2.status === 200, `test2=${test2.status}`)
 
@@ -19300,13 +20647,20 @@ async function testFeature99(page) {
   const add2 = await fetch(`${CONFIG.backendUrl}/system/msg/channel`, {
     method: 'POST',
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channelName: 'e2e 钉钉机器人', channelCode: `${code}_dt`, channelType: 'dingtalk_robot', status: '0' })
+    body: JSON.stringify({
+      channelName: 'e2e 钉钉机器人',
+      channelCode: `${code}_dt`,
+      channelType: 'dingtalk_robot',
+      status: '0'
+    })
   }).then((r) => r.json())
   record(99, 'API 建 dingtalk_robot 渠道', add2?.code === 200, `code=${add2?.code}`)
 
   // 6. 清理（best-effort）
   for (const cid of [channelId, add2?.data?.channelId].filter(Boolean)) {
-    await fetch(`${CONFIG.backendUrl}/system/msg/channel/${cid}`, { method: 'DELETE', headers: authHeaders }).catch(() => {})
+    await fetch(`${CONFIG.backendUrl}/system/msg/channel/${cid}`, { method: 'DELETE', headers: authHeaders }).catch(
+      () => {}
+    )
   }
 }
 
@@ -19333,14 +20687,20 @@ async function testFeature100(page) {
     domOk = await openPage(page, '/tenant-space/my-domain', 'my-domain')
     // 面板容器渲染（TenantDomainPanel 的 info alert + 新增按钮 + 表格）
     const panelAlert = page.locator('.el-alert').first()
-    const hasPanel = await panelAlert.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const hasPanel = await panelAlert
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     // 新增域名对话框：点到底断言对话框真实挂载（「按钮可见 ≠ 交互可用」教训）
     const addBtn = page.getByRole('button', { name: /新增域名|新增/ }).first()
     if ((await addBtn.count()) > 0) {
       await addBtn.click({ force: true })
       await sleep(700)
       const dlg = page.locator('.el-dialog:visible').first()
-      domDialogOk = await dlg.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      domDialogOk = await dlg
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
       if (domDialogOk) {
         // 域名格式校验：非法串（大写/无点/前导中划线）→ 表单校验拒绝提交
         const domainInput = dlg.locator('input').first()
@@ -19349,7 +20709,10 @@ async function testFeature100(page) {
         if ((await saveBtn.count()) > 0) {
           await saveBtn.click({ force: true })
           await sleep(600)
-          const stillOpen = await dlg.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+          const stillOpen = await dlg
+            .waitFor({ state: 'visible', timeout: 1000 })
+            .then(() => true)
+            .catch(() => false)
           record(100, '域名格式非法时对话框不关闭（校验生效）', stillOpen)
         }
         await page.keyboard.press('Escape')
@@ -19371,8 +20734,15 @@ async function testFeature100(page) {
     navOk = await openPage(page, '/tenant-space/my-nav', 'my-nav')
     // 页面主体：卡片标题 + info 提示 + （权限足够时）表格/空态
     const card = page.locator('.el-card').first()
-    const hasCard = await card.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    const bodyText = await page.locator('.app-container').first().innerText().catch(() => '')
+    const hasCard = await card
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const bodyText = await page
+      .locator('.app-container')
+      .first()
+      .innerText()
+      .catch(() => '')
     // 无 list 权限 → blocked 提示；有权限 → 表格或空态；两者均视为正常渲染
     navTableOk =
       hasCard &&
@@ -19392,7 +20762,12 @@ async function testFeature100(page) {
   try {
     // F117：五连样板收敛为 openPage
     aiOk = await openPage(page, '/monitor/aiHistory', 'aiHistory')
-    aiTableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    aiTableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(100, 'AI 问数历史页可达且表格渲染', aiOk && aiTableOk)
   } catch (err) {
     record(100, 'AI 问数历史页可达且表格渲染', false, `异常: ${err.message.slice(0, 200)}`)
@@ -19403,7 +20778,9 @@ async function testFeature100(page) {
   if (token) {
     const authHeaders = { Authorization: `Bearer ${token}` }
     // 列表接口
-    const listResp = await fetch(`${CONFIG.backendUrl}/system/ai/history/admin?page=1&size=20`, { headers: authHeaders })
+    const listResp = await fetch(`${CONFIG.backendUrl}/system/ai/history/admin?page=1&size=20`, {
+      headers: authHeaders
+    })
     const listBody = await listResp.json().catch(() => ({}))
     record(
       100,
@@ -19446,8 +20823,18 @@ async function testFeature101(page) {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/monitor/task', '/monitor/task')
     // 表格 + 搜索表单 + 删除按钮（含任务类型筛选下拉）
-    const tableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
-    const searchOk = await page.locator('form.el-form--inline').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const tableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const searchOk = await page
+      .locator('form.el-form--inline')
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     // 任务类型下拉含 3 项（操作日志导出/数据备份/其他）
     let typeOptionsOk = false
     const selects = page.locator('form.el-form--inline .el-select')
@@ -19458,8 +20845,12 @@ async function testFeature101(page) {
       typeOptionsOk = opts.includes('操作日志导出') && opts.includes('数据备份')
       await page.keyboard.press('Escape')
     }
-    record(101, '任务进度页：表格+搜索+类型下拉项完整', tableOk && searchOk && typeOptionsOk,
-      `table=${tableOk}, search=${searchOk}, typeOpts=${typeOptionsOk}`)
+    record(
+      101,
+      '任务进度页：表格+搜索+类型下拉项完整',
+      tableOk && searchOk && typeOptionsOk,
+      `table=${tableOk}, search=${searchOk}, typeOpts=${typeOptionsOk}`
+    )
   } catch (err) {
     record(101, '任务进度页：表格+搜索+类型下拉项完整', false, `异常: ${err.message.slice(0, 200)}`)
   }
@@ -19497,12 +20888,18 @@ async function testFeature101(page) {
 
       if (ruleId) {
         // 关键回归锁：列表必须回传 roleIds 且与写入一致
-        const listResp = await fetch(`${CONFIG.backendUrl}/system/dataRule/list?page=1&size=100`, { headers: authHeaders })
+        const listResp = await fetch(`${CONFIG.backendUrl}/system/dataRule/list?page=1&size=100`, {
+          headers: authHeaders
+        })
         const listBody = await listResp.json().catch(() => ({}))
         const row = (listBody.rows || []).find((r) => r.ruleId === ruleId)
         const reflected = Array.isArray(row?.roleIds) && row.roleIds.includes(targetRoleId)
-        record(101, '数据权限规则 roleIds 回显（API 回归锁）', reflected,
-          `roleIds=${JSON.stringify(row?.roleIds)}, expect 含 ${targetRoleId}`)
+        record(
+          101,
+          '数据权限规则 roleIds 回显（API 回归锁）',
+          reflected,
+          `roleIds=${JSON.stringify(row?.roleIds)}, expect 含 ${targetRoleId}`
+        )
       }
     }
   } catch (err) {
@@ -19513,14 +20910,24 @@ async function testFeature101(page) {
   try {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/dataRule', '/system/dataRule')
-    const tableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const tableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     // 打开首行编辑对话框，断言对话框挂载
     let dlgOk = false
     const editBtn = page.getByRole('button', { name: /编辑/ }).first()
     if ((await editBtn.count()) > 0) {
       await editBtn.click({ force: true })
       await sleep(700)
-      dlgOk = await page.locator('.el-dialog:visible').first().waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      dlgOk = await page
+        .locator('.el-dialog:visible')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
       // 角色多选控件存在
       if (dlgOk) {
         const roleSelect = page.locator('.el-dialog:visible .el-select').last()
@@ -19537,14 +20944,21 @@ async function testFeature101(page) {
 
   // 清理测试规则
   if (ruleId) {
-    await fetch(`${CONFIG.backendUrl}/system/dataRule/${ruleId}`, { method: 'DELETE', headers: authHeaders }).catch(() => {})
+    await fetch(`${CONFIG.backendUrl}/system/dataRule/${ruleId}`, { method: 'DELETE', headers: authHeaders }).catch(
+      () => {}
+    )
   }
 
   // ---------- 3. 变更留痕（/system/log/auditChange）----------
   try {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/log/auditChange', 'auditChange')
-    const tableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const tableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     // 行展开（diff 视图）：点首行展开按钮，断言 diff 双栏出现
     let expandOk = false
     const expandBtn = page.locator('.el-table__expand-icon').first()
@@ -19552,13 +20966,15 @@ async function testFeature101(page) {
       await expandBtn.click({ force: true })
       await sleep(600)
       const diffWrap = page.locator('.diff-wrap').first()
-      expandOk = await diffWrap.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      expandOk = await diffWrap
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
     } else {
       // 无数据时展开按钮不存在——不判失败
       expandOk = true
     }
-    record(101, '变更留痕页：表格渲染 + 行展开 diff 视图', tableOk && expandOk,
-      `table=${tableOk}, expand=${expandOk}`)
+    record(101, '变更留痕页：表格渲染 + 行展开 diff 视图', tableOk && expandOk, `table=${tableOk}, expand=${expandOk}`)
     // 排序切换（服务端排序参数透传）——测试债修复：原常量 true 改为监听
     // list 请求 URL 携带 orderByColumn/isAsc（useCrudTable handleSortChange 写入 queryParams 后随请求透传）
     const sortable = page.locator('.el-table th.is-sortable').first()
@@ -19590,11 +21006,23 @@ async function testFeature101(page) {
   try {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
-    const tableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
-    const searchOk = await page.locator('form.el-form--inline').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const tableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const searchOk = await page
+      .locator('form.el-form--inline')
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(101, 'SCIM 用户组页：搜索+表格渲染', tableOk && searchOk, `table=${tableOk}, search=${searchOk}`)
     // 接口级：列表 200
-    const resp = await fetch(`${CONFIG.backendUrl}/system/scimGroup/list?pageNum=1&pageSize=10`, { headers: authHeaders })
+    const resp = await fetch(`${CONFIG.backendUrl}/system/scimGroup/list?pageNum=1&pageSize=10`, {
+      headers: authHeaders
+    })
     record(101, 'SCIM 用户组列表接口 200', resp.status === 200, `status=${resp.status}`)
   } catch (err) {
     record(101, 'SCIM 用户组页：搜索+表格渲染', false, `异常: ${err.message.slice(0, 200)}`)
@@ -19605,10 +21033,11 @@ async function testFeature101(page) {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/tool/http-debugger', 'http-debugger')
     const methodSelect = page.locator('.method-select').first()
-    const urlInput = page.locator('input[placeholder*="http"], input[placeholder*="URL"], input[placeholder*="url"]').first()
+    const urlInput = page
+      .locator('input[placeholder*="http"], input[placeholder*="URL"], input[placeholder*="url"]')
+      .first()
     const sendBtn = page.getByRole('button', { name: /发送|Send/ }).first()
-    const controlsOk =
-      (await methodSelect.count()) > 0 && (await urlInput.count()) > 0 && (await sendBtn.count()) > 0
+    const controlsOk = (await methodSelect.count()) > 0 && (await urlInput.count()) > 0 && (await sendBtn.count()) > 0
     record(101, 'HTTP 调试器页：方法/URL/发送控件齐全', controlsOk)
     // SSRF 防护：内网地址应被后端拒绝（400）
     const ssrfResp = await fetch(`${CONFIG.backendUrl}/tool/http-debug/execute`, {
@@ -19617,8 +21046,12 @@ async function testFeature101(page) {
       body: JSON.stringify({ method: 'GET', url: 'http://127.0.0.1:8080/health', timeoutSecs: 5, headers: [] })
     })
     const ssrfBody = await ssrfResp.json().catch(() => ({}))
-    record(101, 'HTTP 调试器 SSRF 防护：内网地址被拒', ssrfResp.status === 400 || ssrfBody.code === 400,
-      `status=${ssrfResp.status}`)
+    record(
+      101,
+      'HTTP 调试器 SSRF 防护：内网地址被拒',
+      ssrfResp.status === 400 || ssrfBody.code === 400,
+      `status=${ssrfResp.status}`
+    )
   } catch (err) {
     record(101, 'HTTP 调试器页：方法/URL/发送控件齐全', false, `异常: ${err.message.slice(0, 200)}`)
   }
@@ -19639,10 +21072,16 @@ async function testFeature101(page) {
       swaggerOk = await frame
         .locator('.swagger-ui, #swagger-ui, .opblock')
         .first()
-        .waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
     }
-    record(101, 'Swagger 文档页：iFrame 加载 swagger-ui', iframeOk && swaggerOk,
-      `iframe=${iframeOk}, swaggerUi=${swaggerOk}`)
+    record(
+      101,
+      'Swagger 文档页：iFrame 加载 swagger-ui',
+      iframeOk && swaggerOk,
+      `iframe=${iframeOk}, swaggerUi=${swaggerOk}`
+    )
   } catch (err) {
     record(101, 'Swagger 文档页：iFrame 加载 swagger-ui', false, `异常: ${err.message.slice(0, 200)}`)
   }
@@ -19651,23 +21090,42 @@ async function testFeature101(page) {
   try {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/monitor/alert', '/monitor/alert')
-    const tableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
-    const searchOk = await page.locator('form.el-form--inline').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const tableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const searchOk = await page
+      .locator('form.el-form--inline')
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     // 新增按钮 → 对话框真挂载（「按钮可见 ≠ 交互可用」）
     let dlgOk = false
     const addBtn = page.getByRole('button', { name: /新增/ }).first()
     if ((await addBtn.count()) > 0) {
       await addBtn.click({ force: true })
       await sleep(700)
-      dlgOk = await page.locator('.el-dialog:visible').first().waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      dlgOk = await page
+        .locator('.el-dialog:visible')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
       // 指标下拉应含后端白名单项（login_failed_5m 等）
       if (dlgOk) {
         await page.keyboard.press('Escape')
         await sleep(300)
       }
     }
-    record(101, '告警规则页：搜索+表格+新增对话框挂载', tableOk && searchOk && dlgOk,
-      `table=${tableOk}, search=${searchOk}, dlg=${dlgOk}`)
+    record(
+      101,
+      '告警规则页：搜索+表格+新增对话框挂载',
+      tableOk && searchOk && dlgOk,
+      `table=${tableOk}, search=${searchOk}, dlg=${dlgOk}`
+    )
   } catch (err) {
     record(101, '告警规则页：搜索+表格+新增对话框挂载', false, `异常: ${err.message.slice(0, 200)}`)
   }
@@ -19677,9 +21135,12 @@ async function testFeature101(page) {
     // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/tool/reportBoard', 'reportBoard')
     // 大屏编辑器容器 + 组件库面板 + 新增看板/新增卡片按钮
-    const bodyText = await page.locator('.app-container').first().innerText().catch(() => '')
-    const hasEditor =
-      bodyText.includes('看板') || bodyText.includes('组件') || bodyText.includes('新增')
+    const bodyText = await page
+      .locator('.app-container')
+      .first()
+      .innerText()
+      .catch(() => '')
+    const hasEditor = bodyText.includes('看板') || bodyText.includes('组件') || bodyText.includes('新增')
     // 「新增卡片」按钮仅编辑模式可见（el-switch active-text=编辑）——先切编辑模式
     const editSwitch = page.locator('.el-switch').first()
     if ((await editSwitch.count()) > 0) {
@@ -19693,14 +21154,23 @@ async function testFeature101(page) {
     if (addCardOk) {
       await addCardBtn.click({ force: true })
       await sleep(700)
-      dlgOk = await page.locator('.el-dialog:visible').first().waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      dlgOk = await page
+        .locator('.el-dialog:visible')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
       if (dlgOk) {
         await page.keyboard.press('Escape')
         await sleep(300)
       }
     }
-    record(101, '报表大屏页：编辑模式 + 新增卡片对话框挂载', hasEditor && dlgOk,
-      `editor=${hasEditor}, addBtn=${addCardOk}, dlg=${dlgOk}`)
+    record(
+      101,
+      '报表大屏页：编辑模式 + 新增卡片对话框挂载',
+      hasEditor && dlgOk,
+      `editor=${hasEditor}, addBtn=${addCardOk}, dlg=${dlgOk}`
+    )
   } catch (err) {
     record(101, '报表大屏页：编辑模式 + 新增卡片对话框挂载', false, `异常: ${err.message.slice(0, 200)}`)
   }
@@ -19738,7 +21208,11 @@ async function testFeature102(page) {
   await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/oauth/provider`, 'oauth/provider')
   await skipTour(page)
   const not404 = !(await is404Page(page))
-  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .catch(() => {})
   const tableOk =
     (await page.locator('.el-table__row').count()) > 0 ||
     (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
@@ -19747,10 +21221,16 @@ async function testFeature102(page) {
   // 2. 新增对话框：空提交触发必填校验错误（负路径）
   let negOk = false
   try {
-    await page.getByRole('button', { name: /新增提供商|新增/ }).first().click({ force: true })
+    await page
+      .getByRole('button', { name: /新增提供商|新增/ })
+      .first()
+      .click({ force: true })
     const dialog = page.locator('.el-dialog:visible').last()
     await dialog.waitFor({ state: 'visible', timeout: 4000 })
-    await dialog.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    await dialog
+      .getByRole('button', { name: /确\s*定|确定/ })
+      .first()
+      .click()
     await page.waitForTimeout(600)
     negOk = (await dialog.locator('.el-form-item.is-error').count()) > 0
     await page.keyboard.press('Escape')
@@ -19763,7 +21243,10 @@ async function testFeature102(page) {
   // 3. 合法创建（IP 字面量+封闭端口授权地址，禁外网）
   let createdOk = false
   try {
-    await page.getByRole('button', { name: /新增提供商|新增/ }).first().click({ force: true })
+    await page
+      .getByRole('button', { name: /新增提供商|新增/ })
+      .first()
+      .click({ force: true })
     const dialog = page.locator('.el-dialog:visible').last()
     await dialog.waitFor({ state: 'visible', timeout: 4000 })
     const item = (label) =>
@@ -19780,7 +21263,10 @@ async function testFeature102(page) {
       (r) => r.url().includes('/system/oauth/provider') && r.request().method() === 'POST' && r.status() === 200,
       { timeout: 10000 }
     )
-    await dialog.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    await dialog
+      .getByRole('button', { name: /确\s*定|确定/ })
+      .first()
+      .click()
     const resp = await respPromise.catch(() => null)
     createdOk = !!resp
     record(102, '③ 合法创建 provider（POST 200）', createdOk, createdOk ? `name=${pname}` : '未捕获创建响应')
@@ -19793,7 +21279,10 @@ async function testFeature102(page) {
   if (createdOk) {
     try {
       const searchPromise = page.waitForResponse(
-        (r) => r.url().includes('/system/oauth/provider/list') && r.url().includes(`providerName=${pname}`) && r.status() === 200,
+        (r) =>
+          r.url().includes('/system/oauth/provider/list') &&
+          r.url().includes(`providerName=${pname}`) &&
+          r.status() === 200,
         { timeout: 10000 }
       )
       await page.locator('input[placeholder*="提供商名称"]').first().fill(pname)
@@ -19859,8 +21348,17 @@ async function testFeature102(page) {
       await page.waitForTimeout(600)
       const stillThere = await row.isVisible().catch(() => false)
       record(102, '⑤ 删除确认弹「取消」→ 记录仍在', stillThere)
-      const apiBefore = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
-      record(102, '⑤b 取消后 API 复核记录仍在', (apiBefore?.rows || []).some((r) => r.providerName === pname))
+      const apiBefore = await fetch(
+        `${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`,
+        { headers: authHeaders }
+      )
+        .then((r) => r.json())
+        .catch(() => null)
+      record(
+        102,
+        '⑤b 取消后 API 复核记录仍在',
+        (apiBefore?.rows || []).some((r) => r.providerName === pname)
+      )
 
       await row.getByRole('button', { name: /删除/ }).first().click()
       const box2 = page.locator('.el-message-box:visible').first()
@@ -19874,8 +21372,13 @@ async function testFeature102(page) {
       await page.waitForTimeout(800)
       const gone = !(await row.isVisible().catch(() => false))
       record(102, '⑥ 确认删除 → 行消失（DELETE 200）', !!delResp && gone, `del=${!!delResp}, gone=${gone}`)
-      const apiAfter = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
-      record(102, '⑥b API 复核已删除（自清完成）', ((apiAfter?.rows || [])).length === 0)
+      const apiAfter = await fetch(
+        `${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=10&providerName=${pname}`,
+        { headers: authHeaders }
+      )
+        .then((r) => r.json())
+        .catch(() => null)
+      record(102, '⑥b API 复核已删除（自清完成）', (apiAfter?.rows || []).length === 0)
     } catch (err) {
       record(102, '⑥ 删除链', false, `异常: ${err.message.slice(0, 120)}`)
     }
@@ -19883,10 +21386,21 @@ async function testFeature102(page) {
 
   // 兜底自清（防中途失败残留）
   try {
-    const list = await fetch(`${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=50&providerName=e2e_oauth_`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/oauth/provider/list?pageNum=1&pageSize=50&providerName=e2e_oauth_`,
+      { headers: authHeaders }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
     const ids = (list?.rows || []).map((r) => r.providerId)
-    if (ids.length > 0) await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids.join(',')}`, { method: 'DELETE', headers: authHeaders })
-  } catch { /* best-effort */ }
+    if (ids.length > 0)
+      await fetch(`${CONFIG.backendUrl}/system/oauth/provider/${ids.join(',')}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      })
+  } catch {
+    /* best-effort */
+  }
   await dismissAllOverlays(page)
 }
 
@@ -19905,12 +21419,27 @@ async function testFeature103(page) {
 
   // 0. API 建 hook（复用 F81 建数口径）
   const created = await fetch(`${CONFIG.backendUrl}/monitor/webHook`, {
-    method: 'POST', headers: authHeaders,
-    body: JSON.stringify({ hookName, targetUrl: target, subscribedEvents: ['login.success'], contentType: 'json', timeoutSecs: 2, status: '0' })
-  }).then((r) => r.json()).catch(() => null)
+    method: 'POST',
+    headers: authHeaders,
+    body: JSON.stringify({
+      hookName,
+      targetUrl: target,
+      subscribedEvents: ['login.success'],
+      contentType: 'json',
+      timeoutSecs: 2,
+      status: '0'
+    })
+  })
+    .then((r) => r.json())
+    .catch(() => null)
   record(103, '⓪ API 建 hook', created?.code === 200, `code=${created?.code}`)
   if (created?.code !== 200) return
-  const hlist = await fetch(`${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=10&hookName=${encodeURIComponent(hookName)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+  const hlist = await fetch(
+    `${CONFIG.backendUrl}/monitor/webHook/list?pageNum=1&pageSize=10&hookName=${encodeURIComponent(hookName)}`,
+    { headers: authHeaders }
+  )
+    .then((r) => r.json())
+    .catch(() => null)
   const hookId = hlist?.rows?.[0]?.id
 
   try {
@@ -19919,7 +21448,10 @@ async function testFeature103(page) {
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
     await skipTour(page)
     const searchPromise = page.waitForResponse(
-      (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+      (r) =>
+        r.url().includes('/monitor/webHook/list') &&
+        r.url().includes(`hookName=${encodeURIComponent(hookName)}`) &&
+        r.status() === 200,
       { timeout: 10000 }
     )
     await page.locator('input[placeholder*="回调名称"], input[aria-label*="回调名称"]').first().fill(hookName)
@@ -19929,13 +21461,19 @@ async function testFeature103(page) {
     let rowOk = false
     for (let attempt = 0; attempt < 3 && !rowOk; attempt++) {
       const retrySearch = page.waitForResponse(
-        (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+        (r) =>
+          r.url().includes('/monitor/webHook/list') &&
+          r.url().includes(`hookName=${encodeURIComponent(hookName)}`) &&
+          r.status() === 200,
         { timeout: 10000 }
       )
       await page.getByRole('button', { name: /搜索/ }).first().click()
       await retrySearch
       const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
-      rowOk = await row.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      rowOk = await row
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       if (!rowOk) await sleep(1200)
     }
     record(103, '① 列表含 API 预建 hook', rowOk)
@@ -19947,11 +21485,19 @@ async function testFeature103(page) {
       // tour 可能晚到拦截点击：重试（每次先 skipTour 清理覆盖层/软提示）
       for (let i = 0; i < 3 && !catalogOk; i++) {
         await skipTour(page)
-        await page.getByRole('button', { name: /事件目录/ }).first().click({ force: true })
+        await page
+          .getByRole('button', { name: /事件目录/ })
+          .first()
+          .click({ force: true })
         dlg = page.locator('.el-dialog:visible').last()
-        catalogOk = await dlg.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        catalogOk = await dlg
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         if (!catalogOk) {
-          log(`  [diag-103②] try ${i}: btnCount=${await page.getByRole('button', { name: /事件目录/ }).count()}, dlgTotal=${await page.locator('.el-dialog').count()}, tour=${await skipTour && ''}${await page.locator('[class*="tour"]').count()}`)
+          log(
+            `  [diag-103②] try ${i}: btnCount=${await page.getByRole('button', { name: /事件目录/ }).count()}, dlgTotal=${await page.locator('.el-dialog').count()}, tour=${(await skipTour) && ''}${await page.locator('[class*="tour"]').count()}`
+          )
         }
       }
       // 目录行（表格行或列表项）> 0
@@ -19980,12 +21526,27 @@ async function testFeature103(page) {
     await skipTour(page)
     const not404 = !(await is404Page(page))
     const filterOk =
-      (await page.locator('form.el-form--inline').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) ||
-      (await page.locator('.el-form-item').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+      (await page
+        .locator('form.el-form--inline')
+        .first()
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)) ||
+      (await page
+        .locator('.el-form-item')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
     const tableOk =
       (await page.locator('.el-table__row').count()) > 0 ||
       (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
-    record(103, '③ 日志页筛选可达且表格/空态渲染', not404 && filterOk && tableOk, `404=${!not404}, filter=${filterOk}, table=${tableOk}`)
+    record(
+      103,
+      '③ 日志页筛选可达且表格/空态渲染',
+      not404 && filterOk && tableOk,
+      `404=${!not404}, filter=${filterOk}, table=${tableOk}`
+    )
   } catch (err) {
     record(103, '③ 日志页筛选可达且表格/空态渲染', false, `异常: ${err.message.slice(0, 120)}`)
   }
@@ -19996,14 +21557,22 @@ async function testFeature103(page) {
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
     await skipTour(page)
     const searchPromise = page.waitForResponse(
-      (r) => r.url().includes('/monitor/webHook/list') && r.url().includes(`hookName=${encodeURIComponent(hookName)}`) && r.status() === 200,
+      (r) =>
+        r.url().includes('/monitor/webHook/list') &&
+        r.url().includes(`hookName=${encodeURIComponent(hookName)}`) &&
+        r.status() === 200,
       { timeout: 10000 }
     )
     await page.locator('input[placeholder*="回调名称"], input[aria-label*="回调名称"]').first().fill(hookName)
     await page.getByRole('button', { name: /搜索/ }).first().click()
     await searchPromise
     const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
-    if (await row.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) {
+    if (
+      await row
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await row.getByRole('button', { name: /删除/ }).first().click()
       const box = page.locator('.el-message-box:visible').first()
       await box.waitFor({ state: 'visible', timeout: 4000 })
@@ -20020,7 +21589,12 @@ async function testFeature103(page) {
 
   // 清理：API 删除 hook（自清）
   if (hookId) {
-    const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${hookId}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const del = await fetch(`${CONFIG.backendUrl}/monitor/webHook/${hookId}`, {
+      method: 'DELETE',
+      headers: authHeaders
+    })
+      .then((r) => r.json())
+      .catch(() => null)
     record(103, '⑤ 清理：API 删除 hook', del?.code === 200, `code=${del?.code}`)
   }
   await dismissAllOverlays(page)
@@ -20041,14 +21615,25 @@ async function testFeature104(page) {
   // 0. API 建临时用户（F62 口径；roleIds 留空——留出未持有角色供 ②b 勾选）
   try {
     const created = await fetch(`${CONFIG.backendUrl}/system/user`, {
-      method: 'POST', headers: authHeaders,
+      method: 'POST',
+      headers: authHeaders,
       body: JSON.stringify({
-        deptId: 100, userName: uname, nickName: `详情测试${uname.slice(-6)}`,
-        password: 'Test@12345', phonenumber: e2ePhone(), email: 'e2e_view@example.com',
-        sex: '0', status: '0', roleIds: [], postIds: []
+        deptId: 100,
+        userName: uname,
+        nickName: `详情测试${uname.slice(-6)}`,
+        password: 'Test@12345',
+        phonenumber: e2ePhone(),
+        email: 'e2e_view@example.com',
+        sex: '0',
+        status: '0',
+        roleIds: [],
+        postIds: []
       })
     }).then((r) => r.json())
-    const list = await fetch(`${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`, { headers: authHeaders }).then((r) => r.json())
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/user/list?userName=${encodeURIComponent(uname)}&pageSize=10`,
+      { headers: authHeaders }
+    ).then((r) => r.json())
     uid = (list?.rows || []).find((r) => r.userName === uname)?.userId ?? null
     record(104, '⓪ API 建临时用户', created?.code === 200 && uid != null, `code=${created?.code}, uid=${uid}`)
   } catch (err) {
@@ -20070,23 +21655,39 @@ async function testFeature104(page) {
     await searchPromise
     // 全量跑时后端偏慢：行渲染最多等 8s，未命中再搜一次
     const row = page.locator('.el-table__row').filter({ hasText: uname }).first()
-    let rowOk = await row.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+    let rowOk = await row
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
     if (!rowOk) {
-      await page.getByRole('button', { name: /搜索/ }).first().click().catch(() => {})
+      await page
+        .getByRole('button', { name: /搜索/ })
+        .first()
+        .click()
+        .catch(() => {})
       await page.waitForTimeout(2000)
-      rowOk = await row.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      rowOk = await row
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
     }
     record(104, '① 搜索定位临时用户行', rowOk)
     if (rowOk) {
       await row.locator('a.el-link, .el-link').first().click()
       const drawer = page.locator('.el-drawer:visible').first()
-      const drawerOk = await drawer.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      const drawerOk = await drawer
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       // 详情字段非空渲染：账号名出现
       let fieldOk = false
       if (drawerOk) {
         for (let i = 0; i < 6; i++) {
           const txt = await drawer.innerText().catch(() => '')
-          if (txt.includes(uname)) { fieldOk = true; break }
+          if (txt.includes(uname)) {
+            fieldOk = true
+            break
+          }
           await page.waitForTimeout(500)
         }
       }
@@ -20099,13 +21700,24 @@ async function testFeature104(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/user-auth/role/${uid}`, 'user-auth/role')
     await skipTour(page)
-    const roleTableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const roleTableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(104, '② authRole 页表格渲染', roleTableOk)
     if (roleTableOk) {
       // 取当前角色集合：后端 GET /system/user/authRole/{uid} 的 roles 不含 flag（产品缺陷，见报告），
       // 因此用 GET /system/user/{uid} 顶层 roleIds 作为已持有角色真值
-      const userBefore = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
-      const rolesList = await fetch(`${CONFIG.backendUrl}/system/role/list?pageNum=1&pageSize=50`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const userBefore = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
+      const rolesList = await fetch(`${CONFIG.backendUrl}/system/role/list?pageNum=1&pageSize=50`, {
+        headers: authHeaders
+      })
+        .then((r) => r.json())
+        .catch(() => null)
       const rolesAll = rolesList?.rows || []
       const currentRoleIds = (userBefore?.roleIds || []).map(Number)
       const candidate = rolesAll.find(
@@ -20117,7 +21729,10 @@ async function testFeature104(page) {
         let clicked = false
         const n = await rows.count()
         for (let i = 0; i < n; i++) {
-          const txt = await rows.nth(i).innerText().catch(() => '')
+          const txt = await rows
+            .nth(i)
+            .innerText()
+            .catch(() => '')
           if (new RegExp(`\\b${targetRoleId}\\b`).test(txt)) {
             await rows.nth(i).locator('.el-checkbox').first().click({ force: true })
             clicked = true
@@ -20129,20 +21744,33 @@ async function testFeature104(page) {
             (r) => r.url().includes('/system/user/authRole') && r.request().method() === 'PUT' && r.status() === 200,
             { timeout: 8000 }
           )
-          await page.getByRole('button', { name: /提交|保存/ }).first().click()
+          await page
+            .getByRole('button', { name: /提交|保存/ })
+            .first()
+            .click()
           const saveResp = await savePromise.catch(() => null)
           await page.waitForTimeout(1000)
-          const userAfter = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const userAfter = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders })
+            .then((r) => r.json())
+            .catch(() => null)
           const afterIds = (userAfter?.roleIds || []).map(Number)
           const granted = afterIds.includes(targetRoleId)
-          record(104, '②b 勾选角色保存 → API 回读含该角色', !!saveResp && granted, `role=${targetRoleId}, save=${!!saveResp}, ids=[${afterIds.join(',')}]`)
+          record(
+            104,
+            '②b 勾选角色保存 → API 回读含该角色',
+            !!saveResp && granted,
+            `role=${targetRoleId}, save=${!!saveResp}, ids=[${afterIds.join(',')}]`
+          )
           // 取消勾选恢复初态（重新进入 authRole 页操作）
           await presetTourDisabled(page)
           await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/user-auth/role/${uid}`, 'user-auth/role')
           const rows2 = page.locator('.el-table__row')
           const n2 = await rows2.count()
           for (let i = 0; i < n2; i++) {
-            const txt = await rows2.nth(i).innerText().catch(() => '')
+            const txt = await rows2
+              .nth(i)
+              .innerText()
+              .catch(() => '')
             if (new RegExp(`\\b${targetRoleId}\\b`).test(txt)) {
               const cb = rows2.nth(i).locator('.el-checkbox').first()
               // 仅在确实处于勾选态时点击取消（authRole 预检查依赖后端 flag，产品缺陷可能致复选框未勾选）
@@ -20155,12 +21783,22 @@ async function testFeature104(page) {
             (r) => r.url().includes('/system/user/authRole') && r.request().method() === 'PUT' && r.status() === 200,
             { timeout: 8000 }
           )
-          await page.getByRole('button', { name: /提交|保存/ }).first().click()
+          await page
+            .getByRole('button', { name: /提交|保存/ })
+            .first()
+            .click()
           await restorePromise.catch(() => null)
           await page.waitForTimeout(1000)
-          const userRestored = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const userRestored = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { headers: authHeaders })
+            .then((r) => r.json())
+            .catch(() => null)
           const restoredIds = (userRestored?.roleIds || []).map(Number)
-          record(104, '②c 取消勾选恢复初态（不含该角色）', !restoredIds.includes(targetRoleId), `ids=[${restoredIds.join(',')}]`)
+          record(
+            104,
+            '②c 取消勾选恢复初态（不含该角色）',
+            !restoredIds.includes(targetRoleId),
+            `ids=[${restoredIds.join(',')}]`
+          )
         } else {
           record(104, '②b 勾选角色保存 → API 回读含该角色', false, `未在表格中定位角色 ${targetRoleId}`)
         }
@@ -20176,51 +21814,95 @@ async function testFeature104(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/role-auth/user/2`, 'role-auth/user')
     await skipTour(page)
-    const authTableOk = await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const authTableOk = await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(104, '③ authUser 页表格渲染（role 2）', authTableOk)
     if (authTableOk) {
       // 先经 API 把临时用户挂到角色 2，制造可取消授权的真实前提（PUT + query params，对齐前端 api/system/role.ts）
       const bind = await fetch(`${CONFIG.backendUrl}/system/role/authUser/selectAll?roleId=2&userIds=${uid}`, {
-        method: 'PUT', headers: authHeaders
-      }).then((r) => r.json()).catch(() => null)
+        method: 'PUT',
+        headers: authHeaders
+      })
+        .then((r) => r.json())
+        .catch(() => null)
       if (bind?.code === 200) {
         // 刷新 authUser 页并搜索
         await presetTourDisabled(page)
         await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/role-auth/user/2`, 'role-auth/user')
         const searchPromise2 = page.waitForResponse(
-          (r) => r.url().includes('/system/role/authUser/allocatedList') && r.url().includes('userName=') && r.status() === 200,
+          (r) =>
+            r.url().includes('/system/role/authUser/allocatedList') &&
+            r.url().includes('userName=') &&
+            r.status() === 200,
           { timeout: 10000 }
         )
         const searchInput2 = page.locator('input[placeholder*="用户名称"], input[placeholder*="账号"]').first()
-        if (await searchInput2.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+        if (
+          await searchInput2
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await searchInput2.fill(uname)
           await page.getByRole('button', { name: /搜索/ }).first().click()
           await searchPromise2.catch(() => null)
         }
         const uRow = page.locator('.el-table__row').filter({ hasText: uname }).first()
-        if (await uRow.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) {
+        if (
+          await uRow
+            .waitFor({ state: 'visible', timeout: 5000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           const cancelPromise = page.waitForResponse(
-            (r) => r.url().includes('/system/role/authUser/cancel') && r.request().method() === 'PUT' && r.status() === 200,
+            (r) =>
+              r.url().includes('/system/role/authUser/cancel') && r.request().method() === 'PUT' && r.status() === 200,
             { timeout: 8000 }
           )
-          await uRow.getByRole('button', { name: /取消授权/ }).first().click()
+          await uRow
+            .getByRole('button', { name: /取消授权/ })
+            .first()
+            .click()
           const box = page.locator('.el-message-box:visible').first()
           await box.waitFor({ state: 'visible', timeout: 4000 })
           await box.locator('.el-message-box__btns .el-button--primary').first().click()
           const cancelResp = await cancelPromise.catch(() => null)
           await page.waitForTimeout(1000)
-          const alloc = await fetch(`${CONFIG.backendUrl}/system/role/authUser/allocatedList?pageNum=1&pageSize=50&roleId=2&userName=${encodeURIComponent(uname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+          const alloc = await fetch(
+            `${CONFIG.backendUrl}/system/role/authUser/allocatedList?pageNum=1&pageSize=50&roleId=2&userName=${encodeURIComponent(uname)}`,
+            { headers: authHeaders }
+          )
+            .then((r) => r.json())
+            .catch(() => null)
           const stillAllocated = (alloc?.rows || []).some((r) => r.userName === uname)
-          record(104, '③b 取消授权生效（allocatedList 不再含该用户）', !!cancelResp && !stillAllocated, `cancel=${!!cancelResp}, still=${stillAllocated}`)
+          record(
+            104,
+            '③b 取消授权生效（allocatedList 不再含该用户）',
+            !!cancelResp && !stillAllocated,
+            `cancel=${!!cancelResp}, still=${stillAllocated}`
+          )
         } else {
           // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
-          const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', { headers: authHeaders })
+          const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', {
+            headers: authHeaders
+          })
           recordSkip(104, '③b 取消授权生效', 'allocatedList 中未定位到该用户行', fb.status === 200)
         }
       } else {
         // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
-        const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', { headers: authHeaders })
-        recordSkip(104, '③b 取消授权生效', `API 挂载角色 2 未成功（code=${bind?.code}），仅断言表格渲染`, fb.status === 200)
+        const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', {
+          headers: authHeaders
+        })
+        recordSkip(
+          104,
+          '③b 取消授权生效',
+          `API 挂载角色 2 未成功（code=${bind?.code}），仅断言表格渲染`,
+          fb.status === 200
+        )
       }
     }
   } catch (err) {
@@ -20229,7 +21911,9 @@ async function testFeature104(page) {
 
   // 4. 清理临时用户
   if (uid) {
-    const del = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { method: 'DELETE', headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const del = await fetch(`${CONFIG.backendUrl}/system/user/${uid}`, { method: 'DELETE', headers: authHeaders })
+      .then((r) => r.json())
+      .catch(() => null)
     record(104, '④ 清理临时用户', del?.code === 200, `code=${del?.code}`)
   }
   await dismissAllOverlays(page)
@@ -20254,14 +21938,23 @@ async function testFeature105(page) {
   let created = null
   try {
     const res = await fetch(`${B}/system/oauth/client`, {
-      method: 'POST', headers: auth,
+      method: 'POST',
+      headers: auth,
       body: JSON.stringify({
-        ssoClientId: 0, clientName: `E2E-CONSENT-${Date.now()}`, logoUri: '',
-        redirectUris: [redirectUri], scopes: ['openid', 'profile'],
-        grantTypes: ['authorization_code'], consentRequired: '1', enabled: '1', remark: 'e2e consent 临时客户端'
+        ssoClientId: 0,
+        clientName: `E2E-CONSENT-${Date.now()}`,
+        logoUri: '',
+        redirectUris: [redirectUri],
+        scopes: ['openid', 'profile'],
+        grantTypes: ['authorization_code'],
+        consentRequired: '1',
+        enabled: '1',
+        remark: 'e2e consent 临时客户端'
       })
     }).then((r) => r.json())
-    created = res?.data?.clientId ? { ssoClientId: res.data.client.ssoClientId, clientId: res.data.clientId, clientSecret: res.data.clientSecret } : null
+    created = res?.data?.clientId
+      ? { ssoClientId: res.data.client.ssoClientId, clientId: res.data.clientId, clientSecret: res.data.clientSecret }
+      : null
     record(105, '⓪ API 建 consent 客户端', !!created, `code=${res?.code}`)
   } catch (err) {
     record(105, '⓪ API 建 consent 客户端', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20269,9 +21962,14 @@ async function testFeature105(page) {
 
   const authorizeUrlOf = (clientId) => {
     const qs = new URLSearchParams({
-      client_id: clientId, redirect_uri: redirectUri, response_type: 'code',
-      scope: 'openid profile', state: randB64url(8), nonce: randB64url(8),
-      code_challenge: challengeOf(randB64url(32)), code_challenge_method: 'S256'
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid profile',
+      state: randB64url(8),
+      nonce: randB64url(8),
+      code_challenge: challengeOf(randB64url(32)),
+      code_challenge_method: 'S256'
     })
     return `${B}/sso/authorize?${qs.toString()}`
   }
@@ -20292,9 +21990,24 @@ async function testFeature105(page) {
       const scopeFirst = p2.locator('ul.scope-list li, .scope-list li').first()
       await scopeFirst.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
       const scopeItems = await p2.locator('ul.scope-list li, .scope-list li').count()
-      const denyBtn = await p2.getByRole('button', { name: /拒绝|Deny/ }).first().waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      const allowBtn = await p2.getByRole('button', { name: /允许|同意|授权|Allow|Approve/ }).first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      record(105, '① 同意页渲染：scope 列表 + 同意/拒绝按钮', onConsent && scopeItems > 0 && denyBtn && allowBtn, `consent=${onConsent}, scopes=${scopeItems}, deny=${denyBtn}, allow=${allowBtn}`)
+      const denyBtn = await p2
+        .getByRole('button', { name: /拒绝|Deny/ })
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      const allowBtn = await p2
+        .getByRole('button', { name: /允许|同意|授权|Allow|Approve/ })
+        .first()
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      record(
+        105,
+        '① 同意页渲染：scope 列表 + 同意/拒绝按钮',
+        onConsent && scopeItems > 0 && denyBtn && allowBtn,
+        `consent=${onConsent}, scopes=${scopeItems}, deny=${denyBtn}, allow=${allowBtn}`
+      )
     } catch (err) {
       record(105, '① 同意页渲染：scope 列表 + 同意/拒绝按钮', false, `异常: ${err.message.slice(0, 120)}`)
     }
@@ -20306,7 +22019,10 @@ async function testFeature105(page) {
       await p2.goto(authorizeUrlOf(created.clientId), { waitUntil: 'load' })
       await p2.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
       await p2.waitForTimeout(1000)
-      await p2.getByRole('button', { name: /拒绝|Deny/ }).first().click()
+      await p2
+        .getByRole('button', { name: /拒绝|Deny/ })
+        .first()
+        .click()
       const denied = await p2
         .waitForURL((u) => u.toString().includes('error=access_denied'), { timeout: 15000 })
         .then(() => true)
@@ -20324,7 +22040,10 @@ async function testFeature105(page) {
       await p3.goto(authorizeUrlOf(created.clientId), { waitUntil: 'load' })
       await p3.waitForURL((u) => u.toString().includes('/sso-consent'), { timeout: 15000 }).catch(() => {})
       await p3.waitForTimeout(1000)
-      await p3.getByRole('button', { name: /允许|同意|授权|Allow|Approve/ }).first().click()
+      await p3
+        .getByRole('button', { name: /允许|同意|授权|Allow|Approve/ })
+        .first()
+        .click()
       const coded = await p3
         .waitForURL((u) => u.toString().includes('code='), { timeout: 15000 })
         .then(() => true)
@@ -20340,7 +22059,9 @@ async function testFeature105(page) {
 
   // 清理：删除 consent 客户端（自清）
   if (created) {
-    const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { method: 'DELETE', headers: auth }).then((r) => r.json()).catch(() => null)
+    const del = await fetch(`${B}/system/oauth/client/${created.ssoClientId}`, { method: 'DELETE', headers: auth })
+      .then((r) => r.json())
+      .catch(() => null)
     record(105, '④ 清理：删除 consent 客户端', del?.code === 200 || del?.code === 0, `code=${del?.code}`)
   }
 }
@@ -20358,28 +22079,60 @@ async function testFeature106(page) {
     await sleep(1500)
     await skipTour(page)
     const card = page.locator('.el-card').first()
-    const cardOk = await card.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
-    const unsupported = await page.locator('.el-alert--warning').first().waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+    const cardOk = await card
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const unsupported = await page
+      .locator('.el-alert--warning')
+      .first()
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     if (unsupported) {
-      record(106, '① passkeys：无认证器环境显示警告横幅（SKIP 语义）', cardOk, 'unsupported 横幅可见，注册入口按能力位收敛')
+      record(
+        106,
+        '① passkeys：无认证器环境显示警告横幅（SKIP 语义）',
+        cardOk,
+        'unsupported 横幅可见，注册入口按能力位收敛'
+      )
     } else {
       const addBtn = page.getByRole('button', { name: /添加|新增|注册/ }).first()
-      if (await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+      if (
+        await addBtn
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await addBtn.click()
         const dlg = page.locator('.el-dialog:visible').last()
         await dlg.waitFor({ state: 'visible', timeout: 4000 })
-        await dlg.locator('input').first().fill(`e2e-pk-${Date.now().toString(36)}`)
-        await dlg.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+        await dlg
+          .locator('input')
+          .first()
+          .fill(`e2e-pk-${Date.now().toString(36)}`)
+        await dlg
+          .getByRole('button', { name: /确\s*定|确定/ })
+          .first()
+          .click()
         // 无真实认证器：registerStart 404 / navigator.credentials 失败 → 错误 Toast（.catch 语义）
         const errToast = page.locator('.el-message--error, .el-message--warning').first()
-        const errShown = await errToast.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+        const errShown = await errToast
+          .waitFor({ state: 'visible', timeout: 8000 })
+          .then(() => true)
+          .catch(() => false)
         record(106, '① passkeys：注册失败出现错误提示（.catch 语义）', errShown)
         await page.keyboard.press('Escape')
         await page.waitForTimeout(400)
       } else {
         // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
         const fb = authHeaders ? await apiWithBackoff('/system/user/profile', { headers: authHeaders }) : null
-        recordSkip(106, '① passkeys：注册失败出现错误提示（.catch 语义）', '能力位未开放（无注册按钮），仅断言卡片渲染', fb ? fb.status === 200 : null)
+        recordSkip(
+          106,
+          '① passkeys：注册失败出现错误提示（.catch 语义）',
+          '能力位未开放（无注册按钮），仅断言卡片渲染',
+          fb ? fb.status === 200 : null
+        )
       }
     }
   } catch (err) {
@@ -20394,13 +22147,27 @@ async function testFeature106(page) {
     await skipTour(page)
     // 个人中心页首个 .el-card 是基本资料卡——用 grant-list 容器精确定位 ssoGrants 卡
     const card = page.locator('.el-card:has(.grant-list)').first()
-    const rendered = await card.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const rendered = await card
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     await page.waitForTimeout(1500)
     const hasList = (await card.locator('.grant-item').count()) > 0
-    const hasEmpty = await card.locator('.el-empty').first().waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+    const hasEmpty = await card
+      .locator('.el-empty')
+      .first()
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(106, '② ssoGrants：列表或空态渲染', rendered && (hasList || hasEmpty), `list=${hasList}, empty=${hasEmpty}`)
     const revokeBtn = card.getByRole('button', { name: /撤销|revoke/i }).first()
-    if (hasList && (await revokeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))) {
+    if (
+      hasList &&
+      (await revokeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
       await revokeBtn.click()
       const box = page.locator('.el-message-box:visible').first()
       await box.waitFor({ state: 'visible', timeout: 4000 })
@@ -20424,7 +22191,10 @@ async function testFeature106(page) {
     await sleep(1500)
     await skipTour(page)
     const emailSwitch = page.locator('.el-switch').first()
-    const swOk = await emailSwitch.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const swOk = await emailSwitch
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     if (swOk && authHeaders) {
       // 记录原值（API 回读，避免依赖 DOM 初态）
       const before = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders })
@@ -20444,16 +22214,21 @@ async function testFeature106(page) {
       await page.reload({ waitUntil: 'load' })
       await sleep(1500)
       await skipTour(page)
-      const after = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+      const after = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders })
+        .then((r) => r.json())
+        .catch(() => null)
       const newVal = after?.data?.emailNotify
       const flipped = newVal !== undefined && origEmail !== undefined ? newVal !== origEmail : true
       record(106, '③b msgPref：切换持久化', flipped, `orig=${origEmail}, now=${newVal}`)
       // 恢复原值（API 直写，幂等）
       if (origEmail !== undefined && newVal !== origEmail) {
         const restore = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, {
-          method: 'PUT', headers: authHeaders,
+          method: 'PUT',
+          headers: authHeaders,
           body: JSON.stringify({ ...after.data, emailNotify: origEmail })
-        }).then((r) => r.json()).catch(() => null)
+        })
+          .then((r) => r.json())
+          .catch(() => null)
         record(106, '③c msgPref：恢复原值', restore?.code === 200, `code=${restore?.code}`)
       } else {
         // F117：SKIP 补 messagePref 接口 200 兜底，不再空记 PASS
@@ -20474,13 +22249,24 @@ async function testFeature106(page) {
     await sleep(1500)
     await skipTour(page)
     const card = page.locator('.totp-card, .el-card').first()
-    const cardOk = await card.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
-    const enabledTag = await card.locator('.el-tag--success').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const cardOk = await card
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const enabledTag = await card
+      .locator('.el-tag--success')
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (cardOk && enabledTag) {
       const disableBtn = card.getByRole('button', { name: /禁用|解绑|关闭/ }).first()
       await disableBtn.click()
       const pwdInput = page.locator('input[type="password"]').first()
-      const formShown = await pwdInput.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const formShown = await pwdInput
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       record(106, '④ totp：解绑表单打开', formShown)
       // 取消 → 回到已启用态
       const cancelBtn = page.getByRole('button', { name: /取消/ }).first()
@@ -20488,11 +22274,24 @@ async function testFeature106(page) {
         await cancelBtn.click()
         await page.waitForTimeout(500)
       }
-      const backToEnabled = await card.getByRole('button', { name: /禁用|解绑|关闭/ }).first().waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const backToEnabled = await card
+        .getByRole('button', { name: /禁用|解绑|关闭/ })
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(106, '④b totp：取消后回到已启用态', backToEnabled)
     } else {
       const setupBtn = card.getByRole('button', { name: /生成密钥|绑定|开启/ }).first()
-      record(106, '④ totp：解绑表单打开', cardOk, `SKIP：TOTP 未启用（enabledTag=${enabledTag}），引导流程渲染=${await setupBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)}`)
+      record(
+        106,
+        '④ totp：解绑表单打开',
+        cardOk,
+        `SKIP：TOTP 未启用（enabledTag=${enabledTag}），引导流程渲染=${await setupBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)}`
+      )
     }
   } catch (err) {
     record(106, '④ totp', false, `异常: ${err.message.slice(0, 120)}`)
@@ -20519,7 +22318,11 @@ async function testFeature107(page) {
   await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/report/index`, 'report/index')
   await skipTour(page)
   const not404 = !(await is404Page(page))
-  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .catch(() => {})
   const tableOk =
     (await page.locator('.el-table__row').count()) > 0 ||
     (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
@@ -20530,26 +22333,61 @@ async function testFeature107(page) {
     await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
     const dlg = page.locator('.el-dialog:visible').last()
     await dlg.waitFor({ state: 'visible', timeout: 4000 })
-    await dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表编码")') }).locator('input').first().fill(rcode)
-    await dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表名称")') }).locator('input').first().fill(rname)
+    await dlg
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("报表编码")') })
+      .locator('input')
+      .first()
+      .fill(rcode)
+    await dlg
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("报表名称")') })
+      .locator('input')
+      .first()
+      .fill(rname)
     // reportType 与 config 均为必填：选「自定义」类型 + 填最小 config
-    const typeItem = dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表类型")') })
+    const typeItem = dlg
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("报表类型")') })
     await typeItem.locator('.el-select').first().click()
-    await page.locator('.el-select-dropdown__item:visible').filter({ hasText: /自定义|custom/ }).first().click()
-    const cfgItem = dlg.locator('.el-form-item').filter({ has: page.locator('.el-form-item__label:text-is("报表配置")') })
-    if (await cfgItem.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
-      const cfgVal = await cfgItem.locator('textarea').first().inputValue().catch(() => '')
+    await page
+      .locator('.el-select-dropdown__item:visible')
+      .filter({ hasText: /自定义|custom/ })
+      .first()
+      .click()
+    const cfgItem = dlg
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("报表配置")') })
+    if (
+      await cfgItem
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      const cfgVal = await cfgItem
+        .locator('textarea')
+        .first()
+        .inputValue()
+        .catch(() => '')
       if (!cfgVal || !cfgVal.trim()) await cfgItem.locator('textarea').first().fill('{}')
     }
     const savePromise = page.waitForResponse(
       (r) => r.url().includes('/system/report') && r.request().method() === 'POST' && r.status() === 200,
       { timeout: 10000 }
     )
-    await dlg.getByRole('button', { name: /确\s*定|确定/ }).first().click()
+    await dlg
+      .getByRole('button', { name: /确\s*定|确定/ })
+      .first()
+      .click()
     const saveResp = await savePromise.catch(() => null)
     await page.waitForTimeout(800)
     record(107, '② 新增报表保存（POST 200）', !!saveResp)
-    const list = await fetch(`${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`,
+      { headers: authHeaders }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
     const row = (list?.rows || []).find((r) => r.reportCode === rcode)
     reportId = row?.reportId ?? null
     record(107, '②b API 复核报表落库', !!row, `reportId=${reportId}`)
@@ -20578,14 +22416,22 @@ async function testFeature107(page) {
       await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/report/index`, 'report/index')
       await skipTour(page)
       const searchPromise = page.waitForResponse(
-        (r) => r.url().includes('/system/report/list') && r.url().includes(`reportName=${encodeURIComponent(rname)}`) && r.status() === 200,
+        (r) =>
+          r.url().includes('/system/report/list') &&
+          r.url().includes(`reportName=${encodeURIComponent(rname)}`) &&
+          r.status() === 200,
         { timeout: 10000 }
       )
       await page.locator('input[placeholder*="报表名称"]').first().fill(rname)
       await page.getByRole('button', { name: /搜索/ }).first().click()
       await searchPromise
       const row = page.locator('.el-table__row').filter({ hasText: rcode }).first()
-      if (await row.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) {
+      if (
+        await row
+          .waitFor({ state: 'visible', timeout: 5000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await row.getByRole('button', { name: /删除/ }).first().click()
         const box = page.locator('.el-message-box:visible').first()
         await box.waitFor({ state: 'visible', timeout: 4000 })
@@ -20597,8 +22443,13 @@ async function testFeature107(page) {
         const delResp = await delPromise.catch(() => null)
         await page.waitForTimeout(800)
         record(107, '④ 删除 → 确认 → 消失（DELETE 200）', !!delResp, `del=${!!delResp}`)
-        const apiAfter = await fetch(`${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`, { headers: authHeaders }).then((r) => r.json()).catch(() => null)
-        record(107, '④b API 复核已删除（自清完成）', ((apiAfter?.rows || [])).length === 0)
+        const apiAfter = await fetch(
+          `${CONFIG.backendUrl}/system/report/list?pageNum=1&pageSize=50&reportName=${encodeURIComponent(rname)}`,
+          { headers: authHeaders }
+        )
+          .then((r) => r.json())
+          .catch(() => null)
+        record(107, '④b API 复核已删除（自清完成）', (apiAfter?.rows || []).length === 0)
       } else {
         record(107, '④ 删除 → 确认 → 消失（DELETE 200）', false, '未定位到报表行')
       }
@@ -20609,7 +22460,9 @@ async function testFeature107(page) {
 
   // 兜底自清
   if (reportId) {
-    await fetch(`${CONFIG.backendUrl}/system/report/${reportId}`, { method: 'DELETE', headers: authHeaders }).catch(() => {})
+    await fetch(`${CONFIG.backendUrl}/system/report/${reportId}`, { method: 'DELETE', headers: authHeaders }).catch(
+      () => {}
+    )
   }
   await dismissAllOverlays(page)
 }
@@ -20625,9 +22478,25 @@ async function testFeature108(page) {
 
     // ① 组件面板与画布渲染
     const panelOk = (await page.locator('.left-board .components-item').count()) > 0
-    const boardOk = (await page.locator('.center-board').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)) ||
-      (await page.locator('.drawing-board').first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
-    record(108, '① 页面可达：组件面板+画布渲染', not404 && panelOk && boardOk, `not404=${not404}, panel=${panelOk}, board=${boardOk}`)
+    const boardOk =
+      (await page
+        .locator('.center-board')
+        .first()
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)) ||
+      (await page
+        .locator('.drawing-board')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
+    record(
+      108,
+      '① 页面可达：组件面板+画布渲染',
+      not404 && panelOk && boardOk,
+      `not404=${not404}, panel=${panelOk}, board=${boardOk}`
+    )
 
     // ② 点击添加一个输入类组件 → 画布出现该项（click 添加路径，绕开拖拽不稳）
     let addOk = false
@@ -20646,9 +22515,15 @@ async function testFeature108(page) {
     let dlgOk = false
     let dlgClosed = false
     try {
-      await page.getByRole('button', { name: /复制代码|生成代码|导出/ }).first().click({ force: true })
+      await page
+        .getByRole('button', { name: /复制代码|生成代码|导出/ })
+        .first()
+        .click({ force: true })
       const dlg = page.locator('.el-dialog:visible').last()
-      dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      dlgOk = await dlg
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (dlgOk) {
         await page.keyboard.press('Escape')
         await page.waitForTimeout(500)
@@ -20673,12 +22548,24 @@ async function testFeature109(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/frontendError`, 'frontendError')
     await skipTour(page)
-    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
     const rowCount = await page.locator('.el-table__row').count()
     if (rowCount > 0) {
-      await page.locator('.el-table__row').first().getByRole('button', { name: /详情|查看/ }).first().click({ force: true })
+      await page
+        .locator('.el-table__row')
+        .first()
+        .getByRole('button', { name: /详情|查看/ })
+        .first()
+        .click({ force: true })
       const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
-      const open = await detail.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const open = await detail
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       let fieldOk = false
       if (open) {
         const txt = (await detail.innerText().catch(() => '')).trim()
@@ -20690,7 +22577,11 @@ async function testFeature109(page) {
     } else {
       // F117：SKIP 补列表接口 200 兜底（复用主流程会话 token），不再空记 PASS
       const tk = await sessionTokenOf(page)
-      const fb = tk ? await apiWithBackoff('/monitor/frontendError/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      const fb = tk
+        ? await apiWithBackoff('/monitor/frontendError/list?pageNum=1&pageSize=1', {
+            headers: { Authorization: `Bearer ${tk}` }
+          })
+        : null
       recordSkip(109, '① frontendError 详情字段非空渲染', '列表无行，空态渲染断言兜底', fb ? fb.status === 200 : null)
       const emptyOk = (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
       record(109, '①b frontendError 空态渲染', emptyOk)
@@ -20704,12 +22595,24 @@ async function testFeature109(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/operlog`, 'operlog')
     await skipTour(page)
-    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
     const rowCount = await page.locator('.el-table__row').count()
     if (rowCount > 0) {
-      await page.locator('.el-table__row').first().getByRole('button', { name: /详情|详细/ }).first().click({ force: true })
+      await page
+        .locator('.el-table__row')
+        .first()
+        .getByRole('button', { name: /详情|详细/ })
+        .first()
+        .click({ force: true })
       const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
-      const open = await detail.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const open = await detail
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       let fieldOk = false
       if (open) {
         const txt = (await detail.innerText().catch(() => '')).trim()
@@ -20721,7 +22624,11 @@ async function testFeature109(page) {
     } else {
       // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
-      const fb = tk ? await apiWithBackoff('/monitor/operlog/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      const fb = tk
+        ? await apiWithBackoff('/monitor/operlog/list?pageNum=1&pageSize=1', {
+            headers: { Authorization: `Bearer ${tk}` }
+          })
+        : null
       recordSkip(109, '② operlog 详情字段非空渲染', '操作日志列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
@@ -20733,12 +22640,24 @@ async function testFeature109(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/notice`, 'notice')
     await skipTour(page)
-    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
     const rowCount = await page.locator('.el-table__row').count()
     if (rowCount > 0) {
-      await page.locator('.el-table__row').first().getByRole('button', { name: /阅读用户|已读/ }).first().click({ force: true })
+      await page
+        .locator('.el-table__row')
+        .first()
+        .getByRole('button', { name: /阅读用户|已读/ })
+        .first()
+        .click({ force: true })
       const dlg = page.locator('.el-dialog:visible').last()
-      const open = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const open = await dlg
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       const tableOk = open && (await dlg.locator('.el-table').count()) > 0
       record(109, '③ 公告已读情况弹窗渲染（含表格）', open && tableOk, `open=${open}, table=${tableOk}`)
       await page.keyboard.press('Escape')
@@ -20746,7 +22665,11 @@ async function testFeature109(page) {
     } else {
       // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
-      const fb = tk ? await apiWithBackoff('/system/notice/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      const fb = tk
+        ? await apiWithBackoff('/system/notice/list?pageNum=1&pageSize=1', {
+            headers: { Authorization: `Bearer ${tk}` }
+          })
+        : null
       recordSkip(109, '③ 公告已读情况弹窗渲染（含表格）', '公告列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
@@ -20758,11 +22681,20 @@ async function testFeature109(page) {
     await presetTourDisabled(page)
     await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/dict`, 'dict')
     await skipTour(page)
-    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
     const rowCount = await page.locator('.el-table__row').count()
     if (rowCount > 0) {
       // 「详细」不是弹窗：handleDataList 经 tab.openPage 跳 /system/dict-data/index/{dictId}
-      await page.locator('.el-table__row').first().getByRole('button', { name: /详细|详情/ }).first().click({ force: true })
+      await page
+        .locator('.el-table__row')
+        .first()
+        .getByRole('button', { name: /详细|详情/ })
+        .first()
+        .click({ force: true })
       const navOk = await page
         .waitForURL(/dict-data\/index\/\d+/, { timeout: 8000 })
         .then(() => true)
@@ -20771,11 +22703,20 @@ async function testFeature109(page) {
       const dictTable =
         (await page.locator('.el-table__row').count()) > 0 ||
         (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
-      record(109, '④ dict 详情渲染', navOk && dictTable, `nav=${navOk}, url=${page.url().slice(0, 80)}, table=${dictTable}`)
+      record(
+        109,
+        '④ dict 详情渲染',
+        navOk && dictTable,
+        `nav=${navOk}, url=${page.url().slice(0, 80)}, table=${dictTable}`
+      )
     } else {
       // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
-      const fb = tk ? await apiWithBackoff('/system/dict/type/list?pageNum=1&pageSize=1', { headers: { Authorization: `Bearer ${tk}` } }) : null
+      const fb = tk
+        ? await apiWithBackoff('/system/dict/type/list?pageNum=1&pageSize=1', {
+            headers: { Authorization: `Bearer ${tk}` }
+          })
+        : null
       recordSkip(109, '④ dict 详情渲染', '字典类型列表无行', fb ? fb.status === 200 : null)
     }
   } catch (err) {
@@ -20798,7 +22739,11 @@ async function testFeature110(page) {
   if (!ok) return
 
   // ② 列表至少可加载（表格渲染；行数不限——本用例不创建流程定义落库，无 ExitGuard 负担）
-  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .catch(() => {})
   const listOk =
     (await page.locator('.el-table__row').count()) > 0 ||
     (await page.locator('.el-table .el-empty, .el-table__empty-block').count()) > 0
@@ -20810,15 +22755,25 @@ async function testFeature110(page) {
     await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
     await page.waitForTimeout(800)
     // 表单式设计器（designer/index.vue 编辑分支）：节点/连线标题 + 「添加审批节点」按钮
-    const bodyText = await page.locator('.p-4').first().innerText().catch(() => '')
+    const bodyText = await page
+      .locator('.p-4')
+      .first()
+      .innerText()
+      .catch(() => '')
     const nodePanel = bodyText.includes('节点') && bodyText.includes('连线')
     const addNodeBtn = await page
       .getByRole('button', { name: /添加审批节点|添加结束节点/ })
       .first()
-      .waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2500 })
+      .then(() => true)
+      .catch(() => false)
     designerOk = nodePanel && addNodeBtn
     // 返回列表（编辑态不点保存，无数据写入）
-    await page.getByRole('button', { name: /返回/ }).first().click({ force: true }).catch(() => {})
+    await page
+      .getByRole('button', { name: /返回/ })
+      .first()
+      .click({ force: true })
+      .catch(() => {})
     await page.waitForTimeout(600)
   } catch (err) {
     log(`  F110 设计器交互异常: ${err.message.slice(0, 120)}`)
@@ -20855,10 +22810,16 @@ async function testFeature111(page) {
     try {
       await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
       const dlg = page.locator('.el-dialog:visible').last()
-      dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      dlgOk = await dlg
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (dlgOk) {
         // 取消关闭（不提交任何 POST——零落库负路径）
-        await dlg.getByRole('button', { name: /取\s*消|取消/ }).first().click()
+        await dlg
+          .getByRole('button', { name: /取\s*消|取消/ })
+          .first()
+          .click()
         await page.waitForTimeout(500)
         dlgClosed = (await page.locator('.el-dialog:visible').count()) === 0
       }
@@ -20874,10 +22835,24 @@ async function testFeature111(page) {
   const dashOk = await openPage(page, '/system/reportDashboard', 'reportDashboard')
   const boardOk =
     dashOk &&
-    ((await page.locator('.report-board').first().waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) ||
-      (await page.locator('.el-empty').first().waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)))
+    ((await page
+      .locator('.report-board')
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)) ||
+      (await page
+        .locator('.el-empty')
+        .first()
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)))
   record(111, '③ 大屏 view 容器渲染（.report-board 或空态）', boardOk)
-  const emptyDesc = await page.locator('.el-empty__description').first().innerText().catch(() => '')
+  const emptyDesc = await page
+    .locator('.el-empty__description')
+    .first()
+    .innerText()
+    .catch(() => '')
   const hasBoard = (await page.locator('.report-board').count()) > 0
   record(
     111,
@@ -20899,15 +22874,25 @@ async function testFeature112(page) {
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 
   // ⓪ 自建 PAT（F48 口径；先清理历史 e2e PAT 防每用户上限守卫；本用例自建自清）
-  try { await mLevelCleanupPats(token) } catch { /* 清理失败不阻断 */ }
+  try {
+    await mLevelCleanupPats(token)
+  } catch {
+    /* 清理失败不阻断 */
+  }
   const patName = `e2e-pat112-${Date.now().toString(36)}`
   const created = await apiWithBackoff('/system/user/profile/tokens', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ name: patName, scopes: ['system:config:list'], expireDays: 1 })
   })
   const patToken = created.body?.data?.token
   const patId = created.body?.data?.pat?.patId
-  record(112, '⓪ API 自建 PAT（明文一次性返回）', created.status === 200 && !!patToken && !!patId, `status=${created.status}`)
+  record(
+    112,
+    '⓪ API 自建 PAT（明文一次性返回）',
+    created.status === 200 && !!patToken && !!patId,
+    `status=${created.status}`
+  )
   if (!patToken || !patId) return
 
   try {
@@ -20929,7 +22914,12 @@ async function testFeature112(page) {
     const html = await page.content().catch(() => '')
     const noFull = !html.includes(patToken)
     const noSecretTail = !html.includes(patToken.slice(11, 19))
-    record(112, '③ token 脱敏（HTML 无完整明文/无超出展示前缀的片段）', noFull && noSecretTail, `full=${noFull}, tail=${noSecretTail}`)
+    record(
+      112,
+      '③ token 脱敏（HTML 无完整明文/无超出展示前缀的片段）',
+      noFull && noSecretTail,
+      `full=${noFull}, tail=${noSecretTail}`
+    )
 
     // ④ 吊销按钮存在（pat.btn.revoke = 「吊销」，v-hasPermi monitor:pat:revoke）
     const revokeOk = rowOk && (await row.getByRole('button', { name: /吊销/ }).count()) > 0
@@ -20939,7 +22929,12 @@ async function testFeature112(page) {
   } finally {
     // 尾部恢复初态：吊销/删除自建 PAT（ExitGuard 自清）
     const del = await apiWithBackoff(`/monitor/pat/${patId}`, { method: 'DELETE', headers: jsonHeaders })
-    record(112, '⑤ 清理：吊销/删除自建 PAT（恢复初态）', del.status === 200 && del.body?.code === 200, `code=${del.body?.code}`)
+    record(
+      112,
+      '⑤ 清理：吊销/删除自建 PAT（恢复初态）',
+      del.status === 200 && del.body?.code === 200,
+      `code=${del.body?.code}`
+    )
   }
   await dismissAllOverlays(page)
 }
@@ -20961,10 +22956,16 @@ async function testFeature113(page) {
   // rows==0 → 断言空态文案渲染；接口不可用才允许按 404 兜底口径判失败。
   const logTk = await sessionTokenOf(page)
   const logList = logTk
-    ? await apiWithBackoff('/system/msg/log/list?pageNum=1&pageSize=10', { headers: { Authorization: `Bearer ${logTk}` } })
+    ? await apiWithBackoff('/system/msg/log/list?pageNum=1&pageSize=10', {
+        headers: { Authorization: `Bearer ${logTk}` }
+      })
     : null
   const logApiRows = (logList?.body?.rows || []).length
-  await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+  await page
+    .locator('.el-table')
+    .first()
+    .waitFor({ state: 'visible', timeout: 6000 })
+    .catch(() => {})
   let logTable = false
   let logDetail = `not404=${logOk}`
   if (logList && logList.status === 200 && logApiRows > 0) {
@@ -20972,9 +22973,12 @@ async function testFeature113(page) {
     logTable = logOk && uiRows > 0
     logDetail += `, apiRows=${logApiRows}, uiRows=${uiRows}`
   } else if (logList && logList.status === 200 && logApiRows === 0) {
-    const emptyText = await page.locator('.el-table__empty-block').first().innerText().catch(() => '')
-    const emptyOk =
-      emptyText.includes('暂无数据') || (await page.locator('.el-table .el-empty').count()) > 0
+    const emptyText = await page
+      .locator('.el-table__empty-block')
+      .first()
+      .innerText()
+      .catch(() => '')
+    const emptyOk = emptyText.includes('暂无数据') || (await page.locator('.el-table .el-empty').count()) > 0
     logTable = logOk && emptyOk
     logDetail += `, apiRows=0, empty="${emptyText.slice(0, 24)}"`
   } else {
@@ -20986,16 +22990,23 @@ async function testFeature113(page) {
   //    翻转既有公告不可逆，故采用「自建自清」保证零污染）
   const nTitle = `e2e 批量已读 ${Date.now().toString(36)}`
   const created = await apiWithBackoff('/system/notice', {
-    method: 'POST', headers: jsonHeaders,
+    method: 'POST',
+    headers: jsonHeaders,
     body: JSON.stringify({ noticeTitle: nTitle, noticeType: '1', noticeContent: 'e2e 批量已读用例', status: '0' })
   })
   record(113, '② API 自建公告', created.status === 200 && created.body?.code === 200, `code=${created.body?.code}`)
-  const lst = await apiWithBackoff(`/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`, { headers: jsonHeaders })
+  const lst = await apiWithBackoff(
+    `/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`,
+    { headers: jsonHeaders }
+  )
   const noticeId = (lst.body?.rows || []).find((r) => r.noticeTitle === nTitle)?.noticeId
   if (!noticeId) {
     record(113, '②b 公告定位', false, '列表未回查到自建公告')
     // ExitGuard 兜底：回查失败也 best-effort 重查清理，防自建公告残留
-    const retry = await apiWithBackoff(`/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`, { headers: jsonHeaders })
+    const retry = await apiWithBackoff(
+      `/system/notice/list?pageNum=1&pageSize=10&noticeTitle=${encodeURIComponent(nTitle)}`,
+      { headers: jsonHeaders }
+    )
     const rid = (retry.body?.rows || []).find((r) => r.noticeTitle === nTitle)?.noticeId
     if (rid) await apiWithBackoff(`/system/notice/${rid}`, { method: 'DELETE', headers: jsonHeaders })
     return
@@ -21025,11 +23036,18 @@ async function testFeature113(page) {
       (r) => r.url().includes('/system/notice/markReadAll') && r.request().method() === 'POST' && r.status() === 200,
       { timeout: 10000 }
     )
-    await page.getByRole('button', { name: /批量已读/ }).first().click({ force: true })
+    await page
+      .getByRole('button', { name: /批量已读/ })
+      .first()
+      .click({ force: true })
     // ElMessageBox 确认（batchReadConfirm）
     const box = page.locator('.el-message-box:visible').first()
     await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
-    await box.locator('.el-message-box__btns .el-button--primary').first().click().catch(() => {})
+    await box
+      .locator('.el-message-box__btns .el-button--primary')
+      .first()
+      .click()
+      .catch(() => {})
     const markResp = await markPromise.catch(() => null)
     record(113, '④ 批量标记已读接口 200（waitForResponse）', !!markResp)
     // 行状态变化：未读 danger 标记消失（store 乐观更新 + isRead 合并）
@@ -21069,7 +23087,10 @@ async function testFeature114(page) {
       (r) => r.url().includes('/tool/http-debug/execute') && r.request().method() === 'POST',
       { timeout: 20000 }
     )
-    await page.getByRole('button', { name: /发送|Send/ }).first().click({ force: true })
+    await page
+      .getByRole('button', { name: /发送|Send/ })
+      .first()
+      .click({ force: true })
     resp = await execPromise.catch(() => null)
   } catch (err) {
     log(`  F114 发送链异常: ${err.message.slice(0, 120)}`)
@@ -21082,8 +23103,15 @@ async function testFeature114(page) {
   const alertErr = await page
     .locator('.el-alert--danger, .el-alert.is-type-danger')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-  const toastErr = await page.locator('.el-message--error').first().waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
+  const toastErr = await page
+    .locator('.el-message--error')
+    .first()
+    .waitFor({ state: 'visible', timeout: 1000 })
+    .then(() => true)
+    .catch(() => false)
   let execFailed = true
   if (resp) {
     const body = await resp.json().catch(() => null)
@@ -21108,12 +23136,14 @@ async function testFeature115(page) {
   let errReq = false
   if (obsOk) {
     try {
-      await page.getByRole('tab', { name: /错误聚合/ }).first().click({ force: true })
+      await page
+        .getByRole('tab', { name: /错误聚合/ })
+        .first()
+        .click({ force: true })
       await page.waitForTimeout(800)
-      const qPromise = page.waitForResponse(
-        (r) => r.url().includes('/monitor/error-log/list') && r.status() === 200,
-        { timeout: 10000 }
-      )
+      const qPromise = page.waitForResponse((r) => r.url().includes('/monitor/error-log/list') && r.status() === 200, {
+        timeout: 10000
+      })
       const searchBtn = page.getByRole('button', { name: /搜索|查询/ }).first()
       await searchBtn.click({ force: true }).catch(() => {})
       const resp = await qPromise.catch(() => null)
@@ -21132,8 +23162,14 @@ async function testFeature115(page) {
     try {
       // 定位外层可见 .el-switch 根节点——aria-label 在内层视觉隐藏 checkbox（el-switch__input，
       // viewport 外），直接点它连 force 也会抛 outside viewport（探针实证）
-      const sw = page.locator('.el-switch').filter({ has: page.locator('input[aria-label="自动刷新"]') }).first()
-      const swVisible = await sw.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const sw = page
+        .locator('.el-switch')
+        .filter({ has: page.locator('input[aria-label="自动刷新"]') })
+        .first()
+      const swVisible = await sw
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (swVisible) {
         // 请求计数器从开启前登记。scheduleRefresh = setTimeout(10000)——开启后首次轮询在 ~10s，
         // 页面加载首请求发生在计数器挂载前不计入；断言语义=「开启后出现轮询请求」（≥1）
@@ -21144,7 +23180,10 @@ async function testFeature115(page) {
         page.on('request', counter)
         // el-switch 视觉隐藏 checkbox：Playwright 点根节点不触发切换（探针实证），
         // 可靠范式=对内层 input 做 JS click（触发 change → v-model 更新）
-        await page.locator('input[aria-label="自动刷新"]').first().evaluate((e) => e.click())
+        await page
+          .locator('input[aria-label="自动刷新"]')
+          .first()
+          .evaluate((e) => e.click())
         // 条件轮询等待开启后首次轮询（setTimeout 10s，窗口 16s 留裕量；500ms 步进，非裸 sleep 长等）
         const t0 = Date.now()
         while (tailCount < 1 && Date.now() - t0 < 16000) {
@@ -21153,7 +23192,11 @@ async function testFeature115(page) {
         autoOk = tailCount >= 1
         page.off('request', counter)
         // 关闭开关还原初态（同上：JS click 隐藏 input）
-        await page.locator('input[aria-label="自动刷新"]').first().evaluate((e) => e.click()).catch(() => {})
+        await page
+          .locator('input[aria-label="自动刷新"]')
+          .first()
+          .evaluate((e) => e.click())
+          .catch(() => {})
         await page.waitForTimeout(300)
       }
     } catch (err) {
@@ -21190,7 +23233,9 @@ async function testFeature116(page) {
       await exportBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
       const dlPromise = p.waitForEvent('download', { timeout: 20000 }).catch(() => null)
       const respPromise = p
-        .waitForResponse((r) => r.url().includes('/system/ai/history/admin/export') && r.status() === 200, { timeout: 20000 })
+        .waitForResponse((r) => r.url().includes('/system/ai/history/admin/export') && r.status() === 200, {
+          timeout: 20000
+        })
         .catch(() => null)
       await exportBtn.click({ force: true })
       const [dl, resp] = await Promise.all([dlPromise, respPromise])
@@ -21246,8 +23291,20 @@ async function testFeature118(page) {
 
   const row = page.locator('.el-table__row').first()
   await row.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
-  const displayName = (await row.locator('td').nth(1).innerText().catch(() => '')).trim()
-  const memberCountText = (await row.locator('td').nth(4).innerText().catch(() => '0')).trim()
+  const displayName = (
+    await row
+      .locator('td')
+      .nth(1)
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  const memberCountText = (
+    await row
+      .locator('td')
+      .nth(4)
+      .innerText()
+      .catch(() => '0')
+  ).trim()
 
   // ② 行「删除」→ confirm 文案含组 displayName → 取消 → 0 DELETE
   let delCount = 0
@@ -21255,13 +23312,20 @@ async function testFeature118(page) {
     if (r.request().method() === 'DELETE' && r.url().includes('/system/scimGroup')) delCount++
   }
   page.on('request', delH)
-  await row.getByRole('button', { name: /删\s*除|Delete/i }).first().click()
+  await row
+    .getByRole('button', { name: /删\s*除|Delete/i })
+    .first()
+    .click()
   const box = page.locator('.el-message-box:visible').first()
   await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
   const boxVisible = await box.isVisible().catch(() => false)
   const boxText = boxVisible ? await box.innerText().catch(() => '') : ''
-  record(118, '② 删除 confirm 出现且文案含组 displayName',
-    boxVisible && boxText.includes(displayName), `text=${boxText.slice(0, 40)}`)
+  record(
+    118,
+    '② 删除 confirm 出现且文案含组 displayName',
+    boxVisible && boxText.includes(displayName),
+    `text=${boxText.slice(0, 40)}`
+  )
   await box
     .locator('.el-message-box__btns button')
     .filter({ hasText: /取\s*消|Cancel/i })
@@ -21282,22 +23346,28 @@ async function testFeature118(page) {
     }
   }
   page.on('response', getH)
-  await row.getByRole('button', { name: /修\s*改|编\s*辑|Edit/i }).first().click()
+  await row
+    .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
+    .first()
+    .click()
   const drawer = page.locator('.el-drawer:visible').first()
   await drawer.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
   const drawerOk = await drawer.isVisible().catch(() => false)
   await page.waitForTimeout(500)
   page.off('response', getH)
-  record(118, '① 编辑抽屉挂载 + GET /system/scimGroup/{id} 200',
-    drawerOk && getIdOk, `drawer=${drawerOk}, getSeen=${getSeen}, getOk=${getIdOk}`)
+  record(
+    118,
+    '① 编辑抽屉挂载 + GET /system/scimGroup/{id} 200',
+    drawerOk && getIdOk,
+    `drawer=${drawerOk}, getSeen=${getSeen}, getOk=${getIdOk}`
+  )
 
   if (drawerOk) {
     // 成员表：抽屉「组成员」表单域下的 el-table（抽屉内唯一 el-table）
     const memberRows = drawer.locator('.el-table__body-wrapper tbody tr')
     const uiCount = await memberRows.count()
     const expected = parseInt(memberCountText, 10) || 0
-    record(118, '① 抽屉成员表行数与 memberCount 一致', uiCount === expected,
-      `ui=${uiCount}, memberCount=${expected}`)
+    record(118, '① 抽屉成员表行数与 memberCount 一致', uiCount === expected, `ui=${uiCount}, memberCount=${expected}`)
   } else {
     record(118, '① 抽屉成员表行数与 memberCount 一致', false, '前置：抽屉未挂载')
   }
@@ -21320,8 +23390,17 @@ async function testFeature118(page) {
   }
   await page.waitForTimeout(400)
   page.off('request', putH)
-  const drawerClosed = !(await page.locator('.el-drawer:visible').first().isVisible().catch(() => false))
-  record(118, '① 取消/Escape 关闭抽屉且 0 PUT 请求', putCount === 0 && drawerClosed, `put=${putCount}, closed=${drawerClosed}`)
+  const drawerClosed = !(await page
+    .locator('.el-drawer:visible')
+    .first()
+    .isVisible()
+    .catch(() => false))
+  record(
+    118,
+    '① 取消/Escape 关闭抽屉且 0 PUT 请求',
+    putCount === 0 && drawerClosed,
+    `put=${putCount}, closed=${drawerClosed}`
+  )
   await dismissAllOverlays(page)
 }
 
@@ -21339,22 +23418,40 @@ async function testFeature119(page) {
   }
   // 拦截 listRole（/system/role/list）返回 500——openEdit 串行 await 链上的一环
   let pageErr = false
-  const errH = () => { pageErr = true }
+  const errH = () => {
+    pageErr = true
+  }
   page.on('pageerror', errH)
   await page.route(/\/system\/role\/list/, (route) =>
-    route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 500, msg: 'mock 500 by e2e' }) })
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 500, msg: 'mock 500 by e2e' })
+    })
   )
   // 缘由说明：源码 openEdit（scimGroup/index.vue L246-273）串行 await listRole/listDept，
   // 当前实现失败时静默清理行引用、抽屉不打开（该健壮性行为由源码 agent 并行处理中）。
   // 本用例只测行为契约：抽屉打不开 + 页面存活（app 容器在、无 pageerror）= PASS。
-  await rows.first().getByRole('button', { name: /修\s*改|编\s*辑|Edit/i }).first().click()
+  await rows
+    .first()
+    .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
+    .first()
+    .click()
   await page.waitForTimeout(1500)
-  const drawerOpen = await page.locator('.el-drawer:visible').first().isVisible().catch(() => false)
+  const drawerOpen = await page
+    .locator('.el-drawer:visible')
+    .first()
+    .isVisible()
+    .catch(() => false)
   const appAlive = (await page.locator('.app-container').count()) > 0
   page.off('pageerror', errH)
   await page.unroute(/\/system\/role\/list/)
-  record(119, '② role/list 500：抽屉打不开且页面存活（无白屏/无 pageerror）',
-    appAlive && !drawerOpen && !pageErr, `app=${appAlive}, drawer=${drawerOpen}, pageerr=${pageErr}`)
+  record(
+    119,
+    '② role/list 500：抽屉打不开且页面存活（无白屏/无 pageerror）',
+    appAlive && !drawerOpen && !pageErr,
+    `app=${appAlive}, drawer=${drawerOpen}, pageerr=${pageErr}`
+  )
   await dismissAllOverlays(page)
 }
 
@@ -21443,7 +23540,11 @@ async function testFeature121(page) {
   if (dlgOk) {
     // 不勾选任何表直接点「确 定」→ 前端校验 msgError('请选择要导入的表')，不发请求
     // （msgError 经 errorHub 仍以 ElMessage 呈现；Toast 异步渲染——isVisible 立即判定会误 false，必须 waitFor）
-    await dlg.locator('.dialog-footer button').filter({ hasText: /确\s*定/ }).first().click()
+    await dlg
+      .locator('.dialog-footer button')
+      .filter({ hasText: /确\s*定/ })
+      .first()
+      .click()
     const errToast = await page
       .locator('.el-message--error')
       .first()
@@ -21457,7 +23558,12 @@ async function testFeature121(page) {
   await page.waitForTimeout(500)
   page.off('request', impH)
   record(121, '③ 0 importTable POST', importPost === 0, `post=${importPost}`)
-  await dlg.locator('.dialog-footer button').filter({ hasText: /取\s*消|Cancel/i }).first().click().catch(() => {})
+  await dlg
+    .locator('.dialog-footer button')
+    .filter({ hasText: /取\s*消|Cancel/i })
+    .first()
+    .click()
+    .catch(() => {})
   await page.waitForTimeout(400)
 
   // —— 创建表：对话框打开 + 取消零落库 ——
@@ -21474,7 +23580,12 @@ async function testFeature121(page) {
   const cdOk = await cd.isVisible().catch(() => false)
   record(121, '④ 创建表对话框打开', cdOk)
   if (cdOk) {
-    await cd.locator('button').filter({ hasText: /取\s*消|Cancel/i }).first().click().catch(() => {})
+    await cd
+      .locator('button')
+      .filter({ hasText: /取\s*消|Cancel/i })
+      .first()
+      .click()
+      .catch(() => {})
     await page.waitForTimeout(400)
   }
   page.off('request', crtH)
@@ -21501,7 +23612,10 @@ async function testFeature122(page) {
   const namesRespP = page
     .waitForResponse((r) => r.url().includes('/monitor/cache/getNames') && r.status() === 200, { timeout: 8000 })
     .catch(() => null)
-  await page.getByRole('tab', { name: /缓存列表/ }).first().click()
+  await page
+    .getByRole('tab', { name: /缓存列表/ })
+    .first()
+    .click()
   const namesResp = await namesRespP
   await page
     .locator('.el-table:visible')
@@ -21510,14 +23624,21 @@ async function testFeature122(page) {
     .catch(() => {})
   const nameRows = page.locator('.el-table:visible .el-table__row')
   await page
-    .waitForFunction(() => {
-      const rows = document.querySelectorAll('.el-table__row')
-      return Array.from(rows).some((r) => r.offsetParent !== null)
-    }, { timeout: 8000 })
+    .waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('.el-table__row')
+        return Array.from(rows).some((r) => r.offsetParent !== null)
+      },
+      { timeout: 8000 }
+    )
     .catch(() => {})
   const nameRowCount = await nameRows.count()
-  record(122, '② 切「缓存列表」tab：getNames 200 且 cacheNames 表行数>0',
-    (!!namesResp || nameRowCount > 0) && nameRowCount > 0, `resp=${!!namesResp}, rows=${nameRowCount}`)
+  record(
+    122,
+    '② 切「缓存列表」tab：getNames 200 且 cacheNames 表行数>0',
+    (!!namesResp || nameRowCount > 0) && nameRowCount > 0,
+    `resp=${!!namesResp}, rows=${nameRowCount}`
+  )
   if (!namesResp || nameRowCount === 0) {
     page.off('request', delH)
     await dismissAllOverlays(page)
@@ -21525,10 +23646,9 @@ async function testFeature122(page) {
   }
 
   // 点第一行 → getKeys → keys 表非空（捕获任意状态码响应，诊断非 200 场景；探针实证链路正常）
-  const keysRespP = page.waitForResponse(
-    (r) => r.url().includes('/monitor/cache/getKeys/'),
-    { timeout: 8000 }
-  ).catch(() => null)
+  const keysRespP = page
+    .waitForResponse((r) => r.url().includes('/monitor/cache/getKeys/'), { timeout: 8000 })
+    .catch(() => null)
   await nameRows.first().click()
   const keysResp = await keysRespP
   await page.waitForTimeout(600)
@@ -21537,15 +23657,18 @@ async function testFeature122(page) {
   const keysTable = allTables.nth(1)
   const keyRowCount = await keysTable.locator('.el-table__row').count()
   const keysStatus = keysResp ? keysResp.status() : 'none'
-  record(122, '③ 点第一行：getKeys 200 且 keys 表非空',
-    keysStatus === 200 && keyRowCount > 0, `status=${keysStatus}, keyRows=${keyRowCount}`)
+  record(
+    122,
+    '③ 点第一行：getKeys 200 且 keys 表非空',
+    keysStatus === 200 && keyRowCount > 0,
+    `status=${keysStatus}, keyRows=${keyRowCount}`
+  )
 
   if (keyRowCount > 0) {
     // 点第一个 key → getValue → cacheForm.cacheKey 输入框有值（只读回显）
-    const valRespP = page.waitForResponse(
-      (r) => r.url().includes('/monitor/cache/getValue/') && r.status() === 200,
-      { timeout: 8000 }
-    ).catch(() => null)
+    const valRespP = page
+      .waitForResponse((r) => r.url().includes('/monitor/cache/getValue/') && r.status() === 200, { timeout: 8000 })
+      .catch(() => null)
     await keysTable.locator('.el-table__row').first().click()
     const valResp = await valRespP
     await page.waitForTimeout(500)
@@ -21557,8 +23680,12 @@ async function testFeature122(page) {
       .locator('input')
       .first()
     const keyVal = await keyInput.inputValue().catch(() => '')
-    record(122, '④ 点第一个 key：getValue 200 且 cacheForm.cacheKey 输入框有值',
-      !!valResp && keyVal.length > 0, `resp=${!!valResp}, val=${keyVal.slice(0, 30)}`)
+    record(
+      122,
+      '④ 点第一个 key：getValue 200 且 cacheForm.cacheKey 输入框有值',
+      !!valResp && keyVal.length > 0,
+      `resp=${!!valResp}, val=${keyVal.slice(0, 30)}`
+    )
   } else {
     record(122, '④ 点第一个 key：getValue 200 且 cacheForm.cacheKey 输入框有值', false, '前置：keys 表为空')
   }
@@ -21578,17 +23705,28 @@ async function testFeature122(page) {
       .click()
       .catch(() => {})
     await page.waitForTimeout(500)
-    record(122, '⑤ 清空 confirm 出现且取消：0 DELETE 请求', cboxShown && delCount === 0,
-      `box=${cboxShown}, del=${delCount}`)
+    record(
+      122,
+      '⑤ 清空 confirm 出现且取消：0 DELETE 请求',
+      cboxShown && delCount === 0,
+      `box=${cboxShown}, del=${delCount}`
+    )
   } else {
     record(122, '⑤ 清空 confirm 出现且取消：0 DELETE 请求', false, '未找到清空按钮')
   }
   page.off('request', delH)
 
   // 切「缓存统计」（热 Key 提示）tab → loadStats 接口发生（hotKeys + prefixStats）+ 渲染
-  await page.getByRole('tab', { name: /热\s*Key|统计/ }).first().click()
-  const hotP = page.waitForResponse((r) => r.url().includes('/monitor/cache/hotKeys') && r.status() === 200, { timeout: 8000 }).catch(() => null)
-  const prefixP = page.waitForResponse((r) => r.url().includes('/monitor/cache/prefixStats') && r.status() === 200, { timeout: 8000 }).catch(() => null)
+  await page
+    .getByRole('tab', { name: /热\s*Key|统计/ })
+    .first()
+    .click()
+  const hotP = page
+    .waitForResponse((r) => r.url().includes('/monitor/cache/hotKeys') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
+  const prefixP = page
+    .waitForResponse((r) => r.url().includes('/monitor/cache/prefixStats') && r.status() === 200, { timeout: 8000 })
+    .catch(() => null)
   await page.waitForTimeout(300)
   const hotResp = await hotP
   const prefixResp = await prefixP
@@ -21596,11 +23734,13 @@ async function testFeature122(page) {
   const statsPane = page.locator('.el-tab-pane').last()
   await statsPane.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
   const statsRendered =
-    (await statsPane.locator('.el-table').count()) >= 2 ||
-    (await statsPane.locator('.el-empty').count()) > 0
-  record(122, '⑥ 切「缓存统计」tab：hotKeys/prefixStats 接口发生且双表渲染',
+    (await statsPane.locator('.el-table').count()) >= 2 || (await statsPane.locator('.el-empty').count()) > 0
+  record(
+    122,
+    '⑥ 切「缓存统计」tab：hotKeys/prefixStats 接口发生且双表渲染',
     !!hotResp && !!prefixResp && statsRendered,
-    `hot=${!!hotResp}, prefix=${!!prefixResp}, rendered=${statsRendered}`)
+    `hot=${!!hotResp}, prefix=${!!prefixResp}, rendered=${statsRendered}`
+  )
   await dismissAllOverlays(page)
 }
 
@@ -21612,11 +23752,19 @@ async function testFeature123(page) {
   if (!ok) return
 
   // 切「安全设置 (MFA)」tab（profile/index.vue：el-tab-pane name=totp label=profile.mfaSetting）
-  await page.getByRole('tab', { name: /安全设置/ }).first().click()
+  await page
+    .getByRole('tab', { name: /安全设置/ })
+    .first()
+    .click()
   const totpCard = page.locator('.totp-card').first()
   await totpCard.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
   // steps 引导组件渲染（未启用态：el-steps 三步）
-  const stepsOk = await totpCard.locator('.el-steps').first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+  const stepsOk = await totpCard
+    .locator('.el-steps')
+    .first()
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
   record(123, '② 切 MFA Tab：steps 引导组件渲染', stepsOk)
   if (!stepsOk) {
     await dismissAllOverlays(page)
@@ -21624,14 +23772,22 @@ async function testFeature123(page) {
   }
 
   // 点「生成密钥」→ POST /system/user/totp/setup 200
-  const setupP = page.waitForResponse(
-    (r) => r.url().includes('/system/user/totp/setup') && r.request().method() === 'POST',
-    { timeout: 10000 }
-  ).catch(() => null)
-  await totpCard.getByRole('button', { name: /生成密钥/ }).first().click()
+  const setupP = page
+    .waitForResponse((r) => r.url().includes('/system/user/totp/setup') && r.request().method() === 'POST', {
+      timeout: 10000
+    })
+    .catch(() => null)
+  await totpCard
+    .getByRole('button', { name: /生成密钥/ })
+    .first()
+    .click()
   const setupResp = await setupP
-  record(123, '③ 点「生成密钥」：setup 200', !!setupResp && setupResp.status() === 200,
-    setupResp ? `status=${setupResp.status()}` : '未捕获 setup 响应')
+  record(
+    123,
+    '③ 点「生成密钥」：setup 200',
+    !!setupResp && setupResp.status() === 200,
+    setupResp ? `status=${setupResp.status()}` : '未捕获 setup 响应'
+  )
 
   // QR img 出现 + secret 只读输入非空（totp.vue step2：img[alt="TOTP QR Code"] + readonly input）
   const qr = totpCard.locator('img[alt="TOTP QR Code"]').first()
@@ -21639,43 +23795,67 @@ async function testFeature123(page) {
   const qrOk = await qr.isVisible().catch(() => false)
   const secretInput = totpCard.locator('.el-input input[readonly]').first()
   const secretVal = await secretInput.inputValue().catch(() => '')
-  record(123, '③ QR img 出现且 secret 只读输入非空', qrOk && secretVal.length > 0,
-    `qr=${qrOk}, secretLen=${secretVal.length}`)
+  record(
+    123,
+    '③ QR img 出现且 secret 只读输入非空',
+    qrOk && secretVal.length > 0,
+    `qr=${qrOk}, secretLen=${secretVal.length}`
+  )
 
   // step2 确认 → step3 输入错误 6 位码 → 验证失败（verify code≠200）且 enabledTag 仍「未启用」
-  await totpCard.getByRole('button', { name: /^确\s*定$/ }).first().click()
-  const codeInput = totpCard
-    .locator('input[placeholder="请输入认证器中的 6 位验证码"]')
+  await totpCard
+    .getByRole('button', { name: /^确\s*定$/ })
     .first()
+    .click()
+  const codeInput = totpCard.locator('input[placeholder="请输入认证器中的 6 位验证码"]').first()
   await codeInput.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   await codeInput.fill('000000')
-  const verifyP = page.waitForResponse(
-    (r) => r.url().includes('/system/user/totp/verify') && r.request().method() === 'POST',
-    { timeout: 10000 }
-  ).catch(() => null)
-  await totpCard.getByRole('button', { name: /验证启用/ }).first().click()
+  const verifyP = page
+    .waitForResponse((r) => r.url().includes('/system/user/totp/verify') && r.request().method() === 'POST', {
+      timeout: 10000
+    })
+    .catch(() => null)
+  await totpCard
+    .getByRole('button', { name: /验证启用/ })
+    .first()
+    .click()
   const verifyResp = await verifyP
   let verifyFailed = !verifyResp // 无响应也算未启用成功
   if (verifyResp) {
     const body = await verifyResp.json().catch(() => null)
     verifyFailed = verifyResp.status() >= 400 || (body && body.code !== 200)
   }
-  const tagText = (await totpCard.locator('.el-tag').first().innerText().catch(() => '')).trim()
+  const tagText = (
+    await totpCard
+      .locator('.el-tag')
+      .first()
+      .innerText()
+      .catch(() => '')
+  ).trim()
   const successToast = await page
     .locator('.el-message--success')
     .filter({ hasText: /启用成功/ })
     .first()
-    .waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)
-  record(123, '④ step3 错误 6 位码：verify 失败且 enabledTag 仍「未启用」',
+    .waitFor({ state: 'visible', timeout: 500 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    123,
+    '④ step3 错误 6 位码：verify 失败且 enabledTag 仍「未启用」',
     verifyFailed && tagText.includes('未启用') && !successToast,
-    `verifyFailed=${verifyFailed}, tag=${tagText}, successToast=${successToast}`)
+    `verifyFailed=${verifyFailed}, tag=${tagText}, successToast=${successToast}`
+  )
 
   // 尾部恢复初态：setup 仅生成临时密钥（不置 enabled），verify 失败不写库，enabled 全程 false，
   // 无需调 F20 的 disable API；此处 status 接口兜底复核初态。
   const token = await sessionTokenOf(page)
   const st = await apiWithBackoff('/system/user/totp/status', { headers: { Authorization: `Bearer ${token}` } })
-  record(123, '⑤ 恢复初态复核：status.enabled 仍 false（未启用状态不落库）',
-    st.status === 200 && st.body?.data?.enabled === false, `code=${st.status}`)
+  record(
+    123,
+    '⑤ 恢复初态复核：status.enabled 仍 false（未启用状态不落库）',
+    st.status === 200 && st.body?.data?.enabled === false,
+    `code=${st.status}`
+  )
   await dismissAllOverlays(page)
 }
 
@@ -21706,8 +23886,19 @@ async function testFeature124(page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        code: 200, msg: '操作成功', total: 1,
-        rows: [{ userId: seq, userName: marker, nickName: seq === 1 ? '竞态慢响应' : '竞态快响应', status: '0', phonenumber: '', createTime: null }]
+        code: 200,
+        msg: '操作成功',
+        total: 1,
+        rows: [
+          {
+            userId: seq,
+            userName: marker,
+            nickName: seq === 1 ? '竞态慢响应' : '竞态快响应',
+            status: '0',
+            phonenumber: '',
+            createTime: null
+          }
+        ]
       })
     })
   })
@@ -21715,7 +23906,10 @@ async function testFeature124(page) {
   try {
     // Tour 遮罩（stepby-tour-mask, pointer-events-auto）会拦截 Playwright 原生 click——
     // 全部用 JS click 绕过遮挡（与 el-switch 同型陷阱，见 RUN-RECIPE §3.28）
-    const searchBtn = page.locator('.el-form .el-button').filter({ hasText: /搜索|查\s*询/ }).first()
+    const searchBtn = page
+      .locator('.el-form .el-button')
+      .filter({ hasText: /搜索|查\s*询/ })
+      .first()
     await searchBtn.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
     await searchBtn.evaluate((e) => e.click()).catch(() => {})
     await page.waitForTimeout(300)
@@ -21727,7 +23921,10 @@ async function testFeature124(page) {
       if (await sizeSel.isVisible().catch(() => false)) {
         await sizeSel.evaluate((e) => e.click()).catch(() => {})
         await page.waitForTimeout(400)
-        const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').filter({ hasText: '25' }).first()
+        const opt = page
+          .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+          .filter({ hasText: '25' })
+          .first()
         await opt.evaluate((e) => e.click()).catch(() => {})
       }
     }
@@ -21742,7 +23939,10 @@ async function testFeature124(page) {
     record(124, '④ 最终渲染为最后一次响应：fast-marker 可见', text.includes('fast-marker'))
     record(124, '⑤ 全程无 unhandled pageerror', pageErrors.length === 0, `errs=${pageErrors.length}`)
   } finally {
-    await page.context().unroute(routeRe).catch(() => {})
+    await page
+      .context()
+      .unroute(routeRe)
+      .catch(() => {})
     page.off('pageerror', onErr)
     await dismissAllOverlays(page)
   }
@@ -21767,13 +23967,23 @@ async function testFeature125(page) {
 
   // ⓪ API 前置：建数据集（SELECT 1 AS v，白名单 SQL）+ 建大屏（layout_json 2 卡片，schemaVersion 2）
   const ds = await apiWithBackoff('/report/dataset', {
-    method: 'POST', headers: jsonHeaders,
-    body: JSON.stringify({ datasetCode: dsCode, datasetName: `e2e-125 数据集 ${uniq}`, sqlTemplate: 'SELECT 1 AS v', status: '0' })
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      datasetCode: dsCode,
+      datasetName: `e2e-125 数据集 ${uniq}`,
+      sqlTemplate: 'SELECT 1 AS v',
+      status: '0'
+    })
   })
   const dsList = await apiWithBackoff('/report/dataset/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
   const datasetId = (dsList.body?.rows || []).find((r) => r.datasetCode === dsCode)?.datasetId
-  record(125, '⓪ API 建数据集（白名单 SQL 落库）', ds.status === 200 && ds.body?.code === 200 && !!datasetId,
-    `code=${ds.body?.code}, datasetId=${datasetId}`)
+  record(
+    125,
+    '⓪ API 建数据集（白名单 SQL 落库）',
+    ds.status === 200 && ds.body?.code === 200 && !!datasetId,
+    `code=${ds.body?.code}, datasetId=${datasetId}`
+  )
   if (!datasetId) {
     page.off('pageerror', onErr)
     return
@@ -21790,14 +24000,18 @@ async function testFeature125(page) {
       ]
     }
     const dash = await apiWithBackoff('/report/dashboard', {
-      method: 'POST', headers: jsonHeaders,
+      method: 'POST',
+      headers: jsonHeaders,
       body: JSON.stringify({ dashboardCode: dashCode, dashboardName: dashName, layoutJson: layout, status: '0' })
     })
     const dashList = await apiWithBackoff('/report/dashboard/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
     dashboardId = (dashList.body?.rows || []).find((r) => r.dashboardCode === dashCode)?.dashboardId
-    record(125, '⓪b API 建大屏（layout_json 2 卡片，schema 校验通过）',
+    record(
+      125,
+      '⓪b API 建大屏（layout_json 2 卡片，schema 校验通过）',
       dash.status === 200 && dash.body?.code === 200 && !!dashboardId,
-      `code=${dash.body?.code}, dashboardId=${dashboardId}`)
+      `code=${dash.body?.code}, dashboardId=${dashboardId}`
+    )
     if (!dashboardId) return
 
     // ① 页面可达（菜单 4148 → /system/reportDashboard；view/index.vue 无路由参数，列表首屏自动选中）
@@ -21826,7 +24040,11 @@ async function testFeature125(page) {
     if (!boardOk) return
 
     // ③ 图表卡片数与 layout_json 数量一致（watch(selectedId) → getDashboard → parseLayout.charts）
-    await page.locator('.report-board .chart-card').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.report-board .chart-card')
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .catch(() => {})
     const cardCount = await page.locator('.report-board .chart-card').count()
     record(125, '③ 图表卡片数与 layout_json 一致（2）', cardCount === 2, `cards=${cardCount}`)
 
@@ -21842,8 +24060,16 @@ async function testFeature125(page) {
   } finally {
     // 尾部恢复初态：删自建大屏 + 数据集（ExitGuard 自清；dataset 是大屏卡片的数据绑定依赖，先删大屏）
     if (dashboardId) {
-      const delDash = await apiWithBackoff(`/report/dashboard/${dashboardId}`, { method: 'DELETE', headers: jsonHeaders })
-      record(125, '⑥ 清理：删除自建大屏', delDash.status === 200 && delDash.body?.code === 200, `code=${delDash.body?.code}`)
+      const delDash = await apiWithBackoff(`/report/dashboard/${dashboardId}`, {
+        method: 'DELETE',
+        headers: jsonHeaders
+      })
+      record(
+        125,
+        '⑥ 清理：删除自建大屏',
+        delDash.status === 200 && delDash.body?.code === 200,
+        `code=${delDash.body?.code}`
+      )
     }
     const delDs = await apiWithBackoff(`/report/dataset/${datasetId}`, { method: 'DELETE', headers: jsonHeaders })
     record(125, '⑦ 清理：删除自建数据集', delDs.status === 200 && delDs.body?.code === 200, `code=${delDs.body?.code}`)
@@ -21867,11 +24093,19 @@ async function testFeature126(page) {
   // ② 新增对话框表单字段完整（文案=i18n 真值：alert.form.name/metric/comparator/threshold/silentMinutes）
   await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   let fieldsOk = false
   let fieldDetail = ''
   if (dlgOk) {
-    const labels = (await dlg.locator('.el-form-item__label').allInnerTexts().catch(() => [])).join('|')
+    const labels = (
+      await dlg
+        .locator('.el-form-item__label')
+        .allInnerTexts()
+        .catch(() => [])
+    ).join('|')
     const need = ['规则名称', '监控指标', '比较器', '阈值', '静默期']
     fieldsOk = need.every((k) => labels.includes(k))
     fieldDetail = `labels=${labels.slice(0, 90)}`
@@ -21897,29 +24131,40 @@ async function testFeature126(page) {
     .click({ force: true })
   await page.waitForTimeout(300)
   await dlg.locator('.el-input-number input').first().fill('1')
-  const saveP = page.waitForResponse(
-    (r) => r.url().endsWith('/monitor/alert') && r.request().method() === 'POST',
-    { timeout: 10000 }
-  ).catch(() => null)
-  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveP = page
+    .waitForResponse((r) => r.url().endsWith('/monitor/alert') && r.request().method() === 'POST', { timeout: 10000 })
+    .catch(() => null)
+  await dlg
+    .getByRole('button', { name: /确\s*定/ })
+    .first()
+    .click()
   const saveResp = await saveP
   // 批三十六：对话框关闭是响应后动画（~300ms）——立即 count 恒 false（r44 实证 resp=200, closed=false）
   const dlgClosed = await dlg
     .waitFor({ state: 'hidden', timeout: 5000 })
     .then(() => true)
     .catch(() => false)
-  record(126, '③ 合法值保存（POST 200 且对话框关闭）',
+  record(
+    126,
+    '③ 合法值保存（POST 200 且对话框关闭）',
     !!saveResp && saveResp.status() === 200 && dlgClosed,
-    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`
+  )
 
   // ④ 列表出现 e2e-126- 行 + API 复核落库
   const row = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
   await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const rowOk = await row.isVisible().catch(() => false)
-  const lst = await apiWithBackoff(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`, { headers: jsonHeaders })
+  const lst = await apiWithBackoff(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`, {
+    headers: jsonHeaders
+  })
   const apiRow = (lst.body?.rows || []).find((r) => r.name === ruleName)
-  record(126, '④ 列表出现 e2e-126- 行且 API 复核落库', rowOk && !!apiRow,
-    `ui=${rowOk}, api=${!!apiRow}, id=${apiRow?.id}`)
+  record(
+    126,
+    '④ 列表出现 e2e-126- 行且 API 复核落库',
+    rowOk && !!apiRow,
+    `ui=${rowOk}, api=${!!apiRow}, id=${apiRow?.id}`
+  )
 
   // ⑤ 行级删除恢复初态（MessageBox 确认 → DELETE 200 → API 复核已删）
   // 批三十六：行级按钮用 JS click（fixed 列/动画期遮罩吞 force click，§3.30-2 同型）；
@@ -21927,22 +24172,39 @@ async function testFeature126(page) {
   let delOk = false
   if (apiRow && rowOk) {
     await dismissAllOverlays(page)
-    const delP = page.waitForResponse(
-      (r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/alert/'),
-      { timeout: 10000 }
-    ).catch(() => null)
-    await row.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+    const delP = page
+      .waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/alert/'), {
+        timeout: 10000
+      })
+      .catch(() => null)
+    await row
+      .getByRole('button', { name: /删除/ })
+      .first()
+      .evaluate((el) => el.click())
     const cbox = page.locator('.el-message-box:visible').first()
-    const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const cboxOk = await cbox
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     if (cboxOk) {
-      await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+      await cbox
+        .locator('.el-message-box__btns .el-button--primary')
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
     }
     await delP
     let gone = false
     for (let i = 0; i < 8; i++) {
       await page.waitForTimeout(600)
-      const still = await apiWithBackoff(`/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`, { headers: jsonHeaders })
-      if (!(still.body?.rows || []).some((r) => r.name === ruleName)) { gone = true; break }
+      const still = await apiWithBackoff(
+        `/monitor/alert/list?pageNum=1&pageSize=20&name=${encodeURIComponent(ruleName)}`,
+        { headers: jsonHeaders }
+      )
+      if (!(still.body?.rows || []).some((r) => r.name === ruleName)) {
+        gone = true
+        break
+      }
     }
     delOk = gone
   }
@@ -21959,8 +24221,7 @@ async function testFeature127(page) {
   // 批三十六：动态路由需 gotoDynamicRoute（addRoute 异步注册，openPage 直跳会 404 回首页，r44 实证）
   await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/webHook/index`, 'webHook/index')
   // gotoDynamicRoute 返回 void——可达性自判：URL 命中 + 非 404 页
-  const ok =
-    page.url().includes('webHook/index') && !(await is404Page(page, { timeout: 1500 }))
+  const ok = page.url().includes('webHook/index') && !(await is404Page(page, { timeout: 1500 }))
   record(127, '① 回调配置页可达（/system/webHook）', ok)
   if (!ok) return
   await dismissAllOverlays(page)
@@ -21970,10 +24231,20 @@ async function testFeature127(page) {
   const hookName = `e2e-127-hook-${Date.now().toString(36)}`
 
   // ② 事件目录对话框（EventCatalogSection 子组件）：目录表渲染且有行（GET /system/webhook/event/list）
-  await page.getByRole('button', { name: /事件目录/ }).first().click({ force: true })
+  await page
+    .getByRole('button', { name: /事件目录/ })
+    .first()
+    .click({ force: true })
   const catDlg = page.locator('.el-dialog:visible').filter({ hasText: 'Webhook 事件目录' }).first()
-  const catOk = await catDlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
-  await catDlg.locator('.el-table__row').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const catOk = await catDlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  await catDlg
+    .locator('.el-table__row')
+    .first()
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .catch(() => {})
   const catRows = await catDlg.locator('.el-table__row').count()
   if (catOk && catRows === 0) {
     // 环境无数据兜底：事件目录为空时后续订阅勾选无从进行，按 SKIP 口径（API 200 兜底断言）
@@ -21984,14 +24255,21 @@ async function testFeature127(page) {
   }
   record(127, '② 事件目录对话框打开且目录表有行', catOk && catRows > 0, `rows=${catRows}`)
   if (catOk) {
-    await catDlg.getByRole('button', { name: /关\s*闭/ }).first().click({ force: true }).catch(() => {})
+    await catDlg
+      .getByRole('button', { name: /关\s*闭/ })
+      .first()
+      .click({ force: true })
+      .catch(() => {})
     await page.waitForTimeout(500)
   }
 
   // ③ UI 新增订阅：名称/URL → 订阅事件多选下拉（选项来自事件目录）勾选 1 项
   await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   if (!dlgOk) {
     record(127, '③ 新增对话框打开', false, '对话框未打开')
     await dismissAllOverlays(page)
@@ -22013,7 +24291,10 @@ async function testFeature127(page) {
   // 批三十六：EP 2.x 把 aria-label 透传到内部 input（探针实证 .el-select 根上为 null）
   await dlg.locator('input[aria-label="订阅事件"]').first().click({ force: true })
   const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').first()
-  const optOk = await opt.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+  const optOk = await opt
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
   let chosen = ''
   if (optOk) {
     chosen = (await opt.innerText().catch(() => '')).trim()
@@ -22025,33 +24306,49 @@ async function testFeature127(page) {
   record(127, '③ 订阅事件下拉出现目录选项并勾选 1 项', optOk && chosen.length > 0, `opt="${chosen.slice(0, 30)}"`)
 
   // ④ 保存订阅（POST /monitor/webHook 200 且对话框关闭）
-  const saveP = page.waitForResponse(
-    (r) => r.url().endsWith('/monitor/webHook') && r.request().method() === 'POST',
-    { timeout: 10000 }
-  ).catch(() => null)
-  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveP = page
+    .waitForResponse((r) => r.url().endsWith('/monitor/webHook') && r.request().method() === 'POST', { timeout: 10000 })
+    .catch(() => null)
+  await dlg
+    .getByRole('button', { name: /确\s*定/ })
+    .first()
+    .click()
   const saveResp = await saveP
   const dlgClosed = await dlg
     .waitFor({ state: 'hidden', timeout: 5000 })
     .then(() => true)
     .catch(() => false)
-  record(127, '④ 保存订阅（POST 200 且对话框关闭）',
+  record(
+    127,
+    '④ 保存订阅（POST 200 且对话框关闭）',
     !!saveResp && saveResp.status() === 200 && dlgClosed,
-    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`
+  )
 
   // ⑤ API 复核订阅生效（subscribed_events 非空；后端以 JSON 数组串存储）
-  const lst = await apiWithBackoff(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
+  const lst = await apiWithBackoff(
+    `/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`,
+    { headers: jsonHeaders }
+  )
   const hook = (lst.body?.rows || []).find((r) => r.hookName === hookName)
   let subOk = false
   if (hook) {
     let subs = hook.subscribedEvents
     if (typeof subs === 'string') {
-      try { subs = JSON.parse(subs) } catch { subs = subs ? String(subs).split(',') : [] }
+      try {
+        subs = JSON.parse(subs)
+      } catch {
+        subs = subs ? String(subs).split(',') : []
+      }
     }
     subOk = Array.isArray(subs) && subs.length > 0
   }
-  record(127, '⑤ API 复核订阅生效（subscribed_events 非空）', !!hook && subOk,
-    `hook=${!!hook}, subs=${JSON.stringify(hook?.subscribedEvents ?? null).slice(0, 60)}`)
+  record(
+    127,
+    '⑤ API 复核订阅生效（subscribed_events 非空）',
+    !!hook && subOk,
+    `hook=${!!hook}, subs=${JSON.stringify(hook?.subscribedEvents ?? null).slice(0, 60)}`
+  )
 
   // ⑥ UI 列表出现自建行 + 行级删除恢复初态
   const row = page.locator('.el-table__row').filter({ hasText: hookName }).first()
@@ -22060,22 +24357,39 @@ async function testFeature127(page) {
   let delOk = false
   if (rowOk && hook) {
     await dismissAllOverlays(page)
-    const delP = page.waitForResponse(
-      (r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/webHook/'),
-      { timeout: 10000 }
-    ).catch(() => null)
-    await row.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+    const delP = page
+      .waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/monitor/webHook/'), {
+        timeout: 10000
+      })
+      .catch(() => null)
+    await row
+      .getByRole('button', { name: /删除/ })
+      .first()
+      .evaluate((el) => el.click())
     const cbox = page.locator('.el-message-box:visible').first()
-    const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const cboxOk = await cbox
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     if (cboxOk) {
-      await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+      await cbox
+        .locator('.el-message-box__btns .el-button--primary')
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
     }
     await delP
     let gone = false
     for (let i = 0; i < 8; i++) {
       await page.waitForTimeout(600)
-      const still = await apiWithBackoff(`/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`, { headers: jsonHeaders })
-      if (!(still.body?.rows || []).some((r) => r.hookName === hookName)) { gone = true; break }
+      const still = await apiWithBackoff(
+        `/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(hookName)}`,
+        { headers: jsonHeaders }
+      )
+      if (!(still.body?.rows || []).some((r) => r.hookName === hookName)) {
+        gone = true
+        break
+      }
     }
     delOk = gone
   }
@@ -22113,25 +24427,37 @@ async function testFeature128(page) {
   // ② 新增对话框 + 合法白名单 SQL 保存
   await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   if (!dlgOk) {
     record(128, '② 新增对话框打开', false, '对话框未打开')
     await dismissAllOverlays(page)
     return
   }
   await fillDlg(dlg, code, 'e2e-128 数据集', 'SELECT 1 AS v')
-  const saveP = page.waitForResponse(
-    (r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST' && r.status() === 200,
-    { timeout: 10000 }
-  ).catch(() => null)
-  await dlg.getByRole('button', { name: /确\s*定/ }).first().click()
+  const saveP = page
+    .waitForResponse(
+      (r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    .catch(() => null)
+  await dlg
+    .getByRole('button', { name: /确\s*定/ })
+    .first()
+    .click()
   const saveResp = await saveP
   const dlgClosed = await dlg
     .waitFor({ state: 'hidden', timeout: 5000 })
     .then(() => true)
     .catch(() => false)
-  record(128, '② 合法 SQL 保存（POST 200 且对话框关闭）',
-    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+  record(
+    128,
+    '② 合法 SQL 保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed,
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`
+  )
 
   // ③ 列表出现 e2e-128- 行
   const row = page.locator('.el-table__row').filter({ hasText: code }).first()
@@ -22143,11 +24469,18 @@ async function testFeature128(page) {
   // 批三十六：行内 link 按钮用 JS click——force click 会被 fixed 列阴影/动画期遮罩吞掉
   // （探针实证 elementFromPoint 命中遮罩、el.click() 直达，§3.30-2 同型）。
   if (rowOk) {
-    await row.getByRole('button', { name: /试跑/ }).first().evaluate((el) => el.click())
+    await row
+      .getByRole('button', { name: /试跑/ })
+      .first()
+      .evaluate((el) => el.click())
     const pdlg = page.locator('.el-dialog:visible').filter({ hasText: '数据集试跑' }).first()
-    const pOpen = await pdlg.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const pOpen = await pdlg
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     const colOk = pOpen
-      ? await pdlg.locator('.el-table__header')
+      ? await pdlg
+          .locator('.el-table__header')
           .filter({ hasText: 'v' })
           .first()
           .waitFor({ state: 'visible', timeout: 8000 })
@@ -22155,8 +24488,12 @@ async function testFeature128(page) {
           .catch(() => false)
       : false
     const dataRows = pOpen ? await pdlg.locator('.el-table__row').count() : 0
-    record(128, '④ 试跑预览返回结构渲染（列头 v + 数据行）', pOpen && colOk && dataRows > 0,
-      `open=${pOpen}, col=${colOk}, rows=${dataRows}`)
+    record(
+      128,
+      '④ 试跑预览返回结构渲染（列头 v + 数据行）',
+      pOpen && colOk && dataRows > 0,
+      `open=${pOpen}, col=${colOk}, rows=${dataRows}`
+    )
     // 关闭预览对话框（优先 header 关闭钮，Escape 兜底）
     const closeBtn = pdlg.locator('.el-dialog__headerbtn').first()
     if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click({ force: true })
@@ -22169,17 +24506,24 @@ async function testFeature128(page) {
   // ⑤ 负例：UPDATE 被 SQL 白名单拒绝（错误提示 + 对话框不关闭 + API 不落库）
   await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
   const bdlg = page.locator('.el-dialog:visible').last()
-  const bOpen = await bdlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const bOpen = await bdlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   let negOk = false
   if (bOpen) {
     await fillDlg(bdlg, badCode, 'e2e-128 负例', "UPDATE sys_user SET user_name = 'e2e'")
     // 批三十六：先挂 POST 响应监听再点击——拒绝语义以服务端响应为准（toast 时序不稳），
     // 响应到达后再测 toast/对话框/落库三态。
-    const negP = page.waitForResponse(
-      (r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST',
-      { timeout: 10000 }
-    ).catch(() => null)
-    await bdlg.getByRole('button', { name: /确\s*定/ }).first().click()
+    const negP = page
+      .waitForResponse((r) => r.url().endsWith('/report/dataset') && r.request().method() === 'POST', {
+        timeout: 10000
+      })
+      .catch(() => null)
+    await bdlg
+      .getByRole('button', { name: /确\s*定/ })
+      .first()
+      .click()
     const negResp = await negP
     const negRejected = !negResp || negResp.status() !== 200
     const errToast = await page
@@ -22191,8 +24535,12 @@ async function testFeature128(page) {
     const stillOpen = await bdlg.isVisible().catch(() => false)
     const notPersisted = !(await findRowByCode(badCode))
     negOk = negRejected && errToast && stillOpen && notPersisted
-    record(128, '⑤ 负例 UPDATE 被拒（错误提示+不落库）', negOk,
-      `resp=${negResp ? negResp.status() : 'none'}, toast=${errToast}, open=${stillOpen}, absent=${notPersisted}`)
+    record(
+      128,
+      '⑤ 负例 UPDATE 被拒（错误提示+不落库）',
+      negOk,
+      `resp=${negResp ? negResp.status() : 'none'}, toast=${errToast}, open=${stillOpen}, absent=${notPersisted}`
+    )
     await dismissAllOverlays(page)
   } else {
     record(128, '⑤ 负例 UPDATE 被拒（错误提示+不落库）', false, '负例对话框未打开')
@@ -22205,26 +24553,43 @@ async function testFeature128(page) {
     await dismissAllOverlays(page)
     // 重新定位行（⑤ 负例后列表可能已重渲染，旧 row 引用 detach——r44 实证 click 30s 超时）
     const delRow = page.locator('.el-table__row').filter({ hasText: code }).first()
-    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const delRowOk = await delRow
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     if (delRowOk) {
-      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      await delRow
+        .getByRole('button', { name: /删除/ })
+        .first()
+        .evaluate((el) => el.click())
       const cbox = page.locator('.el-message-box:visible').first()
-      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const cboxOk = await cbox
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (cboxOk) {
-        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+        await cbox
+          .locator('.el-message-box__btns .el-button--primary')
+          .first()
+          .evaluate((el) => el.click())
+          .catch(() => {})
       }
     }
     let gone = false
     for (let i = 0; i < 8; i++) {
       await page.waitForTimeout(600)
-      if (!(await findRowByCode(code))) { gone = true; break }
+      if (!(await findRowByCode(code))) {
+        gone = true
+        break
+      }
     }
     delOk = gone
   }
   record(128, '⑥ 删除恢复初态（API 复核已删）', delOk)
   // 兜底清理（UI 删除失败时防残留）
   const leftover = await findRowByCode(code)
-  if (leftover) await apiWithBackoff(`/report/dataset/${leftover.datasetId}`, { method: 'DELETE', headers: jsonHeaders })
+  if (leftover)
+    await apiWithBackoff(`/report/dataset/${leftover.datasetId}`, { method: 'DELETE', headers: jsonHeaders })
   await dismissAllOverlays(page)
 }
 
@@ -22297,12 +24662,16 @@ async function testFeature129(page) {
 
   // 批三十七：CSP img-src 必须含 blob:——vue-cropper 1.1.4 工作图/预览用 URL.createObjectURL，
   // 缺失时裁剪器被 CSP 拦截、头像裁剪/上传 UI 结构性不可用（本批修复的回归锁）
-  const csp = await page
-    .request
+  const csp = await page.request
     .get(`${CONFIG.frontendUrl}/`)
     .then((r) => r.headers()['content-security-policy'] || '')
     .catch(() => '')
-  record(129, '① CSP img-src 含 blob:（vue-cropper 裁剪链路回归锁）', csp.includes("img-src") && csp.includes('blob:'), `csp=${csp.slice(0, 90)}`)
+  record(
+    129,
+    '① CSP img-src 含 blob:（vue-cropper 裁剪链路回归锁）',
+    csp.includes('img-src') && csp.includes('blob:'),
+    `csp=${csp.slice(0, 90)}`
+  )
 
   const token = await sessionTokenOf(page)
   const jsonHeaders = { Authorization: `Bearer ${token}` }
@@ -22324,13 +24693,20 @@ async function testFeature129(page) {
 
   if (avatarOk) {
     if (!origBytes) {
-      recordSkip(129, '① 真实头像上传 + 恢复原头像', `原头像不可取（avatar=${origAvatarPath || '空'}），跳过以免无法恢复`,
-        prof.status === 200)
+      recordSkip(
+        129,
+        '① 真实头像上传 + 恢复原头像',
+        `原头像不可取（avatar=${origAvatarPath || '空'}），跳过以免无法恢复`,
+        prof.status === 200
+      )
     } else {
       // 打开「修改头像」对话框（userAvatar.vue：点击 .user-info-head → el-dialog append-to-body）
       await avatarHead.evaluate((el) => el.click())
       const dlg = page.locator('.el-dialog:visible').filter({ hasText: '修改头像' }).first()
-      const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      const dlgOk = await dlg
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(129, '① 「修改头像」对话框打开', dlgOk)
       if (dlgOk) {
         // 真实文件：程序生成 64x64 PNG buffer（非 mock），setInputFile 触发 el-upload
@@ -22360,11 +24736,17 @@ async function testFeature129(page) {
         const upOk = !!up && up.status === 200 && typeof upBody?.imgUrl === 'string' && upBody.imgUrl.length > 0
         // 上传后头像指针必须更新（profile.avatar 指向新上传文件）
         const profAfter = upOk ? await apiWithBackoff('/system/user/profile', { headers: jsonHeaders }) : null
-        const ptrChanged = !!profAfter && profAfter.status === 200 &&
-          profAfter.body?.data?.avatar === upBody?.imgUrl && profAfter.body.data.avatar !== origAvatarPath
-        record(129, '① 头像上传成功（真实 PNG POST 200 + imgUrl + avatar 指针更新）',
+        const ptrChanged =
+          !!profAfter &&
+          profAfter.status === 200 &&
+          profAfter.body?.data?.avatar === upBody?.imgUrl &&
+          profAfter.body.data.avatar !== origAvatarPath
+        record(
+          129,
+          '① 头像上传成功（真实 PNG POST 200 + imgUrl + avatar 指针更新）',
           upOk && ptrChanged,
-          `resp=${up ? up.status : 'none'}, imgUrl=${(upBody?.imgUrl || '').slice(-30)}, ptr=${ptrChanged}`)
+          `resp=${up ? up.status : 'none'}, imgUrl=${(upBody?.imgUrl || '').slice(-30)}, ptr=${ptrChanged}`
+        )
         await dismissAllOverlays(page)
       } else {
         record(129, '① 选文件后裁剪组件渲染', false, '前置：对话框未打开')
@@ -22384,8 +24766,12 @@ async function testFeature129(page) {
       // 复核：profile 返回 avatar 指向原扩展名文件（恢复成功）
       const prof2 = rsOk ? await apiWithBackoff('/system/user/profile', { headers: jsonHeaders }) : null
       const restored = !!prof2 && prof2.status === 200 && (prof2.body?.data?.avatar || '').endsWith(`.${origExt}`)
-      record(129, '① 恢复原头像（API 回传原文件 + 复核 avatar 指针）', rsOk && restored,
-        `restore=${rs ? rs.status : 'none'}, avatar=${(prof2?.body?.data?.avatar || '').slice(-40)}`)
+      record(
+        129,
+        '① 恢复原头像（API 回传原文件 + 复核 avatar 指针）',
+        rsOk && restored,
+        `restore=${rs ? rs.status : 'none'}, avatar=${(prof2?.body?.data?.avatar || '').slice(-40)}`
+      )
     }
   }
 
@@ -22395,7 +24781,10 @@ async function testFeature129(page) {
   if (oauthOk) {
     await dismissAllOverlays(page)
     const bindCard = page.locator('.el-card').filter({ hasText: '绑定管理' }).first()
-    const cardOk = await bindCard.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const cardOk = await bindCard
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     const alertOk = await bindCard
       .locator('.el-alert')
       .filter({ hasText: '管理当前账号已绑定的第三方身份' })
@@ -22407,8 +24796,12 @@ async function testFeature129(page) {
       (await bindCard.locator('.binding-item').count()) > 0 ||
       (await bindCard.locator('.el-divider').filter({ hasText: '登录提供商管理' }).count()) > 0 ||
       (await bindCard.locator('.el-empty').filter({ hasText: '暂无第三方绑定' }).count()) > 0
-    record(129, '② 绑定列表渲染（提示条 + 绑定行/提供商/空态三态其一）', cardOk && alertOk && hasContent,
-      `card=${cardOk}, alert=${alertOk}, content=${hasContent}`)
+    record(
+      129,
+      '② 绑定列表渲染（提示条 + 绑定行/提供商/空态三态其一）',
+      cardOk && alertOk && hasContent,
+      `card=${cardOk}, alert=${alertOk}, content=${hasContent}`
+    )
   }
 
   // ---------- ③ passkeys Tab：能力位判定 + 组件渲染（关闭态 recordSkip 而非硬断言） ----------
@@ -22417,20 +24810,30 @@ async function testFeature129(page) {
   await openPage(page, '/user/profile/passkeys', '/user/profile/passkeys')
   await dismissAllOverlays(page)
   const pkTab = page.getByRole('tab', { name: /通行密钥/ }).first()
-  const pkTabOk = await pkTab.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const pkTabOk = await pkTab
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   if (!pkTabOk) {
     recordSkip(129, '③ passkeys Tab 渲染', '能力位 auth.webauthn 关闭（showPasskey=false）→ 页签按 v-if 不渲染', capOk)
   } else {
     await pkTab.evaluate((el) => el.click()).catch(() => {})
     const pkCard = page.locator('.el-card').filter({ hasText: '通行密钥 / Passkeys' }).first()
-    const cardOk = await pkCard.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const cardOk = await pkCard
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     // 三态其一：凭据表格 / 空态「暂无已添加的通行密钥」/ 浏览器不支持警告
     const triState =
       (await pkCard.locator('.el-table').count()) > 0 ||
       (await pkCard.locator('.el-empty').filter({ hasText: '暂无已添加的通行密钥' }).count()) > 0 ||
       (await pkCard.locator('.el-alert--warning').filter({ hasText: '当前浏览器不支持通行密钥' }).count()) > 0
-    record(129, '③ passkeys Tab 组件渲染（表格/空态/不支持提示三态其一）', cardOk && triState,
-      `card=${cardOk}, triState=${triState}`)
+    record(
+      129,
+      '③ passkeys Tab 组件渲染（表格/空态/不支持提示三态其一）',
+      cardOk && triState,
+      `card=${cardOk}, triState=${triState}`
+    )
   }
   await dismissAllOverlays(page)
 }
@@ -22446,12 +24849,29 @@ async function testFeature130(page) {
   if (ok) {
     await dismissAllOverlays(page)
     const result = page.locator('.el-result').first()
-    const resultOk = await result.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
-    const titleOk = resultOk && (await result.locator('.el-result__title').innerText().catch(() => '')).includes('授权请求无效')
+    const resultOk = await result
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    const titleOk =
+      resultOk &&
+      (
+        await result
+          .locator('.el-result__title')
+          .innerText()
+          .catch(() => '')
+      ).includes('授权请求无效')
     const backBtn = result.getByRole('button', { name: '返回首页' }).first()
-    const btnOk = await backBtn.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
-    record(130, '① 无 clientId → 非法入口提示（授权请求无效 + 返回首页按钮）', resultOk && titleOk && btnOk,
-      `result=${resultOk}, title=${titleOk}, btn=${btnOk}`)
+    const btnOk = await backBtn
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      130,
+      '① 无 clientId → 非法入口提示（授权请求无效 + 返回首页按钮）',
+      resultOk && titleOk && btnOk,
+      `result=${resultOk}, title=${titleOk}, btn=${btnOk}`
+    )
     // 授权面板本体不应渲染（valid=false ⇒ 无 同意/拒绝 按钮）
     const approveVisible = await page.getByRole('button', { name: /同意|允许|拒绝/ }).count()
     record(130, '① 同意/拒绝按钮未渲染（无授权上下文）', approveVisible === 0, `count=${approveVisible}`)
@@ -22471,9 +24891,16 @@ async function testFeature130(page) {
       .then(() => true)
       .catch(() => false)
     const goLogin = page.getByRole('button', { name: '前往登录' }).first()
-    const btnOk = await goLogin.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
-    record(130, '② 无参数落地态：标题「第三方登录」+「前往登录」按钮', titleOk && btnOk,
-      `title=${titleOk}, btn=${btnOk}`)
+    const btnOk = await goLogin
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      130,
+      '② 无参数落地态：标题「第三方登录」+「前往登录」按钮',
+      titleOk && btnOk,
+      `title=${titleOk}, btn=${btnOk}`
+    )
   }
 
   // ---------- ③ 未登录白名单行为：/oauth-login 直达不跳转；/sso-consent 非白名单 → 跳登录页 ----------
@@ -22490,8 +24917,12 @@ async function testFeature130(page) {
       .waitFor({ state: 'visible', timeout: 5000 })
       .then(() => true)
       .catch(() => false)
-    record(130, '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）', staysOAuth && goLoginVisible,
-      `url=${p2.url().slice(0, 80)}, btn=${goLoginVisible}`)
+    record(
+      130,
+      '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）',
+      staysOAuth && goLoginVisible,
+      `url=${p2.url().slice(0, 80)}, btn=${goLoginVisible}`
+    )
 
     await p2.goto(`${CONFIG.frontendUrl}/sso-consent`, { waitUntil: 'load' })
     const toLogin = await p2
@@ -22500,7 +24931,12 @@ async function testFeature130(page) {
       .catch(() => false)
     record(130, '③ 未登录访问 /sso-consent：守卫重定向到登录页', toLogin, `url=${p2.url().slice(0, 80)}`)
   } catch (err) {
-    record(130, '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）', false, `异常: ${err.message.slice(0, 120)}`)
+    record(
+      130,
+      '③ 未登录访问 /oauth-login：白名单直达不重定向（渲染前往登录）',
+      false,
+      `异常: ${err.message.slice(0, 120)}`
+    )
     record(130, '③ 未登录访问 /sso-consent：守卫重定向到登录页', false, `异常: ${err.message.slice(0, 120)}`)
   } finally {
     if (octx) await octx.close().catch(() => {})
@@ -22530,9 +24966,16 @@ async function testFeature131(page) {
   }
 
   // ② 新增对话框打开 + 字段断言（zh-CN 真值：路由前缀/桶容量/补充速率(/秒)/启用状态/描述）
-  await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+  await page
+    .getByRole('button', { name: /新增/ })
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   if (!dlgOk) {
     record(131, '② 新增对话框打开 + 字段断言', false, '对话框未打开')
     await dismissAllOverlays(page)
@@ -22550,36 +24993,66 @@ async function testFeature131(page) {
   // ③ 真实保存（先挂 POST 响应监听再点确定 → 200 + 对话框关闭）
   await itemByLabel('路由前缀').locator('input').first().fill(pattern)
   await itemByLabel('描述').locator('textarea').first().fill(`e2e-131 限流配置 ${uniq}`)
-  const saveP = page.waitForResponse(
-    (r) => r.url().endsWith('/system/rateLimit') && r.request().method() === 'POST' && r.status() === 200,
-    { timeout: 10000 }
-  ).catch(() => null)
-  await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const saveP = page
+    .waitForResponse(
+      (r) => r.url().endsWith('/system/rateLimit') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    .catch(() => null)
+  await dlg
+    .getByRole('button', { name: /确\s*定/ })
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
   const saveResp = await saveP
-  const dlgClosed = await dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
-  record(131, '③ 合法配置保存（POST 200 且对话框关闭）',
-    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+  const dlgClosed = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    131,
+    '③ 合法配置保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed,
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`
+  )
 
   // ④ 列表出现 e2e-131- 行 + API 复核
   const row = page.locator('.el-table__row').filter({ hasText: pattern }).first()
   await row.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
   const rowOk = await row.isVisible().catch(() => false)
   const apiRow = await findRowByPattern(pattern)
-  record(131, '④ 列表出现 e2e-131- 行且 API 复核命中', rowOk && !!apiRow,
-    `ui=${rowOk}, api=${apiRow ? `id=${apiRow.id}, capacity=${apiRow.capacity}` : 'miss'}`)
+  record(
+    131,
+    '④ 列表出现 e2e-131- 行且 API 复核命中',
+    rowOk && !!apiRow,
+    `ui=${rowOk}, api=${apiRow ? `id=${apiRow.id}, capacity=${apiRow.capacity}` : 'miss'}`
+  )
 
   // ⑤ UI 删除恢复初态（MessageBox 确认 → API 复核已删）
   let delOk = false
   if (rowOk) {
     // 重新定位行（保存后列表重渲染，旧 row 引用可能 detach——F128 同型坑）
     const delRow = page.locator('.el-table__row').filter({ hasText: pattern }).first()
-    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const delRowOk = await delRow
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     if (delRowOk) {
-      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      await delRow
+        .getByRole('button', { name: /删除/ })
+        .first()
+        .evaluate((el) => el.click())
       const cbox = page.locator('.el-message-box:visible').first()
-      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const cboxOk = await cbox
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (cboxOk) {
-        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+        await cbox
+          .locator('.el-message-box__btns .el-button--primary')
+          .first()
+          .evaluate((el) => el.click())
+          .catch(() => {})
       }
     }
     let gone = false
@@ -22621,9 +25094,16 @@ async function testFeature132(page) {
   }
 
   // ② 新增对话框打开 + 字段断言（zh-CN 真值：规则名/目标表/目标列/操作符/值类型/规则值/生效角色/状态）
-  await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+  await page
+    .getByRole('button', { name: /新增/ })
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
   const dlg = page.locator('.el-dialog:visible').last()
-  const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+  const dlgOk = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
   if (!dlgOk) {
     record(132, '② 新增对话框打开 + 字段断言', false, '对话框未打开')
     await dismissAllOverlays(page)
@@ -22654,12 +25134,19 @@ async function testFeature132(page) {
     const roleList = (roles.body?.data || []).filter((r) => r.roleId !== 1)
     const target = roleList[0] || (roles.body?.data || [])[0] || null
     if (target) {
-      await dlg.locator('input[aria-label="选择生效角色"]').first().evaluate((el) => el.click()).catch(() => {})
+      await dlg
+        .locator('input[aria-label="选择生效角色"]')
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       const opt = page
         .locator('.el-select-dropdown:visible .el-select-dropdown__item')
         .filter({ hasText: target.roleName })
         .first()
-      const optOk = await opt.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const optOk = await opt
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (optOk) {
         await opt.evaluate((el) => el.click())
         roleIdSelected = target.roleId
@@ -22668,22 +25155,37 @@ async function testFeature132(page) {
       }
     }
   } catch {}
-  const tagOk = roleIdSelected
-    ? (await dlg.locator('.el-select').last().locator('.el-tag').count()) > 0
-    : null
-  record(132, '③ 生效角色多选回显（选中角色 tag 渲染）', tagOk === null ? true : tagOk,
-    tagOk === null ? '无可用角色，跳过选择' : `roleId=${roleIdSelected}, tag=${tagOk}`)
+  const tagOk = roleIdSelected ? (await dlg.locator('.el-select').last().locator('.el-tag').count()) > 0 : null
+  record(
+    132,
+    '③ 生效角色多选回显（选中角色 tag 渲染）',
+    tagOk === null ? true : tagOk,
+    tagOk === null ? '无可用角色，跳过选择' : `roleId=${roleIdSelected}, tag=${tagOk}`
+  )
 
   // 保存：先挂 POST 响应监听再点确定 → 200 + 对话框关闭
-  const saveP = page.waitForResponse(
-    (r) => r.url().endsWith('/system/dataRule') && r.request().method() === 'POST' && r.status() === 200,
-    { timeout: 10000 }
-  ).catch(() => null)
-  await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+  const saveP = page
+    .waitForResponse(
+      (r) => r.url().endsWith('/system/dataRule') && r.request().method() === 'POST' && r.status() === 200,
+      { timeout: 10000 }
+    )
+    .catch(() => null)
+  await dlg
+    .getByRole('button', { name: /确\s*定/ })
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
   const saveResp = await saveP
-  const dlgClosed = await dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
-  record(132, '③ 合法规则保存（POST 200 且对话框关闭）',
-    !!saveResp && dlgClosed, `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`)
+  const dlgClosed = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    132,
+    '③ 合法规则保存（POST 200 且对话框关闭）',
+    !!saveResp && dlgClosed,
+    `resp=${saveResp ? saveResp.status() : 'none'}, closed=${dlgClosed}`
+  )
 
   // ④ 列表出现 + API 复核 roleIds 字段（F101 回归锁：列表必须回显 roleIds）
   const row = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
@@ -22695,20 +25197,37 @@ async function testFeature132(page) {
       ? Array.isArray(apiRow.roleIds) && apiRow.roleIds.includes(roleIdSelected)
       : Array.isArray(apiRow.roleIds)
     : false
-  record(132, '④ 列表出现 e2e-132- 行且 API 复核 roleIds 字段', rowOk && !!apiRow && roleIdsOk,
-    `ui=${rowOk}, api=${apiRow ? 'hit' : 'miss'}, roleIds=${JSON.stringify(apiRow?.roleIds)}, expect=${roleIdSelected}`)
+  record(
+    132,
+    '④ 列表出现 e2e-132- 行且 API 复核 roleIds 字段',
+    rowOk && !!apiRow && roleIdsOk,
+    `ui=${rowOk}, api=${apiRow ? 'hit' : 'miss'}, roleIds=${JSON.stringify(apiRow?.roleIds)}, expect=${roleIdSelected}`
+  )
 
   // ⑤ UI 删除恢复初态（MessageBox 确认 → API 复核已删）
   let delOk = false
   if (rowOk) {
     const delRow = page.locator('.el-table__row').filter({ hasText: ruleName }).first()
-    const delRowOk = await delRow.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const delRowOk = await delRow
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     if (delRowOk) {
-      await delRow.getByRole('button', { name: /删除/ }).first().evaluate((el) => el.click())
+      await delRow
+        .getByRole('button', { name: /删除/ })
+        .first()
+        .evaluate((el) => el.click())
       const cbox = page.locator('.el-message-box:visible').first()
-      const cboxOk = await cbox.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const cboxOk = await cbox
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (cboxOk) {
-        await cbox.locator('.el-message-box__btns .el-button--primary').first().evaluate((el) => el.click()).catch(() => {})
+        await cbox
+          .locator('.el-message-box__btns .el-button--primary')
+          .first()
+          .evaluate((el) => el.click())
+          .catch(() => {})
       }
     }
     let gone = false
@@ -22757,7 +25276,11 @@ async function testFeature133(page) {
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 
   const enterEditMode = async () => {
-    await page.getByRole('button', { name: /新增/ }).first().evaluate((el) => el.click()).catch(() => {})
+    await page
+      .getByRole('button', { name: /新增/ })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
     return page
       .getByRole('button', { name: ADD_NODE })
       .first()
@@ -22766,17 +25289,35 @@ async function testFeature133(page) {
       .catch(() => false)
   }
   const backToList = async () => {
-    await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
-    await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+    await page
+      .getByRole('button', { name: /返回/ })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
+    await page
+      .locator('.el-table')
+      .first()
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .catch(() => {})
   }
   /** 「添加连线」弹窗：双 el-select 选 from/to → 确定 → 断言边卡片 +1 */
   const addEdgeViaDialog = async (fromId, toId) => {
     const before = await page.locator('.el-card').count()
-    await page.getByRole('button', { name: '添加连线' }).first().evaluate((el) => el.click()).catch(() => {})
+    await page
+      .getByRole('button', { name: '添加连线' })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
     const dlg = page.locator('.el-dialog:visible').last()
-    const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+    const dlgOk = await dlg
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
     if (!dlgOk) return false
-    for (const [idx, id] of [[0, fromId], [1, toId]]) {
+    for (const [idx, id] of [
+      [0, fromId],
+      [1, toId]
+    ]) {
       await dlg
         .locator('.el-select')
         .nth(idx)
@@ -22784,11 +25325,11 @@ async function testFeature133(page) {
         .first()
         .evaluate((el) => el.click())
         .catch(() => {})
-      const opt = page
-        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
-        .filter({ hasText: id })
-        .first()
-      const optOk = await opt.waitFor({ state: 'visible', timeout: 4000 }).then(() => true).catch(() => false)
+      const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').filter({ hasText: id }).first()
+      const optOk = await opt
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
       if (!optOk) {
         await page.keyboard.press('Escape')
         return false
@@ -22796,7 +25337,11 @@ async function testFeature133(page) {
       await opt.evaluate((el) => el.click())
       await sleep(300)
     }
-    await dlg.getByRole('button', { name: /确\s*定/ }).first().evaluate((el) => el.click()).catch(() => {})
+    await dlg
+      .getByRole('button', { name: /确\s*定/ })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
     await dlg.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
     const after = await page.locator('.el-card').count()
     return after === before + 1
@@ -22813,7 +25358,10 @@ async function testFeature133(page) {
   // ③ 添加审批节点：卡片 +1（3 节点卡 + 2 边卡 → 新节点卡插在节点区末尾 = nth(3)），
   //    填 id/name（aria-label 在内部 input 上：节点 ID / 节点名称），审批人多选追加 role:admin
   const cardsBefore = await page.locator('.el-card').count()
-  await page.getByRole('button', { name: ADD_NODE }).first().evaluate((el) => el.click())
+  await page
+    .getByRole('button', { name: ADD_NODE })
+    .first()
+    .evaluate((el) => el.click())
   await sleep(300)
   const cardsAfterAdd = await page.locator('.el-card').count()
   const newCard = page.locator('.el-card').nth(3)
@@ -22821,7 +25369,10 @@ async function testFeature133(page) {
   await newCard.locator('input[aria-label="节点名称"]').first().fill('E2E审批节点')
   let assigneeOk = false
   try {
-    await newCard.locator('input[aria-label="审批人"]').first().evaluate((el) => el.click())
+    await newCard
+      .locator('input[aria-label="审批人"]')
+      .first()
+      .evaluate((el) => el.click())
     const opt = page
       .locator('.el-select-dropdown:visible .el-select-dropdown__item')
       .filter({ hasText: 'role:admin' })
@@ -22843,8 +25394,12 @@ async function testFeature133(page) {
   //    validateGraph 连通性校验，故两次添加、各断言边卡片 +1，随保存链一起提交）
   const edge1 = await addEdgeViaDialog('a1', 'ap_e2e133')
   const edge2 = await addEdgeViaDialog('ap_e2e133', 'end')
-  record(133, '④ 添加连线弹窗（a1→ap_e2e133、ap_e2e133→end，边卡片各 +1）', edge1 && edge2,
-    `edge1=${edge1}, edge2=${edge2}`)
+  record(
+    133,
+    '④ 添加连线弹窗（a1→ap_e2e133、ap_e2e133→end，边卡片各 +1）',
+    edge1 && edge2,
+    `edge1=${edge1}, edge2=${edge2}`
+  )
 
   // ⑤ 保存闭环：先挂 POST 监听再点保存 → 200 + 操作成功 toast + 回列表态
   const saveP = page
@@ -22853,7 +25408,11 @@ async function testFeature133(page) {
       { timeout: 10000 }
     )
     .catch(() => null)
-  await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+  await page
+    .getByRole('button', { name: /保存/ })
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
   const saveResp = await saveP
   const saveBody = saveResp ? await saveResp.json().catch(() => null) : null
   let flowId = saveBody?.data?.flowId || null
@@ -22861,9 +25420,10 @@ async function testFeature133(page) {
   if (!flowId) {
     // 兜底：POST 响应无 data 时按列表回查（flow_<ts> 为前端自动编码，种子 demo_v2 不匹配）
     const lst = await apiWithBackoff('/system/flow/definition/list?pageNum=1&pageSize=50', { headers: jsonHeaders })
-    const newest = (lst.body?.rows || [])
-      .filter((x) => /^flow_\d+/.test(x.flowCode || '') && x.isLatest)
-      .sort((a, b) => b.flowId - a.flowId)[0] || null
+    const newest =
+      (lst.body?.rows || [])
+        .filter((x) => /^flow_\d+/.test(x.flowCode || '') && x.isLatest)
+        .sort((a, b) => b.flowId - a.flowId)[0] || null
     if (newest) {
       flowId = newest.flowId
       flowCode = newest.flowCode
@@ -22922,23 +25482,37 @@ async function testFeature133(page) {
   //    前端 validateGraph 先行拦截：el-alert 错误清单 + graphInvalid toast + 无 POST（无落库）
   const edit2 = await enterEditMode()
   if (edit2) {
-    await page.locator('.el-card').nth(1).locator('button[aria-label="删除"]').first().evaluate((el) => el.click())
+    await page
+      .locator('.el-card')
+      .nth(1)
+      .locator('button[aria-label="删除"]')
+      .first()
+      .evaluate((el) => el.click())
     await sleep(300)
     const postP2 = page
-      .waitForResponse(
-        (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST',
-        { timeout: 2500 }
-      )
+      .waitForResponse((r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST', {
+        timeout: 2500
+      })
       .then(() => true)
       .catch(() => false)
-    await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+    await page
+      .getByRole('button', { name: /保存/ })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
     const alertOk = await page
       .locator('.el-alert--error')
       .first()
       .waitFor({ state: 'visible', timeout: 4000 })
       .then(() => true)
       .catch(() => false)
-    const alertText = alertOk ? await page.locator('.el-alert--error').first().innerText().catch(() => '') : ''
+    const alertText = alertOk
+      ? await page
+          .locator('.el-alert--error')
+          .first()
+          .innerText()
+          .catch(() => '')
+      : ''
     const toastNeg = await page
       .locator('.el-message--error')
       .filter({ hasText: '流程图校验未通过' })
@@ -22947,7 +25521,11 @@ async function testFeature133(page) {
       .then(() => true)
       .catch(() => false)
     const postFired = await postP2
-    const stillEdit = await page.getByRole('button', { name: ADD_NODE }).first().isVisible().catch(() => false)
+    const stillEdit = await page
+      .getByRole('button', { name: ADD_NODE })
+      .first()
+      .isVisible()
+      .catch(() => false)
     record(
       133,
       '⑧ 断图保存被前端拦截（错误清单+graphInvalid toast+无 POST+保持编辑态）',
@@ -22999,13 +25577,26 @@ async function testFeature134(page) {
   /** 行内「测试」按钮（JS click）→「渠道连通性测试」对话框 */
   const openTestDialog = async (rowText) => {
     const row = page.locator('.el-table__row').filter({ hasText: rowText }).first()
-    const rowOk = await row.waitFor({ state: 'visible', timeout: 6000 }).then(() => true).catch(() => false)
+    const rowOk = await row
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
     if (!rowOk) return null
-    await row.getByRole('button', { name: '测试' }).first().evaluate((el) => el.click()).catch(() => {})
+    await row
+      .getByRole('button', { name: '测试' })
+      .first()
+      .evaluate((el) => el.click())
+      .catch(() => {})
     const dlg = page.locator('.el-dialog:visible').last()
-    const dlgOk = await dlg.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const dlgOk = await dlg
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     if (!dlgOk) return null
-    const title = await dlg.locator('.el-dialog__header').innerText().catch(() => '')
+    const title = await dlg
+      .locator('.el-dialog__header')
+      .innerText()
+      .catch(() => '')
     const descOk = (await dlg.locator('.el-descriptions__label').count()) >= 3
     return { dlg, title, descOk }
   }
@@ -23028,7 +25619,11 @@ async function testFeature134(page) {
           { timeout: 10000 }
         )
         .catch(() => null)
-      await s.dlg.getByRole('button', { name: '开始测试' }).first().evaluate((el) => el.click()).catch(() => {})
+      await s.dlg
+        .getByRole('button', { name: '开始测试' })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       const resp = await testP
       const toastOk = await page
         .locator('.el-message--success')
@@ -23037,7 +25632,10 @@ async function testFeature134(page) {
         .waitFor({ state: 'visible', timeout: 4000 })
         .then(() => true)
         .catch(() => false)
-      const closed = await s.dlg.waitFor({ state: 'hidden', timeout: 5000 }).then(() => true).catch(() => false)
+      const closed = await s.dlg
+        .waitFor({ state: 'hidden', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         134,
         '② site 测试链（POST 200 + 渠道测试通过 toast + 对话框关闭）',
@@ -23045,7 +25643,11 @@ async function testFeature134(page) {
         `resp=${resp ? resp.status() : 'none'}, toast=${toastOk}, closed=${closed}`
       )
     } else {
-      await s.dlg.getByRole('button', { name: /取\s*消/ }).first().evaluate((el) => el.click()).catch(() => {})
+      await s.dlg
+        .getByRole('button', { name: /取\s*消/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       record(134, '② site 测试链（POST 200 + 渠道测试通过 toast + 对话框关闭）', false, 'API 无 site 渠道')
     }
   }
@@ -23067,7 +25669,11 @@ async function testFeature134(page) {
           { timeout: 10000 }
         )
         .catch(() => null)
-      await e.dlg.getByRole('button', { name: '开始测试' }).first().evaluate((el) => el.click()).catch(() => {})
+      await e.dlg
+        .getByRole('button', { name: '开始测试' })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       const resp2 = await testP2
       const errToast = await page
         .locator('.el-message--error, .el-message--warning')
@@ -23076,7 +25682,11 @@ async function testFeature134(page) {
         .then(() => true)
         .catch(() => false)
       const errText = errToast
-        ? await page.locator('.el-message--error, .el-message--warning').first().innerText().catch(() => '')
+        ? await page
+            .locator('.el-message--error, .el-message--warning')
+            .first()
+            .innerText()
+            .catch(() => '')
         : ''
       const dlgStillOpen = await e.dlg.isVisible().catch(() => false)
       // 探针定性：失败（非 200）⇒ 期望 UI 同样失败路径（错误 toast + runTest .then 跳过 ⇒ 对话框保持打开）
@@ -23091,7 +25701,11 @@ async function testFeature134(page) {
         `probe=${probe.status}/${probeMsg.slice(0, 40)}, resp=${resp2 ? resp2.status() : 'none'}, toast=${errToast}("${errText.trim().slice(0, 40)}"), dlgOpen=${dlgStillOpen}`
       )
       if (dlgStillOpen) {
-        await e.dlg.getByRole('button', { name: /取\s*消/ }).first().evaluate((el) => el.click()).catch(() => {})
+        await e.dlg
+          .getByRole('button', { name: /取\s*消/ })
+          .first()
+          .evaluate((el) => el.click())
+          .catch(() => {})
         await e.dlg.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
       }
     }
@@ -23116,7 +25730,9 @@ async function testFeature135(page) {
   const jsonHeaders = { Authorization: `Bearer ${token}` }
   let raw = ''
   try {
-    raw = await apiWithBackoff('/metrics', { headers: jsonHeaders }).then((r) => r.body).catch(() => null)
+    raw = await apiWithBackoff('/metrics', { headers: jsonHeaders })
+      .then((r) => r.body)
+      .catch(() => null)
     if (typeof raw !== 'string') {
       // apiWithBackoff 可能 JSON.parse 失败回退——直接 fetch 兜底
       raw = await fetch(`${CONFIG.backendUrl}/metrics`, { headers: jsonHeaders })
@@ -23127,7 +25743,12 @@ async function testFeature135(page) {
     record(135, '① /metrics 可达', false, `异常: ${err.message.slice(0, 100)}`)
     return
   }
-  record(135, '① /metrics 可达（Prometheus 文本格式）', raw.length > 1000 && raw.includes('# HELP'), `bytes=${raw.length}`)
+  record(
+    135,
+    '① /metrics 可达（Prometheus 文本格式）',
+    raw.length > 1000 && raw.includes('# HELP'),
+    `bytes=${raw.length}`
+  )
 
   const metrics = new Map()
   for (const line of raw.split('\n')) {
@@ -23194,8 +25815,12 @@ async function testFeature135(page) {
 
   // ⑤ DB 池结构健康（批四十七修正：local 档 SQLite max_connections=1，单次抓取 busy=1/1 是
   // 瞬时正常态）——断言池已上报且未超订（busy ≤ size），busy 值留档供趋势观察
-  const poolSize = Number(metrics.get('stepby_db_pool_size{backend="sqlite"}') || metrics.get('stepby_db_pool_size') || 0)
-  const poolBusy = Number(metrics.get('stepby_db_pool_busy{backend="sqlite"}') || metrics.get('stepby_db_pool_busy') || 0)
+  const poolSize = Number(
+    metrics.get('stepby_db_pool_size{backend="sqlite"}') || metrics.get('stepby_db_pool_size') || 0
+  )
+  const poolBusy = Number(
+    metrics.get('stepby_db_pool_busy{backend="sqlite"}') || metrics.get('stepby_db_pool_busy') || 0
+  )
   record(
     135,
     '⑤ DB 池结构健康（已上报且 busy ≤ size）',

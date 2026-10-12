@@ -35,6 +35,21 @@ const REPORT_URL = `${BASE_API}/monitor/frontendError/report`
 const FLUSH_DEBOUNCE_MS = 2000
 const MAX_BUFFER = 50
 
+/**
+ * 已知良性错误名单：命中则不持久化上报（批五十四）。
+ *
+ * - ResizeObserver loop：浏览器渲染循环警告——观察者回调内的尺寸变更未能在本帧
+ *   投递时浏览器自动延迟处理，无用户影响、无功能缺陷（WHATWG 规范行为）。
+ *   e2e 实测 10 天 35 条（33 条集中在 http-debugger 页图表容器 resize），
+ *   全部落在 error 级污染错误信号，故在 transport 层过滤（errorHub 本地
+ *   console/角标展示不受影响——本处仅决定是否持久化）。
+ */
+const BENIGN_ERROR_PATTERNS: RegExp[] = [/^ResizeObserver loop( completed with undelivered notifications)?\.?$/]
+
+function isBenignError(message: string): boolean {
+  return BENIGN_ERROR_PATTERNS.some((p) => p.test(message.trim()))
+}
+
 /** 单条 Web Vitals 指标的计算结果（value 单位：CLS 为分数，其余为毫秒） */
 interface VitalMetric {
   name: string
@@ -129,6 +144,8 @@ function transport(err: unknown, context?: Record<string, unknown>): void {
   const isErr = err instanceof Error
   const message =
     typeof context?.message === 'string' ? context.message : isErr ? err.message : String(err ?? 'Unknown error')
+  // 良性错误过滤：不持久化（本地 errorHub 展示行为不变）
+  if (isBenignError(message)) return
   enqueue({
     level,
     source,
@@ -245,6 +262,7 @@ export const __testables = {
   transport,
   enqueue,
   flush,
+  isBenignError,
   reset: (): void => {
     buffer = []
   }
