@@ -17507,7 +17507,29 @@ async function cleanupE2eResidue() {
       ['dict_type_i18n', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'i18n_test_%'"],
       // F14 字典 CRUD 链：改名 testdict<ts>_deleted 后软删（r59 巡检 161 行）
       ['dict_data_testdict', "DELETE FROM sys_dict_data WHERE dict_type LIKE 'testdict%'"],
-      ['dict_type_testdict', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'testdict%'"]
+      ['dict_type_testdict', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'testdict%'"],
+      // 批五十五：r60 巡检实证——graph doc 链（M85/F133 每轮 +2 单据；doc 被既有清理删除后
+      // task/log 成孤儿：任务 70/log 全族 biz_type=flow_graph_doc）、AI 会话（F86 探针累积
+      // 113 行零清理）、OAuth provider（E2E81 活跃残留 1）
+      [
+        'graphdoc_log_e2e',
+        "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_graph_doc WHERE title LIKE 'e2e%')"
+      ],
+      [
+        'graphdoc_task_e2e',
+        "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_graph_doc WHERE title LIKE 'e2e%')"
+      ],
+      ['graphdoc_e2e', "DELETE FROM flow_graph_doc WHERE title LIKE 'e2e%'"],
+      [
+        'flow_task_orphan',
+        "DELETE FROM sys_flow_task WHERE biz_type='flow_graph_doc' AND biz_id NOT IN (SELECT doc_id FROM flow_graph_doc)"
+      ],
+      [
+        'flow_log_orphan',
+        "DELETE FROM sys_flow_log WHERE biz_type='flow_graph_doc' AND biz_id NOT IN (SELECT doc_id FROM flow_graph_doc)"
+      ],
+      ['ai_chat_e2e', "DELETE FROM ai_chat_history WHERE question LIKE 'e2e%'"],
+      ['oauth_provider_e2e', "DELETE FROM sys_oauth_provider WHERE lower(provider_name) LIKE 'e2e%'"]
     ]
     let total = 0
     for (const [name, sql] of steps) {

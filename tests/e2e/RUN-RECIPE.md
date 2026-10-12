@@ -1583,3 +1583,17 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   （ResizeObserver loop——浏览器渲染循环警告，errorHub 本地展示不受影响）。
 - **教训**：审计先验证清理条件反例（非命中行必须是种子/合法数据）再执行；
   LIKE 对 ASCII 大小写不敏感（`'e2e%'` 同时命中 `E2E79_`）。
+
+### 3.43 批五十五：数据治理第二轮巡检（上批修复复检 + 未覆盖表深挖）
+
+- **复检结论**：批五十四全部清理目标归零（webhook/oauth_client/shared_kv/pat/report 族/
+  dict 软删 6 类，且经一轮全量 e2e 后仍为 0——起跑清理实链闭环）；verify-chain **valid=true**
+  （checked=61923，gapCount=156 全为锚点续接合法缺口）。
+- **第二轮新发现（cleanupE2eResidue +7 步收口）**：①graph doc 链——M85/F133 每轮 +2 活跃
+  单据（'e2e 动作收窄单'/'e2e 图驱动单据（长链）'），且 doc 被既有 `flow_graphdoc` 步删除后
+  task/log 成**孤儿**（biz_type='flow_graph_doc' 全族 task 70/log 117，孤儿 task 40/log 67）；
+  ②AI 会话——F86 'e2e86 探针' 累积 113 行零清理；③OAuth provider——E2E81 活跃残留 1。
+- **一次性清理实绩**：321 行（五表归零，provider 回 4 种子）；审计连带确认 notice/msg_send_log/
+  logininfor 非种子行（2108，删除用户的历史登录日志=合法审计保留）与 audit_change 均为设计内。
+- **方法论沉淀**：巡检按「关联族」推进——发现单表残留后必须沿外键（biz_id/hook_id/report_id）
+  查全族，孤儿判定=「父行已删而子行留存」，清理顺序=先子后父。
