@@ -66,6 +66,11 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   formRef: Ref<FormInstance | null>
   /** 查询表单组件 ref（用于 resetFields） */
   queryRef: Ref<FormInstance | null>
+  /**
+   * 重置前置回调（可选）：resetQuery 最先执行，用于清空 composable 感知不到的
+   * 页面级查询状态（如 dateRange 日期区间 ref）。批六十四新增。
+   */
+  onReset?: () => void
   /** 提交前的载荷改写（可选）：用于携带后端「显式清空」声明 `clearFields`
    * （见 `stepby-axum/src/common/clear_fields.rs`——缺省 = 保持现值，清空必须显式声明） */
   beforeSubmit?: (payload: T) => T
@@ -124,6 +129,33 @@ export interface UseCrudTableFormReturn<T extends object> extends UseCrudTableRe
   submitForm: () => void
 }
 
+/**
+ * 页面定义的「干净查询默认值」快照（按 queryParams.value 对象身份 WeakMap 存储）。
+ *
+ * 批六十四真实缺陷修复（F137⑤ 全链实证）：AppMain 以 `route.fullPath` 为组件 key（P1 设计），
+ * syncUrlQuery 把筛选值写入 URL 后页面**重挂载**，重挂载实例的 EP form-item `initialValue`
+ * 即被 restoreQueryFromUrl 的回填值污染 ⇒ `resetFields()` 只会把筛选"重置回搜索值"，
+ * 重置按钮在所有 URL 同步页面上是无效操作（35 个 useTemplateRef 页面同模式）。
+ * 故快照必须在 URL 恢复**之前**捕获，重置语义 = 回到页面定义默认值，而非"回到挂载时的 URL 筛选"。
+ */
+const QUERY_DEFAULTS = new WeakMap<object, Record<string, unknown>>()
+
+/**
+ * 将 queryParams 恢复为页面定义的干净默认值（快照缺失时为保守 no-op）。
+ * 导出供本地 shadow resetQuery 的页面（RuoYi 式 `dateRange=[]; resetFields(); handleQuery()` 模式）
+ * 在 `resetFields()` 之后调用——EP initialValue 已被污染，单靠它无法真正清空筛选。
+ */
+export function resetQueryDefaults<Q extends object>(queryParams: Ref<Q>): void {
+  const target = queryParams.value as unknown as Record<string, unknown>
+  const defaults = QUERY_DEFAULTS.get(target)
+  if (!defaults) return
+  // 清掉快照中不存在、但运行期被动态加入的键（不含 params 容器键）
+  for (const k of Object.keys(target)) {
+    if (!(k in defaults) && k !== 'params') target[k] = undefined
+  }
+  Object.assign(target, defaults)
+}
+
 /** 完整表单模式：三个表单 API 齐备时暴露 handleAdd/handleUpdate/submitForm */
 export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
   options: UseCrudTableOptions<T, Q> & {
@@ -159,6 +191,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     onAfterSubmit,
     onAfterDelete,
     deleteTipParams,
+    onReset,
     syncQueryToUrl = true,
     supportsSort = false
   } = options
@@ -216,6 +249,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     const target = queryParams.value as unknown as Record<string, unknown>
     for (const [k, v] of Object.entries(q)) {
       if (!(k in target) || v === undefined || v === null || v === '') continue
+      // 批六十四：对象容器键（params 等）不接受字符串注入，防 `[object Object]` 腐化
+      if (typeof target[k] === 'object' && target[k] !== null) continue
       if (k === 'pageNum' || k === 'pageSize') {
         const n = Number(v)
         if (!Number.isNaN(n) && n > 0) target[k] = n
@@ -240,6 +275,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     }
     for (const [k, v] of Object.entries(src)) {
       if (v === undefined || v === null || v === '') continue
+      // 批六十四：仅同步原始类型——嵌套对象（如 RuoYi 惯例的 params 容器）会被
+      // String(v) 序列化成 `params=[object Object]` 垃圾参数污染 URL（F137 取证实录）
+      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') continue
       query[k] = String(v)
     }
     if (JSON.stringify(query) === JSON.stringify(route.query as Record<string, string>)) return
@@ -304,12 +342,16 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
 
   /** 重置按钮操作（supportsSort 开启时连带清空排序，回退后端默认排序） */
   function resetQuery(): void {
+    onReset?.()
     if (supportsSort) {
       const target = queryParams.value as unknown as Record<string, unknown>
       target['orderByColumn'] = undefined
       target['isAsc'] = undefined
     }
     queryRef.value?.resetFields()
+    // 批六十四：EP initialValue 已被「URL 同步 + fullPath 重挂载」污染（见 QUERY_DEFAULTS），
+    // resetFields 只会恢复到挂载时的 URL 筛选值——必须显式恢复干净默认快照
+    resetQueryDefaults(queryParams)
     handleQuery()
   }
 
@@ -465,6 +507,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     if (!('orderByColumn' in target)) target['orderByColumn'] = undefined
     if (!('isAsc' in target)) target['isAsc'] = undefined
   }
+  // 批六十四：URL 恢复**前**捕获干净默认值（restoreQueryFromUrl 会把 URL 筛选值回填进
+  // queryParams，此后 EP form-item 的 initialValue 即被污染——见 QUERY_DEFAULTS 注释）
+  QUERY_DEFAULTS.set(queryParams.value, { ...queryParams.value })
   restoreQueryFromUrl()
 
   // 只读模式（未注入 getApi/addApi/updateApi）不暴露新增/修改/提交流程

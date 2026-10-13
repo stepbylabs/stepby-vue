@@ -301,7 +301,7 @@ import {
   refreshCache,
   invalidateConfigCache
 } from '@/api/system/config'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { addDateRange } from '@/utils/stepby'
 import { checkPermi } from '@/utils/permission'
@@ -490,6 +490,9 @@ async function submitFormGuarded() {
 function resetQuery() {
   dateRange.value = []
   queryRefRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
 }
 

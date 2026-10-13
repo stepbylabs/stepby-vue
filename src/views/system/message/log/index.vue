@@ -212,7 +212,7 @@ import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
@@ -284,6 +284,9 @@ function resetQuery(): void {
   queryParams.value.orderByColumn = undefined
   queryParams.value.isAsc = undefined
   queryRefRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
   tableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }

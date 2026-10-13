@@ -243,7 +243,7 @@ import EmptyState from '@/components/EmptyState/index.vue'
 import useSettingsStore from '@/store/modules/settings'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useTableColumns } from '@/composables/useTableColumns'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import type { TableShowColumns } from '@/types/api/common'
 import type { FormInstance } from 'element-plus'
@@ -435,6 +435,9 @@ function resetQuery() {
   queryParams.value.orderByColumn = undefined
   queryParams.value.isAsc = undefined
   queryRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
   taskTableRef.value?.clearSort()
 }

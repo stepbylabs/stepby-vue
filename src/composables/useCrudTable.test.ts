@@ -245,6 +245,44 @@ describe('composables/useCrudTable', () => {
       expect(queryRef.value!.resetFields).toHaveBeenCalled()
       expect(listApi).toHaveBeenCalledTimes(1)
     })
+
+    // 批六十四回归锁（F137⑤ 真实缺陷）：URL 同步 + fullPath 重挂载下，重挂载实例的
+    // EP form-item initialValue 被 restoreQueryFromUrl 回填值污染——resetQuery 必须
+    // 恢复「页面定义默认值」而非「挂载时的 URL 筛选值」。
+    it('重置恢复干净默认值，而非 URL 回填的污染初值（UX-6 × P1 重挂载交互缺陷）', () => {
+      // 模拟：搜索 → syncUrlQuery 写 URL → fullPath 变化 → 页面重挂载，
+      // 重挂载实例从 URL 恢复筛选值（EP initialValue 从此被污染）
+      routeState.query = { pageNum: '1', name: 'zzz' }
+      const { ctx, queryParams, listApi } = makeCtx()
+      expect(queryParams.value.name).toBe('zzz') // 挂载即被 URL 回填（污染实证）
+      ctx.resetQuery()
+      expect(queryParams.value.name).toBe('a') // 回到页面定义默认值，而非 'zzz'
+      expect(queryParams.value.pageNum).toBe(1) // handleQuery 归位第一页（重置业务语义）
+      expect(listApi).toHaveBeenCalledTimes(1)
+    })
+
+    it('快照按 queryParams 对象身份隔离（多实例互不串扰）', () => {
+      routeState.query = {}
+      const a = makeCtx()
+      routeState.query = { name: 'b' }
+      const b = makeCtx()
+      expect(b.queryParams.value.name).toBe('b')
+      a.ctx.resetQuery()
+      expect(a.queryParams.value.name).toBe('a')
+      expect(b.queryParams.value.name).toBe('b') // a 的重置不影响 b
+      b.ctx.resetQuery()
+      expect(b.queryParams.value.name).toBe('a') // b 恢复自己的快照默认
+      routeState.query = {}
+    })
+
+    it('onReset 前置回调在 resetQuery 最先执行（清页面级查询状态如 dateRange）', () => {
+      const order: string[] = []
+      const onReset = vi.fn(() => order.push('onReset'))
+      const { ctx, queryRef } = makeCtx({ onReset })
+      queryRef.value!.resetFields.mockImplementation(() => order.push('resetFields'))
+      ctx.resetQuery()
+      expect(order).toEqual(['onReset', 'resetFields'])
+    })
   })
 
   // ===== 多选 =====

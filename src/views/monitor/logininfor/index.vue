@@ -224,7 +224,7 @@ import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useExport } from '@/composables/useExport'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import type { SysLogininfor, LogininforQueryParams } from '@/types/api/monitor/logininfor'
 import MyLoginPanel from './MyLoginPanel.vue'
@@ -396,6 +396,9 @@ function resetQuery() {
   queryParams.value.isAsc = undefined
   queryParams.value.tenantId = undefined
   queryRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
   logininforRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }

@@ -257,6 +257,7 @@ const {
   total,
   getList,
   handleQuery,
+  resetQuery,
   handleSortChange
 } = useCrudTable<SysAuditChange, AuditChangeQueryParams>({
   listApi: (params) =>
@@ -275,20 +276,19 @@ const {
   form,
   formRef: formRef as never,
   queryRef,
+  // 批六十四：重置前清空日期区间（composable 感知不到的页面级查询状态）
+  onReset: () => {
+    dateRange.value = []
+  },
   supportsSort: true
 })
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)
 
-/** 重置按钮操作：清空日期与排序参数后按默认排序重新查询 */
-function resetQuery(): void {
-  dateRange.value = []
-  queryParams.value.orderByColumn = undefined
-  queryParams.value.isAsc = undefined
-  queryRef.value?.resetFields()
-  handleQuery()
-}
+// resetQuery 来自 useCrudTable（批六十四修复：EP initialValue 被 URL 同步污染，
+// 页面本地 shadow 版本同样失效——统一走 composable 的干净默认值快照恢复；
+// 日期区间经 onReset 钩子清空）
 
 /** 导出按钮操作（CSV 下载，携带当前过滤条件） */
 function handleExport(): void {

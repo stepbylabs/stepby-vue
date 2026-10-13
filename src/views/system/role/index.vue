@@ -377,7 +377,7 @@ import type { RoleDeptTreeResult } from '@/types/api/system/role'
 import type { RoleMenuTreeselectResult } from '@/types/api/system/menu'
 import type { TreeInstance } from 'element-plus'
 import useUserStore from '@/store/modules/user'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
@@ -497,6 +497,9 @@ function resetQuery() {
   queryParams.value.orderByColumn = undefined
   queryParams.value.isAsc = undefined
   queryRefRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
   roleTableRef.value?.clearSort()
 }

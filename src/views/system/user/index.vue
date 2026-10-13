@@ -710,6 +710,11 @@ function handleQuery() {
 function resetQuery() {
   dateRange.value = []
   queryRefRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 同源缺陷）：本页自带 URL 同步 + AppMain 按 fullPath 重挂载，
+  // 重挂载实例的 EP form-item initialValue 已被 URL 回填值污染——表单筛选键必须显式清空
+  queryParams.value.userName = undefined
+  queryParams.value.phonenumber = undefined
+  queryParams.value.status = undefined
   queryParams.value.tenantId = undefined
   queryParams.value.deptId = undefined
   queryParams.value.orderByColumn = undefined

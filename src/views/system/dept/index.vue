@@ -184,7 +184,7 @@
 
 <script setup lang="ts" name="Dept">
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import {
   listDept,
   getDept,
@@ -306,6 +306,9 @@ function handleQuery() {
 /** 重置按钮操作 */
 function resetQuery() {
   queryRefRef.value?.resetFields()
+  // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
+  // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
+  resetQueryDefaults(queryParams)
   handleQuery()
 }
 
