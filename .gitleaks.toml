@@ -1,0 +1,18 @@
+# gitleaks 自定义配置（批六十一）：扩展默认规则 + 全局 allowlist。
+# 误报经逐条定性：i18nKey 是菜单国际化键字段（translateTitle 参数名），非任何凭据；
+# 用 regex 豁免（而非 file:line 指纹）以免疫行号漂移（历史 commit 行号 71/73 不一致实证）。
+# 注：generic-api-key 的 match 为捕获的赋值右侧值本身，故按值锚定。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "批六一定性豁免：菜单 i18nKey 误报（非凭据）"
+regexTarget = "match"
+regexes = [
+  '''^scope\.row\.i18nKey$''',
+  '''i18nKey:\s*scope\.row\.i18nKey''',
+  # 历史 commit（RuoYi 上游默认测试密钥对，公开知识、当前版本已移除；非保密凭据）
+  '''MIIBVAIBADANBgkqhkiG9w0BAQ''',
+  '''MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKoR8mX0''',
+  '''MIGfMA0GCSqGSIb3''',
+]

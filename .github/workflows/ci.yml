@@ -1,0 +1,72 @@
+# Stepby Vue CI 流水线（单仓版）
+#
+# 触发条件：push 到 main/master 分支，或针对 main/master 的 Pull Request
+#
+# Jobs:
+# 1. frontend —— pnpm 安装 / vue-tsc 类型检查 / ESLint / vitest / 生产构建
+#               + 性能预算门禁（perf-budget.json）+ 重复依赖检测
+#
+# 说明：本文件为 stepby-vue 单仓自治版（发布于 stepbylabs 组织）。
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (Vue)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check (vue-tsc)
+        run: npx vue-tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test:run
+
+      - name: Build (production)
+        run: npm run build:prod
+
+      # 性能预算门禁：产物体积超 perf-budget.json 预算即失败；
+      # 报告（dist/perf-budget-report.json）作为 artifact 留存，观察体积趋势。
+      - name: Performance budget gate
+        run: node scripts/check-perf-budget.mjs --dir dist
+
+      - name: Upload perf budget report (trend data)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-budget-report
+          path: dist/perf-budget-report.json
+
+      # 重复依赖检测：复用仓内零依赖脚本（npm run deps:check）。
+      # 不用 `pnpm dedupe --check`：其结果依赖 pnpm store 全局状态，环境差异下不一致。
+      - name: Duplicate dependency check
+        run: npm run deps:check

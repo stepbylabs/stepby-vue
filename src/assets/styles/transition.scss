@@ -1,0 +1,174 @@
+// global transition css
+
+/* 统一的缓动节奏：进入 ease-out（渐入渐停） / 离开 ease-in（快速淡出）
+   供 fade/expand-fade/fade-transform 等各级过渡共用，保证视觉节奏一致 */
+$ease-enter: ease-out;
+$ease-leave: ease-in;
+
+/* U1 过渡体系统一：路由切换（.fade-transform）与侧边栏展开/收起共用同一组时长/缓动，
+   消除两套过渡体系在缓动/时长上的不一致（参考值 0.28s / ease-out）。 */
+$transition-duration: 0.28s;
+$transition-easing: ease-out;
+
+/* fade */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.28s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* fade-slide：淡入+滑动，用于 Tab 切换、对话框内容 */
+.fade-slide-enter-active {
+  transition: all 0.25s $ease-enter;
+}
+.fade-slide-leave-active {
+  transition: all 0.2s $ease-leave;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* expand-fade：展开+淡入，用于 v-if 区块显隐（如模板类型切换） */
+.expand-fade-enter-active {
+  transition: all 0.3s $ease-enter;
+  overflow: hidden;
+}
+.expand-fade-leave-active {
+  transition: all 0.2s $ease-leave;
+  overflow: hidden;
+}
+.expand-fade-enter-from,
+.expand-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+.expand-fade-enter-to,
+.expand-fade-leave-from {
+  opacity: 1;
+  max-height: 1000px;
+}
+
+/* list：列表增删过渡，用于 TransitionGroup */
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.3s ease;
+}
+.list-enter-from {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+.list-leave-to {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.list-move {
+  transition: transform 0.3s ease;
+}
+.list-leave-active {
+  position: absolute;
+}
+
+/* icon-grid：图标网格过滤过渡 */
+.icon-grid-enter-active,
+.icon-grid-leave-active {
+  transition: all 0.2s ease;
+}
+.icon-grid-enter-from,
+.icon-grid-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+.icon-grid-move {
+  transition: transform 0.3s ease;
+}
+
+/* fade-transform ：
+   页面路由过渡（AppMain）。与 fade-slide/expand-fade 统一导入/离开缓动，
+   保证两级过渡体系视觉节奏一致（默认 ease 改为 ease-out/in） */
+.fade-transform--move,
+.fade-transform-leave-active,
+.fade-transform-enter-active {
+  transition: all $transition-duration $transition-easing;
+}
+
+.fade-transform-enter-from {
+  opacity: 0;
+  transform: translateX(-30px);
+}
+
+.fade-transform-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+/* breadcrumb transition */
+.breadcrumb-enter-active,
+.breadcrumb-leave-active {
+  transition: all 0.5s;
+}
+
+.breadcrumb-enter-from,
+.breadcrumb-leave-active {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.breadcrumb-move {
+  transition: all 0.5s;
+}
+
+.breadcrumb-leave-active {
+  position: absolute;
+}
+
+/* 黑暗模式下过渡效果 */
+::view-transition-new(root),
+::view-transition-old(root) {
+  animation: none !important;
+  backface-visibility: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.dark::view-transition-old(root) {
+  z-index: 2147483646;
+  background: var(--bg-color-dark);
+}
+
+.dark::view-transition-new(root) {
+  z-index: 1;
+  background: var(--bg-color);
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+  background: var(--bg-color);
+}
+
+::view-transition-new(root) {
+  z-index: 2147483646;
+  background: var(--bg-color-dark);
+}
+
+/* 无障碍：尊重 prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

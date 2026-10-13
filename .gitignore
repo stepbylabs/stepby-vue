@@ -1,0 +1,58 @@
+.DS_Store
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+**/*.log
+
+tests/**/coverage/
+/coverage/
+tests/e2e/reports
+
+# e2e 运行产物（失败截图 + JSON 报告），不入库
+/screenshots/
+selenium-debug.log
+
+# e2e 轮次批跑运行时产物（进度 JSON + runner 自身日志），不入库
+tests/e2e/_rounds2026*
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.local
+
+# 环境变量（保留 .env.example 作为模板）
+.env
+.env.*
+!.env.example
+
+# 自动生成的类型声明
+auto-imports.d.ts
+components.d.ts
+
+# 本地 agent 工作目录与临时提交信息（不应入库）
+.workbuddy/
+commit_msg.txt
+_cm.txt
+
+# 沙箱隔离的本地 pnpm store/cache（避免与全局 store 冲突；不应入库）
+.pnpm-store/
+.pnpm-store-local/
+.pnpm-local-store/
+.pnpm-cache-local/
+
+# Playwright 浏览器缓存目录（不应入库）
+tests/e2e/.browsers/
+
+# e2e 批跑器运行状态产物
+tests/e2e/_rounds*_done.json
+tsconfig.tsbuildinfo
+
+# e2e 归档与覆盖率产物（批五十：可再生数据不入库）
+tests/e2e/_archive/
+coverage/

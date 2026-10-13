@@ -1,0 +1,129 @@
+import type { AjaxResult } from './common'
+import type { SysUser } from './system/user'
+
+/** 登录响应 */
+export interface LoginInfoResult extends AjaxResult {
+  /** 令牌 */
+  token: string
+}
+
+/** 用户信息响应 */
+export interface UserInfoResult extends AjaxResult {
+  /** 用户信息 */
+  user: SysUser
+  /** 角色数据 */
+  roles: string[]
+  /** 权限数据 */
+  permissions: string[]
+  /** 密码加密类型（对齐后端 pwd_chrtype） */
+  pwdChrtype?: string
+  /** 初始密码是否提醒修改 */
+  isDefaultModifyPwd?: boolean
+  /** 密码是否过期 */
+  isPasswordExpired?: boolean
+  /**
+   * B4 强制改密判定（后端算好下发，前端只消费不推断）：
+   * 强改开关 `sys.user.forceFirstLoginChangePwd`（默认 false）开启 **且**
+   * （初始密码未修改 || 密码过期）。开关关闭时恒 false/缺省，前端零行为变化。
+   */
+  mustChangePassword?: boolean
+  /**
+   * 业务列表页是否显示「所属租户」归属列
+   *
+   * 由后端按 `[ui].show_tenant_column`（`auto` | `always` | `never`）结合操作者租户上下文
+   * **算好后下发**（`auto` = 仅平台操作者可见 = 历史行为）。前端不做二次推断，
+   * 避免"平台/租户"判定散落两处而漂移。
+   */
+  showTenantColumn?: boolean
+  /**
+   * 业务列表页是否显示「按租户筛选」入口
+   *
+   * 由后端按 `[ui].tenant_filter`（`off` | `platform` | `always`）结合操作者租户上下文
+   * **算好后下发**（`off` = 不提供入口 = 历史行为）。前端不做二次推断，
+   * 避免"平台/租户"判定散落两处而漂移。
+   *
+   * ⚠️ 该筛选仅用于**收窄**：后端把显式 `tenantId` 与行级 `tenant_scope` **相与**（AND），
+   * 故它不构成安全边界 —— 租户即便手工传他租户 id 也只会得到空集。
+   */
+  showTenantFilter?: boolean
+  /**
+   * 用户管理页是否显示「匿名化（GDPR）」入口
+   *
+   * 由后端按能力位 `privacy.user_erasure`（`off` | `precheck` | `full`）结合操作者租户上下文
+   * **算好后下发**（`off` 或非平台操作者 = 不提供入口 = 历史行为）。前端只消费不推断，
+   * 避免"平台/租户 + 能力位"判定散落两处而漂移（也不会造出"菜单可见但请求 404"的假入口）。
+   *
+   * ⚠️ 匿名化**不可逆**（PII 置换 + 凭据全吊销），前端必须二次确认。
+   */
+  showUserErasure?: boolean
+  /**
+   * 个人中心是否显示「通行密钥（Passkey）」页签
+   *
+   * 由后端按能力位 `auth.webauthn`（**与 WebAuthn 端点守卫同一判据**）算好后下发：
+   * 关闭态后端对 `/system/user/webauthn/*` 一律 404。前端只消费不推断，
+   * 避免造出「页签可见但请求 404」的假入口。
+   */
+  showPasskey?: boolean
+  /**
+   * 个人中心是否显示「API 访问令牌（PAT）」页签
+   *
+   * 由后端按 `[pat].enabled` 算好后下发：关闭态鉴权层对 `ybt_` 令牌一律 401，
+   * PAT 自助端点失去意义。前端只消费不推断，避免「页签可见但请求 401」的假入口。
+   */
+  showPat?: boolean
+  /**
+   * 个人中心是否显示「已授权应用（SSO Grants）」页签
+   *
+   * 由后端按 `[sso].enabled` 算好后下发：SSO Provider 关闭时 OIDC 端点不注册。
+   * 前端只消费不推断。
+   */
+  showSsoGrants?: boolean
+  /**
+   * 角色管理是否显示「字段权限」按钮
+   *
+   * 由后端按 fieldperm 开关链（平台 `sys_config` 开关 + 租户能力位 `role.field_perm`）
+   * **与矩阵接口守卫同源**判定后下发：任一层关闭 ⇒ false。前端只消费不推断，
+   * 避免「按钮可见但点击 403」。
+   */
+  showFieldPerm?: boolean
+}
+
+/** 验证码响应 */
+export interface CaptchaInfoResult extends AjaxResult {
+  /** 验证码缓存key */
+  uuid: string
+  /** 验证码图片Base64 */
+  img: string
+  /** 验证码开关 */
+  captchaEnabled: boolean
+  /** 注册开关（后端从 sys.account.registerUser 读取，前端据此控制"立即注册"链接显示） */
+  registerEnabled?: boolean
+  /**
+   * WebAuthn / Passkey 登录开关
+   *
+   * 后端按能力位 `auth.webauthn`（**与 WebAuthn 端点守卫同一判据**）算好后下发。
+   * 前端据此控制登录页「通行密钥登录」入口显示，避免探测 `/login/webauthn/*` 触发 404
+   * 控制台错误（与 `registerEnabled` 同一动机）。
+   */
+  webauthnEnabled?: boolean
+}
+
+/** 注册提交信息 */
+export interface RegisterForm {
+  username: string
+  password: string
+  confirmPassword: string
+  code: string
+  uuid: string
+}
+
+/** 登录提交信息 */
+export interface LoginForm {
+  username: string
+  password: string
+  rememberMe?: boolean | string
+  code: string
+  uuid: string
+  /** TOTP 动态验证码（P0-4：已启用多因子的用户登录时必填） */
+  totpCode?: string
+}

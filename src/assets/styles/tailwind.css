@@ -1,0 +1,43 @@
+/**
+ * Tailwind CSS 4 入口文件
+ *
+ * 项目使用 `.dark` 类切换暗色模式（与 Element Plus 一致），
+ * 因此通过 @custom-variant dark 让 Tailwind 的 dark: 变体匹配 `.dark` 类，
+ * 而非默认的 prefers-color-scheme 媒体查询。
+ *
+ * 注：Tailwind preflight 与 Element Plus 样式不冲突，保留默认值。
+ */
+
+@import 'tailwindcss';
+
+/* 暗色模式基于 .dark 类切换（与 Element Plus dark/css-vars.css 配合） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * 主题色板映射（与 Element Plus CSS 变量保持一致）
+ * 通过 @theme 将 Element Plus 的颜色变量桥接到 Tailwind 工具类，
+ * 使 dark: 变体在切换 .dark 类时自动应用暗色配色。
+ */
+@theme {
+  --color-bg-page: var(--el-bg-page, #ffffff);
+  --color-bg-overlay: var(--el-bg-overlay, #ffffff);
+  --color-text-primary: var(--el-text-color-primary, #303133);
+  --color-text-regular: var(--el-text-color-regular, #606266);
+  --color-text-secondary: var(--el-text-color-secondary, #909399);
+  --color-text-placeholder: var(--el-text-color-placeholder, #a8abb2);
+  --color-text-disabled: var(--el-text-color-disabled, #c0c4cc);
+  --color-border: var(--el-border-color, #dcdfe6);
+  --color-border-light: var(--el-border-color-light, #e4e7ed);
+  --color-border-lighter: var(--el-border-color-lighter, #ebeef5);
+  --color-border-extra-light: var(--el-border-color-extra-light, #f2f6fc);
+  --color-fill: var(--el-fill-color, #f0f2f5);
+  --color-fill-light: var(--el-fill-color-light, #f5f7fa);
+  --color-fill-lighter: var(--el-fill-color-lighter, #fafafa);
+  --color-fill-blank: var(--el-fill-color-blank, #ffffff);
+  --color-primary: var(--el-color-primary, #409eff);
+  --color-success: var(--el-color-success, #67c23a);
+  --color-warning: var(--el-color-warning, #e6a23c);
+  --color-danger: var(--el-color-danger, #f56c6c);
+  --color-error: var(--el-color-danger, #f56c6c);
+  --color-info: var(--el-color-info, #909399);
+}
