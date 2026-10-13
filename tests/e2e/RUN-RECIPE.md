@@ -1805,3 +1805,18 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   a11y-full 560 检查全绿。fetchWithAuth 显式 /prod-api 前缀（后端双路径兼容）不受影响。
 - **仓库门面**：README CI 动态徽章（actions/workflows/ci.yml/badge.svg）替换静态
   build 图；GitHub description/topics 设置（API PATCH）。
+
+### 3.52 批六十二收官：oper_log 时序红根因终局定性 + 三平台推送纪律重申
+
+- **it_opl_archive 第 5 次同因红终局定性**：根因非"锚点落库延迟"（重试收敛无效），
+  而是**落库序 != 业务序**——CI 2 核慢机 spawn 竞争恒定复现（brokenAtOperId 恒定
+  105/gapCount 恒 3），本地 env-only 4 线程全量不复现。链序锚定**落库序** ⇒ 业务序
+  顺序断言（id1<id2、散段衔接）前提不成立。修复 = rowid 落库序前置检测
+  （`SELECT oper_id ... ORDER BY rowid` vs 业务序比对，序不一致降级跳过）——
+  axum r17 @f61b2b3 CI+Security 全绿确认根除。
+- **sea-orm 2.0 raw 查询**：`DatabaseConnection` 需 `use sea_orm::ConnectionTrait`
+  才有 query_all_raw/query_one_raw（run 实证 E0599）。
+- **三平台推送纪律**：origin（gitcode）只是开发同步；github/gitee/labs 的 main 是
+  孤儿基线线——全史 main 直推必非快进拒绝，必须走 commit-tree 基线重建 + `--force
+  clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根因即此 + 网络
+  劣化叠加）。
