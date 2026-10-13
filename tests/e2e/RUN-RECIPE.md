@@ -1715,9 +1715,12 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
     4117 remark（防打地鼠；b60 补 4115/4116 remark，同为生产手调态）；
   - K4 运行态：sys_user 账号态六列（password/头像/登录时间等）、sys_shared_kv 整表
     （config:def:* 为 TTL 300s 缓存层读时重建；sso:v4_legacy_at_migrated 幂等 SETNX 自愈）；
-  - P1 待拍板（不计失败）：captchaEnabled 种子 true vs 运行态 false。
+  - K5 有意运行态覆写（informational）：运行时**可编辑**配置键，种子=生产安全默认、运行库有意覆写
+    为便利值——当前 1 项 `sys.account.captchaEnabled`（种子 true=安全默认 vs 运行库 false=e2e 便利态，
+    2026-10-13 定案，不再计入 PENDING）。
 - **方向语义**：种子有→运行库无 = 漂移（丢失）；值不同 = 漂移（篡改）；
   运行库有→种子无 = 运行数据（只汇总不计失败）。
+- **批六十四实测**：K5 分类生效后结论 `漂移 0 | 豁免 30 | PENDING 0`，EXIT=0。
 - **批六十实测教训**：种子基线必须由**当前 HEAD 二进制**构建——本批首跑用 03:19 旧 exe
   构建 seed-check.db，skin 治理三元组误报 6 处（b56 迁移在旧二进制中不存在）；
   重建 b59 二进制后归零。**基线陈旧 = 整个 diff 无效。**
