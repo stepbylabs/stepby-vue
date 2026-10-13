@@ -1,5 +1,6 @@
 # Stepby Vue
 
+[![CI](https://github.com/stepbylabs/stepby-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/stepbylabs/stepby-vue/actions/workflows/ci.yml)
 ![Release](https://img.shields.io/badge/release-v0.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Vue](https://img.shields.io/badge/Vue-3-brightgreen?logo=vuedotjs)
