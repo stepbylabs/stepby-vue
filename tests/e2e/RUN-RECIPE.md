@@ -1820,3 +1820,20 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   孤儿基线线——全史 main 直推必非快进拒绝，必须走 commit-tree 基线重建 + `--force
   clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根因即此 + 网络
   劣化叠加）。
+
+### 3.53 批六十三：发布流程正常化——孤儿基线作废，正常 GitHub Flow 生效
+
+- **用户决策**：v0.2.0 发布以前的历史一律不管（mmdb blob 合规重写已在本地完成，
+  filter-repo 后 pack 53→20MiB、HEAD 树 hash 不变、代码零变化、全史 gitleaks 零发现
+  ——vue 全史已推三平台成功；axum 全史 20MiB 在网络劣化窗口重试推送中）。
+- **以后的标准流程（替代批六十一的 commit-tree 基线重建流程）**：
+  1. 开发 → `git commit`（本地 main 全史线）
+  2. `git push origin main && git push github main`（同线天然快进，**无需 --force**）
+  3. 发布：`git tag vX.Y.Z && git push github vX.Y.Z` → Actions 自动跑
+     CI/Security/Release（三平台构建 + smoke 冒烟门禁 + checksums 自动附）
+  4. 首次登录强制改密等语义不变；gitee/labs/gitcode 同步推 main 即可
+- **孤儿基线机制作废**：clean-main 分支与 refs/backup/clean-main-* 锚点保留仅作
+  历史存档，不再参与发布；v0.2.0 tag 保持指向 r16 基线（Release 四产物+checksums
+  与该树构建一致，关联不断）。
+- **一次性切换状态**：vue main=6882dc0 已上 github；axum main（含 filter-repo 重写）
+  全史 20MiB 推送后台长退避中，网络窗口恢复即自动完成。
