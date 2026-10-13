@@ -63,6 +63,8 @@ export interface ErrorStats {
 // ====== Redis 运行指标 ======
 
 export interface RedisStats {
+  /** 共享态存储档位（redis | local）——local 档无 Redis，专属指标不适用（—） */
+  storeKind: string
   /** 进程运行秒数 */
   uptimeSeconds: string
   /** 已连接客户端数 */

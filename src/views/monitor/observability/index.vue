@@ -10,6 +10,16 @@
       </el-col>
     </el-row>
 
+    <!-- 共享态存储档位提示：local 档无 Redis，上方 Redis 专属指标显示「—」（服务端下发 storeKind 判定） -->
+    <el-alert
+      v-if="redis && !isRedisStore"
+      :title="t('observability.storeKind.localHint')"
+      type="info"
+      :closable="false"
+      show-icon
+      class="mb8"
+    />
+
     <el-tabs v-model="activeTab" class="observability-tabs">
       <!-- ===== 慢请求 / 慢 SQL ===== -->
       <el-tab-pane :label="t('observability.tab.slow')" name="slow">
@@ -396,6 +406,9 @@ const hitRate = computed(() => {
   return `${((hits / total) * 100).toFixed(1)}%`
 })
 
+/** 共享态存储档位是否为 redis（服务端单点判定下发 storeKind；local 档无 Redis 指标） */
+const isRedisStore = computed(() => redis.value?.storeKind === 'redis')
+
 const statCards = computed(() => [
   { label: t('observability.stat.slowCount'), value: String(slowStats.value?.count ?? 0), tone: '' },
   {
@@ -415,10 +428,23 @@ const statCards = computed(() => [
     tone: ''
   },
   { label: t('observability.stat.errorTotal'), value: String(errorStats.value?.total ?? 0), tone: 'danger' },
-  { label: t('observability.stat.uptime'), value: formatUptime(redis.value?.uptimeSeconds ?? ''), tone: '' },
-  { label: t('observability.stat.usedMemory'), value: formatBytes(redis.value?.usedMemoryBytes ?? ''), tone: '' },
-  { label: t('observability.stat.connectedClients'), value: redis.value?.connectedClients ?? '0', tone: '' },
-  { label: t('observability.stat.hitRate'), value: hitRate.value, tone: '' }
+  // Redis 专属指标：local 档（无 Redis）显示「—」而非误导性的 0s/0 B/0
+  {
+    label: t('observability.stat.uptime'),
+    value: isRedisStore.value ? formatUptime(redis.value?.uptimeSeconds ?? '') : '—',
+    tone: ''
+  },
+  {
+    label: t('observability.stat.usedMemory'),
+    value: isRedisStore.value ? formatBytes(redis.value?.usedMemoryBytes ?? '') : '—',
+    tone: ''
+  },
+  {
+    label: t('observability.stat.connectedClients'),
+    value: isRedisStore.value ? redis.value?.connectedClients || '0' : '—',
+    tone: ''
+  },
+  { label: t('observability.stat.hitRate'), value: isRedisStore.value ? hitRate.value : '—', tone: '' }
 ])
 
 // ====== 刷新 ======

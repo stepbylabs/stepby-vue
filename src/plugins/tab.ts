@@ -24,14 +24,18 @@ export default {
       if (import.meta.env.DEV) console.warn('[tab] refreshPage skipped: no matching route component', { path, query })
       return Promise.resolve()
     }
-    return useTagsViewStore()
-      .delCachedView(obj)
-      .then(() => {
-        const { path: objPath, query: objQuery } = obj as View
-        router.replace({
-          path: '/redirect' + objPath,
-          query: objQuery
-        })
+    // 批六十四修复（真实缺陷）：`delCachedView` 是**同步** action（返回 `[...cachedViews]` 数组，
+    // 非 Promise）——此前写成 `delCachedView(obj).then(...)` 会同步抛
+    // `TypeError: delCachedView(...).then is not a function`，被 App 错误边界捕获后跳 /500。
+    // 即「刷新当前页」这一全局动作（顶栏刷新按钮 / 标签页右键菜单 / 命令面板）**必然崩页**，
+    // 且因错误在返回 Promise 前同步抛出，调用方的 `.catch()` 兜不住（F136 实测复现）。
+    // 正解：同步清缓存后直接 replace 到 /redirect 前缀触发重挂载。
+    useTagsViewStore().delCachedView(obj)
+    const { path: objPath, query: objQuery } = obj as View
+    return router
+      .replace({
+        path: '/redirect' + objPath,
+        query: objQuery
       })
       .catch((e: unknown) => {
         if (import.meta.env.DEV) console.error('[tab] refreshPage failed:', e)
@@ -47,22 +51,19 @@ export default {
   // 关闭指定tab页签
   closePage(obj?: View | RouteLocationNormalized): Promise<{ visitedViews: View[]; cachedViews: string[] }> {
     if (obj === undefined) {
-      return useTagsViewStore()
-        .delView(router.currentRoute.value as unknown as View)
-        .then((res: { visitedViews: View[]; cachedViews: string[] }) => {
-          const { visitedViews } = res
-          const latestView = visitedViews.slice(-1)[0]
-          if (latestView) {
-            router.push(latestView.fullPath || latestView.path)
-          } else {
-            router.push('/')
-          }
-          return { visitedViews, cachedViews: [] }
-        })
-        .catch((e: unknown) => {
-          if (import.meta.env.DEV) console.error('[tab] closePage failed:', e)
-          return { visitedViews: [], cachedViews: [] }
-        })
+      // 批六十四修复：与 refreshPage 同源缺陷——`delView` 同为**同步** action
+      // （返回 `{visitedViews, cachedViews}` 对象，非 Promise），原 `.then()` 链会同步抛
+      // `TypeError: delView(...).then is not a function`。改为同步取结果后构造 Promise。
+      const { visitedViews, cachedViews } = useTagsViewStore().delView(
+        router.currentRoute.value as unknown as View
+      )
+      const latestView = visitedViews.slice(-1)[0]
+      if (latestView) {
+        router.push(latestView.fullPath || latestView.path)
+      } else {
+        router.push('/')
+      }
+      return Promise.resolve({ visitedViews, cachedViews })
     }
     return Promise.resolve(useTagsViewStore().delView(obj as View))
   },

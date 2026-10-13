@@ -27,6 +27,10 @@ export default {
       connectedClients: 'Clients',
       hitRate: 'Hit Rate'
     },
+    storeKind: {
+      localHint:
+        'Shared-state store is in "local" mode (same DB, no Redis): Redis-only metrics (uptime/memory/clients/hit rate) are not applicable and shown as "—".'
+    },
     slow: {
       clear: 'Clear Slow Requests',
       ms: 'ms',

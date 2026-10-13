@@ -20,6 +20,7 @@ import useSettingsStore from '@/store/modules/settings'
 import { handleThemeStyle } from '@/utils/theme'
 // D8（UX-RESPONSIVE-PLAN）：移动端表格卡片模式运行时增强（开关默认关=横滚）
 import { useMobileTableCards } from '@/composables/useMobileTableCards'
+import { errorReporter } from '@/utils/errorReporter'
 // Cookie 同意组件需全局展示，显式引入以保证类型与可见性
 import CookieConsent from '@/components/CookieConsent/index.vue'
 
@@ -64,8 +65,12 @@ onMounted(() => {
 // P2-34: R18-3.2 全局错误边界 - 捕获后代组件未处理错误，记录并跳转 500 页面
 // 返回 false 阻止错误继续向上冒泡；避免在错误页本身触发时无限跳转
 // router.push 添加 .catch 避免重复路由抛 NavigationDuplicated
+// 批六十四：**必须上报**——此前仅在 DEV 打 console，生产构建下返回 false 会**吞掉**错误，
+// 既不进 `app.config.errorHandler`（被 return false 截断）也无任何落库痕迹，导致
+// "页面崩到 /500 但零诊断信号"（F136 实测：点刷新崩 500，前后端日志与前端异常表全空）。
 onErrorCaptured((err: unknown, _instance: unknown, info: string) => {
   if (import.meta.env.DEV) console.error('[App ErrorCaptured]', err, info)
+  errorReporter.report(err, { type: 'AppErrorBoundary', info })
   if (router.currentRoute.value.path !== '/500') {
     router.push('/500').catch(() => {})
   }
