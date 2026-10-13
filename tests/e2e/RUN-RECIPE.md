@@ -1758,3 +1758,26 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   env-only，Settings::default 语义）+ 显式 DATABASE_URL=sqlite::memory:。
 - **推送网络韧性**：github 443 间歇中断（curl 28），逐 ref 补推 + 真实退出码校验
   （管道 tail -1 会吞失败码——`git push | tail -1 &&` 不可靠，须 `if git push ... &&`）。
+
+### 3.50 追记：迁移方言债首次全量暴露与清偿（r6→r11 六轮攻坚）
+
+- **爆发机制**：`cargo run -p migration` 契约从未存在（ed93647 重组删 main.rs 未补）
+  ⇒ CI migration-matrix 三库全挂 `a bin target must be available`——**多数据库支持
+  在全新库场景从未被真正验证过**（存量库走 initialize 兜底掩盖了一切）。
+- **bin 补齐**（migration/src/main.rs）：DATABASE_URL env → Migrator::up → 「迁移完成」；
+  本地三库全新库（docker compose down -v 重建）实证 86 迁移跑通。
+- **方言债清偿清单（每处均本地三库实证）**：
+  - `add_column_if_not_exists`：sea-orm MySQL 后端直译 `ADD COLUMN IF NOT EXISTS`
+    （MySQL 8.0 不支持）→ m20260928_000002 改"先查列存在再 ALTER"既定范式；
+  - `CREATE INDEX IF NOT EXISTS` ×6：alert_rule 已有分支，webhook_event/flow_definition/
+    report_dataset×2/flow_graph_doc 补方言分支（MySql 裸语句 + IndexDdlExt"已存在"容错）；
+  - boolean 赋值：`SET is_system = 1` → `= TRUE`（PG boolean 拒 integer，三库兼容 TRUE）；
+  - TEXT DEFAULT：MySQL 8 严格模式禁 BLOB/TEXT 列 DEFAULT ⇒ flow_graph_doc fields_json
+    MySQL 分支改可空（应用层恒写值）；
+  - DATETIME 类型：PG 无 DATETIME ⇒ flow_definition/report_dataset/flow_graph_doc 补
+    ts_type 映射（PG=TIMESTAMP，其余=DATETIME）；
+  - 幂等前缀：m20261012 菜单补种硬编码 `INSERT OR IGNORE`（SQLite 专属）→ 三方言分支
+    （与 execute_idempotent_insert 同款）。
+- **方法论沉淀**：本地复刻 CI 的标准姿势 = `docker compose down -v`（必须 -v 清 volume，
+  半迁移态 seaql_migrations 残留会掩盖错误）+ `DATABASE_URL=<三库串> cargo run -q -p
+  migration` 逐库跑全新库；ci.yml mysql health-cmd 须用 root/root123（对齐根版）。
