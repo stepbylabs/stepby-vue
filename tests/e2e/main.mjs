@@ -17506,6 +17506,12 @@ async function cleanupE2eResidue() {
         'report_board_e2e',
         "DELETE FROM sys_report_board WHERE name LIKE 'smoke-board-%' OR name LIKE 'e2e140-%' OR name LIKE 'e2e-%'"
       ],
+      // 批六十四循环：sys_post 软删残留物理清扫（数据审计实证：负路径"删除后行消失"
+      // 用例的已删行 del_flag='2' 长期留存——如 E2E610185_deleted_617 自 2026-10-13 起）
+      [
+        'sys_post_e2e',
+        "DELETE FROM sys_post WHERE (post_code LIKE 'e2e%' OR post_code LIKE 'E2E%' OR post_name LIKE '%【e2e%') AND del_flag = '2'"
+      ],
       // local 档共享态过期键物理清扫（对齐后端 cleanup_expired_logs 批五十四新增步骤）
       [
         'shared_kv_expired',
@@ -22248,6 +22254,9 @@ async function testFeature106(page) {
     page.on('framenavigated', (f) => {
       if (f === page.mainFrame()) log(`  ⚠ [F106 ②] 导航发生: ${f.url().slice(0, 80)} @${Date.now() - gotoT0}ms`)
     })
+    // 批六十四循环修复：gotoT0 此前未定义——framenavigated 触发时 ReferenceError 被
+    // uncaughtException 兜底吞掉（×3 实证），诊断日志从未真正输出
+    const gotoT0 = Date.now()
     const grantsRespReady = page
       .waitForResponse((r) => r.url().includes('/system/user/profile/sso-grants') && r.status() === 200, {
         timeout: 60000
@@ -23484,7 +23493,7 @@ async function testFeature118(page) {
   let getIdOk = false
   let getSeen = false
   const getH = (r) => {
-    if (r.request().method() === 'GET' && /\/system\/scimGroup\/\d+/.test(r.url())) {
+    if (r.method() === 'GET' && /\/system\/scimGroup\/\d+/.test(r.url())) {
       getSeen = true
       getIdOk = r.status() === 200
     }
@@ -23668,7 +23677,7 @@ async function testFeature121(page) {
   // —— 导入表：不选表点确定 → 错误 Toast + 0 importTable POST（waitForResponse 计数）——
   let importPost = 0
   const impH = (r) => {
-    if (r.request().method() === 'POST' && r.url().includes('/tool/gen/importTable')) importPost++
+    if (r.method() === 'POST' && r.url().includes('/tool/gen/importTable')) importPost++
   }
   page.on('request', impH)
   const importBtn = page.getByRole('button', { name: /^导\s*入$/ }).first()
@@ -23713,7 +23722,7 @@ async function testFeature121(page) {
   // —— 创建表：对话框打开 + 取消零落库 ——
   let createPost = 0
   const crtH = (r) => {
-    if (r.request().method() === 'POST' && r.url().includes('/tool/gen/createTable')) createPost++
+    if (r.method() === 'POST' && r.url().includes('/tool/gen/createTable')) createPost++
   }
   page.on('request', crtH)
   const createBtn = page.getByRole('button', { name: /^创\s*建$/ }).first()
@@ -23746,7 +23755,7 @@ async function testFeature122(page) {
 
   let delCount = 0
   const delH = (r) => {
-    if (r.request().method() === 'DELETE' && r.url().includes('/monitor/cache/clearCacheName')) delCount++
+    if (r.method() === 'DELETE' && r.url().includes('/monitor/cache/clearCacheName')) delCount++
   }
   page.on('request', delH)
 

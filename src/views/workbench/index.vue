@@ -4,7 +4,7 @@
     <el-card class="welcome-card mb-4" shadow="hover">
       <div class="welcome-content flex justify-between items-center flex-wrap gap-4">
         <div class="welcome-left flex items-center gap-4">
-          <el-avatar :size="64" :src="userStore.avatar" @error="onAvatarError">
+          <el-avatar :size="64" :src="userStore.avatar || defaultAvatar" @error="onAvatarError">
             <img :src="defaultAvatar" loading="lazy" alt="default avatar" />
           </el-avatar>
           <div class="welcome-text">

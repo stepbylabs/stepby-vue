@@ -47,7 +47,10 @@
         </el-col>
         <el-col :xs="24" :md="12" :style="{ height: '350px' }">
           <div class="avatar-upload-preview">
+            <!-- 批六十四循环修复：previews.url 在 realTime 回调前为 undefined——空 src 会被
+                 浏览器解析为当前页 URL 发失败请求（sys_frontend_error 双条实证）；防空渲染 -->
             <img
+              v-if="options.previews && options.previews.url"
               :src="options.previews.url"
               :style="options.previews.img"
               :alt="t('profile.avatar.previewAlt')"
@@ -137,7 +140,10 @@ interface CropperOptions {
 }
 
 const options = reactive<CropperOptions>({
-  img: userStore.avatar, // 裁剪图片的地址
+  // 批六十四循环修复：getInfo 完成前 userStore.avatar 为空串——空 src 会被浏览器解析成
+  // 当前页 URL（/user/profile）触发注定失败的 IMG 请求（sys_frontend_error x84 实证，
+  // onAvatarError 虽兜底显示但错误噪音照发）——初始化即回退默认头像，不发空请求
+  img: userStore.avatar || defAva, // 裁剪图片的地址
   autoCrop: true, // 是否默认生成截图框
   autoCropWidth: 200, // 默认生成截图框宽度
   autoCropHeight: 200, // 默认生成截图框高度
@@ -152,9 +158,10 @@ const options = reactive<CropperOptions>({
 watch(
   () => userStore.avatar,
   (newAvatar: string) => {
-    // 仅在弹窗关闭状态同步，避免覆盖用户正在裁剪的新图
+    // 仅在弹窗关闭状态同步，避免覆盖用户正在裁剪的新图；
+    // 空值回退默认头像（同上，防空 src 发失败请求）
     if (!open.value) {
-      options.img = newAvatar
+      options.img = newAvatar || defAva
     }
   }
 )
@@ -253,7 +260,7 @@ function uploadImg() {
         userStore
           .getInfo()
           .then(() => {
-            options.img = userStore.avatar
+            options.img = userStore.avatar || defAva
             visible.value = false
           })
           .catch(() => {})
@@ -273,7 +280,9 @@ function realTime(data: CropperPreview) {
 
 /** 关闭窗口 */
 function closeDialog() {
-  options.img = userStore.avatar
+  // 批六十四循环修复：closeDialog 在 getInfo 完成前触发时 store.avatar 为中间态空串——
+  // 空 src 发失败请求（F129 双条实证）；与初始化/watch/getInfo 回调统一回退默认头像
+  options.img = userStore.avatar || defAva
   // P0 修复: visible 是顶层 ref，不是 options 的属性
   visible.value = false
 }

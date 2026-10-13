@@ -151,7 +151,7 @@
           tabindex="0"
           :aria-label="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })" >
           <img
-            :src="userStore.avatar"
+            :src="userStore.avatar || defAva"
             class="user-avatar"
             :alt="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })"
             @error="onAvatarError"

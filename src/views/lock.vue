@@ -15,7 +15,7 @@
     >
       <div class="relative mb-4">
         <img
-          :src="userStore.avatar"
+          :src="userStore.avatar || defAva"
           class="lock-avatar w-20 h-20 rounded-full object-cover block"
           :alt="t('layout.navbar.avatarAlt', { name: userStore.nickName })"
           @error="onAvatarError"
