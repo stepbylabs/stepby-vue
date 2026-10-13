@@ -23995,7 +23995,8 @@ async function testFeature124(page) {
   const pageErrors = []
   const onErr = (e) => pageErrors.push(String(e).slice(0, 80))
   page.on('pageerror', onErr)
-  const routeRe = /\/prod-api\/system\/user\/list/
+  // embedded 模式 axios 同源根路径（.env.embedded VITE_APP_BASE_API=''），dev/prod 模式带 /prod-api 前缀——兼容两形态
+  const routeRe = /\/(prod-api\/)?system\/user\/list/
   // 关键坑（探针实证）：同 URL 的重复 XHR 命中 Chromium 内存缓存——page.on('request') 照发
   // 但 page.route 拦截不到（scimGroup role/list 首次点击可拦截、user/list 二次查询拦截不到）。
   // 必须用 context.route（上下文级拦截可击穿内存缓存），glob 字符串/regex 均可。
