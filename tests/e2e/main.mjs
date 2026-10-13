@@ -130,8 +130,11 @@ const log = (msg) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * 批三十七：e2e 手机号唯一化——固定号（13800000000 等）在残留数据/共享库上会撞唯一索引
- * （sys_user.phonenumber 唯一）。'138' + 时间戳后 8 位 = 11 位合法手机号，每次调用唯一。
+ * 批三十七：e2e 手机号唯一化——固定号（13800000000 等）在残留数据/共享库上会与其他用例或
+ * 历史残留撞号，令「按手机号检索」类断言与人工排查混淆。
+ * 实证（批六十四回库取证）：`sys_user.phonenumber` 是**非唯一**索引（`idx_sys_user_phonenumber`），
+ * 库层无唯一约束——唯一化纯靠本函数纪律保证，非"撞唯一索引"。
+ * '138' + 时间戳后 8 位 = 11 位合法手机号，每次调用唯一。
  * 同一用例内 create+update 需保持同号时，先存 const 再两处引用。
  */
 function e2ePhone() {
@@ -12198,7 +12201,7 @@ async function testFeature52(page) {
   } else {
     await itemByLabel('用户名称').locator('input').first().fill(uname)
     await itemByLabel('用户昵称').locator('input').first().fill(nick1)
-    await itemByLabel('手机号码').locator('input').first().fill('15199990001')
+    await itemByLabel('手机号码').locator('input').first().fill(e2ePhone())
     await itemByLabel('邮箱').locator('input').first().fill('e2e_ui@example.com')
     await itemByLabel('用户密码').locator('input').first().fill('Test@12345')
     // 归属部门：tree-select 选首节点；角色：多选下拉选首项（对齐 API 样板最小可用集）
@@ -17193,7 +17196,7 @@ async function testFeature75(page) {
         userName: csName,
         nickName: 'e2e75 加签目标',
         email: `${csName}@tzkj.net`,
-        phonenumber: '13800009999',
+        phonenumber: e2ePhone(),
         password: 'Stepby@12345',
         status: '0',
         roleIds: [2]
@@ -17496,6 +17499,12 @@ async function cleanupE2eResidue() {
       [
         'dataset_e2e',
         "DELETE FROM report_dataset WHERE lower(dataset_name) LIKE 'e2e%' OR dataset_name LIKE 'probe %'"
+      ],
+      // 批六十四：report_board 残留治理（回库取证：reportboard-smoke.mjs 遗留 smoke-board-*
+      // 2 行自 2026-10-03 起未清；F140 新增 e2e140-board-* 自清理）
+      [
+        'report_board_e2e',
+        "DELETE FROM sys_report_board WHERE name LIKE 'smoke-board-%' OR name LIKE 'e2e140-%' OR name LIKE 'e2e-%'"
       ],
       // local 档共享态过期键物理清扫（对齐后端 cleanup_expired_logs 批五十四新增步骤）
       [
@@ -17948,7 +17957,12 @@ async function main() {
       { id: 132, fn: testFeature132 },
       { id: 133, fn: testFeature133 },
       { id: 134, fn: testFeature134 },
-      { id: 135, fn: testFeature135 }
+      { id: 135, fn: testFeature135 },
+      { id: 136, fn: testFeature136 },
+      { id: 137, fn: testFeature137 },
+      { id: 138, fn: testFeature138 },
+      { id: 139, fn: testFeature139 },
+      { id: 140, fn: testFeature140 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -19624,8 +19638,17 @@ async function testFeature88(page) {
       .last()
       .getByRole('button', { name: /确\s*定/ })
       .click()
-    await sleep(2200)
-    delOk = (await rowsOf(tname).count()) === 0
+    // 批六十四：删除后列表异步刷新——轮询等待行消失（固定 sleep 2200 在慢刷场景
+    // 假失败，全量复跑实证），waitFor 优先于 sleep 铁律
+    let gone = false
+    for (let i = 0; i < 14; i++) {
+      await sleep(500)
+      if ((await rowsOf(tname).count()) === 0) {
+        gone = true
+        break
+      }
+    }
+    delOk = gone
   } catch (err) {
     log(`  模板删除异常: ${err.message.slice(0, 300)}`)
   }
@@ -25950,4 +25973,293 @@ async function testFeature135(page) {
     poolSize > 0 && poolBusy <= poolSize,
     `busy=${poolBusy}/${poolSize}（size=1 为 SQLite 档配置，单次抓取 busy=1 属瞬时正常）`
   )
+}
+
+// ==================== 功能 136-140：测试域广度补强（批六十四循环） ====================
+// 覆盖此前 e2e/deep-e2e/collect 三套件引用次数最低的页面（运行监控 / 变更留痕 /
+// 我的导航 / 域名管理 / 报表看板），补齐"页面可达 + 工具栏 + 真实数据链 + 档位判定"。
+
+/** 通用：元素可见等待（禁 isVisible({timeout})——不接受 timeout 立即返回） */
+async function _visible(loc, timeout = 5000) {
+  return loc
+    .first()
+    .waitFor({ state: 'visible', timeout })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/** 通用：overlay-safe 点击（.evaluate 原生 click 穿透遮罩） */
+async function _click(loc) {
+  await loc.first().evaluate((el) => el.click()).catch(() => {})
+}
+
+/** 功能 136：运行监控页（慢请求/错误聚合 + 共享态档位判定） */
+async function testFeature136(page) {
+  log('=== 功能 136：运行监控页（慢请求/错误聚合 + 共享态档位判定） ===')
+  const ok = await openPage(page, '/monitor/observability', 'observability')
+  record(136, '① 页面可达（/monitor/observability）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const tabSlow = await _visible(page.getByRole('tab', { name: '慢请求' }))
+  const tabErr = await _visible(page.getByRole('tab', { name: '错误聚合' }))
+  record(136, '② 页签渲染（慢请求 / 错误聚合）', tabSlow && tabErr, `slow=${tabSlow}, error=${tabErr}`)
+
+  const labels = await page.locator('.stat-label').allInnerTexts().catch(() => [])
+  const hasSlow = labels.some((x) => x.includes('慢请求数'))
+  const hasErr = labels.some((x) => x.includes('错误总数'))
+  record(136, '③ 统计卡渲染（慢请求数 + 错误总数）', hasSlow && hasErr, `labels=${labels.join(' / ')}`)
+
+  const rows = await page.locator('.el-table__body tr').count().catch(() => 0)
+  record(136, '④ 慢请求表格渲染（有行）', rows > 0, `rows=${rows}`)
+
+  // 注意：顶栏（TagsView）也有一个 role=button 的「刷新」（tab.refreshPage）——必须限定在
+  // 页面容器内，否则会误点布局刷新（F136 首轮实测：误点布局刷新崩 /500，反而揪出 tab.refreshPage 真实缺陷）
+  const pageRoot = page.locator('.app-container').first()
+  await _click(pageRoot.getByRole('button', { name: '刷新' }))
+  const toastOk = await _visible(page.locator('.el-message--success'), 6000)
+  record(136, '⑤ 页面「刷新」按钮 → 成功 toast', toastOk)
+
+  // ⑥ 共享态档位判定（b64 修复回归锁）：local 档 Redis 专属指标显示「—」+ 档位提示
+  const token = await sessionTokenOf(page)
+  const rs = await apiWithBackoff('/monitor/redis/stats', { headers: { Authorization: `Bearer ${token}` } })
+  const kind = rs.body?.data?.storeKind
+  const hint = await _visible(page.locator('.el-alert__title').filter({ hasText: 'local 档' }), 4000)
+  if (kind === 'local') {
+    const dash = await page
+      .locator('.stat-value')
+      .filter({ hasText: '—' })
+      .count()
+      .catch(() => 0)
+    record(
+      136,
+      '⑥ local 档：Redis 专属指标显示「—」+ 档位提示（防 0 值误导）',
+      dash >= 4 && hint,
+      `storeKind=${kind}, dashCards=${dash}, hint=${hint}`
+    )
+  } else {
+    record(136, '⑥ redis 档：Redis 专属指标显示真实值（无 local 提示）', !hint, `storeKind=${kind}`)
+  }
+
+  // ⑦ 切「错误聚合」页签 → 该面板专属按钮渲染
+  await _click(page.getByRole('tab', { name: '错误聚合' }))
+  await sleep(700)
+  const errBtn = await _visible(pageRoot.getByRole('button', { name: '清空错误日志' }), 5000)
+  record(136, '⑦ 切「错误聚合」页签 → 面板渲染（清空错误日志按钮）', errBtn)
+
+  // ⑧ 顶栏「刷新」按钮回归锁（b64 修复 tab.refreshPage 同步 action 误当 Promise 崩 /500）：
+  // 点击后应重挂载当前页而非跳 500；且页面容器仍在。
+  const tagRefresh = page.locator('.tags-refresh-btn').first()
+  if (await _visible(tagRefresh, 4000)) {
+    await _click(tagRefresh)
+    await sleep(2500)
+    const url = page.url()
+    const on500 = /\/500/.test(url)
+    const containerAlive = await _visible(page.locator('.app-container'), 6000)
+    record(
+      136,
+      '⑧ 顶栏「刷新」按钮不崩页（tab.refreshPage 回归锁，b64 修复）',
+      !on500 && containerAlive,
+      `url=${url}, on500=${on500}, container=${containerAlive}`
+    )
+  } else {
+    record(136, '⑧ 顶栏「刷新」按钮不崩页（tab.refreshPage 回归锁，b64 修复）', false, '.tags-refresh-btn 未找到')
+  }
+}
+
+/** 功能 137：变更留痕页（列表/搜索过滤/重置/导出/展开明细） */
+async function testFeature137(page) {
+  log('=== 功能 137：变更留痕页（列表/搜索过滤/重置/导出/展开明细） ===')
+  const ok = await openPage(page, '/system/log/auditChange', 'auditChange')
+  record(137, '① 页面可达（/system/log/auditChange）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const rows = await page.locator('.el-table__body tr').count().catch(() => 0)
+  record(137, '② 列表渲染（有行）', rows > 0, `rows=${rows}`)
+
+  const search = await _visible(page.getByRole('button', { name: '搜索' }))
+  const reset = await _visible(page.getByRole('button', { name: '重置' }))
+  const exp = await _visible(page.getByRole('button', { name: '导出' }))
+  record(137, '③ 工具栏按钮（搜索/重置/导出）', search && reset && exp, `search=${search}, reset=${reset}, export=${exp}`)
+
+  // ④ 搜索过滤：不存在的表名 → 0 行
+  const input = page.locator('input[placeholder="请输入被变更的表名"]').first()
+  if (await _visible(input, 4000)) {
+    // ④ 搜索过滤：不存在的表名 → 0 行。时序敏感根治（探针实证：深链慢挂载时 fill/点击
+    // 可落在表单就绪前，固定 sleep 两侧都会假失败）——等待**带 tableName 的列表请求**
+    // 作为"过滤真的下发"的取证，再核对 0 行。
+    const needle = 'zzz_no_such_table_e2e137'
+    const pFiltered = page
+      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && r.url().includes(needle), { timeout: 8000 })
+      .catch(() => null)
+    await input.fill(needle)
+    await _click(page.getByRole('button', { name: '搜索' }))
+    const rf = await pFiltered
+    await sleep(600)
+    const filtered = await page.locator('.el-table__body tr').count().catch(() => 0)
+    record(
+      137,
+      '④ 搜索过滤生效（不存在的表名 → 0 行）',
+      !!rf && filtered === 0,
+      `filterReq=${rf ? 'OK' : '未捕获带参请求'}, filteredRows=${filtered}`
+    )
+    // ⑤ 重置恢复：等待**不带过滤值**的列表请求（resetFields→handleQuery 的取证）+ 行数还原
+    const pReset = page
+      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && !r.url().includes(needle), { timeout: 8000 })
+      .catch(() => null)
+    await _click(page.getByRole('button', { name: '重置' }))
+    const rr = await pReset
+    let back = 0
+    for (let i = 0; i < 10; i++) {
+      await sleep(500)
+      back = await page.locator('.el-table__body tr').count().catch(() => 0)
+      if (back > 0) break
+    }
+    record(137, '⑤ 重置恢复（行数还原 > 0）', back > 0 && !!rr, `resetReq=${rr ? 'OK' : '未捕获'}, rows=${back}`)
+  } else {
+    record(137, '④ 搜索过滤生效（不存在的表名 → 0 行）', false, '表名输入框未找到')
+    record(137, '⑤ 重置恢复（行数还原 > 0）', false, '前置搜索框缺失')
+  }
+
+  // ⑥ 导出接口 200（响应监听须在点击前挂载——b35 铁律）。
+  // 重置会触发 URL 变化 → fullPath 重挂载（out-in 过渡），点击前必须等新实例按钮就绪，
+  // 否则 evaluate 点击落在 detached 节点上被静默吞掉（首轮实测 ⑥ 偶发未捕获）。
+  const exportReady = await _visible(page.locator('.app-container').first().getByRole('button', { name: '导出' }), 8000)
+  const respP = page
+    .waitForResponse((r) => r.url().includes('/system/audit-change/export') && r.status() === 200, { timeout: 10000 })
+    .catch(() => null)
+  if (exportReady) {
+    await _click(page.locator('.app-container').first().getByRole('button', { name: '导出' }))
+  }
+  const resp = await respP
+  record(137, '⑥ 导出接口 200（/system/audit-change/export）', !!resp, resp ? `status=${resp.status()}` : `未捕获 200 响应（exportReady=${exportReady}）`)
+
+  // ⑦ 展开行 → 变更明细渲染
+  const expander = page.locator('.el-table__expand-icon').first()
+  if (await _visible(expander, 4000)) {
+    await _click(expander)
+    await sleep(700)
+    const detail = await page.locator('.el-table__expanded-cell').count().catch(() => 0)
+    record(137, '⑦ 展开行 → 变更明细渲染', detail > 0, `expandedCells=${detail}`)
+  } else {
+    record(137, '⑦ 展开行 → 变更明细渲染', false, '无展开图标')
+  }
+}
+
+/** 功能 138：我的导航页（平台态：目标租户选择器 + 自助说明 + 列表 API） */
+async function testFeature138(page) {
+  log('=== 功能 138：我的导航页（平台态 + 目标租户选择器 + 列表 API） ===')
+  const ok = await openPage(page, '/tenant-space/my-nav', 'my-nav')
+  record(138, '① 页面可达（/tenant-space/my-nav）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const title = await _visible(page.locator('.el-card__header').filter({ hasText: '我的导航' }))
+  record(138, '② 卡片标题「我的导航」渲染', title)
+
+  const tip = await _visible(page.locator('.el-alert__title').filter({ hasText: '自建导航只能调整' }))
+  record(138, '③ 功能说明提示渲染（自建导航只能调整…）', tip)
+
+  const selCount = await page.locator('.el-select').count().catch(() => 0)
+  const selfAlert = await _visible(page.locator('.el-alert__title').filter({ hasText: '本页为租户自助功能' }))
+  record(138, '④ 平台操作者态（目标租户选择器 + 自助说明告警）', selCount > 0 && selfAlert, `selects=${selCount}, alert=${selfAlert}`)
+
+  const token = await sessionTokenOf(page)
+  const r = await apiWithBackoff('/system/tenant/menu/list?pageNum=1&pageSize=10', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  record(138, '⑤ 自建导航列表 API 可达（200）', r.status === 200, `status=${r.status}, code=${r.body?.code}`)
+}
+
+/** 功能 139：域名管理页（平台态：目标租户选择器 + 空态 + 域名列表 API） */
+async function testFeature139(page) {
+  log('=== 功能 139：域名管理页（平台态 + 目标租户选择器 + 空态 + 列表 API） ===')
+  const ok = await openPage(page, '/tenant-space/my-domain', 'my-domain')
+  record(139, '① 页面可达（/tenant-space/my-domain）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const title = await _visible(page.locator('.el-card__header').filter({ hasText: '域名管理' }))
+  record(139, '② 卡片标题「域名管理」渲染', title)
+
+  const selfAlert = await _visible(page.locator('.el-alert__title').filter({ hasText: '本页为租户自助功能' }))
+  record(139, '③ 平台态提示告警渲染', selfAlert)
+
+  const selCount = await page.locator('.el-select').count().catch(() => 0)
+  record(139, '④ 目标租户选择器渲染', selCount > 0, `selects=${selCount}`)
+
+  // ⑤ 平台未选租户 → 空态「暂无数据」（租户选择器无选项时）
+  const empty = await _visible(page.locator('.el-empty__description').filter({ hasText: '暂无数据' }), 4000)
+  const panelAbsent = (await page.locator('table').count().catch(() => 0)) === 0
+  record(139, '⑤ 未选租户 → 空态且域名面板未渲染（防脏数据）', empty && panelAbsent, `empty=${empty}, tables=${panelAbsent ? 0 : '>0'}`)
+
+  const token = await sessionTokenOf(page)
+  const r = await apiWithBackoff('/system/tenant/domain/list?pageNum=1&pageSize=10', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  record(139, '⑥ 域名列表 API 可达（200）', r.status === 200, `status=${r.status}, code=${r.body?.code}`)
+}
+
+/** 功能 140：报表看板页（新建看板 → 落库 → 删除清理） */
+async function testFeature140(page) {
+  log('=== 功能 140：报表看板页（新建看板 → 落库 → 删除清理） ===')
+  const ok = await openPage(page, '/tool/reportBoard', 'reportBoard')
+  record(140, '① 页面可达（/tool/reportBoard）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const newBtn = await _visible(page.getByRole('button', { name: '新建看板' }))
+  const refreshBtn = await _visible(page.getByRole('button', { name: '刷新数据' }))
+  // 删除看板按钮是 `v-if="activeBoard"`（未选中看板时不渲染——应用真实门控行为）。
+  // 反向锁定：未选中时**必须不渲染**（若渲染 = 门控退化假入口）；选中后出现并入④断言。
+  const delBtnPresent = (await page.getByRole('button', { name: '删除看板' }).count().catch(() => 0)) > 0
+  record(
+    140,
+    '② 工具栏按钮（新建/刷新在位；未选中看板时删除按钮不渲染=门控锁）',
+    newBtn && refreshBtn && !delBtnPresent,
+    `new=${newBtn}, delPresent(应为false)=${delBtnPresent}, refresh=${refreshBtn}`
+  )
+
+  const token = await sessionTokenOf(page)
+  const auth = { Authorization: `Bearer ${token}` }
+  const boardName = `e2e140-board-${Date.now()}`
+
+  // ③ 新建看板：ElMessageBox.prompt → 输入名 → 确定
+  await _click(page.getByRole('button', { name: '新建看板' }))
+  const promptInput = page.locator('.el-message-box__input input, .el-message-box input').first()
+  const promptOk = await _visible(promptInput, 5000)
+  if (!promptOk) {
+    record(140, '③ 新建看板弹窗（prompt 输入）', false, 'prompt 输入框未出现')
+    return
+  }
+  await promptInput.fill(boardName)
+  await _click(page.locator('.el-message-box__btns button.el-button--primary'))
+  await sleep(1500)
+
+  // ④ 落库校验（API 复核；看板字段名为 `name`——前端 `b.name` 同源）
+  const list = await apiWithBackoff('/tool/report-board/list', { headers: auth })
+  const rows = list.body?.data || list.body?.rows || []
+  const created = Array.isArray(rows) ? rows.find((b) => (b.name || b.boardName) === boardName) : null
+  // 新建成功即选中（activeBoard 置位）→ `v-if="activeBoard"` 门控的删除按钮此时应出现
+  const delBtnAfter = (await page.getByRole('button', { name: '删除看板' }).count().catch(() => 0)) > 0
+  record(
+    140,
+    '④ 新建看板落库（API 复核命中 + 删除按钮随选中出现）',
+    !!created && delBtnAfter,
+    `board=${boardName}, hit=${!!created}, delBtnAfter=${delBtnAfter}, total=${Array.isArray(rows) ? rows.length : 'n/a'}`
+  )
+
+  // ⑤ 删除看板（自清理 + 复核）
+  if (created) {
+    await _click(page.getByRole('button', { name: '删除看板' }))
+    await _click(page.locator('.el-message-box__btns button.el-button--primary'))
+    await sleep(1500)
+    const list2 = await apiWithBackoff('/tool/report-board/list', { headers: auth })
+    const rows2 = list2.body?.data || list2.body?.rows || []
+    const still = Array.isArray(rows2) ? rows2.find((b) => (b.name || b.boardName) === boardName) : null
+    record(140, '⑤ 删除看板（API 复核已移除）', !still, `remaining=${!!still}`)
+  } else {
+    record(140, '⑤ 删除看板（API 复核已移除）', false, '新建未落库，跳过删除')
+  }
 }

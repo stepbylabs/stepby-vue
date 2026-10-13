@@ -1840,3 +1840,56 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   与该树构建一致，关联不断）。
 - **一次性切换状态**：vue main=6882dc0 已上 github；axum main（含 filter-repo 重写）
   全史 20MiB 推送后台长退避中，网络窗口恢复即自动完成。
+
+### 3.54 批六十四循环测试深化：F136-140 新用例 + 三真实缺陷修复（2026-10-13）
+
+**新用例（main.mjs 功能 136-140，页面×按钮×覆盖度盘点后的低覆盖面补强）**：
+
+- F136 运行监控页（慢请求/错误聚合/统计卡/local 档「—」渲染判定/顶栏刷新回归锁）；
+- F137 变更留痕页（列表/搜索过滤/重置恢复/导出 200/展开明细）；
+- F138/F139 我的导航/域名管理（平台态选择器 + 自助说明 + 列表 API）；
+- F140 报表看板（新建→落库 API 复核→删除自清理；②反向锁定 `v-if="activeBoard"`
+  门控——未选中看板时删除按钮**不渲染**，防假入口）。
+
+**连带揪出并修复的三个真实缺陷**：
+
+1. **`tab.refreshPage`/`closePage` 崩页（P0 级 UX）**：`delCachedView`/`delView` 是
+   **同步** action（返回数组/对象非 Promise），`.then()` 链同步抛
+   `TypeError: ... .then is not a function`——顶栏「刷新当前页」全局动作**必然崩到 /500**，
+   且错误在返回 Promise 前同步抛出，调用方 `.catch()` 兜不住。修复=同步调用后构造
+   Promise；App.vue 错误边界补 `errorReporter.report`（此前生产构建静默吞错零诊断信号）。
+   回归锁：F136⑧ + `src/plugins/tab.test.ts`（vitest）。
+2. **observability local 档误导渲染**：local 档无 Redis，此前把空值渲染成
+   `0s/0 B/0`（"不适用"误呈现为"真实的 0"）。修复=后端 `RedisStats.storeKind`
+   单点判定下发，前端 `isRedisStore` 消费（缺字段 fail-safe 为 false）+ 档位提示
+   el-alert；F136⑥ 双档判定回归锁。
+3. **useCrudTable 重置失效（波及全部 URL 同步页，35 个 useTemplateRef 页面同模式）**：
+   AppMain 以 `route.fullPath` 为组件 key（P1 设计）⇒ 搜索 → `syncUrlQuery` 写 URL →
+   页面**重挂载** → `restoreQueryFromUrl` 回填 → 重挂载实例的 EP form-item
+   `initialValue` 被污染为搜索值 ⇒ `resetFields()` 只会"重置回搜索值"，重置按钮无效。
+   修复=useCrudTable 在 URL 恢复**前**快照干净默认值（`QUERY_DEFAULTS` WeakMap），
+   `resetQuery` 显式恢复快照；导出 `resetQueryDefaults()` 供 13 个本地 shadow 页接入
+   （config/frontendError/role/logininfor/operlog/message/log/backup/dict/dept/menu/
+   task/gen/webHook log）；user/index（自带 URL 同步）显式清表单键。顺带修复
+   `syncUrlQuery` 把嵌套 params 对象序列化成 `params=[object Object]` 垃圾参数。
+   回归锁：`useCrudTable.test.ts` ×2（污染恢复语义 + WeakMap 多实例隔离）。
+
+**e2e 断言时序纪律（本轮实证）**：
+
+- 重置/搜索等触发 fullPath 变化的动作后，页面会重挂载（out-in 过渡）——下一动作前
+  必须 `_visible` 等新实例按钮就绪，否则 evaluate 点击落在 detached 节点被静默吞掉
+  （F137⑥ 首轮偶发实证）；
+- 搜索/重置断言以**列表请求参数**为取证（waitForResponse 带/不带筛选值），
+  固定 sleep 在深链慢挂载时两侧都会假失败（探针实证）。
+
+### 3.55 批六十四收官基线（2026-10-13 实测）
+
+- **e2e 全量**：`main.mjs` **140 features / 1203 断言全绿**（EXIT=0，含 8 设计内 SKIP；窗口零 503/ERROR）。
+  断言总数 1173 → 1203（+30：F136 ⑧项 / F137 ⑦项 / F138 ⑤项 / F139 ⑥项 / F140 ④项）。
+- 首跑 15 项失败（F3-F6/10-12/17/111/135/137）为 **503 连接风暴**环境性假失败（F135③ 实证采样
+  64 个 503：`/getInfo`、`/getRouters`、`/monitor/frontendError/report`——后端重启后立即全量的
+  启动期负载）；失败功能单跑 **59/59 全绿** ⇒ 三判据成立；复跑 1202/1203（F88 删除后固定 sleep
+  时序边缘，已改轮询等待），**终轮 1203/1203**。教训：**全量前重启后端后须预热 ≥20s 再起跑**，
+  疑似风暴时先看 F135③ 的 503 采样再定性。
+- **a11y**：560 项检查 / 0 FAIL（observability/auditChange/reportBoard/my-nav/my-domain 页面改动后复核）。
+- **vitest**：984（70 文件，+3：useCrudTable 污染恢复/多实例隔离 + tab.test.ts 同步 action 兼容）。

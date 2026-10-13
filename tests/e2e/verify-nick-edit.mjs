@@ -25,7 +25,8 @@ const create = await fetch(`${B}/system/user`, {
     userName: uname,
     nickName: 'NICK_A',
     password: 'Test@12345',
-    phonenumber: '15199990101',
+    // 批六十四：时间戳号——固定号在复跑时与上次运行残留用户混淆（批三十七唯一性纪律）
+    phonenumber: '151' + String(Date.now()).slice(-8),
     email: 'e2e_nick@example.com',
     deptId: 103,
     roleIds: [2],
