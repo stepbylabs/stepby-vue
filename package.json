@@ -56,7 +56,7 @@
     "mitt": "^3.0.1",
     "monaco-editor": "^0.55.1",
     "nprogress": "0.2.0",
-    "pinia": "4.0.2",
+    "pinia": "4.0.3",
     "prismjs": "^1.30.0",
     "quill": "^2.0.3",
     "sortablejs": "^1.15.6",
