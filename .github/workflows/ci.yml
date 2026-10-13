@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload perf budget report (trend data)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-budget-report
           path: dist/perf-budget-report.json
