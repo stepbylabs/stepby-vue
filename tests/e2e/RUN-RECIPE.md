@@ -1889,7 +1889,9 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - 首跑 15 项失败（F3-F6/10-12/17/111/135/137）为 **503 连接风暴**环境性假失败（F135③ 实证采样
   64 个 503：`/getInfo`、`/getRouters`、`/monitor/frontendError/report`——后端重启后立即全量的
   启动期负载）；失败功能单跑 **59/59 全绿** ⇒ 三判据成立；复跑 1202/1203（F88 删除后固定 sleep
-  时序边缘，已改轮询等待），**终轮 1203/1203**。教训：**全量前重启后端后须预热 ≥20s 再起跑**，
-  疑似风暴时先看 F135③ 的 503 采样再定性。
+  时序边缘，已改轮询等待），**终轮 1203/1203**。教训：**全量前重启后端后须预热 ≥25s 再起跑**
+  （20s 实测仍会中段偶发 503，25s 全程零风暴）；疑似风暴时先看 F135③ 的 503 采样再定性。
 - **a11y**：560 项检查 / 0 FAIL（observability/auditChange/reportBoard/my-nav/my-domain 页面改动后复核）。
-- **vitest**：984（70 文件，+3：useCrudTable 污染恢复/多实例隔离 + tab.test.ts 同步 action 兼容）。
+- **vitest**：984→985（70 文件，+4：useCrudTable 污染恢复/多实例隔离/params 容器隔离 + tab.test.ts 同步 action 兼容）。
+- **deep-e2e**：84 模块 / **2106 ✅** / 0 ❌（EXIT=0，被吞异常 0、后端 ERROR/WARN 0；2106 为本轮
+  精确实测，历史口径 1029 严重过时已订正 TESTING/AGENTS）。

@@ -6,28 +6,29 @@ onlyBuiltDependencies:
   - '@parcel/watcher'
   - core-js
   - vue-demi
-# 安全 overrides：传递依赖漏洞强制升级（钉同 major 内的修复版，<fix → fix）。
+# 安全 overrides：传递依赖漏洞强制升级（@major: '>=fix' 范围式——audit 数据库滚动
+# 出新修复版时自动适配，不似精确钉版会立刻过时；解析取该 major 内最新，lockfile 冻结实际版本）。
 # 注意：不 override brace-expansion@1/@2——其维护版（1.1.20/2.1.6）与 minimatch
 # 不兼容（expand is not a function，破坏 eslint/glob 构建链，本地实证）；
 # 该链 DoS 属构建期风险，由 lockfile 升级管理（brace-expansion@5 例外见下）。
-# 批六十四（2026-10-14）扩展：12 条同 major 修复（audit 官方源实证）；major 跳级
-# 老树（svg-baker 的 braces@2/micromatch@3/postcss@5、eslint 树 postcss-selector-parser@7）
-# 不盲改交上游；quill low 无上游补丁挂待；braces@3.0.4 修复版 npmmirror 尚未同步（404，
-# 暂缓钉版待镜像同步后补——CI frozen install 走镜像，提前钉会红）。
+# 批六十四（2026-10-14）扩展：12 条同 major 修复（audit 官方源实证），续轮改范围式并
+# 追新修复版（fast-uri 3.1.5/js-yaml 4.3.2/undici 7.29.1）；major 跳级老树
+# （svg-baker 的 braces@2/micromatch@3/postcss@5、eslint 树 postcss-selector-parser@7）
+# 不盲改交上游；quill low 无上游补丁挂待；braces@3.0.4 npmmirror 未同步（404）暂缓。
 overrides:
   'brace-expansion@5': '>=5.0.11'
   'ini@1': '>=1.3.8'
   'nanoid@3': '>=3.3.18'
   'source-map-js': '>=1.2.2'
-  'decode-uri-component@<0.2.1': 0.2.1
-  'nth-check@<2.0.1': 2.0.1
-  'css-what@<5.0.1': 5.0.1
-  'svgo@<2.8.4': 2.8.4
-  'fast-uri@<3.1.4': 3.1.4
-  'js-yaml@<4.3.1': 4.3.1
-  'dompurify@<3.3.2': 3.3.2
-  'undici@<7.29.0': 7.29.0
-  'vitest@<4.1.11': 4.1.11
-  'markdown-it@<14.3.1': 14.3.1
-  'postcss@8.5.19': 8.5.23
-  'glob@11.0.1': 11.1.0
+  'decode-uri-component@0': '>=0.2.1'
+  'nth-check@2': '>=2.0.1'
+  'css-what@5': '>=5.0.1'
+  'svgo@2': '>=2.8.4'
+  'fast-uri@3': '>=3.1.5'
+  'js-yaml@4': '>=4.3.2'
+  'dompurify@3': '>=3.3.2'
+  'undici@7': '>=7.29.1'
+  'vitest@4': '>=4.1.11'
+  'markdown-it@14': '>=14.3.1'
+  'postcss@8': '>=8.5.23'
+  'glob@11': '>=11.1.0'
