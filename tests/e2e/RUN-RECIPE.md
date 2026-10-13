@@ -1781,3 +1781,27 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - **方法论沉淀**：本地复刻 CI 的标准姿势 = `docker compose down -v`（必须 -v 清 volume，
   半迁移态 seaql_migrations 残留会掩盖错误）+ `DATABASE_URL=<三库串> cargo run -q -p
   migration` 逐库跑全新库；ci.yml mysql health-cmd 须用 root/root123（对齐根版）。
+
+### 3.51 批六十二：企业级交付加固——冒烟门禁/checksums/dependabot/e2e embedded 兼容
+
+- **Release 冒烟门禁机制化**：release.yml 新增 smoke job（needs: backend）——下载
+  linux-x86_64 产物 → 零配置（SQLite 自动建库）起服 → 断言 /health UP（db/redis）、
+  GET / 返回嵌入 SPA（200 text/html）、/captchaImage captchaEnabled:true → 不通过
+  则 release job（needs 含 smoke）不发布。**本地同款实测先行**：下载 windows 产物
+  解包 SERVER_PORT=18080 起服，全断言通过（产物默认 captchaEnabled=true 属安全
+  语义，登录完整流程由 e2e 覆盖）。
+- **checksums.txt**：release job 生成 sha256 并附 Release（供应链惯例）；v0.2.0
+  手动补齐（本地下载三产物算哈希经 API 上传）。
+- **dependabot.yml 两仓下发**：cargo/npm/github-actions 周更 + CI 门禁合并——
+  机制性防方言债/漏洞债复发。dev 工具链 25 high 经分析**不盲改**（brace-expansion
+  维护版破坏 minimatch API 已实证），由 dependabot 跟进。
+- **rsa RUSTSEC-2023-0071 定性升级**：全仓 rsa 使用点仅 sso_service RS256 签名 +
+  JWKS 公钥分发，零 decrypt（grep 实证）——Marvin Attack 针对解密时序场景，
+  **攻击面不适用**；deny.toml 豁免理由同步升级。
+- **e2e embedded 兼容坑（本轮 2 例假失败根因）**：.env.embedded 的
+  VITE_APP_BASE_API='' ⇒ axios 同源根路径请求**无 /prod-api 前缀**，竞态守卫用例
+  的 page.context().route 正则写死 /prod-api ⇒ reqSeq=0 拦截失配（②④ 两断言红）。
+  修正则 `\/(prod-api\/)?system\/user\/list` 兼容两形态；全量 1173/1173 复绿。
+  a11y-full 560 检查全绿。fetchWithAuth 显式 /prod-api 前缀（后端双路径兼容）不受影响。
+- **仓库门面**：README CI 动态徽章（actions/workflows/ci.yml/badge.svg）替换静态
+  build 图；GitHub description/topics 设置（API PATCH）。
