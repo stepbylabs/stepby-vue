@@ -283,6 +283,25 @@ describe('composables/useCrudTable', () => {
       ctx.resetQuery()
       expect(order).toEqual(['onReset', 'resetFields'])
     })
+
+    // 批六十四加固回归锁：params 容器（addDateRange 的就地写入目标）与快照共享引用时，
+    // 运行期就地写键会污染快照——重置恢复必须回到快照时点的 params 态（无残留日期键）。
+    it('params 容器快照隔离：运行期就地写键不污染快照，重置后无残留日期键', () => {
+      const { ctx, queryParams } = makeCtx()
+      // 模拟运行期：addDateRange 式**就地写键**（utils/stepby.ts:106-110 同款，非替换对象）
+      const target = queryParams.value as unknown as Record<string, unknown>
+      const paramsBag = (target.params || (target.params = {})) as Record<string, unknown>
+      paramsBag['beginTime'] = '2026-10-01 00:00:00'
+      paramsBag['endTime'] = '2026-10-13 23:59:59'
+      ctx.resetQuery()
+      // 重置后 params 恢复快照态（空容器），无日期键残留——
+      // 否则下一次请求会携带旧 params[beginTime]（即使 dateRange 已清空）
+      const restored = (queryParams.value as unknown as Record<string, unknown>).params as
+        | Record<string, unknown>
+        | undefined
+      expect(restored?.beginTime).toBeUndefined()
+      expect(restored?.endTime).toBeUndefined()
+    })
   })
 
   // ===== 多选 =====

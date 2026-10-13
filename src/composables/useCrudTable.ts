@@ -141,6 +141,24 @@ export interface UseCrudTableFormReturn<T extends object> extends UseCrudTableRe
 const QUERY_DEFAULTS = new WeakMap<object, Record<string, unknown>>()
 
 /**
+ * 捕获干净默认值快照（对 params 容器键做独立浅拷贝）。
+ *
+ * params 容器（RuoYi 惯例的 `params[beginTime]` 日期范围载荷）是 addDateRange 的
+ * **就地写入目标**（`search.params['beginTime'] = ...`，utils/stepby.ts）——快照若与
+ * queryParams.value 共享该引用，运行期写入会同步污染快照，重置恢复即携带残留日期键。
+ * 虽然当前调用图下 addDateRange 每次全量覆盖同键（range 空写 undefined，axios 序列化剔除）
+ * 可自愈，但快照隔离是零成本的正确性前提，杜绝未来"只写不清"的新键踩坑。
+ */
+function snapshotQueryDefaults<Q extends object>(queryParams: Ref<Q>): Record<string, unknown> {
+  const src = queryParams.value as unknown as Record<string, unknown>
+  const snap: Record<string, unknown> = { ...src }
+  if (src.params && typeof src.params === 'object' && !Array.isArray(src.params)) {
+    snap.params = { ...(src.params as Record<string, unknown>) }
+  }
+  return snap
+}
+
+/**
  * 将 queryParams 恢复为页面定义的干净默认值（快照缺失时为保守 no-op）。
  * 导出供本地 shadow resetQuery 的页面（RuoYi 式 `dateRange=[]; resetFields(); handleQuery()` 模式）
  * 在 `resetFields()` 之后调用——EP initialValue 已被污染，单靠它无法真正清空筛选。
@@ -149,7 +167,10 @@ export function resetQueryDefaults<Q extends object>(queryParams: Ref<Q>): void 
   const target = queryParams.value as unknown as Record<string, unknown>
   const defaults = QUERY_DEFAULTS.get(target)
   if (!defaults) return
-  // 清掉快照中不存在、但运行期被动态加入的键（不含 params 容器键）
+  // params 容器总是恢复快照时点态（独立拷贝）：运行期 addDateRange 就地写入的日期键、
+  // 以及"运行期才出现的容器"都不得带入重置后的请求（防旧过滤残留）
+  target.params = { ...((defaults.params as Record<string, unknown> | undefined) ?? {}) }
+  // 清掉快照中不存在、但运行期被动态加入的键
   for (const k of Object.keys(target)) {
     if (!(k in defaults) && k !== 'params') target[k] = undefined
   }
@@ -509,7 +530,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   }
   // 批六十四：URL 恢复**前**捕获干净默认值（restoreQueryFromUrl 会把 URL 筛选值回填进
   // queryParams，此后 EP form-item 的 initialValue 即被污染——见 QUERY_DEFAULTS 注释）
-  QUERY_DEFAULTS.set(queryParams.value, { ...queryParams.value })
+  QUERY_DEFAULTS.set(queryParams.value, snapshotQueryDefaults(queryParams))
   restoreQueryFromUrl()
 
   // 只读模式（未注入 getApi/addApi/updateApi）不暴露新增/修改/提交流程
