@@ -1900,7 +1900,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 
 - **后端**：`stepby-axum/.env` 追加 `SCIM_ENABLED=true` + `SCIM_BEARER_TOKEN=<≥32 字符>`
   （本地实值见 .env；重启后端生效——`/scim/v2/Groups` 端点开启，curl 验证 200）。
-- **e2e 脚本**：`main.mjs` 内 `SCIM_BEARER_TOKEN` 常量须与 .env 同值；F118 无组时以标准
+- **e2e 脚本**：运行前 export SCIM_BEARER_TOKEN（与 .env 同值，凭据不入库——gitleaks allowlist 定性豁免历史 commit 7e7ba10）；F118 无组时以标准
   SCIM API 建组（IdP 视角 RFC 7644），F119 尾 SCIM DELETE 清理（provisioning 真链路）。
 - **主 context 已 `serviceWorkers: block`**：PWA SW 会代理页面 fetch 绕过 page.route 拦截
   （F119 role/list 500 mock 失效实证）——依赖 route mock 的用例均依赖此设置。

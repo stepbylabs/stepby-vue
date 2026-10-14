@@ -3239,7 +3239,9 @@ async function testFeature19(page) {
 // 批六十四循环轮 13：SCIM provisioning 真链路 helper（IdP 视角——RFC 7644 §4.2）。
 // e2e 环境经 .env 的 SCIM_ENABLED=true + SCIM_BEARER_TOKEN 开启 /scim/v2 端点，
 // 组数据不再依赖外部 IdP：本套件以标准 SCIM API 建组/清理（真实 provisioning 链路）。
-const SCIM_BEARER_TOKEN = 'e2e_scim_bearer_0123456789abcdef0123456789abcdef'
+// ⚠️ Bearer token 从环境变量读取（与 stepby-axum/.env 同值）——**不得硬编码入库**
+//（gitleaks full-history 扫描实证拦截），缺失时 F118 建组失败 → SKIP 兜底。
+const SCIM_BEARER_TOKEN = process.env.SCIM_BEARER_TOKEN || ''
 let scimE2eGroupName = null // F118 建组 → F119 复用 → F119 尾清理
 async function scimProvisionGroup(displayName) {
   return fetch(`${CONFIG.backendUrl}/scim/v2/Groups`, {

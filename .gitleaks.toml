@@ -15,4 +15,8 @@ regexes = [
   '''MIIBVAIBADANBgkqhkiG9w0BAQ''',
   '''MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBAKoR8mX0''',
   '''MIGfMA0GCSqGSIb3''',
+  # 批六十四循环轮 13 定性豁免：e2e 本地 SCIM 测试凭据（仅本机测试环境有效——
+  # .env 的 SCIM_ENABLED 只在本机开启；生产凭据走环境变量注入不入库，
+  # main.mjs 已改为 process.env.SCIM_BEARER_TOKEN 读取，此处豁免的是历史 commit 7e7ba10）
+  '''e2e_scim_bearer_[0-9a-f]+''',
 ]
