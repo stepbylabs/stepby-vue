@@ -188,7 +188,10 @@ class WebSocketService {
   forceReconnect(): void {
     this.clearTimers()
     this.reconnectCount = 0
-    this.isManualClose = false
+    // 批六十五：关闭旧 socket **前**先置手动关闭标记——否则旧连接 onclose（真实环境下为
+    // 异步触发）会因 isManualClose=false 走 scheduleReconnect()，与紧随其后的 connect()
+    // 竞争产生一次多余的指数退避重连（重复连接/计数虚增）。关闭完成后再复位为可自动重连。
+    this.isManualClose = true
     if (this.ws) {
       try {
         this.ws.close()
@@ -197,6 +200,7 @@ class WebSocketService {
       }
       this.ws = null
     }
+    this.isManualClose = false
     this.connect()
   }
 

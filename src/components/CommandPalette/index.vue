@@ -272,19 +272,20 @@ const commands = computed<Command[]>(() => {
 
 // 按查询过滤
 const filteredCommands = computed<Command[]>(() => {
-  // 搜索模式：输入 >= 2 字符时展示全局搜索结果（分组 type 标签展示在 category 位）
-  if (isSearchMode.value) return searchResults.value.slice(0, 30)
   const q = query.value.trim().toLowerCase()
-  if (!q) return commands.value.slice(0, 30)
-  return commands.value
-    .filter((c: Command) => {
-      return (
-        c.title.toLowerCase().includes(q) ||
-        c.description?.toLowerCase().includes(q) ||
-        c.category.toLowerCase().includes(q)
+  // 本地命令命中（标题 / 描述 / 分类）——始终参与，保证 UI 命令（如「锁屏」「切换主题」）
+  // 输入其名称即可检索到，不被全局搜索模式吞掉。
+  const local = q
+    ? commands.value.filter(
+        (c: Command) =>
+          c.title.toLowerCase().includes(q) ||
+          c.description?.toLowerCase().includes(q) ||
+          c.category.toLowerCase().includes(q)
       )
-    })
-    .slice(0, 30)
+    : commands.value
+  // 搜索模式（≥2 字符）：本地命中 + 全局搜索结果合并（本地优先，语义更贴近"命令面板"）
+  if (isSearchMode.value) return [...local, ...searchResults.value].slice(0, 30)
+  return local.slice(0, 30)
 })
 
 // ==================== 全局搜索模式（GET /common/global-search） ====================
