@@ -17590,7 +17590,14 @@ async function cleanupE2eResidue() {
         "DELETE FROM sys_role_menu WHERE menu_id IN (SELECT menu_id FROM sys_menu WHERE menu_name LIKE '测试菜单改%')"
       ],
       ['menu_softdel_e2e', "DELETE FROM sys_menu WHERE menu_name LIKE '测试菜单改%'"],
-      ['rolemenu_role2_residue', 'DELETE FROM sys_role_menu WHERE role_id=2 AND menu_id IN (4103,4111,4116,4117)']
+      ['rolemenu_role2_residue', 'DELETE FROM sys_role_menu WHERE role_id=2 AND menu_id IN (4103,4111,4116,4117)'],
+      // 批六十五：passkeys（WebAuthn）e2e 残留治理——F106① 现走**真实注册成功链**
+      // （CDP 虚拟认证器 → registerFinish 200），每轮会落 sys_user_credential 一行；
+      // 注册名统一 e2e 前缀（e2e-pk-*），物理清除（凭据行无软删语义，直接 DELETE）。
+      [
+        'user_credential_e2e',
+        "DELETE FROM sys_user_credential WHERE name LIKE 'e2e%' OR name LIKE 'probe%'"
+      ]
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -22387,11 +22394,14 @@ async function testFeature106(page) {
         // 后端修复后本断言自动走成功分支。
         // 批六十四循环轮 13 补：网络层 finish 响应（200 成功 / 4xx 错误反馈）均为有效覆盖——
         // 失败反馈的 UI 呈现由 errorHub 体系承担（非 ElMessage Toast），finish 400 实证
-        const regOk =
-          regResp?.status === 200 || (regResp?.status ?? 0) >= 400 || afterCount > beforeCount || okToast || errToast
+        // 批六十五：断言**强化为成功链**——此前接受 `>= 400` 使"链路真断"也能通过
+        // （历史把 origin 失配的 400 误判为"算法缺陷"并被弱断言掩盖，真实缺陷被放过）。
+        // 根因修复后（[webauthn].origin 对齐页面服务源，或 WEBAUTHN_ORIGIN 环境覆盖）
+        // 必须走通 registerFinish 200 + 成功 Toast 或列表增长。
+        const regOk = regResp?.status === 200 && (okToast || afterCount > beforeCount)
         record(
           106,
-          '① passkeys：注册链路（成功或失败反馈）',
+          '① passkeys：注册成功链（registerFinish 200 + 列表新增）',
           regOk,
           `reg=${regResp?.status || 'n/a'}, list ${beforeCount}→${afterCount}, ok=${okToast}, err=${errToast}`
         )
@@ -23754,13 +23764,26 @@ async function testFeature118(page) {
   // 组不再依赖外部 IdP——行内编辑/删除负路径真实可达（测后由 F119 尾清理）。
   // 仅建组：DOM 确认移到 openPage 之后（轮 13 实证 reload 数行发生在上一用例页面 = 误判）
   if (!hasRows) {
-    const groupName = 'e2e_scim_grp_' + String(Date.now()).slice(-8)
-    const created = await scimProvisionGroup(groupName)
-    if (created?.status === 201 && created.body?.id) {
-      scimE2eGroupName = groupName
-      record(118, '② 前置 SCIM provisioning 建组', true, `id=${created.body.id}, name=${groupName}`)
+    if (!SCIM_BEARER_TOKEN) {
+      // 批六十五：补齐注释承诺的 SKIP 兜底——SCIM_BEARER_TOKEN 为 IdP 凭据（不得硬编码入库，
+      // gitleaks full-history 已实证拦截），未注入时 /scim/v2 必 401。此前直接 record(false)
+      // 使"缺可选集成凭据"被计为硬失败（本轮全量 1206/1207 的唯一失败即此）——改为 SKIP，
+      // 消除环境耦合；注入凭据时仍走真实 provisioning 链路。
+      recordSkip(
+        118,
+        '② 前置 SCIM provisioning 建组',
+        '未注入 SCIM_BEARER_TOKEN（IdP 凭据，不入库）——注入后可跑真实 provisioning 链路',
+        true
+      )
     } else {
-      record(118, '② 前置 SCIM provisioning 建组', false, `status=${created?.status}`)
+      const groupName = 'e2e_scim_grp_' + String(Date.now()).slice(-8)
+      const created = await scimProvisionGroup(groupName)
+      if (created?.status === 201 && created.body?.id) {
+        scimE2eGroupName = groupName
+        record(118, '② 前置 SCIM provisioning 建组', true, `id=${created.body.id}, name=${groupName}`)
+      } else {
+        record(118, '② 前置 SCIM provisioning 建组', false, `status=${created?.status}`)
+      }
     }
   }
 

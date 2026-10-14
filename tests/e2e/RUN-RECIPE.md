@@ -1902,6 +1902,9 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   （本地实值见 .env；重启后端生效——`/scim/v2/Groups` 端点开启，curl 验证 200）。
 - **e2e 脚本**：运行前 export SCIM_BEARER_TOKEN（与 .env 同值，凭据不入库——gitleaks allowlist 定性豁免历史 commit 7e7ba10）；F118 无组时以标准
   SCIM API 建组（IdP 视角 RFC 7644），F119 尾 SCIM DELETE 清理（provisioning 真链路）。
+  - ⚠️ **批六十五：未注入 SCIM_BEARER_TOKEN 时 F118② 改为 SKIP（不再计硬失败）**。
+    此前直接 `record(false)` ⇒ 缺可选集成凭据被判为失败（本轮全量 1206/1207 的唯一失败即此），
+    属"环境耦合导致的假失败"。注入凭据时仍走真实建组链路（实测 12/12 通过）。
 - **主 context 已 `serviceWorkers: block`**：PWA SW 会代理页面 fetch 绕过 page.route 拦截
   （F119 role/list 500 mock 失效实证）——依赖 route mock 的用例均依赖此设置。
 - **剩余设计内 SKIP 3 项**：F2（scheduler 无运行时 API）、F106①/F129③（passkeys 能力位
@@ -1915,3 +1918,19 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - **视觉回归**：`TEST_BASE=http://localhost:8080 node tests/e2e/visual-regression.mjs`
   （多页面像素比对，阈值 1%；基线库 __baselines__/ 入库；有意变更后 --update 重新生成；
   零数据依赖静态页 login/lock/notfound——动态数据页会产生假差异不纳入）。
+- **passkeys 激活**：e2e 档 config/config.toml（gitignore 本机文件）`[features] "auth.webauthn" = "on"`
+  → F106①/F129③ 激活；headless 注册走 CDP 虚拟认证器（`WebAuthn.enable` +
+  `addVirtualAuthenticator`）。
+  - ⚠️ **`[webauthn].origin` 必须等于前端页面的真实服务源**（WebAuthn 信任锚）。E2E 由后端在
+    `:8080` 同源托管 SPA，而 `origin` 留空时从 `[server].cors_origins` 首个来源推导（通常是
+    Vite dev 源 `:5173`）⇒ 浏览器 clientDataJSON.origin（`:8080`）与配置不符，
+    `register/finish` 必 **400「WebAuthn 响应无效」**。修法二选一：
+    ① 配置 `[webauthn] origin = "http://localhost:8080"`；② 环境变量
+    `WEBAUTHN_ORIGIN=http://localhost:8080`（另 `WEBAUTHN_RP_ID` 同机制，空白值忽略）。
+  - ✅ **历史"后端缺陷（pubKeyCredParams 缺 RS256 → finish 400）"系误判，已订正**：真因是上述
+    **origin 失配**（库以 `PasskeyError::OriginMismatch` 返回，落在兜底分支且当时无日志 ⇒ 被
+    误读为算法问题）。Chrome 的 "missing ES256 and RS256" 仅为**建议性警告**——本仓
+    `passkey-server` 验签为 **P-256/ES256**（`verify_p256_signature`），只广播 ES256 才是
+    正确的；广播 RS256 会注册成功但**登录必失败**。修复：`map_passkey_error` 对
+    `OriginMismatch` 补 WARN 日志（含期望/实到来源 + 处置指引）；F106① 断言由"接受
+    ≥400 的弱断言"**强化为成功链**（registerFinish 200 + 列表新增）。
