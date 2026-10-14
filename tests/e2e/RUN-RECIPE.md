@@ -1906,3 +1906,12 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   （F119 role/list 500 mock 失效实证）——依赖 route mock 的用例均依赖此设置。
 - **剩余设计内 SKIP 3 项**：F2（scheduler 无运行时 API）、F106①/F129③（passkeys 能力位
   auth.webauthn 关闭——激活需 headless 虚拟认证器（CDP WebAuthn）+ 后端 rp 配置，另立项）。
+
+## 3.7 分片与视觉回归（批六十四质量工程）
+
+- **分片**：`node main.mjs --headless --shard=N/M`（N=1..M，按**序号连续区间**切分——保持
+  用例前向依赖链，id 取模分片实证破坏依赖产生假失败）→ 每片落盘 shard-N.json →
+  `node main.mjs --merge` 合并总汇总。SQLite 档建议顺序跑各片（并行会加剧 503 风暴）。
+- **视觉回归**：`TEST_BASE=http://localhost:8080 node tests/e2e/visual-regression.mjs`
+  （多页面像素比对，阈值 1%；基线库 __baselines__/ 入库；有意变更后 --update 重新生成；
+  零数据依赖静态页 login/lock/notfound——动态数据页会产生假差异不纳入）。

@@ -117,7 +117,9 @@ const CONFIG = {
   slowMo: 100,
   // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
   headless: true,
-  featureFilter: null // null = 全部，Set<number> = 仅测试集合内功能（--feature=N 或 --feature=A-B,C）
+  featureFilter: null, // null = 全部，Set<number> = 仅测试集合内功能（--feature=N 或 --feature=A-B,C）
+  shard: null, // null = 全量串行；{index,total} = --shard=N/M 分片（结果落盘 shard-N.json）
+  mergeOnly: false // --merge 合并各 shard JSON 输出总汇总（不起浏览器）
 }
 
 // P2 修复: 删除顶部位置参数解析死代码（与 main() 内的 --headless/--feature= 解析重复）
@@ -6397,7 +6399,9 @@ async function testFeature32(page) {
       Array.isArray(data.businessTypes) &&
       Array.isArray(data.topOperators) &&
       Array.isArray(data.daily)
-    adminStatsDetail = `summary=${JSON.stringify(data?.summary).slice(0, 80)}, businessTypes=${data?.businessTypes?.length}, topOperators=${data?.topOperators?.length}, daily=${data?.daily?.length}`
+    // 批六十四质量工程：JSON.stringify(undefined) 返回 undefined——503 等 HTML 响应时
+    // data 为 undefined 会在此抛错（'reading slice' 实证），String() 兜底
+    adminStatsDetail = `summary=${String(JSON.stringify(data?.summary)).slice(0, 80)}, businessTypes=${data?.businessTypes?.length}, topOperators=${data?.topOperators?.length}, daily=${data?.daily?.length}`
   } catch (err) {
     adminStatsDetail = `异常: ${err.message.slice(0, 80)}`
   }
@@ -17780,6 +17784,43 @@ async function ensureB4Clean() {
 }
 
 async function main() {
+  // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
+  // 不跑用例；分片跑法见 RUN-RECIPE §3.7（--shard=N/M 逐片跑 + --merge 合并）
+  if (process.argv.includes('--merge')) {
+    const dir = CONFIG.screenshotDir
+    const shardFiles = fs
+      .readdirSync(dir)
+      .filter((f) => /^shard-\d+\.json$/.test(f))
+      .sort((a, b) => parseInt(a.match(/\d+/)[0], 10) - parseInt(b.match(/\d+/)[0], 10))
+    if (shardFiles.length === 0) {
+      console.error('未找到任何 shard-*.json（先跑各分片）')
+      process.exit(1)
+    }
+    const merged = []
+    for (const f of shardFiles) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+        console.log(
+          `  ${f}: ${data.results.length} 项（通过 ${data.results.filter((x) => x.passed).length}，失败 ${data.results.filter((x) => !x.passed).length}，SKIP ${data.results.filter((x) => x.skipped).length}）`
+        )
+        merged.push(...data.results)
+      } catch (err) {
+        console.error(`  ${f} 解析失败: ${err.message.slice(0, 80)}`)
+        process.exit(1)
+      }
+    }
+    const passed = merged.filter((r) => r.passed).length
+    const failed = merged.filter((r) => !r.passed).length
+    const skipped = merged.filter((r) => r.skipped).length
+    console.log('==========================================')
+    console.log(`合并汇总: ${merged.length}  通过: ${passed}  失败: ${failed}  其中 SKIP: ${skipped}`)
+    console.log('==========================================')
+    for (const r of merged.filter((x) => !x.passed)) {
+      console.log(`  ❌ [功能${r.feature}] ${r.name}${r.detail ? ' - ' + r.detail : ''}`)
+    }
+    process.exit(failed > 0 ? 1 : 0)
+  }
+
   // B4 强改密态前置清理（详见函数注释）——必须在浏览器登录前完成
   await ensureB4Clean()
   // 批次十九 P1：oper_log 测试库尾部截断（防测试库单调增长拖慢 F4 聚合）
@@ -17802,6 +17843,18 @@ async function main() {
       }
       CONFIG.featureFilter = ids.size > 0 ? ids : null
     }
+    // 批六十四质量工程：--shard=N/M 分片（N=1..M，按 id 哈希均匀分配）——每个 shard
+    // 独立进程跑并落盘 shard-N.json，--merge 合并各片汇总。⚠️ SQLite 单连接池档
+    // 多 shard 并行会加剧 503 风暴（fail-closed），建议顺序跑各片或 pg/mysql 档并行。
+    if (arg.startsWith('--shard=')) {
+      const m = arg.split('=')[1].match(/^(\d+)\/(\d+)$/)
+      if (m && parseInt(m[1], 10) >= 1 && parseInt(m[1], 10) <= parseInt(m[2], 10)) {
+        CONFIG.shard = { index: parseInt(m[1], 10), total: parseInt(m[2], 10) }
+      } else {
+        log(`  ⚠️ --shard 参数非法（需 N/M 且 1≤N≤M）：${arg}`)
+      }
+    }
+    if (arg === '--merge') CONFIG.mergeOnly = true
   }
 
   log('==========================================')
@@ -18021,7 +18074,21 @@ async function main() {
 
     const featureDurations = [] // R-TEST-PERF：每功能耗时（性能可见性，暴露慢页面/慢接口）
 
-    for (const f of features) {
+    // 批六十四质量工程：--shard=N/M 过滤。⚠️ 必须**按序号连续区间**切分（而非 id 取模）——
+    // 用例间存在隐式前向依赖（F32 依赖 F31 建的数据、F16 依赖前序语言态，取模分片实证
+    // 破坏依赖链产生 3 处假失败）；区间分片保持执行顺序 = 依赖链完整。
+    let shardRange = null
+    if (CONFIG.shard) {
+      const per = Math.ceil(features.length / CONFIG.shard.total)
+      const start = (CONFIG.shard.index - 1) * per
+      shardRange = { start, end: Math.min(CONFIG.shard.index * per, features.length) }
+      log(
+        `  分片模式: shard ${CONFIG.shard.index}/${CONFIG.shard.total}（序号区间 ${start}..${shardRange.end}，共 ${shardRange.end - start} 项，结果落盘 shard-${CONFIG.shard.index}.json）`
+      )
+    }
+
+    for (const [idx, f] of features.entries()) {
+      if (CONFIG.shard && (idx < shardRange.start || idx >= shardRange.end)) continue
       if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) continue
       // 会话自愈守卫（批次五深审）：偶发会话竞态会把 UI 会话踢回登录页
       // （R8 实测：F52 起连环 401 假失败）。功能入口检测到停留在登录页则自动重登，
@@ -18066,6 +18133,24 @@ async function main() {
     // F117：SKIP 条目（skipped:true，含 API 兜底）单列统计，不再混入 PASS 视觉
     const skipped = results.filter((r) => r.skipped).length
     log(`总计: ${results.length}  通过: ${passed}  失败: ${failed}${skipped > 0 ? `  其中 SKIP: ${skipped}` : ''}`)
+
+    // 批六十四质量工程：--shard 模式落盘分片结果（--merge 合并）
+    if (CONFIG.shard) {
+      const shardFile = path.join(CONFIG.screenshotDir, `shard-${CONFIG.shard.index}.json`)
+      fs.writeFileSync(
+        shardFile,
+        JSON.stringify(
+          {
+            shard: CONFIG.shard,
+            timestamp: new Date().toISOString(),
+            results
+          },
+          null,
+          2
+        )
+      )
+      log(`  分片结果已落盘: ${shardFile}（--merge 合并各片）`)
+    }
 
     for (const r of results) {
       const tag = r.skipped ? '⏭ SKIP' : r.passed ? '✅' : '❌'
