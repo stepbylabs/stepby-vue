@@ -22744,9 +22744,11 @@ async function testFeature109(page) {
   }
 
   // ② operlog 详情（行操作「详情」抽屉/对话框）
+  // 批六十四循环轮 12 修复：原路径 /monitor/operlog 为 404（operlog 实际挂 /system/log 下，
+  // 浏览器实证 + getRouters 比对）——旧 SKIP「列表无行」实为 404 回首页后的空表格误判
   try {
     await presetTourDisabled(page)
-    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/monitor/operlog`, 'operlog')
+    await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/log/operlog`, 'operlog')
     await skipTour(page)
     await page
       .locator('.el-table')
