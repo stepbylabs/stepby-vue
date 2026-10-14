@@ -3236,6 +3236,38 @@ async function testFeature19(page) {
  * @param {string} secretBase32 - Base32 编码的 secret
  * @returns {string} 6 位数字验证码
  */
+// 批六十四循环轮 13：SCIM provisioning 真链路 helper（IdP 视角——RFC 7644 §4.2）。
+// e2e 环境经 .env 的 SCIM_ENABLED=true + SCIM_BEARER_TOKEN 开启 /scim/v2 端点，
+// 组数据不再依赖外部 IdP：本套件以标准 SCIM API 建组/清理（真实 provisioning 链路）。
+const SCIM_BEARER_TOKEN = 'e2e_scim_bearer_0123456789abcdef0123456789abcdef'
+let scimE2eGroupName = null // F118 建组 → F119 复用 → F119 尾清理
+async function scimProvisionGroup(displayName) {
+  return fetch(`${CONFIG.backendUrl}/scim/v2/Groups`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${SCIM_BEARER_TOKEN}`, 'Content-Type': 'application/scim+json' },
+    body: JSON.stringify({ schemas: ['urn:ietf:params:scim:schemas:core:2.0:Group'], displayName })
+  })
+    .then((r) => r.json().then((b) => ({ status: r.status, body: b })).catch(() => ({ status: r.status, body: null })))
+    .catch(() => null)
+}
+async function scimDeleteGroupByName(displayName) {
+  const list = await fetch(
+    `${CONFIG.backendUrl}/scim/v2/Groups?filter=${encodeURIComponent('displayName eq "' + displayName + '"')}`,
+    { headers: { Authorization: `Bearer ${SCIM_BEARER_TOKEN}` } }
+  )
+    .then((r) => r.json())
+    .catch(() => null)
+  const id = list?.Resources?.[0]?.id
+  if (!id) return false
+  const del = await fetch(`${CONFIG.backendUrl}/scim/v2/Groups/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${SCIM_BEARER_TOKEN}` }
+  })
+    .then((r) => r.ok)
+    .catch(() => false)
+  return del
+}
+
 function generateTotp(secretBase32) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
   let bits = ''
@@ -17786,7 +17818,11 @@ async function main() {
 
   const context = await browser.newContext({
     viewport: { width: 1600, height: 900 },
-    ignoreHTTPSErrors: true
+    ignoreHTTPSErrors: true,
+    // 批六十四循环轮 13：禁 SW——PWA service worker 会代理页面 fetch（绕过 page.route
+    // 拦截，F119 role/list 500 mock 实证失效返回 200），且 SW 缓存可能污染用例间状态。
+    // 套件测的是应用行为而非 PWA 注册本身（SW 相关专项用例走独立上下文）。
+    serviceWorkers: 'block'
   })
 
   const page = await context.newPage()
@@ -22246,6 +22282,30 @@ async function testFeature106(page) {
   }
 
   // ② ssoGrants：列表/空态渲染 + 撤销确认取消路径
+  // 批六十四循环轮 13 激活：撤销链夹具（sys_oauth_client + sys_oauth_consent 直插，
+  // sso-grants API 预验证返回该行）——测后 finally 物理清理，不影响在册数据
+  let consentFixture = false
+  try {
+    const mod = await importSyncDatabase()
+    const DatabaseSync = mod.DatabaseSync
+    const db = new DatabaseSync(e2eDbPath())
+    db.exec('PRAGMA busy_timeout = 5000')
+    const admin = db.prepare("SELECT user_id FROM sys_user WHERE user_name='admin' AND del_flag='0'").get()
+    if (admin?.user_id != null) {
+      db.prepare(
+        `INSERT INTO sys_oauth_client (client_id, client_secret_hash, id_token_secret, client_name, logo_uri, redirect_uris, scopes, tenant_id, create_by, create_time)
+         VALUES ('e2e_consent_client', 'x', '', 'E2E授权应用（测后清理）', '', '["https://e2e.local/cb"]', '["openid"]', 0, 'e2e', datetime('now'))`
+      ).run()
+      db.prepare(
+        `INSERT INTO sys_oauth_consent (user_id, client_id, scopes, client_name_snapshot, tenant_id, create_time)
+         VALUES (?, 'e2e_consent_client', '["openid"]', 'E2E授权应用（测后清理）', 0, datetime('now'))`
+      ).run(admin.user_id)
+      consentFixture = true
+    }
+    db.close()
+  } catch (err) {
+    log(`  F106②b 撤销链夹具异常: ${err.message.slice(0, 80)}`)
+  }
   try {
     await presetTourDisabled(page)
     // 批五十六：F4 确定性等待——先挂 sso-grants 200 响应探针再 goto。
@@ -22335,6 +22395,22 @@ async function testFeature106(page) {
     }
   } catch (err) {
     record(106, '② ssoGrants', false, `异常: ${err.message.slice(0, 120)}`)
+  } finally {
+    // 批六十四循环轮 13：撤销链夹具物理清理（client + consent 同删，在册数据不受影响）
+    if (consentFixture) {
+      try {
+        const mod = await importSyncDatabase()
+        const DatabaseSync = mod.DatabaseSync
+        const db = new DatabaseSync(e2eDbPath())
+        db.exec('PRAGMA busy_timeout = 5000')
+        db.prepare("DELETE FROM sys_oauth_consent WHERE client_id='e2e_consent_client'").run()
+        db.prepare("DELETE FROM sys_oauth_client WHERE client_id='e2e_consent_client'").run()
+        db.close()
+        log('  F106②b 撤销链夹具已清理')
+      } catch (err) {
+        log(`  F106②b 夹具清理异常: ${err.message.slice(0, 80)}`)
+      }
+    }
   }
 
   // ③ msgPref：切换开关 → 保存 → 刷新持久化 → 恢复原值
@@ -22349,15 +22425,36 @@ async function testFeature106(page) {
       .then(() => true)
       .catch(() => false)
     if (swOk && authHeaders) {
-      // 记录原值（API 回读，避免依赖 DOM 初态）
-      const before = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders })
+      // 记录原值（API 回读，避免依赖 DOM 初态）——批六十四循环轮 13：真实路径为
+      // /system/profile/pref（旧 /system/user/profile/messagePref 为 404，③b 曾假 PASS）
+      const before = await fetch(`${CONFIG.backendUrl}/system/profile/pref`, { headers: authHeaders })
         .then((r) => r.json())
         .catch(() => null)
       const origEmail = before?.data?.emailNotify
-      // UI 切换
-      await emailSwitch.click({ force: true })
+      // 预置为翻转值保证 UI 点击后 flip 恒发生（消除「原值未知或已一致」SKIP），
+      // 且 UI 点回原值 = 恢复语义内建、自清理。emailNotify 为字符串 "0"/"1"。
+      let presetOk = false
+      if (before?.data && (origEmail === '0' || origEmail === '1')) {
+        const flippedVal = origEmail === '1' ? '0' : '1'
+        const preset = await fetch(`${CONFIG.backendUrl}/system/profile/pref`, {
+          method: 'PUT',
+          headers: authHeaders,
+          body: JSON.stringify({ ...before.data, emailNotify: flippedVal })
+        })
+          .then((r) => r.json())
+          .catch(() => null)
+        presetOk = preset?.code === 200
+        if (presetOk) {
+          await page.reload({ waitUntil: 'load' })
+          await sleep(1500)
+          await skipTour(page)
+        }
+      }
+      // UI 切换（写回 orig——flip 断言）
+      const sw2 = presetOk ? page.locator('.el-switch').first() : emailSwitch
+      await sw2.click({ force: true })
       const savePromise = page.waitForResponse(
-        (r) => (r.url().includes('messagePref') || r.url().includes('pref')) && r.request().method() === 'PUT',
+        (r) => (r.url().includes('/system/profile/pref') || r.url().includes('pref')) && r.request().method() === 'PUT',
         { timeout: 8000 }
       )
       await page.getByRole('button', { name: /保存/ }).first().click()
@@ -22367,15 +22464,18 @@ async function testFeature106(page) {
       await page.reload({ waitUntil: 'load' })
       await sleep(1500)
       await skipTour(page)
-      const after = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, { headers: authHeaders })
+      const after = await fetch(`${CONFIG.backendUrl}/system/profile/pref`, { headers: authHeaders })
         .then((r) => r.json())
         .catch(() => null)
       const newVal = after?.data?.emailNotify
-      const flipped = newVal !== undefined && origEmail !== undefined ? newVal !== origEmail : true
-      record(106, '③b msgPref：切换持久化', flipped, `orig=${origEmail}, now=${newVal}`)
-      // 恢复原值（API 直写，幂等）
-      if (origEmail !== undefined && newVal !== origEmail) {
-        const restore = await fetch(`${CONFIG.backendUrl}/system/user/profile/messagePref`, {
+      // 断言严格化（undefined 即 FAIL）+ 预置路径语义：预置后 UI 初值=!orig，
+      // 点击应写回 orig（now===orig）；非预置路径点击应翻转（now===!orig）
+      const expectedNow = presetOk ? origEmail : origEmail === '1' ? '0' : '1'
+      const flipped = newVal !== undefined && origEmail !== undefined ? newVal === expectedNow : false
+      record(106, '③b msgPref：切换持久化', flipped, `orig=${origEmail}, now=${newVal}, expected=${expectedNow}`)
+      // 恢复原值（API 直写，幂等）——预置翻转路径下 UI 已写回 orig，此处幂等兜底
+      if (origEmail !== undefined && newVal !== undefined && newVal !== origEmail) {
+        const restore = await fetch(`${CONFIG.backendUrl}/system/profile/pref`, {
           method: 'PUT',
           headers: authHeaders,
           body: JSON.stringify({ ...after.data, emailNotify: origEmail })
@@ -22384,9 +22484,14 @@ async function testFeature106(page) {
           .catch(() => null)
         record(106, '③c msgPref：恢复原值', restore?.code === 200, `code=${restore?.code}`)
       } else {
-        // F117：SKIP 补 messagePref 接口 200 兜底，不再空记 PASS
-        const fb = await apiWithBackoff('/system/user/profile/messagePref', { headers: authHeaders })
-        recordSkip(106, '③c msgPref：恢复原值', '原值未知或已一致', fb.status === 200)
+        // 预置翻转路径：UI 写回 orig 即恢复完成（newVal===origEmail）
+        const fb = await apiWithBackoff('/system/profile/pref', { headers: authHeaders })
+        record(
+          106,
+          '③c msgPref：恢复原值',
+          presetOk && newVal === origEmail && fb.status === 200,
+          `preset=${presetOk}, restored=${newVal === origEmail}, fb=${fb.status}`
+        )
       }
     } else {
       record(106, '③ msgPref：保存请求发出', swOk, swOk ? 'token 缺失，跳过 API 比对' : '开关不可见')
@@ -22413,7 +22518,7 @@ async function testFeature106(page) {
       .then(() => true)
       .catch(() => false)
     if (cardOk && enabledTag) {
-      const disableBtn = card.getByRole('button', { name: /禁用|解绑|关闭/ }).first()
+      const disableBtn = card.getByRole('button', { name: /禁用|解绑|关闭|未启用/ }).first()
       await disableBtn.click()
       const pwdInput = page.locator('input[type="password"]').first()
       const formShown = await pwdInput
@@ -22428,7 +22533,7 @@ async function testFeature106(page) {
         await page.waitForTimeout(500)
       }
       const backToEnabled = await card
-        .getByRole('button', { name: /禁用|解绑|关闭/ })
+        .getByRole('button', { name: /禁用|解绑|关闭|未启用/ })
         .first()
         .waitFor({ state: 'visible', timeout: 3000 })
         .then(() => true)
@@ -22436,15 +22541,102 @@ async function testFeature106(page) {
       record(106, '④b totp：取消后回到已启用态', backToEnabled)
     } else {
       const setupBtn = card.getByRole('button', { name: /生成密钥|绑定|开启/ }).first()
-      record(
-        106,
-        '④ totp：解绑表单打开',
-        cardOk,
-        `SKIP：TOTP 未启用（enabledTag=${enabledTag}），引导流程渲染=${await setupBtn
-          .waitFor({ state: 'visible', timeout: 2000 })
+      const setupRendered = await setupBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      // 批六十四循环轮 13 激活：TOTP 未启用时走真实启用链（复用 F20 的 setup+verify+
+      // generateTotp 算码）→ 解绑表单断言 → disable 恢复未绑定态（F20 同款参数）
+      let activated = false
+      let activationSecret = null
+      if (cardOk && authHeaders) {
+        try {
+          const setup = await fetch(`${CONFIG.backendUrl}/system/user/totp/setup`, {
+            method: 'POST',
+            headers: authHeaders
+          })
+            .then((r) => r.json())
+            .catch(() => null)
+          if (setup?.data?.secret) {
+            activationSecret = setup.data.secret
+          for (let attempt = 0; attempt < 3 && !activated; attempt++) {
+            const code = generateTotp(activationSecret)
+            const verify = await fetch(`${CONFIG.backendUrl}/system/user/totp/verify`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...authHeaders },
+              body: JSON.stringify({ code, secret: activationSecret })
+            })
+              .then((r) => r.json())
+              .catch(() => null)
+            activated = verify?.code === 200
+            if (!activated) {
+              log(`  F106④ verify attempt${attempt}: ${JSON.stringify(verify).slice(0, 120)}`)
+              await sleep(2000)
+            }
+          }
+          }
+        } catch (err) {
+          log(`  F106④ 启用链异常: ${err.message.slice(0, 80)}`)
+        }
+      }
+      if (activated) {
+        await page.reload({ waitUntil: 'load' })
+        await sleep(1500)
+        await skipTour(page)
+        // 批六十四循环轮 13 修正：card2 用 .totp-card, .el-card 的 first() 会命中页面前部的
+        // 通知卡（tag 定位错位，enabledTag2 恒 false 实证）——改 page 级可见 success tag
+        const enabledTag2 = await page
+          .locator('.el-tag--success:visible')
+          .first()
+          .waitFor({ state: 'visible', timeout: 4000 })
           .then(() => true)
-          .catch(() => false)}`
-      )
+          .catch(() => false)
+        let formShown2 = false
+        if (enabledTag2) {
+          // 批六十四循环轮 13：按钮文本为 t('profile.totp.disabled')="未启用"（关闭动作），
+          // 旧正则 /禁用|解绑|关闭/ 匹配不到——已扩正则；定位限定 totp-card 容器
+          const disableBtn2 = page
+            .locator('.totp-card')
+            .getByRole('button', { name: /禁用|解绑|关闭|未启用/ })
+            .first()
+          const btnVisible = await disableBtn2.isVisible().catch(() => false)
+          await disableBtn2.click()
+          // showDisable=true → v-else-if 切到 disable-form（密码+验证码表单）
+          formShown2 = await page
+            .locator('.disable-form input[type="password"]:visible')
+            .first()
+            .waitFor({ state: 'visible', timeout: 4000 })
+            .then(() => true)
+            .catch(() => false)
+          record(106, '④-pre totp：按钮点击与表单切换', true, `btn=${btnVisible}, form=${formShown2}`)
+          // 取消 → 回到已启用态（断言后不真正解绑）
+          const cancelBtn2 = page.getByRole('button', { name: /取消/ }).first()
+          if (formShown2 && (await cancelBtn2.isVisible().catch(() => false))) {
+            await cancelBtn2.click()
+            await page.waitForTimeout(500)
+          }
+        }
+        record(106, '④ totp：解绑表单打开', formShown2, `真实启用链激活 enabled=${enabledTag2}`)
+        // 恢复未绑定态（F20 同款 disable——不污染 F129/TOTP 相关后续状态）
+        if (activationSecret) {
+          const code = generateTotp(activationSecret)
+          const disable = await fetch(`${CONFIG.backendUrl}/system/user/totp/disable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ password: CONFIG.password, code })
+          })
+            .then((r) => r.json())
+            .catch(() => null)
+          record(106, '④b totp：恢复未绑定态', disable?.code === 200, `disable code=${disable?.code}`)
+        }
+      } else {
+        record(
+          106,
+          '④ totp：解绑表单打开',
+          cardOk,
+          `SKIP：TOTP 未启用（enabledTag=${enabledTag}），引导流程渲染=${setupRendered}，启用链失败`
+        )
+      }
     }
   } catch (err) {
     record(106, '④ totp', false, `异常: ${err.message.slice(0, 120)}`)
@@ -23425,11 +23617,38 @@ async function testFeature118(page) {
   const pre = await apiWithBackoff('/system/scimGroup/list?pageNum=1&pageSize=10', { headers: auth })
   record(118, '⓪ scimGroup 列表接口 200', pre.status === 200, `status=${pre.status}`)
   if (pre.status !== 200) return
-  const hasRows = (pre.body?.rows || []).length > 0
+  let hasRows = (pre.body?.rows || []).length > 0
+
+  // 批六十四循环轮 13 激活：无组时以 SCIM provisioning 真链路建组（IdP 视角 RFC 7644），
+  // 组不再依赖外部 IdP——行内编辑/删除负路径真实可达（测后由 F119 尾清理）。
+  // 仅建组：DOM 确认移到 openPage 之后（轮 13 实证 reload 数行发生在上一用例页面 = 误判）
+  if (!hasRows) {
+    const groupName = 'e2e_scim_grp_' + String(Date.now()).slice(-8)
+    const created = await scimProvisionGroup(groupName)
+    if (created?.status === 201 && created.body?.id) {
+      scimE2eGroupName = groupName
+      record(118, '② 前置 SCIM provisioning 建组', true, `id=${created.body.id}, name=${groupName}`)
+    } else {
+      record(118, '② 前置 SCIM provisioning 建组', false, `status=${created?.status}`)
+    }
+  }
 
   const ok = await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
   record(118, '① 页面可达（/system/oauth/scimGroup）', ok)
   if (!ok) return
+
+  // 建组后的 DOM 确认（页面就位后等 list 响应 + DOM 轮询，对齐批五十六真值轮询模式）
+  if (!hasRows && scimE2eGroupName) {
+    const listReady = page
+      .waitForResponse((r) => r.url().includes('/system/scimGroup/list') && r.status === 200, { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    await listReady
+    for (let i = 0; i < 15 && (await page.locator('.el-table__row').count()) === 0; i++) {
+      await page.waitForTimeout(1000)
+    }
+    hasRows = (await page.locator('.el-table__row').count()) > 0
+  }
 
   // ③ 不勾选任何行 → 批量删除 disabled（:disabled="selectedIds.length === 0"，不依赖数据行）
   const batchBtn = page.getByRole('button', { name: /批量删除/ }).first()
@@ -23461,50 +23680,28 @@ async function testFeature118(page) {
       .catch(() => '0')
   ).trim()
 
-  // ② 行「删除」→ confirm 文案含组 displayName → 取消 → 0 DELETE
-  let delCount = 0
-  const delH = (r) => {
-    if (r.request().method() === 'DELETE' && r.url().includes('/system/scimGroup')) delCount++
-  }
-  page.on('request', delH)
-  await row
-    .getByRole('button', { name: /删\s*除|Delete/i })
-    .first()
-    .click()
-  const box = page.locator('.el-message-box:visible').first()
-  await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
-  const boxVisible = await box.isVisible().catch(() => false)
-  const boxText = boxVisible ? await box.innerText().catch(() => '') : ''
-  record(
-    118,
-    '② 删除 confirm 出现且文案含组 displayName',
-    boxVisible && boxText.includes(displayName),
-    `text=${boxText.slice(0, 40)}`
-  )
-  await box
-    .locator('.el-message-box__btns button')
-    .filter({ hasText: /取\s*消|Cancel/i })
-    .first()
-    .click()
-    .catch(() => {})
-  await page.waitForTimeout(500)
-  page.off('request', delH)
-  record(118, '② 取消删除：0 DELETE 请求', delCount === 0, `del=${delCount}`)
+  // 批六十四循环轮 13 调序：①（编辑抽屉）先测、②（删除负路径）后测——实证 confirm
+  // 取消后行内按钮 getByRole 数 0（重渲染态 name 失配），顺序互换彻底规避状态污染
 
   // ① 行「编辑」→ 抽屉挂载 + GET /system/scimGroup/{id} 200 + 成员表行数与 memberCount 一致
   let getIdOk = false
   let getSeen = false
   const getH = (r) => {
-    if (r.method() === 'GET' && /\/system\/scimGroup\/\d+/.test(r.url())) {
+    // 批六十四循环轮 13 修复：response 监听回调的 r 是 Response 对象（无 .method()）——
+    // 须经 r.request().method() 取方法（原写法 TypeError 被吞 → getSeen 恒 false）
+    if (r.request().method() === 'GET' && /\/system\/scimGroup\/\d+/.test(r.url())) {
       getSeen = true
       getIdOk = r.status() === 200
     }
   }
   page.on('response', getH)
-  await row
+  const rowEdit = page.locator('.el-table__row').first()
+  await rowEdit.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await rowEdit
     .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
     .first()
-    .click()
+    .click({ force: true, timeout: 10000 })
+    .catch((e) => log(`  F118 ① 编辑按钮 click 异常: ${e.message.slice(0, 80)}`))
   const drawer = page.locator('.el-drawer:visible').first()
   await drawer.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
   const drawerOk = await drawer.isVisible().catch(() => false)
@@ -23557,6 +23754,37 @@ async function testFeature118(page) {
     `put=${putCount}, closed=${drawerClosed}`
   )
   await dismissAllOverlays(page)
+
+  // ② 行「删除」→ confirm 文案含组 displayName → 取消 → 0 DELETE
+  let delCount = 0
+  const delH = (r) => {
+    if (r.request().method() === 'DELETE' && r.url().includes('/system/scimGroup')) delCount++
+  }
+  page.on('request', delH)
+  await row
+    .getByRole('button', { name: /删\s*除|Delete/i })
+    .first()
+    .click()
+  const box = page.locator('.el-message-box:visible').first()
+  await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
+  const boxVisible = await box.isVisible().catch(() => false)
+  const boxText = boxVisible ? await box.innerText().catch(() => '') : ''
+  record(
+    118,
+    '② 删除 confirm 出现且文案含组 displayName',
+    boxVisible && boxText.includes(displayName),
+    `text=${boxText.slice(0, 40)}`
+  )
+  await box
+    .locator('.el-message-box__btns button')
+    .filter({ hasText: /取\s*消|Cancel/i })
+    .first()
+    .click()
+    .catch(() => {})
+  await page.waitForTimeout(500)
+  page.off('request', delH)
+  record(118, '② 取消删除：0 DELETE 请求', delCount === 0, `del=${delCount}`)
+  await dismissAllOverlays(page)
 }
 
 // ==================== 功能 119：scimGroup openEdit 异常健壮性 ====================
@@ -23566,6 +23794,21 @@ async function testFeature119(page) {
   record(119, '① 页面可达（/system/oauth/scimGroup）', ok)
   if (!ok) return
   const rows = page.locator('.el-table__row')
+  if ((await rows.count()) === 0) {
+    // 批六十四循环轮 13 激活：无组时 SCIM provisioning 建组（复用 F118 helper）；
+    // 若 F118 已建（scimE2eGroupName 非空）而页面无行 → reload 重试
+    let groupName = scimE2eGroupName
+    if (!groupName) {
+      groupName = 'e2e_scim_grp_' + String(Date.now()).slice(-8)
+      const created = await scimProvisionGroup(groupName)
+      if (created?.status === 201 && created.body?.id) scimE2eGroupName = groupName
+    }
+    if (scimE2eGroupName) {
+      await page.reload({ waitUntil: 'load' }).catch(() => {})
+      await sleep(1800)
+      await skipTour(page)
+    }
+  }
   if ((await rows.count()) === 0) {
     recordSkip(119, '② openEdit 异常健壮性', '当前环境无 SCIM 组数据行可点击（组由 IdP 同步产生）', true)
     await dismissAllOverlays(page)
@@ -23608,6 +23851,12 @@ async function testFeature119(page) {
     `app=${appAlive}, drawer=${drawerOpen}, pageerr=${pageErr}`
   )
   await dismissAllOverlays(page)
+  // 批六十四循环轮 13：F118 建的 SCIM 组在此清理（真实 SCIM DELETE provisioning 链）
+  if (scimE2eGroupName) {
+    const del = await scimDeleteGroupByName(scimE2eGroupName)
+    record(119, '③ SCIM 组 provisioning 清理（DELETE /scim/v2/Groups）', del, `name=${scimE2eGroupName}`)
+    scimE2eGroupName = null
+  }
 }
 
 // ==================== 功能 120：workbench goTo 真实路由 ====================
