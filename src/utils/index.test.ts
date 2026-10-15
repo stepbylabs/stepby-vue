@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest'
 import {
   formatDate,
   formatTime,
+  makeMap,
+  titleCase,
   isNumberStr,
   sanitizeHtml
 } from './index'
@@ -36,6 +38,34 @@ describe('utils/index formatTime（相对时间语义）', () => {
     // 未来时间 diff<30 → 相对时间档（"刚刚"）
     expect(formatTime(future)).toBeTruthy()
     expect(formatTime(future, '{y}-{m}-{d}')).toBeTruthy()
+  })
+})
+
+// makeMap / titleCase 由代码生成器（src/utils/generator/{render,js}.js）消费——
+// b70 曾因死代码扫描漏 .js 文件误删，CI 生产构建 MISSING_EXPORT 抓回；
+// 此处补回归锁，防再次误删。
+describe('utils/index makeMap（generator 消费）', () => {
+  it('逗号分隔集合命中与未命中', () => {
+    const map = makeMap('a,b,c')
+    expect(map('a')).toBe(true)
+    expect(map('c')).toBe(true)
+    // Vue2 式真值语义：未命中返回 undefined（falsy），非 false
+    expect(map('d')).toBeFalsy()
+  })
+  it('expectsLowerCase 时查找值大小写不敏感（键须本身小写）', () => {
+    const map = makeMap('a,b', true)
+    expect(map('A')).toBe(true)
+    expect(map('b')).toBe(true)
+    expect(map('c')).toBeFalsy()
+  })
+})
+
+describe('utils/index titleCase', () => {
+  it('首字母大写', () => {
+    expect(titleCase('abc')).toBe('Abc')
+  })
+  it('空格后首字母大写', () => {
+    expect(titleCase('hello world')).toBe('Hello World')
   })
 })
 

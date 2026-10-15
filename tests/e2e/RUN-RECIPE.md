@@ -2026,5 +2026,7 @@ consoleErrors 9 与 networkErrors 9 一一对应且全为负路径探针（403 r
 （2 条均为负路径 400 资源加载，与 networkErrors 对账一致）。后端窗口零 ERROR/WARN。
 
 **同批前端静态门禁**：`vue-tsc --noEmit` 0 错误、`eslint .` 0 error 0 warning、
-`vitest run` **81 文件 / 1043 用例全绿**（b70 净删除 27 个零引用导出 + 95 个对应用例；
-新增 `src/api/system/file.test.ts` 9 例）。单跑启动器 `e2e-b70-single.sh`（自定位 + 环境变量）。
+`vitest run` **81 文件 / 1047 用例全绿**（b70 净删除 25 个零引用导出——makeMap/titleCase 曾误删，
+被 `src/utils/generator/*.js` 消费，CI 生产构建红暴露后恢复并补回归测试，事故详情见 b70 台账 §3.6；
+新增 `src/api/system/file.test.ts` 9 例）+ 生产构建 `vite build` EXIT=0（b70 起固化进本地门禁）。
+单跑启动器 `e2e-b70-single.sh`（自定位 + 环境变量）。

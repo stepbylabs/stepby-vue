@@ -67,6 +67,15 @@ export function formatTime(time: number | string, option?: string): string {
   }
 }
 
+export function makeMap(str: string, expectsLowerCase?: boolean): (val: string) => boolean {
+  const map = Object.create(null)
+  const list = str.split(',')
+  for (let i = 0; i < list.length; i++) {
+    map[list[i]] = true
+  }
+  return expectsLowerCase ? (val: string) => map[val.toLowerCase()] : (val: string) => map[val]
+}
+
 export const beautifierConf = {
   html: {
     indent_size: '2',
@@ -106,6 +115,11 @@ export const beautifierConf = {
     e4x: true,
     indent_empty_lines: true
   }
+}
+
+// 首字母大小
+export function titleCase(str: string): string {
+  return str.replace(/( |^)[a-z]/g, (L) => L.toUpperCase())
 }
 
 export function isNumberStr(str: string): boolean {
