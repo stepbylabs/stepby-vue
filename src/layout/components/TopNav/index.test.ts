@@ -10,11 +10,10 @@
  *
  * 仅 mock 重依赖（router / 3 个 Pinia store / useMenuTitle / safeT / 图标）——组件自身逻辑全真实执行。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { ref } from 'vue'
 
 const hoisted = vi.hoisted(() => ({
   constantRoutes: [
@@ -125,14 +124,20 @@ describe('layout/components/TopNav', () => {
     hoisted.windowOpen.mockClear()
     hoisted.routePath = '/system/user'
     hoisted.routeMeta = {}
-    vi.stubGlobal('window', {
-      ...window,
-      open: hoisted.windowOpen,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
-    })
+    // 【CI 假绿根因修复】禁止 vi.stubGlobal('window', {...}) 整体替换 window：
+    // spread 复制不到 jsdom 原型链上的 getComputedStyle 等成员，Vue <Transition> 回调
+    // （whenTransitionEnds）在 CI jsdom 里触发时崩溃。改为 spyOn 单点替身，
+    // 保留真实 window 身份与全部成员。
+    vi.spyOn(window, 'open').mockImplementation(hoisted.windowOpen)
+    vi.spyOn(window, 'addEventListener').mockImplementation(() => {})
+    vi.spyOn(window, 'removeEventListener').mockImplementation(() => {})
     // jsdom 无 layout：getBoundingClientRect().width = 0 ⇒ visibleNumber = max(1, 0) = 1
     vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue({ width: 1024 } as DOMRect)
+  })
+
+  afterEach(() => {
+    // 恢复真实 window 成员（open/addEventListener/removeEventListener）与 DOM spy
+    vi.restoreAllMocks()
   })
 
   it('topMenus：过滤 hidden；path 为 "/" 时取首个子路由', async () => {
@@ -274,14 +279,11 @@ describe('layout/components/TopNav', () => {
   })
 
   it('resize 监听：挂载注册、卸载移除', async () => {
-    const add = vi.fn()
-    const remove = vi.fn()
-    vi.stubGlobal('window', { ...window, open: hoisted.windowOpen, addEventListener: add, removeEventListener: remove })
     const vm = factory()
     await nextTick()
-    expect(add).toHaveBeenCalledWith('resize', expect.any(Function))
+    expect(window.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
     vm.unmount()
-    expect(remove).toHaveBeenCalledWith('resize', expect.any(Function))
+    expect(window.removeEventListener).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 
   it('setVisibleNumber：按 body 宽度/3/85 计算且至少为 1', async () => {
@@ -296,6 +298,3 @@ describe('layout/components/TopNav', () => {
     expect(vm.findAll('.mi').length).toBeLessThanOrEqual(10)
   })
 })
-
-// 抑制未使用 import 告警（保持文件自洽）
-void ref

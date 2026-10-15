@@ -9,13 +9,13 @@ overrides:
   ini@1: '>=1.3.8'
   nanoid@3: '>=3.3.18'
   source-map-js: '>=1.2.2'
-  decode-uri-component@0: '>=0.2.1'
+  decode-uri-component@0: '>=0.4.3'
   nth-check@2: '>=2.0.1'
   css-what@5: '>=5.0.1'
   svgo@2: '>=2.8.4'
   fast-uri@3: '>=3.1.5'
   js-yaml@4: '>=4.3.2'
-  dompurify@3: '>=3.3.2'
+  dompurify@3: '>=3.4.16'
   undici@7: '>=7.29.1'
   vitest@4: '>=4.1.11'
   markdown-it@14: '>=14.3.1'
@@ -60,8 +60,8 @@ importers:
         specifier: ^1.11.21
         version: 1.11.21
       dompurify:
-        specifier: '>=3.3.2'
-        version: 3.4.12
+        specifier: '>=3.4.16'
+        version: 3.4.17
       echarts:
         specifier: 6.1.0
         version: 6.1.0
@@ -2562,9 +2562,9 @@ packages:
   decimal.js@10.6.0:
     resolution: {integrity: sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==}
 
-  decode-uri-component@0.2.1:
-    resolution: {integrity: sha512-XZHyaFJ6QMWhYmlz+UcmtaLeecNiXwkTGzCqG5WByt+1P1HnU6Siwf0TeP3OsZmlnGqQRSEMIxue0LLCaGY3dw==}
-    engines: {node: '>=0.10'}
+  decode-uri-component@0.5.0:
+    resolution: {integrity: sha512-1BiQVoK8C9gUbQU6NzAtO/tkz2qOFpEObMWpcFvhx4fYnj4Oc5yzaJN/LD36ihkVUdXyh5ZekzX+yM+ty/SrPg==}
+    engines: {node: '>=14.16'}
 
   deep-is@0.1.4:
     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
@@ -2639,8 +2639,8 @@ packages:
     resolution: {integrity: sha512-zk7sgt970kzPks2Bf+dwT/PLzghLnsivb9CcxkvR8Mzr66Olr0Ofd8neSbglHJHaHa2MadfoSdNlKYAaafmWfA==}
     engines: {node: '>= 4'}
 
-  dompurify@3.4.12:
-    resolution: {integrity: sha512-zQvGet8Z2sWbQhCmfFz/T5QWH2oBmjnqK3qvOjaqaNLrLEF912WamU+ohnTp0TCep/MFVHpdJuCZEdFOdTnEFg==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   domutils@1.5.0:
     resolution: {integrity: sha512-389qXukJlNZvjy3XHPpMc295cZsUus5XklwdkeMqJWlro86MbHg7WH8FMoIEC4VeAlKjFTdGeDgRr+mjJ8bZFg==}
@@ -7157,7 +7157,7 @@ snapshots:
 
   '@types/dompurify@3.2.0':
     dependencies:
-      dompurify: 3.4.12
+      dompurify: 3.4.17
 
   '@types/estree@1.0.9': {}
 
@@ -8106,7 +8106,7 @@ snapshots:
 
   decimal.js@10.6.0: {}
 
-  decode-uri-component@0.2.1: {}
+  decode-uri-component@0.5.0: {}
 
   deep-is@0.1.4: {}
 
@@ -8177,7 +8177,7 @@ snapshots:
     dependencies:
       domelementtype: 2.3.0
 
-  dompurify@3.4.12:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -8821,7 +8821,7 @@ snapshots:
 
   html2pdf.js@0.14.0:
     dependencies:
-      dompurify: 3.4.12
+      dompurify: 3.4.17
       html2canvas: 1.4.1
       jspdf: 4.2.1
 
@@ -9197,7 +9197,7 @@ snapshots:
     optionalDependencies:
       canvg: 3.0.11
       core-js: 3.49.0
-      dompurify: 3.4.12
+      dompurify: 3.4.17
       html2canvas: 1.4.1
 
   keyv@4.5.4:
@@ -9491,7 +9491,7 @@ snapshots:
 
   monaco-editor@0.55.1:
     dependencies:
-      dompurify: 3.4.12
+      dompurify: 3.4.17
       marked: 14.0.0
 
   mrmime@2.0.1: {}
@@ -10227,7 +10227,7 @@ snapshots:
   source-map-resolve@0.5.3:
     dependencies:
       atob: 2.1.2
-      decode-uri-component: 0.2.1
+      decode-uri-component: 0.5.0
       resolve-url: 0.2.1
       source-map-url: 0.4.1
       urix: 0.1.0

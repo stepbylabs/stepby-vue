@@ -13,20 +13,26 @@ onlyBuiltDependencies:
 # 该链 DoS 属构建期风险，由 lockfile 升级管理（brace-expansion@5 例外见下）。
 # 批六十四（2026-10-14）扩展：12 条同 major 修复（audit 官方源实证），续轮改范围式并
 # 追新修复版（fast-uri 3.1.5/js-yaml 4.3.2/undici 7.29.1）；major 跳级老树
-# （svg-baker 的 braces@2/micromatch@3/postcss@5、eslint 树 postcss-selector-parser@7）
-# 不盲改交上游；quill low 无上游补丁挂待；braces@3.0.4 npmmirror 未同步（404）暂缓。
+# （svg-baker 的 braces@2/micromatch@3/postcss@5、eslint 树 postcss-selector-parser@6→7）
+# 不盲改交上游；quill low 无上游补丁挂待。
+# 批六十八（2026-10-15）：audit 库滚动出新公告，重盘实证——
+# ① braces@3.0.4 **上游不存在**（npmjs dist-tags latest=3.0.3，b64「镜像未同步」系误判），
+#    新公告 vuln <=3.0.3 要求 >=3.0.4 ⇒ braces 两条公告均无可用修复版，挂待上游；
+# ② dompurify 3.4.12 有两条新公告（patched >=3.4.13 / >=3.4.16）⇒ 阈值抬到 >=3.4.16 一次清两条；
+# ③ decode-uri-component 0.2.1 新公告（patched >=0.4.3）⇒ 阈值抬到 >=0.4.3（构建期深层依赖，
+#    以 vite build 全量证伪兼容性）。
 overrides:
   'brace-expansion@5': '>=5.0.11'
   'ini@1': '>=1.3.8'
   'nanoid@3': '>=3.3.18'
   'source-map-js': '>=1.2.2'
-  'decode-uri-component@0': '>=0.2.1'
+  'decode-uri-component@0': '>=0.4.3'
   'nth-check@2': '>=2.0.1'
   'css-what@5': '>=5.0.1'
   'svgo@2': '>=2.8.4'
   'fast-uri@3': '>=3.1.5'
   'js-yaml@4': '>=4.3.2'
-  'dompurify@3': '>=3.3.2'
+  'dompurify@3': '>=3.4.16'
   'undici@7': '>=7.29.1'
   'vitest@4': '>=4.1.11'
   'markdown-it@14': '>=14.3.1'
