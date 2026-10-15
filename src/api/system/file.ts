@@ -65,3 +65,14 @@ export function deleteFile(fileName: string): Promise<AjaxResult> {
     data: { fileName }
   })
 }
+
+// 下载/预览文件内容（blob，经 /common/download 存储后端统一代理）
+// 与 download.name 同鉴权链（带 Authorization 的同源代理请求），不引入 token 查询参数；
+// s3 后端下对象 URL 为跨域绝对地址，直连会被同源守卫拦截，故必须走代理端点。
+export function downloadFileBlob(fileName: string): Promise<Blob> {
+  return request({
+    url: `/common/download?fileName=${encodeURIComponent(fileName)}&delete=false`,
+    method: 'get',
+    responseType: 'blob'
+  }) as unknown as Promise<Blob>
+}

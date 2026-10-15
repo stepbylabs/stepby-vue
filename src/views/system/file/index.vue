@@ -182,20 +182,12 @@ import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { Document } from '@element-plus/icons-vue'
 import type { UploadRequestOptions } from 'element-plus'
-import request from '@/utils/request'
 import download from '@/plugins/download'
 import modal from '@/plugins/modal'
+import { listFiles, uploadFile, deleteFile, downloadFileBlob } from '@/api/system/file'
+import type { FileInfo } from '@/api/system/file'
 
 const { t } = useI18n()
-
-interface FileInfo {
-  fileName: string
-  fileSize: number
-  fileSizeStr: string
-  ext: string
-  url: string
-  lastModified: string
-}
 
 const showSearch = ref(true)
 
@@ -226,11 +218,7 @@ const {
 } = useCrudTable<FileInfo, { pageNum: number; pageSize: number; fileName: string; ext: string }>({
   // 后端 /system/file/list 响应可能包一层 data：兼容 { data: { rows, total } } 与 { rows, total }
   listApi: (params) =>
-    request({
-      url: '/system/file/list',
-      method: 'get',
-      params
-    }).then((res: unknown) => {
+    listFiles(params).then((res: unknown) => {
       const r = res as { data?: { rows?: FileInfo[]; total?: number }; rows?: FileInfo[]; total?: number }
       return { rows: r.data?.rows || r.rows || [], total: r.data?.total || r.total || 0 }
     }),
@@ -310,12 +298,8 @@ async function handleUpload(options: UploadRequestOptions): Promise<void> {
   const formData = new FormData()
   formData.append('file', options.file)
   try {
-    await request({
-      url: '/system/file/upload',
-      method: 'post',
-      data: formData,
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    // 走类型化 api（不手动设 Content-Type：浏览器自动带 boundary，手动设会丢 boundary 致后端解析失败）
+    await uploadFile(formData)
     modal.msgSuccess(t('common.uploadSuccess'))
     getList()
   } catch (err) {
@@ -343,12 +327,8 @@ async function handlePdfPreview(row: FileInfo): Promise<void> {
   try {
     // 与 download.name 同鉴权链（带 Authorization 的同源代理请求），
     // blob → objectURL 交给 iframe 内嵌渲染，不引入 token 查询参数
-    const res = await request({
-      url: `/common/download?fileName=${encodeURIComponent(row.fileName)}&delete=false`,
-      method: 'get',
-      responseType: 'blob'
-    })
-    pdfPreview.url = URL.createObjectURL(res as unknown as Blob)
+    const res = await downloadFileBlob(row.fileName)
+    pdfPreview.url = URL.createObjectURL(res)
   } catch (err) {
     if (import.meta.env.DEV) console.error('[FileMgr] PDF preview failed:', err)
     modal.msgError(t('file.tip.previewFail'))
@@ -392,11 +372,7 @@ function handleCopyUrl(row: FileInfo): void {
 async function handleDelete(row: FileInfo): Promise<void> {
   try {
     await modal.confirm(t('file.tip.confirmDelete', { name: row.fileName }))
-    await request({
-      url: '/system/file/delete',
-      method: 'delete',
-      data: { fileName: row.fileName }
-    })
+    await deleteFile(row.fileName)
     modal.msgSuccess(t('common.deleteSuccess'))
     getList()
     // 清除选中状态：避免删除后按钮 disabled 状态与已删除数据不一致
@@ -413,13 +389,7 @@ async function handleBatchDelete(): Promise<void> {
     await modal.confirm(t('file.tip.confirmBatchDelete', { count: ids.value.length }))
     // 使用 allSettled：部分失败时仍能正确统计成功/失败数，避免整体 reject 掩盖部分成功
     const results = await Promise.allSettled(
-      ids.value.map((fileName: string) =>
-        request({
-          url: '/system/file/delete',
-          method: 'delete',
-          data: { fileName }
-        })
-      )
+      ids.value.map((fileName: string) => deleteFile(fileName))
     )
     const successCount = results.filter((r: PromiseSettledResult<unknown>) => r.status === 'fulfilled').length
     const failCount = results.length - successCount
