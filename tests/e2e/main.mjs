@@ -1,7 +1,8 @@
 /**
  * stepby 端到端主测试脚本（Playwright）
  *
- * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）（共 75 个功能）
+ * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）
+ *   功能总数随批次追加：上述枚举截至早期 75 个；b64 追加 F136-140 页面覆盖补强，b70 追加 F141 文件页 UI 全链 / F142 redirect 防护，当前共 142 个功能。
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -17983,7 +17984,7 @@ async function main() {
   }
 
   log('==========================================')
-  log('stepby 端到端主测试脚本（75 个功能）')
+  log('stepby 端到端主测试脚本（142 个功能）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -18184,7 +18185,9 @@ async function main() {
       { id: 137, fn: testFeature137 },
       { id: 138, fn: testFeature138 },
       { id: 139, fn: testFeature139 },
-      { id: 140, fn: testFeature140 }
+      { id: 140, fn: testFeature140 },
+      { id: 141, fn: testFeature141 },
+      { id: 142, fn: testFeature142 }
     ]
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
@@ -26856,5 +26859,150 @@ async function testFeature140(page) {
     record(140, '⑤ 删除看板（API 复核已移除）', !still, `remaining=${!!still}`)
   } else {
     record(140, '⑤ 删除看板（API 复核已移除）', false, '新建未落库，跳过删除')
+  }
+}
+
+/** 功能 141：文件管理页 UI 全链路（b70 e2e 缺口补齐：F26 只打 API，页面 UI 零覆盖） */
+async function testFeature141(page) {
+  log('=== 功能 141：文件管理页 UI（上传→列表→删除，类型化 api 接线回归） ===')
+  const ok = await openPage(page, '/system/file', 'file')
+  record(141, '① 页面可达（/system/file）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  // ② 工具栏与搜索表单渲染（admin 具备 system:file:list/upload 权限）
+  const refreshBtn = await _visible(page.getByRole('button', { name: '刷新' }))
+  const fileNameInput = await _visible(
+    page.locator('input[aria-label*="文件名"], input[placeholder*="文件名"]').first(),
+    4000
+  )
+  // el-upload 的 file input 按设计 display:none（由触发器按钮代劳点击），判存在不判可见
+  const fileInputCount = await page.locator('.el-upload input[type="file"]').count().catch(() => 0)
+  record(
+    141,
+    '② 工具栏/搜索表单/上传入口渲染',
+    refreshBtn && fileNameInput && fileInputCount > 0,
+    `refresh=${refreshBtn}, fileNameInput=${fileNameInput}, fileInput=${fileInputCount > 0}`
+  )
+
+  // ③ 表格骨架渲染（列表 API 经 UI 链路的载体）
+  const tableOk = await _visible(page.locator('.el-table').first(), 6000)
+  record(141, '③ 文件表格渲染', tableOk)
+
+  // ④ UI 上传：真实文件走 el-upload → handleUpload → 类型化 uploadFile
+  // （b70 修复回归锁：手动 Content-Type 致 boundary 丢失的上传失败模式）
+  // 注意：后端 save_upload_bytes 存 UUID 文件名（原名不保留），列表按 lastModified 倒序——
+  // 故用「上传前后首行对比」做确定性断言（而非按原始名前缀搜）。
+  const stamp = Date.now()
+  let uploadedName = ''
+  try {
+    const token0 = await sessionTokenOf(page)
+    const listBefore = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=50', {
+      headers: { Authorization: `Bearer ${token0}` }
+    })
+    const beforeTop = (listBefore.body?.data?.rows || listBefore.body?.rows || [])[0]?.fileName || null
+
+    await page
+      .locator('.el-upload input[type="file"]')
+      .first()
+      .setInputFiles({
+        name: `e2e141-${stamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`e2e141 file upload ${stamp}\n`)
+      })
+    // 成功 toast（waitFor 优先于 sleep；toast 约数秒自消，轮询捕获）
+    await page
+      .waitForFunction(() => document.body.innerText.includes('上传成功'), { timeout: 10000 })
+      .catch(() => {})
+    const token = await sessionTokenOf(page)
+    const list = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=50', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    const rows = list.body?.data?.rows || list.body?.rows || []
+    const top = rows[0]
+    const isNew = top && top.fileName !== beforeTop && top.ext === 'txt'
+    uploadedName = isNew ? top.fileName : ''
+    record(
+      141,
+      '④ UI 上传落库（列表首行新增 .txt）',
+      !!isNew,
+      `beforeTop=${beforeTop || '空'}, newTop=${top?.fileName || '无'}, ext=${top?.ext || '-'}`
+    )
+  } catch (err) {
+    record(141, '④ UI 上传落库（列表首行新增 .txt）', false, `异常: ${err.message.slice(0, 100)}`)
+  }
+
+  // ⑤ UI 删除：行内删除按钮 → 确认弹窗 → API 复核移除（自清理，失败走 API 兜底）
+  if (uploadedName) {
+    try {
+      const row = page.locator('.el-table__row').filter({ hasText: uploadedName }).first()
+      if (await _visible(row, 5000)) {
+        await row.getByRole('button', { name: '删除' }).click().catch(() => {})
+        await _click(page.locator('.el-message-box__btns button.el-button--primary'))
+        await page
+          .waitForFunction((n) => !document.body.innerText.includes(n), uploadedName, { timeout: 8000 })
+          .catch(() => {})
+      }
+      const token = await sessionTokenOf(page)
+      const list2 = await apiWithBackoff(
+        `/system/file/list?pageNum=1&pageSize=50&fileName=${encodeURIComponent('e2e141-')}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const rows2 = list2.body?.data?.rows || list2.body?.rows || []
+      const still = Array.isArray(rows2) ? rows2.find((f) => f.fileName === uploadedName) : null
+      record(141, '⑤ UI 删除（API 复核已移除）', !still, `remaining=${!!still}`)
+    } catch (err) {
+      record(141, '⑤ UI 删除（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
+      try {
+        const token = await sessionTokenOf(page)
+        await apiWithBackoff('/system/file/delete', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ fileName: uploadedName })
+        })
+      } catch {
+        /* 兜底失败不掩盖主断言结果 */
+      }
+    }
+  } else {
+    record(141, '⑤ UI 删除（API 复核已移除）', false, '上传未落库，跳过删除')
+  }
+}
+
+/** 功能 142：/redirect 开放重定向防护（b70 e2e 缺口补齐：redirect 视图零覆盖） */
+async function testFeature142(page) {
+  log('=== 功能 142：/redirect 安全跳转与开放重定向防护 ===')
+  // ① 安全相对路径：/redirect/workbench/index → router.replace 到 /workbench/index
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/redirect/workbench/index`, { waitUntil: 'load' }).catch(() => {})
+    const landed = await page
+      .waitForFunction(() => location.pathname === '/workbench/index', { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    const finalPath = await page.evaluate(() => location.pathname)
+    record(142, '① 安全路径跳转（/redirect/workbench/index → /workbench/index）', landed, `finalPath=${finalPath}`)
+    await skipTour(page).catch(() => {})
+  } catch (err) {
+    record(142, '① 安全路径跳转', false, `异常: ${err.message.slice(0, 100)}`)
+  }
+
+  // ② 协议相对路径攻击：/redirect//evil.example.com → isSafeRedirect 拒绝 → 回落 / → /index
+  try {
+    await page.goto(`${CONFIG.frontendUrl}/redirect//evil.example.com`, { waitUntil: 'load' }).catch(() => {})
+    const notEvil = await page
+      .waitForFunction(
+        () =>
+          !location.hostname.includes('evil.example.com') &&
+          !location.pathname.includes('evil.example.com'),
+        { timeout: 8000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    const finalUrl = page.url()
+    const local = finalUrl.startsWith('http://localhost:8080') || finalUrl.startsWith('http://127.0.0.1:8080')
+    record(142, '② 开放重定向防护（//evil.example.com 不回跳外域）', notEvil && local, `finalUrl=${finalUrl.slice(0, 80)}`)
+    await skipTour(page).catch(() => {})
+  } catch (err) {
+    record(142, '② 开放重定向防护', false, `异常: ${err.message.slice(0, 100)}`)
   }
 }
