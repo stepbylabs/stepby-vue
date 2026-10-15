@@ -14,14 +14,6 @@ export function listTask(query: TaskQueryParams): Promise<TableDataInfo<SysTask>
   })
 }
 
-// 查询任务详情
-export function getTask(taskId: number): Promise<AjaxResult<SysTask>> {
-  return request({
-    url: '/system/task/' + taskId,
-    method: 'get'
-  })
-}
-
 // 删除任务
 export function delTask(taskId: number | number[]): Promise<AjaxResult> {
   return request({

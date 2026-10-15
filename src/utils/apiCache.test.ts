@@ -4,7 +4,6 @@ import {
   cachedApi,
   invalidateApiCache,
   clearAllApiCache,
-  refreshCachedApi,
   invalidateByPrefix,
   DEFAULT_API_CACHE_TTL
 } from '@/utils/apiCache'
@@ -359,59 +358,6 @@ describe('apiCache', () => {
 
       const second = await cached()
       expect(second).toBe('v-2')
-    })
-  })
-
-  // ==========================================================================
-  // refreshCachedApi 强制刷新
-  // ==========================================================================
-  describe('refreshCachedApi', () => {
-    it('强制刷新 - 即使缓存未过期也重新请求', async () => {
-      let count = 0
-      const mockFn = vi.fn().mockImplementation(() => Promise.resolve(`v-${++count}`))
-      const refresh = refreshCachedApi('test:refresh', mockFn, 60_000)
-
-      const first = await refresh()
-      expect(first).toBe('v-1')
-      expect(mockFn).toHaveBeenCalledTimes(1)
-
-      // 立即再次调用 refreshCachedApi - 即使 TTL 内也强制刷新
-      const second = await refresh()
-      expect(second).toBe('v-2')
-      expect(mockFn).toHaveBeenCalledTimes(2)
-    })
-
-    it('refreshCachedApi 后改用 cachedApi 可命中新缓存', async () => {
-      let count = 0
-      const mockFn = vi.fn().mockImplementation(() => Promise.resolve(`v-${++count}`))
-      const refresh = refreshCachedApi('test:refreshThenHit', mockFn, 60_000)
-      const cached = cachedApi('test:refreshThenHit', mockFn, 60_000)
-
-      // 强制刷新一次
-      const refreshed = await refresh()
-      expect(refreshed).toBe('v-1')
-      expect(mockFn).toHaveBeenCalledTimes(1)
-
-      // cachedApi 应命中 refresh 写入的缓存
-      const hit = await cached()
-      expect(hit).toBe('v-1')
-      expect(mockFn).toHaveBeenCalledTimes(1)
-    })
-
-    it('refreshCachedApi 支持函数型 key', async () => {
-      let count = 0
-      const mockFn = vi.fn().mockImplementation(() => Promise.resolve(`v-${++count}`))
-      const keyFn = (...args: unknown[]) => `rk:${args.join('-')}`
-      const refresh = refreshCachedApi(keyFn, mockFn, 60_000)
-
-      const a1 = await refresh('x')
-      const a2 = await refresh('x') // 强制刷新同 key
-      const b1 = await refresh('y') // 不同 key
-
-      expect(a1).toBe('v-1')
-      expect(a2).toBe('v-2')
-      expect(b1).toBe('v-3')
-      expect(mockFn).toHaveBeenCalledTimes(3)
     })
   })
 })

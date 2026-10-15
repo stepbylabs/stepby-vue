@@ -105,11 +105,6 @@ export function changeWebhookEventEnabled(id: number | string, enabled: string):
   })
 }
 
-// 导出回调配置
-export function exportWebHook(query: WebHookQueryParams): void {
-  download('/monitor/webHook/export', { ...query }, `web_hook_${new Date().getTime()}.xlsx`)
-}
-
 // ==================== 推送记录 ====================
 
 // 分页查询推送记录

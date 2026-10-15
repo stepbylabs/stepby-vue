@@ -7,15 +7,7 @@ const { push, replace } = vi.hoisted(() => ({
 }))
 vi.mock('@/router', () => ({ default: { push, replace } }))
 
-// Mock @/store/modules/user：logoutAndGoLogin 依赖 logOut()
-const { logOut } = vi.hoisted(() => ({
-  logOut: vi.fn()
-}))
-vi.mock('@/store/modules/user', () => ({
-  default: () => ({ logOut })
-}))
-
-import { navigate, goLogin, logoutAndGoLogin } from './navigation'
+import { navigate, goLogin } from './navigation'
 
 describe('utils/navigation SPA 内跳转', () => {
   beforeEach(() => {
@@ -41,21 +33,5 @@ describe('utils/navigation SPA 内跳转', () => {
   it('goLogin 带 query（如 redirect）→ 原样透传', () => {
     goLogin({ redirect: '/system/user' })
     expect(replace).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/system/user' } })
-  })
-
-  it('logoutAndGoLogin → 先 await logOut 再 replace 到 /login', async () => {
-    const order: string[] = []
-    logOut.mockImplementation(async () => {
-      order.push('logOut')
-    })
-    replace.mockImplementation(() => {
-      order.push('replace')
-    })
-
-    await logoutAndGoLogin({ redirect: '/index' })
-
-    expect(logOut).toHaveBeenCalledTimes(1)
-    expect(order).toEqual(['logOut', 'replace'])
-    expect(replace).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/index' } })
   })
 })

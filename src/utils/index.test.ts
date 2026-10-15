@@ -7,10 +7,6 @@ import { describe, it, expect } from 'vitest'
 import {
   formatDate,
   formatTime,
-  hasClass,
-  addClass,
-  removeClass,
-  titleCase,
   isNumberStr,
   sanitizeHtml
 } from './index'
@@ -40,36 +36,6 @@ describe('utils/index formatTime（相对时间语义）', () => {
     // 未来时间 diff<30 → 相对时间档（"刚刚"）
     expect(formatTime(future)).toBeTruthy()
     expect(formatTime(future, '{y}-{m}-{d}')).toBeTruthy()
-  })
-})
-
-describe('utils/index className 工具（无返回值，验证副作用）', () => {
-  const el = (): HTMLElement => {
-    const e = document.createElement('div')
-    e.className = 'foo bar'
-    return e
-  }
-  it('hasClass 命中与未命中', () => {
-    expect(hasClass(el(), 'foo')).toBe(true)
-    expect(hasClass(el(), 'baz')).toBe(false)
-  })
-  it('addClass 新增类', () => {
-    const e = el()
-    addClass(e, 'baz')
-    expect(e.className).toContain('baz')
-  })
-  it('removeClass 移除指定类保留其余', () => {
-    const e = el()
-    removeClass(e, 'foo')
-    expect(e.className).not.toContain('foo')
-    expect(e.className).toContain('bar')
-  })
-})
-
-
-describe('utils/index titleCase', () => {
-  it('首字母大写', () => {
-    expect(titleCase('abc')).toBe('Abc')
   })
 })
 

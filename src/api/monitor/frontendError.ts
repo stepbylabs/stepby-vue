@@ -10,14 +10,6 @@ export function listFrontendError(query: FrontendErrorQueryParams): Promise<Tabl
   })
 }
 
-// 查询前端异常详情
-export function getFrontendError(id: number): Promise<AjaxResult<SysFrontendError>> {
-  return request({
-    url: '/monitor/frontendError/' + id,
-    method: 'get'
-  })
-}
-
 // 删除前端异常
 export function delFrontendError(id: number | number[]): Promise<AjaxResult> {
   return request({

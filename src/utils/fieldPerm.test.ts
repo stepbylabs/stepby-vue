@@ -5,7 +5,6 @@ import {
   FIELD_PERM_TABLES,
   toCheckedMap,
   buildHiddenFields,
-  filterColumnsByHidden,
   isColumnVisible
 } from './fieldPerm'
 
@@ -53,22 +52,6 @@ describe('buildHiddenFields（矩阵勾选 → 保存参数组装）', () => {
   it('勾选状态中超出白名单的键被忽略（防脏数据入库）', () => {
     const checked = { phonenumber: true, email: false, hacked: true }
     expect(buildHiddenFields(['phonenumber', 'email'], checked)).toEqual(['phonenumber'])
-  })
-})
-
-describe('filterColumnsByHidden（field-hidden 过滤列）', () => {
-  it('按隐藏集过滤，保持列原顺序', () => {
-    const cols = ['userId', 'userName', 'phonenumber', 'email', 'status']
-    expect(filterColumnsByHidden(cols, ['phonenumber', 'email'])).toEqual(['userId', 'userName', 'status'])
-  })
-  it('隐藏集为空 → 原样返回', () => {
-    const cols = ['userId', 'phonenumber']
-    expect(filterColumnsByHidden(cols, [])).toEqual(cols)
-    expect(filterColumnsByHidden(cols, null)).toEqual(cols)
-    expect(filterColumnsByHidden(cols, undefined)).toEqual(cols)
-  })
-  it('全部隐藏 → 空数组', () => {
-    expect(filterColumnsByHidden(['phonenumber', 'email'], ['phonenumber', 'email'])).toEqual([])
   })
 })
 

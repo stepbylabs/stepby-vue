@@ -54,16 +54,6 @@ export function buildHiddenFields(fieldKeys: string[], checked: Record<string, b
 }
 
 /**
- * 按当前操作者隐藏集过滤列键数组（保持原顺序）
- * @param columnKeys 列键列表（页面列定义顺序）
- * @param hiddenFields 后端下发的隐藏字段数组（容错 null/undefined）
- */
-export function filterColumnsByHidden(columnKeys: string[], hiddenFields: string[] | null | undefined): string[] {
-  const hidden = new Set(hiddenFields ?? [])
-  return columnKeys.filter((key) => !hidden.has(key))
-}
-
-/**
  * 判断单列最终可见性：列显隐偏好开启 且 未被字段级权限隐藏
  * @param columnKey 列键（如 phonenumber）
  * @param prefVisible 用户列显隐偏好（RightToolbar 面板控制）

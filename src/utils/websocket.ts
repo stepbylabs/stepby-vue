@@ -224,13 +224,3 @@ class WebSocketService {
 
 /** 全局单例 */
 export const wsService = new WebSocketService()
-
-/** 安装 WebSocket 服务（在 main.ts 中调用 app.use(wsPlugin)） */
-export const wsPlugin = {
-  install() {
-    // 自动连接：token 存在时建立连接
-    if (getToken()) {
-      wsService.connect()
-    }
-  }
-}

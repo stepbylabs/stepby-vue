@@ -5,7 +5,7 @@
  * 1. 短期 TTL（默认 30 秒）缓存，避免短时间内重复请求同一接口
  * 2. 并发请求去重：同一接口被同时调用多次时合并为一个 Promise
  * 3. 透明：调用方无感知，不破坏原 API 函数签名
- * 4. 可控：提供 clear / refresh 方法，支持用户操作（如下拉刷新）显式失效
+ * 4. 可控：提供 invalidate / clear / 前缀批量失效方法，支持用户操作（如下拉刷新）显式失效
  *
  * 适用范围：仅缓存全局共享数据（如部门树、菜单树、配置参数），
  * 不要缓存用户特定数据（如某角色的已选菜单、某用户的详情）。
@@ -164,26 +164,5 @@ export function invalidateByPrefix(prefix: string): void {
       cacheMap.delete(key)
       pendingMap.delete(key)
     }
-  }
-}
-
-/**
- * 刷新指定 key 的缓存（强制重新请求一次并更新缓存）
- *
- * @param key      缓存 key
- * @param fn       原始 API 函数
- * @param ttl      缓存有效期（ms）
- */
-export function refreshCachedApi<TArgs extends unknown[], TResult>(
-  key: string | ((...args: TArgs) => string),
-  fn: (...args: TArgs) => Promise<TResult>,
-  ttl: number = DEFAULT_API_CACHE_TTL
-): (...args: TArgs) => Promise<TResult> {
-  return (...args: TArgs): Promise<TResult> => {
-    const cacheKey = typeof key === 'function' ? key(...args) : key
-    // 失效旧缓存（含 pending），强制重新拉取
-    removeEntry(cacheKey)
-    pendingMap.delete(cacheKey)
-    return cachedApi(key, fn, ttl)(...args)
   }
 }

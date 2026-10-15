@@ -120,8 +120,3 @@ export async function exportTableToPdf(
   })
 }
 
-/** 打印当前页面（调用浏览器原生打印） */
-export function printPage(): void {
-  window.print()
-}
-

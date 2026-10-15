@@ -53,7 +53,7 @@ vi.mock('@vueuse/core', () => ({
   whenever: mocks.whenever
 }))
 
-import { useGlobalHotkeys, validateHotkey, formatHotkey } from './useGlobalHotkeys'
+import { useGlobalHotkeys, formatHotkey } from './useGlobalHotkeys'
 
 // handlers are registered in a fixed bind() order inside the composable
 const H = {
@@ -259,16 +259,6 @@ describe('composables/useGlobalHotkeys', () => {
     useGlobalHotkeys()
     // toggleSidebar is skipped, other 7 still bind
     expect(handlers).toHaveLength(7)
-  })
-})
-
-describe('useGlobalHotkeys/validateHotkey', () => {
-  it('accepts only letters, digits and underscores', () => {
-    expect(validateHotkey('ctrl_k')).toBe(true)
-    expect(validateHotkey('Shift123')).toBe(true)
-    expect(validateHotkey('ctrl-k')).toBe(false)
-    expect(validateHotkey('ctrl k')).toBe(false)
-    expect(validateHotkey('')).toBe(false)
   })
 })
 

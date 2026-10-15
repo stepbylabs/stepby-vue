@@ -50,8 +50,3 @@ export function doneProgress(): void {
     NProgress.done()
   }
 }
-
-/** 是否还有 pending 进度（用于路由 afterEach 判断） */
-export function hasPendingProgress(): boolean {
-  return counter > 0
-}

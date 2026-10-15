@@ -5,7 +5,6 @@
 // 可在非 setup 上下文（如请求拦截器 request.ts）安全调用；
 // router/index.ts 仅依赖 @/utils/auth（token 读写），不依赖本模块，无循环依赖。
 import router from '@/router'
-import useUserStore from '@/store/modules/user'
 
 /** SPA 方式跳转（替代 window.location.href = path 的整页刷新） */
 export function navigate(path: string, query?: Record<string, string>): void {
@@ -14,11 +13,5 @@ export function navigate(path: string, query?: Record<string, string>): void {
 
 /** 跳转登录页（SPA，替代 location.href = '/login' 的整页刷新） */
 export function goLogin(query?: Record<string, string>): void {
-  router.replace({ path: '/login', query })
-}
-
-/** 登出并 SPA 跳转登录页（替代 location.href = '/login' 的整页刷新） */
-export async function logoutAndGoLogin(query?: Record<string, string>): Promise<void> {
-  await useUserStore().logOut()
   router.replace({ path: '/login', query })
 }

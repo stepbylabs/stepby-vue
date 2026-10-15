@@ -79,11 +79,6 @@ export function listBoards(): Promise<AjaxResult<BoardVo[]>> {
   return request({ url: '/tool/report-board/list', method: 'get' })
 }
 
-/** 查询看板详情 */
-export function getBoard(boardId: number): Promise<AjaxResult<BoardVo>> {
-  return request({ url: `/tool/report-board/${boardId}`, method: 'get' })
-}
-
 /** 创建看板 */
 export function addBoard(data: { name: string; config: ReportBoardConfig }): Promise<AjaxResult<BoardVo>> {
   return request({ url: '/tool/report-board', method: 'post', data })

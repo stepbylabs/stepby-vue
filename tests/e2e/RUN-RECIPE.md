@@ -2000,3 +2000,31 @@ b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
 - ⇒ `build:prod` 的 dist 交给后端同源托管**同样可用**（实测 `/prod-api/uploads/...` 200 image/jpeg）。
 - ⇒ B66-1 的 IMG 错误与构建模式**无关**（已排除）。`scripts/build-all.ps1` 用 `build:embedded`
   属另一种部署形态（反向代理去掉前缀），两者皆合法，**不是缺陷**。
+
+---
+
+## 3.55 批七十（2026-10-16）：F141 文件页 UI 全链 + F142 redirect 防护 + 死代码清理后全量复核
+
+**新用例（main.mjs 功能 141-142，文件页零 UI 覆盖 + redirect 防护缺口补强）**：
+
+- F141 文件页 UI 全链（5 项断言）：① 页面可达（/system/file）② 工具栏/搜索表单/上传入口渲染
+  （fileInput 按 `.count() > 0` 判存在——EP el-upload 的 file input 按设计 `display:none`，
+  e2e 判存在不判可见，`_visible` 必败）③ 文件表格渲染 ④ **UI 上传落库（上传前后列表首行对比）**
+  ——后端 `save_upload_bytes` 存 UUID 文件名（原名丢失）、fileName 过滤是 `contains`、列表按
+  lastModified 倒序，故禁用"按原名过滤命中"式断言，改确定性首行对比（beforeTop≠newTop 且 ext=txt）
+  ⑤ UI 删除（API 复核已移除 + 兜底清理）。
+- F142 redirect 防护（2 项断言）：① 安全路径跳转（`/redirect/workbench/index` → `/workbench/index`）
+  ② 开放重定向防护（`/redirect//evil.example.com` 不回跳外域，落回 `/index`）。
+
+**基线变化**：断言总数 1204 → **1211**（+7：F141 ⑤项 / F142 ②项）；功能数 140 → **142**
+（F117 仍为设计内 SKIP，不产断言条目）。
+
+**全量实测（2026-10-16，重启后端后单跑，29m27s）**：`总计 1211 通过 1211 失败 0`（EXIT=0），
+pageerror=0；可疑 Toast 3 条（验证码错误/SQL 模板校验/流程图校验——均为负路径预期反馈）；
+consoleErrors 9 与 networkErrors 9 一一对应且全为负路径探针（403 register、401 unlock/login×2、
+400 channel/aiConfig/totp/dataset/channel-test）；hub 镜像 40 条 = 已知环境噪声 38 + 未分类 2
+（2 条均为负路径 400 资源加载，与 networkErrors 对账一致）。后端窗口零 ERROR/WARN。
+
+**同批前端静态门禁**：`vue-tsc --noEmit` 0 错误、`eslint .` 0 error 0 warning、
+`vitest run` **81 文件 / 1043 用例全绿**（b70 净删除 27 个零引用导出 + 95 个对应用例；
+新增 `src/api/system/file.test.ts` 9 例）。单跑启动器 `e2e-b70-single.sh`（自定位 + 环境变量）。

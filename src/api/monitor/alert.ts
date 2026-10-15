@@ -1,5 +1,4 @@
 import request from '@/utils/request'
-import { download } from '@/utils/request'
 import type { AjaxResult, TableDataInfo } from '@/types'
 import type { SysAlertRule, AlertRuleQueryParams, AlertRuleSaveDto, AlertEvaluateResult } from '@/types'
 
@@ -63,9 +62,4 @@ export function evaluateAlert(id: number | string): Promise<AjaxResult<AlertEval
     url: '/monitor/alert/' + id + '/evaluate',
     method: 'post'
   })
-}
-
-// 导出告警规则列表为 Excel（后端表单 POST）
-export function exportAlert(query: AlertRuleQueryParams): void {
-  download('/monitor/alert/export', { ...query }, `alert_rule_${new Date().getTime()}.xlsx`)
 }

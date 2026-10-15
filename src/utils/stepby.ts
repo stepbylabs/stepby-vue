@@ -170,23 +170,6 @@ export function selectDictLabels(
   return actions.join('').substring(0, actions.join('').length - 1)
 }
 
-// 字符串格式化(%s )
-// 注意：使用 rest 参数时，第一个 %s 对应 args[0]（原基于 arguments 的实现
-// 下标从 1 开始是因为 arguments[0] 是格式化串本身；rest 参数已剔除该串，故从 0 开始）。
-export function sprintf(str: string, ...args: unknown[]): string {
-  let flag = true,
-    i = 0
-  str = str.replace(/%s/g, function () {
-    const arg = args[i++]
-    if (typeof arg === 'undefined') {
-      flag = false
-      return ''
-    }
-    return String(arg)
-  })
-  return flag ? str : ''
-}
-
 // 转换字符串，undefined,null等转化为""
 export function parseStrEmpty(str: unknown): string {
   if (!str || str == 'undefined' || str == 'null') {

@@ -1,15 +1,8 @@
 import {
   isExternal,
-  validEmail,
   isPathMatch,
   isEmpty,
   isHttp,
-  validURL,
-  validLowerCase,
-  validUpperCase,
-  validAlphabets,
-  isString,
-  isArray,
   verifyImageMagicBytes
 } from '@/utils/validate'
 import { afterEach, vi } from 'vitest'
@@ -81,40 +74,6 @@ describe('isExternal', () => {
 
   it('空字符串不是外链', () => {
     expect(isExternal('')).toBe(false)
-  })
-})
-
-// ============================================================================
-// validEmail 邮箱校验
-// ============================================================================
-describe('validEmail', () => {
-  it('标准邮箱格式', () => {
-    expect(validEmail('test@example.com')).toBe(true)
-    expect(validEmail('user.name@domain.org')).toBe(true)
-  })
-
-  it('含子域的邮箱', () => {
-    expect(validEmail('user@sub.domain.com')).toBe(true)
-  })
-
-  it('含 + 号的邮箱', () => {
-    expect(validEmail('user+tag@gmail.com')).toBe(true)
-  })
-
-  it('无 @ 符号不是合法邮箱', () => {
-    expect(validEmail('testexample.com')).toBe(false)
-  })
-
-  it('无域名不是合法邮箱', () => {
-    expect(validEmail('test@')).toBe(false)
-  })
-
-  it('无用户名不是合法邮箱', () => {
-    expect(validEmail('@example.com')).toBe(false)
-  })
-
-  it('空字符串不是合法邮箱', () => {
-    expect(validEmail('')).toBe(false)
   })
 })
 
@@ -211,154 +170,6 @@ describe('isHttp', () => {
 
   it('空字符串', () => {
     expect(isHttp('')).toBe(false)
-  })
-})
-
-// ============================================================================
-// validURL URL 校验
-// ============================================================================
-describe('validURL', () => {
-  it('标准 http URL', () => {
-    expect(validURL('http://example.com')).toBe(true)
-  })
-
-  it('标准 https URL', () => {
-    expect(validURL('https://example.com/path')).toBe(true)
-  })
-
-  it('含端口的 URL', () => {
-    expect(validURL('http://example.com:8080/page')).toBe(true)
-  })
-
-  it('ftp 协议 URL', () => {
-    expect(validURL('ftp://files.example.com')).toBe(true)
-  })
-
-  it('非 URL 字符串', () => {
-    expect(validURL('not a url')).toBe(false)
-  })
-
-  it('空字符串不是合法 URL', () => {
-    expect(validURL('')).toBe(false)
-  })
-})
-
-// ============================================================================
-// validLowerCase / validUpperCase / validAlphabets
-// ============================================================================
-describe('validLowerCase', () => {
-  it('纯小写字母', () => {
-    expect(validLowerCase('abc')).toBe(true)
-  })
-
-  it('含大写字母', () => {
-    expect(validLowerCase('aBc')).toBe(false)
-  })
-
-  it('含数字', () => {
-    expect(validLowerCase('abc123')).toBe(false)
-  })
-
-  it('空字符串', () => {
-    expect(validLowerCase('')).toBe(false)
-  })
-})
-
-describe('validUpperCase', () => {
-  it('纯大写字母', () => {
-    expect(validUpperCase('ABC')).toBe(true)
-  })
-
-  it('含小写字母', () => {
-    expect(validUpperCase('AbC')).toBe(false)
-  })
-
-  it('含数字', () => {
-    expect(validUpperCase('ABC123')).toBe(false)
-  })
-
-  it('空字符串', () => {
-    expect(validUpperCase('')).toBe(false)
-  })
-})
-
-describe('validAlphabets', () => {
-  it('纯字母（混合大小写）', () => {
-    expect(validAlphabets('AbC')).toBe(true)
-  })
-
-  it('纯小写字母', () => {
-    expect(validAlphabets('abc')).toBe(true)
-  })
-
-  it('纯大写字母', () => {
-    expect(validAlphabets('ABC')).toBe(true)
-  })
-
-  it('含数字', () => {
-    expect(validAlphabets('abc123')).toBe(false)
-  })
-
-  it('空字符串', () => {
-    expect(validAlphabets('')).toBe(false)
-  })
-})
-
-// ============================================================================
-// isString / isArray
-// ============================================================================
-describe('isString', () => {
-  it('字符串字面量', () => {
-    expect(isString('hello')).toBe(true)
-  })
-
-  it('String 对象', () => {
-    expect(isString(new String('hello'))).toBe(true)
-  })
-
-  it('数字不是字符串', () => {
-    expect(isString(123)).toBe(false)
-  })
-
-  it('数组不是字符串', () => {
-    expect(isString(['a'])).toBe(false)
-  })
-
-  it('null 不是字符串', () => {
-    expect(isString(null)).toBe(false)
-  })
-})
-
-describe('isArray', () => {
-  it('数组字面量', () => {
-    expect(isArray([1, 2, 3])).toBe(true)
-  })
-
-  it('空数组', () => {
-    expect(isArray([])).toBe(true)
-  })
-
-  it('字符串不是数组', () => {
-    expect(isArray('abc')).toBe(false)
-  })
-
-  it('对象不是数组', () => {
-    expect(isArray({ a: 1 })).toBe(false)
-  })
-
-  it('null 不是数组', () => {
-    expect(isArray(null)).toBe(false)
-  })
-
-  it('Array.isArray 缺失时回退到 toString 判定', () => {
-    const original = Array.isArray
-    ;(Array as unknown as { isArray?: unknown }).isArray = undefined
-    try {
-      expect(isArray([1, 2])).toBe(true)
-      expect(isArray('abc')).toBe(false)
-    } finally {
-      ;(Array as unknown as { isArray: typeof original }).isArray = original
-    }
   })
 })
 

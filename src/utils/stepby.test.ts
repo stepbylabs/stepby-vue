@@ -1,61 +1,12 @@
-import { sprintf, parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/stepby'
+import { parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/stepby'
 
 // ============================================================================
 // 说明
 // ============================================================================
 // 本文件聚焦 stepby.ts 中此前未被测试覆盖的工具函数：
-//   sprintf / parseStrEmpty / mergeRecursive / transParams / getNormalPath / blobValidate
+//   parseStrEmpty / mergeRecursive / transParams / getNormalPath / blobValidate
 // 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 stepby.time.test.ts；
 // 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 stepby.dictTree.test.ts。
-
-// ============================================================================
-// sprintf 字符串格式化（%s 占位符）
-// ============================================================================
-describe('sprintf', () => {
-  it('无参数调用返回原字符串', () => {
-    expect(sprintf('hello')).toBe('hello')
-  })
-
-  it('单个 %s 被替换为参数', () => {
-    expect(sprintf('hello %s', 'world')).toBe('hello world')
-  })
-
-  it('多个 %s 按顺序替换', () => {
-    expect(sprintf('%s-%s-%s', 'a', 'b', 'c')).toBe('a-b-c')
-  })
-
-  it('数字参数被转为字符串', () => {
-    expect(sprintf('num=%s', 42)).toBe('num=42')
-  })
-
-  it('布尔参数被转为字符串', () => {
-    expect(sprintf('bool=%s', true)).toBe('bool=true')
-  })
-
-  it('对象参数调用 String() 转换', () => {
-    expect(sprintf('obj=%s', { a: 1 })).toBe('obj=[object Object]')
-  })
-
-  it('缺少参数时返回空字符串（flag 置 false）', () => {
-    expect(sprintf('%s %s', 'only')).toBe('')
-  })
-
-  it('第一个参数即对应第一个 %s（rest 参数从 0 开始）', () => {
-    expect(sprintf('%s', 'a', 'b')).toBe('a')
-  })
-
-  it('多参数中多余参数被忽略', () => {
-    expect(sprintf('%s', 'a', 'b', 'c')).toBe('a')
-  })
-
-  it('undefined 参数导致返回空字符串', () => {
-    expect(sprintf('%s', undefined)).toBe('')
-  })
-
-  it('null 参数被转换为字符串 "null"', () => {
-    expect(sprintf('%s', null)).toBe('null')
-  })
-})
 
 // ============================================================================
 // parseStrEmpty 转换字符串（undefined/null 等转为空串）

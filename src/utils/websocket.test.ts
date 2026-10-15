@@ -73,7 +73,6 @@ class FakeWebSocket {
 
 describe('utils/websocket（WebSocketService）', () => {
   let wsService: typeof import('@/utils/websocket').wsService
-  let wsPlugin: typeof import('@/utils/websocket').wsPlugin
 
   beforeEach(async () => {
     vi.resetModules()
@@ -83,7 +82,6 @@ describe('utils/websocket（WebSocketService）', () => {
     vi.useFakeTimers()
     const mod = await import('@/utils/websocket')
     wsService = mod.wsService
-    wsPlugin = mod.wsPlugin
   })
 
   afterEach(() => {
@@ -230,10 +228,5 @@ describe('utils/websocket（WebSocketService）', () => {
     expect(info.max).toBe(10)
     expect(info.count).toBe(0)
     expect(info.isExhausted).toBe(false)
-  })
-
-  it('wsPlugin.install：token 存在时自动连接', () => {
-    wsPlugin.install()
-    expect(FakeWebSocket.instances).toHaveLength(1)
   })
 })

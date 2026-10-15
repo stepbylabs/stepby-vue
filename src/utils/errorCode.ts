@@ -3,8 +3,7 @@ import i18n from '@/i18n'
 /**
  * 错误码 → i18n key 映射表
  *
- * 调用 getErrorMessage(code) 会根据当前 i18n 语言返回对应翻译。
- * 不要直接访问 errorCode[code]，请使用 getErrorMessage(code)。
+ * 直接访问 errorCode[code] 会返回当前 i18n 语言对应的翻译文本（见下方 Proxy）。
  */
 const errorCodeKeyMap: Record<string, string> = {
   '400': 'errorCode.400',
@@ -19,17 +18,8 @@ const errorCodeKeyMap: Record<string, string> = {
   default: 'errorCode.default'
 }
 
-/**
- * 根据错误码获取国际化错误消息
- * @param code 错误码（字符串或数字），未匹配时返回 default 对应消息
- */
-export function getErrorMessage(code: string | number): string {
-  const key = errorCodeKeyMap[String(code)] || errorCodeKeyMap['default']
-  return i18n.global.t(key)
-}
-
-// 兼容旧用法：errorCode[code] 仍可访问，但返回 i18n key 而非翻译文本
-// 调用方应迁移到 getErrorMessage(code)
+// errorCode[code] 访问时按当前 i18n 语言实时翻译（Proxy get 钩子），
+// 未命中映射表的 code 回退 default 文案。
 const errorCode: Record<string, string> = new Proxy(errorCodeKeyMap, {
   get(target, prop: string): string {
     return i18n.global.t(target[prop] || target['default'])

@@ -9,8 +9,6 @@
 
 import {
   isValidPhoneNumber,
-  isPossiblePhoneNumber,
-  AsYouType,
   type CountryCode,
 } from 'libphonenumber-js'
 
@@ -49,33 +47,5 @@ export function isValidPhoneByRegion(phone: string, region: string): boolean {
     return isValidPhoneNumber(cleaned, code)
   } catch {
     return false
-  }
-}
-
-/**
- * 轻量可能性校验（不要求完整合法，适合输入过程中实时反馈，减少误报）。
- */
-export function isPossiblePhoneByRegion(phone: string, region: string): boolean {
-  const code = (region || 'CN').toUpperCase() as CountryCode
-  const cleaned = normalizePhoneNumber(phone)
-  if (!cleaned) return false
-  try {
-    return isPossiblePhoneNumber(cleaned, code)
-  } catch {
-    return false
-  }
-}
-
-/**
- * 按地区实时格式化（AsYouTypeFormatter），用于输入框展示。
- * 例如 "1380013" -> "138 0013"。出错时回退为归一化结果。
- */
-export function formatPhoneByRegion(phone: string, region: string): string {
-  const code = (region || 'CN').toUpperCase() as CountryCode
-  try {
-    const formatter = new AsYouType(code)
-    return formatter.input(normalizePhoneNumber(phone))
-  } catch {
-    return normalizePhoneNumber(phone)
   }
 }

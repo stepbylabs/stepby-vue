@@ -181,39 +181,6 @@ export const deptTreeSelect = cachedApi(DEPT_TREE_CACHE_KEY, (): Promise<AjaxRes
 )
 
 /**
- * 下载用户导入模板（POST 返回 xlsx 字节流）
- */
-export function importUserTemplate() {
-  return request({
-    url: '/system/user/importTemplate',
-    method: 'post',
-    responseType: 'blob'
-  })
-}
-
-/**
- * 批量导入用户（上传 xlsx，multipart 字段名 file）
- *
- * - updateSupport=1 时，登录名称已存在的用户走资料更新（不重置密码/角色）
- * - 后端逐行校验，失败行不中断整批，返回 { success, errorList: {rowNum, error}[] }
- */
-export function importUserData(file: File, updateSupport = false): Promise<AjaxResult<ImportUserResult>> {
-  const formData = new FormData()
-  formData.append('file', file)
-  return request({
-    url: '/system/user/importData',
-    method: 'post',
-    data: formData,
-    params: { updateSupport: updateSupport ? 1 : 0 }
-  })
-}
-
-export interface ImportUserResult {
-  success: number
-  errorList: { rowNum: number; error: string }[]
-}
-
-/**
  * 强制刷新部门树下拉缓存（下次调用 deptTreeSelect 时会重新请求后端）
  *
  * 用途：用户在部门管理页新增/修改/删除部门后，可通过此方法让其它页面立即拿到最新数据

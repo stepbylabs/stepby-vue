@@ -162,11 +162,6 @@ export function useGlobalHotkeys() {
   })
 }
 
-/** 校验快捷键格式（仅允许字母数字和下划线，防止注入） */
-export function validateHotkey(key: string): boolean {
-  return /^[a-z0-9_]+$/i.test(key)
-}
-
 /** 获取快捷键显示名称 */
 export function formatHotkey(keyName: string): string {
   if (!keyName) return ''

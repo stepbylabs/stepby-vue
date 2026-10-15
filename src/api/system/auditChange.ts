@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import { saveAs } from 'file-saver'
-import type { AjaxResult, TableDataInfo } from '@/types'
+import type { TableDataInfo } from '@/types'
 import type { AuditChangeQueryParams, SysAuditChange } from '@/types'
 
 // ==================== 变更留痕（审计合规域） ====================
@@ -11,14 +11,6 @@ export function listAuditChange(query: AuditChangeQueryParams): Promise<TableDat
     url: '/system/audit-change/list',
     method: 'get',
     params: query
-  })
-}
-
-// 查询变更留痕详情（含前后快照 JSON 与字段差异清单）
-export function getAuditChange(id: number | string): Promise<AjaxResult<SysAuditChange>> {
-  return request({
-    url: '/system/audit-change/' + id,
-    method: 'get'
   })
 }
 

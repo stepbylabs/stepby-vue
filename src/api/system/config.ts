@@ -1,5 +1,5 @@
 import request from '@/utils/request'
-import { cachedApi, invalidateApiCache, invalidateByPrefix } from '@/utils/apiCache'
+import { cachedApi, invalidateByPrefix } from '@/utils/apiCache'
 import type { ConfigQueryParams, SysConfig, AjaxResult, TableDataInfo } from '@/types'
 
 // 查询参数列表
@@ -29,15 +29,6 @@ export const getConfigKey = cachedApi(
       method: 'get'
     })
 )
-
-/**
- * 强制刷新指定 configKey 的缓存（下次调用 getConfigKey(configKey) 时会重新请求后端）
- *
- * 用途：参数配置页修改某项参数后，可通过此方法让其它页面立即拿到最新值
- */
-export function refreshConfigKey(configKey: string): void {
-  invalidateApiCache(`system:config:configKey:${configKey}`)
-}
 
 /**
  * 失效所有 getConfigKey 内存缓存（前缀匹配）

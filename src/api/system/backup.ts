@@ -15,14 +15,6 @@ export function listBackup(query: BackupLogQueryParams): Promise<TableDataInfo<S
   })
 }
 
-// 查询备份日志详情
-export function getBackup(backupId: number): Promise<AjaxResult<SysBackupLog>> {
-  return request({
-    url: '/system/backup/' + backupId,
-    method: 'get'
-  })
-}
-
 // 创建手动备份
 export function createBackup(): Promise<AjaxResult<BackupCreateVo>> {
   return request({
