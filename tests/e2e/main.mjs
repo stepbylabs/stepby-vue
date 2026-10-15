@@ -4895,6 +4895,16 @@ async function testFeature25(page) {
   }
   record(25, 'admin 登录获取 token', true, loginResult.detail)
 
+  // 批六十六：记录原头像指针——用例结束后恢复，避免把 e2e 上传件永久留在管理员账号上
+  //（无「清空头像」API，故用与 cleanupE2eResidue 同源的 node:sqlite 直连恢复）。
+  const origAvatarPath = await fetch(`${CONFIG.backendUrl}/system/user/profile`, {
+    headers: { Authorization: `Bearer ${adminToken}` }
+  })
+    .then((r) => r.json())
+    .then((b) => b?.data?.avatar || '')
+    .catch(() => '')
+  log(`  原头像指针：${origAvatarPath || '(空)'}`)
+
   // ---------- 辅助：构造 multipart/form-data ----------
   function buildMultipart(fieldName, filename, fileBytes, contentType = 'image/png') {
     const boundary = `----testboundary${Date.now()}${Math.random().toString(36).slice(2)}`
@@ -4911,16 +4921,38 @@ async function testFeature25(page) {
     return { body: out, contentType: `multipart/form-data; boundary=${boundary}` }
   }
 
-  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+  // 批六十六：改用**真实可解码**的 1×1 图。原实现是 64 字节 magic-only 桩图——虽能过
+  // 服务端 magic 校验，但会被落库为**头像指针** ⇒ 浏览器无法解码 ⇒ 每次加载 /user/profile
+  // 都产生 "Resource load failed: IMG .../user/profile"（实测 24h 内 31 条、累计 109 条），
+  // 且 UI 长期回落默认头像。base64 → Uint8Array（浏览器已实证 naturalWidth=1 可解码）。
+  const b64ToBytes = (b64) => Uint8Array.from(Buffer.from(b64, 'base64'))
+  const pngBytes = b64ToBytes(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  )
+  const jpegBytes = b64ToBytes(
+    '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=='
+  )
+  // 完整性判定：PNG 以 IEND 收尾、JPEG 以 FFD9 收尾（证明落库的是**完整**图而非截断桩图）
+  const isCompleteImage = (bytes) => {
+    if (bytes.length < 16) return false
+    const pngTail = [0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82] // IEND + CRC
+    const jpegTail = [0xff, 0xd9]
+    const endsWith = (tail) => tail.every((b, i) => bytes[bytes.length - tail.length + i] === b)
+    return endsWith(pngTail) || endsWith(jpegTail)
+  }
+  // PNG magic bytes（超大文件用例仍需构造带 PNG 头的 6MB 载荷）
   const PNG_MAGIC = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-  const pngBytes = new Uint8Array(64)
-  pngBytes.set(PNG_MAGIC, 0)
-  // 其余字节填充（IHDR header 等不重要，magic bytes 校验只看前几字节）
-
-  // JPEG magic bytes: FF D8 FF
-  const JPEG_MAGIC = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
-  const jpegBytes = new Uint8Array(64)
-  jpegBytes.set(JPEG_MAGIC, 0)
+  // 取回落库文件校验完整性（头像 URL 受鉴权保护 ⇒ 必须带 Authorization）
+  const fetchStoredBytes = async (imgUrl) => {
+    try {
+      const r = await fetch(`${CONFIG.backendUrl}${imgUrl}`, {
+        headers: { Authorization: `Bearer ${adminToken}` }
+      })
+      return r.ok ? new Uint8Array(await r.arrayBuffer()) : null
+    } catch {
+      return null
+    }
+  }
 
   // 伪造的 PNG（实际是文本内容，magic bytes 不匹配）
   const fakePngBytes = new TextEncoder().encode('this is a text file disguised as png')
@@ -4936,12 +4968,20 @@ async function testFeature25(page) {
       body
     })
     const data = await resp.json().catch(() => null)
-    pngUploadOk = resp.status === 200 && data?.code === 200 && typeof data.imgUrl === 'string' && data.imgUrl.length > 0
-    pngUploadDetail = `status=${resp.status}, code=${data?.code}, imgUrl=${data?.imgUrl?.slice(0, 60)}`
+    const pngBasicOk =
+      resp.status === 200 && data?.code === 200 && typeof data.imgUrl === 'string' && data.imgUrl.length > 0
+    // 批六十六：落库文件必须是**完整**图（PNG 以 IEND 收尾）——防 magic-only 桩图回归
+    let pngComplete = false
+    if (pngBasicOk) {
+      const bytes = await fetchStoredBytes(data.imgUrl)
+      pngComplete = !!bytes && isCompleteImage(bytes)
+    }
+    pngUploadOk = pngBasicOk && pngComplete
+    pngUploadDetail = `status=${resp.status}, code=${data?.code}, complete=${pngComplete}, imgUrl=${data?.imgUrl?.slice(0, 50)}`
   } catch (err) {
     pngUploadDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(25, '上传合法 PNG 头像', pngUploadOk, pngUploadDetail)
+  record(25, '上传合法 PNG 头像（含落库完整性）', pngUploadOk, pngUploadDetail)
 
   // ---------- 步骤 3：上传合法 JPEG ----------
   let jpegUploadOk = false
@@ -4954,12 +4994,19 @@ async function testFeature25(page) {
       body
     })
     const data = await resp.json().catch(() => null)
-    jpegUploadOk = resp.status === 200 && data?.code === 200 && typeof data.imgUrl === 'string'
-    jpegUploadDetail = `status=${resp.status}, code=${data?.code}`
+    const jpegBasicOk = resp.status === 200 && data?.code === 200 && typeof data.imgUrl === 'string'
+    // 批六十六：同上，JPEG 以 FFD9（EOI）收尾方为完整图
+    let jpegComplete = false
+    if (jpegBasicOk) {
+      const bytes = await fetchStoredBytes(data.imgUrl)
+      jpegComplete = !!bytes && isCompleteImage(bytes)
+    }
+    jpegUploadOk = jpegBasicOk && jpegComplete
+    jpegUploadDetail = `status=${resp.status}, code=${data?.code}, complete=${jpegComplete}`
   } catch (err) {
     jpegUploadDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(25, '上传合法 JPEG 头像', jpegUploadOk, jpegUploadDetail)
+  record(25, '上传合法 JPEG 头像（含落库完整性）', jpegUploadOk, jpegUploadDetail)
 
   // ---------- 步骤 4：上传伪造扩展名的文件（.png 但内容是文本）应被拒绝 ----------
   let magicBytesRejectOk = false
@@ -5035,11 +5082,25 @@ async function testFeature25(page) {
   }
   record(25, '无 token 鉴权 401', noTokenOk, 'POST /system/user/profile/avatar 应返回 401')
 
+  // ---------- 步骤 8：恢复原头像指针（数据卫生）----------
+  // 无「清空头像」API ⇒ 用与 cleanupE2eResidue 同源的 node:sqlite 直连恢复原值，
+  // 保证 e2e 不把上传件永久留在管理员账号上（否则 UI 长期显示测试头像）。
+  try {
+    const mod = await importSyncDatabase()
+    const db = new mod.DatabaseSync(e2eDbPath())
+    db.exec('PRAGMA busy_timeout = 5000')
+    const changed = db.prepare('UPDATE sys_user SET avatar = ? WHERE user_id = 1').run(origAvatarPath).changes
+    db.close()
+    log(`  头像指针已恢复（${origAvatarPath || '空'}），影响 ${changed} 行`)
+  } catch (e) {
+    log(`  头像恢复失败（不影响断言）: ${String(e).slice(0, 100)}`)
+  }
+
   // ---------- 步骤 8：综合判断 ----------
   const allChecks = [
     results.find((r) => r.feature === 25 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '上传合法 PNG 头像')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '上传合法 JPEG 头像')?.passed || false,
+    results.find((r) => r.feature === 25 && r.name === '上传合法 PNG 头像（含落库完整性）')?.passed || false,
+    results.find((r) => r.feature === 25 && r.name === '上传合法 JPEG 头像（含落库完整性）')?.passed || false,
     results.find((r) => r.feature === 25 && r.name === '伪造扩展名（magic bytes 不匹配）被拒绝')?.passed || false,
     results.find((r) => r.feature === 25 && r.name === '空文件被拒绝')?.passed || false,
     results.find((r) => r.feature === 25 && r.name === '超大文件（>5MB）被拒绝')?.passed || false,
@@ -17474,6 +17535,39 @@ function e2eDbPath() {
  * 物理删除本套件产生的软删（del_flag='2'）测试实体及其关联，与数据库修复脚本同规则。
  * 仅删"已软删"的行 —— 在册（del_flag='0'）数据不受影响。
  */
+/**
+ * 批六十六：本次运行起始时间（ISO）——用于清理**本次运行**产生的上传文件残留
+ * （本地存储后端会真实落盘：F25 头像 / F26 通用上传 / F29 文件页 等）。
+ */
+const RUN_START_ISO = new Date().toISOString()
+
+/**
+ * 清理本次运行产生的上传残留（mtime 窗口 = [RUN_START_ISO, now)）。
+ * 复用 `scripts/lib/cleanup-uploads.mjs`（与 CLI 同源：默认排除 audit-archive 等应用
+ * 自有产物）；**进程内直接调用**——不派生子进程（受限沙箱下 spawnSync node.exe 会 EBUSY）。
+ */
+async function cleanupRunUploads() {
+  if (process.env.E2E_SKIP_CLEANUP === '1') return
+  try {
+    const { planCleanup, applyCleanup, fmtMB } = await import(
+      '../../../scripts/lib/cleanup-uploads.mjs'
+    )
+    const dir = path.resolve(__dirname, '../../../stepby-axum/uploads')
+    if (!fs.existsSync(dir)) return
+    const plan = planCleanup(dir, { since: Date.parse(RUN_START_ISO) })
+    if (plan.files.length === 0) {
+      log(`🧹 上传残留清理：本次运行无新增上传文件（预跳过 ${plan.skipped} 个应用产物）`)
+      return
+    }
+    const r = applyCleanup(plan.files, { pruneDirs: true, root: dir })
+    log(
+      `🧹 上传残留清理：已删除 ${r.deleted} 个文件，释放 ${fmtMB(r.freedBytes)}（预跳过 ${plan.skipped} 个应用产物）`
+    )
+  } catch (e) {
+    log(`  上传残留清理跳过（不影响测试结果）: ${String(e).slice(0, 120)}`)
+  }
+}
+
 async function cleanupE2eResidue() {
   if (process.env.E2E_SKIP_CLEANUP === '1') return
   try {
@@ -17612,6 +17706,8 @@ async function cleanupE2eResidue() {
   } catch (e) {
     log(`  残留自清理失败（不影响测试结果）: ${String(e).slice(0, 120)}`)
   }
+  // 批六十六：清理本次运行产生的**上传文件**残留（本地存储后端真实落盘，历史累积 1.3 GB）
+  await cleanupRunUploads()
 }
 
 /** 延迟导入 node:sqlite（统一入口，便于 mock/替换） */

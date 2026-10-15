@@ -1934,3 +1934,69 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
     正确的；广播 RS256 会注册成功但**登录必失败**。修复：`map_passkey_error` 对
     `OriginMismatch` 补 WARN 日志（含期望/实到来源 + 处置指引）；F106① 断言由"接受
     ≥400 的弱断言"**强化为成功链**（registerFinish 200 + 列表新增）。
+
+## 3.7 测试产生的系统数据治理（批六十六，b66）
+
+**为什么单列一节**：e2e 会真实改变系统数据（落库行 + 落盘文件）。若不治理，数据会
+**无限累积**并与业务数据混放，最终让"系统数据是否合理/状态是否正常"无法判断。
+
+### B66-1 F25 头像：桩图污染管理员头像指针（真实缺陷）
+- **现象**：`Resource load failed: IMG http://localhost:8080/user/profile` 每页加载必报
+  （24h 31 条 / 累计 109 条，仅出现在 `/user/profile`）。
+- **根因**：F25 的"合法 PNG/JPEG"用 **64 字节 magic-only 桩图**（仅 magic bytes + 零填充）。
+  后端 magic 校验只看前几字节 ⇒ 通过；但**桩图不可解码**，被持久化为 `sys_user.avatar`，
+  此后每次加载 profile 页两个 `<img>` 报错并回落默认头像。
+- ****取证要点**：该请求 HTTP **200**（返回 HTML），故 `requestfailed` **不触发**，只有
+  `img.onerror` 会触发 ⇒ **必须用 `page.addEventListener('error', …, true)` 捕获资源
+  error 事件**（见 `_probe_img.mjs`）。
+- **修复**（`main.mjs` F25）：
+  1. 合法 PNG/JPEG 改用**真实可解码 1×1 图**（base64 → `Uint8Array`，浏览器实证 `naturalWidth=1`）；
+  2. 新增**"落库完整性"断言**：回读落盘文件，PNG 须以 IEND+CRC、JPEG 须以 FFD9(EOI) 收尾；
+  3. 记录**原头像指针**，用例结束**恢复**（无"清空头像" API，用 `node:sqlite` 直连恢复）。
+
+### B66-2 uploads 磁盘无限增长（真实缺陷）
+- **现象**：`stepby-axum/uploads` 累积 **1.3 GB / 1702 文件**（`uploads/0/file/` 下 ~754 个
+  11 MB 测试 zip）——e2e 上传永不回收，且与业务数据混放。
+- **⚠️ 陷阱**：`uploads/<tenant>/audit-archive/anchor_*.jsonl`（74 个）是**审计链归档锚
+  = 业务数据**，与上传件同根混放，**盲删会毁业务数据**。
+- **工具**：`scripts/cleanup-orphan-uploads.mjs`（核心逻辑 `scripts/lib/cleanup-uploads.mjs`，
+  CLI 与 e2e 共用、**不派生子进程**）。
+  - **默认排除 `audit-archive`**；`--exclude <子串>` 追加，`--exclude-none` 关闭（不推荐）
+  - **dry-run 默认**，`--apply` 才删除；`--since/--before/--older-than-hours` 时间窗
+  - `--limit N` 分批（受限沙箱按批）；`--prune-dirs` 清空目录
+- **e2e 自清理**：记录 `RUN_START_ISO`，套件结束（含异常路径）清理本次运行新增上传文件。
+- **存量清退**：b66 删除 1579 个测试上传件，释放 **1.24 GB**；74 个审计锚完好。
+
+### B66-3 生产代码 panic 硬化（真实缺陷）
+- `handler/sso_handler.rs`：`serde_json::to_value(result).unwrap()` → 失败走
+  `tracing::error!` + `AppError::internal` 500（保留 RFC 6749 §5.1 的 `Cache-Control: no-store`）。
+- `service/gen_table_service.rs::import_table`：`models.pop().unwrap()` → `ServiceError::internal`。
+- **回归锁**：`src/handler/no_panic_guard.rs`（2 项）——handler 生产码零 `.unwrap()` 总锁 +
+  `gen_table_service` 禁止 panic 回归锁。
+- 过程踩坑（均已修复）：`needless_question_mark`（`Ok(x?)`）、`module_inception`
+  （`no_panic_guard::no_panic_guard` → 内层改名 `no_panic_mod`）。
+
+### B66-4 纪律重申：全量期间零并行
+b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
+- 后端集成测试 **263 假失败**（Redis 连接超时，非代码缺陷）；
+- e2e F4 **假失败**（ECharts 0 个，CPU 饱和图表未渲染）。
+**单跑复核**：e2e F4 **4/4 PASS、6 个 ECharts 图表**（假失败确认为 CPU 争用）。
+
+### B66-5 后端集成测试 263 失败 = Redis 容器退出（环境定因，非代码缺陷）
+- 报错：`连接测试 Redis 失败（请确认本机 Redis 可达...）: Redis 连接超时`。
+- 根因：**docker 容器 `stepby-redis`（redis:7-alpine）退出**（`docker ps -a` 可见 `Exited`）。
+  `docker start stepby-redis` 后复跑即绿。
+- **⚠️ 陷阱**：`/health` 返回 `redis: UP` **不代表**字面 Redis 在跑——该字段反映
+  **SharedStore**（`local` 档 = 业务库连通性，`health.rs:37-38`）。
+  ⇒ **后端 health 全 UP 与"集成测试可跑"不是一回事**；集成测试依赖 docker 里的 Redis。
+- 排查顺序固化：**先 `docker ps -a | grep redis` / `netstat` 查 6379，再怀疑代码**。
+
+---
+
+## 3.8 前端 dist 构建模式辨析（b66 取证，排除嫌疑）
+- `.env.production` = `VITE_APP_BASE_API='/prod-api'`；`.env.embedded` = `''`。
+- 后端 `Router::nest` 同时挂 **`/prod-api`、`/dev-api`、`/stage-api`** 三前缀
+  （`middleware/mod.rs:31` `API_PATH_PREFIXES`），三者行为等价。
+- ⇒ `build:prod` 的 dist 交给后端同源托管**同样可用**（实测 `/prod-api/uploads/...` 200 image/jpeg）。
+- ⇒ B66-1 的 IMG 错误与构建模式**无关**（已排除）。`scripts/build-all.ps1` 用 `build:embedded`
+  属另一种部署形态（反向代理去掉前缀），两者皆合法，**不是缺陷**。
