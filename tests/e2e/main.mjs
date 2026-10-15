@@ -7613,40 +7613,62 @@ async function testFeature36(page) {
 
   // ---------- 10. i18n 翻译完整性验证 ----------
   try {
-    // 访问三个页面，验证关键文案渲染
+    // b69：waitFor 取代固定 sleep——高负载窗口（SQLite 池争用）下 800ms 不足以等
+    // 懒加载渲染（b69 轮 1 实证 F36 假失败），统一 waitBodyText（8s 上限）。
+    const waitBodyText = async (url, probeRe, readFn) => {
+      await page.goto(`${CONFIG.frontendUrl}${url}`, { waitUntil: 'load' }).catch(() => {})
+      const probeSrc = page.waitForFunction(
+        (src) => {
+          const re = new RegExp(src)
+          return re.test(document.body?.innerText || '')
+        },
+        probeRe.source,
+        { timeout: 8000 }
+      )
+      return await probeSrc
+        .then(() => page.evaluate(readFn))
+        .catch(() => page.evaluate(readFn).then((v) => ({ ...v, _probeTimeout: true })))
+    }
+
     // 工作台实际注册路径为 /workbench/index（旧猜测 /dashboard/workbench 命中 404）
-    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'load' }).catch(() => {})
-    await sleep(800)
-    const workbenchText = await page.evaluate(() => {
-      const body = document.body?.innerText || ''
-      return {
-        hasGreeting:
-          /深夜好|早上好|上午好|中午好|下午好|晚上好|Good (Night|Morning|Forenoon|Noon|Afternoon|Evening)|Hello/i.test(
-            body
-          ),
-        hasShortcut: body.includes('快捷入口') || body.includes('Quick Entry') || body.includes('Shortcuts')
+    const workbenchText = await waitBodyText(
+      '/workbench/index',
+      /深夜好|早上好|上午好|中午好|下午好|晚上好|Good (Night|Morning|Forenoon|Noon|Afternoon|Evening)|Hello/i,
+      () => {
+        const body = document.body?.innerText || ''
+        return {
+          hasGreeting:
+            /深夜好|早上好|上午好|中午好|下午好|晚上好|Good (Night|Morning|Forenoon|Noon|Afternoon|Evening)|Hello/i.test(
+              body
+            ),
+          hasShortcut: body.includes('快捷入口') || body.includes('Quick Entry') || body.includes('Shortcuts')
+        }
       }
-    })
+    )
 
-    await page.goto(`${CONFIG.frontendUrl}/tool/shortcuts`, { waitUntil: 'load' }).catch(() => {})
-    await sleep(800)
-    const shortcutsText = await page.evaluate(() => {
-      const body = document.body?.innerText || ''
-      return {
-        hasTitle: body.includes('快捷键中心') || body.includes('Shortcuts Center'),
-        hasGroup: body.includes('全局操作') || body.includes('Global')
+    const shortcutsText = await waitBodyText(
+      '/tool/shortcuts',
+      /快捷键中心|Shortcuts Center/,
+      () => {
+        const body = document.body?.innerText || ''
+        return {
+          hasTitle: body.includes('快捷键中心') || body.includes('Shortcuts Center'),
+          hasGroup: body.includes('全局操作') || body.includes('Global')
+        }
       }
-    })
+    )
 
-    await page.goto(`${CONFIG.frontendUrl}/tool/help`, { waitUntil: 'load' }).catch(() => {})
-    await sleep(800)
-    const helpText = await page.evaluate(() => {
-      const body = document.body?.innerText || ''
-      return {
-        hasTitle: body.includes('帮助中心') || body.includes('Help Center'),
-        hasSection: body.includes('快速上手') || body.includes('Quick Start')
+    const helpText = await waitBodyText(
+      '/tool/help',
+      /帮助中心|Help Center/,
+      () => {
+        const body = document.body?.innerText || ''
+        return {
+          hasTitle: body.includes('帮助中心') || body.includes('Help Center'),
+          hasSection: body.includes('快速上手') || body.includes('Quick Start')
+        }
       }
-    })
+    )
 
     const allI18nOk =
       workbenchText.hasGreeting &&
@@ -18276,6 +18298,61 @@ async function main() {
       }
     }
 
+    // b69 信息捕获闭环②：capture-hub 终局汇聚——此前 hub 的 Toast/pageerror/被吞异常
+    // 只在用例失败时被 flush 消费，全绿运行的整轮异常样本完全不可见（捕获了却没人看）。
+    // 现在无论成败都在终局汇总三通道，pageerror 计入退出码（未捕获异常 = 真缺陷）。
+    const hubPageErrors = captureHub.consoleErrs.filter((e) => String(e).startsWith('[pageerror]'))
+    const hubOtherConsoleErrs = captureHub.consoleErrs.filter((e) => !String(e).startsWith('[pageerror]'))
+    // hub 镜像噪声分类（与主通道 EXT_NOISE_RE 同口径 + Playwright 阻断 SW）：
+    // 环境噪声只计数，「未分类」条目才是双源交叉要盯的真信号（进报告供轮间对账）。
+    const HUB_NOISE_RE = new RegExp(
+      `${EXT_NOISE_RE.source}|Service Worker registration blocked by Playwright`,
+      'i'
+    )
+    const hubNoiseErrs = hubOtherConsoleErrs.filter((e) => HUB_NOISE_RE.test(String(e)))
+    const hubUnclassifiedErrs = hubOtherConsoleErrs.filter((e) => !HUB_NOISE_RE.test(String(e)))
+    // 可疑 Toast：命中失败/错误/异常/超时/无权限语义（负路径用例的预期反馈也会入列——
+    // 供人工分析信噪比，不参与判红；预期负路径反馈应能在用例内找到对应 record 条目）
+    const suspiciousToastRe = /失败|错误|异常|超时|无权限|被拒|invalid|failed|error|exception|denied/i
+    const suspiciousToasts = captureHub.toasts.filter((t) => suspiciousToastRe.test(t))
+    if (hubPageErrors.length > 0) {
+      log('------------------------------------------')
+      log(`💥 未捕获页面异常（pageerror，共 ${hubPageErrors.length} 条）:`)
+      const aggErr = new Map()
+      for (const e of hubPageErrors) {
+        const k = String(e).replace(/\d+/g, 'N').slice(0, 120)
+        aggErr.set(k, (aggErr.get(k) || 0) + 1)
+      }
+      for (const [k, n] of [...aggErr].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+        log(`  ×${n} ${k}`)
+      }
+    }
+    if (suspiciousToasts.length > 0) {
+      log('------------------------------------------')
+      log(`💬 可疑反馈 Toast（命中失败/错误/异常语义，共 ${suspiciousToasts.length} 条，聚合 ${new Set(suspiciousToasts).size} 型）:`)
+      const aggToast = new Map()
+      for (const t of suspiciousToasts) aggToast.set(t, (aggToast.get(t) || 0) + 1)
+      for (const [t, n] of [...aggToast].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+        log(`  ×${n} ${String(t).slice(0, 150)}`)
+      }
+    }
+    if (hubOtherConsoleErrs.length > 0) {
+      // b69 轮 3 信噪比治理：hub 镜像是原始流（不含主通道的 EXT_NOISE 过滤），若把扩展
+      // CSP / Playwright 阻断 SW 等已知环境噪声与真实错误混排，40 条里挑 1 条真错误靠眼力。
+      // 与主通道同口径分类：仅「未分类」条目逐条打印（这才是双源交叉的真正价值）。
+      log('------------------------------------------')
+      log(
+        `🖥 capture-hub 镜像 console error（共 ${hubOtherConsoleErrs.length} 条 = 已知环境噪声 ${hubNoiseErrs.length} + 未分类 ${hubUnclassifiedErrs.length}）:`
+      )
+      if (hubUnclassifiedErrs.length > 0) {
+        for (const e of hubUnclassifiedErrs.slice(-10)) {
+          log(`  ⚠️ ${String(e).slice(0, 200)}`)
+        }
+      } else {
+        log('  （未分类 0 条：镜像与主通道一致，其余均为已知环境噪声）')
+      }
+    }
+
     // 后端日志异常摘要（信息捕获闭环：前端绿 ≠ 后端无异常）
     summarizeBackendLogErrors()
 
@@ -18290,6 +18367,14 @@ async function main() {
       failed,
       consoleErrors,
       networkErrors,
+      pageErrors: hubPageErrors,
+      suspiciousToasts,
+      toastTotal: captureHub.toasts.length,
+      hubConsoleErrors: {
+        total: hubOtherConsoleErrs.length,
+        noise: hubNoiseErrs.length,
+        unclassified: hubUnclassifiedErrs.length
+      },
       results
     }
     const reportFile = path.join(CONFIG.screenshotDir, 'test-report.json')
@@ -18298,7 +18383,7 @@ async function main() {
 
     await browser.close()
     await cleanupE2eResidue()
-    process.exit(failed === 0 ? 0 : 1)
+    process.exit(failed === 0 && hubPageErrors.length === 0 ? 0 : 1)
   } catch (err) {
     log(`💥 测试脚本异常: ${err.message}`)
     console.error(err)
