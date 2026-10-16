@@ -354,7 +354,13 @@
                       @input="setOptionValue(element, $event)" :aria-label="t('build.rightPanel.ph.optionValue')" />
                     <div
                       class="close-btn select-line-icon leading-8 text-[22px] px-1 text-text-secondary"
+                      role="button"
+                      tabindex="0"
+                      :aria-label="t('common.delete')"
+                      :title="t('common.delete')"
                       @click="activeData.options.splice(index, 1)"
+                      @keydown.enter.prevent="activeData.options.splice(index, 1)"
+                      @keydown.space.prevent="activeData.options.splice(index, 1)"
                     >
                       <el-icon>
                         <Remove />
@@ -559,7 +565,16 @@
                 :key="item.pattern"
                 class="reg-item py-3 px-1.5 relative rounded"
               >
-                <span class="close-btn" @click="activeData.regList.splice(index, 1)">
+                <span
+                  class="close-btn"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="t('common.delete')"
+                  :title="t('common.delete')"
+                  @click="activeData.regList.splice(index, 1)"
+                  @keydown.enter.prevent="activeData.regList.splice(index, 1)"
+                  @keydown.space.prevent="activeData.regList.splice(index, 1)"
+                >
                   <el-icon>
                     <Close />
                   </el-icon>

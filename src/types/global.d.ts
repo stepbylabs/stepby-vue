@@ -144,14 +144,6 @@ declare module 'vue-cropper' {
   export { VueCropper }
 }
 
-// splitpanes
-declare module 'splitpanes' {
-  import { DefineComponent } from 'vue'
-
-  export const Splitpanes: DefineComponent
-  export const Pane: DefineComponent
-}
-
 // View Transitions API（浏览器实验性 API，TS DOM lib 默认未定义）
 interface ViewTransition {
   finished: Promise<void>

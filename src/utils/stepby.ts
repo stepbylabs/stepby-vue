@@ -178,30 +178,6 @@ export function parseStrEmpty(str: unknown): string {
   return String(str)
 }
 
-// 数据合并
-export function mergeRecursive<T extends Record<string, unknown>>(
-  source: T,
-  target: Partial<T> | Record<string, unknown>
-): T {
-  for (const p in target) {
-    try {
-      const targetVal = (target as Record<string, unknown>)[p]
-      if (targetVal && typeof targetVal === 'object' && targetVal.constructor === Object) {
-        const srcVal = (source as Record<string, unknown>)[p]
-        ;(source as Record<string, unknown>)[p] = mergeRecursive(
-          (srcVal && typeof srcVal === 'object' ? srcVal : {}) as Record<string, unknown>,
-          targetVal as Record<string, unknown>
-        )
-      } else {
-        ;(source as Record<string, unknown>)[p] = targetVal
-      }
-    } catch {
-      ;(source as Record<string, unknown>)[p] = (target as Record<string, unknown>)[p]
-    }
-  }
-  return source
-}
-
 /**
  * 构造树型结构数据
  * @param data 数据源

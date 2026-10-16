@@ -1542,6 +1542,16 @@ export default {
     placeholder: {
       areaCode: 'Area code'
     },
+    // Phone country/region dropdown (labelKey targets in utils/phone.ts REGION_OPTIONS)
+    region: {
+      cn: 'China (+86)',
+      hk: 'Hong Kong, China (+852)',
+      us: 'US / Canada (+1)',
+      mo: 'Macao, China (+853)',
+      tw: 'Taiwan, China (+886)',
+      gb: 'United Kingdom (+44)',
+      jp: 'Japan (+81)'
+    },
     sex: {
       male: 'Male',
       female: 'Female'
@@ -1753,15 +1763,47 @@ export default {
     nodeName: 'Node name',
     assignees: 'Approvers',
     assigneeDeptLeader: 'Dept leader',
+    assigneeRoleAdmin: 'Administrator role (role:admin)',
+    multiMode: 'Multi-approval mode',
     threshold: 'Threshold',
     actions: 'Actions',
     edgeFrom: 'From',
     edgeTo: 'To',
     hasCondition: 'Condition',
     condField: 'Field',
+    condOp: 'Operator',
     condValue: 'Value',
     graphInvalid: 'Graph validation failed — fix items in the error list',
-    codeNameRequired: 'Code and name are required'
+    codeNameRequired: 'Code and name are required',
+    // Flow graph validation messages: flowGraph.ts is a pure module (no i18n context),
+    // it emits key + params only and the render site translates with t()
+    validate: {
+      nodesEmpty: 'nodes must not be empty',
+      nodesOverLimit: 'Node count exceeds the limit (≤{max})',
+      edgesOverLimit: 'Edge count exceeds the limit (≤{max})',
+      nodeIdInvalid: 'Invalid node id (1-{max} chars): {id}',
+      nodeIdDuplicated: 'Duplicate node id: {id}',
+      nodeTypeNotAllowed: 'Node type not in whitelist: {type}',
+      approveNodeMissingAssignees: 'Approval node {id} is missing assignees',
+      assigneeInvalid: 'Invalid assignee format on node {id}: {assignee} (only dept_leader / role:<key>)',
+      multiModeInvalid: 'Invalid multi-approval mode on node {id}: {mode}',
+      thresholdNotPositiveInt: 'threshold on node {id} must be a positive integer',
+      thresholdOutOfRange: 'threshold out of range on node {id}: {threshold}',
+      weightedMissingThreshold: 'Weighted node {id} is missing threshold',
+      actionNotAllowed: 'Action not in whitelist on node {id}: {action}',
+      startCountMustBeOne: 'Exactly one start node is required, found {count}',
+      endCountMustBeOne: 'Exactly one end node is required, found {count}',
+      edgeFromMissing: 'Edge source does not exist: {from}',
+      edgeToMissing: 'Edge target does not exist: {to}',
+      selfLoop: 'Self loop: {id}',
+      duplicateEdge: 'Duplicate edge: {from} → {to}',
+      conditionFieldInvalid: 'Edge {from} → {to}: invalid condition field name: {field}',
+      conditionOpNotAllowed: 'Edge {from} → {to}: comparison operator not in whitelist: {op}',
+      conditionValueInvalid: 'Edge {from} → {to}: condition value must be a string or a number',
+      endUnreachable: 'end is unreachable from start (the flow has no exit)',
+      approveNodeUnreachable: 'Approval node {id} is unreachable (orphan node)',
+      cycleDetected: 'Cycle detected: {from} → {to}'
+    }
   },
   flow: {
     pendingAlert: 'You have {count} approval task(s) to handle',

@@ -329,6 +329,11 @@ export default {
   },
   gen: {
     title: '代码生成',
+    fileGroupJava: '后端 Java',
+    fileGroupVue: '前端 Vue',
+    fileGroupSql: 'SQL',
+    fileGroupXml: 'XML',
+    fileGroupOther: '其他',
     btn: {
       generate: '生成',
       import: '导入',
@@ -779,7 +784,8 @@ export default {
   treePanel: {
     collapseAll: '收起全部',
     expandAll: '展开全部',
-    refresh: '刷新',
+    // 可访问名必须自解释：页面右侧工具栏也有「刷新」，两个同名按钮对读屏用户不可区分
+    refresh: '刷新树列表',
     expand: '展开',
     collapse: '收起',
     title: '树形结构',
@@ -798,6 +804,9 @@ export default {
   taskProgress: {
     title: '后台任务',
     clearCompleted: '清空已完成',
+    collapse: '收起任务列表',
+    expand: '展开任务列表',
+    dismissTask: '移除该任务',
     statusWaiting: '等待中',
     statusRunning: '进行中',
     statusCompleted: '已完成',

@@ -8,7 +8,7 @@
       <template v-if="valid">
         <div class="app-head flex flex-col items-center">
           <!-- v4-R6：logo 加载失败/跨源不可达时回落到首字母头像，绝不显示空白或占位图 -->
-          <el-avatar v-if="logoUri" :size="60" :src="logoUri">{{ initial }}</el-avatar>
+          <el-avatar v-if="logoUri" :size="60" :src="logoUri" :alt="clientName">{{ initial }}</el-avatar>
           <el-avatar v-else :size="60">{{ initial }}</el-avatar>
           <h3 class="title mt15">{{ t('sso.consent.title', { client: clientName }) }}</h3>
         </div>

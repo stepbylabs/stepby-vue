@@ -15,15 +15,22 @@ import {
 /** 支持的国家/地区代码（ISO 3166-1 alpha-2），与后端 validate_phone_by_region 对齐 */
 export type RegionCode = 'CN' | 'HK' | 'US' | 'MO' | 'TW' | 'GB' | 'JP'
 
-/** 国家/地区下拉选项（label 含国际区号，便于用户选择） */
-export const REGION_OPTIONS: { label: string; value: RegionCode }[] = [
-  { label: '中国 (+86)', value: 'CN' },
-  { label: '中国香港 (+852)', value: 'HK' },
-  { label: '美国/加拿大 (+1)', value: 'US' },
-  { label: '中国澳门 (+853)', value: 'MO' },
-  { label: '中国台湾 (+886)', value: 'TW' },
-  { label: '英国 (+44)', value: 'GB' },
-  { label: '日本 (+81)', value: 'JP' },
+/**
+ * 国家/地区下拉选项。
+ *
+ * `labelKey` 是稳定的 i18n 键（文案唯一事实源在 locales 的 `profile.region.*`），
+ * 由消费方用 `t(opt.labelKey)` 解析：本模块是无 i18n 上下文的纯工具，
+ * 且硬编码中文会直接把中文国家名漏给 en-US 用户（个人中心是 PII 表单）。
+ * `value` 即 ISO 3166-1 alpha-2 地区码，与后端 countryCode 语义不变。
+ */
+export const REGION_OPTIONS: { value: RegionCode; labelKey: string }[] = [
+  { value: 'CN', labelKey: 'profile.region.cn' },
+  { value: 'HK', labelKey: 'profile.region.hk' },
+  { value: 'US', labelKey: 'profile.region.us' },
+  { value: 'MO', labelKey: 'profile.region.mo' },
+  { value: 'TW', labelKey: 'profile.region.tw' },
+  { value: 'GB', labelKey: 'profile.region.gb' },
+  { value: 'JP', labelKey: 'profile.region.jp' },
 ]
 
 /**

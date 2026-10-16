@@ -114,9 +114,9 @@
         <el-button v-hasPermi="['flow:definition:add', 'flow:definition:edit']" type="success" :loading="saving" @click="handleSave">{{ t('common.save') }}</el-button>
       </div>
 
-      <!-- 校验错误清单（保存前前端先拦，与后端白名单校验器双份对齐） -->
+      <!-- 校验错误清单（保存前前端先拦，与后端白名单校验器双份对齐；文案在 i18n flowDef.validate.*） -->
       <el-alert v-if="validationErrors.length > 0" type="error" :closable="false" class="mb-3">
-        <p v-for="e in validationErrors" :key="e">{{ e }}</p>
+        <p v-for="(e, i) in validationErrors" :key="`${e.key}-${i}`">{{ t(e.key, e.params ?? {}) }}</p>
       </el-alert>
 
       <!-- 节点表单列表 -->
@@ -131,9 +131,9 @@
           <template v-if="n.type === 'approve'">
             <el-select v-model="n.assignees" multiple filterable allow-create class="w-64" size="small" :placeholder="t('flowDef.assignees')" :aria-label="t('flowDef.assignees')">
               <el-option value="dept_leader" :label="t('flowDef.assigneeDeptLeader')" />
-              <el-option value="role:admin" label="role:admin" />
+              <el-option value="role:admin" :label="t('flowDef.assigneeRoleAdmin')" />
             </el-select>
-            <el-select v-model="n.multi" class="w-32" size="small">
+            <el-select v-model="n.multi" class="w-32" size="small" :aria-label="t('flowDef.multiMode')">
               <el-option v-for="m in MULTI_MODES" :key="m" :value="m" :label="m" />
             </el-select>
             <el-input-number
@@ -173,7 +173,7 @@
           <el-checkbox v-model="e.hasCondition" size="small">{{ t('flowDef.hasCondition') }}</el-checkbox>
           <template v-if="e.hasCondition">
             <el-input v-model="e.condField" size="small" class="w-36" :placeholder="t('flowDef.condField')" :aria-label="t('flowDef.condField')" />
-            <el-select v-model="e.condOp" size="small" class="w-20">
+            <el-select v-model="e.condOp" size="small" class="w-20" :aria-label="t('flowDef.condOp')">
               <el-option v-for="op in CONDITION_OPS" :key="op" :value="op" :label="op" />
             </el-select>
             <el-input v-model="e.condValue" size="small" class="w-28" :placeholder="t('flowDef.condValue')" :aria-label="t('flowDef.condValue')" />
@@ -244,7 +244,7 @@ import {
   type FlowGraphNode,
   type FlowNodeType
 } from '@/api/flow'
-import { diffGraphs, parseGraphJson, validateGraph, type GraphDiff } from '../definition/flowGraph'
+import { diffGraphs, parseGraphJson, validateGraph, type GraphDiff, type GraphValidationMessage } from '../definition/flowGraph'
 
 const { t } = useI18n()
 
@@ -264,7 +264,7 @@ const form = ref<FlowDefUpsertFormLike>({ flowCode: '', flowName: '', graphJson:
 const formNodes = ref<FlowGraphNode[]>([])
 const formEdges = ref<EdgeFormRow[]>([])
 const saving = ref(false)
-const validationErrors = ref<string[]>([])
+const validationErrors = ref<GraphValidationMessage[]>([])
 
 const addEdgeOpen = ref(false)
 const newEdgeFrom = ref('')

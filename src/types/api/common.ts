@@ -30,8 +30,6 @@ export interface PageDomain {
   orderByColumn?: string
   /** 排序的方向desc或者asc */
   isAsc?: string
-  /** 分页参数合理化 */
-  reasonable?: boolean
 }
 
 /** Entity基类 */

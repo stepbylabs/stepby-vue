@@ -4,8 +4,13 @@
     <el-card class="welcome-card mb-4" shadow="hover">
       <div class="welcome-content flex justify-between items-center flex-wrap gap-4">
         <div class="welcome-left flex items-center gap-4">
-          <el-avatar :size="64" :src="userStore.avatar || defaultAvatar" @error="onAvatarError">
-            <img :src="defaultAvatar" loading="lazy" alt="default avatar" />
+          <el-avatar
+            :size="64"
+            :src="userStore.avatar || defaultAvatar"
+            :alt="avatarAlt"
+            @error="onAvatarError"
+          >
+            <img :src="defaultAvatar" loading="lazy" :alt="avatarAlt" />
           </el-avatar>
           <div class="welcome-text">
             <h2 class="welcome-title m-0 mb-2 text-[22px] font-semibold text-text-primary">
@@ -340,6 +345,11 @@ const roleText = computed(() => {
   if (roles.length === 0) return t('workbench.noRole')
   return roles.join('、')
 })
+
+// 头像可访问名称（a11y：el-avatar 的 img 无 alt 会被 axe image-alt 判失败）
+const avatarAlt = computed(() =>
+  t('layout.navbar.avatarAlt', { name: userStore.nickName || userStore.name })
+)
 
 // 快捷入口（基于权限过滤）
 const shortcuts = computed(() => {

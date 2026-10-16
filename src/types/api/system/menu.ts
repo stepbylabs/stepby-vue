@@ -8,7 +8,13 @@ export interface MenuQueryParams {
   status?: string
 }
 
-/** 菜单信息 */
+/**
+ * 菜单信息
+ *
+ * 契约单一事实源：`src/types/api/generated/SysMenu.ts`（ts-rs 从后端生成），
+ * 字段名与可空性以该文件为准；本接口同时充当新增/修改的请求体（故保留 BaseEntity 的可选项）。
+ * 路由树另有独立契约，见 `src/types/api/menu.ts` 的 RouterVo（getRouters 返回，带 children/meta）。
+ */
 export interface SysMenu extends BaseEntity {
   /** 菜单编号 */
   menuId?: number
@@ -42,7 +48,12 @@ export interface SysMenu extends BaseEntity {
   status?: '0' | '1'
   /** i18n 翻译 key（可选）：前端按此 key 翻译菜单标题，留空则回退到 menuName */
   i18nKey?: string
-  /** 子菜单 */
+  /** 删除标志（'2' = 已删除；软删行不出现在列表，仅契约对齐） */
+  delFlag?: string
+  /**
+   * 子菜单列表：后端 sys_menu 的非入库列（sea_orm ignore），列表接口返回 null，
+   * 树形结构由前端 handleTree 装配（getRouters 的路由树另见 RouterVo.children）
+   */
   children?: SysMenu[]
 }
 

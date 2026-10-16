@@ -3,7 +3,8 @@
     <TransitionGroup name="breadcrumb">
       <el-breadcrumb-item v-for="(item, index) in levelList" :key="item.path">
         <span v-if="index === levelList.length - 1" class="no-redirect">{{ translateTitle(item.meta) }}</span>
-        <a v-else @click.prevent="handleLink(item)">{{ translateTitle(item.meta) }}</a>
+        <!-- href 让 <a> 可键盘聚焦（无 href 的 a 永不进焦点序）；prevent 拦掉 # 跳转，实际导航由 handleLink 决定 -->
+        <a v-else href="#" @click.prevent="handleLink(item)">{{ translateTitle(item.meta) }}</a>
       </el-breadcrumb-item>
     </TransitionGroup>
   </el-breadcrumb>

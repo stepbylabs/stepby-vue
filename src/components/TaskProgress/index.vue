@@ -10,7 +10,12 @@
           {{ t('taskProgress.title') }}
         </span>
         <span class="count">{{ visibleTasks.length }}</span>
-        <el-button link size="small" @click="toggleCollapse">
+        <el-button
+          link
+          size="small"
+          :aria-label="collapsed ? t('taskProgress.expand') : t('taskProgress.collapse')"
+          @click="toggleCollapse"
+        >
           <el-icon>
             <ArrowUp v-if="!collapsed" />
             <ArrowDown v-else />
@@ -31,6 +36,7 @@
               v-if="task.status === 'success' || task.status === 'failed'"
               link
               size="small"
+              :aria-label="t('taskProgress.dismissTask')"
               @click="dismiss(task.taskId)"
             >
               <el-icon><Close /></el-icon>

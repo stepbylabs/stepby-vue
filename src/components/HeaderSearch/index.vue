@@ -94,6 +94,8 @@
 import Fuse from 'fuse.js'
 import type { InputInstance } from 'element-plus'
 import { getNormalPath } from '@/utils/stepby'
+// HTML 转义统一走 @/utils 的规范实现（避免多处私有 escapeHtml 各自漂移导致注入回归）
+import { escapeHtml } from '@/utils'
 import { isHttp } from '@/utils/validate'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
@@ -347,16 +349,6 @@ function highlightText(text: string): string {
   const keyword = escapeRegExp(escapeHtml(search.value))
   const reg = new RegExp(`(${keyword})`, 'gi')
   return safeText.replace(reg, '<span class="highlight">$1</span>')
-}
-
-function escapeHtml(str: string): string {
-  if (!str) return ''
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 function escapeRegExp(str: string): string {

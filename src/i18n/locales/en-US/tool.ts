@@ -328,6 +328,11 @@ export default {
   },
   gen: {
     title: 'Code Generator',
+    fileGroupJava: 'Backend Java',
+    fileGroupVue: 'Frontend Vue',
+    fileGroupSql: 'SQL',
+    fileGroupXml: 'XML',
+    fileGroupOther: 'Other',
     btn: {
       generate: 'Generate',
       import: 'Import',
@@ -831,7 +836,8 @@ export default {
   treePanel: {
     collapseAll: 'Collapse All',
     expandAll: 'Expand All',
-    refresh: 'Refresh',
+    // b71：工具栏另有同名 Refresh，可访问名需自解释（Refresh tree）
+    refresh: 'Refresh Tree',
     expand: 'Expand',
     collapse: 'Collapse',
     title: 'Tree Structure',
@@ -850,6 +856,9 @@ export default {
   taskProgress: {
     title: 'Background Tasks',
     clearCompleted: 'Clear Completed',
+    collapse: 'Collapse task list',
+    expand: 'Expand task list',
+    dismissTask: 'Dismiss task',
     statusWaiting: 'Waiting',
     statusRunning: 'Running',
     statusCompleted: 'Completed',

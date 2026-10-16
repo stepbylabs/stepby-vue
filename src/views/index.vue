@@ -127,7 +127,8 @@
               :title="`${entry.version} - ${entry.date}`"
             >
               <ol>
-                <li v-for="item in entry.items" :key="item">{{ item }}</li>
+                <!-- items 是 i18n key（文案在 locales changelog.item.*），按序翻译渲染 -->
+                <li v-for="item in entry.items" :key="item">{{ t(item) }}</li>
               </ol>
             </el-collapse-item>
           </el-collapse>

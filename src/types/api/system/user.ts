@@ -32,7 +32,13 @@ export interface AuthUserQueryParams extends UserQueryParams {
   roleId?: number
 }
 
-/** 用户信息 */
+/**
+ * 用户信息
+ *
+ * 契约单一事实源：`src/types/api/generated/UserVo.ts`（列表/详情响应，含 roleIds/dept/deptIds）
+ * 与 `generated/SysUser.ts`（sys_user 模型列），字段名与可空性以生成文件为准；
+ * 本接口同时充当新增/修改的请求体（故保留 BaseEntity 的可选项）。
+ */
 export interface SysUser extends BaseEntity {
   /** 用户ID */
   userId?: number
@@ -72,6 +78,16 @@ export interface SysUser extends BaseEntity {
   deptIds?: number[]
   /** v5-E4：是否已绑定第三方登录身份（sys_oauth_user 存在绑定；仅列表接口返回） */
   oauthBound?: boolean
+  /** 最后登录 IP（b71 契约补齐：后端 UserVo 实发、列表页已直接消费） */
+  loginIp?: string
+  /** 最后登录时间（b71 契约补齐：后端 serde camelCase 实发） */
+  loginDate?: string
+  /** 强制首登改密标志（B4）：'1' = 初始密码未修改，个人中心改密成功即清除 */
+  mustChangePwd?: string
+  /** 删除标志（'2' = 已删除；软删行不出现在列表，仅契约对齐） */
+  delFlag?: string
+  /** v5-D12：SCIM externalId（IdP 侧用户唯一标识；NULL = 非 SCIM provision）。后端列名 scim_external_id，serde camelCase 后为 scimExternalId */
+  scimExternalId?: string | null
 }
 
 /** 注册信息 */

@@ -197,6 +197,8 @@
                   {{ t('job.form.invokeTargetLabel') }}
                   <el-tooltip placement="top">
                     <template #content>
+                      <!-- 安全护栏（b71）：当前值来自本地打包语言包（zh-CN/monitor.ts invokeTargetTip，含 <br />），
+                           非用户输入、XSS 风险可控；若未来 i18n 改为服务端下发，必须先过 sanitizeHtml 再绑定 v-html -->
                       <div v-html="t('job.form.invokeTargetTip')"></div>
                     </template>
                     <el-icon><question-filled /></el-icon>

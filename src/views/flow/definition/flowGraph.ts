@@ -16,81 +16,97 @@ const ACTIONS_WHITELIST = ['delegate', 'countersign_add', 'countersign_del']
 const CONDITION_OPS = ['=', '!=', '>', '>=', '<', '<=']
 const MULTI_MODES = ['single', 'countersign', 'or_sign', 'weighted']
 
+/**
+ * 校验失败消息（i18n key + 插值参数）
+ *
+ * 本模块是**无 Vue 上下文的纯函数**，不能直接调 `t()`：只产出稳定的 `flowDef.validate.*`
+ * 键名，渲染端（`views/flow/designer/index.vue` 的错误清单）用 `t(msg.key, msg.params)` 翻译，
+ * 中文文案的唯一事实源在 `src/i18n/locales/{zh-CN,en-US}/system.ts` 的 `flowDef.validate`。
+ */
+export interface GraphValidationMessage {
+  /** i18n 消息键（flowDef.validate.*） */
+  key: string
+  /** 插值参数（节点 id、上界值等；键名与消息里的 {x} 对应） */
+  params?: Record<string, string | number>
+}
+
 /** 校验失败错误（含所有问题清单，便于表单一次性呈现） */
 export interface GraphValidationResult {
   ok: boolean
-  errors: string[]
+  errors: GraphValidationMessage[]
 }
 
 function isIdChar(c: string): boolean {
   return /[A-Za-z0-9_-]/.test(c)
 }
 
-function validateAssignee(a: string, nodeId: string, errors: string[]): void {
+function validateAssignee(a: string, nodeId: string, errors: GraphValidationMessage[]): void {
   if (a === 'dept_leader') return
   if (a.startsWith('role:')) {
     const key = a.slice(5)
     if (key.length > 0 && key.length <= 64 && [...key].every(isIdChar)) return
   }
-  errors.push(`节点 ${nodeId} 审批人形态非法: ${a}（仅 dept_leader / role:<key>）`)
+  errors.push({ key: 'flowDef.validate.assigneeInvalid', params: { id: nodeId, assignee: a } })
 }
 
 /** 全量校验（对齐后端 validate 语义，返回问题清单而非首错） */
 export function validateGraph(graph: FlowGraph): GraphValidationResult {
-  const errors: string[] = []
+  const errors: GraphValidationMessage[] = []
   // 1. 规模上界
-  if (graph.nodes.length === 0) errors.push('nodes 不能为空')
-  if (graph.nodes.length > MAX_NODES) errors.push(`节点数超上界（≤${MAX_NODES}）`)
-  if (graph.edges.length > MAX_EDGES) errors.push(`边数超上界（≤${MAX_EDGES}）`)
+  if (graph.nodes.length === 0) errors.push({ key: 'flowDef.validate.nodesEmpty' })
+  if (graph.nodes.length > MAX_NODES) errors.push({ key: 'flowDef.validate.nodesOverLimit', params: { max: MAX_NODES } })
+  if (graph.edges.length > MAX_EDGES) errors.push({ key: 'flowDef.validate.edgesOverLimit', params: { max: MAX_EDGES } })
   // 2. 节点逐一校验
   const ids = new Set<string>()
   const starts: FlowGraphNode[] = []
   const ends: FlowGraphNode[] = []
   for (const n of graph.nodes) {
     if (!n.id || n.id.length > NODE_ID_MAX) {
-      errors.push(`节点 id 非法（1-${NODE_ID_MAX} 字符）: ${n.id}`)
+      errors.push({ key: 'flowDef.validate.nodeIdInvalid', params: { max: NODE_ID_MAX, id: n.id } })
       continue
     }
     if (ids.has(n.id)) {
-      errors.push(`节点 id 重复: ${n.id}`)
+      errors.push({ key: 'flowDef.validate.nodeIdDuplicated', params: { id: n.id } })
       continue
     }
     ids.add(n.id)
     if (!NODE_TYPES.includes(n.type)) {
-      errors.push(`节点类型不在白名单: ${n.type}`)
+      errors.push({ key: 'flowDef.validate.nodeTypeNotAllowed', params: { type: n.type } })
       continue
     }
     if (n.type === 'approve') {
       if (!n.assignees || n.assignees.length === 0) {
-        errors.push(`审批节点 ${n.id} 缺少 assignees`)
+        errors.push({ key: 'flowDef.validate.approveNodeMissingAssignees', params: { id: n.id } })
       } else {
         for (const a of n.assignees) validateAssignee(a, n.id, errors)
       }
       const mode = n.multi ?? 'single'
-      if (!MULTI_MODES.includes(mode)) errors.push(`节点 ${n.id} 多签模式非法: ${mode}`)
+      if (!MULTI_MODES.includes(mode)) {
+        errors.push({ key: 'flowDef.validate.multiModeInvalid', params: { id: n.id, mode } })
+      }
       if (n.threshold !== undefined) {
         if (!Number.isInteger(n.threshold) || n.threshold <= 0) {
-          errors.push(`节点 ${n.id} 的 threshold 必须为正整数`)
+          errors.push({ key: 'flowDef.validate.thresholdNotPositiveInt', params: { id: n.id } })
         } else if (n.threshold > 1000) {
-          errors.push(`节点 ${n.id} threshold 越界: ${n.threshold}`)
+          errors.push({ key: 'flowDef.validate.thresholdOutOfRange', params: { id: n.id, threshold: n.threshold } })
         }
       }
       if (mode === 'weighted' && n.threshold === undefined) {
-        errors.push(`加权节点 ${n.id} 缺少 threshold`)
+        errors.push({ key: 'flowDef.validate.weightedMissingThreshold', params: { id: n.id } })
       }
     }
     for (const act of n.actions ?? []) {
       if (!ACTIONS_WHITELIST.includes(act)) {
-        errors.push(`节点 ${n.id} 动作不在白名单: ${act}`)
+        errors.push({ key: 'flowDef.validate.actionNotAllowed', params: { id: n.id, action: act } })
       }
     }
     if (n.type === 'start') starts.push(n)
     if (n.type === 'end') ends.push(n)
   }
-  if (starts.length !== 1) errors.push(`start 节点必须恰好 1 个，实际 ${starts.length}`)
-  if (ends.length !== 1) errors.push(`end 节点必须恰好 1 个，实际 ${ends.length}`)
+  if (starts.length !== 1) errors.push({ key: 'flowDef.validate.startCountMustBeOne', params: { count: starts.length } })
+  if (ends.length !== 1) errors.push({ key: 'flowDef.validate.endCountMustBeOne', params: { count: ends.length } })
   if (errors.length > 0 || starts.length !== 1 || ends.length !== 1) {
-    return { ok: false, errors }
+    return { ok: false, errors: dedupeMessages(errors) }
   }
   const startId = starts[0].id
   const endId = ends[0].id
@@ -98,22 +114,28 @@ export function validateGraph(graph: FlowGraph): GraphValidationResult {
   const seenEdges = new Set<string>()
   const adj = new Map<string, string[]>()
   for (const e of graph.edges as FlowGraphEdge[]) {
-    if (!ids.has(e.from)) errors.push(`边起点不存在: ${e.from}`)
-    if (!ids.has(e.to)) errors.push(`边终点不存在: ${e.to}`)
-    if (e.from === e.to) errors.push(`自环边: ${e.from}`)
+    if (!ids.has(e.from)) errors.push({ key: 'flowDef.validate.edgeFromMissing', params: { from: e.from } })
+    if (!ids.has(e.to)) errors.push({ key: 'flowDef.validate.edgeToMissing', params: { to: e.to } })
+    if (e.from === e.to) errors.push({ key: 'flowDef.validate.selfLoop', params: { id: e.from } })
     const key = `${e.from}\u0000${e.to}`
-    if (seenEdges.has(key)) errors.push(`重复边: ${e.from} → ${e.to}`)
+    if (seenEdges.has(key)) errors.push({ key: 'flowDef.validate.duplicateEdge', params: { from: e.from, to: e.to } })
     seenEdges.add(key)
     if (e.condition) {
       const c = e.condition
       if (!c.field || c.field.length > 64 || !/^[A-Za-z0-9_]+$/.test(c.field)) {
-        errors.push(`边 ${e.from} → ${e.to}: 条件字段名非法: ${c.field}`)
+        errors.push({
+          key: 'flowDef.validate.conditionFieldInvalid',
+          params: { from: e.from, to: e.to, field: c.field }
+        })
       }
       if (!CONDITION_OPS.includes(c.op)) {
-        errors.push(`边 ${e.from} → ${e.to}: 比较符不在白名单: ${c.op}`)
+        errors.push({
+          key: 'flowDef.validate.conditionOpNotAllowed',
+          params: { from: e.from, to: e.to, op: c.op }
+        })
       }
       if (typeof c.value !== 'string' && typeof c.value !== 'number') {
-        errors.push(`边 ${e.from} → ${e.to}: 条件值仅允许字符串或数字`)
+        errors.push({ key: 'flowDef.validate.conditionValueInvalid', params: { from: e.from, to: e.to } })
       }
     }
     if (!adj.has(e.from)) adj.set(e.from, [])
@@ -131,10 +153,10 @@ export function validateGraph(graph: FlowGraph): GraphValidationResult {
       }
     }
   }
-  if (!visited.has(endId)) errors.push('start 不可达 end（流程无出口）')
+  if (!visited.has(endId)) errors.push({ key: 'flowDef.validate.endUnreachable' })
   for (const n of graph.nodes) {
     if (n.type === 'approve' && !visited.has(n.id)) {
-      errors.push(`审批节点 ${n.id} 不可达（孤立节点）`)
+      errors.push({ key: 'flowDef.validate.approveNodeUnreachable', params: { id: n.id } })
     }
   }
   // 5. 环检测：DFS 三色标记（允许汇聚，不允许环）
@@ -143,14 +165,27 @@ export function validateGraph(graph: FlowGraph): GraphValidationResult {
     state.set(id, 1)
     for (const nx of adj.get(id) ?? []) {
       const st = state.get(nx) ?? 0
-      if (st === 1) errors.push(`检测到环: ${id} → ${nx}`)
+      if (st === 1) errors.push({ key: 'flowDef.validate.cycleDetected', params: { from: id, to: nx } })
       else if (st === 0) dfs(nx)
     }
     state.set(id, 2)
   }
   dfs(startId)
   // 环错误去重（DFS 可能报同环多次）
-  return { ok: errors.length === 0, errors: [...new Set(errors)] }
+  return { ok: errors.length === 0, errors: dedupeMessages(errors) }
+}
+
+/** 同 key + 同参数的消息只留一条（DFS 报环会重复推送完全相同的项） */
+function dedupeMessages(list: GraphValidationMessage[]): GraphValidationMessage[] {
+  const seen = new Set<string>()
+  const out: GraphValidationMessage[] = []
+  for (const m of list) {
+    const id = `${m.key}|${JSON.stringify(m.params ?? null)}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(m)
+  }
+  return out
 }
 
 /** 解析 graph_json 字符串（非法 JSON/结构不符 → null，由调用方给空图） */

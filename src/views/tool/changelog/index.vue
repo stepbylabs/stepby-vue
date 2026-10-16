@@ -52,7 +52,7 @@
                       v-for="item in entry.items"
                       :key="item"
                       class="version-item relative py-1.5 pl-4 text-[13px] leading-[1.6] text-text-primary"
-                      v-html="highlightSearch(item)"
+                      v-html="highlightSearch(t(item))"
                     ></li>
                   </ul>
                 </el-card>
@@ -83,7 +83,8 @@ const filteredEntries = computed(() => {
   const kw = searchKeyword.value.trim().toLowerCase()
   return changelog
     .map((entry) => {
-      const matched = entry.items.filter((item) => item.toLowerCase().includes(kw))
+      // items 是 i18n key：搜索按**当前语言翻译后**的文案匹配（en-US 用户搜中文原文搜不到是预期行为）
+      const matched = entry.items.filter((item) => t(item).toLowerCase().includes(kw))
       if (matched.length === 0) return null
       return { ...entry, items: matched }
     })

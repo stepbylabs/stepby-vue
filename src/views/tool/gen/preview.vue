@@ -69,6 +69,8 @@ import 'prismjs/components/prism-python'
 import 'prismjs/themes/prism-tomorrow.css'
 import { previewTable } from '@/api/tool/gen'
 import modal from '@/plugins/modal'
+// HTML 转义统一走 @/utils 的规范实现（此处原为只转义 & < > 的私有副本，多份实现会漂移）
+import { escapeHtml } from '@/utils'
 
 const { t } = useI18n()
 const visible = ref(false)
@@ -116,11 +118,6 @@ function detectLanguage(path: string): string {
   return LANG_BY_EXT[ext] ?? 'plaintext'
 }
 
-/** 转义 HTML，用于无匹配文法（plaintext）时的兜底，避免注入 */
-function escapeHtml(code: string): string {
-  return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 const fileList = computed<GenPreviewFile[]>(() =>
   Object.entries(dataMap.value)
     .map(([path, content]) => ({
@@ -147,30 +144,39 @@ const activeLanguage = computed(
 /** 行号列行数：按换行拆分，与代码列 line-height 一致逐行对齐 */
 const lineCount = computed(() => activeContent.value.split('\n').length)
 
-/** 文件下拉五组分组（体验阶段 gen 方案首步）：按路径后缀与目录关键词归类 */
-const FILE_GROUP_LABELS = ['后端 Java', '前端 Vue', 'SQL', 'XML', '其他'] as const
+/** 文件下拉五组分组（体验阶段 gen 方案首步）：按路径后缀与目录关键词归类。
+ * b71 i18n 治理：key 为稳定分组标识、label 经 i18n 渲染（原中文字面量直接渲染给用户）。 */
+const FILE_GROUP_KEYS = ['java', 'vue', 'sql', 'xml', 'other'] as const
+type FileGroupKey = (typeof FILE_GROUP_KEYS)[number]
+const FILE_GROUP_TKEYS: Record<FileGroupKey, string> = {
+  java: 'tool.gen.fileGroupJava',
+  vue: 'tool.gen.fileGroupVue',
+  sql: 'tool.gen.fileGroupSql',
+  xml: 'tool.gen.fileGroupXml',
+  other: 'tool.gen.fileGroupOther'
+}
 
-function fileGroup(path: string): (typeof FILE_GROUP_LABELS)[number] {
+function fileGroup(path: string): FileGroupKey {
   const bare = path.replace(/\.vm$/i, '')
   const ext = (bare.split('.').pop() || '').toLowerCase()
-  if (ext === 'java' || /(^|\/)(pojo|domain|entity)(\/|$)/i.test(bare)) return '后端 Java'
-  if (ext === 'vue') return '前端 Vue'
-  if (ext === 'sql') return 'SQL'
-  if (ext === 'xml' && /mapper\.xml$/i.test(bare)) return 'XML'
-  return '其他'
+  if (ext === 'java' || /(^|\/)(pojo|domain|entity)(\/|$)/i.test(bare)) return 'java'
+  if (ext === 'vue') return 'vue'
+  if (ext === 'sql') return 'sql'
+  if (ext === 'xml' && /mapper\.xml$/i.test(bare)) return 'xml'
+  return 'other'
 }
 
 const groupedFiles = computed(() => {
-  const buckets = new Map<string, GenPreviewFile[]>()
+  const buckets = new Map<FileGroupKey, GenPreviewFile[]>()
   for (const f of fileList.value) {
     const group = fileGroup(f.path)
     const bucket = buckets.get(group)
     if (bucket) bucket.push(f)
     else buckets.set(group, [f])
   }
-  return FILE_GROUP_LABELS.filter((label) => buckets.has(label)).map((label) => ({
-    label,
-    files: buckets.get(label)!
+  return FILE_GROUP_KEYS.filter((key) => buckets.has(key)).map((key) => ({
+    label: t(FILE_GROUP_TKEYS[key]),
+    files: buckets.get(key)!
   }))
 })
 

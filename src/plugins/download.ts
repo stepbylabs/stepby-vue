@@ -9,6 +9,23 @@ import { errorHub } from '@/utils/errorHub'
 
 const baseURL = import.meta.env.VITE_APP_BASE_API
 
+/**
+ * 解析响应头 download-filename（后端 Content-Disposition 的 filename* 派生值）。
+ *
+ * 缺失/为空时回退 fallback —— 原先直接 `decodeURIComponent(undefined)` 会得到字符串
+ * "undefined"，用户拿到一个叫 undefined 的文件；
+ * 百分号编码非法（如截断的 %E4%BF，decodeURIComponent 抛 URIError）时原样返回，
+ * 绝不让整条下载链路因文件名而抛错丢掉已取到的有效 blob。
+ */
+function resolveFilename(raw: unknown, fallback: string): string {
+  if (typeof raw !== 'string' || raw.length === 0) return fallback
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
 export default {
   name(name: string, isDelete = true) {
     // P0 修复：添加 loading 提示和错误处理，与 zip 方法保持一致
@@ -29,7 +46,7 @@ export default {
         const isBlob = blobValidate(res.data)
         if (isBlob) {
           const blob = new Blob([res.data])
-          this.saveAs(blob, decodeURIComponent(res.headers['download-filename']))
+          this.saveAs(blob, resolveFilename(res.headers['download-filename'], name))
         } else {
           this.printErrMsg(res.data)
         }
@@ -60,7 +77,8 @@ export default {
         const isBlob = blobValidate(res.data)
         if (isBlob) {
           const blob = new Blob([res.data])
-          this.saveAs(blob, decodeURIComponent(res.headers['download-filename']))
+          // 回退名取资源路径最后一段（如 /profile/upload/x.png → x.png）
+          this.saveAs(blob, resolveFilename(res.headers['download-filename'], resource.split('/').pop() || resource))
         } else {
           this.printErrMsg(res.data)
         }

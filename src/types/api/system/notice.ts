@@ -12,10 +12,17 @@ export interface NoticeQueryParams extends PageDomain {
   status?: '0' | '1'
 }
 
-/** 通知公告信息 */
+/**
+ * 通知公告信息
+ *
+ * 契约单一事实源：`src/types/api/generated/SysNotice.ts`（ts-rs 从后端生成），
+ * 字段名与可空性以该文件为准；本接口同时充当新增/修改的请求体（故保留 BaseEntity 的可选项）。
+ */
 export interface SysNotice extends BaseEntity {
   /** 公告编号 */
   noticeId?: number
+  /** 多租户归属（后端实发且非空；0 = 平台租户） */
+  tenantId?: number
   /** 公告标题 */
   noticeTitle?: string
   /** 公告类型（1通知 2公告） */
@@ -24,9 +31,12 @@ export interface SysNotice extends BaseEntity {
   noticeContent?: string
   /** 状态（0正常 1停用） */
   status?: '0' | '1'
-  /** 是否已读 */
-  isRead: boolean
-  /** 新增时是否同步通过邮件通知（仅 add 请求时使用） */
+  /**
+   * 是否已读：**前端本地状态**，后端 SysNotice 契约不含此列（已读明细在 sys_notice_read，
+   * 由 listTop 的 unreadCount + 前端 readIds 维护）。store 乐观更新时写入，缺省视为未读。
+   */
+  isRead?: boolean
+  /** 新增时是否同步通过邮件通知（仅 add 请求提交，对应后端 NoticeDto.notify_email；响应不含） */
   notifyEmail?: boolean
 }
 

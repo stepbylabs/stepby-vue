@@ -1,10 +1,10 @@
-import { parseStrEmpty, mergeRecursive, transParams, getNormalPath, blobValidate } from '@/utils/stepby'
+import { parseStrEmpty, transParams, getNormalPath, blobValidate } from '@/utils/stepby'
 
 // ============================================================================
 // 说明
 // ============================================================================
 // 本文件聚焦 stepby.ts 中此前未被测试覆盖的工具函数：
-//   parseStrEmpty / mergeRecursive / transParams / getNormalPath / blobValidate
+//   parseStrEmpty / transParams / getNormalPath / blobValidate
 // 时间类工具（parseTime/tzOffsetLabel/addDateRange）见 stepby.time.test.ts；
 // 字典与树类工具（selectDictLabel/selectDictLabels/handleTree）见 stepby.dictTree.test.ts。
 
@@ -46,73 +46,6 @@ describe('parseStrEmpty', () => {
 
   it('对象转为字符串', () => {
     expect(parseStrEmpty({ a: 1 })).toBe('[object Object]')
-  })
-})
-
-// ============================================================================
-// mergeRecursive 数据合并（深合并）
-// ============================================================================
-describe('mergeRecursive', () => {
-  it('普通字段直接覆盖', () => {
-    const source = { a: 1, b: 2 }
-    const target = { b: 3 }
-    expect(mergeRecursive(source, target)).toEqual({ a: 1, b: 3 })
-  })
-
-  it('嵌套对象递归合并', () => {
-    const source = { a: { x: 1, y: 2 } }
-    const target = { a: { y: 9, z: 3 } }
-    expect(mergeRecursive(source, target)).toEqual({ a: { x: 1, y: 9, z: 3 } })
-  })
-
-  it('source 缺少嵌套对象时用空对象承接', () => {
-    const source = {}
-    const target = { a: { b: 1 } }
-    expect(mergeRecursive(source, target)).toEqual({ a: { b: 1 } })
-  })
-
-  it('目标字段为数组时直接覆盖（非深合并）', () => {
-    const source = { list: [1, 2] }
-    const target = { list: [3] }
-    expect(mergeRecursive(source, target)).toEqual({ list: [3] })
-  })
-
-  it('目标字段为 null 时直接覆盖', () => {
-    const source = { a: 1 }
-    const target = { a: null }
-    expect(mergeRecursive(source, target)).toEqual({ a: null })
-  })
-
-  it('返回原 source 对象（引用一致）', () => {
-    const source = { a: 1 }
-    const target = { b: 2 }
-    expect(mergeRecursive(source, target)).toBe(source)
-  })
-
-  it('多层级深层合并', () => {
-    const source = { a: { b: { c: 1, keep: 'x' } } }
-    const target = { a: { b: { c: 2, extra: true } } }
-    expect(mergeRecursive(source, target)).toEqual({ a: { b: { c: 2, keep: 'x', extra: true } } })
-  })
-
-  it('读取目标属性抛异常时走 catch 兜底分支', () => {
-    // 构造首次属性访问抛异常的 Proxy，触发 try 内异常 → catch 分支再次读取成功赋值
-    let calls = 0
-    const target = new Proxy(
-      { a: 1 },
-      {
-        get(t, prop, r) {
-          calls++
-          if (calls === 1) {
-            throw new Error('first access throws')
-          }
-          return Reflect.get(t, prop, r)
-        }
-      }
-    )
-    const source: Record<string, unknown> = {}
-    mergeRecursive(source, target as Record<string, unknown>)
-    expect(source.a).toBe(1)
   })
 })
 

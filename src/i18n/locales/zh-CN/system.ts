@@ -1526,6 +1526,16 @@ export default {
     placeholder: {
       areaCode: '区号'
     },
+    // 手机号国家/地区下拉（utils/phone.ts REGION_OPTIONS 的 labelKey 指向这里）
+    region: {
+      cn: '中国 (+86)',
+      hk: '中国香港 (+852)',
+      us: '美国/加拿大 (+1)',
+      mo: '中国澳门 (+853)',
+      tw: '中国台湾 (+886)',
+      gb: '英国 (+44)',
+      jp: '日本 (+81)'
+    },
     sex: {
       male: '男',
       female: '女'
@@ -1737,15 +1747,46 @@ export default {
     nodeName: '节点名称',
     assignees: '审批人',
     assigneeDeptLeader: '部门主管',
+    assigneeRoleAdmin: '管理员角色（role:admin）',
+    multiMode: '多签模式',
     threshold: '门槛',
     actions: '开放动作',
     edgeFrom: '起点',
     edgeTo: '终点',
     hasCondition: '条件',
     condField: '字段',
+    condOp: '比较符',
     condValue: '值',
     graphInvalid: '流程图校验未通过，请按错误清单修正',
-    codeNameRequired: '编码与名称必填'
+    codeNameRequired: '编码与名称必填',
+    // 流程图前端校验消息：flowGraph.ts 是纯函数（无 i18n 上下文），只产出 key + 参数，由渲染端 t() 翻译
+    validate: {
+      nodesEmpty: 'nodes 不能为空',
+      nodesOverLimit: '节点数超上界（≤{max}）',
+      edgesOverLimit: '边数超上界（≤{max}）',
+      nodeIdInvalid: '节点 id 非法（1-{max} 字符）: {id}',
+      nodeIdDuplicated: '节点 id 重复: {id}',
+      nodeTypeNotAllowed: '节点类型不在白名单: {type}',
+      approveNodeMissingAssignees: '审批节点 {id} 缺少 assignees',
+      assigneeInvalid: '节点 {id} 审批人形态非法: {assignee}（仅 dept_leader / role:<key>）',
+      multiModeInvalid: '节点 {id} 多签模式非法: {mode}',
+      thresholdNotPositiveInt: '节点 {id} 的 threshold 必须为正整数',
+      thresholdOutOfRange: '节点 {id} threshold 越界: {threshold}',
+      weightedMissingThreshold: '加权节点 {id} 缺少 threshold',
+      actionNotAllowed: '节点 {id} 动作不在白名单: {action}',
+      startCountMustBeOne: 'start 节点必须恰好 1 个，实际 {count}',
+      endCountMustBeOne: 'end 节点必须恰好 1 个，实际 {count}',
+      edgeFromMissing: '边起点不存在: {from}',
+      edgeToMissing: '边终点不存在: {to}',
+      selfLoop: '自环边: {id}',
+      duplicateEdge: '重复边: {from} → {to}',
+      conditionFieldInvalid: '边 {from} → {to}: 条件字段名非法: {field}',
+      conditionOpNotAllowed: '边 {from} → {to}: 比较符不在白名单: {op}',
+      conditionValueInvalid: '边 {from} → {to}: 条件值仅允许字符串或数字',
+      endUnreachable: 'start 不可达 end（流程无出口）',
+      approveNodeUnreachable: '审批节点 {id} 不可达（孤立节点）',
+      cycleDetected: '检测到环: {from} → {to}'
+    }
   },
   flow: {
     pendingAlert: '您有 {count} 条审批待办待处理',

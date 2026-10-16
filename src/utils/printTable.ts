@@ -26,6 +26,9 @@
 import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
 import { errorHub } from '@/utils/errorHub'
+// HTML 转义统一走 @/utils 的规范实现（打印模板把列名/单元格/标题拼进 innerHTML，
+// 多处私有 escapeHtml 会各自漂移，正是 HTML 注入回归的 reintroduce 路径）
+import { escapeHtml } from '@/utils'
 
 export interface PrintColumn {
   label: string
@@ -200,14 +203,4 @@ export function printTable(options: PrintTableOptions): void {
   }
 
   ElMessage.success(i18n.global.t('printTable.printed'))
-}
-
-/** HTML 转义，防止 XSS */
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }

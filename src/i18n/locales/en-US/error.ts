@@ -136,7 +136,19 @@ export default {
     desc: 'View project version update history',
     searchPlaceholder: 'Search updates...',
     latest: 'Latest',
-    noResult: 'No matching update records found'
+    noResult: 'No matching update records found',
+    // Entry texts (data/changelog.ts stores these keys; home card and changelog page translate by order)
+    item: {
+      openSourceBaseline:
+        'Open-source baseline: SharedStore dual-tier shared state (local pure SQL / redis), single-file zero-dependency deployment',
+      multiTenant: 'Full multi-tenancy: tenant management, package capability flags, tenant runtime keys and permission isolation',
+      ssoProvider: 'Single sign-on (OIDC Provider): authorization code / refresh token / RS256 / session management',
+      workflowEngine:
+        'Approval workflow engine: two-level approval, timeout scanning, interruption-aware todo reminders (first push + overdue escalation to leader)',
+      auditInsight: 'Audit and insight: operation-log diffs, audit dashboard, compliance report export',
+      securityBaseline: 'Security baseline: fail-closed permissions, blacklist and password-version authority layer, dedicated rate limit for sensitive ops',
+      i18nAndMobile: 'Internationalization (zh/en), responsive mobile adaptation, theme switching'
+    }
   },
   errorBoundary: {
     title: 'Page Load Failed',

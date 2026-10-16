@@ -19,13 +19,22 @@
       </span>
       <div class="tree-actions" v-show="!collapsed">
         <el-tooltip :content="isExpandedAll ? t('treePanel.collapseAll') : t('treePanel.expandAll')" placement="right">
-          <el-icon class="tree-action-icon" @click="toggleExpandAll">
-            <ArrowDown v-if="isExpandedAll" />
-            <ArrowUp v-else />
-          </el-icon>
+          <el-button
+            size="small"
+            class="tree-action-icon"
+            :aria-label="isExpandedAll ? t('treePanel.collapseAll') : t('treePanel.expandAll')"
+            @click="toggleExpandAll"
+          >
+            <el-icon>
+              <ArrowDown v-if="isExpandedAll" />
+              <ArrowUp v-else />
+            </el-icon>
+          </el-button>
         </el-tooltip>
         <el-tooltip :content="t('treePanel.refresh')" placement="right">
-          <el-icon class="tree-action-icon" @click="handleRefresh"><Refresh /></el-icon>
+          <el-button size="small" class="tree-action-icon" :aria-label="t('treePanel.refresh')" @click="handleRefresh">
+            <el-icon><Refresh /></el-icon>
+          </el-button>
         </el-tooltip>
         <slot name="actions"></slot>
       </div>
@@ -34,10 +43,17 @@
     <!-- 侧边栏展开/收起按钮 -->
     <div class="collapse-button-container">
       <el-tooltip :content="collapsed ? t('treePanel.expand') : t('treePanel.collapse')" placement="right">
-        <el-icon class="collapse-button" @click="toggleCollapsed">
-          <DArrowRight v-if="collapsed" />
-          <DArrowLeft v-else />
-        </el-icon>
+        <el-button
+          size="small"
+          class="collapse-button"
+          :aria-label="collapsed ? t('treePanel.expand') : t('treePanel.collapse')"
+          @click="toggleCollapsed"
+        >
+          <el-icon>
+            <DArrowRight v-if="collapsed" />
+            <DArrowLeft v-else />
+          </el-icon>
+        </el-button>
       </el-tooltip>
     </div>
 
@@ -671,11 +687,20 @@ onBeforeUnmount(() => {
   }
 }
 
+/*
+ * 豁免说明（前端样式规范③：覆盖第三方组件深层 DOM）：图标改 el-button 取得键盘可达性后，
+ * 用与改造前同级别的单类选择器抹掉 el-button 自带的边框/底色/固定高度，
+ * 使 20px 图标 + 4px 内边距 + 次级文字色 + 主色浅底 hover 的现状逐像素保持，
+ * 且不提高特异性（暗黑态全局覆盖 .tree-sidebar .collapse-button:hover 仍需继续生效）。
+ */
 .collapse-button {
   font-size: 20px;
   color: var(--el-text-color-secondary);
   cursor: pointer;
   padding: 4px;
+  height: auto;
+  border: 0;
+  background: transparent;
   border-radius: 4px;
   transition: all 0.2s;
 
@@ -716,14 +741,26 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+
+    /* EP 的 `.el-button + .el-button` 自带 margin-left:12px，会顶开上面 4px 的 gap 间距 */
+    :deep(.el-button + .el-button) {
+      margin-left: 0;
+    }
   }
 }
 
+/*
+ * 豁免说明（前端样式规范③：覆盖第三方组件深层 DOM）：同 .collapse-button ——
+ * el-button 改造后按原规格抹平边框/底色/固定高度，保持改造前 20px 图标 + 4px 内边距的观感。
+ */
 .tree-action-icon {
   font-size: 20px;
   color: var(--el-text-color-secondary);
   cursor: pointer;
   padding: 4px;
+  height: auto;
+  border: 0;
+  background: transparent;
   border-radius: 4px;
   transition: all 0.2s;
 

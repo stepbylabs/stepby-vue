@@ -38,10 +38,28 @@
         </draggable>
       </el-row>
     </Transition>
-    <span class="drawing-item-copy" :title="t('common.copy')" @click.stop="copyItem(element)">
+    <span
+      class="drawing-item-copy"
+      role="button"
+      tabindex="0"
+      :aria-label="t('common.copy')"
+      :title="t('common.copy')"
+      @click.stop="copyItem(element)"
+      @keydown.enter.stop.prevent="copyItem(element)"
+      @keydown.space.stop.prevent="copyItem(element)"
+    >
       <el-icon><CopyDocument /></el-icon>
     </span>
-    <span class="drawing-item-delete" :title="t('common.delete')" @click.stop="deleteItem(index)">
+    <span
+      class="drawing-item-delete"
+      role="button"
+      tabindex="0"
+      :aria-label="t('common.delete')"
+      :title="t('common.delete')"
+      @click.stop="deleteItem(index)"
+      @keydown.enter.stop.prevent="deleteItem(index)"
+      @keydown.space.stop.prevent="deleteItem(index)"
+    >
       <el-icon><Delete /></el-icon>
     </span>
   </el-col>
