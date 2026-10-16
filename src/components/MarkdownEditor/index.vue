@@ -17,7 +17,7 @@ import { MdEditor } from 'md-editor-v3'
 import type { ToolbarNames } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import useSettingsStore from '@/store/modules/settings'
-import request from '@/utils/request'
+import { uploadFile } from '@/api/system/file'
 import { ElMessage } from 'element-plus'
 import i18n, { getLanguage } from '@/i18n'
 import { errorHub } from '@/utils/errorHub'
@@ -112,14 +112,13 @@ async function onUploadImg(files: File[], callback: (urls: string[]) => void): P
     const formData = new FormData()
     formData.append('file', file)
     try {
-      const res = (await request({
-        url: '/system/file/upload',
-        method: 'post',
-        data: formData,
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })) as { url?: string }
-      if (res.url) {
-        urls.push(res.url)
+      // 走类型化 api（同 api/system/file：手动设 multipart 头会丢 boundary；
+      // 响应是 AjaxResult 包装，URL 在 data.url 而非顶层——曾误读 res.url 导致
+      // 上传成功却判定失败、图片永不插入）
+      const res = await uploadFile(formData)
+      const url = res.data?.url
+      if (url) {
+        urls.push(url)
       } else {
         failCount++
       }

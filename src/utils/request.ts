@@ -111,6 +111,12 @@ const service = axios.create({
 // L4: 设置 Content-Type 在 service 实例上，而非全局 axios.defaults，避免污染其他 axios 实例
 service.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 
+/** 上传载荷判定：FormData 与 Blob/File 都要求「头缺省」，浏览器才会自行生成带 boundary 的头 */
+function isUploadPayload(data: unknown): boolean {
+  if (typeof FormData !== 'undefined' && data instanceof FormData) return true
+  return typeof Blob !== 'undefined' && data instanceof Blob
+}
+
 // request拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -118,6 +124,16 @@ service.interceptors.request.use(
     // 路由切换已通过 permission.ts 的 startProgress 覆盖页面加载场景
     if (config.method && config.method.toLowerCase() !== 'get') {
       startProgress()
+    }
+    // b71：上传载荷必须移除 Content-Type——实例默认头是 application/json，而 axios 的
+    // transformRequest 见「JSON 头 + FormData」会走 formDataToJSON 把 FormData 序列化成
+    // JSON（文件字段整个丢失，后端 multipart 解析 400）；手动写 multipart/form-data 同样不行
+    // （boundary 只有浏览器在头缺省时才补）。实证：文件页 UI 上传请求体只剩 {"file":{"uid":…}}。
+    if (isUploadPayload(config.data)) {
+      // 置 false（而非 delete）：dispatchRequest 随后会对 post/put/patch 补
+      // `application/x-www-form-urlencoded`，但 rewrite=false 的补值只在头缺省时生效；
+      // 置 false 既不被覆盖，又会被 AxiosHeaders.toJSON 过滤 ⇒ 请求头不发出，交给浏览器。
+      config.headers.setContentType(false)
     }
     // 是否需要设置 token
     const isToken = (config.headers || {}).isToken === false
@@ -176,13 +192,17 @@ service.interceptors.request.use(
     return config
   },
   (error: AxiosError) => {
-    console.warn('[request error]', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      code: error.code,
-      message: error.message
-    })
+    // b71：请求错误诊断收敛为 DEV 提示——生产环境的用户可见反馈由拦截器 errorHub 统一弹错承担，
+    // 避免生产控制台打印全部请求错误（与全仓 console.warn 的 DEV 守卫约定对齐）
+    if (import.meta.env.DEV) {
+      console.warn('[request error]', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+        code: error.code,
+        message: error.message
+      })
+    }
     // TierA-1: request 拦截器抛错（如重复提交 reject）也要完成进度条
     doneProgress()
     return Promise.reject(error)
@@ -416,7 +436,7 @@ export function download(url: string, params: Record<string, unknown>, filename:
           const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
           errorHub.report('error', 'download', errMsg)
         } catch (e) {
-          console.error('[download] Failed to parse error response:', e)
+          if (import.meta.env.DEV) console.error('[download] Failed to parse error response:', e)
           errorHub.report('error', 'download', t('common.downloadError'))
         }
       }
