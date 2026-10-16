@@ -14039,9 +14039,14 @@ async function testFeature63(page) {
   await sleep(1500)
   await skipTour(page)
   const searchInput = page.locator('input[placeholder="请输入用户名称"]').first()
-  const toggleBtn = page.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
-  const refreshBtn = page.getByRole('button', { name: /^刷\s*新$|Refresh/i }).first()
-  const colsBtn = page.getByRole('button', { name: /显隐列|Columns/i }).first()
+  // b71 定位加固：三按钮一律**限定在右工具栏容器内**。原写法 `.first()` 取的是全页
+  // 同名按钮，页面左侧部门树 TreePanel 的「刷新树列表」与工具栏「刷新」在 b71 补上
+  // aria-label 后成为 role=button 可访问节点，`/^刷新$/` 会先命中树侧那个，
+  // 点出去的是 `/system/dept/list` 而非 `/system/user/list` ⇒ 断言假失败。
+  const toolbar = page.locator('.top-right-btn')
+  const toggleBtn = toolbar.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
+  const refreshBtn = toolbar.getByRole('button', { name: /^刷\s*新$|Refresh/i }).first()
+  const colsBtn = toolbar.getByRole('button', { name: /显隐列|Columns/i }).first()
   const btnsOk =
     (await toggleBtn
       .waitFor({ state: 'visible', timeout: 3000 })
@@ -14062,7 +14067,7 @@ async function testFeature63(page) {
   await sleep(500)
   const s1 = await searchInput.isVisible().catch(() => false)
   record(63, '点「隐藏搜索」→搜索区不可见（v-show 收起）', !s1)
-  const toggleBtn2 = page.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
+  const toggleBtn2 = toolbar.getByRole('button', { name: /隐藏搜索|显示搜索|Hide|Show Search/i }).first()
   await toggleBtn2.click()
   await sleep(500)
   const s2 = await searchInput.isVisible().catch(() => false)

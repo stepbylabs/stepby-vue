@@ -1,6 +1,8 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `stepby-vue/tests/e2e/main.mjs`（75 个功能，套件已并入 stepby-vue 仓库）在本地跑通所需的**完整环境**，
+> 本文件记录 `stepby-vue/tests/e2e/main.mjs`（**142 个功能**，套件已并入 stepby-vue 仓库；b71 订正：
+> 原头部长期写"75 个功能"是批四十前后的历史枚举，功能数已随批次追加到 142，见 main.mjs 头部同一条订正）
+> 在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
 
@@ -1893,8 +1895,11 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   （20s 实测仍会中段偶发 503，25s 全程零风暴）；疑似风暴时先看 F135③ 的 503 采样再定性。
 - **a11y**：560 项检查 / 0 FAIL（observability/auditChange/reportBoard/my-nav/my-domain 页面改动后复核）。
 - **vitest**：984→985（70 文件，+4：useCrudTable 污染恢复/多实例隔离/params 容器隔离 + tab.test.ts 同步 action 兼容）。
-- **deep-e2e**：84 模块 / **2106 ✅** / 0 ❌（EXIT=0，被吞异常 0、后端 ERROR/WARN 0；2106 为本轮
+- **deep-e2e**：84 模块 / **2106 ✅** / 0 ❌（EXIT=0、被吞异常 0、后端 ERROR/WARN 0；2106 为本轮
   精确实测，历史口径 1029 严重过时已订正 TESTING/AGENTS）。
+  > **b71 订正（保留原文）**：该 2106 **不可复现**——b71 在同一套件上全量单轮实测 1053、
+  > 分 6 段求和 1054，而 `record(` 调用点总量仅 1167，单次运行不可能产出 2106。
+  > 现行基线以 **86 模块 / 1053✅ / 48 SKIP** 为准（§3.57.6）。教训：基线数字必须与"断言调用点总量"做量级对账。
 
 ## 3.6 SCIM provisioning 环境要求（循环轮 13 激活 F118②/F119②）
 
@@ -2003,7 +2008,7 @@ b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
 
 ---
 
-## 3.55 批七十（2026-10-16）：F141 文件页 UI 全链 + F142 redirect 防护 + 死代码清理后全量复核
+## 3.56 批七十（2026-10-16）：F141 文件页 UI 全链 + F142 redirect 防护 + 死代码清理后全量复核
 
 **新用例（main.mjs 功能 141-142，文件页零 UI 覆盖 + redirect 防护缺口补强）**：
 
@@ -2030,3 +2035,123 @@ consoleErrors 9 与 networkErrors 9 一一对应且全为负路径探针（403 r
 被 `src/utils/generator/*.js` 消费，CI 生产构建红暴露后恢复并补回归测试，事故详情见 b70 台账 §3.6；
 新增 `src/api/system/file.test.ts` 9 例）+ 生产构建 `vite build` EXIT=0（b70 起固化进本地门禁）。
 单跑启动器 `e2e-b70-single.sh`（自定位 + 环境变量）。
+
+---
+
+## 3.57 批七十一（2026-10-16）：上传链 multipart 真缺陷取证配方 + 三条"假信号/假结论"教训
+
+### 3.57.1 浏览器 wire-level 取证：F141 "Invalid boundary" 的定位配方
+
+F141 ④⑤ 稳定失败（UI 上传不落库），但**静态源码守卫（`api/system/file.test.ts`）全绿**——
+说明缺陷不在"有没有手动设头"，而在**实际发出的字节**。一次性探针（Playwright 读 `request.headers()`
+与 `postDataBuffer()`）是唯一定位手段：
+
+```js
+page.on('request', (r) => {
+  if (r.url().includes('/system/file/upload')) {
+    console.log(r.headers()['content-type'], r.postDataBuffer()?.toString('utf8').slice(0, 200))
+  }
+})
+```
+
+实测（修复前）：`content-type="application/json;charset=UTF-8"`、请求体 `{"file":{"uid":1792149854495}}`
+（30 字节，**文件字节整体不存在**）。根因：`request.ts` 的实例顶层默认头
+`service.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'` 会合并进**每一个请求**，
+axios 1.20 的 `transformRequest` 见「JSON 头 + FormData」直接走 `formDataToJSON`，
+而"FormData 时移除 Content-Type"的分支在之后的 `resolveConfig` 里、判的是已变成字符串的 data ⇒ 救不回来。
+
+修法（同族一次收干净，覆盖 FormData / Blob / File 三类载荷）：请求拦截器内
+`config.headers.setContentType(false)`。**必须是 `false` 不能是 `delete`**——`dispatchRequest`
+随后对 post/put/patch 有 `setContentType('application/x-www-form-urlencoded', false)` 的缺省补值，
+`rewrite=false` 只在头**缺省**时生效，`delete` 会被它回填；`false` 既不被覆盖又被
+`AxiosHeaders.toJSON` 过滤（null/undefined/false 不上线）⇒ 头不发出，浏览器自动补 boundary。
+回归锁：`src/utils/request.upload.test.ts`（真实 service + 桩适配器断言 `config.data === form`
+且头不上线；已做变异证伪——注掉修复即变红 `expected '{"file":{}}' to be FormData{}`）。
+
+**为什么 1211 条断集体漏掉这条链**：头像/分片/富文本此前要么走裸 axios（不受实例默认头影响），
+要么 e2e 用手工拼 multipart 的 API 级请求（自带 boundary）；F141 是**第一条经 `service` 的浏览器 UI 上传**。
+教训：**"接口能通"不等于"链路能通"**，UI→封装层→传输层→后端四层里任一层被绕过，缺陷就隐身。
+
+### 3.57.2 加 aria-label 会撞全页 `getByRole` 定位器（F63 真回归）
+
+给 TreePanel 树刷新按钮补 `aria-label="刷新"` 后，F63 的全页
+`getByRole('button', { name: /^刷新$/ })` **抢先命中树面板按钮**，点了 `/system/dept/list`
+→ `reqs=0` → F63 判失败。这是可访问性改动引发的**真实**回归（不是用例脆性）。双侧修：
+
+1. 可访问名去歧义：树刷新改 `'刷新树列表'`（`zh-CN/tool.ts` `treePanel.refresh` / `en-US` `'Refresh Tree'`）
+   ——原本"图标即按钮、无名称"本身也是 a11y 缺陷；
+2. 用例限定作用域：`page.locator('.top-right-btn').getByRole('button', { name: ... })`。
+
+**纪律**：新增 `aria-label`/`role` 后必须 `grep -rn "getByRole" tests/e2e | grep "<新名称>"` 全仓对账。
+
+### 3.57.3 分段区间的"假失败"：保留未注册编号必须排除
+
+`--feature=91-120` 会把 **F117**（保留编号、设计内不注册、不产断言条目）当缺失而报失败信号。
+正确写法 `--feature=91-116,118-120`（实测 151/151）。同理 `121-142` 内含 SKIP 项，判据是
+`失败: 0` 而非 `SKIP: 0`。
+
+### 3.57.4 构建模式正确性要看入口 chunk，不看 index.html
+
+`/prod-api` 注入在 `static/js/index-*.js`，`index.html` 里**查不到**。b71 实测：
+`grep -rho "/prod-api" dist/static/js/index-*.js | wc -l` = **18**（production）、
+`frontend-dist/static/js/index-*.js` = **0**（embedded）。用 index.html 判定模式是空探针。
+
+### 3.57.5 基线与门禁实测（b71 终值，全部真实执行）
+
+- **main.mjs**：142 features / **1211 断言 / 0 失败**，分 5 段前台跑，各段 EXIT=0：
+  `1-30` 235、`31-60` 352、`61-90` 343、`91-116,118-120` 151、`121-142` 130（SKIP 4 均为设计内）。
+- **a11y-full**：**560/560**，EXIT=0。首跑 559/560——`/workbench/index` 的 `el-avatar` 未给 `alt`
+  （EP 的 `alt` prop 才会落到内层 `<img>`），补 `avatarAlt` computed 并复用既有键
+  `layout.navbar.avatarAlt`；同族扫 `sso/consent.vue` logo（`:alt="clientName"`）；
+  全仓 `<img>` 缺 alt 静态扫描归零。
+- **deep-e2e**：见 §3.57.6（本轮实测口径订正）。
+- **前端**：`vue-tsc --noEmit` 0 错误；`eslint .` 0 error 0 warning；
+  `vitest run` **87 文件 / 1096 用例全绿**（+6 测试文件：request.upload / useUnsavedGuard /
+  auth / download / modal / dict）；`vitest run --coverage` 全 src 默认口径
+  **语句 68.66 / 分支 62.09 / 函数 55.40 / 行 69.69**（分目录表见 `TESTING.md`）；`vite build` 双模式 EXIT=0。
+- **后端**：`cargo fmt --check` 0 diff；`clippy --all-targets -D warnings` EXIT=0；
+  `cargo test --lib` **1394 passed / 0 failed**（含 integration_tests 270；b70 基线 1372）；
+  `RUSTDOCFLAGS=-D warnings cargo doc` 0 警告。
+- **种子**：`python stepby-axum/scripts/seed_diff.py data/seed-check.db` ⇒ **漂移 0**
+  （留档 29 / PENDING 0 / 运行行 264609 不计）。构建纯种子库用**已构建二进制**直接起第二实例
+  （`DATABASE_URL='sqlite://./data/seed-check.db?mode=rwc' SERVER_PORT=8094 target/debug/stepby-axum.exe`），
+  避免 `cargo run` 触发重编译与运行中 :8080 二进制的文件锁；用完按 PID 精杀（**只杀 8094，勿动 8080**）。
+
+### 3.57.6 deep-e2e 基线数字订正（2106 系文档错误）
+
+AGENTS.md/TESTING.md 自 2026-10-14 起记 `84 模块 / 2106✅`，与同段"历史口径 1029"差整 2 倍。
+b71 用**两条独立路径**实测同一套件：
+
+| 口径 | 结果 |
+|---|---|
+| 全量单轮（无过滤，修复中期产物） | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2423.2s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
+| 全量单轮（无过滤，**最终二进制复跑**） | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2550.3s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
+| 分 6 段（`--range=1-15 / 16-30 / 31-45 / 46-60 / 61-75 / 76-86`）求和，与"修复中期产物"单轮同产物互证 | 302+173+134+158+149+138 = **1054**，0 失败 |
+
+两条路径互相印证（差 1 为时间敏感软断言），且 `deep-e2e.mjs` 全文 `record(` 调用点仅 1167 处
+——**单次运行不可能产出 2106 条计数**。结论：2106 是历史誊写/翻倍错误，现行基线以 **86 模块 / 1053✅** 为准。
+**纪律**：基线数字必须"两处同写、每批复跑"，且要与"断言调用点总量"做量级对账——
+一个超过调用点总数的基线必然是错的（本轮就是靠这个量级直觉发现 2106 与 1167 矛盾）。
+
+### 3.57.7 ux-compat 的 URL 口径（假失败陷阱）
+
+`ux-compat-verify.mjs` 的 `UI_URL` 缺省指向 **:5173（vite dev）**，与本配方权威环境（embedded :8080）不同。
+不带 `STEPBY_UI_URL` 直接跑会得到 `net::ERR_CONNECTION_REFUSED at http://localhost:5173/login` 的**环境性假失败**。
+正确启动式：
+
+```bash
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+STEPBY_BASE_URL=http://localhost:8080 STEPBY_UI_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
+PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node ux-compat-verify.mjs   # ⇒ 11/11 PASS
+```
+
+### 3.57.8 后端改动后重跑 e2e 的固定顺序（exe 锁与预热）
+
+`target/debug/stepby-axum.exe` 被运行中进程**独占锁定**，直接 `cargo build` 会 `os error 5`。固定顺序：
+
+1. `Stop-ScheduledTask stepby-backend-tmp` → 确认进程已退（残留则按 PID 精杀）；
+2. `cargo build -j 4`（embedded 前端产物须已同步进 `frontend-dist/`，见 §2）；
+3. `Start-ScheduledTask stepby-backend-tmp`（任务里不带 env，配置来自 `config.toml` + `.env`，
+   与手工 `EMBEDDED_FRONTEND=true … cargo run` 等价但**不受会话回收**——见 §3.34 进程树级联教训）；
+4. `/health` 探活 200 后**再等 ≥25s** 起跑（§3.55 503 连接风暴教训）；
+5. 全量重跑主套件（分 5 段）+ 受影响域的 deep-e2e。
