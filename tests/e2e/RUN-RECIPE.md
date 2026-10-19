@@ -29,6 +29,17 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 - ⚠️ **漏 `EMBEDDED_FRONTEND=true` 的典型症状**（轮11 实测）：后端退化为"前端分离模式"，`GET /login`
   返回 JSON 404（而非 SPA HTML），e2e 首步即 `locator.fill: Timeout 30000ms`（找 `input[placeholder="账号"]`），
   整套 UI 用例连环假失败——此时先查后端启动命令，而不是改选择器。
+- **跑任何浏览器级验证之前，先核对 :8080 上到底是哪个二进制**（2026-10-19 实测踩中）：恢复期在
+  `C:\stepby-restore\merged` 里编的 debug 服务从 09:12 起一直占着 8080，之后所有打
+  `localhost:8080` 的验证测的都是**另一棵树、上一轮的代码**，而脚本毫无提示。核对命令：
+  ```bash
+  netstat -ano | grep ":8080.*LISTENING"        # 取 PID
+  powershell -NoProfile -Command 'Get-CimInstance Win32_Process -Filter "ProcessId=<PID>" | Select-Object -ExpandProperty ExecutablePath'
+  ```
+  `stepby-axum/start-backend.mjs` 已把这条判据内置：`ALREADY_UP` 分支会比对监听进程镜像路径与
+  `target/debug/stepby-axum.exe`，不一致直接 `[FATAL]` + 退出码 1（确实要连远端/容器服务时加
+  `--allow-remote`）。实测三支：异产物（release exe 占 8080）⇒ EXIT=1；同产物 ⇒
+  `ALREADY_UP（…与本启动器同产物）`；无服务 ⇒ spawn 后 2s `BACKEND_UP`。
 - 其余 feature（除 F24 外）走 vite preview 的 `/prod-api` 代理（→ :8080），同样要求后端在跑。
 - **必须先把「嵌入式构建产物」同步进 `stepby-axum/frontend-dist/`**：
   ```bash
@@ -75,11 +86,15 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
 node main.mjs --headless
 ```
 
-- 不带 `--feature` = 跑全部 75 个功能（约 20 分钟，分段见下）。
-- 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时按
-  `1-20 / 21-40 / 41-75` 三段前台直跑直等，各段回合即得完整汇总，不挂后台。
-- **功能 1-75** 通过 判据（**最新权威基线，2026-09-28 第二十一批实测**）：按 `1-20 / 21-40 / 41-75` 三段跑，
-  实测 `107 + 223 + 445 = **775 通过 / 0 失败**`（三段 EXIT=0，日志无 `❌`；跑前 `/health` = `db UP / redis UP`）。
+- 不带 `--feature` = 跑**全部已注册功能**。总数不在文档里写死：以运行时"注册表自检"那一行为准
+  （b74 起为 `1..144`，且自检钉住"编号连续 + 无重复 + 数量===最大编号"，历史上这里长期写 75、
+  脚本打 142、AGENTS 写 143，三方都不对——见 main.mjs 注册表自检上方的注释）。
+- 选择器：`--feature=54` 单功能；`--feature=1-20,51` 集合（区间+逗号，轮4 新增）——全量超 10 分钟时
+  **按当前注册总数均分三段**前台直跑直等（144 项 ⇒ `1-48 / 49-96 / 97-144`），各段回合即得完整汇总，不挂后台。
+- （**历史口径，功能数还是 75 的 2026-09-28 第二十一批**）按 `1-20 / 21-40 / 41-75` 三段跑，
+  实测 `107 + 223 + 445 = 775 通过 / 0 失败`（三段 EXIT=0，日志无 `❌`；跑前 `/health` = `db UP / redis UP`）。
+  **该 775 不是当前基线**，当时的分段区间也不覆盖 76..144；当前权威总数与分段结果见根仓 `AGENTS.md`
+  的"测试门禁全景"表与最近批次台账。
   第二段告警数由 3 → **0**；第三段 `[-1]` 与第二段的告警归零**同源**，都是第二十一批修掉假入口的直接结果
   （详见下方「计数与告警的变动说明」）。
   （历史基线：第二十批 `107 + 223 + 446 = 776`；第六批 `107 + 223 + 445 = 775`；
@@ -204,6 +219,14 @@ STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
   node main.mjs --headless
   ```
 - `.pw-browsers` 已被根 `.gitignore` 忽略，不入仓库。
+- **但该环境变量会随 playwright 版本失配而失效（2026-10-19 实测）**：`--headless` 起手就报
+  `Executable doesn't exist at D:\Projects\.pw-browsers\chromium_headless_shell-1228\…`——
+  `.pw-browsers` 里只有 `chromium-1234 / chromium_headless_shell-1234`，而 `tests/e2e` 实际解析到的
+  playwright 要的是 **1228**；默认缓存 `%LOCALAPPDATA%\ms-playwright` 同时存有 1223/1228/1234/1248，
+  **去掉这个环境变量即可正常启动**（本轮 e2e 就是这么跑通的）。
+  判据口径：**先读报错里的 `chromium_headless_shell-<N>`，再 `ls` 两处目录核对有没有 `<N>`**，
+  有则用该目录、没有就回落默认缓存或 `npx playwright install chromium` 补装——
+  不要照抄本文任何一处历史路径。上一行的 1234 只是当时的快照。
 
 ### 3.2 WebSocket（/ws）连接说明（P4 修复 + 功能 46 回归）
 

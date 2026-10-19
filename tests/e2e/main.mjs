@@ -243,10 +243,7 @@ async function gotoDynamicRoute(page, url, pathToken) {
     if (page.url().includes(pathToken)) break
   }
   await page.waitForLoadState('load').catch(() => {})
-  if (lastErr)
-    throw new Error(
-      `导航 5 次均未成功（最后异常：${String(lastErr.message).split('\n')[0].slice(0, 90)}）`
-    )
+  if (lastErr) throw new Error(`导航 5 次均未成功（最后异常：${String(lastErr.message).split('\n')[0].slice(0, 90)}）`)
 }
 
 /**
@@ -1292,7 +1289,10 @@ async function testFeature8(page) {
     .then(() => page.locator('button:has-text("搜索")').first().click())
     .then(async () => {
       await sleep(900)
-      const rows = await page.locator('.el-table__row').count().catch(() => 0)
+      const rows = await page
+        .locator('.el-table__row')
+        .count()
+        .catch(() => 0)
       const tag = await page
         .locator('.el-tag:has-text("全局默认")')
         .first()
@@ -1310,7 +1310,11 @@ async function testFeature8(page) {
   )
 
   // 恢复无过滤态（后续 switch/新增按钮断言不依赖过滤结果）
-  await page.locator('button:has-text("重置")').first().click().catch(() => {})
+  await page
+    .locator('button:has-text("重置")')
+    .first()
+    .click()
+    .catch(() => {})
   await sleep(700)
 
   // 验证启用状态 switch 开关存在
@@ -2711,8 +2715,7 @@ async function testFeature17(page) {
 
   // 步骤 5：综合判断
   const backupOk =
-    readFeatureRecord(17, '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）')
-      ?.passed || false
+    readFeatureRecord(17, '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）')?.passed || false
   const adminBackupOk = readFeatureRecord(17, 'admin 备份页可达（对照）')?.passed || false
   const auditOk = readFeatureRecord(17, '审计大屏数据加载')?.passed || false
   const apiOk = readFeatureRecord(17, '审计大屏 API 权限')?.passed || false
@@ -3359,7 +3362,12 @@ async function scimProvisionGroup(displayName) {
     headers: { Authorization: `Bearer ${SCIM_BEARER_TOKEN}`, 'Content-Type': 'application/scim+json' },
     body: JSON.stringify({ schemas: ['urn:ietf:params:scim:schemas:core:2.0:Group'], displayName })
   })
-    .then((r) => r.json().then((b) => ({ status: r.status, body: b })).catch(() => ({ status: r.status, body: null })))
+    .then((r) =>
+      r
+        .json()
+        .then((b) => ({ status: r.status, body: b }))
+        .catch(() => ({ status: r.status, body: null }))
+    )
     .catch(() => null)
 }
 async function scimDeleteGroupByName(displayName) {
@@ -5485,8 +5493,7 @@ async function testFeature26(page) {
     readFeatureRecord(26, 'common_dir 配置（url 前缀 /uploads/0/file/）')?.passed || false,
     readFeatureRecord(26, '非法扩展名 .exe 被拒绝')?.passed || false,
     readFeatureRecord(26, '路径穿越防护 /common/download fileName=..')?.passed || false,
-    readFeatureRecord(26, '路径穿越防护 /common/download/resource resource=..')?.passed ||
-      false,
+    readFeatureRecord(26, '路径穿越防护 /common/download/resource resource=..')?.passed || false,
     readFeatureRecord(26, 'resource 必须以 uploads/ 开头')?.passed || false,
     readFeatureRecord(26, 'POST /system/file/upload 上传')?.passed || false,
     readFeatureRecord(26, 'GET /system/file/list')?.passed || false,
@@ -6100,10 +6107,8 @@ async function testFeature29(page) {
     readFeatureRecord(29, '创建字典类型')?.passed || false,
     readFeatureRecord(29, '创建字典数据（带 dict_label_en）')?.passed || false,
     readFeatureRecord(29, 'GET /dict/data/list 返回 dict_label_en')?.passed || false,
-    readFeatureRecord(29, 'GET /dict/data/type/{dictType} 返回 dict_label_en')?.passed ||
-      false,
-    readFeatureRecord(29, 'GET /dict/data/{dictCode} 详情返回 dict_label_en')?.passed ||
-      false,
+    readFeatureRecord(29, 'GET /dict/data/type/{dictType} 返回 dict_label_en')?.passed || false,
+    readFeatureRecord(29, 'GET /dict/data/{dictCode} 详情返回 dict_label_en')?.passed || false,
     readFeatureRecord(29, 'PUT 修改 dict_label_en 字段')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -6502,17 +6507,14 @@ async function testFeature31(page) {
     readFeatureRecord(31, 'admin 创建备份')?.passed || false,
     readFeatureRecord(31, 'stepby 登录获取 token')?.passed || false,
     readFeatureRecord(31, 'stepby GET /system/backup/list（system:backup:list 平台专属，期望 403）')?.passed || false,
-    readFeatureRecord(31, 'admin GET /system/backup/list（对照，期望 200）')?.passed ||
-      false,
+    readFeatureRecord(31, 'admin GET /system/backup/list（对照，期望 200）')?.passed || false,
     readFeatureRecord(31, 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）')?.passed || false,
-    readFeatureRecord(31, 'admin GET /system/backup/{id}（对照，期望 200）')?.passed ||
-      false,
-    readFeatureRecord(31, 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）')?.passed || false,
-    readFeatureRecord(31, 'admin GET /system/backup/download/{id}（对照，期望 200）')
+    readFeatureRecord(31, 'admin GET /system/backup/{id}（对照，期望 200）')?.passed || false,
+    readFeatureRecord(31, 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）')
       ?.passed || false,
+    readFeatureRecord(31, 'admin GET /system/backup/download/{id}（对照，期望 200）')?.passed || false,
     readFeatureRecord(31, 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）')?.passed || false,
-    readFeatureRecord(31, 'stepby POST /system/backup（system:backup:add 权限隔离）')
-      ?.passed || false
+    readFeatureRecord(31, 'stepby POST /system/backup（system:backup:add 权限隔离）')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -6691,14 +6693,11 @@ async function testFeature32(page) {
   const allChecks = [
     readFeatureRecord(32, 'admin 登录获取 token')?.passed || false,
     readFeatureRecord(32, 'admin GET /operlog/stats 响应结构')?.passed || false,
-    readFeatureRecord(32, 'admin GET /operlog/compliance-report 响应结构')?.passed ||
-      false,
+    readFeatureRecord(32, 'admin GET /operlog/compliance-report 响应结构')?.passed || false,
     readFeatureRecord(32, 'days 参数边界（1/365/1000）')?.passed || false,
     readFeatureRecord(32, 'stepby 登录获取 token')?.passed || false,
-    readFeatureRecord(32, 'stepby GET /operlog/stats（monitor:audit:list）')?.passed ||
-      false,
-    readFeatureRecord(32, 'stepby GET /operlog/compliance-report（monitor:audit:list）')
-      ?.passed || false,
+    readFeatureRecord(32, 'stepby GET /operlog/stats（monitor:audit:list）')?.passed || false,
+    readFeatureRecord(32, 'stepby GET /operlog/compliance-report（monitor:audit:list）')?.passed || false,
     readFeatureRecord(32, '无 token 鉴权 401')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -7744,29 +7743,21 @@ async function testFeature36(page) {
       }
     )
 
-    const shortcutsText = await waitBodyText(
-      '/tool/shortcuts',
-      /快捷键中心|Shortcuts Center/,
-      () => {
-        const body = document.body?.innerText || ''
-        return {
-          hasTitle: body.includes('快捷键中心') || body.includes('Shortcuts Center'),
-          hasGroup: body.includes('全局操作') || body.includes('Global')
-        }
+    const shortcutsText = await waitBodyText('/tool/shortcuts', /快捷键中心|Shortcuts Center/, () => {
+      const body = document.body?.innerText || ''
+      return {
+        hasTitle: body.includes('快捷键中心') || body.includes('Shortcuts Center'),
+        hasGroup: body.includes('全局操作') || body.includes('Global')
       }
-    )
+    })
 
-    const helpText = await waitBodyText(
-      '/tool/help',
-      /帮助中心|Help Center/,
-      () => {
-        const body = document.body?.innerText || ''
-        return {
-          hasTitle: body.includes('帮助中心') || body.includes('Help Center'),
-          hasSection: body.includes('快速上手') || body.includes('Quick Start')
-        }
+    const helpText = await waitBodyText('/tool/help', /帮助中心|Help Center/, () => {
+      const body = document.body?.innerText || ''
+      return {
+        hasTitle: body.includes('帮助中心') || body.includes('Help Center'),
+        hasSection: body.includes('快速上手') || body.includes('Quick Start')
       }
-    )
+    })
 
     const allI18nOk =
       workbenchText.hasGreeting &&
@@ -9446,7 +9437,11 @@ async function testFeature40(page) {
     // "骨架屏常驻遮挡表格"这一真实故障形态；旧写法把后者当 detail 打印、`.catch(()=>true)`
     // 兜成"消失了"，等于永远不检验。读不到状态时记 SKIP（不判过、也不误判失败）。
     if (skeletonGone === null) {
-      recordSkip(40, 'TierB-5 骨架屏实际渲染（loading 期间显示）', '加载完成后骨架屏状态读取失败（页面跳转/DOM 不可用），本轮无法判定')
+      recordSkip(
+        40,
+        'TierB-5 骨架屏实际渲染（loading 期间显示）',
+        '加载完成后骨架屏状态读取失败（页面跳转/DOM 不可用），本轮无法判定'
+      )
     } else {
       record(
         40,
@@ -13346,82 +13341,82 @@ async function testFeature58(page) {
     try {
       await openPage(page, tg.path)
       await page
-      .locator('.el-button:visible')
-      .filter({ hasText: /^\s*新\s*增\s*$/ })
-      .first()
-      .click()
-    const dlg = page.locator('.el-dialog:visible').last()
-    const dlgOk = await dlg
-      .waitFor({ state: 'visible', timeout: 4000 })
-      .then(() => true)
-      .catch(() => false)
-    if (!dlgOk) {
-      record(58, `${tg.name}：新增对话框打开`, false)
-      continue
-    }
-    // 归一化"空提交"：先清空所有可编辑输入（新增对话框会预填 initPassword 弱口令——
-    // 它被规则判错是正确拦截，但会让 errs>空必填数 破坏同源推导；清空后两侧同起点）
-    const editables = dlg.locator(
-      'input:visible:not([type="radio"]):not([type="checkbox"]):not([readonly]), textarea:visible'
-    )
-    const ec = await editables.count()
-    for (let i = 0; i < ec; i++)
-      await editables
-        .nth(i)
-        .fill('', { timeout: 1000 })
-        .catch(() => {})
-    const reqItems = dlg.locator('.el-form-item.is-required')
-    const reqCount = await reqItems.count()
-    let emptyReq = 0
-    for (let i = 0; i < reqCount; i++) {
-      const it = reqItems.nth(i)
-      const checked = await it.locator('input[type="radio"]:checked, input[type="checkbox"]:checked').count()
-      if (checked > 0) continue
-      const v = await it
-        .locator('input, textarea')
+        .locator('.el-button:visible')
+        .filter({ hasText: /^\s*新\s*增\s*$/ })
         .first()
-        .inputValue()
-        .catch(() => '')
-      if (!v.trim()) emptyReq++
-    }
-    let posted = false
-    const reqHandler = (r) => {
-      if (r.method() === 'POST' && r.url().includes(tg.api)) posted = true
-    }
-    page.on('request', reqHandler)
-    await dlg
-      .locator('.el-dialog__footer button')
-      .filter({ hasText: /确\s*定/ })
-      .first()
-      .click()
-    await sleep(700)
-    const errs = await dlg.locator('.el-form-item.is-error').count()
-    const nonReqErrs = await dlg.locator('.el-form-item.is-error:not(.is-required)').count()
-    const stillOpen = await dlg.isVisible().catch(() => false)
-    const t = await page.evaluate(() => ({
-      err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
-      ok: document.querySelectorAll('.el-message--success').length
-    }))
-    page.off('request', reqHandler)
-    record(
-      58,
-      `${tg.name}：空提交逐字段报错数=空必填项数`,
-      errs === emptyReq && emptyReq > 0,
-      `errs=${errs}, emptyReq=${emptyReq}`
-    )
-    record(58, `${tg.name}：错误只落必填项（格式规则不误伤空值）`, nonReqErrs === 0, `nonReq=${nonReqErrs}`)
-    record(
-      58,
-      `${tg.name}：拦截生效——无POST/0Toast/对话框未关`,
-      !posted && t.err === 0 && t.ok === 0 && stillOpen,
-      `posted=${posted}, err=${t.err}, ok=${t.ok}, open=${stillOpen}`
-    )
-    await dlg
-      .locator('.el-dialog__footer button')
-      .filter({ hasText: /取\s*消/ })
-      .first()
-      .click()
-    await sleep(400)
+        .click()
+      const dlg = page.locator('.el-dialog:visible').last()
+      const dlgOk = await dlg
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!dlgOk) {
+        record(58, `${tg.name}：新增对话框打开`, false)
+        continue
+      }
+      // 归一化"空提交"：先清空所有可编辑输入（新增对话框会预填 initPassword 弱口令——
+      // 它被规则判错是正确拦截，但会让 errs>空必填数 破坏同源推导；清空后两侧同起点）
+      const editables = dlg.locator(
+        'input:visible:not([type="radio"]):not([type="checkbox"]):not([readonly]), textarea:visible'
+      )
+      const ec = await editables.count()
+      for (let i = 0; i < ec; i++)
+        await editables
+          .nth(i)
+          .fill('', { timeout: 1000 })
+          .catch(() => {})
+      const reqItems = dlg.locator('.el-form-item.is-required')
+      const reqCount = await reqItems.count()
+      let emptyReq = 0
+      for (let i = 0; i < reqCount; i++) {
+        const it = reqItems.nth(i)
+        const checked = await it.locator('input[type="radio"]:checked, input[type="checkbox"]:checked').count()
+        if (checked > 0) continue
+        const v = await it
+          .locator('input, textarea')
+          .first()
+          .inputValue()
+          .catch(() => '')
+        if (!v.trim()) emptyReq++
+      }
+      let posted = false
+      const reqHandler = (r) => {
+        if (r.method() === 'POST' && r.url().includes(tg.api)) posted = true
+      }
+      page.on('request', reqHandler)
+      await dlg
+        .locator('.el-dialog__footer button')
+        .filter({ hasText: /确\s*定/ })
+        .first()
+        .click()
+      await sleep(700)
+      const errs = await dlg.locator('.el-form-item.is-error').count()
+      const nonReqErrs = await dlg.locator('.el-form-item.is-error:not(.is-required)').count()
+      const stillOpen = await dlg.isVisible().catch(() => false)
+      const t = await page.evaluate(() => ({
+        err: document.querySelectorAll('.el-message--error, .el-message--warning').length,
+        ok: document.querySelectorAll('.el-message--success').length
+      }))
+      page.off('request', reqHandler)
+      record(
+        58,
+        `${tg.name}：空提交逐字段报错数=空必填项数`,
+        errs === emptyReq && emptyReq > 0,
+        `errs=${errs}, emptyReq=${emptyReq}`
+      )
+      record(58, `${tg.name}：错误只落必填项（格式规则不误伤空值）`, nonReqErrs === 0, `nonReq=${nonReqErrs}`)
+      record(
+        58,
+        `${tg.name}：拦截生效——无POST/0Toast/对话框未关`,
+        !posted && t.err === 0 && t.ok === 0 && stillOpen,
+        `posted=${posted}, err=${t.err}, ok=${t.ok}, open=${stillOpen}`
+      )
+      await dlg
+        .locator('.el-dialog__footer button')
+        .filter({ hasText: /取\s*消/ })
+        .first()
+        .click()
+      await sleep(400)
     } catch (err) {
       record(
         58,
@@ -17654,7 +17649,12 @@ async function testFeature75(page) {
         .first()
       optPicked = await targetOpt
         .waitFor({ state: 'visible', timeout: 6000 })
-        .then(() => targetOpt.evaluate((el) => el.click()).then(() => true).catch(() => false))
+        .then(() =>
+          targetOpt
+            .evaluate((el) => el.click())
+            .then(() => true)
+            .catch(() => false)
+        )
         .catch(() => false)
       await sleep(400)
       await dlg2
@@ -17892,9 +17892,7 @@ const RUN_START_ISO = new Date().toISOString()
 async function cleanupRunUploads() {
   if (process.env.E2E_SKIP_CLEANUP === '1') return
   try {
-    const { planCleanup, applyCleanup, fmtMB } = await import(
-      '../../../scripts/lib/cleanup-uploads.mjs'
-    )
+    const { planCleanup, applyCleanup, fmtMB } = await import('../../../scripts/lib/cleanup-uploads.mjs')
     const dir = path.resolve(__dirname, '../../../stepby-axum/uploads')
     if (!fs.existsSync(dir)) return
     const plan = planCleanup(dir, { since: Date.parse(RUN_START_ISO) })
@@ -17903,9 +17901,7 @@ async function cleanupRunUploads() {
       return
     }
     const r = applyCleanup(plan.files, { pruneDirs: true, root: dir })
-    log(
-      `🧹 上传残留清理：已删除 ${r.deleted} 个文件，释放 ${fmtMB(r.freedBytes)}（预跳过 ${plan.skipped} 个应用产物）`
-    )
+    log(`🧹 上传残留清理：已删除 ${r.deleted} 个文件，释放 ${fmtMB(r.freedBytes)}（预跳过 ${plan.skipped} 个应用产物）`)
   } catch (e) {
     log(`  上传残留清理跳过（不影响测试结果）: ${String(e).slice(0, 120)}`)
   }
@@ -18031,10 +18027,7 @@ async function cleanupE2eResidue() {
       // 批六十五：passkeys（WebAuthn）e2e 残留治理——F106① 现走**真实注册成功链**
       // （CDP 虚拟认证器 → registerFinish 200），每轮会落 sys_user_credential 一行；
       // 注册名统一 e2e 前缀（e2e-pk-*），物理清除（凭据行无软删语义，直接 DELETE）。
-      [
-        'user_credential_e2e',
-        "DELETE FROM sys_user_credential WHERE name LIKE 'e2e%' OR name LIKE 'probe%'"
-      ],
+      ['user_credential_e2e', "DELETE FROM sys_user_credential WHERE name LIKE 'e2e%' OR name LIKE 'probe%'"],
       // 批七十三轮 15：软删 e2e 账号残留物理清扫（`scripts/db_state_audit.py` 回库实证：
       // del_flag='2' 的 `e2e_ui_*_deleted_*` 长期留存，且 sys_logininfor / sys_user_role /
       // sys_audit_change 对其引用均为 0 ⇒ 属可安全物理清除的测试垃圾，而非审计引用保留）。
@@ -18060,10 +18053,7 @@ async function cleanupE2eResidue() {
         `DELETE FROM sys_pat WHERE user_id IN (
            SELECT user_id FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2')`
       ],
-      [
-        'user_softdel_e2e',
-        "DELETE FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2'"
-      ],
+      ['user_softdel_e2e', "DELETE FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2'"],
       // 批七十四 B1：sys_data_rule 残留（回库实测 158 行 = 1 行在册业务数据 + 157 行 e2e 残留，
       // 命名族 e2e-rolereflect-* 91 行 / e2e-132-dr-* 66 行）。既有 12 张表的清理**不含本表**
       // ⇒ 单条用例的 `DELETE /system/dataRule/{id}` 一旦失败即成永久孤儿，每轮全量继续累积。
@@ -18342,7 +18332,9 @@ async function main() {
   }
 
   log('==========================================')
-  log('stepby 端到端主测试脚本（142 个功能）')
+  // 这里**不写功能总数**：历史上本行长期写 142、而 AGENTS/TESTING 写 143，注册表自检跑出来
+  // 才是真值（b74 定案）。总数只在"注册表自检"那条记录里以 `features.length` 现算现打。
+  log('stepby 端到端主测试脚本（功能总数见"注册表自检"一行）')
   log('==========================================')
   log(
     `配置: headless=${CONFIG.headless}, featureFilter=${CONFIG.featureFilter ? [...CONFIG.featureFilter].join(',') : '全部'}`
@@ -18695,10 +18687,7 @@ async function main() {
     const hubOtherConsoleErrs = captureHub.consoleErrs.filter((e) => !String(e).startsWith('[pageerror]'))
     // hub 镜像噪声分类（与主通道 EXT_NOISE_RE 同口径 + Playwright 阻断 SW）：
     // 环境噪声只计数，「未分类」条目才是双源交叉要盯的真信号（进报告供轮间对账）。
-    const HUB_NOISE_RE = new RegExp(
-      `${EXT_NOISE_RE.source}|Service Worker registration blocked by Playwright`,
-      'i'
-    )
+    const HUB_NOISE_RE = new RegExp(`${EXT_NOISE_RE.source}|Service Worker registration blocked by Playwright`, 'i')
     const hubNoiseErrs = hubOtherConsoleErrs.filter((e) => HUB_NOISE_RE.test(String(e)))
     const hubUnclassifiedErrs = hubOtherConsoleErrs.filter((e) => !HUB_NOISE_RE.test(String(e)))
     // 可疑 Toast：命中失败/错误/异常/超时/无权限语义（负路径用例的预期反馈也会入列——
@@ -18719,7 +18708,9 @@ async function main() {
     }
     if (suspiciousToasts.length > 0) {
       log('------------------------------------------')
-      log(`💬 可疑反馈 Toast（命中失败/错误/异常语义，共 ${suspiciousToasts.length} 条，聚合 ${new Set(suspiciousToasts).size} 型）:`)
+      log(
+        `💬 可疑反馈 Toast（命中失败/错误/异常语义，共 ${suspiciousToasts.length} 条，聚合 ${new Set(suspiciousToasts).size} 型）:`
+      )
       const aggToast = new Map()
       for (const t of suspiciousToasts) aggToast.set(t, (aggToast.get(t) || 0) + 1)
       for (const [t, n] of [...aggToast].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
@@ -22954,22 +22945,33 @@ async function testFeature106(page) {
         await cdp.send('WebAuthn.enable').catch(() => {})
         await cdp
           .send('WebAuthn.addVirtualAuthenticator', {
-            options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true }
+            options: {
+              protocol: 'ctap2',
+              transport: 'internal',
+              hasResidentKey: true,
+              hasUserVerification: true,
+              isUserVerified: true,
+              automaticPresenceSimulation: true
+            }
           })
           .catch(() => {})
         const passkeyName = `e2e-pk-${Date.now().toString(36)}`
-        const beforeCount = await page.evaluate(() => document.querySelectorAll('.passkey-item, [class*="passkey"] .el-card').length).catch(() => 0)
+        const beforeCount = await page
+          .evaluate(() => document.querySelectorAll('.passkey-item, [class*="passkey"] .el-card').length)
+          .catch(() => 0)
         await addBtn.click()
         const dlg = page.locator('.el-dialog:visible').last()
         await dlg.waitFor({ state: 'visible', timeout: 4000 })
-        await dlg
-          .locator('input')
-          .first()
-          .fill(passkeyName)
+        await dlg.locator('input').first().fill(passkeyName)
         const regPromise = page
           // 批六十四循环轮 13 补：真实端点为 /system/user/webauthn/register/*（不含
           // "passkey" 字样）——旧 includes('passkey') 永不匹配（reg=n/a 实证）
-          .waitForResponse((r) => r.url().includes('/system/user/webauthn/') && (r.request().method() === 'POST' || r.request().method() === 'PUT'), { timeout: 20000 })
+          .waitForResponse(
+            (r) =>
+              r.url().includes('/system/user/webauthn/') &&
+              (r.request().method() === 'POST' || r.request().method() === 'PUT'),
+            { timeout: 20000 }
+          )
           .then((r) => ({ status: r.status() }))
           .catch(() => null)
         await dlg
@@ -22993,7 +22995,9 @@ async function testFeature106(page) {
               .then(() => true)
               .catch(() => false)
         await page.waitForTimeout(1200)
-        const afterCount = await page.evaluate(() => document.querySelectorAll('.passkey-item, [class*="passkey"] .el-card').length).catch(() => 0)
+        const afterCount = await page
+          .evaluate(() => document.querySelectorAll('.passkey-item, [class*="passkey"] .el-card').length)
+          .catch(() => 0)
         // 批六十四质量工程：成功链（registerFinish 200/列表新增/成功 Toast）或
         // 失败反馈链（错误 Toast——.catch 语义）均为有效覆盖。
         // ⚠️ 当前实测：虚拟认证器下 finish 400「WebAuthn 响应无效」= 后端缺陷
@@ -23307,21 +23311,21 @@ async function testFeature106(page) {
             .catch(() => null)
           if (setup?.data?.secret) {
             activationSecret = setup.data.secret
-          for (let attempt = 0; attempt < 3 && !activated; attempt++) {
-            const code = generateTotp(activationSecret)
-            const verify = await fetch(`${CONFIG.backendUrl}/system/user/totp/verify`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...authHeaders },
-              body: JSON.stringify({ code, secret: activationSecret })
-            })
-              .then((r) => r.json())
-              .catch(() => null)
-            activated = verify?.code === 200
-            if (!activated) {
-              log(`  F106④ verify attempt${attempt}: ${JSON.stringify(verify).slice(0, 120)}`)
-              await sleep(2000)
+            for (let attempt = 0; attempt < 3 && !activated; attempt++) {
+              const code = generateTotp(activationSecret)
+              const verify = await fetch(`${CONFIG.backendUrl}/system/user/totp/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
+                body: JSON.stringify({ code, secret: activationSecret })
+              })
+                .then((r) => r.json())
+                .catch(() => null)
+              activated = verify?.code === 200
+              if (!activated) {
+                log(`  F106④ verify attempt${attempt}: ${JSON.stringify(verify).slice(0, 120)}`)
+                await sleep(2000)
+              }
             }
-          }
           }
         } catch (err) {
           log(`  F106④ 启用链异常: ${err.message.slice(0, 80)}`)
@@ -23356,7 +23360,12 @@ async function testFeature106(page) {
             .waitFor({ state: 'visible', timeout: 4000 })
             .then(() => true)
             .catch(() => false)
-          record(106, '④-pre totp：按钮点击与表单切换', btnVisible && formShown2, `btn=${btnVisible}, form=${formShown2}`)
+          record(
+            106,
+            '④-pre totp：按钮点击与表单切换',
+            btnVisible && formShown2,
+            `btn=${btnVisible}, form=${formShown2}`
+          )
           // 取消 → 回到已启用态（断言后不真正解绑）
           const cancelBtn2 = page.getByRole('button', { name: /取消/ }).first()
           if (formShown2 && (await cancelBtn2.isVisible().catch(() => false))) {
@@ -24424,7 +24433,12 @@ async function testFeature118(page) {
       const created = await scimProvisionGroup(groupName)
       if (created?.status === 201 && created.body?.id) {
         scimE2eGroupName = groupName
-        record(118, '② 前置 SCIM provisioning 建组', created?.status === 201 && !!created.body?.id, `id=${created.body.id}, name=${groupName}`)
+        record(
+          118,
+          '② 前置 SCIM provisioning 建组',
+          created?.status === 201 && !!created.body?.id,
+          `id=${created.body.id}, name=${groupName}`
+        )
       } else {
         record(118, '② 前置 SCIM provisioning 建组', false, `status=${created?.status}`)
       }
@@ -27048,7 +27062,10 @@ async function _visible(loc, timeout = 5000) {
 
 /** 通用：overlay-safe 点击（.evaluate 原生 click 穿透遮罩） */
 async function _click(loc) {
-  await loc.first().evaluate((el) => el.click()).catch(() => {})
+  await loc
+    .first()
+    .evaluate((el) => el.click())
+    .catch(() => {})
 }
 
 /** 功能 136：运行监控页（慢请求/错误聚合 + 共享态档位判定） */
@@ -27063,12 +27080,18 @@ async function testFeature136(page) {
   const tabErr = await _visible(page.getByRole('tab', { name: '错误聚合' }))
   record(136, '② 页签渲染（慢请求 / 错误聚合）', tabSlow && tabErr, `slow=${tabSlow}, error=${tabErr}`)
 
-  const labels = await page.locator('.stat-label').allInnerTexts().catch(() => [])
+  const labels = await page
+    .locator('.stat-label')
+    .allInnerTexts()
+    .catch(() => [])
   const hasSlow = labels.some((x) => x.includes('慢请求数'))
   const hasErr = labels.some((x) => x.includes('错误总数'))
   record(136, '③ 统计卡渲染（慢请求数 + 错误总数）', hasSlow && hasErr, `labels=${labels.join(' / ')}`)
 
-  const rows = await page.locator('.el-table__body tr').count().catch(() => 0)
+  const rows = await page
+    .locator('.el-table__body tr')
+    .count()
+    .catch(() => 0)
   record(136, '④ 慢请求表格渲染（有行）', rows > 0, `rows=${rows}`)
 
   // 注意：顶栏（TagsView）也有一个 role=button 的「刷新」（tab.refreshPage）——必须限定在
@@ -27133,13 +27156,21 @@ async function testFeature137(page) {
   if (!ok) return
   await dismissAllOverlays(page)
 
-  const rows = await page.locator('.el-table__body tr').count().catch(() => 0)
+  const rows = await page
+    .locator('.el-table__body tr')
+    .count()
+    .catch(() => 0)
   record(137, '② 列表渲染（有行）', rows > 0, `rows=${rows}`)
 
   const search = await _visible(page.getByRole('button', { name: '搜索' }))
   const reset = await _visible(page.getByRole('button', { name: '重置' }))
   const exp = await _visible(page.getByRole('button', { name: '导出' }))
-  record(137, '③ 工具栏按钮（搜索/重置/导出）', search && reset && exp, `search=${search}, reset=${reset}, export=${exp}`)
+  record(
+    137,
+    '③ 工具栏按钮（搜索/重置/导出）',
+    search && reset && exp,
+    `search=${search}, reset=${reset}, export=${exp}`
+  )
 
   // ④ 搜索过滤：不存在的表名 → 0 行
   const input = page.locator('input[placeholder="请输入被变更的表名"]').first()
@@ -27149,13 +27180,18 @@ async function testFeature137(page) {
     // 作为"过滤真的下发"的取证，再核对 0 行。
     const needle = 'zzz_no_such_table_e2e137'
     const pFiltered = page
-      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && r.url().includes(needle), { timeout: 8000 })
+      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && r.url().includes(needle), {
+        timeout: 8000
+      })
       .catch(() => null)
     await input.fill(needle)
     await _click(page.getByRole('button', { name: '搜索' }))
     const rf = await pFiltered
     await sleep(600)
-    const filtered = await page.locator('.el-table__body tr').count().catch(() => 0)
+    const filtered = await page
+      .locator('.el-table__body tr')
+      .count()
+      .catch(() => 0)
     record(
       137,
       '④ 搜索过滤生效（不存在的表名 → 0 行）',
@@ -27164,14 +27200,19 @@ async function testFeature137(page) {
     )
     // ⑤ 重置恢复：等待**不带过滤值**的列表请求（resetFields→handleQuery 的取证）+ 行数还原
     const pReset = page
-      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && !r.url().includes(needle), { timeout: 8000 })
+      .waitForResponse((r) => r.url().includes('/system/audit-change/list') && !r.url().includes(needle), {
+        timeout: 8000
+      })
       .catch(() => null)
     await _click(page.getByRole('button', { name: '重置' }))
     const rr = await pReset
     let back = 0
     for (let i = 0; i < 10; i++) {
       await sleep(500)
-      back = await page.locator('.el-table__body tr').count().catch(() => 0)
+      back = await page
+        .locator('.el-table__body tr')
+        .count()
+        .catch(() => 0)
       if (back > 0) break
     }
     record(137, '⑤ 重置恢复（行数还原 > 0）', back > 0 && !!rr, `resetReq=${rr ? 'OK' : '未捕获'}, rows=${back}`)
@@ -27191,14 +27232,22 @@ async function testFeature137(page) {
     await _click(page.locator('.app-container').first().getByRole('button', { name: '导出' }))
   }
   const resp = await respP
-  record(137, '⑥ 导出接口 200（/system/audit-change/export）', !!resp, resp ? `status=${resp.status()}` : `未捕获 200 响应（exportReady=${exportReady}）`)
+  record(
+    137,
+    '⑥ 导出接口 200（/system/audit-change/export）',
+    !!resp,
+    resp ? `status=${resp.status()}` : `未捕获 200 响应（exportReady=${exportReady}）`
+  )
 
   // ⑦ 展开行 → 变更明细渲染
   const expander = page.locator('.el-table__expand-icon').first()
   if (await _visible(expander, 4000)) {
     await _click(expander)
     await sleep(700)
-    const detail = await page.locator('.el-table__expanded-cell').count().catch(() => 0)
+    const detail = await page
+      .locator('.el-table__expanded-cell')
+      .count()
+      .catch(() => 0)
     record(137, '⑦ 展开行 → 变更明细渲染', detail > 0, `expandedCells=${detail}`)
   } else {
     record(137, '⑦ 展开行 → 变更明细渲染', false, '无展开图标')
@@ -27219,9 +27268,17 @@ async function testFeature138(page) {
   const tip = await _visible(page.locator('.el-alert__title').filter({ hasText: '自建导航只能调整' }))
   record(138, '③ 功能说明提示渲染（自建导航只能调整…）', tip)
 
-  const selCount = await page.locator('.el-select').count().catch(() => 0)
+  const selCount = await page
+    .locator('.el-select')
+    .count()
+    .catch(() => 0)
   const selfAlert = await _visible(page.locator('.el-alert__title').filter({ hasText: '本页为租户自助功能' }))
-  record(138, '④ 平台操作者态（目标租户选择器 + 自助说明告警）', selCount > 0 && selfAlert, `selects=${selCount}, alert=${selfAlert}`)
+  record(
+    138,
+    '④ 平台操作者态（目标租户选择器 + 自助说明告警）',
+    selCount > 0 && selfAlert,
+    `selects=${selCount}, alert=${selfAlert}`
+  )
 
   const token = await sessionTokenOf(page)
   const r = await apiWithBackoff('/system/tenant/menu/list?pageNum=1&pageSize=10', {
@@ -27244,13 +27301,25 @@ async function testFeature139(page) {
   const selfAlert = await _visible(page.locator('.el-alert__title').filter({ hasText: '本页为租户自助功能' }))
   record(139, '③ 平台态提示告警渲染', selfAlert)
 
-  const selCount = await page.locator('.el-select').count().catch(() => 0)
+  const selCount = await page
+    .locator('.el-select')
+    .count()
+    .catch(() => 0)
   record(139, '④ 目标租户选择器渲染', selCount > 0, `selects=${selCount}`)
 
   // ⑤ 平台未选租户 → 空态「暂无数据」（租户选择器无选项时）
   const empty = await _visible(page.locator('.el-empty__description').filter({ hasText: '暂无数据' }), 4000)
-  const panelAbsent = (await page.locator('table').count().catch(() => 0)) === 0
-  record(139, '⑤ 未选租户 → 空态且域名面板未渲染（防脏数据）', empty && panelAbsent, `empty=${empty}, tables=${panelAbsent ? 0 : '>0'}`)
+  const panelAbsent =
+    (await page
+      .locator('table')
+      .count()
+      .catch(() => 0)) === 0
+  record(
+    139,
+    '⑤ 未选租户 → 空态且域名面板未渲染（防脏数据）',
+    empty && panelAbsent,
+    `empty=${empty}, tables=${panelAbsent ? 0 : '>0'}`
+  )
 
   const token = await sessionTokenOf(page)
   const r = await apiWithBackoff('/system/tenant/domain/list?pageNum=1&pageSize=10', {
@@ -27271,7 +27340,11 @@ async function testFeature140(page) {
   const refreshBtn = await _visible(page.getByRole('button', { name: '刷新数据' }))
   // 删除看板按钮是 `v-if="activeBoard"`（未选中看板时不渲染——应用真实门控行为）。
   // 反向锁定：未选中时**必须不渲染**（若渲染 = 门控退化假入口）；选中后出现并入④断言。
-  const delBtnPresent = (await page.getByRole('button', { name: '删除看板' }).count().catch(() => 0)) > 0
+  const delBtnPresent =
+    (await page
+      .getByRole('button', { name: '删除看板' })
+      .count()
+      .catch(() => 0)) > 0
   record(
     140,
     '② 工具栏按钮（新建/刷新在位；未选中看板时删除按钮不渲染=门控锁）',
@@ -27300,7 +27373,11 @@ async function testFeature140(page) {
   const rows = list.body?.data || list.body?.rows || []
   const created = Array.isArray(rows) ? rows.find((b) => (b.name || b.boardName) === boardName) : null
   // 新建成功即选中（activeBoard 置位）→ `v-if="activeBoard"` 门控的删除按钮此时应出现
-  const delBtnAfter = (await page.getByRole('button', { name: '删除看板' }).count().catch(() => 0)) > 0
+  const delBtnAfter =
+    (await page
+      .getByRole('button', { name: '删除看板' })
+      .count()
+      .catch(() => 0)) > 0
   record(
     140,
     '④ 新建看板落库（API 复核命中 + 删除按钮随选中出现）',
@@ -27337,7 +27414,10 @@ async function testFeature141(page) {
     4000
   )
   // el-upload 的 file input 按设计 display:none（由触发器按钮代劳点击），判存在不判可见
-  const fileInputCount = await page.locator('.el-upload input[type="file"]').count().catch(() => 0)
+  const fileInputCount = await page
+    .locator('.el-upload input[type="file"]')
+    .count()
+    .catch(() => 0)
   record(
     141,
     '② 工具栏/搜索表单/上传入口渲染',
@@ -27371,9 +27451,7 @@ async function testFeature141(page) {
         buffer: Buffer.from(`e2e141 file upload ${stamp}\n`)
       })
     // 成功 toast（waitFor 优先于 sleep；toast 约数秒自消，轮询捕获）
-    await page
-      .waitForFunction(() => document.body.innerText.includes('上传成功'), { timeout: 10000 })
-      .catch(() => {})
+    await page.waitForFunction(() => document.body.innerText.includes('上传成功'), { timeout: 10000 }).catch(() => {})
     const token = await sessionTokenOf(page)
     const list = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=50', {
       headers: { Authorization: `Bearer ${token}` }
@@ -27397,7 +27475,10 @@ async function testFeature141(page) {
     try {
       const row = page.locator('.el-table__row').filter({ hasText: uploadedName }).first()
       if (await _visible(row, 5000)) {
-        await row.getByRole('button', { name: '删除' }).click().catch(() => {})
+        await row
+          .getByRole('button', { name: '删除' })
+          .click()
+          .catch(() => {})
         await _click(page.locator('.el-message-box__btns button.el-button--primary'))
         await page
           .waitForFunction((n) => !document.body.innerText.includes(n), uploadedName, { timeout: 8000 })
@@ -27451,16 +27532,19 @@ async function testFeature142(page) {
     await page.goto(`${CONFIG.frontendUrl}/redirect//evil.example.com`, { waitUntil: 'load' }).catch(() => {})
     const notEvil = await page
       .waitForFunction(
-        () =>
-          !location.hostname.includes('evil.example.com') &&
-          !location.pathname.includes('evil.example.com'),
+        () => !location.hostname.includes('evil.example.com') && !location.pathname.includes('evil.example.com'),
         { timeout: 8000 }
       )
       .then(() => true)
       .catch(() => false)
     const finalUrl = page.url()
     const local = finalUrl.startsWith('http://localhost:8080') || finalUrl.startsWith('http://127.0.0.1:8080')
-    record(142, '② 开放重定向防护（//evil.example.com 不回跳外域）', notEvil && local, `finalUrl=${finalUrl.slice(0, 80)}`)
+    record(
+      142,
+      '② 开放重定向防护（//evil.example.com 不回跳外域）',
+      notEvil && local,
+      `finalUrl=${finalUrl.slice(0, 80)}`
+    )
     await skipTour(page).catch(() => {})
   } catch (err) {
     record(142, '② 开放重定向防护', false, `异常: ${err.message.slice(0, 100)}`)
@@ -27554,7 +27638,9 @@ async function testFeature143(page) {
     143,
     '③ 敏感档打满返回 429',
     !!hit429,
-    hit429 ? `第 ${hit429.at} 次触发，状态序列=${seen.join(',')}` : `14 次未触发（桶容量/速率与档位预期不符）序列=${seen.join(',')}`
+    hit429
+      ? `第 ${hit429.at} 次触发，状态序列=${seen.join(',')}`
+      : `14 次未触发（桶容量/速率与档位预期不符）序列=${seen.join(',')}`
   )
   record(
     143,
@@ -27632,11 +27718,17 @@ async function testFeature144(page) {
     const nameRows = page.locator('.el-table').first().locator('tr.el-table__row')
     const nameCount = await nameRows.count().catch(() => 0)
     if (nameCount > 0) {
-      await nameRows.first().click().catch(() => {})
+      await nameRows
+        .first()
+        .click()
+        .catch(() => {})
       await sleep(1800)
       const keyRows = page.locator('.el-table').nth(1).locator('tr.el-table__row')
       if ((await keyRows.count().catch(() => 0)) > 0) {
-        await keyRows.first().click().catch(() => {})
+        await keyRows
+          .first()
+          .click()
+          .catch(() => {})
         await sleep(1800)
       }
     }
@@ -27797,7 +27889,9 @@ async function testFeature144(page) {
     144,
     '⑦ 回调页无 URIError 未捕获异常',
     uriErr.length === 0,
-    uriErr.length ? `未捕获解码异常 ${uriErr.length} 条：${uriErr[0].slice(0, 90)}` : `页面异常总数=${pageErrors.length}（无解码类）`
+    uriErr.length
+      ? `未捕获解码异常 ${uriErr.length} 条：${uriErr[0].slice(0, 90)}`
+      : `页面异常总数=${pageErrors.length}（无解码类）`
   )
 
   // ---------- ⑧⑨⑩ 页签回落：判据取"已渲染集合"，不依赖本环境开了哪几个能力位 ----------
@@ -27807,7 +27901,11 @@ async function testFeature144(page) {
   })
   const ib = info.body ?? {}
   const show = (k) => ib[k] === true
-  const gated = [['passkeys', 'showPasskey'], ['ssoGrants', 'showSsoGrants'], ['pat', 'showPat']]
+  const gated = [
+    ['passkeys', 'showPasskey'],
+    ['ssoGrants', 'showSsoGrants'],
+    ['pat', 'showPat']
+  ]
   const closedCount = gated.filter(([, flag]) => !show(flag)).length
 
   // ⑧ 未知页签名必须回落（**任何**环境都可执行——不依赖能力位档位）
@@ -27832,7 +27930,10 @@ async function testFeature144(page) {
   )
 
   // ⑨ 已渲染页签数必须等于"全集 8 − 能力位关闭数"（剪枝真实发生，且没有多剪）
-  const tabCount = await page.locator('[role="tab"]').count().catch(() => -1)
+  const tabCount = await page
+    .locator('[role="tab"]')
+    .count()
+    .catch(() => -1)
   record(
     144,
     '⑨ 渲染页签数与能力位下发一致',
@@ -27940,9 +28041,7 @@ async function testFeature117(page) {
         .waitFor({ state: 'visible', timeout: 3000 })
         .then(() => true)
         .catch(() => false)
-      const bodyLen = await page
-        .evaluate(() => document.body.innerText.trim().length)
-        .catch(() => 0)
+      const bodyLen = await page.evaluate(() => document.body.innerText.trim().length).catch(() => 0)
       record(117, `② ${c.name} 畸形深链页面落确定态`, shell && bodyLen > 0, `shell=${shell}, 正文长度=${bodyLen}`)
     } catch (err) {
       record(117, `② ${c.name} 畸形深链页面落确定态`, false, `异常: ${err.message.slice(0, 100)}`)
