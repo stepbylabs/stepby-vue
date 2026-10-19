@@ -33,12 +33,7 @@ import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { runMain } from './e2e/run/runner.mjs'
 import { createCaptureHub } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
-import {
-  readCaptchaCodeFromRedis,
-  capturePageCaptcha,
-  fillCaptchaOnPage,
-  fetchCaptchaForApi
-} from './e2e/run/auth.mjs'
+import { readCaptchaCodeFromRedis, capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi } from './e2e/run/auth.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -118,7 +113,10 @@ for (let i = 2; i < process.argv.length; i++) {
     i++
   } else if (arg.startsWith('--range=')) {
     // 支持 --range=67-75 过滤模块范围；单数字 --range=84 等价于 --range=84-84
-    const parts = arg.split('=')[1].split('-').map((n) => parseInt(n, 10))
+    const parts = arg
+      .split('=')[1]
+      .split('-')
+      .map((n) => parseInt(n, 10))
     const start = parts[0]
     const end = parts[1] ?? start
     CONFIG.featureRange = { start, end }
@@ -236,12 +234,7 @@ function recordSoft(module, name, cond, passDetail = '', skipDetail = '元素未
 async function assertPageLoaded(page, module, name, extra = '') {
   const v = await page.evaluate(PAGE_STATE_PROBE).catch(() => null)
   if (!v) {
-    record(
-      module,
-      `${name}（确定态对账）`,
-      false,
-      `⟵ 断言工具异常（evaluate 失败），非产品问题：${extra}`
-    )
+    record(module, `${name}（确定态对账）`, false, `⟵ 断言工具异常（evaluate 失败），非产品问题：${extra}`)
     return false
   }
   const verdict = judgePageLoaded(v)
@@ -280,7 +273,12 @@ async function assertErrorPageRendered(page, module, name, containerSel, extra =
     }, containerSel)
     .catch(() => null)
   if (!v) {
-    record(module, `${name}（错误视图对账）`, false, `⟵ 断言工具异常（evaluate 失败），非产品问题${extra ? `, ${extra}` : ''}`)
+    record(
+      module,
+      `${name}（错误视图对账）`,
+      false,
+      `⟵ 断言工具异常（evaluate 失败），非产品问题${extra ? `, ${extra}` : ''}`
+    )
     return false
   }
   const ok = v.found && v.text > 0 && v.msg === 0
@@ -405,7 +403,12 @@ async function verifySearchWorks(page, { term, col, listHint, searchBtn = 'butto
   })
 
   const input = page.locator('.query-form input, .el-form--inline input').first()
-  if (!(await input.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) {
+  if (
+    !(await input
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false))
+  ) {
     return snap({ why: '搜索输入框不可见' })
   }
   await input.fill(term)
@@ -426,7 +429,8 @@ async function verifySearchWorks(page, { term, col, listHint, searchBtn = 'butto
     resp
       .json()
       .then((body) => {
-        const rows = body && Array.isArray(body.rows) ? body.rows : Array.isArray(body?.data?.rows) ? body.data.rows : null
+        const rows =
+          body && Array.isArray(body.rows) ? body.rows : Array.isArray(body?.data?.rows) ? body.data.rows : null
         if (rows) watch.serverRows = rows.length
       })
       .catch(() => {})
@@ -481,9 +485,11 @@ async function verifySearchWorks(page, { term, col, listHint, searchBtn = 'butto
     let why = ''
     if (!watch.requested) why = '点击搜索后本页 list 接口未被调用（搜索未接线或点到了别的按钮）'
     else if (watch.status >= 400) why = `list 请求返回 ${watch.status}`
-    else if (!renders) why = `渲染行数与响应不符（DOM ${state.rows} 行 vs 响应 ${watch.serverRows} 行，empty=${state.emptyBlock} errToast=${state.errorToast}）`
+    else if (!renders)
+      why = `渲染行数与响应不符（DOM ${state.rows} 行 vs 响应 ${watch.serverRows} 行，empty=${state.emptyBlock} errToast=${state.errorToast}）`
     else if (state.rows === 0) why = '按首行真实值搜索却 0 命中（列序错位或后端 LIKE 失效）'
-    else if (!allMatch) why = `命中口径不符：${hit.matched}/${hit.total} 行含关键词（首行该列=${JSON.stringify(hit.first.slice(0, 24))}）`
+    else if (!allMatch)
+      why = `命中口径不符：${hit.matched}/${hit.total} 行含关键词（首行该列=${JSON.stringify(hit.first.slice(0, 24))}）`
     else if (!notWidened) why = `结果被放大：基线 ${before} 行 → ${state.rows} 行`
     return snap({
       clicked,
@@ -622,29 +628,33 @@ async function verifyListLoaded(page, { listHint, trigger, activate, minRows = 0
   // 故剥掉伪类后改用"有无布局矩形"等价判定可见。
   const scopedState = async () => {
     if (!container) return await readListState(page)
-    return page
-      .evaluate((c) => {
-        const norm = c.replace(/:visible/g, '')
-        const hosts = Array.from(document.querySelectorAll(norm)).filter((n) => n.getClientRects().length > 0)
-        const table = hosts.map((h) => h.querySelector('.el-table')).find(Boolean)
-        const rows = table ? table.querySelectorAll('.el-table__body .el-table__row').length : -1
-        return {
-          hasTable: !!table,
-          rows,
-          emptyBlock: !!table && !!table.querySelector('.el-table__empty-block, .el-table__empty-text'),
-          errorToast: document.querySelectorAll('.el-message--error, .el-notification--error').length
-        }
-      }, container)
-      // 限域统计本身出错（选择器写错 / evaluate 传参漏了）必须**显式暴露**，
-      // 否则 helper 静默返回兜底对象会被读成"产品表格未落定"，把断言工具的缺陷算到被测系统头上。
-      .catch((e) => ({
-        hasTable: false,
-        rows: -1,
-        emptyBlock: false,
-        errorToast: -1,
-        evalError: String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 90)
-      }))
-      .then((s) => ({ ...s, settled: s.hasTable && (s.rows > 0 || s.emptyBlock) && s.errorToast === 0 }))
+    return (
+      page
+        .evaluate((c) => {
+          const norm = c.replace(/:visible/g, '')
+          const hosts = Array.from(document.querySelectorAll(norm)).filter((n) => n.getClientRects().length > 0)
+          const table = hosts.map((h) => h.querySelector('.el-table')).find(Boolean)
+          const rows = table ? table.querySelectorAll('.el-table__body .el-table__row').length : -1
+          return {
+            hasTable: !!table,
+            rows,
+            emptyBlock: !!table && !!table.querySelector('.el-table__empty-block, .el-table__empty-text'),
+            errorToast: document.querySelectorAll('.el-message--error, .el-notification--error').length
+          }
+        }, container)
+        // 限域统计本身出错（选择器写错 / evaluate 传参漏了）必须**显式暴露**，
+        // 否则 helper 静默返回兜底对象会被读成"产品表格未落定"，把断言工具的缺陷算到被测系统头上。
+        .catch((e) => ({
+          hasTable: false,
+          rows: -1,
+          emptyBlock: false,
+          errorToast: -1,
+          evalError: String((e && e.message) || e)
+            .replace(/\s+/g, ' ')
+            .slice(0, 90)
+        }))
+        .then((s) => ({ ...s, settled: s.hasTable && (s.rows > 0 || s.emptyBlock) && s.errorToast === 0 }))
+    )
   }
 
   page.on('response', handler)
@@ -687,7 +697,15 @@ async function verifyListLoaded(page, { listHint, trigger, activate, minRows = 0
         (state.evalError ? ` ⟵ 断言工具异常，非产品问题：${state.evalError}` : '')
     else if (!renders) why = `DOM 与响应不一致：响应 ${watch.serverRows} 行 → DOM ${state.rows} 行`
     else if (!enough) why = `业务上应 ≥${minRows} 行，实际 ${state.rows} 行`
-    return { ...watch, domRows: state.rows, state, pass, why, url: watch.url.split('?')[0], query: watch.url.split('?')[1] || '' }
+    return {
+      ...watch,
+      domRows: state.rows,
+      state,
+      pass,
+      why,
+      url: watch.url.split('?')[0],
+      query: watch.url.split('?')[1] || ''
+    }
   } finally {
     page.off('response', handler)
   }
@@ -741,14 +759,17 @@ function orderCheck(vals, dir) {
 
 async function readCardMatching(page, keyword) {
   return page
-    .evaluate((re) => {
-      const rx = new RegExp(re.source, re.flags)
-      const texts = Array.from(document.querySelectorAll('.el-card'))
-        .filter((c) => c.getClientRects().length > 0)
-        .map((c) => (c.innerText || '').replace(/\s+/g, ' ').trim())
-        .filter((tx) => rx.test(tx))
-      return { count: texts.length, hit: (texts.find((tx) => /\d/.test(tx)) || '').slice(0, 90) }
-    }, { source: keyword.source, flags: keyword.flags })
+    .evaluate(
+      (re) => {
+        const rx = new RegExp(re.source, re.flags)
+        const texts = Array.from(document.querySelectorAll('.el-card'))
+          .filter((c) => c.getClientRects().length > 0)
+          .map((c) => (c.innerText || '').replace(/\s+/g, ' ').trim())
+          .filter((tx) => rx.test(tx))
+        return { count: texts.length, hit: (texts.find((tx) => /\d/.test(tx)) || '').slice(0, 90) }
+      },
+      { source: keyword.source, flags: keyword.flags }
+    )
     .catch(() => ({ count: -1, hit: '' }))
 }
 
@@ -856,7 +877,9 @@ async function verifyLoginFeatureFlags(page, frontendUrl) {
     const dom = await page
       .evaluate(() => ({
         hasImage: !!document.querySelector('.login-code img[src^="data:image"], .el-image__inner[src^="data:image"]'),
-        hasInput: !!document.querySelector('input[placeholder*="验证码"], input[placeholder*="Captcha"], input[placeholder*="Verification"]'),
+        hasInput: !!document.querySelector(
+          'input[placeholder*="验证码"], input[placeholder*="Captcha"], input[placeholder*="Verification"]'
+        ),
         // 注册入口是 `<router-link to="/register">` 渲染出的 a[href*=register]
         hasRegister: Array.from(document.querySelectorAll('a')).some((a) =>
           /register/i.test(a.getAttribute('href') || '')
@@ -864,10 +887,10 @@ async function verifyLoginFeatureFlags(page, frontendUrl) {
       }))
       .catch(() => ({ hasImage: false, hasInput: false, hasRegister: false }))
     const mismatches = []
-    const captchaOk =
-      watch.captchaEnabled === null || watch.captchaEnabled === (dom.hasImage && dom.hasInput)
+    const captchaOk = watch.captchaEnabled === null || watch.captchaEnabled === (dom.hasImage && dom.hasInput)
     const registerOk = watch.registerEnabled === null || watch.registerEnabled === dom.hasRegister
-    if (!captchaOk) mismatches.push(`验证码：档位=${watch.captchaEnabled} 但 DOM 图=${dom.hasImage}/输入框=${dom.hasInput}`)
+    if (!captchaOk)
+      mismatches.push(`验证码：档位=${watch.captchaEnabled} 但 DOM 图=${dom.hasImage}/输入框=${dom.hasInput}`)
     if (!registerOk) mismatches.push(`注册：档位=${watch.registerEnabled} 但 DOM 入口=${dom.hasRegister}`)
     const pass = watch.requested && watch.status < 400 && mismatches.length === 0
     let why = ''
@@ -881,6 +904,20 @@ async function verifyLoginFeatureFlags(page, frontendUrl) {
 }
 
 // ==================== 控制台错误收集 ====================
+
+/**
+ * 「头像空 src」噪声计数（b78）。
+ *
+ * 这条豁免此前是 `text.includes('Resource Error') && text.includes('IMG')`——**任何**图片
+ * 加载失败都被当成无害直接丢弃。回库取证：`sys_frontend_error` 里 `Resource load failed: IMG`
+ * 累计 96 条且今天仍在增长，正因为信号被这个豁免吞掉，没有任何一轮测试报过它。
+ *
+ * 收窄后的口径：只放行「IMG 的 URL 恰好解析成 `<前端地址>/user/profile`」这一种
+ * （= 空 src 被浏览器按当前页 URL 解析，头像未设置时的历史形态，b64 已在组件层兜底）。
+ * 其他任何 IMG 资源错误照常判红。被放行的条数会进汇总，**不再静默**。
+ */
+let avatarImgNoiseCount = 0
+const AVATAR_IMG_NOISE_RE = /\bIMG\s+https?:\/\/[^\s]+\/user\/profile\/?\s*$/i
 
 /**
  * 创建带控制台错误收集的页面
@@ -978,9 +1015,12 @@ async function createPage(browser) {
         )
         if (allHarmless) return
       }
-      // 过滤头像/图片资源加载失败（Profile 页 avatar 可能未设置，触发 IMG 加载失败，无害）
-      if (text.includes('Resource Error') && text.includes('IMG')) return
-      if (text.includes('Failed to load resource') && text.includes('user/profile')) return
+      // 头像空 src 噪声：只放行「IMG 解析成 <前端地址>/user/profile」这一条（见文件头注释），
+      // 其他 IMG 资源错误一律照常判红。计数进汇总，避免"放行即消失"。
+      if (text.includes('IMG') && AVATAR_IMG_NOISE_RE.test(text.trim())) {
+        avatarImgNoiseCount += 1
+        return
+      }
       // 过滤 M32 边界测试中预期的 404 错误（访问不存在的路由/无效 ID 是预期行为）
       if (
         text.includes('404') &&
@@ -1103,7 +1143,12 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
 
   // 关闭 Cookie 同意横幅
   const cookieBtn = page.locator('button:has-text("同意")').first()
-  if (await cookieBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+  if (
+    await cookieBtn
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await cookieBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(300)
   }
@@ -1157,7 +1202,12 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
     })
     // 如果 Tour 已经显示，按 Escape 关闭
     const tourMask = page.locator('.stepby-tour-mask').first()
-    if (await tourMask.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+    if (
+      await tourMask
+        .waitFor({ state: 'visible', timeout: 500 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await page.keyboard.press('Escape').catch(() => {})
       await sleep(500)
     }
@@ -1171,7 +1221,12 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
  */
 async function dismissTour(page) {
   const tourMask = page.locator('.stepby-tour-mask').first()
-  if (await tourMask.waitFor({ state: 'visible', timeout: 300 }).then(() => true).catch(() => false)) {
+  if (
+    await tourMask
+      .waitFor({ state: 'visible', timeout: 300 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await page.keyboard.press('Escape').catch(() => {})
     await sleep(300)
   }
@@ -1241,14 +1296,16 @@ async function clickButton(page, selector, options = {}) {
 async function assertOverlayClosed(page, module, name) {
   const res = await page
     .evaluate(() => {
-      const list = Array.from(
-        document.querySelectorAll('.el-dialog, .el-drawer, .el-message-box')
-      ).filter((n) => n.getClientRects().length > 0)
+      const list = Array.from(document.querySelectorAll('.el-dialog, .el-drawer, .el-message-box')).filter(
+        (n) => n.getClientRects().length > 0
+      )
       return {
         count: list.length,
         items: list.slice(0, 4).map((n) => {
           const r = n.getBoundingClientRect()
-          const title = (n.querySelector('.el-dialog__title, .el-drawer__title, .el-message-box__title')?.textContent || '').trim()
+          const title = (
+            n.querySelector('.el-dialog__title, .el-drawer__title, .el-message-box__title')?.textContent || ''
+          ).trim()
           const btns = Array.from(n.querySelectorAll('button'))
             .map((b) => (b.textContent || '').trim())
             .filter(Boolean)
@@ -1311,14 +1368,21 @@ async function safeGoto(page, url, options = {}) {
 
     // 检测 404 错误组件
     const errorContainer = page.locator('.el-result, .error-page, .page-404, .wscn-http404-container').first()
-    if (await errorContainer.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+    if (
+      await errorContainer
+        .waitFor({ state: 'visible', timeout: 500 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       const text = await errorContainer.innerText().catch(() => '')
       if (
         /404.*Not Found|页面不存在|404/i.test(text) ||
         (await page
           .locator('.wscn-http404-container')
           .first()
-          .waitFor({ state: 'visible', timeout: 200 }).then(() => true).catch(() => false))
+          .waitFor({ state: 'visible', timeout: 200 })
+          .then(() => true)
+          .catch(() => false))
       ) {
         if (!allowFail) {
           record(moduleName, `页面加载: ${url.replace(CONFIG.frontendUrl, '')}`, false, '404 错误组件')
@@ -1344,7 +1408,12 @@ async function isButtonVisible(page, texts, options = {}) {
   const textArr = Array.isArray(texts) ? texts : [texts]
   for (const text of textArr) {
     const btn = page.locator(`button:has-text("${text}")`).first()
-    if (await btn.waitFor({ state: 'visible', timeout }).then(() => true).catch(() => false)) {
+    if (
+      await btn
+        .waitFor({ state: 'visible', timeout })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       return true
     }
   }
@@ -1360,7 +1429,10 @@ async function openDialog(page, triggerText, options = {}) {
   try {
     const btn = page.locator(`button:has-text("${triggerText}")`).first()
     await btn.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {})
-    const visible = await btn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const visible = await btn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (!visible) {
       record(moduleName, name || `对话框: ${triggerText}`, false, '触发按钮不可见')
       return false
@@ -1382,7 +1454,9 @@ async function openDialog(page, triggerText, options = {}) {
           `.el-dialog__title:has-text("${dialogTitle}"), .el-dialog .el-dialog__header:has-text("${dialogTitle}")`
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         moduleName,
         name || `对话框: ${triggerText}`,
@@ -1420,7 +1494,12 @@ async function closeDialog(page) {
       '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible .el-dialog__headerbtn'
     )
     .first()
-  if (await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+  if (
+    await cancelBtn
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await cancelBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(500)
     await dismissUnsavedGuard(page)
@@ -1445,11 +1524,28 @@ async function closeDialog(page) {
  */
 async function dismissUnsavedGuard(page) {
   const box = page.locator('.el-message-box:visible').first()
-  if (!(await box.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false))) return false
-  const text = (await box.locator('.el-message-box__message').first().textContent().catch(() => '')) || ''
+  if (
+    !(await box
+      .waitFor({ state: 'visible', timeout: 800 })
+      .then(() => true)
+      .catch(() => false))
+  )
+    return false
+  const text =
+    (await box
+      .locator('.el-message-box__message')
+      .first()
+      .textContent()
+      .catch(() => '')) || ''
   if (!/尚未保存|未保存|unsaved|Leave without saving/i.test(text)) return false
   const leave = box.locator('button:has-text("不保存并离开"), button:has-text("Leave without saving")').first()
-  if (!(await leave.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))) return false
+  if (
+    !(await leave
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false))
+  )
+    return false
   await leave.click({ timeout: 2000 }).catch(() => {})
   await sleep(500)
   return true
@@ -1465,7 +1561,12 @@ async function closeDrawer(page) {
       '.el-drawer:visible .el-drawer__headerBtn, .el-drawer:visible .el-drawer__headerbtn, .el-drawer:visible button:has-text("关闭"), .el-drawer:visible button:has-text("取 消")'
     )
     .first()
-  if (await closeBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+  if (
+    await closeBtn
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await closeBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(500)
     return
@@ -1540,20 +1641,26 @@ async function checkSearchForm(page, expectedFields, moduleName, pageName) {
       let found = await page
         .locator(`input[placeholder*="${field}"]`)
         .first()
-        .waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 800 })
+        .then(() => true)
+        .catch(() => false)
       // 2. 匹配 el-select 文本
       if (!found) {
         found = await page
           .locator(`.el-select:has-text("${field}")`)
           .first()
-          .waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 800 })
+          .then(() => true)
+          .catch(() => false)
       }
       // 3. 匹配 el-form-item label 文本（用于日期范围选择器等）
       if (!found) {
         found = await page
           .locator(`.el-form-item:has(label:has-text("${field}"))`)
           .first()
-          .waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 800 })
+          .then(() => true)
+          .catch(() => false)
       }
       if (!found) allFound = false
       details.push(`${field}=${found ? '✓' : '✗'}`)
@@ -1638,7 +1745,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasTreeSidebar = await page
       .locator('.tree-sidebar, .tree-panel, .head-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 部门树侧边栏', hasTreeSidebar)
     await checkTableColumns(
       page,
@@ -1655,7 +1764,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasRowSwitch = await page
       .locator('.el-table__row .el-switch')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 行内状态开关', hasRowSwitch)
 
     // 表格行内操作按钮：行内按钮可能用 el-tooltip 包裹图标按钮，改为验证按钮数量 >= 4
@@ -1688,7 +1799,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasUserLink = await page
       .locator('.el-table__row .el-link')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (hasUserLink) {
       // 直接使用 Playwright click（比 evaluate 更可靠地触发 Vue @click）
       await page
@@ -1705,7 +1818,11 @@ async function testModule1(page, consoleErrors, pageErrors) {
       }
     } else {
       // 无用户数据时表格中没有 el-link，标记为通过
-      recordSkip(M, '用户管理: 用户详情抽屉', '表格无用户数据行 ⇒ 行内详情入口本就不存在（非缺陷；有数据分支已实断言抽屉可见）')
+      recordSkip(
+        M,
+        '用户管理: 用户详情抽屉',
+        '表格无用户数据行 ⇒ 行内详情入口本就不存在（非缺陷；有数据分支已实断言抽屉可见）'
+      )
     }
 
     // 测试新增对话框（handleAdd 会先调用 getUser() API 获取选项，需要等待）
@@ -1727,15 +1844,21 @@ async function testModule1(page, consoleErrors, pageErrors) {
       const hasDeptSelect = await page
         .locator('.el-dialog:visible .el-select')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasUsernameInput = await page
         .locator('.el-dialog:visible .el-form-item:has(label:has-text("用户名称")) input')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasPasswordInput = await page
         .locator('.el-dialog:visible input[type="password"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '新增用户对话框表单',
@@ -1746,11 +1869,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
       const hasPostSelect = await page
         .locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位"))')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasRoleSelect = await page
         .locator('.el-dialog:visible .el-form-item:has(label:has-text("角色"))')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '新增用户对话框: 岗位/角色多选',
@@ -1780,7 +1907,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasRoleRowSwitch = await page
       .locator('.el-table__row .el-switch')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '角色管理: 行内状态开关', hasRoleRowSwitch)
 
     // 表格行内操作按钮：行内按钮可能用 el-tooltip 包裹图标按钮，改为验证按钮数量 >= 4
@@ -1814,7 +1943,12 @@ async function testModule1(page, consoleErrors, pageErrors) {
         '.el-table__row button:has-text("数据权限"), .el-table__row a:has-text("数据权限"), .el-table__row .el-tooltip:has-text("数据权限"), .el-table__row .el-button'
       )
       .first()
-    if (await dataScopeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await dataScopeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 通过 evaluate 触发点击事件，绕过 tooltip 包裹
       await page
         .evaluate(() => {
@@ -1831,7 +1965,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
         const hasScopeSelect = await page
           .locator('.el-dialog .el-select')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         // 部门树只在 dataScope=2（自定义）时显示，属于条件渲染，不强制验证
         record(M, '角色管理: 数据权限对话框', hasScopeSelect, `数据范围=${hasScopeSelect}`)
         await closeDialog(page)
@@ -1850,19 +1986,25 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasTreeTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '菜单管理树形表格', hasTreeTable)
     // 验证树形表格行存在（.el-table__row）
     const hasMenuTreeRows = await page
       .locator('.el-table__row')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '菜单管理: 树形表格行', hasMenuTreeRows)
     // 验证展开/折叠图标存在
     const hasExpandIcon = await page
       .locator('.el-table__expand-icon, .el-table .el-icon')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '菜单管理: 展开/折叠图标', hasExpandIcon)
     const hasAdd = await isButtonVisible(page, ['新增'])
     record(M, '菜单管理按钮: 新增', hasAdd)
@@ -1877,11 +2019,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
         const hasTypeRadio = await page
           .locator('.el-dialog .el-radio-group')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasIconPicker = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("图标"))')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '菜单管理: 新增对话框',
@@ -1901,19 +2047,25 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasTreeTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '部门管理树形表格', hasTreeTable)
     // 验证树形表格行存在
     const hasDeptTreeRows = await page
       .locator('.el-table__row')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '部门管理: 树形表格行', hasDeptTreeRows)
     // 验证展开/折叠图标存在
     const hasDeptExpandIcon = await page
       .locator('.el-table__expand-icon, .el-table .el-icon')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '部门管理: 展开/折叠图标', hasDeptExpandIcon)
     const hasAdd = await isButtonVisible(page, ['新增'])
     record(M, '部门管理按钮: 新增', hasAdd)
@@ -1928,11 +2080,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
         const hasParentTreeSelect = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("上级部门"))')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasDeptNameInput = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("部门名称")) input')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '部门管理: 新增对话框',
@@ -1974,7 +2130,12 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
     // 字典数据抽屉：点击字典类型列的 el-link，验证 .el-drawer 可见，然后关闭
     const dictTypeLink = page.locator('.el-table__row .el-link').first()
-    if (await dictTypeLink.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await dictTypeLink
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await dictTypeLink.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {})
       // 直接使用 Playwright click（比 evaluate 更可靠地触发 Vue @click）
       await dictTypeLink.click({ timeout: 3000 }).catch(() => {})
@@ -2013,7 +2174,12 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
     // 公告详情抽屉：点击公告标题 el-link，验证 .el-drawer 可见，然后关闭
     const noticeLink = page.locator('.el-table__row .el-link').first()
-    if (await noticeLink.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await noticeLink
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await noticeLink.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {})
       // 直接使用 Playwright click（比 evaluate 更可靠地触发 Vue @click）
       await noticeLink.click({ timeout: 3000 }).catch(() => {})
@@ -2075,7 +2241,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .notice-center, .el-tabs')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知中心内容渲染', hasContent)
 
     // 顶部统计卡片（未读数、总数、已读数）存在
@@ -2094,7 +2262,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasTabRadio = await page
       .locator('.el-radio-group')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知中心: Tab 筛选', hasTabRadio)
 
     // 批量已读按钮可见
@@ -2104,7 +2274,10 @@ async function testModule1(page, consoleErrors, pageErrors) {
     // 1.9.1 "全部已读"功能完整链路测试（P1 补充覆盖）
     // 前置条件：按钮存在且有未读通知时才执行点击链路
     const markAllBtn = page.locator('button:has-text("全部已读"), button:has-text("Mark All Read")').first()
-    const markAllVisible = await markAllBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const markAllVisible = await markAllBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (markAllVisible) {
       // 读取初始未读数（.summary-value 第一个为未读数）
       const initialUnread = await page
@@ -2130,13 +2303,17 @@ async function testModule1(page, consoleErrors, pageErrors) {
         const confirmVisible = await page
           .locator('.el-message-box:visible, .el-overlay-message-box:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '通知中心: 全部已读-确认对话框', confirmVisible)
 
         if (confirmVisible) {
           // 点击确认按钮
           await page
-            .locator('.el-message-box__btns button:has-text("确 定"), .el-message-box__btns button:has-text("确定"), .el-message-box__btns button:has-text("OK")')
+            .locator(
+              '.el-message-box__btns button:has-text("确 定"), .el-message-box__btns button:has-text("确定"), .el-message-box__btns button:has-text("OK")'
+            )
             .first()
             .click({ timeout: 3000 })
             .catch(() => {})
@@ -2157,7 +2334,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
           const successMsg = await page
             .locator('.el-message--success:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '通知中心: 全部已读-成功提示', successMsg)
 
           // 验证未读数已清零
@@ -2199,7 +2378,10 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const ncDetailBtn = page
       .locator('.el-table__row button:has-text("详细"), .el-table__row button:has-text("详情")')
       .first()
-    const ncDetailVisible = await ncDetailBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const ncDetailVisible = await ncDetailBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (ncDetailVisible) {
       await ncDetailBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -2210,7 +2392,12 @@ async function testModule1(page, consoleErrors, pageErrors) {
     } else {
       // 回退：尝试行点击
       const noticeCenterRow = page.locator('.el-table__row').first()
-      if (await noticeCenterRow.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await noticeCenterRow
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await noticeCenterRow.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {})
         await noticeCenterRow.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
@@ -2258,11 +2445,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasEmpty = await page
       .locator('.el-empty, [class*="empty-state"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '任务进度表格/空状态', hasTable || hasEmpty, `表格=${hasTable}, 空状态=${hasEmpty}`)
 
     // 进度条（el-progress）如果表格有数据则验证存在，无数据则通过
@@ -2274,7 +2465,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
       const hasProgress = await page
         .locator('.el-progress')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '任务进度: 进度条', hasProgress, `行数=${taskRowCount}`)
     } else {
       recordSkip(M, '任务进度: 进度条', `表格无数据（行数=${taskRowCount}），跳过进度条验证`)
@@ -2292,7 +2485,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasRlRowSwitch = await page
       .locator('.el-table__row .el-switch')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '限流配置: 行内状态开关', hasRlRowSwitch)
 
     // 新增对话框：点击"新增"按钮，验证路由模式 input 和容量 input-number 存在，然后关闭
@@ -2303,11 +2498,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
         const hasRouteInput = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("路由")) input')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasCapacityInput = await page
           .locator('.el-dialog .el-input-number')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '限流配置: 新增对话框',
@@ -2329,11 +2528,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasFileNameInput = await page
       .locator('input[placeholder*="文件名"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const hasTypeSelect = await page
       .locator('.el-select:has-text("全部"), .el-select:has-text("类型")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '文件管理搜索表单', hasFileNameInput, `文件名=${hasFileNameInput}, 类型选择=${hasTypeSelect}`)
     const hasUpload = await isButtonVisible(page, ['上传文件', '上传'])
     const hasBatchDelete = await isButtonVisible(page, ['批量删除'])
@@ -2348,7 +2551,9 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasElUpload = await page
       .locator('.el-upload')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '文件管理: el-upload 组件', hasElUpload)
 
     // 表格行内下载和复制链接按钮可见
@@ -2396,14 +2601,18 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasMySessionTab = await page
       .locator('.el-tabs__item:has-text("我的会话"), .el-tabs__item:has-text("会话管理")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '在线用户: 我的会话 Tab', hasMySessionTab)
 
     // Tab 切换：验证"全部在线"和"我的会话"两个 Tab 存在
     const hasAllOnlineTab = await page
       .locator('.el-tabs__item:has-text("全部在线"), .el-tabs__item:has-text("全部")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '在线用户: Tab 切换',
@@ -2415,7 +2624,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasRowForceLogout = await page
       .locator('.el-table__row button:has-text("强退"), .el-table__row button:has-text("强制退出")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '在线用户: 行内强退按钮', hasRowForceLogout)
   }
 
@@ -2436,7 +2647,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasMyLoginTab = await page
       .locator('.el-tabs__item:has-text("我的登录")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '登录日志: 我的登录 Tab', hasMyLoginTab)
 
     // Tab 切换：验证至少 2 个 el-tabs__item 存在（Tab 名称可能不是"管理员视角"）
@@ -2486,7 +2699,12 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const detailBtn = page
       .locator('.el-table__row button:has-text("详细"), .el-table__row button:has-text("详情")')
       .first()
-    if (await detailBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await detailBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, '.el-table__row button:has-text("详细")', { timeout: 5000 })
       const dialogOpened = await page
         .waitForSelector('.el-dialog', { state: 'visible', timeout: 15000 })
@@ -2497,11 +2715,15 @@ async function testModule2(page, consoleErrors, pageErrors) {
         const hasRequestParam = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("请求参数")), .el-dialog:has-text("请求参数")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasReturnParam = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("返回参数")), .el-dialog:has-text("返回参数")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '操作日志: 详情对话框参数代码块',
@@ -2558,7 +2780,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasJobRowSwitch = await page
       .locator('.el-table__row .el-switch')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '定时任务: 行内状态开关', hasJobRowSwitch)
 
     // 表格行内操作按钮：行内按钮可能用 tooltip 包裹图标按钮，改为验证按钮数量 >= 4
@@ -2594,17 +2818,23 @@ async function testModule2(page, consoleErrors, pageErrors) {
         const hasJobNameInput = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("任务名称")) input')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasJobGroupSelect = await page
           .locator('.el-dialog .el-form-item:has(label:has-text("任务组名")) .el-select')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasCronInput = await page
           .locator(
             '.el-dialog .el-form-item:has(label:has-text("cron"), label:has-text("Cron"), label:has-text("表达式")) input'
           )
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '定时任务: 新增对话框',
@@ -2624,7 +2854,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '缓存管理内容渲染', hasContent)
 
     // Tab 切换：验证至少 2 个 el-tabs__item 存在（Tab 名称可能不匹配"概览"/"键管理"）
@@ -2639,7 +2871,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasDescriptions = await page
       .locator('.el-descriptions')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '缓存管理: 概览 Redis 信息', hasDescriptions)
 
     // 切换到键管理 Tab：点击第二个 tab（键管理/缓存名），验证缓存名表格存在
@@ -2654,7 +2888,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
       const hasCacheTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '缓存管理: 键管理缓存名表格', hasCacheTable)
     } else {
       record(M, '缓存管理: 键管理缓存名表格', false, '键管理 Tab 不可见')
@@ -2667,28 +2903,36 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .health-status')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '健康检查内容渲染', hasContent)
 
     // 整体状态卡片存在
     const hasStatusCard = await page
       .locator('.el-card, [class*="status"], [class*="health"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '健康检查: 状态卡片', hasStatusCard)
 
     // 自动刷新开关（el-switch）可见
     const hasAutoRefresh = await page
       .locator('.el-switch')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '健康检查: 自动刷新开关', hasAutoRefresh)
 
     // 磁盘信息表格（el-table）存在
     const hasDiskTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '健康检查: 磁盘信息表格', hasDiskTable)
   }
 
@@ -2698,28 +2942,36 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasChart = await page
       .locator('.echarts, canvas, [class*="chart"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '审计大屏图表渲染', hasChart)
 
     // 时间范围切换（el-radio-group）存在
     const hasTimeRangeRadio = await page
       .locator('.el-radio-group')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '审计大屏: 时间范围切换', hasTimeRangeRadio)
 
     // 统计卡片存在
     const hasAuditStatCards = await page
       .locator('.el-card, [class*="stat"], [class*="summary"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '审计大屏: 统计卡片', hasAuditStatCards)
 
     // ECharts 图表存在（canvas 或 .echarts 容器）
     const hasEcharts = await page
       .locator('canvas, .echarts, [class*="echart"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '审计大屏: ECharts 图表', hasEcharts)
 
     // 导出 PDF 按钮可见（按钮文本可能为"PDF"、"pdf"或"导出"）
@@ -2733,14 +2985,18 @@ async function testModule2(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'IP 库管理内容渲染', hasContent)
 
     // 状态卡片存在
     const hasIpStatusCard = await page
       .locator('.el-card, [class*="stat"], [class*="status"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'IP 库管理: 状态卡片', hasIpStatusCard)
 
     // 配置对话框：按钮可能是图标按钮或文本不同，改为验证页面存在可点击按钮或 .el-card 即可（配置功能已通过页面加载验证）
@@ -2749,15 +3005,22 @@ async function testModule2(page, consoleErrors, pageErrors) {
         'button:has-text("配置"), button:has-text("设置"), a:has-text("配置"), a:has-text("设置"), .el-button:has(.el-icon-setting)'
       )
       .first()
-    const ipHasBtn = await ipConfigBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const ipHasBtn = await ipConfigBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const ipAnyBtn = await page
       .locator('button, .el-button')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const ipCard = await page
       .locator('.el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (ipHasBtn) {
       // 通过 evaluate 触发点击事件，绕过 tooltip 包裹
       await page
@@ -2776,7 +3039,9 @@ async function testModule2(page, consoleErrors, pageErrors) {
         const hasUpdateRadio = await page
           .locator('.el-dialog .el-radio-group, .el-dialog .el-radio')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'IP 库管理: 配置对话框', hasUpdateRadio, `对话框已打开, 更新源 radio=${hasUpdateRadio}`)
         await closeDialog(page)
       } else {
@@ -2804,19 +3069,25 @@ async function testModule3(page, consoleErrors, pageErrors) {
     const hasLeftPanel = await page
       .locator('.left-panel, [class*="components-list"], .el-scrollbar')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建器: 左侧组件面板', hasLeftPanel)
     // 验证中央画布
     const hasCenterCanvas = await page
       .locator('.center-board, [class*="canvas"], .el-form')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建器: 中央画布', hasCenterCanvas)
     // 验证右侧属性面板
     const hasRightPanel = await page
       .locator('.right-panel, [class*="widget-config"], .el-tabs')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建器: 右侧属性面板', hasRightPanel)
     // 三栏布局验证：左侧组件面板、中间画布、右侧属性面板都可见
     record(
@@ -2829,7 +3100,9 @@ async function testModule3(page, consoleErrors, pageErrors) {
     const hasDraggable = await page
       .locator('.draggable, [data-dragscroll], [draggable="true"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建器: 拖拽组件', hasDraggable)
     // 验证操作按钮
     const hasDownloadVue = await isButtonVisible(page, ['下载 Vue', 'Vue'])
@@ -2849,11 +3122,15 @@ async function testModule3(page, consoleErrors, pageErrors) {
     const hasPropTab = await page
       .locator('.el-tabs__item:has-text("组件属性"), .el-tabs__item:has-text("属性")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const hasFormTab = await page
       .locator('.el-tabs__item:has-text("表单属性"), .el-tabs__item:has-text("Form")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '表单构建器: 属性面板 Tab 切换',
@@ -2929,7 +3206,9 @@ async function testModule3(page, consoleErrors, pageErrors) {
         const hasSearchInput = await page
           .locator('.el-dialog input[placeholder*="表名称"], .el-dialog input[placeholder*="表名"]')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '代码生成器: 导入对话框', hasSearchInput, `表名称搜索 input=${hasSearchInput}`)
         await closeDialog(page)
       } else {
@@ -2947,11 +3226,15 @@ async function testModule3(page, consoleErrors, pageErrors) {
         const hasTableNameInput = await page
           .locator('.el-dialog input[placeholder*="表名"], .el-dialog input[placeholder*="table name" i]')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasFieldTable = await page
           .locator('.el-dialog .el-table')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '代码生成器: 创建表对话框',
@@ -2973,7 +3256,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
     if (hasPreview && genTableRowCount > 0) {
       // 预览按钮：通过 aria-label 定位（按钮无文本，是图标按钮）
       const previewBtn = page.locator('.el-table__row button[aria-label="预览"]').first()
-      const previewBtnVisible = await previewBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const previewBtnVisible = await previewBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (previewBtnVisible) {
         await previewBtn.click({ timeout: 5000 }).catch(() => {})
       } else {
@@ -2998,9 +3284,7 @@ async function testModule3(page, consoleErrors, pageErrors) {
           .catch(() => false)
         const pv = await page
           .evaluate(() => {
-            const dlg = Array.from(document.querySelectorAll('.el-dialog')).find(
-              (d) => d.getClientRects().length > 0
-            )
+            const dlg = Array.from(document.querySelectorAll('.el-dialog')).find((d) => d.getClientRects().length > 0)
             if (!dlg) return null
             const code = dlg.querySelector('code.gen-preview-source')
             return {
@@ -3031,7 +3315,11 @@ async function testModule3(page, consoleErrors, pageErrors) {
       }
     } else {
       // 无表格数据时不测试预览对话框，标记通过
-      recordSkip(M, '代码生成器: 预览对话框', `无表格数据或预览按钮（行数=${genTableRowCount}, 预览按钮=${hasPreview}）⇒ 本项无可测对象`)
+      recordSkip(
+        M,
+        '代码生成器: 预览对话框',
+        `无表格数据或预览按钮（行数=${genTableRowCount}, 预览按钮=${hasPreview}）⇒ 本项无可测对象`
+      )
     }
     // 3.2.1 代码生成器: 同步数据库（synchDb）实际功能测试（P1 补充覆盖）
     // 仅在有表格行数据时执行，避免无数据误报
@@ -3039,7 +3327,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
       const syncBtn = page
         .locator('.el-table__row button[aria-label="同步"], .el-table__row button[aria-label="Sync"]')
         .first()
-      const syncBtnVisible = await syncBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const syncBtnVisible = await syncBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (syncBtnVisible) {
         const syncApiPromise = page
           .waitForResponse((resp) => resp.url().includes('/tool/gen/synchDb'), { timeout: 8000 })
@@ -3062,7 +3353,11 @@ async function testModule3(page, consoleErrors, pageErrors) {
         recordSkip(M, '代码生成器: 同步数据库-API调用', '跳过（同步按钮不可见）')
       }
     } else {
-      recordSkip(M, '代码生成器: 同步数据库-API调用', `跳过（无数据或无同步按钮, 行数=${genTableRowCount}, 同步=${hasSync})`)
+      recordSkip(
+        M,
+        '代码生成器: 同步数据库-API调用',
+        `跳过（无数据或无同步按钮, 行数=${genTableRowCount}, 同步=${hasSync})`
+      )
     }
 
     // 3.2.2 代码生成器: 生成代码（genCode）下载测试（P1 补充覆盖）
@@ -3070,7 +3365,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
       const genCodeBtn = page
         .locator('.el-table__row button[aria-label="生成代码"], .el-table__row button[aria-label="Gen Code"]')
         .first()
-      const genCodeBtnVisible = await genCodeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const genCodeBtnVisible = await genCodeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (genCodeBtnVisible) {
         const downloadPromise = page.waitForEvent('download', { timeout: 8000 }).catch(() => null)
         const genApiPromise = page
@@ -3095,7 +3393,11 @@ async function testModule3(page, consoleErrors, pageErrors) {
         recordSkip(M, '代码生成器: 生成代码-下载触发', '跳过（生成代码按钮不可见）')
       }
     } else {
-      recordSkip(M, '代码生成器: 生成代码-下载触发', `跳过（无数据或无生成按钮, 行数=${genTableRowCount}, 生成=${hasGenCode})`)
+      recordSkip(
+        M,
+        '代码生成器: 生成代码-下载触发',
+        `跳过（无数据或无生成按钮, 行数=${genTableRowCount}, 生成=${hasGenCode})`
+      )
     }
 
     // 3.2.3 代码生成器: 删除表（delTable）确认对话框测试（P1 补充覆盖）
@@ -3104,14 +3406,19 @@ async function testModule3(page, consoleErrors, pageErrors) {
       const delBtn = page
         .locator('.el-table__row button[aria-label="删除"], .el-table__row button[aria-label="Delete"]')
         .first()
-      const delBtnVisible = await delBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const delBtnVisible = await delBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (delBtnVisible) {
         await delBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(600)
         const confirmVisible = await page
           .locator('.el-message-box:visible, .el-overlay-message-box:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '代码生成器: 删除表-确认对话框', confirmVisible)
 
         if (confirmVisible) {
@@ -3139,7 +3446,11 @@ async function testModule3(page, consoleErrors, pageErrors) {
         recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（删除按钮不可见）')
       }
     } else {
-      recordSkip(M, '代码生成器: 删除表-确认对话框', `跳过（无数据或无删除按钮, 行数=${genTableRowCount}, 删除=${hasDelete})`)
+      recordSkip(
+        M,
+        '代码生成器: 删除表-确认对话框',
+        `跳过（无数据或无删除按钮, 行数=${genTableRowCount}, 删除=${hasDelete})`
+      )
       recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（无数据或无删除按钮）')
     }
   }
@@ -3150,7 +3461,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
   // 改为对 iframe 本身定性：可见 ∧ src 指向 swagger ∧ iframe 文档真加载出 Swagger UI。
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/swagger`, { moduleName: M, waitMs: 3000 })) {
     const iframe = page.locator('iframe').first()
-    const hasIframe = await iframe.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    const hasIframe = await iframe
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '接口文档: iframe 可见', hasIframe)
     if (hasIframe) {
       // 验证 iframe src
@@ -3164,8 +3478,7 @@ async function testModule3(page, consoleErrors, pageErrors) {
               ready: document.readyState,
               title: (document.title || '').slice(0, 40),
               text: (document.body?.innerText || '').trim().length,
-              ui: document.querySelectorAll('.swagger-ui, #swagger-ui, .opblock, .tk-content, #api-reference')
-                .length
+              ui: document.querySelectorAll('.swagger-ui, #swagger-ui, .opblock, .tk-content, #api-reference').length
             }))
             .catch(() => null)
         : null
@@ -3201,23 +3514,31 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '关于系统内容渲染', hasContent)
     // 验证版本信息
     const hasVersion = await page
       .locator('text=/版本|version/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '关于系统: 版本信息', hasVersion)
     // Tab 切换：验证"前端依赖"和"后端依赖"两个 Tab 存在
     const hasFrontendTab = await page
       .locator('.el-tabs__item:has-text("前端依赖"), .el-tabs__item:has-text("前端")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const hasBackendTab = await page
       .locator('.el-tabs__item:has-text("后端依赖"), .el-tabs__item:has-text("后端")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '关于系统: 前端/后端依赖 Tab',
@@ -3228,7 +3549,9 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasTechGrid = await page
       .locator('[class*="tech-stack"], [class*="tech-grid"], .el-tag, [class*="dependency"], [class*="grid"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '关于系统: 技术栈网格', hasTechGrid)
     // 复制信息按钮可见
     const hasCopyBtn = await isButtonVisible(page, ['复制信息', '复制'])
@@ -3240,7 +3563,9 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasDescriptions = await page
       .locator('.el-descriptions')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '关于系统: el-descriptions 元信息', hasDescriptions)
   }
 
@@ -3250,25 +3575,33 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasTimeline = await page
       .locator('.el-timeline, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '更新日志时间线渲染', hasTimeline)
     // 搜索框可见
     const hasSearchInput = await page
       .locator('input[placeholder*="搜索"], input[placeholder*="search" i]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '更新日志: 搜索框', hasSearchInput)
     // 时间线（el-timeline）存在
     const hasElTimeline = await page
       .locator('.el-timeline')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '更新日志: el-timeline', hasElTimeline)
     // 版本条目存在（el-timeline-item）
     const hasTimelineItem = await page
       .locator('.el-timeline-item')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '更新日志: el-timeline-item 版本条目', hasTimelineItem)
   }
 
@@ -3278,25 +3611,33 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '快捷键中心内容渲染', hasContent)
     // 搜索框可见
     const hasSearchInput = await page
       .locator('input[placeholder*="搜索"], input[placeholder*="search" i]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '快捷键中心: 搜索框', hasSearchInput)
     // 快捷键分组卡片存在
     const hasGroupCard = await page
       .locator('.el-card, [class*="shortcut-group"], [class*="group-card"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '快捷键中心: 分组卡片', hasGroupCard)
     // 快捷键按键（kbd 标签）存在
     const hasKbd = await page
       .locator('kbd, .kbd, [class*="shortcut-key"], [class*="key"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '快捷键中心: kbd 按键标签', hasKbd)
   }
 
@@ -3306,31 +3647,41 @@ async function testModule4(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .el-collapse')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '帮助中心内容渲染', hasContent)
     // 搜索框可见
     const hasSearchInput = await page
       .locator('input[placeholder*="搜索"], input[placeholder*="search" i]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '帮助中心: 搜索框', hasSearchInput)
     // 目录卡片存在
     const hasCatalogCard = await page
       .locator('.el-card, [class*="catalog"], [class*="directory"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '帮助中心: 目录卡片', hasCatalogCard)
     // FAQ 折叠面板（el-collapse）存在
     const hasCollapse = await page
       .locator('.el-collapse')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '帮助中心: FAQ el-collapse', hasCollapse)
     // 联系卡片存在
     const hasContactCard = await page
       .locator('.el-card:has-text("联系"), [class*="contact"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '帮助中心: 联系卡片', hasContactCard)
   }
 
@@ -3350,7 +3701,9 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasStatCard = await page
       .locator('.el-card, [class*="stat"], [class*="dashboard-card"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: 统计卡片', hasStatCard)
     // 五项统计指标：改为验证统计卡片数量 >= 5，不检查具体文本
     const statCardCount = await page
@@ -3364,31 +3717,41 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasChart = await page
       .locator('canvas, .echarts, [class*="chart"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: 图表渲染', hasChart)
     // ECharts 图表存在（canvas 元素）
     const hasCanvas = await page
       .locator('canvas')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: ECharts canvas', hasCanvas)
     // 登录趋势图时间范围切换（el-radio-group）存在
     const hasRadioGroup = await page
       .locator('.el-radio-group')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: 登录趋势时间范围 el-radio-group', hasRadioGroup)
     // 最近操作日志表格存在
     const hasOpLogTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: 最近操作日志表格', hasOpLogTable)
     // 验证快捷入口
     const hasQuickEntry = await page
       .locator('text=/快捷入口|快速入口|Quick Entry/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '数据看板: 快捷入口', hasQuickEntry)
     // 验证"查看全部"按钮跳转
     const viewAllBtn = page
@@ -3416,17 +3779,23 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '个人工作台内容渲染', hasContent)
     // 欢迎卡片存在（头像、问候语）
     const hasAvatar = await page
       .locator('.el-avatar, img[class*="avatar"], [class*="user-avatar"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const hasGreeting = await page
       .locator('text=/你好|欢迎|早安|午安|晚安|Hello/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '工作台: 欢迎卡片', hasAvatar || hasGreeting, `头像=${hasAvatar}, 问候语=${hasGreeting}`)
     // 统计卡片存在（周登录、未读通知、活跃会话、收藏）
     const wbStats = ['周登录', '未读通知', '活跃会话', '收藏']
@@ -3436,7 +3805,9 @@ async function testModule5(page, consoleErrors, pageErrors) {
       const found = await page
         .locator(`text=/${txt}/`)
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       wbStatDetails.push(`${txt}=${found ? '✓' : '✗'}`)
       if (!found) wbStatAllFound = false
     }
@@ -3445,13 +3816,17 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasRecentVisit = await page
       .locator('text=/最近访问|最近浏览|Recent/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '工作台: 最近访问列表', hasRecentVisit)
     // 我的收藏列表存在
     const hasFavorites = await page
       .locator('text=/我的收藏|收藏|Favorite/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '工作台: 我的收藏列表', hasFavorites)
     // 未读通知列表：验证 .el-card 包含"通知"或"未读"文本
     const hasUnreadNotice = await page
@@ -3465,7 +3840,9 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasQuickEntry = await page
       .locator('text=/快捷入口|快速入口|Quick Entry/i')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '工作台: 快捷入口', hasQuickEntry)
     // "个人中心"按钮可见
     const hasProfileBtn = await isButtonVisible(page, ['个人中心', '个人'])
@@ -3481,19 +3858,25 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '首页内容渲染', hasContent)
     // 登录统计图表存在（canvas 元素）
     const hasCanvas = await page
       .locator('canvas')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '首页: 登录统计 canvas', hasCanvas)
     // 更新日志折叠面板（el-collapse）存在
     const hasCollapse = await page
       .locator('.el-collapse')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '首页: 更新日志 el-collapse', hasCollapse)
     // "访问仓库"按钮可见
     const hasRepoBtn = await isButtonVisible(page, ['访问仓库', '仓库'])
@@ -3504,7 +3887,9 @@ async function testModule5(page, consoleErrors, pageErrors) {
       (await page
         .locator('a:has-text("官网"), a:has-text("stepby"), .el-button:has-text("stepby")')
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false))
     record(M, '首页: 访问官网按钮', hasSiteBtn)
   }
 
@@ -3523,21 +3908,29 @@ async function testModule6(page, consoleErrors, pageErrors) {
     const hasUserInfoCard = await page
       .locator('.el-card, [class*="user-info"], [class*="profile-card"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '个人中心: 左侧用户信息卡片', hasUserInfoCard)
     // 右侧 Tab 切换存在（基本资料、修改密码、TOTP）
     const hasBasicTab = await page
       .locator('.el-tabs__item:has-text("基本资料")')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasPwdTab = await page
       .locator('.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("密码")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const hasTotpTab = await page
       .locator('.el-tabs__item:has-text("TOTP"), .el-tabs__item:has-text("双因子"), .el-tabs__item:has-text("MFA")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '个人中心: 右侧 Tab 切换',
@@ -3555,23 +3948,31 @@ async function testModule6(page, consoleErrors, pageErrors) {
           'input[placeholder*="昵称"], input[placeholder*="nickname" i], .el-form-item:has(label:has-text("昵称")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasPhoneInput = await page
         .locator(
           'input[placeholder*="手机"], input[placeholder*="phone" i], .el-form-item:has(label:has-text("手机")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasEmailInput = await page
         .locator(
           'input[placeholder*="邮箱"], input[placeholder*="email" i], .el-form-item:has(label:has-text("邮箱")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasGenderSelect = await page
         .locator('.el-form-item:has(label:has-text("性别")) .el-select, .el-select:has-text("性别")')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '个人中心: 基本资料 Tab 表单',
@@ -3591,19 +3992,25 @@ async function testModule6(page, consoleErrors, pageErrors) {
           'input[placeholder*="旧密码"], input[placeholder*="old password" i], .el-form-item:has(label:has-text("旧密码")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasNewPwd = await page
         .locator(
           'input[placeholder*="新密码"], input[placeholder*="new password" i], .el-form-item:has(label:has-text("新密码")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasConfirmPwd = await page
         .locator(
           'input[placeholder*="确认密码"], input[placeholder*="confirm" i], .el-form-item:has(label:has-text("确认")) input'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '个人中心: 修改密码表单',
@@ -3626,7 +4033,9 @@ async function testModule6(page, consoleErrors, pageErrors) {
           '.el-progress, [class*="strength"], [class*="password-strength"], [class*="pwd-strength"], .password-meter'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       // 密码强度指示器是增强功能，不影响核心功能，三个密码 input 存在即通过
       record(
         M,
@@ -3649,7 +4058,9 @@ async function testModule6(page, consoleErrors, pageErrors) {
       const hasTotpContent = await page
         .locator('.el-card, .totp-setup, [class*="totp"], [class*="mfa"], [class*="qr"], canvas, img[class*="qr"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: TOTP 内容渲染', hasTotpContent)
     } else {
       record(M, '个人中心: TOTP Tab', false, 'Tab 不可见')
@@ -3677,15 +4088,21 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
         const hasBasicTab = await page
           .locator('.el-tabs__item:has-text("基本信息"), .el-tabs__item:has-text("Basic")')
           .first()
-          .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         const hasFieldTab = await page
           .locator('.el-tabs__item:has-text("字段信息"), .el-tabs__item:has-text("Field")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasGenTab = await page
           .locator('.el-tabs__item:has-text("生成信息"), .el-tabs__item:has-text("Gen")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '代码生成编辑: 三个 Tab',
@@ -3825,14 +4242,18 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.errPage-container, .el-result, .error-page, [class*="error"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '401 错误页内容', hasContent)
     // 验证按钮：返回、返回首页
     const hasBackBtn = await isButtonVisible(page, ['返回'])
     const hasHomeLink = await page
       .locator('a:has-text("返回首页"), button:has-text("返回首页"), .el-button:has-text("返回首页")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '401 错误页按钮: 返回/返回首页', hasBackBtn && hasHomeLink, `返回=${hasBackBtn}, 返回首页=${hasHomeLink}`)
   }
 
@@ -3842,7 +4263,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '403 错误页内容', hasContent)
     // 验证按钮：返回首页、返回上一页
     const hasHomeBtn = await isButtonVisible(page, ['返回首页'])
@@ -3865,7 +4288,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.el-result, .error-page, .wscn-http404, [class*="error"], [class*="404"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '404 错误页内容', hasContent)
     // 验证链接：返回首页
     const hasHomeLink = await page
@@ -3873,7 +4298,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
         'a:has-text("返回首页"), button:has-text("返回首页"), .el-button:has-text("返回首页"), .el-link:has-text("返回首页")'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '404 错误页链接: 返回首页', hasHomeLink)
   } catch (err) {
     record(M, '404 错误页加载', false, `异常: ${err.message.slice(0, 80)}`)
@@ -3885,7 +4312,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '500 错误页内容', hasContent)
     // 验证按钮：刷新、返回首页
     const hasRefreshBtn = await isButtonVisible(page, ['刷新'])
@@ -3904,7 +4333,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '网络错误页内容', hasContent)
     // 验证按钮：重试、返回首页
     const hasRetryBtn = await isButtonVisible(page, ['重试'])
@@ -3918,7 +4349,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('.app-container, .el-card, .legal-content')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '隐私政策页内容', hasContent)
   }
 
@@ -3928,7 +4361,9 @@ async function testModule8(page, consoleErrors, pageErrors) {
     const hasContent = await page
       .locator('input[type="password"], .lock-screen, [class*="lock"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '锁屏页内容', hasContent)
   }
 
@@ -4038,8 +4473,7 @@ async function testModule9(page, consoleErrors, pageErrors) {
         })
         const afterBody = await afterResp.json().catch(() => ({}))
         const afterIds = Array.isArray(afterBody.checkedKeys) ? afterBody.checkedKeys : []
-        const sameSet =
-          afterIds.length === newIds.length && newIds.every((id) => afterIds.includes(id))
+        const sameSet = afterIds.length === newIds.length && newIds.every((id) => afterIds.includes(id))
         record(
           M,
           '测试前置: stepby 权限收敛为策略目标态',
@@ -4093,7 +4527,9 @@ async function testModule9(page, consoleErrors, pageErrors) {
       const hasAddBtn = await page
         .locator('button:has-text("新增")')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         `stepby 用户 ${p.name}: 新增按钮隐藏`,
@@ -4192,7 +4628,11 @@ async function testModule9(page, consoleErrors, pageErrors) {
         )
       } else {
         // stepby 用户无 operlog 查询权限，跳过此验证（不记为失败）
-        recordSkip(M, 'stepby 用户: 权限拒绝审计日志写入', `stepby 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`)
+        recordSkip(
+          M,
+          'stepby 用户: 权限拒绝审计日志写入',
+          `stepby 无 operlog 查询权限（status=${auditResp?.status}），跳过验证`
+        )
       }
     } catch (err) {
       // 审计日志验证为 best-effort，失败不记为失败
@@ -4217,7 +4657,12 @@ async function testModule10(page, consoleErrors, pageErrors) {
   const langSwitch = page
     .locator('.el-dropdown:has(.svg-icon), [class*="lang"], [class*="i18n"], [class*="locale"]')
     .first()
-  if (await langSwitch.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await langSwitch
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await langSwitch.click().catch(() => {})
     await sleep(500)
     const enOption = page
@@ -4225,7 +4670,12 @@ async function testModule10(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu__item:has-text("English"), .el-dropdown-menu__item:has-text("en"), .el-dropdown-menu__item:has-text("英语")'
       )
       .first()
-    if (await enOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await enOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await enOption.click().catch(() => {})
       await sleep(1500)
       // 结果判据：i18n 切换必须真的落到 <html lang>（主套件 F59 同源口径），仅"选项被点到"不算切换成功
@@ -4274,7 +4724,12 @@ async function testModule10(page, consoleErrors, pageErrors) {
   const langSwitch2 = page
     .locator('.el-dropdown:has(.svg-icon), [class*="lang"], [class*="i18n"], [class*="locale"]')
     .first()
-  if (await langSwitch2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await langSwitch2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await langSwitch2.click().catch(() => {})
     await sleep(500)
     // 英文模式下"中文"菜单项可能显示为 "Chinese" / "简体中文" / "zh-CN"
@@ -4283,7 +4738,12 @@ async function testModule10(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu__item:has-text("中文"), .el-dropdown-menu__item:has-text("Chinese"), .el-dropdown-menu__item:has-text("简体中文"), .el-dropdown-menu__item:has-text("zh"), .el-dropdown-menu__item:has-text("zh-CN")'
       )
       .first()
-    if (await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await zhOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await zhOption.click().catch(() => {})
       await sleep(1500)
       zhSwitched = true
@@ -4333,7 +4793,12 @@ async function testModule11(page, consoleErrors, pageErrors) {
 
   // 查找主题切换按钮（Navbar 中 .theme-switch-wrapper）
   const themeSwitch = page.locator('.theme-switch-wrapper').first()
-  if (await themeSwitch.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await themeSwitch
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await themeSwitch.click().catch(() => {})
     await sleep(1500)
     // 检查是否切换到暗色模式（useDark 会在 html 上添加 .dark 类）
@@ -4365,7 +4830,12 @@ async function testModule11(page, consoleErrors, pageErrors) {
 
     // 切换回亮色模式
     const themeSwitch2 = page.locator('[class*="theme"], .svg-icon-light, .svg-icon-sun, [class*="light-mode"]').first()
-    if (await themeSwitch2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await themeSwitch2
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await themeSwitch2.click().catch(() => {})
       await sleep(1500)
     }
@@ -4424,11 +4894,15 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
       const hasCodeInput = await page
         .locator('.el-dialog input[placeholder*="岗位编码"], .el-dialog input[placeholder*="post code" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasNameInput = await page
         .locator('.el-dialog input[placeholder*="岗位名称"], .el-dialog input[placeholder*="post name" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '岗位新增对话框表单', hasCodeInput && hasNameInput, `编码=${hasCodeInput}, 名称=${hasNameInput}`)
       await closeDialog(page)
     } else {
@@ -4452,11 +4926,15 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
       const hasNameInput = await page
         .locator('.el-dialog input[placeholder*="字典名称"], .el-dialog input[placeholder*="dict name" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasTypeInput = await page
         .locator('.el-dialog input[placeholder*="字典类型"], .el-dialog input[placeholder*="dict type" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '字典新增对话框表单', hasNameInput && hasTypeInput, `名称=${hasNameInput}, 类型=${hasTypeInput}`)
       await closeDialog(page)
     } else {
@@ -4480,11 +4958,15 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
       const hasNameInput = await page
         .locator('.el-dialog input[placeholder*="参数名称"], .el-dialog input[placeholder*="param name" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasKeyInput = await page
         .locator('.el-dialog input[placeholder*="参数键名"], .el-dialog input[placeholder*="param key" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '参数新增对话框表单', hasNameInput && hasKeyInput, `名称=${hasNameInput}, 键=${hasKeyInput}`)
       await closeDialog(page)
     } else {
@@ -4508,11 +4990,15 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
       const hasTitleInput = await page
         .locator('.el-dialog input[placeholder*="公告标题"], .el-dialog input[placeholder*="notice title" i]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasTypeSelect = await page
         .locator('.el-dialog .el-select')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '通知新增对话框表单',
@@ -4566,7 +5052,9 @@ async function testModule13(browser) {
         'input[placeholder*="账号"], input[placeholder*="用户名"], input[placeholder*="Username"], input[name="username"]'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '注册表单: 用户名', hasUsername)
 
     const passwordInputs = await page.locator('input[type="password"]').count()
@@ -4575,28 +5063,42 @@ async function testModule13(browser) {
     const codeInput = await page
       .locator('input[placeholder*="验证码"], input[placeholder*="Captcha"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-    recordSoft(M, '注册表单: 验证码', !!codeInput, '验证码输入框可见', '验证码档位关闭（与 /captchaImage 一致，非缺陷）')
+      .waitFor({ state: 'visible', timeout: 1000 })
+      .then(() => true)
+      .catch(() => false)
+    recordSoft(
+      M,
+      '注册表单: 验证码',
+      !!codeInput,
+      '验证码输入框可见',
+      '验证码档位关闭（与 /captchaImage 一致，非缺陷）'
+    )
 
     // 验证注册按钮
     const hasRegisterBtn = await page
       .locator('button:has-text("注 册"), button:has-text("注册"), button:has-text("Register"), button[type="submit"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '注册按钮', hasRegisterBtn)
 
     // 验证返回登录链接
     const hasLoginLink = await page
       .locator('a:has-text("登录"), a:has-text("Login"), router-link:has-text("登录"), .el-link:has-text("登录")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '返回登录链接', hasLoginLink)
 
     // 验证页面标题/文案
     const hasTitle = await page
       .locator('h1, h2, .title, .register-title, .login-title')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '页面标题', hasTitle, '标题可见', '未找到标题元素（非致命）')
   } catch (err) {
     record(M, '注册页测试', false, `异常: ${err.message.slice(0, 80)}`)
@@ -4676,7 +5178,9 @@ async function testModule14(page, consoleErrors, pageErrors, token) {
       hasCloseBtn = await page
         .locator('.el-button')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
     }
     record(M, '关闭按钮', hasCloseBtn)
 
@@ -4689,15 +5193,21 @@ async function testModule14(page, consoleErrors, pageErrors, token) {
       const hasLabelInput = await page
         .locator('.el-dialog .el-form-item:has(label:has-text("数据标签")) input')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasValueInput = await page
         .locator('.el-dialog .el-form-item:has(label:has-text("数据键值")) input')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasSortInput = await page
         .locator('.el-dialog .el-input-number')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '新增字典数据对话框',
@@ -4722,7 +5232,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
     await assertPageLoaded(page, M, '个人中心页面加载（头像测试）')
     const avatarTrigger = page.locator('.user-info-head').first()
-    const avatarVisible = await avatarTrigger.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const avatarVisible = await avatarTrigger
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (avatarVisible) {
       await avatarTrigger.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -4732,7 +5245,9 @@ async function testModule15(page, consoleErrors, pageErrors) {
         const hasCropper = await page
           .locator('.el-dialog .vue-cropper, .el-dialog #corpper, .el-dialog .cropper-box')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '头像上传: 裁剪器渲染', hasCropper)
         await closeDialog(page)
       }
@@ -4762,7 +5277,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
       await assertPageLoaded(page, M, '角色分配用户页加载')
       // i18n common.add = "新增"（zh-CN），非"添加"
       const addBtn = page.locator('button:has-text("新增")').first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       if (addVisible) {
         await addBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
@@ -4772,7 +5290,9 @@ async function testModule15(page, consoleErrors, pageErrors) {
           const hasInput = await page
             .locator('.el-dialog input')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, 'selectUser: 搜索输入框', hasInput)
           await closeDialog(page)
         }
@@ -4788,7 +5308,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
     await assertPageLoaded(page, M, '定时任务页加载（详情测试）')
     // 任务详情通过点击 jobName el-link 触发，而非"详细"按钮
     const detailLink = page.locator('.el-table__row .el-link').first()
-    const detailVisible = await detailLink.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const detailVisible = await detailLink
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (detailVisible) {
       await detailLink.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -4801,7 +5324,9 @@ async function testModule15(page, consoleErrors, pageErrors) {
             '.el-dialog .detail-wrap, .el-dialog .detail-card, .el-dialog .el-form, .el-dialog .el-descriptions, .el-dialog table'
           )
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'JobDetail: 内容渲染', hasForm)
         await closeDialog(page)
       }
@@ -4814,7 +5339,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
     await assertPageLoaded(page, M, '表单构建器页加载（图标测试）')
     // 先点击左侧面板的输入型组件添加到画布（支持 click-to-add）
     const inputComponent = page.locator('.components-item').first()
-    const inputCompVisible = await inputComponent.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const inputCompVisible = await inputComponent
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (inputCompVisible) {
       await inputComponent.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -4824,7 +5352,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
           '.el-form-item:has(label:has-text("前缀图标")) .el-input-group__append button, .el-form-item:has(label:has-text("后缀图标")) .el-input-group__append button, .el-form-item:has(label:has-text("图标")) button:has-text("选择")'
         )
         .first()
-      const iconBtnVisible = await iconSelectBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const iconBtnVisible = await iconSelectBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       if (iconBtnVisible) {
         await iconSelectBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
@@ -4844,7 +5375,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
     const codeTypeTrigger = page
       .locator('.copy-btn-main, .action-bar button:has-text("复制代码"), .action-bar button:has-text("导出")')
       .first()
-    const triggerVisible = await codeTypeTrigger.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const triggerVisible = await codeTypeTrigger
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (triggerVisible) {
       await codeTypeTrigger.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -4863,7 +5397,10 @@ async function testModule15(page, consoleErrors, pageErrors) {
         '.components-item:has-text("级联选择"), .components-item:has-text("Cascader"), .components-item:has-text("cascader")'
       )
       .first()
-    const cascaderVisible = await cascaderComponent.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const cascaderVisible = await cascaderComponent
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (cascaderVisible) {
       await cascaderComponent.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -4873,13 +5410,23 @@ async function testModule15(page, consoleErrors, pageErrors) {
           '.el-form-item:has(label:has-text("数据类型")) .el-radio:has-text("静态"), .el-form-item:has(label:has-text("数据类型")) .el-radio-button:has-text("静态")'
         )
         .first()
-      if (await staticRadio.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await staticRadio
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await staticRadio.click({ timeout: 3000 }).catch(() => {})
         await sleep(1000)
       }
       // 点击"添加父级"按钮
       const addParentBtn = page.locator('button:has-text("添加父级")').first()
-      if (await addParentBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await addParentBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await addParentBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
         const treeNodeDialog = await waitForVisibleDialog(page, 5000)
@@ -4954,7 +5501,10 @@ async function testModule16(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice-center`, { moduleName: M, waitMs: 2000 })) {
     // 通知中心使用 el-radio-group + el-radio-button 进行筛选（非 el-tabs）
     const radioGroup = page.locator('.el-radio-group').first()
-    const radioVisible = await radioGroup.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const radioVisible = await radioGroup
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (radioVisible) {
       const radioButtons = radioGroup.locator('.el-radio-button')
       const radioCount = await radioButtons.count()
@@ -5038,7 +5588,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
       const hasContent = await page
         .locator('.el-tab-pane, .el-table, .app-container')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '在线用户: "我的会话" Tab 切换', hasContent)
       await tabs
         .nth(0)
@@ -5065,7 +5617,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
       const hasMyLogin = await page
         .locator('.my-login-panel')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '登录日志: "我的登录" Tab 切换', hasMyLogin)
       await tabs
         .nth(0)
@@ -5089,7 +5643,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
       const hasBackendContent = await page
         .locator('.el-tab-pane')
         .nth(1)
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '关于系统: 后端依赖 Tab', hasBackendContent)
       await tabs
         .nth(0)
@@ -5113,7 +5669,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
       const hasKeyPanel = await page
         .locator('.el-tab-pane')
         .nth(1)
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '缓存监控: 键管理 Tab', hasKeyPanel)
       await tabs
         .nth(0)
@@ -5138,7 +5696,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
       const hasPwdForm = await page
         .locator('.el-tab-pane')
         .nth(1)
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 修改密码 Tab', hasPwdForm)
       if (tabCount >= 3) {
         await tabs
@@ -5149,7 +5709,9 @@ async function testModule17(page, consoleErrors, pageErrors) {
         const hasTotp = await page
           .locator('.el-tab-pane')
           .nth(2)
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '个人中心: TOTP Tab', hasTotp)
       }
       await tabs
@@ -5165,11 +5727,15 @@ async function testModule17(page, consoleErrors, pageErrors) {
     const hasRightPanel = await page
       .locator('.right-board, .right-panel')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasCenterBoard = await page
       .locator('.center-board, .center-scrollbar')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '表单构建器: 面板布局渲染',
@@ -5193,7 +5759,10 @@ async function testModule18(page, consoleErrors, pageErrors) {
     const editBtn = page
       .locator('.el-table__row button:has-text("修改"), .el-table__row button:has-text("编辑")')
       .first()
-    const editVisible = await editBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const editVisible = await editBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (editVisible) {
       await editBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -5211,12 +5780,18 @@ async function testModule18(page, consoleErrors, pageErrors) {
     }
 
     const deleteBtn = page.locator('.el-table__row button:has-text("删除")').first()
-    const deleteVisible = await deleteBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const deleteVisible = await deleteBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (deleteVisible) {
       await deleteBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const confirmBox = page.locator('.el-message-box, .el-dialog:visible').first()
-      const confirmVisible = await confirmBox.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const confirmVisible = await confirmBox
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '岗位删除: 确认对话框', confirmVisible)
       if (confirmVisible) {
         const cancelBtn = page
@@ -5234,7 +5809,10 @@ async function testModule18(page, consoleErrors, pageErrors) {
     const editBtn = page
       .locator('.el-table__row button:has-text("修改"), .el-table__row button:has-text("编辑")')
       .first()
-    const editVisible = await editBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const editVisible = await editBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (editVisible) {
       await editBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -5254,12 +5832,18 @@ async function testModule18(page, consoleErrors, pageErrors) {
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
     const deleteBtn = page.locator('.el-table__row button:has-text("删除")').first()
-    const deleteVisible = await deleteBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const deleteVisible = await deleteBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (deleteVisible) {
       await deleteBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const confirmBox = page.locator('.el-message-box').first()
-      const confirmVisible = await confirmBox.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const confirmVisible = await confirmBox
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '参数删除: 确认对话框', confirmVisible)
       if (confirmVisible) {
         await page
@@ -5278,7 +5862,10 @@ async function testModule18(page, consoleErrors, pageErrors) {
     const editBtn = page
       .locator('.el-table__row button:has-text("修改"), .el-table__row button:has-text("编辑")')
       .first()
-    const editVisible = await editBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const editVisible = await editBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (editVisible) {
       await editBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
@@ -5308,11 +5895,17 @@ async function testModule19(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     await assertPageLoaded(page, M, '用户管理页加载（分页测试）')
     const pagination = page.locator('.el-pagination').first()
-    const paginationVisible = await pagination.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const paginationVisible = await pagination
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 分页组件可见', paginationVisible)
     if (paginationVisible) {
       const nextBtn = pagination.locator('.btn-next, .el-pager li.number').nth(1)
-      const nextVisible = await nextBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const nextVisible = await nextBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const pagerNumbers = await page.locator('.el-pager li.number').count()
       if (nextVisible && pagerNumbers < 2) {
         recordSkip(M, '用户管理: 页码切换', `分页仅 ${pagerNumbers} 个页码（数据不足两页），翻页无可测对象`)
@@ -5333,18 +5926,27 @@ async function testModule19(page, consoleErrors, pageErrors) {
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M, waitMs: 2000 })) {
     const pagination = page.locator('.el-pagination').first()
-    const paginationVisible = await pagination.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const paginationVisible = await pagination
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '角色管理: 分页组件可见', paginationVisible)
     if (paginationVisible) {
       const totalEl = pagination.locator('.el-pagination__total').first()
-      const totalVisible = await totalEl.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const totalVisible = await totalEl
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色管理: 总数显示', totalVisible)
     }
   }
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const exportBtn = page.locator('button:has-text("导出")').first()
-    const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const exportVisible = await exportBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 导出按钮可见', exportVisible)
     if (exportVisible) {
       // 导出函数直接调用 download()，显示 loading 遮罩并触发下载，无确认对话框
@@ -5355,12 +5957,16 @@ async function testModule19(page, consoleErrors, pageErrors) {
       const hasLoading = await page
         .locator('.el-loading-mask:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       const download = await downloadPromise
       const msgBox = await page
         .locator('.el-message-box:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       if (msgBox) {
         await page
           .locator('.el-message-box button:has-text("取消"), .el-message-box button:has-text("确定")')
@@ -5386,7 +5992,10 @@ async function testModule19(page, consoleErrors, pageErrors) {
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const addVisible = await addBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (addVisible) {
       await addBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -5397,12 +6006,18 @@ async function testModule19(page, consoleErrors, pageErrors) {
             '.el-dialog button:has-text("确 定"), .el-dialog button:has-text("确定"), .el-dialog button:has-text("保存")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         if (confirmVisible) {
           await confirmBtn.click({ timeout: 3000 }).catch(() => {})
           await sleep(1500)
           const errorMsg = page.locator('.el-form-item__error').first()
-          const errorVisible = await errorMsg.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          const errorVisible = await errorMsg
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '岗位新增: 空表单校验', errorVisible, errorVisible ? '出现校验错误提示' : '无校验提示')
           await closeDialog(page)
         } else {
@@ -5419,7 +6034,10 @@ async function testModule19(page, consoleErrors, pageErrors) {
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const addVisible = await addBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     if (addVisible) {
       await addBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -5430,12 +6048,18 @@ async function testModule19(page, consoleErrors, pageErrors) {
             '.el-dialog button:has-text("确 定"), .el-dialog button:has-text("确定"), .el-dialog button:has-text("保存")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         if (confirmVisible) {
           await confirmBtn.click({ timeout: 3000 }).catch(() => {})
           await sleep(1500)
           const errorMsg = page.locator('.el-form-item__error').first()
-          const errorVisible = await errorMsg.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          const errorVisible = await errorMsg
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '字典新增: 空表单校验', errorVisible)
           await closeDialog(page)
         } else {
@@ -5462,7 +6086,10 @@ async function testModule20(page, consoleErrors, pageErrors) {
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
 
   const hamburger = page.locator('#hamburger-container, .hamburger-container').first()
-  const hamburgerVisible = await hamburger.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const hamburgerVisible = await hamburger
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '侧边栏: hamburger 按钮可见', hamburgerVisible)
   if (hamburgerVisible) {
     const beforeClass = await page
@@ -5484,14 +6111,20 @@ async function testModule20(page, consoleErrors, pageErrors) {
   }
 
   const avatarContainer = page.locator('.avatar-container, .user-avatar').first()
-  const avatarVisible = await avatarContainer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const avatarVisible = await avatarContainer
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '头像下拉: 触发器可见', avatarVisible)
   if (avatarVisible) {
     await avatarContainer.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
     // el-dropdown trigger="click" 后渲染的 dropdown menu
     const dropdown = page.locator('.el-dropdown-menu:visible').first()
-    const dropdownVisible = await dropdown.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const dropdownVisible = await dropdown
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '头像下拉: 菜单展开', dropdownVisible)
     if (dropdownVisible) {
       const items = dropdown.locator('.el-dropdown-menu__item')
@@ -5504,7 +6137,10 @@ async function testModule20(page, consoleErrors, pageErrors) {
 
   // 通知铃铛使用 .notice-trigger 类（el-popover trigger="manual"，支持 click 和 hover）
   const noticeBell = page.locator('.notice-trigger').first()
-  const bellVisible = await noticeBell.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const bellVisible = await noticeBell
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '通知铃铛: 可见', bellVisible)
   if (bellVisible) {
     // 使用 hover 触发（mouseenter），避免 click 的 toggle 行为
@@ -5512,7 +6148,10 @@ async function testModule20(page, consoleErrors, pageErrors) {
     await sleep(1500)
     // 通知面板使用 popper-class="notice-popover"
     const noticePanel = page.locator('.notice-popover:visible').first()
-    const panelVisible = await noticePanel.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const panelVisible = await noticePanel
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知铃铛: 面板展开', panelVisible)
     if (panelVisible) {
       await page.mouse.move(0, 0).catch(() => {})
@@ -5522,7 +6161,10 @@ async function testModule20(page, consoleErrors, pageErrors) {
 
   // 主题切换按钮使用 .theme-switch-wrapper 类
   const themeToggle = page.locator('.theme-switch-wrapper').first()
-  const themeToggleVisible = await themeToggle.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const themeToggleVisible = await themeToggle
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   if (themeToggleVisible) {
     const beforeHtmlClass = await page.evaluate(() => document.documentElement.className)
     await themeToggle.click({ timeout: 3000 }).catch(() => {})
@@ -5544,7 +6186,12 @@ async function testModule20(page, consoleErrors, pageErrors) {
     const layoutSettingsItem = page
       .locator('.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("布局设置")')
       .first()
-    if (await layoutSettingsItem.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await layoutSettingsItem
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await layoutSettingsItem.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const settingsDrawer = await waitForVisibleDrawer(page, 3000)
@@ -5553,7 +6200,9 @@ async function testModule20(page, consoleErrors, pageErrors) {
         const hasThemeColor = await page
           .locator('.el-drawer:visible .theme-color, .el-drawer:visible [class*="color"]')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'Settings 抽屉: 主题色选择', hasThemeColor)
         await closeDrawer(page)
       }
@@ -5567,16 +6216,25 @@ async function testModule20(page, consoleErrors, pageErrors) {
   }
 
   const tagsView = page.locator('.tags-view-container, .tags-view').first()
-  const tagsViewVisible = await tagsView.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const tagsViewVisible = await tagsView
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, 'TagsView: 容器可见', tagsViewVisible)
   if (tagsViewVisible) {
     const tagItem = tagsView.locator('.tags-view-item').first()
-    const tagVisible = await tagItem.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const tagVisible = await tagItem
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (tagVisible) {
       await tagItem.click({ button: 'right', timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const contextMenu = page.locator('.el-dropdown-menu:visible, .context-menu:visible, ul:visible').first()
-      const menuVisible = await contextMenu.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const menuVisible = await contextMenu
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'TagsView: 右键菜单', menuVisible)
       if (menuVisible) {
         await page.keyboard.press('Escape').catch(() => {})
@@ -5588,11 +6246,17 @@ async function testModule20(page, consoleErrors, pageErrors) {
   }
 
   const screenfullBtn = page.locator('.screenfull, [class*="screenfull"], .el-icon-FullScreen').first()
-  const screenfullVisible = await screenfullBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const screenfullVisible = await screenfullBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '全屏按钮: 可见', screenfullVisible)
 
   const breadcrumb = page.locator('.breadcrumb-container, .el-breadcrumb').first()
-  const breadcrumbVisible = await breadcrumb.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const breadcrumbVisible = await breadcrumb
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '面包屑导航: 可见', breadcrumbVisible)
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -5616,19 +6280,25 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     const has404Text = await page
       .locator('.wscn-http404-container, .wscn-http404, .bullshit__oops, img[alt="404"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '404 页面: 错误提示可见', has404Text)
     const hasBackBtn = await page
       .locator('.bullshit__return-home, a:has-text("首页"), button:has-text("返回")')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '404 页面: 返回按钮', hasBackBtn)
   } else {
     await assertErrorPageRendered(page, M, '404 页面加载', '.wscn-http404-container', '通过路由匹配渲染')
     const has404Text = await page
       .locator('.wscn-http404-container, .wscn-http404, .bullshit__oops, img[alt="404"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '404 页面: 错误提示可见', has404Text)
   }
 
@@ -5705,7 +6375,12 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     record(M, '角色分配用户页（authUser）加载', auGoto, auGoto ? '' : '真实路由打不开（旧用例这时记 PASS）')
     if (auGoto) {
       const au = await verifyListLoaded(page, { listHint: /\/system\/role\/authUser\/allocatedList(\?|$)/ })
-      record(M, 'authUser: 表格渲染', au.pass, au.pass ? `已分配用户 ${au.domRows} 行（DOM=响应 ${au.serverRows}，total=${au.total}）` : au.why)
+      record(
+        M,
+        'authUser: 表格渲染',
+        au.pass,
+        au.pass ? `已分配用户 ${au.domRows} 行（DOM=响应 ${au.serverRows}，total=${au.total}）` : au.why
+      )
     } else {
       record(M, 'authUser: 表格渲染', false, '页面未打开')
     }
@@ -5737,7 +6412,10 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     }
     page.on('response', jobHandler)
     const jobLink = page.locator('.el-table__body .el-table__row .el-link').first()
-    const linkOk = await jobLink.click({ timeout: 3000 }).then(() => true).catch(() => false)
+    const linkOk = await jobLink
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const dialog = linkOk ? await waitForVisibleDialog(page, 6000) : false
     await sleep(400)
     page.off('response', jobHandler)
@@ -5755,7 +6433,12 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
           return { len: txt.length, hasJobFields: /调用|cron|Cron|分组|策略|Invoke|Group/i.test(txt) }
         })
         .catch(() => ({ len: -1, hasJobFields: false }))
-      record(M, 'job/detail: 内容渲染', content.len > 40 && content.hasJobFields, `对话框文本=${content.len} 字，含任务字段=${content.hasJobFields}`)
+      record(
+        M,
+        'job/detail: 内容渲染',
+        content.len > 40 && content.hasJobFields,
+        `对话框文本=${content.len} 字，含任务字段=${content.hasJobFields}`
+      )
       await closeDialog(page)
     } else {
       record(M, 'job/detail: 内容渲染', false, '对话框未打开')
@@ -5788,10 +6471,20 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
       moduleName: M,
       waitMs: 2000
     })
-    record(M, '字典详情页（dict/detail）加载', ddGoto, ddGoto ? `dictId=${dictId2} → /system/dict-data/index/${dictId2}` : '真实路由打不开')
+    record(
+      M,
+      '字典详情页（dict/detail）加载',
+      ddGoto,
+      ddGoto ? `dictId=${dictId2} → /system/dict-data/index/${dictId2}` : '真实路由打不开'
+    )
     if (ddGoto) {
       const dd = await verifyListLoaded(page, { listHint: /\/system\/dict\/data\/list(\?|$)/, minRows: 1 })
-      record(M, 'dict/detail: 内容渲染', dd.pass, dd.pass ? `字典数据 ${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why)
+      record(
+        M,
+        'dict/detail: 内容渲染',
+        dd.pass,
+        dd.pass ? `字典数据 ${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why
+      )
     } else {
       record(M, 'dict/detail: 内容渲染', false, '页面未打开')
     }
@@ -5818,12 +6511,17 @@ async function testModule22(page, consoleErrors, pageErrors) {
         '.command-palette, .el-dialog:has(.command-input), .el-dialog:has(input[placeholder*="命令"]), .el-dialog:has(input[placeholder*="搜索"])'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
   } catch {}
   record(M, '命令面板（Ctrl+K）: 打开', cpOpened)
   if (cpOpened) {
     const cpInput = page.locator('.command-palette input, .el-dialog:visible input').first()
-    const cpInputVisible = await cpInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const cpInputVisible = await cpInput
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (cpInputVisible) {
       await cpInput.fill('用户')
       await sleep(1000)
@@ -5838,7 +6536,10 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.2 顶部搜索（HeaderSearch）
   const headerSearch = page.locator('#header-search, .header-search').first()
-  const hsVisible = await headerSearch.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const hsVisible = await headerSearch
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '顶部搜索（HeaderSearch）: 可见', hsVisible)
   if (hsVisible) {
     await headerSearch.click({ timeout: 3000 }).catch(() => {})
@@ -5847,7 +6548,10 @@ async function testModule22(page, consoleErrors, pageErrors) {
     // `.header-search input, .el-input__inner:visible` 只能靠第二条兜底，而它命中的可能是
     // 页面上任意一个可见输入框（假定位 → 填进无关框里再"搜索成功"）。
     const hsInput = page.locator('.el-dialog:visible .el-input__inner').first()
-    const hsInputVisible = await hsInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hsInputVisible = await hsInput
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (hsInputVisible) {
       await hsInput.fill('用户')
       await sleep(1500)
@@ -5866,13 +6570,19 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.3 收藏夹下拉（Favorites）
   const favTrigger = page.locator('.fav-trigger').first()
-  const favVisible = await favTrigger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const favVisible = await favTrigger
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '收藏夹（Favorites）: 触发器可见', favVisible)
   if (favVisible) {
     await favTrigger.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     const favDropdown = page.locator('.el-dropdown-menu:visible').first()
-    const favDropdownVisible = await favDropdown.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const favDropdownVisible = await favDropdown
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '收藏夹: 下拉菜单展开', favDropdownVisible)
     if (favDropdownVisible) {
       await page.keyboard.press('Escape').catch(() => {})
@@ -5882,13 +6592,19 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.4 最近访问下拉（Recent）
   const recentTrigger = page.locator('.recent-trigger').first()
-  const recentVisible = await recentTrigger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const recentVisible = await recentTrigger
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '最近访问（Recent）: 触发器可见', recentVisible)
   if (recentVisible) {
     await recentTrigger.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     const recentDropdown = page.locator('.el-dropdown-menu:visible').first()
-    const recentDropdownVisible = await recentDropdown.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const recentDropdownVisible = await recentDropdown
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '最近访问: 下拉菜单展开', recentDropdownVisible)
     if (recentDropdownVisible) {
       await page.keyboard.press('Escape').catch(() => {})
@@ -5898,13 +6614,19 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.5 语言切换（LangSelect）— 使用实际 ID
   const langSelect = page.locator('#lang-select, .lang-select').first()
-  const langVisible = await langSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const langVisible = await langSelect
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '语言切换（LangSelect）: 可见', langVisible)
   if (langVisible) {
     await langSelect.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     const langDropdown = page.locator('.el-dropdown-menu:visible').first()
-    const langDropdownVisible = await langDropdown.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const langDropdownVisible = await langDropdown
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (langDropdownVisible) {
       const items = await langDropdown.locator('.el-dropdown-menu__item').count()
       record(M, 'LangSelect: 菜单项数量', items >= 2, `${items} 项`)
@@ -5918,7 +6640,12 @@ async function testModule22(page, consoleErrors, pageErrors) {
         await langSelect.click({ timeout: 2000 }).catch(() => {})
         await sleep(500)
         const dropdown2 = page.locator('.el-dropdown-menu:visible').first()
-        if (await dropdown2.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+        if (
+          await dropdown2
+            .waitFor({ state: 'visible', timeout: 1500 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await dropdown2
             .locator('.el-dropdown-menu__item')
             .first()
@@ -5934,13 +6661,19 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.6 组件尺寸切换（SizeSelect）— 使用实际 ID
   const sizeSelect = page.locator('#size-select, .size-select').first()
-  const sizeVisible = await sizeSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const sizeVisible = await sizeSelect
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '尺寸切换（SizeSelect）: 可见', sizeVisible)
   if (sizeVisible) {
     await sizeSelect.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     const sizeDropdown = page.locator('.el-dropdown-menu:visible').first()
-    const sizeDropdownVisible = await sizeDropdown.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const sizeDropdownVisible = await sizeDropdown
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (sizeDropdownVisible) {
       const items = await sizeDropdown.locator('.el-dropdown-menu__item').count()
       record(M, 'SizeSelect: 菜单项数量', items >= 2, `${items} 项`)
@@ -5953,19 +6686,31 @@ async function testModule22(page, consoleErrors, pageErrors) {
 
   // 22.7 全屏按钮（Screenfull）— 使用实际 ID
   const screenfullBtn = page.locator('#screenfull, .screenfull, [class*="screenfull"]').first()
-  const sfVisible = await screenfullBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const sfVisible = await screenfullBtn
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '全屏按钮（Screenfull）: 可见', sfVisible)
 
   // 22.8 主题切换按钮（theme-switch-wrapper）
   const themeSwitch = page.locator('.theme-switch-wrapper').first()
-  const tsVisible = await themeSwitch.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const tsVisible = await themeSwitch
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '主题切换按钮: 可见', tsVisible)
 
   // 22.9 外部链接（Git/Doc）
   const gitLink = page.locator('#stepby-git').first()
   const docLink = page.locator('#stepby-doc').first()
-  const gitVisible = await gitLink.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-  const docVisible = await docLink.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const gitVisible = await gitLink
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
+  const docVisible = await docLink
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '外部链接: Git/Doc 可见', gitVisible || docVisible, `Git=${gitVisible}, Doc=${docVisible}`)
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -6009,16 +6754,22 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
   const hasUsername = await loginPage
     .locator('input[type="text"], input[placeholder*="账号"], input[placeholder*="用户"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   const hasPassword = await loginPage
     .locator('input[type="password"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '登录页: 表单字段', hasUsername && hasPassword, `用户名=${hasUsername}, 密码=${hasPassword}`)
   const hasRememberMe = await loginPage
     .locator('.el-checkbox, input[type="checkbox"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '登录页: 记住我选项', hasRememberMe)
   // 旧写法 `record(M, '登录页: 注册链接', true, hasRegisterLink ? '已启用' : '已禁用')` 两向皆 ✅。
   // 注册入口同样由 /captchaImage 的 registerEnabled 下发（login.vue:404 注释明确"不靠探测 /register 触发 403"），
@@ -6027,9 +6778,7 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
     M,
     '登录页: 注册链接',
     flags.pass && flags.registerOk,
-    flags.registerOk
-      ? `档位 registerEnabled=${flags.registerEnabled} 与 DOM 入口=${flags.hasRegister} 一致`
-      : flags.why
+    flags.registerOk ? `档位 registerEnabled=${flags.registerEnabled} 与 DOM 入口=${flags.hasRegister} 一致` : flags.why
   )
   await loginCtx.close().catch(() => {})
 
@@ -6037,14 +6786,20 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
   // 注：登出会破坏当前 session，影响后续模块测试。改为验证登出按钮存在性即可。
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
   const avatarContainer = page.locator('.avatar-container, .user-avatar').first()
-  const avatarVisible = await avatarContainer.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const avatarVisible = await avatarContainer
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   let logoutBtnVisible = false
   if (avatarVisible) {
     await avatarContainer.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     // 登出按钮使用 i18n，可能显示"退出登录"/"登出"/"Logout"等
     const logoutBtn = page.locator('.el-dropdown-menu:visible .el-dropdown-menu__item').last()
-    logoutBtnVisible = await logoutBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    logoutBtnVisible = await logoutBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '登出流程: 退出按钮可见', logoutBtnVisible)
     // 验证下拉菜单包含多个菜单项
     if (logoutBtnVisible) {
@@ -6068,7 +6823,11 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
           const cookiesBefore = await outCtx.cookies()
           const tk = (cookiesBefore.find((c) => c.name === 'Admin-Token') || {}).value || ''
           await safeGoto(outPage, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1200 })
-          await outPage.locator('.avatar-container, .user-avatar').first().click({ timeout: 3000 }).catch(() => {})
+          await outPage
+            .locator('.avatar-container, .user-avatar')
+            .first()
+            .click({ timeout: 3000 })
+            .catch(() => {})
           await sleep(800)
           const itemClicked = await outPage
             .locator('.el-dropdown-menu:visible .el-dropdown-menu__item')
@@ -6124,7 +6883,10 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
   // 23.4 修改密码（profile/resetPwd）
   await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 1500 })
   const pwdTab = page.locator('.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("密码")').first()
-  const pwdTabVisible = await pwdTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const pwdTabVisible = await pwdTab
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   if (pwdTabVisible) {
     await pwdTab.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
@@ -6135,20 +6897,33 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
       .nth(0)
     const newPwdInput = page.locator('input[placeholder*="新密码"], .el-tab-pane:visible input[type="password"]').nth(1)
     const hasPwdForm =
-      (await oldPwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) &&
-      (await newPwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+      (await oldPwdInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)) &&
+      (await newPwdInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
     record(M, '修改密码 Tab: 表单可见', hasPwdForm)
     if (hasPwdForm) {
       const submitBtn = page
         .locator('.el-tab-pane:visible button:has-text("保存"), .el-tab-pane:visible button:has-text("提交")')
         .first()
-      if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await submitBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await submitBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1000)
         const hasValidation = await page
           .locator('.el-form-item__error:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '修改密码: 空表单校验', hasValidation)
       }
     }
@@ -6162,13 +6937,19 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
       '.el-tabs__item:has-text("MFA"), .el-tabs__item:has-text("安全设置"), .el-tabs__item:has-text("TOTP"), .el-tabs__item:has-text("二次验证")'
     )
     .first()
-  const totpTabVisible = await totpTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const totpTabVisible = await totpTab
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   if (totpTabVisible) {
     await totpTab.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
     // 切换 Tab 后，可见的 el-tab-pane 即为当前 Tab 内容（只有一个可见）
     const totpContent = page.locator('.el-tab-pane:visible').first()
-    const totpContentVisible = await totpContent.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const totpContentVisible = await totpContent
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'TOTP Tab: 内容可见', totpContentVisible)
     if (totpContentVisible) {
       // TOTP Tab 的真实 DOM 契约（src/views/system/user/profile/totp.vue）：
@@ -6189,9 +6970,15 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
             setupState: !!card?.querySelector('.setup-state'),
             qrSection: !!card?.querySelector('.qr-section'),
             actionBtn: btns.some((b) =>
-              /生成密钥|解除绑定|绑定|启用|Generate Secret|Unbind|Bind|Disable|Enable/i.test((b.textContent || '').trim())
+              /生成密钥|解除绑定|绑定|启用|Generate Secret|Unbind|Bind|Disable|Enable/i.test(
+                (b.textContent || '').trim()
+              )
             ),
-            btnTexts: btns.map((b) => (b.textContent || '').trim()).filter(Boolean).slice(0, 3).join('/')
+            btnTexts: btns
+              .map((b) => (b.textContent || '').trim())
+              .filter(Boolean)
+              .slice(0, 3)
+              .join('/')
           }
         })
         .catch(() => null)
@@ -6210,7 +6997,12 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
 
   // 23.6 头像上传完整流程（切换回基础信息 Tab）
   const basicTab = page.locator('.el-tabs__item').nth(0)
-  if (await basicTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await basicTab
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await basicTab.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
   }
@@ -6228,7 +7020,10 @@ async function testModule24(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     await assertPageLoaded(page, M, '岗位管理页加载（批量测试）')
     const rowCheckbox = page.locator('.el-table__row .el-checkbox').first()
-    const cbVisible = await rowCheckbox.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const cbVisible = await rowCheckbox
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (cbVisible) {
       // 真实契约（views/system/post/index.vue:57 `:disabled="multiple"`）：
       // 未选中时「删除」必须禁用，选中一行后必须解禁。旧写法 `true, batchVisible?'已显示':'未显示（功能可选）'`
@@ -6266,7 +7061,10 @@ async function testModule24(page, consoleErrors, pageErrors) {
     //    结果"导出真的快"反而被判 ❌（先建监听再动作是 download 类断言的唯一正确姿势）。
     // ② 改造前该分支记的是字面量 true + 文案"无对话框（直接触发下载）"，下载到底有没有发生无人验证。
     const exportBtn = page.locator('button:has-text("导出")').first()
-    const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const exportVisible = await exportBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (exportVisible) {
       const clickedAt = Date.now()
       let downloadAtMs = 0
@@ -6281,7 +7079,9 @@ async function testModule24(page, consoleErrors, pageErrors) {
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确认")')
+        .locator(
+          '.el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确认")'
+        )
         .first()
       const confirmVisible2 = await confirmBtn
         .waitFor({ state: 'visible', timeout: 2000 })
@@ -6318,7 +7118,10 @@ async function testModule24(page, consoleErrors, pageErrors) {
   // 24.3 Excel 导入对话框
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const importBtn = page.locator('button:has-text("导入"), button:has-text("Excel导入")').first()
-    const importVisible = await importBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const importVisible = await importBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (importVisible) {
       await importBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -6328,12 +7131,16 @@ async function testModule24(page, consoleErrors, pageErrors) {
         const hasUpload = await page
           .locator('.el-dialog:visible .el-upload, .el-dialog:visible input[type="file"]')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'Excel 导入: 上传组件', hasUpload)
         const hasTpl = await page
           .locator('.el-dialog:visible button:has-text("模板"), .el-dialog:visible a:has-text("模板")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'Excel 导入: 下载模板按钮', hasTpl)
         await closeDialog(page)
       }
@@ -6346,17 +7153,24 @@ async function testModule24(page, consoleErrors, pageErrors) {
   // 24.4 文件上传组件（文件管理页）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/file`, { moduleName: M, waitMs: 2000 })) {
     const uploadArea = page.locator('.el-upload, .upload-area, [class*="upload"]').first()
-    const uploadVisible = await uploadArea.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const uploadVisible = await uploadArea
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '文件管理: 上传组件可见', uploadVisible)
     if (uploadVisible) {
       const hasDragArea = await page
         .locator('.el-upload-dragger')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       const hasUploadBtn = await page
         .locator('.el-upload button, button:has-text("上传")')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '文件管理: 上传入口', hasDragArea || hasUploadBtn, `拖拽区=${hasDragArea}, 按钮=${hasUploadBtn}`)
     }
   }
@@ -6364,7 +7178,10 @@ async function testModule24(page, consoleErrors, pageErrors) {
   // 24.5 Markdown 编辑器（通知管理新增对话框）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const addVisible = await addBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (addVisible) {
       await addBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -6373,15 +7190,21 @@ async function testModule24(page, consoleErrors, pageErrors) {
         const hasMdEditor = await page
           .locator('.el-dialog:visible .md-editor, .el-dialog:visible .markdown-editor, .el-dialog:visible .editor')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasRichEditor = await page
           .locator('.el-dialog:visible .ql-editor, .el-dialog:visible .w-e-editor, .el-dialog:visible .tox-tinymce')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const hasTextarea = await page
           .locator('.el-dialog:visible textarea')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '通知: Markdown/富文本编辑器',
@@ -6400,7 +7223,10 @@ async function testModule24(page, consoleErrors, pageErrors) {
   // 24.6 EditableCell / 行内编辑
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
     const editableCell = page.locator('.el-table__row .editable-cell, .el-table__row [class*="editable"]').first()
-    const ecVisible = await editableCell.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const ecVisible = await editableCell
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     // 行内编辑功能可选，未启用时标记为通过
     recordSoft(M, '配置管理: 行内编辑组件', ecVisible, '行内编辑已启用', '行内编辑未启用（功能可选）')
   }
@@ -6419,7 +7245,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const adminAddBtn = await page
     .locator('button:has-text("新增")')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, 'v-hasPermi: 管理员可见"新增"按钮', adminAddBtn)
 
   // 25.2 v-hasRole 指令验证
@@ -6436,9 +7264,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const wmDefault = await page
     .evaluate(() => ({
       styles: document.querySelectorAll('style[data-watermark="true"]').length,
-      classes: Array.from(
-        (document.querySelector('.app-wrapper') || { classList: [] }).classList || []
-      ).filter((c) => c.startsWith('v-watermark-')).length
+      classes: Array.from((document.querySelector('.app-wrapper') || { classList: [] }).classList || []).filter((c) =>
+        c.startsWith('v-watermark-')
+      ).length
     }))
     .catch(() => ({ styles: -1, classes: -1 }))
   record(
@@ -6460,7 +7288,12 @@ async function testModule25(page, consoleErrors, pageErrors) {
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
   const avatarContainer2 = page.locator('.avatar-container, .user-avatar').first()
   let lockTriggered = false
-  if (await avatarContainer2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await avatarContainer2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await avatarContainer2.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     // 锁屏菜单项使用 i18n，可能是"锁屏"/"锁定屏幕"/"Lock Screen"
@@ -6469,25 +7302,35 @@ async function testModule25(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("锁"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Lock")'
       )
       .first()
-    const lockItemVisible = await lockItem.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const lockItemVisible = await lockItem
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '锁屏: 菜单项可见', lockItemVisible)
     if (lockItemVisible) {
       await lockItem.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       // 锁屏页面使用 .lock-container 类
       const lockContainer = page.locator('.lock-container, .lock-card').first()
-      lockTriggered = await lockContainer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      lockTriggered = await lockContainer
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '锁屏页面加载', lockTriggered)
       if (lockTriggered) {
         const hasPwdInput = await page
           .locator('.lock-card input[type="password"], .lock-container input[type="password"]')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '锁屏: 密码输入框', hasPwdInput)
         const hasUnlockBtn = await page
           .locator('.unlock-btn, .lock-card button')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '锁屏: 解锁按钮', hasUnlockBtn)
         // 关键修复：必须清除锁屏状态，否则路由守卫会将所有后续导航重定向到 /lock
         // 锁屏状态存储在 localStorage 的 screen-lock 和 screen-lock-path 中（带签名）
@@ -6532,7 +7375,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const eb = await page
     .evaluate(() => {
       const main = document.querySelector('.app-main')
-      const contentNodes = main ? main.querySelectorAll('section, .app-container, [class*="card"], [class*="panel"]').length : -1
+      const contentNodes = main
+        ? main.querySelectorAll('section, .app-container, [class*="card"], [class*="panel"]').length
+        : -1
       return {
         hasMain: !!main,
         contentNodes,
@@ -6594,7 +7439,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const cookieConsent = await page
     .locator('.cookie-consent, [class*="cookie-consent"], [class*="cookie-banner"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   recordSoft(M, 'CookieConsent: 组件可见', cookieConsent, 'Cookie 同意对话框可见', '已同意或未启用（正常状态）')
 
   // 25.10 网络错误重试（network-error 页面渲染可能因登录状态而异）
@@ -6603,11 +7450,15 @@ async function testModule25(page, consoleErrors, pageErrors) {
     const hasRetryBtn = await page
       .locator('button:has-text("重试"), button:has-text("刷新"), a:has-text("重试"), .el-button')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasContent = await page
       .locator('.el-button, .error-page, .app-container, .el-result')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       'network-error: 重试按钮',
@@ -6616,7 +7467,11 @@ async function testModule25(page, consoleErrors, pageErrors) {
     )
   } else {
     // 直接访问 /network-error 可能被路由守卫拦截，标记为通过（页面在错误时才显示）
-    recordSkip(M, 'network-error: 重试按钮', '直接访问被路由守卫拦截：该页仅在真实网络错误时渲染，本环境无法构造（可见分支已实断言重试按钮/内容）')
+    recordSkip(
+      M,
+      'network-error: 重试按钮',
+      '直接访问被路由守卫拦截：该页仅在真实网络错误时渲染，本环境无法构造（可见分支已实断言重试按钮/内容）'
+    )
   }
 
   // 25.11 SkeletonTable 加载骨架屏
@@ -6624,7 +7479,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const hasSkeleton = await page
     .locator('.el-skeleton, .skeleton-table, [class*="skeleton"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 500 })
+    .then(() => true)
+    .catch(() => false)
   recordSoft(M, 'SkeletonTable: 骨架屏（瞬时）', hasSkeleton, '骨架屏仅在加载瞬间可见')
 
   // 25.12 EmptyState 空状态组件
@@ -6633,7 +7490,10 @@ async function testModule25(page, consoleErrors, pageErrors) {
   await sleep(2000)
   await dismissTour(page)
   const searchInput = page.locator('.query-form input, .el-form--inline input, .el-input__inner').first()
-  const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const searchVisible = await searchInput
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   if (searchVisible) {
     await searchInput.fill('___nonexistent___')
     await sleep(300)
@@ -6642,7 +7502,9 @@ async function testModule25(page, consoleErrors, pageErrors) {
     const hasEmptyState = await page
       .locator('.el-table__empty-block, .empty-state, .el-empty, .el-table__empty-text')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, 'EmptyState: 空状态组件', hasEmptyState, '空状态组件可见', '表格为空时显示空状态（默认通过）')
     await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
     await sleep(800)
@@ -6670,7 +7532,10 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     await assertPageLoaded(page, M, '岗位管理页加载（CRUD测试）')
     const addBtn = page.locator('button:has-text("新增")').first()
-    const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const addVisible = await addBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (addVisible) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 8000)
@@ -6678,24 +7543,41 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
         // 填写表单（使用精确 label 文本匹配 i18n 标签）
         const nameInput = page.locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位名称")) input').first()
         const codeInput = page.locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位编码")) input').first()
-        if (await nameInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+        if (
+          await nameInput
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await nameInput.fill(postName)
         }
-        if (await codeInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+        if (
+          await codeInput
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await codeInput.fill(postCode)
         }
         // 提交（"确 定"带空格，匹配 i18n common.confirm）
         const submitBtn = page
           .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定")')
           .first()
-        if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await submitBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await submitBtn.click({ timeout: 3000 }).catch(() => {})
           await sleep(2500)
           // 检查是否关闭对话框（成功标志）或显示错误
           const dialogClosed = !(await page
             .locator('.el-dialog:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+            .waitFor({ state: 'visible', timeout: 1000 })
+            .then(() => true)
+            .catch(() => false))
           record(
             M,
             'CRUD: 新增岗位',
@@ -6715,12 +7597,20 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     // 定位"岗位名称"搜索框（通过 label 文本匹配，避免误用 postCode 搜索框）
     const searchInput = page.locator('.el-form--inline .el-form-item:has(label:has-text("岗位名称")) input').first()
-    let searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    let searchVisible = await searchInput
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     let inputToUse = searchInput
     if (!searchVisible) {
       // 备用：使用第二个 input（postCode 是第一个，postName 是第二个）
       const fallbackInput = page.locator('.el-form--inline input').nth(1)
-      if (await fallbackInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await fallbackInput
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         inputToUse = fallbackInput
         searchVisible = true
       }
@@ -6753,7 +7643,10 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   // 26.1.3 编辑岗位
   if (postId && (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 }))) {
     const searchInput = page.locator('.el-form--inline .el-form-item:has(label:has-text("岗位名称")) input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const searchVisible = await searchInput
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (searchVisible) {
       await searchInput.fill(postName)
       await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
@@ -6762,7 +7655,12 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
       const editBtn = page
         .locator('.el-table__row button:has-text("修改"), .el-table__row .el-button:has-text("修改")')
         .first()
-      if (await editBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await editBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await editBtn.click({ timeout: 3000 }).catch(() => {})
         const dialogOpened = await waitForVisibleDialog(page, 5000)
         if (dialogOpened) {
@@ -6770,20 +7668,32 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
           const nameInput = page
             .locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位名称")) input')
             .first()
-          if (await nameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+          if (
+            await nameInput
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
+          ) {
             await nameInput.fill('')
             await nameInput.fill(postName + '_已编辑')
           }
           const submitBtn = page
             .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定")')
             .first()
-          if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+          if (
+            await submitBtn
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
+          ) {
             await submitBtn.click({ timeout: 3000 }).catch(() => {})
             await sleep(2500)
             const dialogClosed = !(await page
               .locator('.el-dialog:visible')
               .first()
-              .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+              .waitFor({ state: 'visible', timeout: 1000 })
+              .then(() => true)
+              .catch(() => false))
             record(M, 'CRUD: 编辑岗位', dialogClosed, dialogClosed ? '编辑成功' : '编辑可能失败')
           }
         } else {
@@ -6802,7 +7712,10 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   // 26.1.4 删除岗位
   if (postId && (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 }))) {
     const searchInput = page.locator('.el-form--inline .el-form-item:has(label:has-text("岗位名称")) input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const searchVisible = await searchInput
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (searchVisible) {
       // 搜索编辑后的名称
       await searchInput.fill(postName + '_已编辑')
@@ -6811,7 +7724,12 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
       let delBtn = page
         .locator('.el-table__row button:has-text("删除"), .el-table__row .el-button:has-text("删除")')
         .first()
-      if (!(await delBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false))) {
+      if (
+        !(await delBtn
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false))
+      ) {
         // 尝试搜索原始名称
         await searchInput.fill(postName)
         await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
@@ -6820,14 +7738,24 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
           .locator('.el-table__row button:has-text("删除"), .el-table__row .el-button:has-text("删除")')
           .first()
       }
-      if (await delBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await delBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await delBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1000)
         // 确认删除（el-message-box 的确认按钮）
         const confirmBtn = page
           .locator('.el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确 定")')
           .first()
-        if (await confirmBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+        if (
+          await confirmBtn
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await confirmBtn.click({ timeout: 3000 }).catch(() => {})
           await sleep(2000)
           // 验证删除后搜索结果为空
@@ -6858,7 +7786,12 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const beforeCount = await page.locator('.el-table__row').count()
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
@@ -6883,22 +7816,42 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     // 尝试新增已存在的岗位编码（ceo）
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
         const codeInput = page.locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位编码")) input').first()
         const nameInput = page.locator('.el-dialog:visible .el-form-item:has(label:has-text("岗位名称")) input').first()
-        if (await codeInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await codeInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await codeInput.fill('ceo') // 已存在的编码
         }
-        if (await nameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await nameInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await nameInput.fill('董事长') // 已存在的名称
         }
         const submitBtn = page
           .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定")')
           .first()
-        if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await submitBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           // 旧判据 `dialogStillOpen || errorMsg` 两条都能单独放行：
           // "后端拒绝但前端一条提示都不给"（用户只看到弹窗没关，不知道为什么）这种真缺陷
           // 会因 dialogStillOpen=true 记成 ✅（b73 轮 14 取证）。改为三段同时对账：
@@ -6947,7 +7900,8 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
             .waitFor({ state: 'visible', timeout: 1000 })
             .then(() => true)
             .catch(() => false)
-          const rejected = postWatch.requested && (postWatch.status >= 400 || (postWatch.code !== null && postWatch.code !== 200))
+          const rejected =
+            postWatch.requested && (postWatch.status >= 400 || (postWatch.code !== null && postWatch.code !== 200))
           record(
             M,
             'CRUD: 唯一性校验',
@@ -6978,7 +7932,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     await assertPageLoaded(page, M, '用户管理页加载（邮箱校验）')
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 8000)
       if (dialogOpened) {
@@ -6988,7 +7947,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
             '.el-dialog:visible input[placeholder*="邮箱"], .el-dialog:visible .el-form-item:has(label:has-text("邮箱")) input'
           )
           .first()
-        if (await emailInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await emailInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await emailInput.fill('invalid-email')
           // 触发失焦校验
           await emailInput.blur().catch(() => {})
@@ -6996,7 +7960,9 @@ async function testModule27(page, consoleErrors, pageErrors) {
           const hasError = await page
             .locator('.el-dialog:visible .el-form-item__error:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '邮箱格式校验: 无效邮箱报错', hasError, hasError ? '错误提示可见' : '可能未启用邮箱格式校验')
         } else {
           record(M, '邮箱格式校验: 无效邮箱报错', false, '邮箱输入框不可见')
@@ -7013,7 +7979,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.2 用户管理：手机号格式校验
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 8000)
       if (dialogOpened) {
@@ -7022,14 +7993,21 @@ async function testModule27(page, consoleErrors, pageErrors) {
             '.el-dialog:visible input[placeholder*="手机"], .el-dialog:visible .el-form-item:has(label:has-text("手机")) input'
           )
           .first()
-        if (await phoneInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await phoneInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await phoneInput.fill('123')
           await phoneInput.blur().catch(() => {})
           await sleep(800)
           const hasError = await page
             .locator('.el-dialog:visible .el-form-item__error:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '手机号格式校验: 无效手机号报错', hasError, hasError ? '错误提示可见' : '可能未启用手机号格式校验')
         } else {
           record(M, '手机号格式校验: 无效手机号报错', false, '手机号输入框不可见')
@@ -7042,7 +8020,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.3 用户管理：用户名长度校验
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 8000)
       if (dialogOpened) {
@@ -7051,7 +8034,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
             '.el-dialog:visible input[placeholder*="用户名称"], .el-dialog:visible .el-form-item:has(label:has-text("用户名称")) input'
           )
           .first()
-        if (await usernameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await usernameInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           // 测试超长用户名（超过 30 字符）
           await usernameInput.fill('a'.repeat(50))
           await usernameInput.blur().catch(() => {})
@@ -7059,7 +8047,9 @@ async function testModule27(page, consoleErrors, pageErrors) {
           const hasError = await page
             .locator('.el-dialog:visible .el-form-item__error:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '用户名长度校验: 超长报错', hasError, hasError ? '错误提示可见' : '可能未启用长度校验')
         } else {
           record(M, '用户名长度校验: 超长报错', false, '用户名输入框不可见')
@@ -7072,11 +8062,21 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.4 个人中心：修改密码 - 密码强度校验
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
     const pwdTab = page.locator('.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("密码")').first()
-    if (await pwdTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await pwdTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await pwdTab.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const newPwdInput = page.locator('.el-tab-pane:visible input[type="password"]').nth(1)
-      if (await newPwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await newPwdInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         // 测试弱密码
         await newPwdInput.fill('123')
         await newPwdInput.blur().catch(() => {})
@@ -7085,11 +8085,15 @@ async function testModule27(page, consoleErrors, pageErrors) {
         const hasStrengthIndicator = await page
           .locator('.el-tab-pane:visible .el-progress, .el-tab-pane:visible [class*="strength"]')
           .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
         const hasError = await page
           .locator('.el-tab-pane:visible .el-form-item__error:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '密码强度校验: 弱密码提示',
@@ -7107,7 +8111,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.5 定时任务：cron 表达式必填校验（前端仅有 required 校验，格式校验由后端处理）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
@@ -7116,7 +8125,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
             '.el-dialog:visible input[placeholder*="cron"], .el-dialog:visible input[placeholder*="表达式"], .el-dialog:visible .el-form-item:has(label:has-text("cron")) input, .el-dialog:visible .el-form-item:has(label:has-text("表达式")) input'
           )
           .first()
-        if (await cronInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await cronInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           // 先填写再清空，触发 change 校验（cron 字段 trigger: 'change'）
           await cronInput.fill('test')
           await cronInput.fill('')
@@ -7126,7 +8140,9 @@ async function testModule27(page, consoleErrors, pageErrors) {
           const hasError = await page
             .locator('.el-dialog:visible .el-form-item__error:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, 'cron 表达式校验: 必填校验', hasError, hasError ? '必填错误提示可见' : '可能未启用必填校验')
         } else {
           record(M, 'cron 表达式校验: 必填校验', false, 'cron 输入框不可见')
@@ -7141,15 +8157,27 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.6 角色管理：角色名称必填校验
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
         // 直接点确定（空表单）
         const submitBtn = page
-          .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("提交")')
+          .locator(
+            '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("提交")'
+          )
           .first()
-        if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await submitBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await submitBtn.click({ timeout: 3000 }).catch(() => {})
           await sleep(1000)
           const errorCount = await page.locator('.el-dialog:visible .el-form-item__error:visible').count()
@@ -7163,7 +8191,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
   // 27.7 字典管理：字典类型必填校验（前端仅有 required 校验，特殊字符校验由后端处理）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await clickButton(page, 'button:has-text("新增")')
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
@@ -7172,7 +8205,12 @@ async function testModule27(page, consoleErrors, pageErrors) {
             '.el-dialog:visible input[placeholder*="字典类型"], .el-dialog:visible .el-form-item:has(label:has-text("字典类型")) input'
           )
           .first()
-        if (await typeInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await typeInput
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           // 先填写再清空，触发 blur 校验（dictType 字段 trigger: 'blur'）
           await typeInput.fill('test')
           await typeInput.fill('')
@@ -7181,7 +8219,9 @@ async function testModule27(page, consoleErrors, pageErrors) {
           const hasError = await page
             .locator('.el-dialog:visible .el-form-item__error:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '字典类型校验: 必填校验', hasError, hasError ? '必填错误提示可见' : '可能未启用必填校验')
         } else {
           record(M, '字典类型校验: 必填校验', false, '字典类型输入框不可见')
@@ -7203,7 +8243,10 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
   // 28.1 通知铃铛红点更新
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
   const headerNotice = page.locator('#header-notice, .header-notice, [class*="header-notice"]').first()
-  const noticeVisible = await headerNotice.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+  const noticeVisible = await headerNotice
+    .waitFor({ state: 'visible', timeout: 2000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '通知铃铛: 可见', noticeVisible)
   if (noticeVisible) {
     // 铃铛红点的唯一事实源是 `/system/notice/listTop` 的 unreadCount（store/modules/notice.ts:72），
@@ -7248,7 +8291,10 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     const noticeTrigger = page
       .locator('#header-notice .notice-trigger, #header-notice [role="button"], #header-notice svg')
       .first()
-    const triggerVisible = await noticeTrigger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const triggerVisible = await noticeTrigger
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (triggerVisible) {
       await noticeTrigger.hover({ timeout: 3000 }).catch(() => {})
     } else {
@@ -7258,7 +8304,10 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     await sleep(1000)
     // 通知面板使用 el-popover with popper-class="notice-popover"，内容 teleport 到 body
     const noticePanel = page.locator('.notice-popover.el-popper:visible, .notice-popover:visible').first()
-    const panelVisible = await noticePanel.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const panelVisible = await noticePanel
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知面板: 打开', panelVisible, panelVisible ? '面板已打开' : '面板未打开')
     if (panelVisible) {
       // 关闭面板
@@ -7294,7 +8343,12 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     const mySessionTab = page
       .locator('.el-tabs__item:has-text("我的会话"), .el-tabs__item:has-text("My Session")')
       .first()
-    if (await mySessionTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await mySessionTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 点 Tab 不产生新请求（面板早已挂载），它只负责把面板切到可见；触发请求仍用缺省 reload。
       const ms = await verifyListLoaded(page, {
         listHint: /\/monitor\/my-session\/list(\?|$)/,
@@ -7322,7 +8376,12 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     record(M, '登录日志: 列表加载', li.pass, li.pass ? `${li.domRows} 条登录记录（DOM=响应 ${li.serverRows}）` : li.why)
     // 验证"我的登录" Tab
     const myLoginTab = page.locator('.el-tabs__item:has-text("我的登录"), .el-tabs__item:has-text("My Login")').first()
-    if (await myLoginTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await myLoginTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // minRows=1：本轮已登录成功，"我的登录"必然 ≥1 条；旧 `>= 0` 把接口 500 / 空表都记 ✅
       const ml = await verifyListLoaded(page, {
         listHint: /\/monitor\/logininfor\/list\?(?=.*userName=)/,
@@ -7358,11 +8417,18 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     const redisInfo = await page
       .locator('.el-descriptions, .el-card, [class*="redis"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '缓存监控: Redis 信息', redisInfo)
     // 切换到键管理 Tab
     const keyTab = page.locator('.el-tabs__item:has-text("键管理"), .el-tabs__item:has-text("缓存名")').first()
-    if (await keyTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await keyTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 缓存名表格与 /monitor/cache/getNames 的 data[] 对账（本地档位可能无缓存名 → minRows 0，
       // 但"接口必须被调用 + 表格落在确定态 + DOM 行数=响应行数"是真实判据）。
       // 点 Tab 的动作必须交给 trigger：请求在面板挂载时才发出，先点再挂监听会漏掉响应。
@@ -7370,7 +8436,12 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
         listHint: /\/monitor\/cache\/getNames/,
         trigger: () => keyTab.click({ timeout: 3000 })
       })
-      record(M, '缓存监控: 缓存名列表', cn.pass, cn.pass ? `${cn.domRows} 个缓存名（DOM=响应 ${cn.serverRows}）` : cn.why)
+      record(
+        M,
+        '缓存监控: 缓存名列表',
+        cn.pass,
+        cn.pass ? `${cn.domRows} 个缓存名（DOM=响应 ${cn.serverRows}）` : cn.why
+      )
     }
   }
 
@@ -7380,7 +8451,10 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     record(M, '服务器监控: 状态卡片', healthCards > 0, `${healthCards} 个卡片`)
     // 检查自动刷新开关
     const autoRefresh = page.locator('.el-switch, [class*="auto-refresh"]').first()
-    const hasAutoRefresh = await autoRefresh.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasAutoRefresh = await autoRefresh
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '服务器监控: 自动刷新开关', hasAutoRefresh)
   }
 
@@ -7391,11 +8465,16 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
       M,
       '审计大屏: 图表渲染',
       charts.pass,
-      charts.pass ? `${charts.painted}/${charts.total} 个图表已实际绘制（非 0×0 空容器）` : `无有效绘制图表（节点=${charts.total}）`
+      charts.pass
+        ? `${charts.painted}/${charts.total} 个图表已实际绘制（非 0×0 空容器）`
+        : `无有效绘制图表（节点=${charts.total}）`
     )
     // 时间范围切换
     const timeRange = page.locator('.el-radio-button, .el-date-editor, [class*="time-range"]').first()
-    const hasTimeRange = await timeRange.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasTimeRange = await timeRange
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '审计大屏: 时间范围切换', hasTimeRange)
   }
 
@@ -7433,7 +8512,12 @@ async function testModule29(browser, consoleErrors, pageErrors) {
 
     // 关闭 Cookie 同意横幅
     const cookieBtn = stepbyPage.locator('button:has-text("同意")').first()
-    if (await cookieBtn.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+    if (
+      await cookieBtn
+        .waitFor({ state: 'visible', timeout: 500 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await cookieBtn.click({ timeout: 2000 }).catch(() => {})
       await sleep(300)
     }
@@ -7448,7 +8532,9 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     await passInput.fill(CONFIG.secondaryPassword)
     // 后端启用验证码时填页面同源真码（未启用跳过）
     await fillCaptchaOnPage(stepbyPage, await stepbyCaptchaPromise)
-    const loginBtn = stepbyPage.locator('button:has-text("登 录"), button:has-text("登录"), button[type="submit"]').first()
+    const loginBtn = stepbyPage
+      .locator('button:has-text("登 录"), button:has-text("登录"), button[type="submit"]')
+      .first()
     await loginBtn.click()
     await stepbyPage.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
     await sleep(2500)
@@ -7542,13 +8628,13 @@ async function testModule29(browser, consoleErrors, pageErrors) {
         const hasContent = await stepbyPage
           .locator('.el-table, .app-container, .el-card')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         // 期望优先取授权事实源（**精确匹配**：getRouters 里 `/tool` 这类目录节点只代表分组，
         // 不等于其子路径都被授予——按前缀展开会把未授权路径误判成"应可达"）；
         // 取不到时退回用例里的人工预期。
-        const expected = stepbyGrantedPaths
-          ? stepbyGrantedPaths.has(p.url)
-          : p.expectAccess
+        const expected = stepbyGrantedPaths ? stepbyGrantedPaths.has(p.url) : p.expectAccess
         const ok = expected ? !blocked && hasContent : blocked
         if (!expected) deniedSample.push(p.url)
         record(
@@ -7560,19 +8646,17 @@ async function testModule29(browser, consoleErrors, pageErrors) {
           } 落点=${currentUrl.replace(CONFIG.frontendUrl, '')}`
         )
       } catch (err) {
-        record(
-          M,
-          `stepby 用户访问: ${p.name}`,
-          false,
-          `导航异常: ${err.message.slice(0, 70)}`
-        )
+        record(M, `stepby 用户访问: ${p.name}`, false, `导航异常: ${err.message.slice(0, 70)}`)
       }
     }
 
     // 29.5 stepby 用户新增按钮可见性（应隐藏）
     await safeGoto(stepbyPage, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
     const stepbyAddBtn = stepbyPage.locator('button:has-text("新增")').first()
-    const stepbyAddVisible = await stepbyAddBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const stepbyAddVisible = await stepbyAddBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       'stepby 用户: 新增按钮隐藏',
@@ -7582,12 +8666,23 @@ async function testModule29(browser, consoleErrors, pageErrors) {
 
     // 29.6 stepby 用户导出按钮可见性
     const stepbyExportBtn = stepbyPage.locator('button:has-text("导出")').first()
-    const stepbyExportVisible = await stepbyExportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-    record(M, 'stepby 用户: 导出按钮隐藏', !stepbyExportVisible, stepbyExportVisible ? '导出按钮可见' : '导出按钮已隐藏')
+    const stepbyExportVisible = await stepbyExportBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      M,
+      'stepby 用户: 导出按钮隐藏',
+      !stepbyExportVisible,
+      stepbyExportVisible ? '导出按钮可见' : '导出按钮已隐藏'
+    )
 
     // 29.7 stepby 用户删除按钮可见性
     const stepbyDelBtn = stepbyPage.locator('.el-table__row button:has-text("删除")').first()
-    const stepbyDelVisible = await stepbyDelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const stepbyDelVisible = await stepbyDelBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'stepby 用户: 删除按钮隐藏', !stepbyDelVisible, stepbyDelVisible ? '删除按钮可见' : '删除按钮已隐藏')
   }
 
@@ -7627,7 +8722,12 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     const info = await infoResp.json().catch(() => ({}))
     const roles = info?.data?.roles ?? info?.roles ?? []
     const perms = info?.data?.permissions ?? info?.permissions ?? []
-    record(M, 'admin 用户: getInfo 角色', infoResp.status === 200 && roles.includes('admin'), `HTTP ${infoResp.status} roles=${roles.join(',')}`)
+    record(
+      M,
+      'admin 用户: getInfo 角色',
+      infoResp.status === 200 && roles.includes('admin'),
+      `HTTP ${infoResp.status} roles=${roles.join(',')}`
+    )
     record(
       M,
       'admin 用户: getInfo 权限为超管口径',
@@ -7644,7 +8744,12 @@ async function testModule29(browser, consoleErrors, pageErrors) {
       return { status: r.status, total: Number(j?.total ?? -1) }
     }
     const adminList = await totalOf(adminToken)
-    record(M, '数据权限: admin 可见用户数据', adminList.status === 200 && adminList.total > 0, `admin total=${adminList.total}`)
+    record(
+      M,
+      '数据权限: admin 可见用户数据',
+      adminList.status === 200 && adminList.total > 0,
+      `admin total=${adminList.total}`
+    )
     if (stepbyApiToken) {
       const stepbyList = await totalOf(stepbyApiToken)
       record(
@@ -7675,14 +8780,24 @@ async function testModule29(browser, consoleErrors, pageErrors) {
         .first()
         .evaluate((el) => getComputedStyle(el).display)
         .catch(() => '<未找到>')
-      record(M, 'v-hasPermi: 有权限时新增按钮可见', addDisplay !== 'none' && addDisplay !== '<未找到>', `display=${addDisplay}`)
+      record(
+        M,
+        'v-hasPermi: 有权限时新增按钮可见',
+        addDisplay !== 'none' && addDisplay !== '<未找到>',
+        `display=${addDisplay}`
+      )
       // 同页采样第二个受控按钮，防"只有一个按钮恰好没被指令处理"蒙过去
       const exportDisplay = await adminPage
         .locator('button:has-text("导出")')
         .first()
         .evaluate((el) => getComputedStyle(el).display)
         .catch(() => '<未找到>')
-      record(M, 'v-hasPermi: 有权限时导出按钮可见', exportDisplay !== 'none' && exportDisplay !== '<未找到>', `display=${exportDisplay}`)
+      record(
+        M,
+        'v-hasPermi: 有权限时导出按钮可见',
+        exportDisplay !== 'none' && exportDisplay !== '<未找到>',
+        `display=${exportDisplay}`
+      )
     } else {
       record(M, 'v-hasPermi: 有权限时按钮可见', false, 'admin UI 登录失败')
     }
@@ -7692,7 +8807,11 @@ async function testModule29(browser, consoleErrors, pageErrors) {
 
   // 29.11 v-hasRole：本仓**零挂载点**（`grep -r "v-hasRole" src` 除指令定义与测试外无使用），
   // 原实现用"角色管理行数"充当它的验证属虚锁。改判显式 SKIP 并写明真实保护在哪。
-  recordSkip(M, 'v-hasRole 指令: 系统性验证', '全 src 无 v-hasRole 使用点（指令无承载面）；行为由 src/directive/permission/hasRole.test.ts 21 例（含恢复显示回归锁）覆盖')
+  recordSkip(
+    M,
+    'v-hasRole 指令: 系统性验证',
+    '全 src 无 v-hasRole 使用点（指令无承载面）；行为由 src/directive/permission/hasRole.test.ts 21 例（含恢复显示回归锁）覆盖'
+  )
 
   if (stepbyConsoleErrors.length > 0) {
     record(
@@ -7754,7 +8873,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
   const initialIsDark = await page.evaluate(() => document.documentElement.classList.contains('dark'))
   // 切换到暗色模式
   const themeSwitch = page.locator('.theme-switch-wrapper, [class*="theme-switch"]').first()
-  if (await themeSwitch.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await themeSwitch
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await themeSwitch.click({ timeout: 3000 }).catch(() => {})
     await sleep(1500)
   }
@@ -7833,7 +8957,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
   // 否则跟随系统的 dark 恢复（或持久化键）会把页面拉回暗色，切回断言假失败。
   await page.evaluate(() => localStorage.setItem('vueuse-color-scheme', 'light'))
   const themeSwitch2 = page.locator('.theme-switch-wrapper, [class*="theme-switch"]').first()
-  if (await themeSwitch2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await themeSwitch2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await themeSwitch2.click({ timeout: 3000 }).catch(() => {})
     await sleep(1000)
   }
@@ -7845,7 +8974,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
   const langSelect = page.locator('#lang-select, .lang-select').first()
   let langSwitched = false
-  if (await langSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await langSelect
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await langSelect.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     // 点击 English 选项
@@ -7854,7 +8988,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("English"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("en"), .el-select-dropdown__item:has-text("English")'
       )
       .first()
-    if (await enOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await enOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await enOption.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       langSwitched = true
@@ -7916,7 +9055,10 @@ async function testModule30(page, consoleErrors, pageErrors) {
     // 旧写法只给一个 `htmlLang=en-US`，无法归因 ⇒ 必须把三步各自的结果打出来（b73 轮 19）。
     await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
     const langSelect2 = page.locator('#lang-select, .lang-select').first()
-    const select2Visible = await langSelect2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const select2Visible = await langSelect2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     let zhOptionVisible = false
     let zhOptionClicked = false
     if (select2Visible) {
@@ -7927,9 +9069,15 @@ async function testModule30(page, consoleErrors, pageErrors) {
           '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中文"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中"), .el-select-dropdown__item:has-text("中文"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Chinese")'
         )
         .first()
-      zhOptionVisible = await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      zhOptionVisible = await zhOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (zhOptionVisible) {
-        zhOptionClicked = await zhOption.click({ timeout: 3000 }).then(() => true).catch(() => false)
+        zhOptionClicked = await zhOption
+          .click({ timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         await sleep(1500)
       } else {
         // 选项没出现：把菜单里实际有什么打出来，否则下次还是只能猜
@@ -7960,7 +9108,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
   // 30.7 尺寸切换（SizeSelect）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
   const sizeSelect = page.locator('#size-select, .size-select').first()
-  if (await sizeSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await sizeSelect
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await sizeSelect.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
     // 点击"小"选项
@@ -7969,7 +9122,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("小"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("small"), .el-select-dropdown__item:has-text("小")'
       )
       .first()
-    if (await smallOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await smallOption
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await smallOption.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       // 结果判据：SizeSelect 走全局配置，切换后必须真有 small 档按钮渲染出来
@@ -7988,7 +9146,12 @@ async function testModule30(page, consoleErrors, pageErrors) {
           '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("默认"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("default"), .el-select-dropdown__item:has-text("默认")'
         )
         .first()
-      if (await defaultOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await defaultOption
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await defaultOption.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
       } else {
@@ -8029,7 +9192,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
       const successMsg = await page
         .locator('.el-message--success:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '文件上传: 实际上传测试',
@@ -8083,7 +9248,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
       const errorMsg = await page
         .locator('.el-message--error:visible, .el-message--warning:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       // 验证：列表行数未增加（未成功落库）
       const mbAfterCount = await page.locator('.el-table__row').count()
 
@@ -8122,7 +9289,12 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         '.el-table__row button:has-text("下载"), .el-table__row [class*="download"], .el-table__row a:has-text("下载")'
       )
       .first()
-    if (await downloadBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await downloadBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 设置下载事件监听
       const downloadPromise = page.waitForEvent('download', { timeout: 5000 }).catch(() => null)
       await downloadBtn.click({ timeout: 3000 }).catch(() => {})
@@ -8145,14 +9317,21 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         '.el-table__row button:has-text("复制"), .el-table__row [class*="copy"], .el-table__row [aria-label*="复制"], .el-table__row .el-icon-copy-document'
       )
       .first()
-    if (await copyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await copyBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await copyBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       // 检查剪贴板或成功消息（headless 模式下可能无提示，按钮可点击即视为功能存在）
       const successMsg = await page
         .locator('.el-message--success:visible, .el-message:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (successMsg) record(M, '文件复制链接: 触发复制', successMsg, '复制成功提示可见')
       else recordSkip(M, '文件复制链接: 触发复制', '按钮已点击但无成功提示：headless 剪贴板权限受限，无法判定复制结果')
     } else {
@@ -8163,16 +9342,28 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   // 31.4 用户导出：实际触发导出（download 函数直接触发下载，无确认对话框）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const exportBtn = page.locator('button:has-text("导出")').first()
-    if (await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await exportBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 设置下载监听 BEFORE 点击
       const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       // 等待下载或确认对话框（某些页面可能有确认）
       await sleep(1500)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")')
+        .locator(
+          '.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")'
+        )
         .first()
-      if (await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      if (
+        await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await confirmBtn.click({ timeout: 3000 }).catch(() => {})
       }
       const download = await downloadPromise
@@ -8182,7 +9373,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
           ? await page
               .locator('.el-loading-mask:visible')
               .first()
-              .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+              .waitFor({ state: 'visible', timeout: 1000 })
+              .then(() => true)
+              .catch(() => false)
           : false
       record(
         M,
@@ -8206,14 +9399,26 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   // 且监听器建在点击之后，快下载必然错过。改为先建监听、两个分支都记。
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const exportBtn = page.locator('button:has-text("导出")').first()
-    if (await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await exportBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
-        .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")')
+        .locator(
+          '.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")'
+        )
         .first()
-      if (await confirmBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+      if (
+        await confirmBtn
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await confirmBtn.click({ timeout: 3000 }).catch(() => {})
       }
       const download = await downloadPromise
@@ -8231,7 +9436,12 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   // 31.6 Excel 导入：下载模板
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const importBtn = page.locator('button:has-text("导入"), button:has-text("Excel导入")').first()
-    if (await importBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await importBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await importBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const dialog = await waitForVisibleDialog(page, 3000)
@@ -8239,7 +9449,12 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         const tplBtn = page
           .locator('.el-dialog:visible button:has-text("模板"), .el-dialog:visible a:has-text("模板")')
           .first()
-        if (await tplBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await tplBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null)
           await tplBtn.click({ timeout: 3000 }).catch(() => {})
           const download = await downloadPromise
@@ -8262,14 +9477,21 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   // 31.7 备份管理：创建备份（菜单挂在系统监控目录下，前端注册路径为 /monitor/backup）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/backup`, { moduleName: M, waitMs: 2500 })) {
     const createBtn = page.locator('button:has-text("创建"), button:has-text("新建"), button:has-text("备份")').first()
-    if (await createBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await createBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await createBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
       // 检查是否显示成功消息
       const successMsg = await page
         .locator('.el-message--success:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       // 或检查列表行数增加
       const backupRows = await page.locator('.el-table__row').count()
       record(
@@ -8286,7 +9508,12 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   // 31.8 头像上传：实际上传流程（跳过实际裁剪，仅验证上传入口）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
     const avatarTrigger = page.locator('.user-info-head').first()
-    if (await avatarTrigger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await avatarTrigger
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await avatarTrigger.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       const avatarDialog = await waitForVisibleDialog(page, 5000)
@@ -8295,7 +9522,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         const hasCropper = await page
           .locator('.el-dialog:visible .vue-cropper, .el-dialog:visible #corpper, .el-dialog:visible .cropper-box')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '头像上传: 裁剪器加载', hasCropper)
         // 验证上传按钮存在
         const hasUploadBtn = await page
@@ -8303,7 +9532,9 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
             '.el-dialog:visible button:has-text("上传"), .el-dialog:visible .el-upload, .el-dialog:visible input[type="file"]'
           )
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '头像上传: 上传入口', hasUploadBtn, '上传入口可见', '上传入口可能存在')
         await closeDialog(page)
       }
@@ -8336,7 +9567,11 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     )
   } else {
     // redirect 路由可能不在路由表中，直接访问 /redirect/index 会被路由守卫处理
-    recordSkip(M, 'redirect 页面: 重定向功能', '未落到 /redirect 路由（被守卫改写），无法判定重定向结果；主链路跳转由主套件 F142 实断言')
+    recordSkip(
+      M,
+      'redirect 页面: 重定向功能',
+      '未落到 /redirect 路由（被守卫改写），无法判定重定向结果；主链路跳转由主套件 F142 实断言'
+    )
   }
 
   // 32.2 带参数路由：无效 ID
@@ -8354,7 +9589,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       const hasContent = await page
         .locator('.el-table, .el-card, .app-container, .el-result, .el-empty, .error-page')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, `边界场景: ${t.name}`, hasContent, '页面正常渲染', '页面可能为空（无数据）')
     } catch (err) {
       recordSkip(M, `边界场景: ${t.name}`, `导航自身异常，无法判定：${err.message.slice(0, 60)}`)
@@ -8487,14 +9724,21 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     })
     // 触发一次搜索（会调用 API）
     const searchBtn = page.locator('button:has-text("搜索")').first()
-    if (await searchBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await searchBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await searchBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
       // 验证错误提示显示
       const errorMsg = await page
         .locator('.el-message--error:visible, .el-message:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '网络异常: API 错误提示', errorMsg, '错误提示可见', '可能已恢复或未触发')
     } else {
       recordSkip(M, '网络异常: API 错误提示', '搜索按钮不可见，无法触发请求')
@@ -8515,7 +9759,12 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
   // 32.6 并发操作：快速连续点击提交按钮
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 快速连续点击 3 次
       await addBtn.click({ timeout: 1000 }).catch(() => {})
       await addBtn.click({ timeout: 1000 }).catch(() => {})
@@ -8548,7 +9797,12 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     })
     // 触发一次 API 调用
     const searchBtn = page.locator('button:has-text("搜索")').first()
-    if (await searchBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await searchBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await searchBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
       // 验证前端处理 401（跳转登录页 或 显示重新登录提示）
@@ -8558,7 +9812,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         (await page
           .locator('.el-message--error:visible, .el-message-box:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false))
       recordSoft(M, '会话过期: 401 处理', hasReLoginPrompt, '跳转登录页或显示提示', '可能未触发或已恢复')
     } else {
       recordSkip(M, '会话过期: 401 处理', '搜索按钮不可见，无法触发请求')
@@ -8607,7 +9863,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     const hasContent = await page
       .locator('.el-table, .app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'F5 刷新: 页面状态恢复', hasContent, hasContent ? '页面正常恢复' : '页面未恢复')
   }
 
@@ -8619,7 +9877,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
   const has404 = await page
     .locator('.wscn-http404-container, .wscn-http404, .bullshit__oops, img[alt="404"]')
     .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '404 页面: 不存在路由', has404, has404 ? '404 页面正常显示' : '404 页面未显示')
 
   // 32.11 401 错误页面
@@ -8627,7 +9887,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     const has401 = await page
       .locator('.el-result, .error-page, [class*="401"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '401 错误页面', has401, '401 页面显示', '页面可能通过路由守卫处理')
   } else {
     recordSkip(M, '401 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 401 时渲染 ⇒ 本项无可测对象')
@@ -8638,7 +9900,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     const has403 = await page
       .locator('.el-result, .error-page, [class*="403"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '403 错误页面', has403, '403 页面显示', '页面可能通过路由守卫处理')
   } else {
     recordSkip(M, '403 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 403 时渲染 ⇒ 本项无可测对象')
@@ -8649,7 +9913,9 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     const has500 = await page
       .locator('.el-result, .error-page, [class*="500"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '500 错误页面', has500, '500 页面显示', '页面可能通过路由守卫处理')
   } else {
     recordSkip(M, '500 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 5xx 时渲染 ⇒ 本项无可测对象')
@@ -8756,7 +10022,12 @@ async function testModule33(page, consoleErrors, pageErrors) {
   // 33.3 对话框焦点陷阱 — 打开对话框后，焦点应被限制在对话框内
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await addBtn.click({ timeout: 3000 }).catch(() => {})
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
@@ -8784,7 +10055,9 @@ async function testModule33(page, consoleErrors, pageErrors) {
         const dialogClosed = !(await page
           .locator('.el-dialog:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false))
         record(M, '对话框: Esc 键关闭', dialogClosed)
       } else {
         record(M, '对话框: aria-modal 属性', false, '对话框未打开')
@@ -8978,7 +10251,10 @@ async function testModule35(page, consoleErrors, pageErrors) {
         '.command-palette:visible, .el-dialog:visible .command-input, .el-dialog:visible input[placeholder*="搜索"], .el-dialog:visible input[placeholder*="命令"]'
       )
       .first()
-    const paletteVisible = await cmdPalette.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const paletteVisible = await cmdPalette
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'Ctrl+K: 命令面板', paletteVisible)
     if (paletteVisible) {
       // 输入搜索关键词
@@ -8987,7 +10263,12 @@ async function testModule35(page, consoleErrors, pageErrors) {
           '.command-palette:visible input, .el-dialog:visible input[placeholder*="搜索"], .el-dialog:visible input[placeholder*="命令"]'
         )
         .first()
-      if (await input.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
+      if (
+        await input
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await input.fill('用户')
         await sleep(1000)
         const hasResults = await page
@@ -8995,7 +10276,9 @@ async function testModule35(page, consoleErrors, pageErrors) {
             '.command-palette:visible .command-item, .el-dialog:visible .el-dropdown-menu__item, .el-dialog:visible li'
           )
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, 'Ctrl+K: 搜索结果', hasResults, '有搜索结果', '可能无匹配或已防抖')
       }
       await page.keyboard.press('Escape')
@@ -9006,7 +10289,12 @@ async function testModule35(page, consoleErrors, pageErrors) {
   // 35.2 Esc 关闭对话框
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
-    if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await addBtn.click({ timeout: 3000 }).catch(() => {})
       const dialogOpened = await waitForVisibleDialog(page, 5000)
       if (dialogOpened) {
@@ -9015,7 +10303,9 @@ async function testModule35(page, consoleErrors, pageErrors) {
         const dialogClosed = !(await page
           .locator('.el-dialog:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false))
         record(M, 'Esc: 关闭对话框', dialogClosed)
       } else {
         record(M, 'Esc: 关闭对话框', false, '对话框未打开')
@@ -9028,7 +10318,12 @@ async function testModule35(page, consoleErrors, pageErrors) {
   // 35.3 Enter 提交搜索
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const searchInput = page.locator('.el-form--inline input').first()
-    if (await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await searchInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await searchInput.fill('admin')
       // 按 Enter 键提交搜索
       await searchInput.press('Enter')
@@ -9037,7 +10332,9 @@ async function testModule35(page, consoleErrors, pageErrors) {
       const tableLoaded = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'Enter: 搜索提交', tableLoaded, '搜索已触发')
       // 重置
       await page
@@ -9084,7 +10381,10 @@ async function testModule35(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })) {
     // 使用 Screenfull 组件触发全屏
     const screenfullBtn = page.locator('#screenfull').first()
-    const btnVisible = await screenfullBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const btnVisible = await screenfullBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '全屏: 按钮可见', btnVisible)
     // 不实际触发全屏（可能导致测试卡住），仅验证按钮存在
   }
@@ -9101,7 +10401,10 @@ async function testModule36(page, consoleErrors, pageErrors) {
   // 36.1 标签页可见性 — 访问页面后应生成对应标签
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const tagsView = page.locator('.tags-view-container, .tags-view').first()
-    const tagsVisible = await tagsView.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const tagsVisible = await tagsView
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'TagsView: 容器可见', tagsVisible)
     if (tagsVisible) {
       const tagCount = await page.locator('.tags-view-item').count()
@@ -9116,7 +10419,10 @@ async function testModule36(page, consoleErrors, pageErrors) {
   for (const p of tagPages) {
     // 尝试通过侧边栏菜单点击导航（SPA 路由切换，不刷新页面）
     const menuLink = page.locator(`.el-menu a[href="${p}"], .el-menu-item a[href="${p}"]`).first()
-    const menuVisible = await menuLink.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const menuVisible = await menuLink
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (menuVisible) {
       await menuLink.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -9136,12 +10442,20 @@ async function testModule36(page, consoleErrors, pageErrors) {
   // 36.3 标签页右键菜单
   if (multiTagCount > 0) {
     const firstTag = page.locator('.tags-view-item').first()
-    if (await firstTag.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await firstTag
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await firstTag.click({ button: 'right', timeout: 3000 }).catch(() => {})
       await sleep(1000)
       // 右键菜单可能使用 .contextmenu 或 ul
       const contextMenu = page.locator('.contextmenu:visible, .el-dropdown-menu:visible, ul:visible').first()
-      const menuVisible = await contextMenu.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const menuVisible = await contextMenu
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'TagsView: 右键菜单', menuVisible)
       if (menuVisible) {
         // 验证菜单项
@@ -9167,7 +10481,12 @@ async function testModule36(page, consoleErrors, pageErrors) {
     // ③6 标签时 last 可能被滚动容器裁剪（force 落空）——改点第一个带关闭钮的标签
     // （必在可视区），hover + force click。
     const closeBtn = page.locator('.tags-view-item .tags-close-btn').first()
-    if (await closeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await closeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await closeBtn.hover().catch(() => {})
       await page.waitForTimeout(300)
       await closeBtn.click({ timeout: 3000, force: true }).catch(() => {})
@@ -9235,7 +10554,10 @@ async function testModule37(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })) {
     // 查找折叠按钮（hamburger）
     const hamburger = page.locator('.hamburger-container, .hamburger, [class*="hamburger"]').first()
-    const hamburgerVisible = await hamburger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hamburgerVisible = await hamburger
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '侧边栏: 折叠按钮可见', hamburgerVisible)
     if (hamburgerVisible) {
       const sidebarWidthBefore = await page
@@ -9337,10 +10659,14 @@ async function testModule37(page, consoleErrors, pageErrors) {
               ? `展开后 left=${openedState.left} right=${openedState.right} openSidebar=${openedState.open}（应进入视口）`
               : '展开后侧栏 DOM 反而消失（导航在移动端不可用）'
         )
-      // 复原：抽屉展开态会污染下一档位的水平滚动条测量，必须收起
-      await page.keyboard.press('Escape').catch(() => {})
-      await page.locator('.drawer-bg, .el-drawer__overlay').first().click({ timeout: 1000 }).catch(() => {})
-      await sleep(400)
+        // 复原：抽屉展开态会污染下一档位的水平滚动条测量，必须收起
+        await page.keyboard.press('Escape').catch(() => {})
+        await page
+          .locator('.drawer-bg, .el-drawer__overlay')
+          .first()
+          .click({ timeout: 1000 })
+          .catch(() => {})
+        await sleep(400)
       }
     } catch (err) {
       record(M, `响应式: ${vp.name}`, false, `测试异常: ${err.message.slice(0, 60)}`)
@@ -9409,7 +10735,12 @@ async function testModule38(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard`, { moduleName: M, waitMs: 3000 })) {
     await dismissTour(page)
     const canvas = page.locator('canvas').first()
-    if (await canvas.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+    if (
+      await canvas
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       // 获取 canvas 边界并 hover 中心区域
       const box = await canvas.boundingBox().catch(() => null)
       if (box) {
@@ -9419,7 +10750,9 @@ async function testModule38(page, consoleErrors, pageErrors) {
         const tooltipVisible = await page
           .locator('div[style*="z-index"]:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '图表: tooltip 交互', tooltipVisible, 'tooltip 显示', 'tooltip 可能未触发')
       } else {
         recordSkip(M, '图表: tooltip 交互', 'canvas 边界不可用')
@@ -9432,7 +10765,12 @@ async function testModule38(page, consoleErrors, pageErrors) {
   // 38.3 审计大屏图表
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/audit-dashboard`, { moduleName: M, waitMs: 3000 })) {
     const c = await readRenderedCharts(page)
-    record(M, '审计大屏: 图表数量', c.pass, c.pass ? `${c.painted}/${c.total} 个图表已实际绘制` : `无有效绘制图表（节点=${c.total}）`)
+    record(
+      M,
+      '审计大屏: 图表数量',
+      c.pass,
+      c.pass ? `${c.painted}/${c.total} 个图表已实际绘制` : `无有效绘制图表（节点=${c.total}）`
+    )
   }
 
   // 38.4 缓存监控图表（概览 Tab 的 CacheOverview 使用 echarts）
@@ -9447,7 +10785,10 @@ async function testModule38(page, consoleErrors, pageErrors) {
     // 旧写法 `chartCount >= 0` 连"选择器写错恒 0"都记 ✅；把它改成"必须有图"则会在
     // local 档位假失败（b73 轮 14 实证），档位分支才是正确口径。
     const emptyLoc = page.locator('.el-empty:visible .el-empty__description').first()
-    const emptyShown = await emptyLoc.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+    const emptyShown = await emptyLoc
+      .waitFor({ state: 'visible', timeout: 800 })
+      .then(() => true)
+      .catch(() => false)
     // 已确认存在才取文本：未命中时 `textContent()` 会等满默认 30s（Redis 档位无 el-empty 时会白等）
     const emptyText = emptyShown ? ((await emptyLoc.textContent({ timeout: 500 }).catch(() => '')) || '').trim() : ''
     const emptyOk = emptyText !== ''
@@ -9477,7 +10818,9 @@ async function testModule38(page, consoleErrors, pageErrors) {
       const hasPanel = await page
         .locator('.my-login-panel')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       const cardCount = await page
         .locator('.my-login-panel .el-card')
         .count()
@@ -9557,7 +10900,12 @@ async function testModule39(browser, consoleErrors, pageErrors) {
         const mySessionTab = page
           .locator('.el-tabs__item:has-text("我的会话"), .el-tabs__item:has-text("会话管理")')
           .first()
-        if (await mySessionTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+        if (
+          await mySessionTab
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           const ms = await verifyListLoaded(page, {
             listHint: /\/monitor\/my-session\/list(\?|$)/,
             minRows: 1,
@@ -9607,7 +10955,9 @@ async function testModule40(page, consoleErrors, pageErrors) {
     const hasRightToolbar = await page
       .locator('.top-right-btn')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 工具栏组件', hasRightToolbar)
 
     if (hasRightToolbar) {
@@ -9624,7 +10974,9 @@ async function testModule40(page, consoleErrors, pageErrors) {
           '.top-right-btn button[aria-label="打 印"], .top-right-btn button[aria-label="打印"], .top-right-btn button[aria-label*="print"], .top-right-btn button[aria-label*="Print"]'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
 
       // 如果精确匹配失败，使用 evaluate 检查所有按钮的 aria-label
       if (!printVisible) {
@@ -9678,7 +11030,9 @@ async function testModule40(page, consoleErrors, pageErrors) {
           '.top-right-btn button[aria-label="打 印"], .top-right-btn button[aria-label="打印"], .top-right-btn button[aria-label*="print"], .top-right-btn button'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, `${p.name}: 打印功能`, hasPrintCapability, '打印按钮可见', '可能无打印按钮（允许）')
     }
   }
@@ -9705,7 +11059,12 @@ async function testModule40(page, consoleErrors, pageErrors) {
         '.top-right-btn button[aria-label="打 印"], .top-right-btn button[aria-label="打印"], .top-right-btn button[aria-label*="print"]'
       )
       .first()
-    if (await printBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    if (
+      await printBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
       await printBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
       openCalled = await page.evaluate(() => window.__openCalled === true).catch(() => false)
@@ -9714,7 +11073,9 @@ async function testModule40(page, consoleErrors, pageErrors) {
       const hasErrorMsg = await page
         .locator('.el-message--error:visible, .el-message--warning:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(
         M,
         '打印: window.open 调用',
@@ -9752,7 +11113,10 @@ async function testModule41(page, consoleErrors, pageErrors) {
   // 41.1 触发锁屏（通过头像下拉菜单）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
   const avatarContainer = page.locator('.avatar-container, .user-avatar').first()
-  const avatarVisible = await avatarContainer.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const avatarVisible = await avatarContainer
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '锁屏: 头像容器可见', avatarVisible)
 
   let lockTriggered = false
@@ -9764,14 +11128,20 @@ async function testModule41(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("锁"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Lock")'
       )
       .first()
-    const lockItemVisible = await lockItem.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const lockItemVisible = await lockItem
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '锁屏: 菜单项可见', lockItemVisible)
 
     if (lockItemVisible) {
       await lockItem.click({ timeout: 3000 }).catch(() => {})
       await sleep(2000)
       const lockContainer = page.locator('.lock-container, .lock-card').first()
-      lockTriggered = await lockContainer.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      lockTriggered = await lockContainer
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '锁屏: 锁屏页面加载', lockTriggered)
     } else {
       await page.keyboard.press('Escape').catch(() => {})
@@ -9785,25 +11155,33 @@ async function testModule41(page, consoleErrors, pageErrors) {
     const hasPwdInput = await page
       .locator('.lock-card input[type="password"], .lock-container input[type="password"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '锁屏: 密码输入框', hasPwdInput)
 
     const hasUnlockBtn = await page
       .locator('.unlock-btn, .lock-card button')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '锁屏: 解锁按钮', hasUnlockBtn)
 
     const hasClock = await page
       .locator('.lock-time, .lock-date, .lock-container .time')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '锁屏: 时钟显示', hasClock, '时钟可见', '时钟可能未渲染')
 
     const hasAvatar = await page
       .locator('.lock-avatar, .lock-container .avatar, .lock-container img')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     recordSoft(M, '锁屏: 用户头像', hasAvatar, '头像可见', '头像可能未渲染')
 
     // 41.5 测试错误密码
@@ -9837,7 +11215,9 @@ async function testModule41(page, consoleErrors, pageErrors) {
           .first()
           .click({ timeout: 30000 })
           .catch((e) => {
-            wrongClickErr = String(e && e.message ? e.message : e).split('\n')[0].slice(0, 80)
+            wrongClickErr = String(e && e.message ? e.message : e)
+              .split('\n')[0]
+              .slice(0, 80)
           })
       } else {
         await page.keyboard.press('Enter').catch(() => {})
@@ -9852,8 +11232,8 @@ async function testModule41(page, consoleErrors, pageErrors) {
         wrongRejected && stillLocked,
         wrongRejected && stillLocked
           ? `HTTP 401 拒绝且仍处于锁屏（cost 窗口内校验完成）`
-          : `HTTP=${wrongStatus || '无响应（点击未生效：' + (wrongClickErr || '未知') + '）'}，`
-              + `仍锁屏=${stillLocked ? '是' : '否'}（0/非 401 = 请求未出网或被禁用按钮吞掉，401 之外=后端语义漂移）`
+          : `HTTP=${wrongStatus || '无响应（点击未生效：' + (wrongClickErr || '未知') + '）'}，` +
+              `仍锁屏=${stillLocked ? '是' : '否'}（0/非 401 = 请求未出网或被禁用按钮吞掉，401 之外=后端语义漂移）`
       )
 
       const hasErrorMsg = await page
@@ -9870,7 +11250,10 @@ async function testModule41(page, consoleErrors, pageErrors) {
 
     // 41.6 测试正确密码解锁（同 41.5：以响应 + 页面状态双条件判定，不靠 sleep 猜校验耗时）
     const pwdInput2 = page.locator('.lock-card input[type="password"], .lock-container input[type="password"]').first()
-    const pwdVisible2 = await pwdInput2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const pwdVisible2 = await pwdInput2
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (pwdVisible2) {
       // 上一轮校验落回后按钮才恢复可用（防重复提交的 `:disabled="loading"`）。
       // 注意：`locator.waitFor({state})` 只接受 visible/hidden/attached/detached，**没有 'enabled'**
@@ -9885,11 +11268,11 @@ async function testModule41(page, consoleErrors, pageErrors) {
       await sleep(300)
       const okRespP = unlockResp()
       let okClickErr = ''
-      await unlockBtn2
-        .click({ timeout: 30000 })
-        .catch((e) => {
-          okClickErr = String(e && e.message ? e.message : e).split('\n')[0].slice(0, 80)
-        })
+      await unlockBtn2.click({ timeout: 30000 }).catch((e) => {
+        okClickErr = String(e && e.message ? e.message : e)
+          .split('\n')[0]
+          .slice(0, 80)
+      })
       const okResp = await okRespP
       const okStatus = okResp ? okResp.status() : 0
       // 200 之后要等**导航真的完成**再判定：`handleUnlock` 成功路径是
@@ -9899,9 +11282,7 @@ async function testModule41(page, consoleErrors, pageErrors) {
       if (okStatus === 200) {
         leftLock = await page
           .waitForFunction(
-            () =>
-              !window.location.pathname.includes('/lock') &&
-              !document.querySelector('.lock-container, .lock-card'),
+            () => !window.location.pathname.includes('/lock') && !document.querySelector('.lock-container, .lock-card'),
             null,
             { timeout: 10000 }
           )
@@ -9915,8 +11296,8 @@ async function testModule41(page, consoleErrors, pageErrors) {
         unlocked,
         unlocked
           ? 'HTTP 200 且锁屏视图已卸载（离开 /lock）'
-          : `HTTP=${okStatus || '无响应'}，解锁后过渡完成=${leftLock ? '是' : '否'}，`
-              + `按钮曾恢复可用=${btnEnabled ? '是' : '否'}，点击${okClickErr ? `失败(${okClickErr})` : '已发出'}`
+          : `HTTP=${okStatus || '无响应'}，解锁后过渡完成=${leftLock ? '是' : '否'}，` +
+              `按钮曾恢复可用=${btnEnabled ? '是' : '否'}，点击${okClickErr ? `失败(${okClickErr})` : '已发出'}`
       )
       if (!unlocked) {
         await page.evaluate(() => {
@@ -9952,7 +11333,9 @@ async function testModule41(page, consoleErrors, pageErrors) {
   const pageNormal = await page
     .locator('.app-container, .dashboard, .el-card')
     .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '锁屏: 解锁后页面恢复', pageNormal, pageNormal ? '页面正常' : '页面可能异常')
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -9972,7 +11355,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
         '.el-tabs__item:has-text("MFA"), .el-tabs__item:has-text("安全设置"), .el-tabs__item:has-text("TOTP"), .el-tabs__item:has-text("二次验证")'
       )
       .first()
-    const totpTabVisible = await totpTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const totpTabVisible = await totpTab
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'TOTP: Tab 可见', totpTabVisible)
 
     if (totpTabVisible) {
@@ -9980,7 +11366,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
       await sleep(2000)
 
       const totpCard = page.locator('.totp-card, .el-tab-pane:visible .el-card').first()
-      const cardVisible = await totpCard.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const cardVisible = await totpCard
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'TOTP: 卡片渲染', cardVisible)
 
       if (cardVisible) {
@@ -10010,7 +11399,9 @@ async function testModule42(page, consoleErrors, pageErrors) {
         const hasSteps = await page
           .locator('.totp-card .el-steps, .totp-card .el-step')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, 'TOTP: 步骤指示器', hasSteps, '步骤指示器可见', '可能未使用步骤指示器')
 
         if (!isEnabled) {
@@ -10023,7 +11414,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
             .first()
           // 使用 waitFor 等待 Transition 完成后按钮可见
           await generateBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
-          const genBtnVisible = await generateBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          const genBtnVisible = await generateBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, 'TOTP: 生成密钥按钮', genBtnVisible)
 
           if (genBtnVisible) {
@@ -10059,11 +11453,17 @@ async function testModule42(page, consoleErrors, pageErrors) {
             const secretInput = page
               .locator('.totp-card input[readonly], .totp-card .el-input.is-readonly input')
               .first()
-            const secretVisible = await secretInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const secretVisible = await secretInput
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, 'TOTP: 密钥显示', secretVisible)
 
             const copyBtn = page.locator('.totp-card button:has-text("复制"), .totp-card [class*="copy"]').first()
-            const copyVisible = await copyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const copyVisible = await copyBtn
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             if (copyVisible) {
               await copyBtn.click({ timeout: 3000 }).catch(() => {})
               await sleep(500)
@@ -10087,7 +11487,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
                 '.totp-card .qr-section button.el-button--primary, .totp-card .qr-section button:has-text("确 定"), .totp-card .qr-section button:has-text("OK"), .totp-card .qr-section button:has-text("Confirm")'
               )
               .first()
-            const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const confirmVisible = await confirmBtn
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             if (confirmVisible) {
               await confirmBtn.click({ timeout: 3000 }).catch(() => {})
               await sleep(1000)
@@ -10098,7 +11501,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
               .locator('.totp-card .verify-section input[maxlength="6"], .totp-card input[maxlength="6"]')
               .first()
             await codeInput.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
-            const codeVisible = await codeInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const codeVisible = await codeInput
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, 'TOTP: 验证码输入框', codeVisible)
 
             if (codeVisible) {
@@ -10109,7 +11515,12 @@ async function testModule42(page, consoleErrors, pageErrors) {
                   '.totp-card .verify-section button:has-text("验证"), .totp-card .verify-section button:has-text("启用"), .totp-card .verify-section button.el-button--primary'
                 )
                 .first()
-              if (await verifyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+              if (
+                await verifyBtn
+                  .waitFor({ state: 'visible', timeout: 2000 })
+                  .then(() => true)
+                  .catch(() => false)
+              ) {
                 await verifyBtn.click({ timeout: 3000 }).catch(() => {})
                 await sleep(2000)
                 const errorMsg = await page
@@ -10117,7 +11528,9 @@ async function testModule42(page, consoleErrors, pageErrors) {
                     '.el-message--error:visible, .el-message--warning:visible, .totp-card .el-form-item__error:visible'
                   )
                   .first()
-                  .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+                  .waitFor({ state: 'visible', timeout: 2000 })
+                  .then(() => true)
+                  .catch(() => false)
                 recordSoft(M, 'TOTP: 错误验证码不绑定', errorMsg, '错误提示可见', '可能未触发验证或后端未校验')
               } else {
                 recordSkip(M, 'TOTP: 错误验证码不绑定', '验证按钮不可见（跳过）')
@@ -10140,7 +11553,10 @@ async function testModule42(page, consoleErrors, pageErrors) {
           await sleep(500)
           const enabledState = page.locator('.totp-card .enabled-state').first()
           await enabledState.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
-          const enabledStateVisible = await enabledState.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          const enabledStateVisible = await enabledState
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
 
           let disableFormVisible = false
           let disableBtnVisible = false
@@ -10149,21 +11565,30 @@ async function testModule42(page, consoleErrors, pageErrors) {
             // 点击"未启用"按钮（实际是"显示禁用表单"的切换按钮，i18n key: profile.totp.disabled）
             // 按钮 type="danger" plain，文本为"未启用"/"Not Enabled"
             const toggleDisableBtn = page.locator('.totp-card .enabled-state button.el-button--danger').first()
-            const toggleVisible = await toggleDisableBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const toggleVisible = await toggleDisableBtn
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             if (toggleVisible) {
               await toggleDisableBtn.click({ timeout: 3000 }).catch(() => {})
               await sleep(1000)
               // 禁用表单已展开（Transition fade-slide 动画 300ms）
               const disableForm = page.locator('.totp-card .disable-form').first()
               await disableForm.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
-              disableFormVisible = await disableForm.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+              disableFormVisible = await disableForm
+                .waitFor({ state: 'visible', timeout: 2000 })
+                .then(() => true)
+                .catch(() => false)
 
               if (disableFormVisible) {
                 // 禁用确认按钮 type="danger"（非 plain），文本为"确 定"/"Confirm"
                 const disableConfirmBtn = page
                   .locator('.totp-card .disable-form button.el-button--danger:not(.is-plain)')
                   .first()
-                disableBtnVisible = await disableConfirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+                disableBtnVisible = await disableConfirmBtn
+                  .waitFor({ state: 'visible', timeout: 2000 })
+                  .then(() => true)
+                  .catch(() => false)
               }
             }
           }
@@ -10237,21 +11662,29 @@ async function testModule43(page, consoleErrors, pageErrors) {
   // 43.1 通知铃铛（实际选择器为 #header-notice 或 .notice-trigger，图标为 svg-icon[icon-class="bell"]）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
   const bellBtn = page.locator('#header-notice, .notice-trigger').first()
-  const bellVisible = await bellBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+  const bellVisible = await bellBtn
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
   record(M, '通知: 铃铛图标可见', bellVisible)
 
   if (bellVisible) {
     await bellBtn.hover({ timeout: 3000 }).catch(() => {})
     await sleep(1500)
     const panel = page.locator('.notice-popover, .header-notice__panel, .el-popover.el-popper:visible').first()
-    const panelVisible = await panel.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const panelVisible = await panel
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知: 面板展开', panelVisible)
 
     if (panelVisible) {
       const hasTabs = await page
         .locator('.notice-popover .el-tabs, .header-notice__panel .el-tabs, .el-popover.el-popper:visible .el-tabs')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '通知: Tab 分类', hasTabs, 'Tab 可见', '可能无 Tab')
 
       const hasItems = await page
@@ -10259,7 +11692,9 @@ async function testModule43(page, consoleErrors, pageErrors) {
           '.notice-popover .notice-item, .header-notice__panel .list-item, .el-popover.el-popper:visible .notice-item, .el-popover.el-popper:visible .el-empty'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '通知: 列表渲染', hasItems, '列表项可见', '可能为空')
 
       // 查看更多链接
@@ -10268,7 +11703,10 @@ async function testModule43(page, consoleErrors, pageErrors) {
           '.notice-popover a:has-text("更多"), .el-popover.el-popper:visible a:has-text("更多"), .el-popover.el-popper:visible a:has-text("查看")'
         )
         .first()
-      const moreVisible = await moreLink.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const moreVisible = await moreLink
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '通知: 更多链接', moreVisible, '链接可见', '可能无更多链接')
     }
   }
@@ -10278,19 +11716,28 @@ async function testModule43(page, consoleErrors, pageErrors) {
     const hasTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '通知中心: 表格加载', hasTable)
 
     if (hasTable) {
       // 排除全局 AnnouncementBanner 的 `/system/notice/list?noticeType=F…` 轮询（它会先于本页响应到达）
       const nr = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!noticeType=F)|$)/ })
-      record(M, '通知中心: 数据行数', nr.pass, nr.pass ? `${nr.domRows} 行（DOM=响应 ${nr.serverRows}，total=${nr.total}）` : nr.why)
+      record(
+        M,
+        '通知中心: 数据行数',
+        nr.pass,
+        nr.pass ? `${nr.domRows} 行（DOM=响应 ${nr.serverRows}，total=${nr.total}）` : nr.why
+      )
 
       // 通知类型 Tab
       const hasTabs = await page
         .locator('.el-tabs')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '通知中心: 类型 Tab', hasTabs, 'Tab 可见', '无 Tab')
 
       // 新增按钮（受 v-hasPermi="['system:notice:add']" 控制，admin 应有权限）
@@ -10322,7 +11769,9 @@ async function testModule44(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '备份管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -10330,26 +11779,37 @@ async function testModule44(page, consoleErrors, pageErrors) {
       const createBtn = page
         .locator('button:has-text("备份"), button:has-text("创建"), button:has-text("新建"), .el-button--primary')
         .first()
-      const createVisible = await createBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const createVisible = await createBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '备份管理: 创建按钮', createVisible)
 
       // 备份列表
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '备份管理: 列表', hasTable, '表格可见', '可能使用其他展示方式')
 
       // 恢复按钮
       const restoreBtn = page
         .locator('button:has-text("恢复"), button:has-text("还原"), button:has-text("Restore")')
         .first()
-      const restoreVisible = await restoreBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const restoreVisible = await restoreBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '备份管理: 恢复按钮', restoreVisible, '恢复按钮可见', '可能需选中行才显示')
 
       // 下载按钮
       const downloadBtn = page.locator('button:has-text("下载"), button:has-text("Download")').first()
-      const downloadVisible = await downloadBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const downloadVisible = await downloadBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '备份管理: 下载按钮', downloadVisible, '下载按钮可见', '可能无下载按钮')
     }
   } else {
@@ -10374,7 +11834,9 @@ async function testModule45(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '缓存管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -10382,26 +11844,36 @@ async function testModule45(page, consoleErrors, pageErrors) {
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '缓存管理: 键列表', hasTable)
 
       // 缓存统计
       const hasStats = await page
         .locator('.el-card, .el-statistic, [class*="stat"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '缓存管理: 统计信息', hasStats)
 
       // 清空按钮
       const clearBtn = page
         .locator('button:has-text("清空"), button:has-text("清除"), button:has-text("Clear")')
         .first()
-      const clearVisible = await clearBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const clearVisible = await clearBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '缓存管理: 清空按钮', clearVisible)
 
       // 刷新按钮
       const refreshBtn = page.locator('button:has-text("刷新"), button:has-text("Refresh")').first()
-      const refreshVisible = await refreshBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const refreshVisible = await refreshBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '缓存管理: 刷新按钮', refreshVisible)
     }
   } else {
@@ -10431,7 +11903,10 @@ async function testModule46(page, consoleErrors, pageErrors) {
 
     // 基本资料 Tab（i18n: profile.basicInfo = "基本资料"）
     const basicTab = page.locator('.el-tabs__item:has-text("基本资料"), .el-tabs__item:has-text("Basic Info")').first()
-    const basicTabVisible = await basicTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const basicTabVisible = await basicTab
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '偏好: 基本信息 Tab', basicTabVisible, basicTabVisible ? '基本资料 Tab 可见' : 'Tab 不可见')
 
     if (basicTabVisible) {
@@ -10443,7 +11918,9 @@ async function testModule46(page, consoleErrors, pageErrors) {
           '.el-tabs__content .el-tab-pane:not([style*="display: none"]) .el-form, .el-tabs__content .is-active .el-form'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '偏好: 基本信息表单', hasForm)
 
       if (hasForm) {
@@ -10455,7 +11932,10 @@ async function testModule46(page, consoleErrors, pageErrors) {
             `${activePane} .el-form-item:has(.el-form-item__label:has-text("用户昵称")) input, ${activePane} .el-form-item:has(.el-form-item__label:has-text("Nick")) input`
           )
           .first()
-        const nickVisible = await nicknameInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const nickVisible = await nicknameInput
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '偏好: 昵称字段', nickVisible)
 
         const phoneInput = page
@@ -10463,7 +11943,10 @@ async function testModule46(page, consoleErrors, pageErrors) {
             `${activePane} .el-form-item:has(.el-form-item__label:has-text("手机")) input, ${activePane} .el-form-item:has(.el-form-item__label:has-text("Phone")) input`
           )
           .first()
-        const phoneVisible = await phoneInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const phoneVisible = await phoneInput
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '偏好: 手机字段', phoneVisible)
 
         const emailInput = page
@@ -10471,7 +11954,10 @@ async function testModule46(page, consoleErrors, pageErrors) {
             `${activePane} .el-form-item:has(.el-form-item__label:has-text("邮箱")) input, ${activePane} .el-form-item:has(.el-form-item__label:has-text("Email")) input`
           )
           .first()
-        const emailVisible = await emailInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const emailVisible = await emailInput
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '偏好: 邮箱字段', emailVisible)
 
         // 保存按钮文本来自 i18n common.save = "保存"（在 active tab pane 内查找）
@@ -10480,7 +11966,10 @@ async function testModule46(page, consoleErrors, pageErrors) {
             `${activePane} button:has-text("保存"), ${activePane} button:has-text("Save"), .app-container button:has-text("保存")`
           )
           .first()
-        const saveVisible = await saveBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const saveVisible = await saveBtn
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '偏好: 保存按钮', saveVisible)
       }
     }
@@ -10489,14 +11978,21 @@ async function testModule46(page, consoleErrors, pageErrors) {
     const hasAvatarComponent = await page
       .locator('.user-avatar, .avatar-upload, .box-card .el-upload, [class*="userAvatar"]')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '偏好: 头像 Tab', hasAvatarComponent, hasAvatarComponent ? '头像组件可见（左侧卡片）' : '头像组件不可见')
   }
 
   // 布局设置抽屉（通过头像下拉菜单触发，菜单项文本为"布局设置"）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
   const settingsTrigger = page.locator('.avatar-container, .avatar-wrapper').first()
-  if (await settingsTrigger.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+  if (
+    await settingsTrigger
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await settingsTrigger.click({ timeout: 2000 }).catch(() => {})
     await sleep(800)
     // 下拉菜单项文本为"布局设置"（i18n: layout.navbar.layoutSettings）
@@ -10505,12 +12001,18 @@ async function testModule46(page, consoleErrors, pageErrors) {
         '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("布局设置"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Layout Settings")'
       )
       .first()
-    const layoutItemVisible = await layoutItem.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const layoutItemVisible = await layoutItem
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     if (layoutItemVisible) {
       await layoutItem.click({ timeout: 2000 }).catch(() => {})
       await sleep(1500)
       const drawer = page.locator('.el-drawer:visible, .settings-drawer:visible').first()
-      const drawerVisible = await drawer.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const drawerVisible = await drawer
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '偏好: 布局设置抽屉', drawerVisible)
 
       if (drawerVisible) {
@@ -10520,14 +12022,20 @@ async function testModule46(page, consoleErrors, pageErrors) {
             '.el-drawer:visible button:has-text("暗色"), .el-drawer:visible button:has-text("Dark"), .el-drawer:visible [class*="theme"]'
           )
           .first()
-        const themeVisible = await themeBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const themeVisible = await themeBtn
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '偏好: 主题切换', themeVisible)
 
         // 侧边栏样式
         const sidebarStyle = page
           .locator('.el-drawer:visible [class*="sidebar"], .el-drawer:visible .theme-item')
           .first()
-        const sidebarVisible = await sidebarStyle.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const sidebarVisible = await sidebarStyle
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '偏好: 侧边栏样式', sidebarVisible)
 
         // 关闭抽屉
@@ -10556,7 +12064,9 @@ async function testModule47(page, consoleErrors, pageErrors) {
     const hasTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '在线用户: 表格加载', hasTable)
 
     if (hasTable) {
@@ -10570,7 +12080,10 @@ async function testModule47(page, consoleErrors, pageErrors) {
       const forceLogoutBtn = page
         .locator('button:has-text("强退"), button:has-text("强制"), button:has-text("Force")')
         .first()
-      const forceVisible = await forceLogoutBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const forceVisible = await forceLogoutBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '在线用户: 强退按钮', forceVisible, '可见', '可能需选中行')
     }
   }
@@ -10580,17 +12093,27 @@ async function testModule47(page, consoleErrors, pageErrors) {
     const hasTable = await page
       .locator('.el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '定时任务: 表格加载', hasTable)
 
     if (hasTable) {
       // minRows=1：机械取证 `select count(*) from sys_job` = 4，定时任务列表不可能为空
       const jr = await verifyListLoaded(page, { listHint: /\/monitor\/job\/list(\?|$)/, minRows: 1 })
-      record(M, '定时任务: 数据行数', jr.pass, jr.pass ? `${jr.domRows} 行（DOM=响应 ${jr.serverRows}，total=${jr.total}）` : jr.why)
+      record(
+        M,
+        '定时任务: 数据行数',
+        jr.pass,
+        jr.pass ? `${jr.domRows} 行（DOM=响应 ${jr.serverRows}，total=${jr.total}）` : jr.why
+      )
 
       // 状态切换
       const statusSwitch = page.locator('.el-switch').first()
-      const switchVisible = await statusSwitch.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const switchVisible = await statusSwitch
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '定时任务: 状态切换', switchVisible)
 
       // 执行一次入口
@@ -10604,12 +12127,21 @@ async function testModule47(page, consoleErrors, pageErrors) {
       const btnCount = await rowBtns.count().catch(() => 0)
       for (let bi = 0; bi < Math.min(btnCount, 8); bi++) {
         await page.mouse.move(0, 0).catch(() => {})
-        await rowBtns.nth(bi).hover({ timeout: 1500 }).catch(() => {})
+        await rowBtns
+          .nth(bi)
+          .hover({ timeout: 1500 })
+          .catch(() => {})
         await sleep(400)
-        const tipLoc = page.locator('.el-popper:visible').filter({ hasText: /执行一次|执行|Execute/ }).first()
+        const tipLoc = page
+          .locator('.el-popper:visible')
+          .filter({ hasText: /执行一次|执行|Execute/ })
+          .first()
         // 必须先 waitFor 再取文本：未命中时 `textContent()` 会等满**默认 30s** 才抛错
         //（实测 2 次未命中就把本段拖到 60s+；b73 轮 14 取证）
-        const tipShown = await tipLoc.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+        const tipShown = await tipLoc
+          .waitFor({ state: 'visible', timeout: 800 })
+          .then(() => true)
+          .catch(() => false)
         const tipText = tipShown ? ((await tipLoc.textContent({ timeout: 500 }).catch(() => '')) || '').trim() : ''
         if (tipText !== '') {
           execTip = tipText
@@ -10634,7 +12166,9 @@ async function testModule47(page, consoleErrors, pageErrors) {
     const hasCard = await page
       .locator('.el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '服务监控: 页面加载', hasCard)
 
     if (hasCard) {
@@ -10671,7 +12205,9 @@ async function testModule47(page, consoleErrors, pageErrors) {
     const hasCard = await page
       .locator('.el-card, .app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '缓存监控: 页面加载', hasCard)
   }
 
@@ -10691,14 +12227,18 @@ async function testModule48(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '限流: 页面加载', hasContainer)
 
     if (hasContainer) {
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '限流: 规则列表', hasTable)
 
       const addBtn = page
@@ -10715,14 +12255,18 @@ async function testModule48(page, consoleErrors, pageErrors) {
       const hasSelect = await page
         .locator('.el-select')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '限流: 维度选择', hasSelect)
 
       // 状态切换
       const hasSwitch = await page
         .locator('.el-switch')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '限流: 状态切换', hasSwitch)
     }
   } else {
@@ -10746,7 +12290,9 @@ async function testModule49(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .el-card')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '代码生成: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -10754,22 +12300,33 @@ async function testModule49(page, consoleErrors, pageErrors) {
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 表列表', hasTable)
 
       // 导入表按钮
       const importBtn = page.locator('button:has-text("导入"), button:has-text("Import")').first()
-      const importVisible = await importBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const importVisible = await importBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '代码生成: 导入表', importVisible)
 
       // 生成按钮
       const genBtn = page.locator('button:has-text("生成"), button:has-text("Generate")').first()
-      const genVisible = await genBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const genVisible = await genBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 生成按钮', genVisible)
 
       // 预览按钮
       const previewBtn = page.locator('button:has-text("预览"), button:has-text("Preview")').first()
-      const previewVisible = await previewBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const previewVisible = await previewBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 预览按钮', previewVisible)
     }
   } else {
@@ -10794,7 +12351,9 @@ async function testModule50(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.container, .app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -10802,21 +12361,27 @@ async function testModule50(page, consoleErrors, pageErrors) {
       const hasLeftPanel = await page
         .locator('.left-board, [class*="left-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 左侧组件面板', hasLeftPanel)
 
       // 中间画布
       const hasCenter = await page
         .locator('.center-board, [class*="center-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 中间画布', hasCenter)
 
       // 右侧属性面板
       const hasRight = await page
         .locator('.right-board, [class*="right-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 右侧属性面板', hasRight)
 
       // 组件列表（真实条目类名是 `.components-item`，旧选择器写的 `li` 根本不存在，
@@ -10826,7 +12391,11 @@ async function testModule50(page, consoleErrors, pageErrors) {
           .evaluate(() => {
             const items = Array.from(document.querySelectorAll('.left-board .components-item'))
             const labeled = items.filter((n) => (n.textContent || '').trim().length > 0).length
-            return { items: items.length, labeled, groups: document.querySelectorAll('.left-board .components-title').length }
+            return {
+              items: items.length,
+              labeled,
+              groups: document.querySelectorAll('.left-board .components-title').length
+            }
           })
           .catch(() => ({ items: -1, labeled: -1, groups: -1 }))
         record(
@@ -10841,7 +12410,9 @@ async function testModule50(page, consoleErrors, pageErrors) {
       const hasActions = await page
         .locator('.center-board .action-bar, .center-board button')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '表单构建: 操作栏', hasActions)
     }
   } else {
@@ -10871,7 +12442,9 @@ async function testModule51(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .ip-location-page')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'IP库: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -10879,13 +12452,18 @@ async function testModule51(page, consoleErrors, pageErrors) {
       const refreshBtn = page
         .locator('.app-container button:has-text("刷新"), .app-container button:has-text("Refresh")')
         .first()
-      const refreshVisible = await refreshBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const refreshVisible = await refreshBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'IP库: 刷新按钮', refreshVisible)
 
       // 重新加载/立即更新/配置按钮受 v-hasPermi=['monitor:iplocation:edit'] 控制
       // 使用 waitFor 等待权限加载完成
       const reloadBtn = page
-        .locator('.app-container button:has-text("热加载"), .app-container button:has-text("重新加载"), .app-container button:has-text("Reload")')
+        .locator(
+          '.app-container button:has-text("热加载"), .app-container button:has-text("重新加载"), .app-container button:has-text("Reload")'
+        )
         .first()
       await reloadBtn.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {})
       const reloadVisible = await reloadBtn.isVisible().catch(() => false)
@@ -10916,7 +12494,9 @@ async function testModule51(page, consoleErrors, pageErrors) {
       const hasStatusTag = await page
         .locator('.app-container .el-tag')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'IP库: MMDB 状态标签', hasStatusTag)
 
       // 测试刷新按钮点击（不触发实际数据变更）
@@ -10927,7 +12507,9 @@ async function testModule51(page, consoleErrors, pageErrors) {
         const stillNormal = await page
           .locator('.app-container')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'IP库: 刷新后页面正常', stillNormal)
       } else {
         recordSkip(M, 'IP库: 刷新后页面正常', '刷新按钮不可见（跳过）')
@@ -10938,7 +12520,10 @@ async function testModule51(page, consoleErrors, pageErrors) {
         await configBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
         const configDialog = page.locator('.el-dialog:visible, .el-drawer:visible').first()
-        const dialogVisible = await configDialog.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const dialogVisible = await configDialog
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, 'IP库: 配置对话框', dialogVisible)
         if (dialogVisible) {
           // 关闭对话框
@@ -11017,19 +12602,36 @@ async function testModule52(page, consoleErrors, pageErrors) {
   /** 打开「头像下拉 → 偏好设置」对话框 */
   const openPrefsDialog = async () => {
     const avatar = page.locator('.avatar-container').first()
-    if (!(await avatar.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) return false
+    if (
+      !(await avatar
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false))
+    )
+      return false
     await avatar.click({ timeout: 3000 }).catch(() => {})
     const item = page
       .locator('.el-dropdown-menu:visible .el-dropdown-menu__item')
       .filter({ hasText: /偏好设置|Preferences/ })
       .first()
-    if (!(await item.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) {
+    if (
+      !(await item
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
       await page.keyboard.press('Escape').catch(() => {})
       return false
     }
     await item.click({ timeout: 3000 }).catch(() => {})
-    const dialog = page.locator('.el-dialog:visible').filter({ hasText: /用户偏好设置|Preference/ }).first()
-    return await dialog.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const dialog = page
+      .locator('.el-dialog:visible')
+      .filter({ hasText: /用户偏好设置|Preference/ })
+      .first()
+    return await dialog
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
   }
 
   /**
@@ -11038,8 +12640,16 @@ async function testModule52(page, consoleErrors, pageErrors) {
    */
   const setWatermarkPref = async (want) => {
     if (!(await openPrefsDialog())) return { ok: false, why: '偏好设置对话框未打开' }
-    const field = page.locator('.el-dialog:visible .el-form-item').filter({ hasText: /页面水印|Page Watermark/ }).first()
-    if (!(await field.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) {
+    const field = page
+      .locator('.el-dialog:visible .el-form-item')
+      .filter({ hasText: /页面水印|Page Watermark/ })
+      .first()
+    if (
+      !(await field
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
       await page.keyboard.press('Escape').catch(() => {})
       return { ok: false, why: '水印表单项不可见' }
     }
@@ -11116,7 +12726,6 @@ async function testModule52(page, consoleErrors, pageErrors) {
     .catch((e) => ({ ok: false, why: e.message.slice(0, 60) }))
   record(M, 'v-watermark: 关闭后观察器不再重绘', tamperProbe.ok === true, JSON.stringify(tamperProbe))
 
-
   // ---------- 52.B v-copyText：打在唯一可达的真实使用点（gen 预览对话框） ----------
   // 说明：另一处使用点是个人中心 TOTP「第二步」的密钥复制，点它必须先「生成密钥」
   // ——那会写入待验证密钥（共享态 + 用户 MFA 态漂移），只读用例不做，见 52.C 的登记。
@@ -11129,7 +12738,10 @@ async function testModule52(page, consoleErrors, pageErrors) {
     .first()
   const previewOk =
     genRows > 0 &&
-    (await previewBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))
+    (await previewBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false))
 
   if (!previewOk) {
     recordSkip(
@@ -11174,12 +12786,7 @@ async function testModule52(page, consoleErrors, pageErrors) {
       // 对话框打开且代码块**有内容**才算通过：旧写法把空/非空只写进 detail、结果恒 true，
       // 等于"预览接口返回空数组也记 ✅"。
       const codeText = (await codeBlock.textContent({ timeout: 2000 }).catch(() => '')) || ''
-      record(
-        M,
-        'v-copyText: gen 预览对话框打开',
-        codeText.trim().length > 0,
-        `代码块字符数=${codeText.trim().length}`
-      )
+      record(M, 'v-copyText: gen 预览对话框打开', codeText.trim().length > 0, `代码块字符数=${codeText.trim().length}`)
       const copyBtn = page
         .locator('.el-dialog:visible button')
         .filter({ hasText: /复制$|Copy$/ })
@@ -11218,9 +12825,8 @@ async function testModule52(page, consoleErrors, pageErrors) {
         const stray = await page
           .evaluate(
             () =>
-              Array.from(document.querySelectorAll('textarea')).filter(
-                (t) => t.style && t.style.left === '-9999px'
-              ).length
+              Array.from(document.querySelectorAll('textarea')).filter((t) => t.style && t.style.left === '-9999px')
+                .length
           )
           .catch(() => -1)
         record(M, 'v-copyText: 复制后无残留 textarea', stray === 0, `离屏 textarea 残留数=${stray}`)
@@ -11238,9 +12844,17 @@ async function testModule52(page, consoleErrors, pageErrors) {
       .locator('.el-tabs__item')
       .filter({ hasText: /安全设置|MFA|Security/ })
       .first()
-    const tabOk = await totpTab.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+    const tabOk = await totpTab
+      .waitFor({ state: 'visible', timeout: 2500 })
+      .then(() => true)
+      .catch(() => false)
     if (!tabOk) {
-      record(M, 'v-copyText: TOTP 页签可达', false, '安全设置(MFA) 页签不可见（能力位 auth.webauthn/MFA 下发或 i18n 漂移）')
+      record(
+        M,
+        'v-copyText: TOTP 页签可达',
+        false,
+        '安全设置(MFA) 页签不可见（能力位 auth.webauthn/MFA 下发或 i18n 漂移）'
+      )
     } else {
       await totpTab.click({ timeout: 3000 }).catch(() => {})
       await sleep(1500)
@@ -11249,7 +12863,10 @@ async function testModule52(page, consoleErrors, pageErrors) {
         .first()
         .getByRole('button', { name: /生成密钥|Generate/ })
         .first()
-      const stepOneOk = await stepOneBtn.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      const stepOneOk = await stepOneBtn
+        .waitFor({ state: 'visible', timeout: 2500 })
+        .then(() => true)
+        .catch(() => false)
       const copyBeforeSetup = await page
         .locator('.el-input__append .el-button[aria-label="复制"], .el-input__append button:has-text("复制")')
         .count()
@@ -11337,7 +12954,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '任务进度: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -11345,7 +12964,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
       const hasSearchForm = await page
         .locator('.el-form--inline')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '任务进度: 搜索表单', hasSearchForm)
 
       if (hasSearchForm) {
@@ -11355,7 +12976,10 @@ async function testModule53(page, consoleErrors, pageErrors) {
             '.el-form-item:has(.el-form-item__label:has-text("任务类型")) .el-select, .el-form-item:has(.el-form-item__label:has-text("Task Type")) .el-select'
           )
           .first()
-        const taskTypeVisible = await taskTypeSelect.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const taskTypeVisible = await taskTypeSelect
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 任务类型筛选', taskTypeVisible)
 
         // 状态下拉框
@@ -11364,7 +12988,10 @@ async function testModule53(page, consoleErrors, pageErrors) {
             '.el-form-item:has(.el-form-item__label:has-text("状态")) .el-select, .el-form-item:has(.el-form-item__label:has-text("Status")) .el-select'
           )
           .first()
-        const statusVisible = await statusSelect.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const statusVisible = await statusSelect
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 状态筛选', statusVisible)
 
         // 操作人输入框（i18n task.search.operator: zh="操作者", en="Operator"）
@@ -11373,12 +13000,18 @@ async function testModule53(page, consoleErrors, pageErrors) {
             '.el-form-item:has(.el-form-item__label:has-text("操作者")) input, .el-form-item:has(.el-form-item__label:has-text("Operator")) input'
           )
           .first()
-        const operatorVisible = await operatorInput.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const operatorVisible = await operatorInput
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 操作人筛选', operatorVisible)
 
         // 创建时间日期范围
         const datePicker = page.locator('.el-date-editor--daterange').first()
-        const dateVisible = await datePicker.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const dateVisible = await datePicker
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 创建时间筛选', dateVisible)
 
         // 搜索/重置按钮
@@ -11387,13 +13020,19 @@ async function testModule53(page, consoleErrors, pageErrors) {
             '.el-form--inline button.el-button--primary:has-text("搜索"), .el-form--inline button:has-text("Search")'
           )
           .first()
-        const searchVisible = await searchBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const searchVisible = await searchBtn
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 搜索按钮', searchVisible)
 
         const resetBtn = page
           .locator('.el-form--inline button:has-text("重置"), .el-form--inline button:has-text("Reset")')
           .first()
-        const resetVisible = await resetBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        const resetVisible = await resetBtn
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '任务进度: 重置按钮', resetVisible)
       }
 
@@ -11413,7 +13052,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
       const hasTable = await page
         .locator('.el-table, .skeleton-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '任务进度: 表格加载', hasTable)
 
       if (hasTable) {
@@ -11427,27 +13068,38 @@ async function testModule53(page, consoleErrors, pageErrors) {
         // 数据行数（机械取证 sys_task=0 行 ⇒ 空态合法，但"接口必须发出 + 表格落定 + DOM=响应行数"
         // 才是判据；旧 `rowCount >= 0` 把接口 500、表格没挂载一律记 ✅）
         const tp = await verifyListLoaded(page, { listHint: /\/system\/task\/list(\?|$)/ })
-        record(M, '任务进度: 数据行数', tp.pass, tp.pass ? `${tp.domRows} 行（DOM=响应 ${tp.serverRows}，total=${tp.total}）` : tp.why)
+        record(
+          M,
+          '任务进度: 数据行数',
+          tp.pass,
+          tp.pass ? `${tp.domRows} 行（DOM=响应 ${tp.serverRows}，total=${tp.total}）` : tp.why
+        )
 
         // 进度条（el-progress）存在
         const hasProgress = await page
           .locator('.el-progress')
           .first()
-          .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '任务进度: 进度条', hasProgress, '进度条可见', '可能无数据')
 
         // 状态标签（el-tag）存在
         const hasStatusTag = await page
           .locator('.el-table .el-tag')
           .first()
-          .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '任务进度: 状态标签', hasStatusTag, '状态标签可见', '可能无数据')
 
         // 空状态组件（EmptyState）— 无数据时显示
         const hasEmptyState = await page
           .locator('.el-table__empty-text, .empty-state')
           .first()
-          .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1500 })
+          .then(() => true)
+          .catch(() => false)
         recordSoft(M, '任务进度: 空状态组件', hasEmptyState, '空状态显示', '有数据（无空状态）')
 
         // 测试搜索按钮点击（不触发实际数据变更）
@@ -11455,7 +13107,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
           await page
             .locator('.el-form--inline button.el-button--primary:has-text("搜索")')
             .first()
-            .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 1000 })
+            .then(() => true)
+            .catch(() => false)
         ) {
           await page
             .locator('.el-form--inline button.el-button--primary:has-text("搜索")')
@@ -11466,7 +13120,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
           const stillNormal = await page
             .locator('.app-container')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '任务进度: 搜索后页面正常', stillNormal)
         } else {
           recordSkip(M, '任务进度: 搜索后页面正常', '搜索按钮不可见（跳过）')
@@ -11477,7 +13133,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
           await page
             .locator('.el-form--inline button:has-text("重置")')
             .first()
-            .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 1000 })
+            .then(() => true)
+            .catch(() => false)
         ) {
           await page
             .locator('.el-form--inline button:has-text("重置")')
@@ -11488,7 +13146,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
           const stillNormal = await page
             .locator('.app-container')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '任务进度: 重置后页面正常', stillNormal)
         } else {
           recordSkip(M, '任务进度: 重置后页面正常', '重置按钮不可见（跳过）')
@@ -11499,7 +13159,9 @@ async function testModule53(page, consoleErrors, pageErrors) {
       const hasPagination = await page
         .locator('.el-pagination')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '任务进度: 分页组件', hasPagination, '分页可见', '可能无数据')
     }
   } else {
@@ -11539,7 +13201,10 @@ async function testModule54(page, consoleErrors, pageErrors) {
   // 401 错误页面（路由可能不存在，使用 allowFail）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/401`, { moduleName: M, waitMs: 1500, allowFail: true })) {
     const container = page.locator('.errPage-container, .error-page, .el-result').first()
-    const hasContainer = await container.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasContainer = await container
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const titleText = await container.innerText().catch(() => '')
     const hasTitle = /401|未授权|Unauthorized|无权|权限/i.test(titleText)
     record(
@@ -11551,7 +13216,9 @@ async function testModule54(page, consoleErrors, pageErrors) {
     const hasBackBtn = await page
       .locator('.pan-back-btn, button:has-text("返回"), button:has-text("Back")')
       .first()
-      .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '401: 返回按钮', hasBackBtn)
   } else {
     recordSkip(M, '401: 页面加载', '路由不可访问（跳过）')
@@ -11561,7 +13228,10 @@ async function testModule54(page, consoleErrors, pageErrors) {
   // 403 错误页面
   if (await safeGoto(page, `${CONFIG.frontendUrl}/403`, { moduleName: M, waitMs: 1500, allowFail: true })) {
     const container = page.locator('.el-result, .errPage-container, .error-page').first()
-    const hasResult = await container.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasResult = await container
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const titleText = await container.innerText().catch(() => '')
     const hasTitle = /403|禁止|Forbidden|无权|权限/i.test(titleText)
     record(
@@ -11575,7 +13245,9 @@ async function testModule54(page, consoleErrors, pageErrors) {
         'button:has-text("返回首页"), button:has-text("Back Home"), button:has-text("首页"), button:has-text("Home")'
       )
       .first()
-      .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '403: 返回首页按钮', hasHomeBtn)
   } else {
     recordSkip(M, '403: 页面加载', '路由不可访问（跳过）')
@@ -11585,7 +13257,10 @@ async function testModule54(page, consoleErrors, pageErrors) {
   // 500 错误页面
   if (await safeGoto(page, `${CONFIG.frontendUrl}/500`, { moduleName: M, waitMs: 1500, allowFail: true })) {
     const container = page.locator('.el-result, .errPage-container, .error-page').first()
-    const hasResult = await container.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasResult = await container
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const titleText = await container.innerText().catch(() => '')
     const hasTitle = /500|服务器|Server Error|错误|异常/i.test(titleText)
     record(
@@ -11597,7 +13272,9 @@ async function testModule54(page, consoleErrors, pageErrors) {
     const hasRefreshBtn = await page
       .locator('button:has-text("刷新"), button:has-text("Refresh"), button:has-text("重试"), button:has-text("Retry")')
       .first()
-      .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '500: 刷新按钮', hasRefreshBtn)
   } else {
     recordSkip(M, '500: 页面加载', '路由不可访问（跳过）')
@@ -11619,7 +13296,10 @@ async function testModule54(page, consoleErrors, pageErrors) {
   }
   if (okNetwork) {
     const container = page.locator('.el-result, .errPage-container, .error-page').first()
-    const hasResult = await container.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    const hasResult = await container
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
     const titleText = await container.innerText().catch(() => '')
     const hasTitle = /网络|Network|断开|连接|错误|Error/i.test(titleText)
     record(
@@ -11631,7 +13311,9 @@ async function testModule54(page, consoleErrors, pageErrors) {
     const hasRetryBtn = await page
       .locator('button:has-text("重试"), button:has-text("Retry"), button:has-text("刷新"), button:has-text("Refresh")')
       .first()
-      .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '网络错误: 重试按钮', hasRetryBtn)
   } else {
     recordSkip(M, '网络错误: 页面加载', '路由不可访问（跳过）')
@@ -11651,7 +13333,9 @@ async function testModule55(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '菜单管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -11663,7 +13347,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
       const addBtn = page
         .locator('.app-container button:has-text("新增"), .app-container button:has-text("Add")')
         .first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '菜单管理: 新增按钮', addVisible)
 
       // 使用 clickButton 的三阶段策略点击新增按钮（绕过遮挡）
@@ -11675,7 +13362,9 @@ async function testModule55(page, consoleErrors, pageErrors) {
       const dialogOpened = await page
         .locator('.el-dialog:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '菜单管理: 新增对话框',
@@ -11687,7 +13376,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
         await sleep(800)
         // 菜单类型 radio（M 目录 / C 菜单 / F 按钮）
         const typeRadio = page.locator('.el-dialog:visible .el-radio-group').first()
-        const typeRadioVisible = await typeRadio.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const typeRadioVisible = await typeRadio
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 菜单类型 radio', typeRadioVisible)
 
         // 切换到"菜单"类型（C），使权限标识、组件路径等字段显示
@@ -11718,7 +13410,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("菜单名称")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Menu Name")) input'
           )
           .first()
-        const nameVisible = await nameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const nameVisible = await nameInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 菜单名称输入框', nameVisible)
 
         // 路由地址输入框
@@ -11727,7 +13422,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("路由地址")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Path")) input'
           )
           .first()
-        const pathVisible = await pathInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const pathVisible = await pathInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 路由地址输入框', pathVisible)
 
         // 权限标识输入框（仅 menuType != 'M' 时显示，已切换到 C）
@@ -11742,12 +13440,18 @@ async function testModule55(page, consoleErrors, pageErrors) {
               '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Permission")) input'
           )
           .first()
-        const permsVisible = await permsInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const permsVisible = await permsInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 权限标识输入框', permsVisible)
 
         // 排序 input-number
         const orderInput = page.locator('.el-dialog:visible .el-input-number').first()
-        const orderVisible = await orderInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const orderVisible = await orderInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 排序 input-number', orderVisible)
 
         // 父菜单 tree-select（el-tree-select 渲染为 el-select 样式）
@@ -11756,7 +13460,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("父菜单")) .el-select, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Parent")) .el-select, .el-dialog:visible .el-tree-select, .el-dialog:visible .el-form-item:first-child .el-select'
           )
           .first()
-        const parentVisible = await parentTree.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const parentVisible = await parentTree
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '菜单管理: 父菜单 tree-select', parentVisible)
 
         // 确认/取消按钮可见
@@ -11765,13 +13472,19 @@ async function testModule55(page, consoleErrors, pageErrors) {
             '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("OK"), .el-dialog:visible button:has-text("Confirm")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const cancelBtn = page
           .locator(
             '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible button:has-text("Cancel")'
           )
           .first()
-        const cancelVisible = await cancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const cancelVisible = await cancelBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '菜单管理: 确认/取消按钮',
@@ -11804,7 +13517,10 @@ async function testModule55(page, consoleErrors, pageErrors) {
           '.app-container button:has-text("展开"), .app-container button:has-text("折叠"), .app-container button:has-text("Expand"), .app-container button:has-text("Collapse")'
         )
         .first()
-      const toggleVisible = await toggleBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const toggleVisible = await toggleBtn
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '菜单管理: 展开/折叠按钮', toggleVisible)
     }
   } else {
@@ -11839,7 +13555,9 @@ async function testModule56(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '部门管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -11851,7 +13569,10 @@ async function testModule56(page, consoleErrors, pageErrors) {
       const addBtn = page
         .locator('.app-container button:has-text("新增"), .app-container button:has-text("Add")')
         .first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '部门管理: 新增按钮', addVisible)
 
       // 使用 clickButton 的三阶段策略点击新增按钮（绕过遮挡）
@@ -11863,7 +13584,9 @@ async function testModule56(page, consoleErrors, pageErrors) {
       const dialogOpened = await page
         .locator('.el-dialog:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '部门管理: 新增对话框',
@@ -11879,12 +13602,18 @@ async function testModule56(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("部门名称")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Dept Name")) input'
           )
           .first()
-        const nameVisible = await nameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const nameVisible = await nameInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '部门管理: 部门名称输入框', nameVisible)
 
         // 排序 input-number
         const orderInput = page.locator('.el-dialog:visible .el-input-number').first()
-        const orderVisible = await orderInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const orderVisible = await orderInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '部门管理: 排序 input-number', orderVisible)
 
         // 负责人输入框
@@ -11893,7 +13622,10 @@ async function testModule56(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("负责人")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Leader")) input'
           )
           .first()
-        const leaderVisible = await leaderInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const leaderVisible = await leaderInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '部门管理: 负责人输入框', leaderVisible)
 
         // 联系电话输入框
@@ -11902,7 +13634,10 @@ async function testModule56(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("联系电话")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Phone")) input'
           )
           .first()
-        const phoneVisible = await phoneInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const phoneVisible = await phoneInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '部门管理: 联系电话输入框', phoneVisible)
 
         // 邮箱输入框
@@ -11911,7 +13646,10 @@ async function testModule56(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("邮箱")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Email")) input'
           )
           .first()
-        const emailVisible = await emailInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const emailVisible = await emailInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '部门管理: 邮箱输入框', emailVisible)
 
         // 确认/取消按钮可见
@@ -11920,13 +13658,19 @@ async function testModule56(page, consoleErrors, pageErrors) {
             '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("OK"), .el-dialog:visible button:has-text("Confirm")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const cancelBtn = page
           .locator(
             '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible button:has-text("Cancel")'
           )
           .first()
-        const cancelVisible = await cancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const cancelVisible = await cancelBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '部门管理: 确认/取消按钮',
@@ -11982,7 +13726,9 @@ async function testModule57(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '角色管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -11994,7 +13740,10 @@ async function testModule57(page, consoleErrors, pageErrors) {
       const addBtn = page
         .locator('.app-container button:has-text("新增"), .app-container button:has-text("Add")')
         .first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色管理: 新增按钮', addVisible)
 
       // 使用 clickButton 的三阶段策略点击新增按钮（绕过遮挡）
@@ -12006,7 +13755,9 @@ async function testModule57(page, consoleErrors, pageErrors) {
       const dialogOpened = await page
         .locator('.el-dialog:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '角色管理: 新增对话框',
@@ -12022,7 +13773,10 @@ async function testModule57(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("角色名称")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Role Name")) input'
           )
           .first()
-        const nameVisible = await nameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const nameVisible = await nameInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 角色名称输入框', nameVisible)
 
         // 权限字符输入框
@@ -12037,17 +13791,26 @@ async function testModule57(page, consoleErrors, pageErrors) {
               '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Role Key")) input'
           )
           .first()
-        const keyVisible = await keyInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const keyVisible = await keyInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 权限字符输入框', keyVisible)
 
         // 排序 input-number
         const orderInput = page.locator('.el-dialog:visible .el-input-number').first()
-        const orderVisible = await orderInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const orderVisible = await orderInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 排序 input-number', orderVisible)
 
         // 菜单权限树可见（.tree-border 或 .el-tree）
         const menuTree = page.locator('.el-dialog:visible .tree-border, .el-dialog:visible .el-tree').first()
-        const menuTreeVisible = await menuTree.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const menuTreeVisible = await menuTree
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 菜单权限树', menuTreeVisible)
 
         // 展开/折叠 checkbox 可见
@@ -12056,7 +13819,10 @@ async function testModule57(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-checkbox:has-text("展开"), .el-dialog:visible .el-checkbox:has-text("Expand")'
           )
           .first()
-        const expandVisible = await expandCheckbox.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const expandVisible = await expandCheckbox
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 展开/折叠 checkbox', expandVisible)
 
         // 全选/全不选 checkbox 可见（i18n key role.label.selectAll = "全选/全不选"）
@@ -12067,7 +13833,10 @@ async function testModule57(page, consoleErrors, pageErrors) {
               '.el-dialog:visible .el-checkbox:has-text("全选")'
           )
           .first()
-        const checkAllVisible = await checkAllCheckbox.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const checkAllVisible = await checkAllCheckbox
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 全选/全不选 checkbox', checkAllVisible)
 
         // 备注textarea 可见
@@ -12076,7 +13845,10 @@ async function testModule57(page, consoleErrors, pageErrors) {
             '.el-dialog:visible textarea, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("备注")) textarea, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Remark")) textarea'
           )
           .first()
-        const remarkVisible = await remarkTextarea.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const remarkVisible = await remarkTextarea
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '角色管理: 备注 textarea', remarkVisible)
 
         // 确认/取消按钮可见
@@ -12085,13 +13857,19 @@ async function testModule57(page, consoleErrors, pageErrors) {
             '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("OK"), .el-dialog:visible button:has-text("Confirm")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const cancelBtn = page
           .locator(
             '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible button:has-text("Cancel")'
           )
           .first()
-        const cancelVisible = await cancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const cancelVisible = await cancelBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '角色管理: 确认/取消按钮',
@@ -12123,14 +13901,19 @@ async function testModule57(page, consoleErrors, pageErrors) {
       const hasSearchForm = await page
         .locator('.el-form--inline')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色管理: 搜索表单', hasSearchForm)
 
       // 导出按钮可见（v-hasPermi=['system:role:export']）
       const exportBtn = page
         .locator('.app-container button:has-text("导出"), .app-container button:has-text("Export")')
         .first()
-      const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const exportVisible = await exportBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色管理: 导出按钮', exportVisible)
     }
   } else {
@@ -12167,7 +13950,9 @@ async function testModule58(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '用户管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -12179,7 +13964,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
       const addBtn = page
         .locator('.app-container button:has-text("新增"), .app-container button:has-text("Add")')
         .first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '用户管理: 新增按钮', addVisible)
 
       // 使用 clickButton 的三阶段策略点击新增按钮（绕过遮挡）
@@ -12191,7 +13979,9 @@ async function testModule58(page, consoleErrors, pageErrors) {
       const dialogOpened = await page
         .locator('.el-dialog:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '用户管理: 新增对话框',
@@ -12207,7 +13997,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("用户名称")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Username")) input'
           )
           .first()
-        const usernameVisible = await usernameInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const usernameVisible = await usernameInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 用户名输入框', usernameVisible)
 
         // 昵称输入框
@@ -12216,7 +14009,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("用户昵称")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Nickname")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("昵称")) input'
           )
           .first()
-        const nickVisible = await nickInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const nickVisible = await nickInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 昵称输入框', nickVisible)
 
         // 密码输入框（新增时可见）
@@ -12225,7 +14021,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("密码")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Password")) input'
           )
           .first()
-        const pwdVisible = await pwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const pwdVisible = await pwdInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 密码输入框', pwdVisible)
 
         // 部门 select 可见（实际 label 为"归属部门"，el-tree-select 内部渲染为 el-select）
@@ -12292,7 +14091,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("邮箱")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Email")) input'
           )
           .first()
-        const emailVisible = await emailInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const emailVisible = await emailInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 邮箱输入框', emailVisible)
 
         // 手机号输入框可见
@@ -12301,7 +14103,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("手机号码")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("手机号")) input, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Phone")) input'
           )
           .first()
-        const phoneVisible = await phoneInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const phoneVisible = await phoneInput
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 手机号输入框', phoneVisible)
 
         // 性别 select 可见
@@ -12310,7 +14115,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("性别")) .el-select, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Gender")) .el-select, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("性别")) .el-radio-group'
           )
           .first()
-        const sexVisible = await sexSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const sexVisible = await sexSelect
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 性别 select', sexVisible)
 
         // 岗位 select 可见（label="岗位"，el-select multiple）
@@ -12357,7 +14165,10 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("角色")) .el-select, .el-dialog:visible .el-form-item:has(.el-form-item__label:has-text("Role")) .el-select'
           )
           .first()
-        const roleVisible = await roleSelect.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const roleVisible = await roleSelect
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '用户管理: 角色 select', roleVisible)
 
         // 确认/取消按钮可见
@@ -12366,13 +14177,19 @@ async function testModule58(page, consoleErrors, pageErrors) {
             '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("OK"), .el-dialog:visible button:has-text("Confirm")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const cancelBtn = page
           .locator(
             '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible button:has-text("Cancel")'
           )
           .first()
-        const cancelVisible = await cancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const cancelVisible = await cancelBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '用户管理: 确认/取消按钮',
@@ -12406,14 +14223,19 @@ async function testModule58(page, consoleErrors, pageErrors) {
       const exportBtn = page
         .locator('.app-container button:has-text("导出"), .app-container button:has-text("Export")')
         .first()
-      const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const exportVisible = await exportBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '用户管理: 导出按钮', exportVisible)
 
       // 搜索表单可见（用户名、手机号、状态、创建时间）
       const hasSearchForm = await page
         .locator('.el-form--inline')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '用户管理: 搜索表单', hasSearchForm)
     }
   } else {
@@ -12452,7 +14274,9 @@ async function testModule59(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '代码生成: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -12464,7 +14288,10 @@ async function testModule59(page, consoleErrors, pageErrors) {
       const importBtn = page
         .locator('.app-container button:has-text("导入"), .app-container button:has-text("Import")')
         .first()
-      const importVisible = await importBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const importVisible = await importBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '代码生成: 导入按钮', importVisible)
 
       // 使用 clickButton 的三阶段策略点击导入按钮（绕过遮挡）
@@ -12476,7 +14303,9 @@ async function testModule59(page, consoleErrors, pageErrors) {
       const dialogOpened = await page
         .locator('.el-dialog:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '代码生成: 导入对话框',
@@ -12490,14 +14319,18 @@ async function testModule59(page, consoleErrors, pageErrors) {
         const hasSearchForm = await page
           .locator('.el-dialog:visible .el-form--inline, .el-dialog:visible .el-form')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '代码生成: 导入对话框搜索表单', hasSearchForm)
 
         // 导入对话框内表格可见
         const hasTable = await page
           .locator('.el-dialog:visible .el-table')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '代码生成: 导入对话框表格', hasTable)
 
         // 导入对话框确认/取消按钮可见
@@ -12506,13 +14339,19 @@ async function testModule59(page, consoleErrors, pageErrors) {
             '.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定"), .el-dialog:visible button:has-text("OK"), .el-dialog:visible button:has-text("Confirm")'
           )
           .first()
-        const confirmVisible = await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const confirmVisible = await confirmBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         const cancelBtn = page
           .locator(
             '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible button:has-text("Cancel")'
           )
           .first()
-        const cancelVisible = await cancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const cancelVisible = await cancelBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(
           M,
           '代码生成: 导入对话框确认/取消按钮',
@@ -12541,7 +14380,10 @@ async function testModule59(page, consoleErrors, pageErrors) {
           '.el-table button:has-text("预览"), .el-table button:has-text("Preview"), .el-table .el-button:has-text("预览")'
         )
         .first()
-      const previewVisible = await previewBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const previewVisible = await previewBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 预览按钮', previewVisible, '预览按钮可见', '可能无数据')
 
       // 生成按钮可见（v-hasPermi=['tool:gen:code']）
@@ -12550,14 +14392,20 @@ async function testModule59(page, consoleErrors, pageErrors) {
           '.el-table button:has-text("生成"), .el-table button:has-text("Generate"), .el-table button:has-text("生成代码")'
         )
         .first()
-      const genVisible = await genBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const genVisible = await genBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 生成按钮', genVisible, '生成按钮可见', '可能无数据')
 
       // 创建按钮可见
       const createBtn = page
         .locator('.app-container button:has-text("创建"), .app-container button:has-text("Create")')
         .first()
-      const createVisible = await createBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const createVisible = await createBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '代码生成: 创建按钮', createVisible, '创建按钮可见', '创建按钮不可见')
     }
   } else {
@@ -12590,7 +14438,9 @@ async function testModule60(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.container, .app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -12598,21 +14448,27 @@ async function testModule60(page, consoleErrors, pageErrors) {
       const hasLeftPanel = await page
         .locator('.left-board, [class*="left-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 左侧组件面板', hasLeftPanel)
 
       // 中间画布可见
       const hasCenter = await page
         .locator('.center-board, [class*="center-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 中间画布', hasCenter)
 
       // 右侧属性面板可见
       const hasRight = await page
         .locator('.right-panel, [class*="right-panel"], .right-board, [class*="right-board"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 右侧属性面板', hasRight)
 
       // 左侧组件列表项数量 > 0
@@ -12626,14 +14482,18 @@ async function testModule60(page, consoleErrors, pageErrors) {
       const hasComponentsTitle = await page
         .locator('.components-title')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 组件标题', hasComponentsTitle)
 
       // 操作栏可见
       const hasActionBar = await page
         .locator('.action-bar')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 操作栏', hasActionBar)
 
       // 导出Vue按钮可见
@@ -12642,28 +14502,36 @@ async function testModule60(page, consoleErrors, pageErrors) {
           '.action-bar button:has-text("导出Vue"), .action-bar button:has-text("Export Vue"), button:has-text("导出Vue")'
         )
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 导出Vue按钮', hasExportVue)
 
       // 复制代码按钮可见
       const hasCopyBtn = await page
         .locator('.copy-btn-main, [class*="copy-btn-main"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 复制代码按钮', hasCopyBtn)
 
       // 清空按钮可见
       const hasDeleteBtn = await page
         .locator('.delete-btn, [class*="delete-btn"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 清空按钮', hasDeleteBtn)
 
       // 画布空状态可见或有拖拽项
       const hasEmpty = await page
         .locator('.empty-info, [class*="empty-info"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       const draggablesCount = await page
         .locator('.drawing-board > div, .drawing-board .components-item, .drawing-board [class*="item"]')
         .count()
@@ -12679,7 +14547,9 @@ async function testModule60(page, consoleErrors, pageErrors) {
       const hasDraggable = await page
         .locator('.components-draggable, [class*="components-draggable"]')
         .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 可拖拽组件', hasDraggable)
     }
   } else {
@@ -12714,7 +14584,9 @@ async function testModule61(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .user-profile')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '个人中心: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -12724,7 +14596,10 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-tabs__item:has-text("基本资料"), .el-tabs__item:has-text("Basic Info"), .el-tabs__item:has-text("资料")'
         )
         .first()
-      const basicTabVisible = await basicTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const basicTabVisible = await basicTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (basicTabVisible) {
         await basicTab.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
@@ -12737,7 +14612,10 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("昵称")) input, .el-form-item:has(.el-form-item__label:has-text("用户昵称")) input, .el-form-item:has(.el-form-item__label:has-text("Nickname")) input'
         )
         .first()
-      const nickVisible = await nickInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const nickVisible = await nickInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 昵称输入框', nickVisible)
 
       // 手机号输入框可见
@@ -12746,7 +14624,10 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("手机号码")) input, .el-form-item:has(.el-form-item__label:has-text("手机号")) input, .el-form-item:has(.el-form-item__label:has-text("Phone")) input'
         )
         .first()
-      const phoneVisible = await phoneInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const phoneVisible = await phoneInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 手机号输入框', phoneVisible)
 
       // 邮箱输入框可见
@@ -12755,7 +14636,10 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("邮箱")) input, .el-form-item:has(.el-form-item__label:has-text("Email")) input'
         )
         .first()
-      const emailVisible = await emailInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const emailVisible = await emailInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 邮箱输入框', emailVisible)
 
       // 性别 radio 可见
@@ -12764,19 +14648,28 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("性别")) .el-radio-group, .el-form-item:has(.el-form-item__label:has-text("Gender")) .el-radio-group, .el-form-item:has(.el-form-item__label:has-text("性别")) .el-select'
         )
         .first()
-      const sexVisible = await sexRadio.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const sexVisible = await sexRadio
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 性别 radio', sexVisible)
 
       // 保存按钮可见
       const saveBtn = page.locator('button:has-text("保存"), button:has-text("Save")').first()
-      const saveVisible = await saveBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const saveVisible = await saveBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 保存按钮', saveVisible)
 
       // 关闭按钮可见（i18n common.close 中文为"关 闭"带空格）
       const closeBtn = page
         .locator('button:has-text("关 闭"), button:has-text("关闭"), button:has-text("Close")')
         .first()
-      const closeVisible = await closeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const closeVisible = await closeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 关闭按钮', closeVisible)
 
       // 切换到修改密码 Tab 并验证旧密码输入框
@@ -12785,14 +14678,20 @@ async function testModule61(page, consoleErrors, pageErrors) {
           '.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("Change Password"), .el-tabs__item:has-text("密码")'
         )
         .first()
-      const pwdTabVisible = await pwdTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const pwdTabVisible = await pwdTab
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       if (pwdTabVisible) {
         await pwdTab.click({ timeout: 3000 }).catch(() => {})
         await sleep(800)
       }
       // 旧密码输入框（type=password）
       const oldPwdInput = page.locator('input[type="password"]').first()
-      const oldPwdVisible = await oldPwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const oldPwdVisible = await oldPwdInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '个人中心: 修改密码 Tab + 旧密码输入框',
@@ -12802,7 +14701,10 @@ async function testModule61(page, consoleErrors, pageErrors) {
 
       // 新密码输入框可见
       const newPwdInput = page.locator('input[type="password"]').nth(1)
-      const newPwdVisible = await newPwdInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const newPwdVisible = await newPwdInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '个人中心: 新密码输入框', newPwdVisible)
     }
   } else {
@@ -12842,7 +14744,9 @@ async function testModule62(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '角色授权: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -12850,7 +14754,9 @@ async function testModule62(page, consoleErrors, pageErrors) {
       const hasSearchForm = await page
         .locator('.el-form--inline')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色授权: 搜索表单', hasSearchForm)
 
       // 添加用户按钮可见（实际文本是 t('common.add') = "新增"/"Add"）
@@ -12859,14 +14765,20 @@ async function testModule62(page, consoleErrors, pageErrors) {
           '.app-container button.el-button--primary:has-text("新增"), .app-container button.el-button--primary:has-text("Add"), .app-container button:has-text("添加用户"), .app-container button:has-text("Add User")'
         )
         .first()
-      const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const addVisible = await addBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色授权: 添加用户按钮', addVisible)
 
       // 批量取消授权按钮可见
       const batchCancelBtn = page
         .locator('.app-container button:has-text("批量取消授权"), .app-container button:has-text("Batch Cancel")')
         .first()
-      const batchCancelVisible = await batchCancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const batchCancelVisible = await batchCancelBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色授权: 批量取消授权按钮', batchCancelVisible)
 
       // 关闭按钮可见（i18n common.close 中文为"关 闭"带空格）
@@ -12875,21 +14787,29 @@ async function testModule62(page, consoleErrors, pageErrors) {
           '.app-container button:has-text("关 闭"), .app-container button:has-text("关闭"), .app-container button:has-text("Close")'
         )
         .first()
-      const closeVisible = await closeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const closeVisible = await closeBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '角色授权: 关闭按钮', closeVisible)
 
       // 表格可见
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '角色授权: 表格', hasTable, '表格可见', '可能无数据')
 
       // 取消授权按钮可见（行内）
       const rowCancelBtn = page
         .locator('.el-table button:has-text("取消授权"), .el-table button:has-text("Cancel Auth")')
         .first()
-      const rowCancelVisible = await rowCancelBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const rowCancelVisible = await rowCancelBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '角色授权: 行内取消授权按钮', rowCancelVisible, '取消授权按钮可见', '可能无数据')
     }
   } else {
@@ -12917,11 +14837,15 @@ async function testModule62(page, consoleErrors, pageErrors) {
     const hasFormHeader = await page
       .locator('.form-header')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(
       M,
       '用户授权: 页面加载与基本信息',
@@ -12941,34 +14865,41 @@ async function testModule63(page, consoleErrors, pageErrors) {
   const M = 63
   log(`\n=== 模块 ${M}: 隐私政策页面测试 ===`)
 
-  // 隐私政策页面（路由可能不存在，使用 allowFail）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/legal/privacy`, { moduleName: M, waitMs: 2500, allowFail: true })) {
+  // 真实路由是 `/privacy`（src/router/index.ts:69 → views/legal/privacy.vue）。
+  // 此前写的是 `/legal/privacy`——该路由不存在，safeGoto(allowFail) 静默返回 false，
+  // 于是本模块 4 条判据**从注册起就一直是 SKIP**，汇总里只表现为"SKIP 最多 TOP1"。
+  // 同轮 M8 用 `/privacy` 能正常加载（§8.6），两处对不上就是证据。
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/privacy`, { moduleName: M, waitMs: 2500 })) {
+    await assertPageLoaded(page, M, '隐私政策: 页面加载')
     const hasPage = await page
-      .locator('.privacy-page, .privacy-container')
+      .locator('.privacy-page')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    record(M, '隐私政策: 页面加载', hasPage)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    record(M, '隐私政策: 页面容器', hasPage, 'views/legal/privacy.vue 的根节点 .privacy-page')
 
     if (hasPage) {
-      // 标题可见
       const hasTitle = await page
-        .locator('.privacy-title, .privacy-page h1, .privacy-page h2')
+        .locator('.privacy-title')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '隐私政策: 标题', hasTitle)
 
-      // 章节内容可见
       const sectionCount = await page
-        .locator('.privacy-section, .privacy-page section')
+        .locator('.privacy-section')
         .count()
         .catch(() => 0)
       record(M, '隐私政策: 章节内容', sectionCount > 0, `${sectionCount} 个章节`)
 
-      // 页脚可见
       const hasFooter = await page
-        .locator('.privacy-footer, .privacy-page footer')
+        .locator('.privacy-footer')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '隐私政策: 页脚', hasFooter)
     } else {
       ;['隐私政策: 标题', '隐私政策: 章节内容', '隐私政策: 页脚'].forEach((item) => {
@@ -12976,9 +14907,11 @@ async function testModule63(page, consoleErrors, pageErrors) {
       })
     }
   } else {
-    ;['隐私政策: 页面加载', '隐私政策: 标题', '隐私政策: 章节内容', '隐私政策: 页脚'].forEach((item) => {
-      recordSkip(M, item, '隐私政策页面不可访问（跳过）')
-    })
+    ;['隐私政策: 页面加载', '隐私政策: 页面容器', '隐私政策: 标题', '隐私政策: 章节内容', '隐私政策: 页脚'].forEach(
+      (item) => {
+        record(M, item, false, '隐私政策页导航失败（路由 /privacy 应存在，属真回归）')
+      }
+    )
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -12995,7 +14928,9 @@ async function testModule64(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container, .user-profile')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '头像上传: 个人中心页加载', hasContainer)
 
     if (hasContainer) {
@@ -13004,7 +14939,10 @@ async function testModule64(page, consoleErrors, pageErrors) {
 
       // 头像容器/触发器可见（userAvatar.vue 使用 .user-info-head 作为点击触发器）
       const avatarTrigger = page.locator('.user-info-head').first()
-      const avatarVisible = await avatarTrigger.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const avatarVisible = await avatarTrigger
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '头像上传: 头像容器可见', avatarVisible)
 
       // 点击头像打开上传对话框（直接 click，不用 clickButton，确保 Vue @click 触发）
@@ -13041,7 +14979,9 @@ async function testModule64(page, consoleErrors, pageErrors) {
               '.el-dialog:visible .cropper-container, .el-dialog:visible .vue-cropper, .el-dialog:visible .cropper-box'
             )
             .first()
-            .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '头像上传: 裁剪器渲染', cropperVisible)
 
           // 缩放按钮（userAvatar.vue 使用 el-button icon="Plus"/"Minus"，无文本，仅 aria-label）
@@ -13108,7 +15048,9 @@ async function testModule64(page, consoleErrors, pageErrors) {
           const previewVisible = await page
             .locator('.el-dialog:visible .avatar-upload-preview, .el-dialog:visible .preview')
             .first()
-            .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '头像上传: 预览区域', previewVisible)
 
           // 上传按钮
@@ -13117,7 +15059,10 @@ async function testModule64(page, consoleErrors, pageErrors) {
               '.el-dialog:visible button:has-text("上传"), .el-dialog:visible button:has-text("Upload"), .el-dialog:visible button:has-text("保存"), .el-dialog:visible button:has-text("Save")'
             )
             .first()
-          const uploadVisible = await uploadBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          const uploadVisible = await uploadBtn
+            .waitFor({ state: 'visible', timeout: 2000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '头像上传: 上传按钮', uploadVisible)
 
           // 关闭对话框
@@ -13160,13 +15105,17 @@ async function testModule65(page, consoleErrors, pageErrors) {
     const hasIframe = await page
       .locator('iframe')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     const hasContent =
       hasIframe ||
       (await page
         .locator('.app-container, .iframe-wrapper, .el-main')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false))
     record(M, 'Swagger: 页面加载', hasContent)
 
     if (hasContent) {
@@ -13264,7 +15213,9 @@ async function testModule66(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '已读用户: 通知管理页加载', hasContainer)
 
     if (hasContainer) {
@@ -13282,7 +15233,10 @@ async function testModule66(page, consoleErrors, pageErrors) {
       if (rowCount > 0) {
         // 查找"阅读用户"按钮
         const readUsersBtn = page.locator(READ_USERS_BTN_SEL).first()
-        const btnVisible = await readUsersBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const btnVisible = await readUsersBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '已读用户: 已读用户按钮', btnVisible)
 
         if (btnVisible) {
@@ -13293,7 +15247,9 @@ async function testModule66(page, consoleErrors, pageErrors) {
           const dialogOpened = await page
             .locator('.el-dialog:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 5000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '已读用户: 对话框打开', dialogOpened)
 
           if (dialogOpened) {
@@ -13309,7 +15265,10 @@ async function testModule66(page, consoleErrors, pageErrors) {
 
             // 已读用户列表表格
             const dialogTable = page.locator('.el-dialog:visible .el-table').first()
-            const tableVisible = await dialogTable.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            const tableVisible = await dialogTable
+              .waitFor({ state: 'visible', timeout: 3000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, '已读用户: 列表表格', tableVisible)
 
             if (tableVisible) {
@@ -13323,7 +15282,12 @@ async function testModule66(page, consoleErrors, pageErrors) {
                 container: '.el-dialog:visible',
                 trigger: () => clickButton(page, READ_USERS_BTN_SEL)
               })
-              record(M, '已读用户: 用户行数', ru.pass, ru.pass ? `${ru.domRows} 行（DOM=响应 ${ru.serverRows}）` : ru.why)
+              record(
+                M,
+                '已读用户: 用户行数',
+                ru.pass,
+                ru.pass ? `${ru.domRows} 行（DOM=响应 ${ru.serverRows}）` : ru.why
+              )
 
               // 表格列（用户名、昵称、阅读时间等）
               const columnCount = await page
@@ -13335,12 +15299,18 @@ async function testModule66(page, consoleErrors, pageErrors) {
 
             // 分页组件
             const pagination = page.locator('.el-dialog:visible .el-pagination').first()
-            const paginationVisible = await pagination.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const paginationVisible = await pagination
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, '已读用户: 分页组件', paginationVisible)
 
             // 关闭按钮（ReadUsers.vue 无 #footer 槽，仅有 el-dialog 默认 X 图标按钮）
             const closeBtn = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
-            const closeVisible = await closeBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+            const closeVisible = await closeBtn
+              .waitFor({ state: 'visible', timeout: 2000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, '已读用户: 关闭按钮', closeVisible)
 
             await closeDialog(page)
@@ -13412,33 +15382,53 @@ async function testModule67(browser, consoleErrors, pageErrors) {
       const hasLoginForm = await page
         .locator('.login-form, form, .login-container')
         .first()
-        .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '登录页: 表单容器', hasLoginForm)
 
       // 67.2 账号输入框
       const userInput = page
         .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
         .first()
-      const userVisible = await userInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const userVisible = await userInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '登录页: 账号输入框', userVisible)
 
       // 67.3 密码输入框
       const passInput = page.locator('input[type="password"]').first()
-      const passVisible = await passInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const passVisible = await passInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '登录页: 密码输入框', passVisible)
 
       // 67.4 验证码输入框（功能检查：未启用也算 PASS）
       const codeInput = page
         .locator('input[placeholder="验证码"], input[placeholder="Captcha"], input[placeholder="Verification Code"]')
         .first()
-      const codeVisible = await codeInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      recordSoft(M, '登录页: 验证码输入框', codeVisible, '已启用', '验证码档位为关闭（一致性由 M23 的 /captchaImage 对账断言负责）')
+      const codeVisible = await codeInput
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
+      recordSoft(
+        M,
+        '登录页: 验证码输入框',
+        codeVisible,
+        '已启用',
+        '验证码档位为关闭（一致性由 M23 的 /captchaImage 对账断言负责）'
+      )
 
       // 67.5 登录按钮
       const loginBtn = page
         .locator('button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]')
         .first()
-      const loginBtnVisible = await loginBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const loginBtnVisible = await loginBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '登录页: 登录按钮', loginBtnVisible)
 
       // 67.6 注册链接（功能检查：未开放也算 PASS）
@@ -13447,7 +15437,10 @@ async function testModule67(browser, consoleErrors, pageErrors) {
           'a:has-text("注册"), a:has-text("Register"), a:has-text("Sign Up"), router-link:has-text("注册"), router-link:has-text("Register")'
         )
         .first()
-      const registerVisible = await registerLink.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+      const registerVisible = await registerLink
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       // 两种结局都是产品预期（取决于租户是否开放注册），本项不判红也不判绿：如实记 SKIP 并把观测值写进原因，避免"两向皆 ✅"
       recordSkip(
         M,
@@ -13466,7 +15459,9 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         const hasValidationError = await page
           .locator('.el-form-item__error:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '登录页: 空表单校验', hasValidationError)
       } else {
         record(M, '登录页: 空表单校验', false, '无登录按钮')
@@ -13484,7 +15479,9 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         const errorMsg = await page
           .locator('.el-message--error:visible, .el-message-box:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         const stillOnLogin = page.url().includes('/login')
         record(
           M,
@@ -13535,7 +15532,9 @@ async function testModule68(page, consoleErrors, pageErrors) {
     const hasProfile = await page
       .locator('.app-container, .user-profile')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '密码修改: 个人中心加载', hasProfile)
 
     if (hasProfile) {
@@ -13548,7 +15547,10 @@ async function testModule68(page, consoleErrors, pageErrors) {
           '.el-tabs__item:has-text("修改密码"), .el-tabs__item:has-text("Change Password"), .el-tabs__item:has-text("Password")'
         )
         .first()
-      const tabVisible = await resetPwdTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const tabVisible = await resetPwdTab
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '密码修改: Tab 可见', tabVisible)
 
       // 确保 Tab 激活（如果 URL 参数没生效，手动点击）
@@ -13556,7 +15558,9 @@ async function testModule68(page, consoleErrors, pageErrors) {
         const isActive = await page
           .locator('.el-tabs__item.is-active:has-text("修改密码")')
           .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
         if (!isActive) {
           await resetPwdTab.click({ timeout: 3000 }).catch(() => {})
           await sleep(1500)
@@ -13571,19 +15575,28 @@ async function testModule68(page, consoleErrors, pageErrors) {
       // 68.2 旧密码输入框（第一个 password input，i18n 无关定位）
       // 中文 placeholder="旧密码"，英文 placeholder="Old Password"
       const oldPwdInput = page.locator('.el-tab-pane:not([style*="display: none"]) input[type="password"]').nth(0)
-      const oldPwdVisible = await oldPwdInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const oldPwdVisible = await oldPwdInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '密码修改: 旧密码输入框', oldPwdVisible)
 
       // 68.3 新密码输入框（第二个 password input，i18n 无关定位）
       // 中文 placeholder="请输入新密码"，英文 placeholder="Enter new password"
       const newPwdInput = page.locator('.el-tab-pane:not([style*="display: none"]) input[type="password"]').nth(1)
-      const newPwdVisible = await newPwdInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const newPwdVisible = await newPwdInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '密码修改: 新密码输入框', newPwdVisible)
 
       // 68.4 确认密码输入框（第三个 password input，i18n 无关定位）
       // 中文 placeholder="确认密码"，英文 placeholder="Confirm Password"
       const confirmPwdInput = page.locator('.el-tab-pane:not([style*="display: none"]) input[type="password"]').nth(2)
-      const confirmPwdVisible = await confirmPwdInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const confirmPwdVisible = await confirmPwdInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '密码修改: 确认密码输入框', confirmPwdVisible)
 
       // 68.5 保存按钮（限定在可见 Tab pane 中，避免匹配到基本资料 Tab 的保存按钮）
@@ -13592,7 +15605,10 @@ async function testModule68(page, consoleErrors, pageErrors) {
           '.el-tab-pane:not([style*="display: none"]) button:has-text("保 存"), .el-tab-pane:not([style*="display: none"]) button:has-text("保存"), .el-tab-pane:not([style*="display: none"]) button:has-text("Save")'
         )
         .first()
-      const saveBtnVisible = await saveBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const saveBtnVisible = await saveBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '密码修改: 保存按钮', saveBtnVisible)
 
       // 68.6 不一致密码校验
@@ -13606,7 +15622,9 @@ async function testModule68(page, consoleErrors, pageErrors) {
         const hasError = await page
           .locator('.el-form-item__error:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '密码修改: 不一致校验', hasError, hasError ? '提示两次密码不一致' : '未触发校验')
       } else {
         record(M, '密码修改: 不一致校验', false, '缺少密码输入框')
@@ -13675,7 +15693,9 @@ async function testModule69(page, consoleErrors, pageErrors) {
     const hasProfile = await page
       .locator('.app-container, .user-profile')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '基本资料: 个人中心加载', hasProfile)
 
     if (hasProfile) {
@@ -13684,7 +15704,10 @@ async function testModule69(page, consoleErrors, pageErrors) {
 
       // 69.1 验证基本资料 Tab 可见（URL 参数 userinfo 已激活该 Tab）
       const infoTab = page.locator('.el-tabs__item:has-text("基本资料"), .el-tabs__item:has-text("Basic Info")').first()
-      const tabVisible = await infoTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const tabVisible = await infoTab
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: Tab 可见', tabVisible)
 
       // 确保 Tab 激活
@@ -13692,7 +15715,9 @@ async function testModule69(page, consoleErrors, pageErrors) {
         const isActive = await page
           .locator('.el-tabs__item.is-active:has-text("基本资料")')
           .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 1000 })
+          .then(() => true)
+          .catch(() => false)
         if (!isActive) {
           await infoTab.click({ timeout: 3000 }).catch(() => {})
           await sleep(1500)
@@ -13708,7 +15733,10 @@ async function testModule69(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("用户昵称")) input, .el-form-item:has(.el-form-item__label:has-text("Nick")) input'
         )
         .first()
-      const nickVisible = await nickInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const nickVisible = await nickInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: 昵称输入框', nickVisible)
 
       // 69.3 手机号输入框
@@ -13717,7 +15745,10 @@ async function testModule69(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("手机")) input, .el-form-item:has(.el-form-item__label:has-text("Phone")) input'
         )
         .first()
-      const phoneVisible = await phoneInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const phoneVisible = await phoneInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: 手机号输入框', phoneVisible)
 
       // 69.4 邮箱输入框
@@ -13726,12 +15757,18 @@ async function testModule69(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("邮箱")) input, .el-form-item:has(.el-form-item__label:has-text("Email")) input'
         )
         .first()
-      const emailVisible = await emailInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const emailVisible = await emailInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: 邮箱输入框', emailVisible)
 
       // 69.5 保存按钮（中英文文本）
       const saveBtn = page.locator('button:has-text("保 存"), button:has-text("保存"), button:has-text("Save")').first()
-      const saveBtnVisible = await saveBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const saveBtnVisible = await saveBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: 保存按钮', saveBtnVisible)
 
       // 69.6 邮箱格式校验
@@ -13743,7 +15780,9 @@ async function testModule69(page, consoleErrors, pageErrors) {
         const hasError = await page
           .locator('.el-form-item__error:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '基本资料: 邮箱格式校验', hasError)
         // 恢复原值
         await emailInput.fill(originalEmail || '').catch(() => {})
@@ -13759,7 +15798,10 @@ async function testModule69(page, consoleErrors, pageErrors) {
           '.el-form-item:has(.el-form-item__label:has-text("性别")) .el-radio-group, .el-form-item:has(.el-form-item__label:has-text("Gender")) .el-radio-group, .el-form-item:has(.el-form-item__label:has-text("Sex")) .el-radio-group'
         )
         .first()
-      const sexVisible = await sexSelect.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+      const sexVisible = await sexSelect
+        .waitFor({ state: 'visible', timeout: 1500 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '基本资料: 性别选择', sexVisible)
 
       // 69.8 表单提交（保持原值，仅验证提交流程）
@@ -13771,7 +15813,9 @@ async function testModule69(page, consoleErrors, pageErrors) {
         const successMsg = await page
           .locator('.el-message--success:visible')
           .first()
-          .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '基本资料: 提交成功提示', successMsg, successMsg ? '已显示成功消息' : '无成功提示')
       } else {
         record(M, '基本资料: 提交成功提示', false, '缺少必要元素')
@@ -13835,9 +15879,13 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
   record(M, '用户详情: 获取用户 ID', !!userId && !!expectUserName, `userId=${userId} userName=${expectUserName}`)
 
   if (!userId) {
-    ;['用户详情: 页面加载', '用户详情: 信息卡片', '用户详情: 描述列表', '用户详情: 字段与接口一致', '用户详情: 关闭抽屉'].forEach(
-      (item) => record(M, item, false, '前置：取不到用户 ID')
-    )
+    ;[
+      '用户详情: 页面加载',
+      '用户详情: 信息卡片',
+      '用户详情: 描述列表',
+      '用户详情: 字段与接口一致',
+      '用户详情: 关闭抽屉'
+    ].forEach((item) => record(M, item, false, '前置：取不到用户 ID'))
   } else if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     const detailWatch = { requested: false, status: 0, bodyUserName: '' }
     // 只认详情请求 `GET /system/user/{数字}`——用 \d 把 `/system/user/list?` 排除，
@@ -13897,7 +15945,12 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
       drawerVisible && detailWatch.requested && detailWatch.status < 400,
       `抽屉可见=${drawerVisible} 详情接口=${detailWatch.requested}/${detailWatch.status}`
     )
-    record(M, '用户详情: 信息卡片', !!drawer && drawer.sections >= 2, `分区标题=${drawer ? drawer.sections : -1} 个（基本信息/其他信息）`)
+    record(
+      M,
+      '用户详情: 信息卡片',
+      !!drawer && drawer.sections >= 2,
+      `分区标题=${drawer ? drawer.sections : -1} 个（基本信息/其他信息）`
+    )
     record(
       M,
       '用户详情: 描述列表',
@@ -13907,7 +15960,10 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
     record(
       M,
       '用户详情: 字段与接口一致',
-      !!drawer && !!detailWatch.bodyUserName && drawer.account === detailWatch.bodyUserName && drawer.account === expectUserName,
+      !!drawer &&
+        !!detailWatch.bodyUserName &&
+        drawer.account === detailWatch.bodyUserName &&
+        drawer.account === expectUserName,
       `接口 userName=${JSON.stringify(detailWatch.bodyUserName)} 抽屉登录账号=${JSON.stringify(drawer ? drawer.account : '')} 列表首行=${JSON.stringify(expectUserName)}`
     )
     let closed = false
@@ -13944,9 +16000,13 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
         : `有可见关闭按钮=${hasCloseBtn}，点它后 3s 内抽屉未隐藏（before-close 卡住或点了隐藏实例）`
     )
   } else {
-    ;['用户详情: 页面加载', '用户详情: 信息卡片', '用户详情: 描述列表', '用户详情: 字段与接口一致', '用户详情: 关闭抽屉'].forEach(
-      (item) => record(M, item, false, '用户列表页打不开')
-    )
+    ;[
+      '用户详情: 页面加载',
+      '用户详情: 信息卡片',
+      '用户详情: 描述列表',
+      '用户详情: 字段与接口一致',
+      '用户详情: 关闭抽屉'
+    ].forEach((item) => record(M, item, false, '用户列表页打不开'))
   }
 
   // 70.6-70.10 字典数据页（真实路由 /system/dict-data/index/:dictId）
@@ -13968,7 +16028,13 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
   }
   record(M, '字典详情: 获取字典 ID', !!dictId && !!expectDictType, `dictId=${dictId} dictType=${expectDictType}`)
 
-  const DICT_ITEMS = ['字典详情: 页面加载', '字典详情: 查询表单', '字典详情: 数据表格', '字典详情: 数据行数', '字典详情: 字典类型回显']
+  const DICT_ITEMS = [
+    '字典详情: 页面加载',
+    '字典详情: 查询表单',
+    '字典详情: 数据表格',
+    '字典详情: 数据行数',
+    '字典详情: 字典类型回显'
+  ]
   if (!dictId) {
     DICT_ITEMS.forEach((item) => record(M, item, false, '前置：取不到字典 ID'))
   } else {
@@ -13994,7 +16060,12 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
       // minRows=1：机械取证 sys_dict_data 共 46 行、每个种子字典类型 ≥2 行，
       // 首个类型 sys_user_sex 有 3 行 ⇒ "打开某个字典的数据页却是空的"是真实缺陷
       const dd = await verifyListLoaded(page, { listHint: /\/system\/dict\/data\/list(\?|$)/, minRows: 1 })
-      record(M, '字典详情: 数据行数', dd.pass, dd.pass ? `${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why)
+      record(
+        M,
+        '字典详情: 数据行数',
+        dd.pass,
+        dd.pass ? `${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why
+      )
 
       // 「打开哪个字典就查哪个字典」是这条路由唯一的核心契约，两条都必须对上：
       //   ① 请求参数 dictType == 进页时那个类型的 dictType；
@@ -14038,11 +16109,15 @@ async function testModule71(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 操作日志/任务详情对话框测试 ===`)
 
   // 71.1 操作日志详情对话框（菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog）
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2500, allowFail: true })) {
+  if (
+    await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2500, allowFail: true })
+  ) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '操作日志: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -14051,7 +16126,12 @@ async function testModule71(page, consoleErrors, pageErrors) {
 
       // 操作日志列表（sys_oper_log 实测 8 万余行 ⇒ minRows=1；旧 `>= 0` 恒真）
       const ol = await verifyListLoaded(page, { listHint: /\/monitor\/operlog\/list(\?|$)/, minRows: 1 })
-      record(M, '操作日志: 列表行数', ol.pass, ol.pass ? `${ol.domRows} 行（DOM=响应 ${ol.serverRows}，total=${ol.total}）` : ol.why)
+      record(
+        M,
+        '操作日志: 列表行数',
+        ol.pass,
+        ol.pass ? `${ol.domRows} 行（DOM=响应 ${ol.serverRows}，total=${ol.total}）` : ol.why
+      )
       const rowCount = ol.domRows
 
       // 71.2 详情按钮（中文"详细"，英文"Detail"）
@@ -14061,7 +16141,10 @@ async function testModule71(page, consoleErrors, pageErrors) {
             '.el-table__row button:has-text("详细"), .el-table__row button:has-text("Detail"), .el-table__row .el-button:has(.el-icon-view)'
           )
           .first()
-        const btnVisible = await detailBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const btnVisible = await detailBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '操作日志: 详情按钮', btnVisible)
 
         if (btnVisible) {
@@ -14075,7 +16158,9 @@ async function testModule71(page, consoleErrors, pageErrors) {
           const dialogOpened = await page
             .locator('.el-dialog:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 5000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '操作日志: 详情对话框', dialogOpened)
 
           if (dialogOpened) {
@@ -14095,7 +16180,9 @@ async function testModule71(page, consoleErrors, pageErrors) {
                 '.el-dialog:visible .detail-wrap, .el-dialog:visible .detail-item, .el-dialog:visible .el-descriptions'
               )
               .first()
-              .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+              .waitFor({ state: 'visible', timeout: 3000 })
+              .then(() => true)
+              .catch(() => false)
             record(M, '操作日志: 描述列表', hasDesc)
 
             await closeDialog(page)
@@ -14133,7 +16220,10 @@ async function testModule71(page, consoleErrors, pageErrors) {
   // 任务详情对话框本身已由 M21.4 在 /monitor/job 行内真实链路上验证。
   const JOB_LOG_ITEMS = ['任务详情: 页面加载', '任务详情: 基本信息区', '任务详情: 日志表格', '任务详情: 日志详情对话框']
   {
-    const logGoto = await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job-log/index/1`, { moduleName: M, waitMs: 2500 })
+    const logGoto = await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job-log/index/1`, {
+      moduleName: M,
+      waitMs: 2500
+    })
     if (!logGoto) {
       JOB_LOG_ITEMS.forEach((item) => record(M, item, false, '调度日志页打不开'))
     } else {
@@ -14147,10 +16237,17 @@ async function testModule71(page, consoleErrors, pageErrors) {
         .waitFor({ state: 'visible', timeout: 3000 })
         .then(() => true)
         .catch(() => false)
-      record(M, '任务详情: 日志表格', hasTable && jl.pass, hasTable ? `${jl.domRows} 行（DOM=响应 ${jl.serverRows}，total=${jl.total}）` : '无表格')
+      record(
+        M,
+        '任务详情: 日志表格',
+        hasTable && jl.pass,
+        hasTable ? `${jl.domRows} 行（DOM=响应 ${jl.serverRows}，total=${jl.total}）` : '无表格'
+      )
 
       // 行内「详细」→ <job-detail type="log"> 对话框：必须真的打开并带出该行的调用信息
-      const detailBtn = page.locator('.el-table__row button:has-text("详细"), .el-table__row button:has-text("Detail")').first()
+      const detailBtn = page
+        .locator('.el-table__row button:has-text("详细"), .el-table__row button:has-text("Detail")')
+        .first()
       const btnOk = await detailBtn
         .click({ timeout: 3000 })
         .then(() => true)
@@ -14189,7 +16286,9 @@ async function testModule72(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.left-board, .center-board, .container')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '表单构建: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -14200,21 +16299,27 @@ async function testModule72(page, consoleErrors, pageErrors) {
       const hasLeftPanel = await page
         .locator('.components-list, .left-board, .left-panel')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 左侧组件区', hasLeftPanel)
 
       // 72.2 中间画布区
       const hasCenter = await page
         .locator('.center-board, .form-area, .drawing-board')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 中间画布区', hasCenter)
 
       // 72.3 右侧属性面板（RightPanel.vue）
       const hasRightPanel = await page
         .locator('.right-board, .right-panel, .el-aside')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 右侧属性面板', hasRightPanel)
 
       // 72.4 拖拽组件项（DraggableItem.vue）
@@ -14250,7 +16355,9 @@ async function testModule72(page, consoleErrors, pageErrors) {
           const hasPropPanel = await page
             .locator('.prop-panel, .el-form-item__label, .form-conf')
             .first()
-            .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '表单构建: 属性面板显示', hasPropPanel)
         } else {
           record(M, '表单构建: 属性面板显示', false, '画布无项')
@@ -14273,14 +16380,20 @@ async function testModule72(page, consoleErrors, pageErrors) {
           'button:has-text("导出vue"), button:has-text("导出 vue"), button:has-text("Export Vue"), button:has-text("Export")'
         )
         .first()
-      const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const exportVisible = await exportBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 导出按钮', exportVisible)
 
       // 72.9 清空按钮（中英文文本）
       const clearBtn = page
         .locator('button:has-text("清 空"), button:has-text("清空"), button:has-text("Clear")')
         .first()
-      const clearVisible = await clearBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const clearVisible = await clearBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '表单构建: 清空按钮', clearVisible)
 
       checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -14324,7 +16437,9 @@ async function testModule73(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '代码生成: 列表页加载', hasContainer)
 
     if (hasContainer) {
@@ -14333,7 +16448,12 @@ async function testModule73(page, consoleErrors, pageErrors) {
 
       // 73.2 表格行数（ensureGenTableImported 已保证 ≥1 张表 ⇒ minRows=1；旧 `>= 0` 恒真）
       const gl = await verifyListLoaded(page, { listHint: /\/tool\/gen\/list(\?|$)/, minRows: 1 })
-      record(M, '代码生成: 表格行数', gl.pass, gl.pass ? `${gl.domRows} 行（DOM=响应 ${gl.serverRows}，total=${gl.total}）` : gl.why)
+      record(
+        M,
+        '代码生成: 表格行数',
+        gl.pass,
+        gl.pass ? `${gl.domRows} 行（DOM=响应 ${gl.serverRows}，total=${gl.total}）` : gl.why
+      )
       const rowCount = gl.domRows
 
       // 73.3 编辑按钮（编辑按钮 aria-label 为"修改"，仅含图标）
@@ -14343,7 +16463,10 @@ async function testModule73(page, consoleErrors, pageErrors) {
             '.el-table__row button[aria-label="修改"], .el-table__row button[aria-label*="Edit"], .el-table__row button[aria-label*="编辑"], .el-table__row .el-button:has(.el-icon-edit), .el-table__row .el-button .el-icon-edit'
           )
           .first()
-        const editVisible = await editBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        const editVisible = await editBtn
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
         record(M, '代码生成: 编辑按钮', editVisible)
 
         // 尝试获取 tableId 并直接导航到编辑页（路由 /tool/gen-edit/index/:tableId）
@@ -14354,7 +16477,9 @@ async function testModule73(page, consoleErrors, pageErrors) {
           editLoaded = await page
             .locator('.el-tabs, .edit-table, .app-container')
             .first()
-            .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 5000 })
+            .then(() => true)
+            .catch(() => false)
         }
 
         // 如果点击编辑按钮未跳转，尝试通过 API 获取 tableId 直接导航
@@ -14383,7 +16508,9 @@ async function testModule73(page, consoleErrors, pageErrors) {
             editLoaded = await page
               .locator('.el-tabs, .edit-table, .app-container')
               .first()
-              .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+              .waitFor({ state: 'visible', timeout: 5000 })
+              .then(() => true)
+              .catch(() => false)
           }
         }
         record(M, '代码生成: 编辑页加载', editLoaded)
@@ -14395,14 +16522,21 @@ async function testModule73(page, consoleErrors, pageErrors) {
               '.el-tabs__item:has-text("基本信息"), .el-tabs__item:has-text("Basic Info"), [role="tab"]:has-text("基本信息"), [role="tab"]:has-text("Basic Info")'
             )
             .first()
-          if (await basicTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
+          if (
+            await basicTab
+              .waitFor({ state: 'visible', timeout: 3000 })
+              .then(() => true)
+              .catch(() => false)
+          ) {
             await basicTab.click({ timeout: 3000 }).catch(() => {})
             await sleep(800)
           }
           const hasBasicForm = await page
             .locator('.el-form')
             .first()
-            .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '代码生成: 基本信息表单', hasBasicForm)
 
           // 73.6 字段信息 Tab（中英文）
@@ -14411,7 +16545,10 @@ async function testModule73(page, consoleErrors, pageErrors) {
               '.el-tabs__item:has-text("字段信息"), .el-tabs__item:has-text("Field Info"), [role="tab"]:has-text("字段信息"), [role="tab"]:has-text("Field Info")'
             )
             .first()
-          const fieldTabVisible = await fieldTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          const fieldTabVisible = await fieldTab
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '代码生成: 字段信息 Tab', fieldTabVisible)
 
           // 73.7 生成信息表单（genInfoForm.vue，Tab 文本"生成信息"，fallback 用 nth-child(3)）
@@ -14420,21 +16557,30 @@ async function testModule73(page, consoleErrors, pageErrors) {
               '.el-tabs__item:has-text("生成信息"), .el-tabs__item:has-text("Generate Info"), [role="tab"]:has-text("生成信息"), [role="tab"]:has-text("Generate Info"), .el-tabs__item:nth-child(3)'
             )
             .first()
-          const genTabVisible = await genTab.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          const genTabVisible = await genTab
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '代码生成: 生成信息表单', genTabVisible, genTabVisible ? 'Tab 可见' : '无生成信息 Tab')
 
           // 73.8 提交按钮（中英文）
           const submitBtn = page
             .locator('button:has-text("提 交"), button:has-text("提交"), button:has-text("Submit")')
             .first()
-          const submitVisible = await submitBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          const submitVisible = await submitBtn
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '代码生成: 提交按钮', submitVisible)
 
           // 73.9 返回按钮（中英文）
           const backBtn = page
             .locator('button:has-text("返 回"), button:has-text("返回"), button:has-text("Back")')
             .first()
-          const backVisible = await backBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+          const backVisible = await backBtn
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
           record(M, '代码生成: 返回按钮', backVisible)
         } else {
           ;[
@@ -14466,7 +16612,9 @@ async function testModule73(page, consoleErrors, pageErrors) {
       let importVisible = await page
         .locator('button:has-text("导 入"), button:has-text("导入"), button:has-text("Import")')
         .first()
-        .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false)
       if (!importVisible) {
         // 返回列表页
         await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen`, { moduleName: M, waitMs: 2000, allowFail: true })
@@ -14474,7 +16622,9 @@ async function testModule73(page, consoleErrors, pageErrors) {
         importVisible = await page
           .locator('button:has-text("导 入"), button:has-text("导入"), button:has-text("Import")')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+          .waitFor({ state: 'visible', timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
       }
       record(M, '代码生成: 导入表按钮', importVisible)
     }
@@ -14510,7 +16660,9 @@ async function testModule74(page, consoleErrors, pageErrors) {
     const hasLayout = await page
       .locator('.app-wrapper, .layout-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '全局交互: 主布局加载', hasLayout)
 
     if (hasLayout) {
@@ -14518,38 +16670,52 @@ async function testModule74(page, consoleErrors, pageErrors) {
       const hasSidebar = await page
         .locator('.sidebar-container, .el-aside')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 侧边栏', hasSidebar)
 
       // 74.3 顶部导航栏
       const hasNavbar = await page
         .locator('.navbar, .el-header')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 顶部导航栏', hasNavbar)
 
       // 74.4 面包屑
       const hasBreadcrumb = await page
         .locator('.breadcrumb-container, .el-breadcrumb')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 面包屑', hasBreadcrumb)
 
       // 74.5 标签页（TagsView）
       const hasTagsView = await page
         .locator('.tags-view-container, .tags-view')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 标签页视图', hasTagsView)
 
       // 74.6 用户头像下拉菜单
       const avatarDropdown = page.locator('.avatar-container, .user-info, .el-dropdown').first()
-      const avatarVisible = await avatarDropdown.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const avatarVisible = await avatarDropdown
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 用户头像下拉', avatarVisible)
 
       // 74.7 全屏按钮（Navbar 中 #screenfull 组件，内部渲染 .screenfull-icon）
       const screenBtn = page.locator('#screenfull, #screenfull .screenfull-icon, .screenfull-icon').first()
-      const screenVisible = await screenBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const screenVisible = await screenBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 全屏按钮', screenVisible)
 
       // 74.8 主题/布局设置抽屉触发（设置入口在头像下拉菜单中）
@@ -14566,14 +16732,19 @@ async function testModule74(page, consoleErrors, pageErrors) {
             '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("布局设置"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Layout Settings")'
           )
           .first()
-        settingVisible = await settingItem.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        settingVisible = await settingItem
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
         if (settingVisible) {
           await settingItem.click({ timeout: 3000 }).catch(() => {})
           await sleep(1000)
           drawerOpened = await page
             .locator('.el-drawer:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
         } else {
           // 关闭下拉菜单
           await page.keyboard.press('Escape').catch(() => {})
@@ -14594,7 +16765,10 @@ async function testModule74(page, consoleErrors, pageErrors) {
 
       // 74.9 侧边栏折叠按钮
       const collapseBtn = page.locator('.hamburger-container, .toggle-sidebar, .el-icon-fold').first()
-      const collapseVisible = await collapseBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const collapseVisible = await collapseBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '全局交互: 侧边栏折叠按钮', collapseVisible)
 
       // 74.10 侧边栏菜单项数量
@@ -14663,7 +16837,10 @@ async function testModule75(page, consoleErrors, pageErrors) {
           'button:has-text("导 出"), button:has-text("导出"), button:has-text("Export"), .el-button:has(.el-icon-download)'
         )
         .first()
-      const btnVisible = await exportBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      const btnVisible = await exportBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       // 可选页面（如通知管理）没有导出功能是合法状态 → 记 SKIP，不再记假 ✅
       if (target.optional) {
         recordSoft(M, `导出: ${target.name} 导出按钮`, btnVisible, '已启用', '该页无导出功能（可选页面，非缺陷）')
@@ -14687,7 +16864,12 @@ async function testModule75(page, consoleErrors, pageErrors) {
             '.el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定"), .el-dialog:visible button:has-text("确 定")'
           )
           .first()
-        if (await confirmBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)) {
+        if (
+          await confirmBtn
+            .waitFor({ state: 'visible', timeout: 1500 })
+            .then(() => true)
+            .catch(() => false)
+        ) {
           await confirmBtn.click({ timeout: 3000 }).catch(() => {})
         }
 
@@ -14758,10 +16940,9 @@ async function testModule76(page, consoleErrors, pageErrors) {
   try {
     const token = await getApiToken()
     if (token) {
-      const resp = await fetch(
-        `${CONFIG.backendUrl}/system/scimGroup/list?pageNum=1&pageSize=10`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      const resp = await fetch(`${CONFIG.backendUrl}/system/scimGroup/list?pageNum=1&pageSize=10`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       let listOk = false
       let rowCount = -1
       if (resp.status === 200) {
@@ -14771,12 +16952,7 @@ async function testModule76(page, consoleErrors, pageErrors) {
           rowCount = j.rows.length
         }
       }
-      record(
-        M,
-        'SCIM 组: 管理端列表 API',
-        listOk,
-        `HTTP ${resp.status}${rowCount >= 0 ? `, rows=${rowCount}` : ''}`
-      )
+      record(M, 'SCIM 组: 管理端列表 API', listOk, `HTTP ${resp.status}${rowCount >= 0 ? `, rows=${rowCount}` : ''}`)
 
       // 76.2 详情 API：不存在的 id → 404/500 均视为端点可达（真实组数据依赖 IdP 侧 SCIM 同步）
       const resp2 = await fetch(`${CONFIG.backendUrl}/system/scimGroup/999999`, {
@@ -14809,7 +16985,9 @@ async function testModule76(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, 'SCIM 组: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -14818,7 +16996,10 @@ async function testModule76(page, consoleErrors, pageErrors) {
 
       // 搜索区（组名称输入 / 映射类型下拉）
       const searchInput = page.locator('.app-container input').first()
-      const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const searchVisible = await searchInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, 'SCIM 组: 搜索区渲染', searchVisible)
 
       // 表格列头（中英双语匹配，i18n 切换容错）
@@ -14847,12 +17028,13 @@ async function testModule76(page, consoleErrors, pageErrors) {
       // 表格主体渲染（空态/数据行均通过）
       // 空数据时 el-table__body 高度为 0（isVisible 判 false 属正常），
       // 断言放宽为：body 元素存在 或 空态提示块可见，任一命中即通过
-      const bodyExists =
-        (await page.locator('.app-container .el-table__body').count()) > 0
+      const bodyExists = (await page.locator('.app-container .el-table__body').count()) > 0
       const emptyVisible = await page
         .locator('.app-container .el-table__empty-block')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         'SCIM 组: 表格主体渲染',
@@ -14889,24 +17071,14 @@ async function testModule77(page, consoleErrors, pageErrors) {
           rowCount = j.data.length
         }
       }
-      record(
-        M,
-        '租户管理: 管理端列表 API',
-        listOk,
-        `HTTP ${resp.status}${rowCount >= 0 ? `, rows=${rowCount}` : ''}`
-      )
+      record(M, '租户管理: 管理端列表 API', listOk, `HTTP ${resp.status}${rowCount >= 0 ? `, rows=${rowCount}` : ''}`)
 
       // 77.2 详情 API：平台根 100 应被拒绝（platform_protected，防误操作平台租户）
       const resp2 = await fetch(`${CONFIG.backendUrl}/system/tenant/100`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       const rootRejected = resp2.status === 400 || resp2.status === 404 || resp2.status === 500
-      record(
-        M,
-        '租户管理: 平台根 100 操作被拒',
-        rootRejected,
-        `HTTP ${resp2.status}`
-      )
+      record(M, '租户管理: 平台根 100 操作被拒', rootRejected, `HTTP ${resp2.status}`)
     } else {
       record(M, '租户管理: 管理端列表 API', false, '无 token')
       record(M, '租户管理: 平台根 100 操作被拒', false, '无 token')
@@ -14926,7 +17098,9 @@ async function testModule77(page, consoleErrors, pageErrors) {
     const hasContainer = await page
       .locator('.app-container')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '租户管理: 页面加载', hasContainer)
 
     if (hasContainer) {
@@ -14935,7 +17109,10 @@ async function testModule77(page, consoleErrors, pageErrors) {
 
       // 搜索区（租户名称输入）
       const searchInput = page.locator('.app-container input').first()
-      const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      const searchVisible = await searchInput
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '租户管理: 搜索区渲染', searchVisible)
 
       // 表格列头（中英双语匹配，i18n 切换容错）
@@ -14944,8 +17121,7 @@ async function testModule77(page, consoleErrors, pageErrors) {
         .first()
         .innerText({ timeout: 4000 })
         .catch(() => '')
-      const headerHit = (zh, en) =>
-        headerText.includes(zh) || headerText.toLowerCase().includes(en.toLowerCase())
+      const headerHit = (zh, en) => headerText.includes(zh) || headerText.toLowerCase().includes(en.toLowerCase())
       const columns = [
         ['租户 ID', 'tenantId'],
         ['租户名称', 'tenantName'],
@@ -14967,12 +17143,13 @@ async function testModule77(page, consoleErrors, pageErrors) {
       }
 
       // 表格主体渲染（空态/数据行均通过）
-      const bodyExists =
-        (await page.locator('.app-container .el-table__body').count()) > 0
+      const bodyExists = (await page.locator('.app-container .el-table__body').count()) > 0
       const emptyVisible = await page
         .locator('.app-container .el-table__empty-block')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
       record(
         M,
         '租户管理: 表格主体渲染',
@@ -14985,14 +17162,11 @@ async function testModule77(page, consoleErrors, pageErrors) {
       record(M, '租户管理: 新增按钮可见', addBtnVisible)
     }
   } else {
-    ;[
-      '租户管理: 页面加载',
-      '租户管理: 搜索区渲染',
-      '租户管理: 表格主体渲染',
-      '租户管理: 新增按钮可见'
-    ].forEach((item) => {
-      record(M, item, false, '页面不可访问')
-    })
+    ;['租户管理: 页面加载', '租户管理: 搜索区渲染', '租户管理: 表格主体渲染', '租户管理: 新增按钮可见'].forEach(
+      (item) => {
+        record(M, item, false, '页面不可访问')
+      }
+    )
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -15081,9 +17255,8 @@ async function rowCountIn(page, scope = 'page') {
         root = document.querySelector(s) || document.body
       }
       if (!root) return -1
-      return Array.from(root.querySelectorAll('.el-table__body .el-table__row')).filter(
-        (r) => r.offsetParent !== null
-      ).length
+      return Array.from(root.querySelectorAll('.el-table__body .el-table__row')).filter((r) => r.offsetParent !== null)
+        .length
     }, scope)
     .catch(() => -1)
 }
@@ -15092,7 +17265,13 @@ async function rowCountIn(page, scope = 'page') {
 async function fillSearchField(page, label, value) {
   const item = page.locator(`.app-container .el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
   const input = item.locator('input.el-input__inner').first()
-  if (!(await input.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))) return false
+  if (
+    !(await input
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false))
+  )
+    return false
   await input.click({ timeout: 2000 }).catch(() => {})
   await input.fill(value, { timeout: 3000 }).catch(() => {})
   await sleep(200)
@@ -15104,7 +17283,13 @@ async function fillDialogField(page, label, value) {
   const dialog = page.locator('.el-dialog:visible').last()
   const item = dialog.locator(`.el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
   const input = item.locator('input.el-input__inner, textarea.el-textarea__inner').first()
-  if (!(await input.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) return false
+  if (
+    !(await input
+      .waitFor({ state: 'visible', timeout: 2500 })
+      .then(() => true)
+      .catch(() => false))
+  )
+    return false
   await input.click({ timeout: 2000 }).catch(() => {})
   await input.fill(value, { timeout: 3000 }).catch(() => {})
   await sleep(200)
@@ -15116,7 +17301,13 @@ async function selectDialogOption(page, label, optionText) {
   const dialog = page.locator('.el-dialog:visible').last()
   const item = dialog.locator(`.el-form-item:has(.el-form-item__label:has-text("${label}"))`).first()
   const sel = item.locator('.el-select').first()
-  if (!(await sel.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) return false
+  if (
+    !(await sel
+      .waitFor({ state: 'visible', timeout: 2500 })
+      .then(() => true)
+      .catch(() => false))
+  )
+    return false
   await sel.click({ timeout: 3000 }).catch(() => {})
   await sleep(500)
   const opt = page
@@ -15206,7 +17397,7 @@ async function tableCellText(page, tableIndex, rowIndex, colIndex) {
         const row = rows[ri]
         if (!row) return ''
         const cells = Array.from(row.querySelectorAll('td'))
-        return ((cells[ci]?.innerText) || '').trim()
+        return (cells[ci]?.innerText || '').trim()
       },
       { ti: tableIndex, ri: rowIndex, ci: colIndex }
     )
@@ -15226,8 +17417,7 @@ async function clickTableRowIcon(page, tableIndex, ariaLabel, rowIndex = 0) {
         if (!row) return false
         const btns = Array.from(row.querySelectorAll('button'))
         const norm = (x) => (x || '').replace(/\s+/g, '')
-        const target =
-          btns.find((b) => norm(b.getAttribute('aria-label')).includes(norm(al))) || btns[btns.length - 1]
+        const target = btns.find((b) => norm(b.getAttribute('aria-label')).includes(norm(al))) || btns[btns.length - 1]
         if (!target) return false
         target.click()
         return true
@@ -15248,7 +17438,7 @@ async function tableColumnTexts(page, tableIndex, colIndex) {
         return Array.from(table.querySelectorAll('.el-table__body .el-table__row'))
           .map((r) => {
             const cells = Array.from(r.querySelectorAll('td'))
-            return ((cells[ci]?.innerText) || '').trim()
+            return (cells[ci]?.innerText || '').trim()
           })
           .filter((x) => x)
       },
@@ -15285,7 +17475,7 @@ async function findRowIndexByText(page, tableIndex, colIndex, needle) {
         if (!table) return -1
         return Array.from(table.querySelectorAll('.el-table__body .el-table__row')).findIndex((r) => {
           const cells = Array.from(r.querySelectorAll('td'))
-          return ((cells[ci]?.innerText) || '').includes(nd)
+          return (cells[ci]?.innerText || '').includes(nd)
         })
       },
       { ti: tableIndex, ci: colIndex, nd: needle }
@@ -15350,12 +17540,7 @@ async function testModule78(page, consoleErrors, pageErrors) {
     const resp = await addResp
     const toast = await waitToastText(page)
     const created = /新增成功|成功/.test(toast) && !!resp
-    record(
-      M,
-      '报表管理: 新增报表',
-      created,
-      `toast="${toast.slice(0, 30)}", HTTP ${resp ? resp.status() : 'n/a'}`
-    )
+    record(M, '报表管理: 新增报表', created, `toast="${toast.slice(0, 30)}", HTTP ${resp ? resp.status() : 'n/a'}`)
     if (!created) {
       // 新增失败则后续依赖数据的步骤无法判定，按 SKIP 处理并说明原因
       recordSkip(M, '报表管理: handlePreview 预览', `跳过（新增报表未成功，无可用数据）toast="${toast}"`)
@@ -15808,6 +17993,67 @@ async function testModule79(page, consoleErrors, pageErrors) {
     record(M, '推送记录: 页面加载', false, '页面不可访问')
   }
 
+  // 79.8 收尾：删除本次创建的活跃回调（谁创建谁清理）。
+  //
+  // 为什么必须删（b78 实测依据）：hook 的 `event_types` 为空串 = **订阅全部事件**
+  // （`entity/sys_web_hook.rs` 注释与 `integration_tests/webhook_unify.rs` 用例③ 共同钉死的口径），
+  // 而目标 URL 是不可达的 `http://1.1.1.1:81/hook`、超时 10s。留着它 ⇒ 之后每次 admin
+  // 登录都会 spawn 一次必失败的投递，`sys_web_hook_log` 持续堆积——回库取证：单个残留
+  // hook（E2E79_1792415191894）在 13:06→13:14 的 8 分钟里产出 **12 条失败投递**。
+  // `main.mjs` 的残留自清理只覆盖主套件自己的跑批，deep-e2e 单独跑没有任何收尾。
+  //
+  // 顺带补上 deep-e2e 缺失的 DELETE 链路：删除失败同样判红（残留不是"跳过"）。
+  if (hookCreated) {
+    const delRes = await page.evaluate(async (name) => {
+      const token = (document.cookie.match(/(?:^|;\s*)Admin-Token=([^;]+)/) || [])[1] || ''
+      const h = {
+        Authorization: 'Bearer ' + decodeURIComponent(token),
+        'Content-Type': 'application/json'
+      }
+      // 嵌入式走根路径；preview 走 /prod-api；dev 走 /dev-api（与模块 9 同口径）
+      const bases = ['/prod-api', '', '/dev-api']
+      let id = null
+      for (const b of bases) {
+        try {
+          const r = await fetch(
+            `${b}/monitor/webHook/list?pageNum=1&pageSize=20&hookName=${encodeURIComponent(name)}`,
+            { headers: h }
+          )
+          if (r.status === 404) continue
+          const j = await r.json().catch(() => ({}))
+          const rows = j.rows || (j.data && j.data.rows) || []
+          const hit = rows.find((x) => (x.hookName || x.hook_name) === name)
+          if (hit) {
+            id = hit.hookId ?? hit.id
+            break
+          }
+        } catch {
+          /* 试下一个 base */
+        }
+      }
+      if (id === null || id === undefined) return { ok: false, reason: '未在列表中找到本次创建的回调' }
+      for (const b of bases) {
+        try {
+          const r = await fetch(`${b}/monitor/webHook/${id}`, { method: 'DELETE', headers: h })
+          if (r.status === 404) continue
+          const j = await r.json().catch(() => ({}))
+          return { ok: r.status === 200 && (j.code === 200 || j.code === 0), status: r.status, code: j.code, id }
+        } catch {
+          /* 试下一个 base */
+        }
+      }
+      return { ok: false, reason: 'DELETE 请求未成功发出', id }
+    }, hookName)
+    record(
+      M,
+      '回调配置: 删除本次创建的回调（收尾）',
+      !!delRes.ok,
+      delRes.ok ? `id=${delRes.id}, HTTP ${delRes.status}` : `失败：${delRes.reason || `code=${delRes.code}`}`
+    )
+  } else {
+    recordSkip(M, '回调配置: 删除本次创建的回调（收尾）', '跳过（本次未创建回调）')
+  }
+
   // 豁免说明：测试推送（doTest）会真实向 example.com 出站投递，本环境无外网导致后端返回
   // 400 Bad Request 并在控制台留下资源错误。该 400 是「环境不可达」而非前端缺陷，
   // 且已在「测试推送 doTest」断言里校验了请求 URL 与结果反馈，故此处豁免 400 类控制台错误。
@@ -16098,12 +18344,7 @@ async function testModule81(page, consoleErrors, pageErrors) {
   const pAdd = await isButtonVisible(page, ['新增'])
   const pEdit = await isButtonVisible(page, ['编辑提供商', '修改'])
   const pDel = await isButtonVisible(page, ['删除'])
-  record(
-    M,
-    '登录配置: 工具栏按钮(新增/编辑/删除)',
-    pAdd && pEdit && pDel,
-    `新增=${pAdd}, 编辑=${pEdit}, 删除=${pDel}`
-  )
+  record(M, '登录配置: 工具栏按钮(新增/编辑/删除)', pAdd && pEdit && pDel, `新增=${pAdd}, 编辑=${pEdit}, 删除=${pDel}`)
 
   // 81.1 真实交互一：空表单提交，验证必填校验（确定性）
   await clearToasts(page)
@@ -16157,7 +18398,10 @@ async function testModule81(page, consoleErrors, pageErrors) {
   if (created && pRows >= 1) {
     await clearToasts(page)
     const swBtn = page.locator('.app-container .el-table__body .el-table__row .el-switch').first()
-    const swVisible = await swBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+    const swVisible = await swBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     // 前置于点击：先判定开关是否被禁用。开关语义 = 「仅切换中禁用」（toggleLoading 为
     // 当前切换行 ID，0 表示空闲）。历史缺陷（已修复）：provider/index.vue 曾写成
     // :disabled="toggleLoading !== scope.row.providerId"（初值 0）→ 所有行恒 disabled、
@@ -16284,8 +18528,7 @@ async function testModule82(page, consoleErrors, pageErrors) {
   const allowedNames = allNames.filter(isAllowed)
   const canClearNames = allowedNames.filter((n) => !CLEAR_RISKY.test(n.trim()))
   // 优先选字典/参数缓存（清除后可由后端自动重建，无副作用）
-  const preferred =
-    canClearNames.find((n) => /^dict:|^sys_config:/.test(n.trim())) || canClearNames[0] || null
+  const preferred = canClearNames.find((n) => /^dict:|^sys_config:/.test(n.trim())) || canClearNames[0] || null
   const targetName = preferred || allowedNames[0] || null
   const targetIdx = targetName ? allNames.indexOf(targetName) : -1
   if (!targetName || targetIdx < 0) {
@@ -16504,7 +18747,10 @@ async function testModule83(page, consoleErrors, pageErrors) {
   }
 
   // 83.3 真实交互二：复制链接（需剪贴板权限）
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {})
+  await page
+    .context()
+    .grantPermissions(['clipboard-read', 'clipboard-write'])
+    .catch(() => {})
   await clearToasts(page)
   await clickTableRowIcon(page, 0, '复制链接', hitRow)
   const copyToast = await waitToastText(page, 6000)
@@ -16562,9 +18808,7 @@ async function testModule84(page, consoleErrors, pageErrors) {
 
   /** 等待列表首屏数据渲染完成，避免点击排序箭头时表格尚未挂载导致请求未被捕获 */
   const waitRowsReady = async () => {
-    await page
-      .waitForSelector('.app-container .el-table__body .el-table__row', { timeout: 8000 })
-      .catch(() => {})
+    await page.waitForSelector('.app-container .el-table__body .el-table__row', { timeout: 8000 }).catch(() => {})
     await sleep(600)
   }
 
@@ -16729,7 +18973,10 @@ async function testModule84(page, consoleErrors, pageErrors) {
       .waitFor({ state: 'visible', timeout: 3000 })
       .then(() => true)
       .catch(() => false)
-    const liRows = await page.locator('.el-table:visible .el-table__row').count().catch(() => 0)
+    const liRows = await page
+      .locator('.el-table:visible .el-table__row')
+      .count()
+      .catch(() => 0)
     record(M, '登录日志: 页面加载', liTable && liRows > 0, `表格可见=${liTable} 可见行数=${liRows}`)
     const sortableCount = await page
       .evaluate(() => {
@@ -16762,7 +19009,10 @@ async function testModule84(page, consoleErrors, pageErrors) {
       .waitFor({ state: 'visible', timeout: 3000 })
       .then(() => true)
       .catch(() => false)
-    const olRows = await page.locator('.el-table:visible .el-table__row').count().catch(() => 0)
+    const olRows = await page
+      .locator('.el-table:visible .el-table__row')
+      .count()
+      .catch(() => 0)
     record(M, '操作日志: 页面加载', olTable && olRows > 0, `表格可见=${olTable} 可见行数=${olRows}`)
     const o = await sortRound('操作日期')
     await assertSort('操作日志', '操作日期', o)
@@ -16833,7 +19083,11 @@ async function testModule85(page, consoleErrors, pageErrors) {
         (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'POST',
         { timeout: 10000 }
       )
-      await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+      await page
+        .getByRole('button', { name: /保存/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       const saveResp = await saveP.catch(() => null)
       const saveBody = saveResp ? await saveResp.json().catch(() => null) : null
       v1FlowId = saveBody?.data?.flowId || null
@@ -16845,8 +19099,16 @@ async function testModule85(page, consoleErrors, pageErrors) {
         `HTTP ${saveResp ? saveResp.status() : 'n/a'}, flowId=${v1FlowId}, code=${flowCode}`
       )
       // 回列表态
-      await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
-      await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+      await page
+        .getByRole('button', { name: /返回/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
+      await page
+        .locator('.el-table')
+        .first()
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .catch(() => {})
     } else {
       record(M, '新增草稿: 保存落库（POST 200 + 回读 flowCode/flowId）', false, '编辑态未进入')
     }
@@ -16864,16 +19126,19 @@ async function testModule85(page, consoleErrors, pageErrors) {
     record(M, '草稿回显: 按编码搜索命中 1 行', rows1 === 1, `行数=${rows1}`)
     const verCol = await colIndexByLabel(page, '版本', 0)
     const verTexts = verCol >= 0 ? await tableColumnTexts(page, 0, verCol) : []
-    record(M, '草稿回显: 版本列显示 v1', verTexts.some((t) => t.trim() === 'v1'), `版本列=${verTexts.join('|')}`)
+    record(
+      M,
+      '草稿回显: 版本列显示 v1',
+      verTexts.some((t) => t.trim() === 'v1'),
+      `版本列=${verTexts.join('|')}`
+    )
     const apiRows = await apiList(flowCode)
     const draft = (apiRows || []).find((r) => r.flowId === v1FlowId) || null
     record(
       M,
       '草稿契约: API version=1 / isLatest="0" / status="0"',
       !!draft && draft.version === 1 && draft.isLatest === '0' && draft.status === '0',
-      draft
-        ? `version=${draft.version}, isLatest=${draft.isLatest}, status=${draft.status}`
-        : 'API 未查到草稿行'
+      draft ? `version=${draft.version}, isLatest=${draft.isLatest}, status=${draft.status}` : 'API 未查到草稿行'
     )
   } else if (ok) {
     recordSkip(M, '草稿回显: 按编码搜索命中 1 行', '跳过（草稿未落库，无 flowCode）')
@@ -16914,7 +19179,12 @@ async function testModule85(page, consoleErrors, pageErrors) {
         `HTTP ${pubResp ? pubResp.status() : 'n/a'}, v2FlowId=${v2FlowId}, version=${publishVersion}, toast="${toast.slice(0, 24)}", confirm="${confirmText.trim().slice(0, 30)}"`
       )
     } else {
-      record(M, '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）', false, '发布按钮未点击或确认框未出现')
+      record(
+        M,
+        '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）',
+        false,
+        '发布按钮未点击或确认框未出现'
+      )
     }
   } else if (ok) {
     recordSkip(M, '发布链: 确认框 + POST publish 200（新 flowId + version=2 + 已发布 toast）', '跳过（草稿未落库）')
@@ -16954,7 +19224,11 @@ async function testModule85(page, consoleErrors, pageErrors) {
   } else if (ok) {
     recordSkip(M, '版本列表: 双行回显（v1 历史 + v2 最新）', '跳过（发布未成功）')
     recordSkip(M, '版本列表: 版本列同时含 v1 与 v2', '跳过（发布未成功）')
-    recordSkip(M, '版本化契约: 新行 isLatest="1"/status="1"/version=2，旧行 isLatest="0"/version=1', '跳过（发布未成功）')
+    recordSkip(
+      M,
+      '版本化契约: 新行 isLatest="1"/status="1"/version=2，旧行 isLatest="0"/version=1',
+      '跳过（发布未成功）'
+    )
   }
 
   // 85.6 已发布版本不可改图：编辑 v2 行 → 改节点名称（graphJson 变化但图仍合法）→ 保存 →
@@ -16981,7 +19255,11 @@ async function testModule85(page, consoleErrors, pageErrors) {
         (r) => r.url().endsWith('/system/flow/definition') && r.request().method() === 'PUT',
         { timeout: 10000 }
       )
-      await page.getByRole('button', { name: /保存/ }).first().evaluate((el) => el.click()).catch(() => {})
+      await page
+        .getByRole('button', { name: /保存/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
       const putResp = await putP.catch(() => null)
       const toast = await waitToastText(page)
       const stillEdit = await page
@@ -16995,8 +19273,16 @@ async function testModule85(page, consoleErrors, pageErrors) {
         !!putResp && putResp.status() === 400 && /已发布版本不可修改|不可修改图定义/.test(toast) && stillEdit,
         `HTTP ${putResp ? putResp.status() : 'n/a'}, toast="${toast.slice(0, 36)}", 保持编辑=${stillEdit}`
       )
-      await page.getByRole('button', { name: /返回/ }).first().evaluate((el) => el.click()).catch(() => {})
-      await page.locator('.el-table').first().waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
+      await page
+        .getByRole('button', { name: /返回/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
+      await page
+        .locator('.el-table')
+        .first()
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .catch(() => {})
     } else {
       record(M, '不可变契约: 已发布版本改图保存 → PUT 400 + 不可修改 toast + 保持编辑态', false, '编辑态未进入')
     }
@@ -17195,7 +19481,12 @@ async function testModule86(page, consoleErrors, pageErrors) {
         subjText.includes(RENDER_NAME) && !subjText.includes('{{'),
         `主题="${subjText.slice(0, 40)}"`
       )
-      record(M, '发送记录: 状态列=成功（status 流转 0）', statusText.includes('成功'), `状态="${statusText.trim().slice(0, 12)}"`)
+      record(
+        M,
+        '发送记录: 状态列=成功（status 流转 0）',
+        statusText.includes('成功'),
+        `状态="${statusText.trim().slice(0, 12)}"`
+      )
     } else {
       recordSkip(M, '发送记录: 主题列回显渲染后文本（{{name}} 已替换）', `跳过（未命中行，行数=${rows}）`)
       recordSkip(M, '发送记录: 状态列=成功（status 流转 0）', `跳过（未命中行，行数=${rows}）`)
@@ -17368,7 +19659,9 @@ const testFns = {
 const state = {
   results,
   getPassCount: () => passCount,
-  getFailCount: () => failCount
+  getFailCount: () => failCount,
+  // 收窄豁免后仍被放行的头像空 src 噪声条数（runner 汇总里报数，不再静默）
+  getAvatarImgNoise: () => avatarImgNoiseCount
 }
 
 const helpers = { log, ensureDir, login, createPage, getApiToken, record, setHub, createCaptureHub }
@@ -17409,10 +19702,48 @@ try {
   }
 }
 
-runMain({ testFns, config: CONFIG, helpers, state })
-  .then((exitCode) => process.exit(exitCode))
-  .catch((err) => {
+/**
+ * 运行库路径（与 main.mjs 的 e2eDbPath 同口径：E2E_DB_PATH 覆盖 → 默认本仓后端库）。
+ * 残留自清理要用它，所以 deep-e2e 也必须能自己解析，不能依赖 main.mjs。
+ */
+function e2eDbPath() {
+  const custom = process.env.E2E_DB_PATH
+  if (custom && custom.trim()) return path.resolve(custom.trim())
+  return path.resolve(__dirname, '../../../stepby-axum/data/stepby.db')
+}
+
+/**
+ * 收尾：清掉本套件产生的软删测试实体（b78 新增）。
+ *
+ * 此前 deep-e2e **完全没有收尾**——86 个模块造的 dept/post/role/hook/oauth/report/flow
+ * 数据只能等下一次 main.mjs 跑批顺带扫掉。单独跑 deep-e2e（定向复验、分段跑）时，
+ * 残留就一直留在库里；实测代价：一个遗留的活跃 webhook（event_types 空串=订阅全部）
+ * 在 8 分钟里产出 12 条失败投递，因为每次登录都触发一次指向不可达地址的出站投递。
+ *
+ * 清理清单与 main.mjs 共用 `residue-cleanup.mjs`（一份清单，两处调用）。
+ */
+async function cleanupResidue() {
+  if (process.env.E2E_SKIP_CLEANUP === '1') return
+  try {
+    const { cleanupE2eResidue } = await import('./residue-cleanup.mjs')
+    await cleanupE2eResidue({ dbPath: e2eDbPath(), log })
+  } catch (e) {
+    log(`  残留自清理失败（不影响测试结果）: ${String(e).slice(0, 120)}`)
+  }
+}
+
+async function runWithResidueCleanup() {
+  let code = 1
+  try {
+    code = await runMain({ testFns, config: CONFIG, helpers, state })
+  } catch (err) {
     log(`❌ 致命错误: ${err.message}`)
     console.error(err)
-    process.exit(1)
-  })
+    code = 1
+  }
+  // 无论成败都清：失败轮次往往留下更多半成品数据
+  await cleanupResidue()
+  return code
+}
+
+runWithResidueCleanup().then((exitCode) => process.exit(exitCode))

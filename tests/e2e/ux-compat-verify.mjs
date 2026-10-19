@@ -4,11 +4,15 @@
 // ③ 无横向溢出 ④ 页面渲染正常
 import { createRequire } from 'module'
 import { mkdirSync, writeFileSync } from 'fs'
+import { join } from 'node:path'
 import { TEST_USER, TEST_PASS, UI_URL } from './test-config.mjs'
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 
-const SHOT_DIR = 'D:/Projects/stepby/.ux-responsive-screens/compat'
+// 产物目录按脚本位置反推（stepby-vue/tests/e2e → 仓根），不再写死 D:/Projects/stepby：
+// 换盘/换机器后写死路径要么静默写到别处，要么 mkdir 到不存在的父目录。
+const REPO_ROOT = join(import.meta.dirname, '..', '..', '..')
+const SHOT_DIR = process.env.UX_SHOT_DIR || join(REPO_ROOT, '.ux-responsive-screens', 'compat')
 mkdirSync(SHOT_DIR, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const report = []

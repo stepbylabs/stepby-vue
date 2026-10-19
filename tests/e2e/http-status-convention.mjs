@@ -24,7 +24,7 @@
  * ── 运行 ──
  *   后端（embedded :8080）+ 前端 preview 需在跑；`sys.account.captchaEnabled=false` 时无需读验证码。
  *   legacy 档：
- *     PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
+ *     # 浏览器目录走默认缓存（写死目录会在 playwright 版本变化后报 Executable doesn't exist）
  *     STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
  *     STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *     EXPECT_CONVENTION=legacy node http-status-convention.mjs
@@ -59,14 +59,11 @@ const TOTP_CODE_REQUIRED = 1003
 const CS_PASSWORD = 'Stepby@12345'
 const CS_USER = `e2e_hsc_${Date.now().toString(36)}`
 
-const USERNAME_SEL =
-  'input[placeholder="账号"], input[placeholder="Username"], input[name="username"]'
-const PASSWORD_SEL =
-  'input[placeholder="密码"], input[placeholder="Password"], input[type="password"]'
+const USERNAME_SEL = 'input[placeholder="账号"], input[placeholder="Username"], input[name="username"]'
+const PASSWORD_SEL = 'input[placeholder="密码"], input[placeholder="Password"], input[type="password"]'
 const LOGIN_BTN_SEL =
   'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]'
-const TOTP_INPUT_SEL =
-  'input[placeholder="动态验证码（6 位）"], input[placeholder="TOTP code (6 digits)"]'
+const TOTP_INPUT_SEL = 'input[placeholder="动态验证码（6 位）"], input[placeholder="TOTP code (6 digits)"]'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = (m) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${m}`)
@@ -105,11 +102,7 @@ function generateTotp(secretBase32) {
   const hmac = crypto.createHmac('sha1', key).update(buf).digest()
   const offset = hmac[hmac.length - 1] & 0xf
   const code =
-    (((hmac[offset] & 0x7f) << 24) |
-      (hmac[offset + 1] << 16) |
-      (hmac[offset + 2] << 8) |
-      hmac[offset + 3]) %
-    1000000
+    (((hmac[offset] & 0x7f) << 24) | (hmac[offset + 1] << 16) | (hmac[offset + 2] << 8) | hmac[offset + 3]) % 1000000
   return code.toString().padStart(6, '0')
 }
 
@@ -306,7 +299,11 @@ async function main() {
     await sleep(1500)
 
     check('S1 错误密码后仍停留 /login', page.url().includes('/login'), `url=${page.url()}`)
-    const errToast = await page.locator('.el-message--error').first().innerText().catch(() => '')
+    const errToast = await page
+      .locator('.el-message--error')
+      .first()
+      .innerText()
+      .catch(() => '')
     check(
       'S1 错误密码展示错误 Toast（两档一致）',
       errToast.includes('用户名或密码错误'),
@@ -345,7 +342,11 @@ async function main() {
       .first()
       .innerText({ timeout: 3000 })
       .catch(() => '')
-    check('S2 进入验证码步骤时不得弹错误 Toast', !toast1003.includes('用户名或密码错误'), `toast=${JSON.stringify(toast1003.slice(0, 60))}`)
+    check(
+      'S2 进入验证码步骤时不得弹错误 Toast',
+      !toast1003.includes('用户名或密码错误'),
+      `toast=${JSON.stringify(toast1003.slice(0, 60))}`
+    )
 
     const respStatus = loginResp ? loginResp.status() : 0
     let respCode = null
@@ -383,27 +384,21 @@ async function main() {
       secondCode = sb?.code ?? null
       secondMsg = sb?.msg ?? null
     }
-    check(
-      'S2 补正确动态码 ⇒ 后端业务码 200',
-      secondCode === 200,
-      `code=${secondCode}, msg=${secondMsg || ''}`
-    )
-    await page
-      .waitForURL((u) => !u.toString().includes('/login'), { timeout: 20000 })
-      .catch(() => {})
+    check('S2 补正确动态码 ⇒ 后端业务码 200', secondCode === 200, `code=${secondCode}, msg=${secondMsg || ''}`)
+    await page.waitForURL((u) => !u.toString().includes('/login'), { timeout: 20000 }).catch(() => {})
     await sleep(1200)
-    check(
-      'S2 补正确动态码 ⇒ 浏览器进入系统（两档都必须）',
-      !page.url().includes('/login'),
-      `落地 URL=${page.url()}`
-    )
+    check('S2 补正确动态码 ⇒ 浏览器进入系统（两档都必须）', !page.url().includes('/login'), `落地 URL=${page.url()}`)
 
     await context.close().catch(() => {})
 
     // ==================== S3：清理 ====================
     log('--- S3：清理一次性用户（先解绑 TOTP，再硬删） ---')
     const cleanup = await cleanupCsUser()
-    check('S3 解绑 TOTP（清 Redis totp:enabled，避免 rowid 复用污染）', cleanup.disabled, `disabled=${cleanup.disabled}`)
+    check(
+      'S3 解绑 TOTP（清 Redis totp:enabled，避免 rowid 复用污染）',
+      cleanup.disabled,
+      `disabled=${cleanup.disabled}`
+    )
     check('S3 硬删一次性用户', cleanup.deleted, `deleted=${cleanup.deleted}`)
     const after = await api(`/system/user/list?userName=${encodeURIComponent(CS_USER)}`, {
       token: adminToken

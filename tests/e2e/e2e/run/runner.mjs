@@ -24,6 +24,7 @@
 import fs from 'fs'
 import path from 'path'
 import { createRequire } from 'module'
+import { fileURLToPath } from 'node:url'
 import { summarizeBackendLogErrors } from '../../capture-kit.mjs'
 
 let chromium
@@ -41,8 +42,12 @@ try {
 const TOKEN_MODULES = new Set([7, 12, 14, 21, 26, 28, 31, 32, 70])
 
 /** SKIP 棘轮基线文件（与套件同目录，提交进仓；只允许下降） */
+// 必须用 fileURLToPath 把 `file:///…` 转成真实路径：此前直接 `path.dirname(import.meta.url)`
+// 在 Windows 上产出 `…\tests\e2e\file:\D:\…\deep-e2e-skip-baseline.json`，`existsSync` 恒 false
+// ⇒ 每次都走"基线缺失，本轮不强制"分支，棘轮从 b74 起**从未真正生效**（b78 全量跑批实证：
+// 41 SKIP 低于 48 基线却只打印"缺失"）。判据"没跑"与"跑了且干净"必须可区分。
 const SKIP_BASELINE_PATH = path.resolve(
-  path.dirname(decodeURIComponent(import.meta.url)),
+  path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'deep-e2e-skip-baseline.json'
@@ -213,9 +218,7 @@ export async function runMain({ testFns, config, helpers, state }) {
         error: errored
       }
       moduleStats.push(stat)
-      log(
-        `────── 模块 ${id} 结束：✅ ${stat.pass} / ❌ ${stat.fail}${stat.error ? '（含执行异常）' : ''} ──────`
-      )
+      log(`────── 模块 ${id} 结束：✅ ${stat.pass} / ❌ ${stat.fail}${stat.error ? '（含执行异常）' : ''} ──────`)
     }
   } finally {
     await browser.close().catch(() => {})
@@ -259,8 +262,7 @@ export async function runMain({ testFns, config, helpers, state }) {
   const TOOL_BROKEN_RE = /探针自身异常|导航自身异常|断言工具异常|evaluate 失败|工具异常|harness/
   const toolBroken = skipRows.filter((r) => TOOL_BROKEN_RE.test(String(r.detail || '')))
   const businessSkip = skipRows.length - toolBroken.length
-  const isFullRun =
-    !config.featureFilter && !config.featureRange && !(config.except && config.except.length > 0)
+  const isFullRun = !config.featureFilter && !config.featureRange && !(config.except && config.except.length > 0)
   log(
     `SKIP 分桶: 业务跳过 ${businessSkip} / 工具自曝 ${toolBroken.length}` +
       `${isFullRun ? '' : '（分段跑，棘轮不强制）'}`
@@ -276,13 +278,25 @@ export async function runMain({ testFns, config, helpers, state }) {
   if (isFullRun) {
     const baseline = readSkipBaseline()
     if (baseline === null) {
-      log('⚠ SKIP 棘轮基线文件缺失，本轮不强制（生成：--update-skip-baseline）')
+      // 基线缺失 = 棘轮**没有跑**，不能记成"通过"（b78 前此处只打 ⚠ 不判红，
+      // 而路径 bug 让它恒缺 ⇒ 棘轮静默空转了一整批）。唯一例外：本次就是来生成基线的。
+      if (config.updateSkipBaseline) {
+        log('ℹ SKIP 棘轮基线缺失，本轮按 --update-skip-baseline 生成')
+      } else {
+        skipRatchetBroken = true
+        log(
+          `❌ SKIP 棘轮基线缺失/不可读（${SKIP_BASELINE_PATH}）——判据没有跑，` +
+            `不得记为通过；生成：node tests/e2e/deep-e2e.mjs --update-skip-baseline`
+        )
+      }
     } else if (skipRows.length > baseline) {
       skipRatchetBroken = true
       log(`❌ SKIP 棘轮回退：本轮 ${skipRows.length} > 基线 ${baseline}（只许降不许升）`)
     } else if (skipRows.length < baseline) {
-      log(`✅ SKIP 低于基线（${skipRows.length} < ${baseline}）——请 ` +
-        `node tests/e2e/deep-e2e.mjs --update-skip-baseline 收紧基线`)
+      log(
+        `✅ SKIP 低于基线（${skipRows.length} < ${baseline}）——请 ` +
+          `node tests/e2e/deep-e2e.mjs --update-skip-baseline 收紧基线`
+      )
     }
   }
 
@@ -369,13 +383,21 @@ export async function runMain({ testFns, config, helpers, state }) {
       JSON.stringify({ generatedAt: new Date().toISOString(), rows: reqStats }, null, 2),
       'utf-8'
     )
-    const top = reqStats.slice(0, 8).map((r) => `[${r.tag}] ${r.key} ×${r.count}`).join('\n')
+    const top = reqStats
+      .slice(0, 8)
+      .map((r) => `[${r.tag}] ${r.key} ×${r.count}`)
+      .join('\n')
     log(`每动作请求数分布已落盘（共 ${reqStats.length} 类，Top8:\n${top}\n）: ${reqPath}`)
   } catch (e) {
     log(`⚠ 请求数分布写盘失败（不影响退出码）: ${e.message}`)
   }
 
   log(`被吞掉的异常种类: ${swallowedLines.length}`)
+  // 被"收窄后仍放行"的噪声也要报数：放行不等于消失（b78 收窄了 IMG 全量豁免）
+  if (typeof state.getAvatarImgNoise === 'function') {
+    const n = state.getAvatarImgNoise()
+    if (n > 0) log(`已放行的头像空 src 噪声: ${n} 条（IMG→/user/profile，见 deep-e2e.mjs 头部说明）`)
+  }
   for (const s of swallowedLines.slice(0, 20)) log(s)
   try {
     const backend = summarizeBackendLogErrors({ sinceMs: roundStartMs })

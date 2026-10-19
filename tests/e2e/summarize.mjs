@@ -16,7 +16,8 @@ console.log(`总计: ${r.total}  通过: ${r.passed}  失败: ${r.failed}`)
 console.log(
   `pageerror: ${len(r.pageErrors)}  console: ${len(r.consoleErrors)}  ` +
     `network: ${len(r.networkErrors)}  Toast: ${len(r.suspiciousToasts)}/${len(r.toastTotal)}  ` +
-    `hub 未分类 console error: ${r.hubConsoleErrors?.unclassified ?? '—'}`
+    `hub 未分类 console error: ${r.hubConsoleErrors?.unclassified ?? '—'}（另有资源状态码 ` +
+    `${r.hubConsoleErrors?.resourceStatus ?? '—'} 条，已由 network 通道对账）`
 )
 console.log(`来源: ${file}`)
 console.log('---')

@@ -14,7 +14,7 @@
  * （若本地化被移除即变红）。
  *
  * ── 运行（后端 embedded :8080 在跑；`sys.account.captchaEnabled=false` 时无需读验证码）──
- *   PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
+ *   # 浏览器目录走默认缓存（写死目录会在 playwright 版本变化后报 Executable doesn't exist）
  *   STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
  *   STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
  *   node editor-a11y.mjs      # 期望「总计 N 通过，0 失败」EXIT=0
@@ -37,8 +37,7 @@ try {
 }
 
 const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
-const USER_INPUT_SEL =
-  'input[placeholder="账号"], input[placeholder="Username"], input[name="username"]'
+const USER_INPUT_SEL = 'input[placeholder="账号"], input[placeholder="Username"], input[name="username"]'
 const LOGIN_BTN_SEL =
   'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]'
 
@@ -185,7 +184,11 @@ async function main() {
     const unnamed = buttons.filter((b) => !b.aria)
     check('S2 所有工具栏按钮均有非空可访问名称', unnamed.length === 0, `无名=${unnamed.length}`)
     const notTitled = buttons.filter((b) => !b.title)
-    check('S2 所有工具栏按钮均有 title（鼠标提示与读屏同一套措辞）', notTitled.length === 0, `无 title=${notTitled.length}`)
+    check(
+      'S2 所有工具栏按钮均有 title（鼠标提示与读屏同一套措辞）',
+      notTitled.length === 0,
+      `无 title=${notTitled.length}`
+    )
     const stillRaw = buttons.filter((b) => QUILL_RAW_LABELS.includes(b.aria))
     check(
       'S2 按钮名称已本地化（不得再是 Quill 英文原值）',

@@ -16,6 +16,7 @@ import { createRequire } from 'node:module'
 import process from 'node:process'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
+import { ROUTES } from './route-list.mjs'
 
 const require = createRequire(import.meta.url)
 let chromium
@@ -39,68 +40,8 @@ const PAGE_SETTLE_MS = 1200
 // （工具栏 + 表格行内按钮 + 分页器），同时保留 presses<LIMIT*2 的兜底防死循环。
 const TAB_LIMIT = 60
 
-// 权威来源：tests/e2e/collect-warnings.mjs 的 ROUTES。
-// 该表来自后端 getRouters 的真实组合；这里复制而不改原文件，避免影响既有测试域。
-const ROUTES = [
-  '/index',
-  '/dashboard',
-  '/workbench/index',
-  '/system/user',
-  '/system/role',
-  '/system/dept',
-  '/system/menu',
-  '/system/post',
-  '/system/dict',
-  '/system/dict-data/index/1',
-  '/system/config',
-  '/system/notice',
-  '/system/notice-center',
-  '/system/file',
-  // '/system/dashboard' 已移除：菜单表（sys_menu）中不存在该路由，直接 goto 必命中 404
-  '/system/log/operlog',
-  '/system/msg/channel',
-  '/system/msg/template',
-  '/system/msg/log',
-  '/system/oauth/provider',
-  '/system/oauth/client',
-  '/system/report/index',
-  '/system/report/sub',
-  '/system/webHook/index',
-  '/system/webHook/log',
-  '/monitor/online',
-  '/monitor/job',
-  '/monitor/cache',
-  '/monitor/audit-dashboard',
-  '/monitor/ip-location',
-  '/monitor/health',
-  '/monitor/logininfor',
-  '/monitor/logtail',
-  '/monitor/observability',
-  '/monitor/rateLimit',
-  '/monitor/backup',
-  '/monitor/task',
-  '/monitor/frontendError',
-  // API 令牌挂载在「系统工具」目录下（sys_menu menu_id=3560, parent=3 tool），真实路由为 /tool/pat
-  '/tool/pat',
-  '/monitor/server',
-  '/system/flow/todo',
-  '/tool/build',
-  '/tool/gen',
-  '/tool/swagger',
-  '/tool/http-debugger',
-  '/tool/shortcuts',
-  '/tool/help',
-  '/tool/changelog',
-  '/tool/about',
-  '/user/profile/index',
-  '/user/profile/msgPref',
-  '/user/profile/oauth',
-  '/user/profile/pat',
-  '/user/profile/resetPwd',
-  '/user/profile/totp',
-  '/user/profile/userAvatar',
-  '/user/profile/userInfo'
-]
+// 路由清单来自 ./route-list.mjs（单一事实源）：此前这里内联复制了 collect-warnings 的 57 条清单，
+// 加页面时采集面与无障碍面必然漂移（一边扫 58、一边仍扫 57，两边汇总都正常）。
 
 const CHECK_NAMES = [
   '键盘可达性（前 20 个焦点）',
@@ -185,19 +126,33 @@ function recordBucket(route, name, bucket, samples) {
 async function login(page) {
   const captchaPromise = capturePageCaptcha(page)
   await page.goto(`${FRONTEND_URL}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 })
-  await page.locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]').first().waitFor({
-    state: 'visible',
-    timeout: 20000
-  })
+  await page
+    .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+    .first()
+    .waitFor({
+      state: 'visible',
+      timeout: 20000
+    })
 
   const cookieButton = page.locator('button:has-text("同意")').first()
-  if (await cookieButton.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+  if (
+    await cookieButton
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await cookieButton.click({ timeout: 2000 }).catch(() => {})
   }
 
   const captcha = await captchaPromise
-  await page.locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]').first().fill(TEST_USER)
-  await page.locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]').first().fill(TEST_PASS)
+  await page
+    .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+    .first()
+    .fill(TEST_USER)
+  await page
+    .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
+    .first()
+    .fill(TEST_PASS)
   await fillCaptchaOnPage(page, captcha)
   await page
     .locator('button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"]')
@@ -216,7 +171,12 @@ async function dismissTour(page) {
       'button:has-text("跳过"), button:has-text("跳过引导"), [class*="tour"] button:has-text("跳"), button:has-text("完成"), button:has-text("开始使用")'
     )
     .first()
-  if (await skipButton.waitFor({ state: 'visible', timeout: 500 }).then(() => true).catch(() => false)) {
+  if (
+    await skipButton
+      .waitFor({ state: 'visible', timeout: 500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await skipButton.click({ timeout: 1500 }).catch(() => {})
   }
   await page.keyboard.press('Escape').catch(() => {})
@@ -225,16 +185,24 @@ async function dismissTour(page) {
 async function readActiveElement(page) {
   return page.evaluate(() => {
     const element = document.activeElement
-    if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement) return null
+    if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement)
+      return null
 
-    const clean = (value, max = 100) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
+    const clean = (value, max = 100) =>
+      String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max)
     const selectorOf = (target) => {
       if (target.id) return `${target.tagName.toLowerCase()}#${CSS.escape(target.id)}`
       const parts = []
       let current = target
       for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
         let part = current.tagName.toLowerCase()
-        const classes = [...current.classList].slice(0, 2).map((name) => `.${CSS.escape(name)}`).join('')
+        const classes = [...current.classList]
+          .slice(0, 2)
+          .map((name) => `.${CSS.escape(name)}`)
+          .join('')
         part += classes
         const parent = current.parentElement
         if (parent) {
@@ -257,11 +225,7 @@ async function readActiveElement(page) {
     // ② 显式 for= 关联。均为 WCAG 认可来源，不计入会误报全站表单控件。
     const wrappingLabel = element.closest('label')
     const labelText = clean(
-      wrappingLabel
-        ? wrappingLabel.innerText
-        : element.labels && element.labels[0]
-          ? element.labels[0].innerText
-          : ''
+      wrappingLabel ? wrappingLabel.innerText : element.labels && element.labels[0] ? element.labels[0].innerText : ''
     )
     const id = [...document.querySelectorAll('*')].indexOf(element)
     const attributes = [
@@ -285,8 +249,7 @@ async function readActiveElement(page) {
     // a11y：el-table 内部的选择列 checkbox（表头全选 / 行选择）无可见文本，
     // 其语义由表格结构（列头/行上下文）承载，EP 不提供 aria-label——属库组件既定实现，
     // 全站每页都渲染，计入会形成 60+ 条恒定的结构性误报。
-    const isTableSelectionCheckbox =
-      element.getAttribute('type') === 'checkbox' && !!element.closest('.el-table')
+    const isTableSelectionCheckbox = element.getAttribute('type') === 'checkbox' && !!element.closest('.el-table')
     // a11y：el-select / el-date-picker 等复合组件的内部 input（role=combobox）不直接持名，
     // 其可访问名称来自 ①外层 el-form-item 的 label 文本、②同级 .el-select__placeholder
     // 或输入容器的 placeholder——与「表单控件标签关联」检查同一口径（库组件实现细节）。
@@ -343,22 +306,27 @@ async function scanKeyboard(page) {
 
   return {
     visited,
-    issues: visited
-      .filter((item) => item.unnamed)
-      .map(({ selector, summary }) => ({ selector, summary }))
+    issues: visited.filter((item) => item.unnamed).map(({ selector, summary }) => ({ selector, summary }))
   }
 }
 
 async function collectStaticChecks(page) {
   return page.evaluate(() => {
-    const clean = (value, max = 100) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max)
+    const clean = (value, max = 100) =>
+      String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max)
     const selectorOf = (target) => {
       if (target.id) return `${target.tagName.toLowerCase()}#${CSS.escape(target.id)}`
       const parts = []
       let current = target
       for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
         let part = current.tagName.toLowerCase()
-        const classes = [...current.classList].slice(0, 2).map((name) => `.${CSS.escape(name)}`).join('')
+        const classes = [...current.classList]
+          .slice(0, 2)
+          .map((name) => `.${CSS.escape(name)}`)
+          .join('')
         part += classes
         const parent = current.parentElement
         if (parent) {
@@ -393,9 +361,8 @@ async function collectStaticChecks(page) {
       // 头/中/尾三点抽样：只取前 3 个会系统性偏向页面顶部（工具栏区），
       // 漏掉中部表格行、底部分页器等处的缺陷（§a11y 盲区修复 2026-10-09）。
       if (elements.length === 0) return [{ selector: fallbackSelector, summary: fallbackSummary }]
-      const idx = elements.length <= 3
-        ? [...elements.keys()]
-        : [0, Math.floor((elements.length - 1) / 2), elements.length - 1]
+      const idx =
+        elements.length <= 3 ? [...elements.keys()] : [0, Math.floor((elements.length - 1) / 2), elements.length - 1]
       return idx.map((i) => evidenceOf(elements[i]))
     }
 
@@ -433,8 +400,7 @@ async function collectStaticChecks(page) {
       // ③容器内的已选值/占位文本（.el-select__placeholder 等）承接，均为屏幕阅读器实际可读来源。
       // 补全这三条判定路径，避免把库组件内部实现细节误报为应用层缺陷（口径见优化台账 2026-10-02）。
       const formItem = control.closest('.el-form-item')
-      const hasFormItemLabel =
-        !!formItem && clean(formItem.querySelector('.el-form-item__label')?.textContent) !== ''
+      const hasFormItemLabel = !!formItem && clean(formItem.querySelector('.el-form-item__label')?.textContent) !== ''
       const placeholder = clean(control.getAttribute('placeholder'))
       const epContainer = control.closest('.el-date-editor, .el-select, .el-cascader, .el-autocomplete')
       // 合并容器内所有语义承载元素的文本：第一个匹配可能是 is-hidden 的 input wrapper（文本为空），
@@ -462,9 +428,18 @@ async function collectStaticChecks(page) {
     while (textNode) {
       const parent = textNode.parentElement
       const text = clean(textNode.nodeValue)
-      if (parent && text && !seenTextParents.has(parent) && !['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(parent.tagName)) {
+      if (
+        parent &&
+        text &&
+        !seenTextParents.has(parent) &&
+        !['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(parent.tagName)
+      ) {
         const style = getComputedStyle(parent)
-        const visible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && parent.getClientRects().length > 0
+        const visible =
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0' &&
+          parent.getClientRects().length > 0
         if (visible) {
           seenTextParents.add(parent)
           textParents.push(parent)
@@ -532,7 +507,8 @@ async function scanRoute(page, route) {
     url: location.href,
     title: document.title,
     hasBody: !!document.body,
-    is404: !!document.querySelector('.wscn-http404-container') || /\/(404|not-found)(?:[/?#]|$)/.test(location.pathname),
+    is404:
+      !!document.querySelector('.wscn-http404-container') || /\/(404|not-found)(?:[/?#]|$)/.test(location.pathname),
     bodyClass: document.body?.className || ''
   }))
   // 注意：登录页判定必须用 pathname 精确匹配。若用 url.includes('/login')，
@@ -547,7 +523,10 @@ async function scanRoute(page, route) {
     `异常=${pagePassed ? 0 : 1}；证据：body => url=${JSON.stringify(pageState.url)} title=${JSON.stringify(pageState.title)} class=${JSON.stringify(pageState.bodyClass)}${navigationError ? ` navigationError=${JSON.stringify(navigationError.message)}` : ''}`
   )
   if (!pagePassed) {
-    recordUnavailableChecks(route, navigationError?.message || (pageState.is404 ? '命中 404 页面' : '页面无效或登录态丢失'))
+    recordUnavailableChecks(
+      route,
+      navigationError?.message || (pageState.is404 ? '命中 404 页面' : '页面无效或登录态丢失')
+    )
     return
   }
 
@@ -674,7 +653,9 @@ async function main() {
   let browser = null
   try {
     args = parseArgs(process.argv.slice(2))
-    log(`全站 a11y E2E 启动：base=${FRONTEND_URL} routes=${args.routes.length} route=${args.route || '全部'} limit=${args.limit || '无限制'}`)
+    log(
+      `全站 a11y E2E 启动：base=${FRONTEND_URL} routes=${args.routes.length} route=${args.route || '全部'} limit=${args.limit || '无限制'}`
+    )
     browser = await chromium.launch({ headless: true })
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
     const page = await context.newPage()
@@ -695,7 +676,12 @@ async function main() {
           await scanRoute(page, route)
         } catch (error) {
           setIssueCount(route, '页面扫描异常', 1)
-          record(route, '页面扫描异常', false, `异常=1；证据：body => ${JSON.stringify(error?.stack || error?.message || String(error))}`)
+          record(
+            route,
+            '页面扫描异常',
+            false,
+            `异常=1；证据：body => ${JSON.stringify(error?.stack || error?.message || String(error))}`
+          )
         }
       }
     }
@@ -703,7 +689,12 @@ async function main() {
     await context.close().catch(() => {})
   } catch (error) {
     setIssueCount('__setup__', '运行异常', 1)
-    record('__setup__', '运行异常', false, `异常=1；证据：process => ${JSON.stringify(error?.stack || error?.message || String(error))}`)
+    record(
+      '__setup__',
+      '运行异常',
+      false,
+      `异常=1；证据：process => ${JSON.stringify(error?.stack || error?.message || String(error))}`
+    )
   } finally {
     await browser?.close().catch(() => {})
   }

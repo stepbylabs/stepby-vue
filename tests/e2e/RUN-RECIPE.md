@@ -82,9 +82,16 @@ cd stepby-vue/tests/e2e && npm install
 # 权威环境 = embedded :8080（真后端+真数据+SW；见 memory 与 docs 轮2 定案）
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
-PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" \
 node main.mjs --headless
 ```
+
+- **不要手写 `PLAYWRIGHT_BROWSERS_PATH`**：需要的构建号由 `tests/e2e/node_modules/playwright`
+  的版本决定（1.61.1 → `chromium-1228`；1.62.1 → `chromium_headless_shell-1234`）。
+  指到不匹配的目录会在起手就 `Executable doesn't exist`，而两处目录都存在时这个错误
+  看起来像"环境没装浏览器"。走默认缓存即可；要核对就一行：
+  `node -e "console.log(require('playwright').chromium.executablePath())"` 再 `ls` 该路径。
+  b77 实测：`D:/Projects/.pw-browsers` 只有 1234，而当时解析到的 1.61.1 要 1228 ⇒ 整套 e2e 起不来；
+  b78 已把四处历史启动脚本与三处脚本文档里的写死目录全部删掉（见 §3.x 浏览器引擎段）。
 
 - 不带 `--feature` = 跑**全部已注册功能**。总数不在文档里写死：以运行时"注册表自检"那一行为准
   （b74 起为 `1..144`，且自检钉住"编号连续 + 无重复 + 数量===最大编号"，历史上这里长期写 75、
@@ -154,12 +161,14 @@ node main.mjs --headless
 
 ```bash
 cd stepby-vue/tests/e2e
-PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers FRONTEND_URL=http://localhost:8080 \
+FRONTEND_URL=http://localhost:8080 \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
 # 交互态（打开“新增”/行内“编辑·查看”对话框再取消，暴露仅交互态才渲染的报错，如 i18n 编译错误）：
-INTERACT=1 PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers FRONTEND_URL=http://localhost:8080 \
+INTERACT=1 FRONTEND_URL=http://localhost:8080 \
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node collect-warnings.mjs
-# 期望（已验证基线）：末行 "有信号的路由数: 0/57" + "交互动作覆盖：…（INTERACT 模式同样 0/57 稳定）
+# 期望（历史基线，54 条口径）：末行 "有信号的路由数: 0/54" + "交互动作覆盖：…（INTERACT 模式同样 0/54 稳定）
+# b78 起路由清单收口到 route-list.mjs（当前 56 条），该基线**尚未在 56 条口径下重跑**——
+# 引用时先看末行的分母，不要拿 54 的结论套 56 的清单（b78 台账 §8 R-26）。
 ```
 
 - **交互态四段扫描（`INTERACT=1`）**，逐页执行且 (a)(b)(c) **只开不提、不污染数据**，(d) 只读取文件不落库：
@@ -1240,14 +1249,20 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
   - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
 - 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（实测 **86** 个类型：73 个写 `export_to`、13 个只写 `export` 按类型名/rename 落盘；条数不再手抄进文档，以 `python scripts/ts_export_audit.py` 的输出为准——上一句写死的"50 个"就是这么烂掉的）。新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——`FlowDoneVo` 先漏后补（旧记录），批七十六又机械核出**根清单漏了 22 个（20%）**：`cargo ts` 只实出 64/86，而 CI 跑 `cargo test`（derive 兜底会刷全），所以这条断裂 CI 看不见、只有照本配方用本地命令的人拿到过期类型（本轮改 `entity/sys_flow_log.rs` 注释后 `SysFlowLog.ts` 一字未变即为此）。现已补齐 22 个根，并有常驻门禁 `python scripts/ts_export_audit.py --selftest` + 本体（已接进 `ci.yml` backend job）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="stepby-axum"` 消歧义。
 - CI 额外强制：`stepby-axum` job 校验 ts-rs 生成的 TS 类型与 `stepby-vue/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
-- 浏览器引擎（Playwright）前置与本轮临时状态：`tests/e2e/node_modules/playwright` 锁 **1.62.1**，
-  它需要缓存里的 `chromium_headless_shell-1234`（Chrome for Testing 151）。批七十六跑
-  `npx playwright install chromium` 时 CDN 与镜像站都不可达，**下载失败并把已存在的 1234 目录清掉了**
-  （失败的安装也会先删目标目录，这条要记住）。为不让 e2e 全线停摆，当前把
-  `node_modules/{playwright,playwright-core}` 换成全局 **1.61.1**（其 `chromium-1228` = Chrome 149 在缓存里可用），
-  原 1.62.1 目录改名保留为 `playwright__v1621_bak` / `playwright_core__v1621_bak`。
-  ⇒ 网络可达后必须：`npx playwright install chromium` 复原 1234，再把两个 `__v1621_bak` 目录换回原名；
-  换回前 `npx playwright`/`node main.mjs` 用的是 149，跨段比对 e2e 数据时按这颗浏览器区分。
+- 浏览器引擎（Playwright）：`tests/e2e/node_modules/playwright` 与 `playwright-core` 均为 **1.62.1**
+  （= `tests/e2e/package.json` 的 `^1.62.1`），需要缓存里的 **`chromium-1234` + `chromium_headless_shell-1234`**
+  （Chrome for Testing 151）。
+  - **b78 已复原**（b76 的临时降级结束）：此前 CDN 不可达导致 `npx playwright install chromium` 失败，
+    且失败的安装会**先删目标目录**（把已有的 1234 清掉），于是临时换成全局 1.61.1 + `chromium-1228`。
+    b78 网络恢复后，用 1.62.1 自己的 CLI（把两个 `__v1621_bak` 目录拼成临时 `node_modules` 再执行，
+    绕开 `npx playwright@1.62.1` 被解析到别的版本）执行 `install chromium`，实下载
+    `chromium_headless_shell-1234`（114.5 MiB）成功，再把目录换回原名；`executablePath()` 现指向
+    `…\ms-playwright\chromium-1234\chrome-win64\chrome.exe` 且存在。**1.61.1 的备份目录已删除**。
+  - 核对口径（一行，任何环境都适用）：`node -e "console.log(require('playwright').chromium.executablePath())"`
+    再 `ls` 该路径；不匹配时**不要**手改 `PLAYWRIGHT_BROWSERS_PATH`，先看报错里的构建号。
+  - 注意：`npx playwright@<ver> install` 在版本被解析错时会打印 "Removing unused browser at …" 并删掉
+    另一个版本的目录（b78 实测 1.61.1 被解析成别的版本、删了 `chromium-1234` 的安装标记，随后 1.62.1
+    的 CLI 又重装回来）。跑安装前后都用上面的核对口径看一遍。
 - 全部通过后，stepby-vue 与 stepby-axum 分别提交；e2e 套件随 stepby-vue 提交（位于 `stepby-vue/tests/e2e/`）。
 - 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.7 全 PASS**；
   CI 门禁为 `--full --gate`（与已提交基线 `docs/optimization/tenant-audit.json` 做差集，**新增非 info 候选即 FAIL**）。
