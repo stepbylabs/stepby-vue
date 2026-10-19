@@ -917,7 +917,10 @@ async function verifyLoginFeatureFlags(page, frontendUrl) {
  * 其他任何 IMG 资源错误照常判红。被放行的条数会进汇总，**不再静默**。
  */
 let avatarImgNoiseCount = 0
-const AVATAR_IMG_NOISE_RE = /\bIMG\s+https?:\/\/[^\s]+\/user\/profile\/?\s*$/i
+// 锚定「IMG 的 URL 恰好是 /user/profile」这一种（空 src 被浏览器按当前页 URL 解析）。
+// 不能锚定行尾 `$`：console 文本在 URL 后还跟着上报对象串（`… {type: Resource Error, …}`），
+// b78 全量实测 3 个模块因此漏匹配而误判红。
+const AVATAR_IMG_NOISE_RE = /\bIMG\s+[^\s]*\/user\/profile\/?(?:\s|$)/i
 
 /**
  * 创建带控制台错误收集的页面
@@ -2271,6 +2274,72 @@ async function testModule1(page, consoleErrors, pageErrors) {
     const hasBatchRead = await isButtonVisible(page, ['批量已读', '全部已读', '标记已读'])
     record(M, '通知中心: 批量已读按钮', hasBatchRead)
 
+    // b78 补盲区：选中态「批量已读 (N)」此前一次都没测（action-inventory 实测）。
+    // 必须放在"全部已读"之前——那条会把未读清零，之后本按钮恒为 (0) 且禁用。
+    // 只走到确认框就取消：真提交会把 admin 的通知标已读，改变后续用例的初始态。
+    {
+      const batchBtn = page.locator('.app-container button:has-text("批量已读")').first()
+      if (await batchBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const disabledBefore = await batchBtn.isDisabled({ timeout: 2000 }).catch(() => false)
+        const noticeRows = await page
+          .locator('.el-table__body .el-table__row, .notice-item')
+          .count()
+          .catch(() => 0)
+        if (noticeRows > 0) {
+          await checkRow(page, 0, 'page')
+          await sleep(400)
+          const labelAfter = (await batchBtn.innerText({ timeout: 2000 }).catch(() => '')).trim()
+          const enabledAfter = !(await batchBtn.isDisabled({ timeout: 2000 }).catch(() => true))
+          // 文案必须带上选中条数：(0) → (1)，这是"选中态真的传给了按钮"的直接证据
+          const countSynced = /\(1\)/.test(labelAfter)
+          record(
+            M,
+            '通知中心: 批量已读选中态',
+            disabledBefore && enabledAfter && countSynced,
+            `未选中禁用=${disabledBefore}, 选中后可用=${enabledAfter}, 文案="${labelAfter.slice(0, 16)}"`
+          )
+
+          // 点开确认框 → 核对文案带条数 → 取消（不真提交）
+          await clearToasts(page)
+          await batchBtn.click({ timeout: 3000 }).catch(() => {})
+          const boxOpen = await waitMessageBox(page)
+          if (boxOpen) {
+            const boxText = await page
+              .locator('.el-message-box:visible .el-message-box__message')
+              .last()
+              .innerText({ timeout: 2500 })
+              .catch(() => '')
+            await clickMessageBoxBtn(page, 'cancel')
+            await sleep(400)
+            const closed = !(await waitMessageBox(page, 1200))
+            record(
+              M,
+              '通知中心: 批量已读-确认框取消',
+              closed && /1|一/.test(boxText),
+              `确认文案="${boxText.trim().slice(0, 30)}", 取消后关闭=${closed}`
+            )
+          } else {
+            recordSoft(
+              M,
+              '通知中心: 批量已读-确认框取消',
+              false,
+              '未出现确认框（可能直接提交）',
+              '批量已读未弹确认框（软断言，避免误判为缺陷）'
+            )
+          }
+          // 取消勾选，避免影响后面的「全部已读」用例
+          await checkRow(page, 0, 'page')
+          await sleep(200)
+        } else {
+          recordSkip(M, '通知中心: 批量已读选中态', '跳过（通知列表为空，无可选行）')
+          recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（通知列表为空）')
+        }
+      } else {
+        recordSkip(M, '通知中心: 批量已读选中态', '跳过（页面无批量已读按钮）')
+        recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（页面无批量已读按钮）')
+      }
+    }
+
     // 1.9.1 "全部已读"功能完整链路测试（P1 补充覆盖）
     // 前置条件：按钮存在且有未读通知时才执行点击链路
     const markAllBtn = page.locator('button:has-text("全部已读"), button:has-text("Mark All Read")').first()
@@ -2628,6 +2697,37 @@ async function testModule2(page, consoleErrors, pageErrors) {
       .then(() => true)
       .catch(() => false)
     record(M, '在线用户: 行内强退按钮', hasRowForceLogout)
+
+    // b78 补盲区：批量强退此前一次都没测（action-inventory 实测）。
+    // **刻意不点确认**——真强退会杀掉会话，选中的第一行很可能就是 admin 自己，
+    // 一按下去后续用例全 401。这里只钉"启用契约"：未选中禁用 → 选中一行后可用。
+    // 这比"按钮存在"强一个量级，且零副作用。
+    const batchForceBtn = page.locator('.app-container button:has-text("批量强退")').first()
+    if (await batchForceBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      const disabledBefore = await batchForceBtn.isDisabled({ timeout: 2000 }).catch(() => false)
+      const onlineRows = await page
+        .locator('.el-table__body .el-table__row')
+        .count()
+        .catch(() => 0)
+      if (onlineRows > 0) {
+        await checkRow(page, 0, 'page')
+        await sleep(300)
+        const enabledAfter = !(await batchForceBtn.isDisabled({ timeout: 2000 }).catch(() => true))
+        record(
+          M,
+          '在线用户: 批量强退启用契约',
+          disabledBefore && enabledAfter,
+          `未选中时禁用=${disabledBefore}, 选中后可用=${enabledAfter}`
+        )
+        // 取消勾选，避免影响后续用例的选中态
+        await checkRow(page, 0, 'page')
+        await sleep(200)
+      } else {
+        recordSoft(M, '在线用户: 批量强退启用契约', false, '在线列表为空，无行可选中', '在线列表为空（软断言）')
+      }
+    } else {
+      recordSkip(M, '在线用户: 批量强退启用契约', '跳过（页面无批量强退按钮）')
+    }
   }
 
   // 2.2 登录日志
@@ -2894,6 +2994,56 @@ async function testModule2(page, consoleErrors, pageErrors) {
       record(M, '缓存管理: 键管理缓存名表格', hasCacheTable)
     } else {
       record(M, '缓存管理: 键管理缓存名表格', false, '键管理 Tab 不可见')
+    }
+
+    // b78 补盲区：action-inventory 实测这两处"只有表格存在性断言、一次都没点过"。
+    // 刷新是只读操作（重新拉 getNames / 热 Key 统计），可以安全真点。
+    // 按钮是图标-only，按 aria-label 命中（i18n：common.refresh / cache.prefix.refresh）。
+    if (hasEnoughCacheTabs) {
+      await clearToasts(page)
+      const refreshNames = page.locator('button[aria-label="刷新"]').first()
+      if (await refreshNames.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const namesApi = waitForApi(page, '/monitor/cache/', 8000)
+        await refreshNames.click({ timeout: 3000 }).catch(() => {})
+        const namesResp = await namesApi.catch(() => null)
+        const namesToast = await waitToastText(page, 2500)
+        record(
+          M,
+          '缓存管理: 键管理-刷新缓存名列表',
+          !!namesResp || /刷新/.test(namesToast),
+          `HTTP ${namesResp ? namesResp.status() : 'n/a'}, toast="${namesToast.slice(0, 20)}"`
+        )
+      } else {
+        recordSkip(M, '缓存管理: 键管理-刷新缓存名列表', '跳过（刷新按钮不可见）')
+      }
+
+      // 第三个 tab（统计 / 热 Key）：刷新热 Key 统计
+      const hotTab = page.locator('.el-tabs__item').nth(2)
+      if (await hotTab.isVisible({ timeout: 1200 }).catch(() => false)) {
+        await hotTab.click().catch(() => {})
+        await sleep(1200)
+        await clearToasts(page)
+        const refreshHot = page.locator('button[aria-label="刷新热 Key"]').first()
+        if (await refreshHot.isVisible({ timeout: 1500 }).catch(() => false)) {
+          const hotApi = waitForApi(page, '/monitor/cache/', 8000)
+          await refreshHot.click({ timeout: 3000 }).catch(() => {})
+          const hotResp = await hotApi.catch(() => null)
+          const hotToast = await waitToastText(page, 2500)
+          record(
+            M,
+            '缓存管理: 热Key-刷新统计',
+            !!hotResp || /刷新/.test(hotToast),
+            `HTTP ${hotResp ? hotResp.status() : 'n/a'}, toast="${hotToast.slice(0, 20)}"`
+          )
+        } else {
+          recordSkip(M, '缓存管理: 热Key-刷新统计', '跳过（刷新热 Key 按钮不可见）')
+        }
+      } else {
+        recordSkip(M, '缓存管理: 热Key-刷新统计', '跳过（热 Key Tab 不存在）')
+      }
+    } else {
+      recordSkip(M, '缓存管理: 键管理-刷新缓存名列表', '跳过（无键管理 Tab）')
+      recordSkip(M, '缓存管理: 热Key-刷新统计', '跳过（无热 Key Tab）')
     }
   }
 

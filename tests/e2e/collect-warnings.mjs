@@ -187,6 +187,20 @@ async function dismissOverlays(page) {
     // 先 Esc（多数对话框即时响应），再给关闭过渡留足时间；仍残留才点关闭按钮。
     await page.keyboard.press('Escape').catch(() => {})
     await sleep(600)
+    // 未保存守卫（UX-5）会在脏表单关闭时弹确认框——**不处理它，对话框就永远关不掉**，
+    // 快照时"编辑框 + 守卫框"都会被记成 DIALOG 信号（b78 INTERACT 全量实测：
+    // /system/notice 因此独占 1/56 的信号数，而其余 55 页全 0）。
+    // 扫描器从不输入内容 ⇒ 弹守卫时点「确定」（离开/丢弃）是安全的；
+    // 随后回到循环顶部把剩下的对话框继续关掉。
+    const guardBox = page.locator('.el-message-box:visible')
+    if (await guardBox.isVisible({ timeout: 500 }).catch(() => false)) {
+      await guardBox
+        .locator('button:has-text("确定"), button:has-text("确 定"), button:has-text("OK"), button:has-text("Leave")')
+        .first()
+        .click({ timeout: 1500 })
+        .catch(() => {})
+      await sleep(600)
+    }
     if (
       !(await page
         .locator(sel)

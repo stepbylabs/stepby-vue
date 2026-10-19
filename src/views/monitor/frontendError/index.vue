@@ -93,6 +93,13 @@
             <el-option v-for="v in deviceTypeOptions" :key="v" :label="deviceTypeLabel(v)" :value="v" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('frontendError.search.includeVital')" prop="includeVital">
+          <el-switch
+            v-model="includeVital"
+            :aria-label="t('frontendError.search.includeVital')"
+            @change="handleQuery"
+          />
+        </el-form-item>
         <el-form-item :label="t('frontendError.search.createTime')" class="w-[308px]">
           <el-date-picker
             v-model="dateRange"
@@ -346,6 +353,11 @@ const data = reactive({
     pageSize: 10,
     level: undefined,
     source: undefined,
+    // 默认排除 Web Vitals 采样（source='vital'）。
+    // 实测该表 101 342 行里 101 272 行（99.93%）是 `LCP=…` 这类性能采样，
+    // 而 source 只能等值命中 ⇒ 不排除的话首屏全是采样，用户看不到任何"真异常"。
+    // 想连采样一起看：打开搜索栏的「包含性能采样」开关（清空本字段）。
+    excludeSource: 'vital',
     name: undefined,
     deviceType: undefined,
     orderByColumn: undefined,
@@ -353,6 +365,21 @@ const data = reactive({
   } as FrontendErrorQueryParams
 })
 const { queryParams, form } = toRefs(data)
+
+/**
+ * 「包含性能采样」开关 ↔ `excludeSource` 的双向映射。
+ *
+ * 开关关（默认）= 排除 `vital`，列表只剩异常/资源类信号；
+ * 开关开 = 清空 excludeSource，采样与异常一起看。
+ * 单独存一个布尔而不是直接绑 `excludeSource`：后者是字符串，开关是布尔，
+ * 直接绑会出现"undefined 既不是 true 也不是 false"的三态歧义。
+ */
+const includeVital = computed({
+  get: () => !queryParams.value.excludeSource,
+  set: (v: boolean) => {
+    queryParams.value.excludeSource = v ? undefined : 'vital'
+  }
+})
 const formRef = ref<FormInstance | null>(null)
 
 const { dataList, loading, showSearch, multiple, total, getList, handleQuery, handleSelectionChange, handleDelete } =

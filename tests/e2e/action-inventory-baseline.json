@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-19T14:13:41.670Z",
+  "generatedAt": "2026-10-19T16:05:01.038Z",
   "routes": 56,
-  "totalActions": 400,
-  "totalCovered": 376,
-  "coverage": 0.94,
+  "totalActions": 405,
+  "totalCovered": 384,
+  "coverage": 0.948,
   "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少"
 }

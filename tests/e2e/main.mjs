@@ -12757,6 +12757,50 @@ async function testFeature53(page) {
 
   // (5) 前端错误日志·清空取消（数据面板页，无表格行依赖，单独走确认框链）
   if (await openPage('/monitor/frontendError', false)) {
+    // b78（R-31）：默认排除 Web Vitals 采样。
+    // 该表实测 101 342 行里 101 272 行（99.93%）是 `LCP=…` 这类 `source=vital` 采样，
+    // 而 source 只能等值命中 ⇒ 不排除的话首屏全是采样，用户看不到任何"真异常"。
+    const vitalSwitch = page.locator('.app-container .el-switch').first()
+    const switchVisible = await vitalSwitch.isVisible({ timeout: 5000 }).catch(() => false)
+    const switchOn = switchVisible
+      ? await vitalSwitch.evaluate((el) => el.classList.contains('is-checked')).catch(() => null)
+      : null
+    record(
+      53,
+      '前端错误页: 默认不含性能采样（开关关）',
+      switchVisible && switchOn === false,
+      `开关可见=${switchVisible}, 已开启=${switchOn}`
+    )
+
+    // 点「搜索」抓 list 请求：核对 excludeSource 真的随请求发出（而不是只改了 UI 状态）
+    const listReq = page
+      .waitForResponse((r) => r.url().includes('/monitor/frontendError/list'), { timeout: 12000 })
+      .catch(() => null)
+    await page
+      .locator('.app-container button:has-text("搜索")')
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
+    const listResp = await listReq
+    const listUrl = listResp ? listResp.url() : ''
+    record(
+      53,
+      '前端错误页: 列表请求带 excludeSource=vital',
+      /excludeSource=vital/i.test(listUrl),
+      listUrl.split('?')[1]?.slice(0, 80) || 'n/a'
+    )
+
+    // 数据面：返回行里不得出现 source='vital'（请求带参 ≠ 后端真的过滤了）
+    let noVitalRows = false
+    let vitalDetail = '无响应'
+    if (listResp) {
+      const body = await listResp.json().catch(() => null)
+      const rows = body?.rows || []
+      noVitalRows = rows.every((r) => (r.source || '') !== 'vital')
+      vitalDetail = `rows=${rows.length}, sources=${[...new Set(rows.map((r) => r.source))].join('/') || '空'}`
+    }
+    record(53, '前端错误页: 返回行无性能采样', noVitalRows, vitalDetail)
+
     const cleanBtn = page.locator('button:has-text("清空")').first()
     // 长跑后期 chunk 加载慢——显式 waitFor 消除竞态（固定 1500ms 会漂移假失败）
     await cleanBtn.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
@@ -20285,6 +20329,17 @@ async function testFeature90(page) {
   record(90, 'AI 配置页加载', !is404)
   if (is404) return
 
+  // b78：等"表单真的渲染出来"再数文案。
+  // 原写法是 `sleep(1500)` 后直接 count —— 慢一轮（首屏 chunk 冷加载/后端慢）就会数到 0，
+  // 表现为"偶发的字段缺失失败"（R-29 立案的那条）。这里改成显式等待 + 有界重试，
+  // 把偶发从"判据"里去掉，而不是给判据加豁免。
+  const formReady = await page
+    .locator('text=Base URL')
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+
   // 批五十六：配置快照（r61 巡检实证——「空 Key 保存」交互会 PUT 前端表单默认值，
   // base_url 被固化为占位默认 https://api.openai.com/v1 → 运行配置漂移）；用例结束恢复
   // 批五十七：apiLogin 替代页面取 token（getAdminToken 依赖页面态，套件上下文曾取空
@@ -20300,10 +20355,11 @@ async function testFeature90(page) {
 
   // 表单关键字段存在（提供方/Base URL/API Key）
   const fieldsOk =
+    formReady &&
     (await page.locator('text=LLM 提供方').count()) > 0 &&
     (await page.locator('text=Base URL').count()) > 0 &&
     (await page.locator('text=API Key').count()) > 0
-  record(90, '配置表单关键字段存在', fieldsOk)
+  record(90, '配置表单关键字段存在', fieldsOk, `表单就绪=${formReady}`)
 
   // API Key 保留语义提示
   const keepOk =
@@ -20313,21 +20369,35 @@ async function testFeature90(page) {
   record(90, 'API Key 留空保留提示存在', keepOk)
 
   // 空 Key 保存（保留语义交互）
+  //
+  // b78 修正：原写法是 `await waitForResponse(...).catch(() => null)` 之后**无条件** `saveOk = true`——
+  // 即便 PUT 根本没发出/超时，这条也照样算通过。这是"判据不判"的典型形态（R-29 之所以
+  // 表现为"偶发失败"却又抓不到证据，与它无关但同源：断言没有绑定响应事实）。
+  // 现在要求：拿到 PUT 响应且 HTTP 2xx 才算过；否则把 toast/网络状态写进失败原因。
   let saveOk = false
+  let saveDetail = ''
   try {
     const saveBtn = page.locator('button:has-text("保存"), button:has-text("确 定"), button:has-text("确定")').first()
-    await saveBtn.click()
-    await page
+    const putPromise = page
       .waitForResponse((r) => r.url().includes('/system/aiConfig') && r.request().method() === 'PUT', {
         timeout: 10000
       })
       .catch(() => null)
-    await sleep(1500)
-    saveOk = true
+    await saveBtn.click()
+    const putResp = await putPromise
+    await sleep(800)
+    const toast = await page
+      .locator('.el-message:visible')
+      .last()
+      .innerText({ timeout: 3000 })
+      .catch(() => '')
+    saveOk = !!putResp && putResp.status() >= 200 && putResp.status() < 300
+    saveDetail = `PUT ${putResp ? putResp.status() : 'n/a'}, toast="${toast.slice(0, 24)}"`
   } catch (err) {
+    saveDetail = `异常: ${err.message.slice(0, 120)}`
     log(`  AI 配置保存异常: ${err.message.slice(0, 300)}`)
   }
-  record(90, '空 Key 保存交互成功', saveOk)
+  record(90, '空 Key 保存交互成功', saveOk, saveDetail)
 
   // 测试连通（负路径：当前配置不可达 → 应有错误反馈而非崩溃）
   let testNegOk = true

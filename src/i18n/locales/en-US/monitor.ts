@@ -189,7 +189,8 @@ export default {
       noFailures: 'No failures in this window',
       jobName: 'Job Name',
       failedCount: 'Failures',
-      truncated: 'Log rows reached the stats cap; aggregated first 200000 rows. Narrow the window or clean old logs first.',
+      truncated:
+        'Log rows reached the stats cap; aggregated first 200000 rows. Narrow the window or clean old logs first.',
       legend: {
         exec: 'Executions',
         failed: 'Failure Rate'
@@ -557,8 +558,10 @@ export default {
       validTitle: 'Chain intact, not tampered',
       brokenTitle: 'Chain break detected',
       checkedCount: 'Verified {count} chain nodes',
-      brokenAt: 'First broken node: operation log #{operId}. Data after this log may have been tampered with or deleted; investigate immediately',
-      gapTip: '{count} retention-cleanup gap(s) detected (verified via archive anchors; archives downloadable by platform admins)'
+      brokenAt:
+        'First broken node: operation log #{operId}. Data after this log may have been tampered with or deleted; investigate immediately',
+      gapTip:
+        '{count} retention-cleanup gap(s) detected (verified via archive anchors; archives downloadable by platform admins)'
     },
     tip: {
       confirmDelete: 'Are you sure to delete the log with ID "{ids}"?',
@@ -731,7 +734,8 @@ export default {
       phSource: 'Select source',
       phName: 'Enter error or metric name',
       deviceType: 'Device',
-      phDeviceType: 'Select device type'
+      phDeviceType: 'Select device type',
+      includeVital: 'Include performance samples'
     },
     column: {
       id: 'ID',

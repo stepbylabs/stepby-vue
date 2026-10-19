@@ -28,7 +28,8 @@ export default {
       hitRate: '键命中率'
     },
     storeKind: {
-      localHint: '共享态存储当前为 local 档（业务同库承载，无 Redis）：运行时长/内存/连接客户端/键命中率等 Redis 专属指标不适用，故显示「—」。'
+      localHint:
+        '共享态存储当前为 local 档（业务同库承载，无 Redis）：运行时长/内存/连接客户端/键命中率等 Redis 专属指标不适用，故显示「—」。'
     },
     slow: {
       clear: '清空慢请求',
@@ -728,7 +729,8 @@ export default {
       phSource: '请选择来源',
       phName: '请输入错误名或指标名',
       deviceType: '设备类型',
-      phDeviceType: '请选择设备类型'
+      phDeviceType: '请选择设备类型',
+      includeVital: '包含性能采样'
     },
     column: {
       id: '编号',

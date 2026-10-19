@@ -6,6 +6,14 @@ export interface FrontendErrorQueryParams extends PageDomain {
   level?: string
   /** 来源 */
   source?: string
+  /**
+   * 来源**排除**列表（逗号分隔，如 `vital`）。
+   *
+   * 本表是"异常 + 性能埋点"统一表，实测 99.93% 是 Web Vitals 采样（`source=vital`）。
+   * `source` 只能等值命中 ⇒ 首屏全是 `LCP=…`，想只看异常得逐个来源查。
+   * 页面默认传 `vital`（"包含性能采样"开关打开时清空）。
+   */
+  excludeSource?: string
   /** 错误名/指标名（模糊） */
   name?: string
   /** 设备类型分桶（FCP-011）：mobile / tablet / desktop */
