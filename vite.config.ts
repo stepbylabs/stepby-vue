@@ -156,7 +156,8 @@ export default defineConfig(({ mode, command }) => {
           // 彻底规避跨 chunk 链接）。代价是缺省路由级懒加载、首屏 JS 体积偏大。
           // 旧选项 inlineDynamicImports 在 Vite 8 已废弃，改用等价的 codeSplitting: false。
           // 待 Rolldown 修复该 bug（或升级 Vite/Rolldown 版本）后，应移除本选项以恢复分包。
-          // 已登记于审计文档 docs/code-audit-2026-08-06.md 作为已知限制。
+          // 已登记于 docs/optimization/OPTIMIZATION_PLAN_ROUNDS101-102.md 作为已知限制
+          //（原 docs/code-audit-2026-08-06.md 正文已不在库内）。
           codeSplitting: false
         }
       }

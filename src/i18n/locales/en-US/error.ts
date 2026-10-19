@@ -1,5 +1,5 @@
 // en-US · 分类：error（错误与反馈）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   errorCode: {

@@ -5,6 +5,9 @@
  */
 export type UploadConfigMaskedVo = { accessKeyMasked: string, hasAccessKey: boolean, secretKeyMasked: string, hasSecretKey: boolean, endpoint: string, region: string, bucket: string, pathStyle: boolean, publicEndpoint: string, 
 /**
- * config.toml 档位（local/s3）——覆盖仅在该档位为 s3 时生效
+ * **当前生效档位**（local/s3）：`sys.upload.backend` 覆盖优先，缺省回落 config.toml 出厂档。
+ *
+ * 必须与写路径/探针用的档位同源（[`UploadConfigService::effective_backend_mode`]）——回显出厂档
+ * 会让管理页显示与实际行为分裂（C.7）。
  */
 backendMode: string, };

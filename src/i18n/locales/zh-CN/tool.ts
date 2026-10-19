@@ -1,5 +1,5 @@
 // zh-CN · 分类：tool（系统工具）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   httpDebug: {
@@ -557,6 +557,7 @@ export default {
     confirmClear: '确定要清空所有组件吗？',
     copyCodeSuccess: '代码已复制到剪切板，可粘贴。',
     copyCodeFail: '代码复制失败',
+    addNodeTargetMissing: '没有可承接新字段的容器：请先在结构树中选中目标节点后再添加。本次填写的内容未被写入，可直接重试',
     uploadTip: '只能上传不超过 {size}{unit} 的{type}文件',
     rightPanel: {
       tabField: '组件属性',

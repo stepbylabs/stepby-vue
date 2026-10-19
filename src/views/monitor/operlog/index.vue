@@ -560,7 +560,14 @@ const data = reactive({
     title: undefined,
     operName: undefined,
     businessType: undefined,
-    status: undefined
+    status: undefined,
+    // 排序键必须在初始对象上**显式声明**：AppMain 用 `:key="route.fullPath"`（含 query）缓存页面，
+    // getList 的 syncUrlQuery 把排序写进 URL 后路由变化会重建组件，新实例用
+    // restoreQueryFromUrl 回填——它只接受「初始查询对象里已存在的键」。缺这两键时
+    // 用户点排序 → 带排序的请求发出 → URL 变化 → 页面重建 → 排序被丢弃并重新按默认序查询
+    // （实证：operlog 点「操作日期」后连发 3 个请求，最后渲染的仍是倒序，b73 轮 14）。
+    orderByColumn: undefined,
+    isAsc: undefined
   } as OperlogQueryParams
 })
 
@@ -606,6 +613,16 @@ const {
   queryRef
 })
 
+// URL 恢复出的排序必须回灌表头箭头：EP 以自身 sortState 为基线轮转方向，
+// 箭头与数据不一致时用户再点一次仍落在同一方向（b73 轮 14 实测：第二次点击依旧 asc，
+// 降序点不出来）。回灌后箭头与已恢复的数据一致，后续点击从正确基线轮转。
+if (queryParams.value.orderByColumn) {
+  defaultSort.value = {
+    prop: String(queryParams.value.orderByColumn),
+    order: /^asc/i.test(String(queryParams.value.isAsc ?? '')) ? 'ascending' : 'descending'
+  }
+}
+
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
@@ -622,6 +639,9 @@ function resetQuery() {
   // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
   // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
   resetQueryDefaults(queryParams)
+  // defaultSort 可能被 URL 恢复的排序回灌过（见上方），重置必须把它也拉回页面默认，
+  // 否则"清空排序"后箭头仍指着用户上一次的排序列、sort() 还会把它重新种回去
+  defaultSort.value = { prop: 'operTime', order: 'descending' }
   handleQuery()
   operlogRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
@@ -800,14 +820,21 @@ function handleArchiveList() {
 
 /** 下载归档 JSONL：带 Bearer 的 blob 下载（fetch + a[download]） */
 function downloadArchive(row: LogArchiveAnchor) {
-  downloadArchiveFile(row.anchorId).then((blob) => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `anchor_${row.firstOperId}_${row.lastOperId}.jsonl`
-    a.click()
-    URL.revokeObjectURL(url)
-  })
+  // b72：原链无 catch ⇒ 下载失败时抛 unhandledrejection（前端错误遥测被这类
+  // "已被拦截器提示过"的噪声污染）。这里显式收敛：失败提示由全局响应拦截器负责，
+  // 本处只保证不再产生未捕获拒绝，并把原因留在 DEV。
+  downloadArchiveFile(row.anchorId)
+    .then((blob) => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `anchor_${row.firstOperId}_${row.lastOperId}.jsonl`
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+    .catch((e: unknown) => {
+      if (import.meta.env.DEV) console.error('[operlog] 归档下载失败:', e)
+    })
 }
 
 getList()

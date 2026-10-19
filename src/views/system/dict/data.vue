@@ -217,6 +217,7 @@ import { listData, getData, delData, addData, updateData } from '@/api/system/di
 import type { SysDictData, SysDictType, DictDataQueryParams } from '@/types/api/system/dict'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
+import { toPositiveInt } from '@/utils/validate'
 import { useExport } from '@/composables/useExport'
 
 interface ListClassOption {
@@ -434,7 +435,8 @@ function handleExport() {
   rawHandleExport({ ...queryParams.value })
 }
 
-getTypes(route.params && Number(route.params.dictId))
+const initialDictId = toPositiveInt(route.params.dictId)
+if (initialDictId) getTypes(initialDictId)
 getTypeList()
 
 // FE-15: keep-alive 缓存后从字典类型页带不同 dictId 跳转时，setup 不会重新执行，
@@ -442,9 +444,8 @@ getTypeList()
 watch(
   () => route.params.dictId,
   (newDictId: string | string[] | undefined) => {
-    if (newDictId) {
-      getTypes(Number(newDictId))
-    }
+    const dictId = toPositiveInt(newDictId)
+    if (dictId) getTypes(dictId)
   }
 )
 </script>

@@ -225,6 +225,7 @@ import useDictStore from '@/store/modules/dict'
 import { listType, getType, delType, addType, updateType, refreshCache } from '@/api/system/dict/type'
 import type { SysDictType, DictTypeQueryParams } from '@/types/api/system/dict'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import tab from '@/plugins/tab'
@@ -316,6 +317,10 @@ const {
       .catch(() => {})
   }
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 /** 重置按钮操作 - 覆盖以清空 dateRange */
 function resetQuery() {

@@ -3,6 +3,8 @@
  * 封装 el-tree 的渲染、增删节点操作与节点对话框状态（逻辑与原 RightPanel.vue 完全一致）
  */
 import { h, ref, resolveComponent, type Ref, type VNode } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 
 /** vue h 函数类型（供 render-content 回调签名使用） */
 type HType = typeof h
@@ -36,6 +38,7 @@ export interface UseTreeNodeReturn {
  * @param idGlobal 全局 id 计数器，新增节点时递增保证唯一
  */
 export function useTreeNode(idGlobal: Ref<number>): UseTreeNodeReturn {
+  const { t } = useI18n()
   const currentNode = ref<TreeNodeData[] | null>(null)
   const dialogVisible = ref(false)
 
@@ -101,12 +104,17 @@ export function useTreeNode(idGlobal: Ref<number>): UseTreeNodeReturn {
   }
 
   function addNode(data: TreeNodeData): void {
-    if (currentNode.value) {
-      currentNode.value.push(data)
-    } else {
-      // P2 修复: currentNode 为空时不再静默丢弃数据，给出提示
-      if (import.meta.env.DEV) console.warn('[build/addNode] currentNode is null, data not added:', data)
+    const container = currentNode.value
+    if (container) {
+      container.push(data)
+      return
     }
+    // b72：此前只 `if (import.meta.env.DEV) console.warn(...)` —— 生产环境**静默丢弃**用户
+    // 刚填完的字段（b70 的"P2 修复"只做了半截：DEV 里看得见、用户看不见）。
+    // 丢数据必须当场可见；同时保留 dialogVisible（不关窗），让用户可以直接重试提交。
+    // 语言包命名空间是 `build.*`（zh-CN/index.ts 将 tool.ts 的顶层键直接展开，
+    // 故 `tool.build.*` 会命中缺失兜底、把裸键刷进 toast）
+    ElMessage.error(t('build.addNodeTargetMissing'))
   }
 
   return {

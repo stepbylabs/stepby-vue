@@ -1,5 +1,5 @@
 // en-US · 分类：auth（认证会话）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   login: {
@@ -23,6 +23,8 @@ export default {
     oauthTitle: 'Third-party login',
     oauthBindRequired:
       'This third-party account has not been linked to a system account. Please log in with username/password first.',
+    oauthBindFailed:
+      'Third-party linking failed (the credential expired or is already linked to another account). Please restart the third-party login.',
     oauthGoLogin: 'Go to login',
     passkeyLogin: 'Sign in with a passkey',
     passkeyDivider: 'or sign in with a passkey',

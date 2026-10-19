@@ -70,6 +70,28 @@ export function useChart() {
   /** fallback 初始化定时器（CSS 未生效时延迟 resize） */
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null
 
+  /**
+   * 等待图表容器**进入 DOM**。
+   *
+   * 为什么需要：`<Transition mode="out-in">`（以及任何 v-if 分支切换）下，新分支的节点
+   * 要等旧分支 leave 动画结束才插入。数据到达后 `await nextTick()` 只覆盖一次渲染 flush，
+   * 此刻模板 ref 仍是 `null` → 直接 `getChart(ref.value!)` 会拿到 null 并**静默不画图**
+   * （实证：缓存概览首轮加载后两张卡片全空白、连错误提示都没有，直到切换主题重渲染才出现）。
+   *
+   * @param getEl 取容器（通常是 `() => someRef.value`）
+   * @param timeoutMs 上限；超时返回当前值（可能仍是 null，由调用方决定如何提示）
+   */
+  async function waitForRef(getEl: () => HTMLElement | null | undefined, timeoutMs = 1500): Promise<HTMLElement | null> {
+    const start = Date.now()
+    for (;;) {
+      const el = getEl()
+      if (el) return el
+      if (Date.now() - start >= timeoutMs) return null
+      await nextTick()
+      await new Promise<void>((resolve) => setTimeout(resolve, 30))
+    }
+  }
+
   /** 等待容器 DOM 就绪（有非零尺寸） */
   async function waitForContainerReady(el: HTMLElement, timeoutMs = 2000): Promise<boolean> {
     if (el.offsetWidth > 0 && el.offsetHeight > 0) return true
@@ -226,6 +248,7 @@ export function useChart() {
   return {
     getChart,
     withDark,
+    waitForRef,
     waitForContainerReady,
     resize,
     dispose,

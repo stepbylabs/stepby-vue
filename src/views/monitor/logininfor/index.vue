@@ -383,6 +383,16 @@ const {
   queryRef
 })
 
+// URL 恢复出的排序必须回灌表头箭头（与 operlog 同族）：EP 按自身 sortState 轮转方向，
+// 箭头与数据不一致时用户点不出反方向；本页 handleSortChange 直接把 EP 的
+// ascending/descending 透传进 isAsc，因此判定口径要同时认 asc/ascending 两种风格。
+if (queryParams.value.orderByColumn) {
+  defaultSort.value = {
+    prop: String(queryParams.value.orderByColumn),
+    order: /^asc/i.test(String(queryParams.value.isAsc ?? '')) ? 'ascending' : 'descending'
+  }
+}
+
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
@@ -399,6 +409,8 @@ function resetQuery() {
   // 批六十四修复（F137⑤ 实证）：EP form-item initialValue 被「URL 同步 + fullPath 重挂载」
   // 污染为搜索值，resetFields 只会“重置回搜索值”——必须显式恢复页面定义的干净默认快照
   resetQueryDefaults(queryParams)
+  // defaultSort 可能被 URL 恢复的排序回灌过（见上方），重置必须把它也拉回页面默认
+  defaultSort.value = { prop: 'loginTime', order: 'descending' }
   handleQuery()
   logininforRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }

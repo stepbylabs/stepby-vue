@@ -66,6 +66,23 @@ describe('frontendErrorReporter', () => {
     expect(typeof item.stack).toBe('string')
     expect(typeof item.pageUrl).toBe('string')
     expect(typeof item.viewWidth).toBe('number')
+    // 常规批次用 keepalive：离开页面时最后一批也能送达
+    expect(fetchCalls[0].init.keepalive).toBe(true)
+  })
+
+  it('body 超过 keepalive 上限（64 KiB）时改用普通请求，不再让整批被 reject 静默丢弃', () => {
+    // 真实可达形态：context.message 不截断（resource 失败带长 URL / 上游把响应体塞进
+    // message），单条就能超 60 KiB。keepalive 超限时 fetch **直接 reject**，
+    // 于是 catch 把整批观测数据静默吞掉——页面还在，本该发得出去。
+    const big = 'x'.repeat(70 * 1024)
+    __testables.transport(undefined, { level: 'error', source: 'other', message: big })
+    __testables.flush()
+    expect(fetchCalls).toHaveLength(1)
+    const { init } = fetchCalls[0]
+    const bytes = new TextEncoder().encode(init.body as string).length
+    expect(bytes).toBeGreaterThan(60 * 1024)
+    expect(init.keepalive).toBe(false)
+    // 对照组（上一条用例）：小批仍是 keepalive=true ⇒ 判据不是恒假
   })
 
   it('非 Error 且无上下文时归一化：level=error、source=other、message 取字符串', () => {

@@ -11,7 +11,8 @@ export interface SysFlowTask {
   nodeSeq: number
   nodeName?: string
   assigneeId: number
-  taskType: 'single' | 'countersign'
+  /** 引擎四模式定格值（后端 NodeSpec::task_type）；单审以外均须按会签族渲染 */
+  taskType: 'single' | 'countersign' | 'or_sign' | 'weighted'
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'transferred'
   title?: string
   applicantId: number
@@ -33,7 +34,8 @@ export interface FlowDemoDoc {
   leaveType: 'annual' | 'sick' | 'personal'
   days: number
   reason?: string
-  flowMode: 'single' | 'countersign'
+  /** 四模式（后端 is_valid_flow_mode 枚举：single/countersign/or_sign/weighted） */
+  flowMode: 'single' | 'countersign' | 'or_sign' | 'weighted'
   status: 'draft' | 'pending' | 'approved' | 'rejected' | 'withdrawn'
   currentRound: number
   currentNodeSeq?: number
@@ -55,9 +57,10 @@ export interface SysFlowLog {
     | 'reject'
     | 'withdraw'
     | 'transfer'
+    | 'delegate'
     | 'countersign_add'
+    | 'countersign_del'
     | 'timeout_remind'
-    | 'auto_approve'
   fromStatus?: string
   toStatus?: string
   operatorId?: number
@@ -81,7 +84,7 @@ export interface FlowSubmitForm {
   leaveType: 'annual' | 'sick' | 'personal'
   days: number
   reason?: string
-  flowMode: 'single' | 'countersign'
+  flowMode: 'single' | 'countersign' | 'or_sign' | 'weighted'
 }
 
 // 审批动作
@@ -190,6 +193,20 @@ export function countersignAddFlowTask(
 ): Promise<AjaxResult<SysFlowTask>> {
   return request({
     url: `/system/flow/task/${taskId}/countersign-add`,
+    method: 'post',
+    data: { toUserId }
+  })
+}
+
+// 减签（G-02 M2：从当前节点移除一名会签审批人）
+// 目标须是同轮同节点的 pending/approved 行，且移除后节点仍需 ≥1 名有效审批人，
+// 否则后端 400（countersign_del_not_found / countersign_del_last_assignee）。
+export function countersignDelFlowTask(
+  taskId: number,
+  toUserId: number
+): Promise<AjaxResult<SysFlowTask>> {
+  return request({
+    url: `/system/flow/task/${taskId}/countersign-del`,
     method: 'post',
     data: { toUserId }
   })

@@ -2,7 +2,12 @@
  * stepby 端到端主测试脚本（Playwright）
  *
  * 测试范围：方案 B 的 7 个新功能 + 第一梯队 4 项 + 审计追踪 + 多角色/注册/权限隔离/i18n 扫描 + 权限修复验证 + IP 库管理 + scheduler 双库 + TOTP + 核心 CRUD + 日志模块 + 用户/角色/菜单 CRUD + 嵌入式前端/上传安全/IP 提取/审计写操作/限流查询/权限深度验证/个人访问令牌 PAT + 实时日志 + 可拖拽仪表盘 + 行内可编辑表格 + SSO 管理 + 用户页全 UI 增删改链/导出物证 + 破坏性确认链取消路径 + 非默认 Tab 渲染 + 登录页失败路径 + 行内开关/分页边界 + Cron 生成器回传链 + 表单负路径 + 语言切换全链路/树形交互 + 角色权限树联动/重置密码 Prompt 校验链 + 右工具栏列显隐持久化/缓存刷新双链 + 定时任务行操作链/代码生成预览弹窗+同步取消链 + 个人中心资料与改密校验/执行一次→调度日志生成→详情→删除闭环 + 多租户管理/配额与生命周期/域名链路/config 与 dict 治理 + 多租户 Phase 3 套餐白名单/到期三态/文件跨租户隔离 + 跨租户越权防护（user 写越权 / post 与 frontendError 跨租户读）
- *   功能总数随批次追加：上述枚举截至早期 75 个；b64 追加 F136-140 页面覆盖补强，b70 追加 F141 文件页 UI 全链 / F142 redirect 防护，当前共 142 个功能。
+ *   功能总数随批次追加：上述枚举截至早期 75 个；b64 追加 F136-140，b70 追加 F141 文件页 UI 全链 /
+ *   F142 redirect 防护，b73 补注册 F117 深链数字参数本地闸门（此前是**空洞**）+ 新增 F143
+ *   敏感限流与 /health 关闭态契约 ⇒ 注册数 141 → 143、编号 1..143 连续。
+ *   **总数不在本行手写**：以 features 数组 + 文件内"注册表自检"（编号 1..N 连续、无重复、
+ *   `features.length === maxId`）为唯一事实源——此前本行长期写 142、AGENTS/TESTING 写 143，
+ *   而真实注册数 141，两处手写数字各错一个方向且全量跑批都看不出来（b73 轮 16 立此自检）。
  *   1. 在线用户强制踢出（/monitor/online）
  *   2. 登录异常检测（scheduler，验证 dashboard 接口可用）
  *   3. 数据备份恢复管理（/system/backup）
@@ -81,12 +86,19 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
-import { createCaptureHub } from './capture-kit.mjs'
+import { createCaptureHub, summarizeBackendLogErrors } from './capture-kit.mjs'
+import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+/**
+ * 本轮开跑时刻（b73 轮 9）：后端日志异常摘要只统计此刻之后的 ERROR/WARN。
+ * 模块级取值 = 进程启动即锚定，早于任何请求，故本轮产生的日志全部可归因；
+ * 历史轮次/历史日期的日志行不再混进本轮报告。
+ */
+const MAIN_RUN_STARTED_AT_MS = Date.now()
 const require = createRequire(import.meta.url)
 let chromium
 try {
@@ -209,17 +221,36 @@ async function is404Page(page, options = {}) {
  * @param {string} pathToken URL 必须包含的路径片段（用于命中判定）
  */
 async function gotoDynamicRoute(page, url, pathToken) {
+  let lastErr = null
   for (let i = 0; i < 5; i++) {
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+    // 导航**超时**同样是"该重试"的结局。旧实现只对"落到错误 URL"重试，`page.goto` 抛错
+    // 直接上抛 ⇒ 整个功能（乃至循环里剩余子目标）被一次高负载抖动打断，只剩一条
+    // 无归因的"测试执行 异常"（b73 实测：/system/menu 一次 30s load 超时使 F58
+    // 的 user/dept/menu/notice 四目标丢掉了 notice 的全部覆盖）。
+    try {
+      await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+      lastErr = null
+    } catch (err) {
+      lastErr = err
+      // 只对"load 超时"重试（高负载抖动的形态）。连接被拒/响应为空说明后端或整台机器
+      // 已经没了，重试只是把一个坏环境跑成 5 倍时长——那种情况要它立刻失败。
+      if (!/Timeout/i.test(err.message)) break
+      log(`  [diag-goto] try ${i}: 导航超时，重试 ${String(err.message).split('\n')[0].slice(0, 70)}`)
+      continue
+    }
     await page.waitForTimeout(1500)
     log(`  [diag-goto] try ${i}: url=${page.url()}`)
     if (page.url().includes(pathToken)) break
   }
   await page.waitForLoadState('load').catch(() => {})
+  if (lastErr)
+    throw new Error(
+      `导航 5 次均未成功（最后异常：${String(lastErr.message).split('\n')[0].slice(0, 90)}）`
+    )
 }
 
 /**
- * F117（测试债）抽取的「页面打开五连」样板：presetTourDisabled → goto（动态路由重试）
+ * 测试债轮抽取的「页面打开五连」样板：presetTourDisabled → goto（动态路由重试）
  * → sleep(1500) → skipTour → is404 判定。
  * 替换 F91/F92/F100/F101 中 16 处重复的「预置 tour → goto → sleep → skipTour → 非404」
  * 组合，行为等价（F91/F92 原 sleep(1200) 统一为 1500ms；goto 升级为 gotoDynamicRoute
@@ -242,8 +273,32 @@ async function openPage(page, path, pathToken) {
 }
 
 /**
+ * 页面"落确定态"判据（批七十四 T1：探针与判据统一收进 `page-state.mjs`）。
+ *
+ * 本套件此前另写一份，且两份都把**测量对象**选错了：`contentRoot` 在整份 document 上求
+ * 可见性（布局外壳恒真）、`text` 取 `body.innerText`（导航菜单恒有字），于是深链落空、
+ * 路由未匹配、内容区空白都照样记 ✅。现在判据只此一处，main.mjs 与 deep-e2e 不可能再漂移。
+ * 探针自身异常不得冒充产品结论（如实标注"⟵ 断言工具异常"）。
+ */
+async function assertPageLoaded(page, featureId, name) {
+  const v = await page.evaluate(PAGE_STATE_PROBE).catch(() => null)
+  if (!v) {
+    record(featureId, `${name}（确定态对账）`, false, '⟵ 断言工具异常（evaluate 失败），非产品问题')
+    return false
+  }
+  const verdict = judgePageLoaded(v)
+  record(
+    featureId,
+    `${name}（确定态对账）`,
+    verdict.ok,
+    `${verdict.detail}${verdict.ok ? '' : ` ⟵ ${verdict.reasons.join(' / ')}`}`
+  )
+  return verdict.ok
+}
+
+/**
  * 通用 API 助手（429 退避重试，语义对齐 mLevelApiSetup 内 api 闭包——批次十八口径）。
- * F117 新增：供 recordSkip 的 API 200 兜底断言与 F110-116 使用（e2e 规范：禁裸 fetch）。
+ * 测试债轮新增：供 recordSkip 的 API 200 兜底断言与 F110-116 使用（e2e 规范：禁裸 fetch）。
  * @param {string} path 后端路径（以 / 开头）
  * @param {object} [opts] fetch 选项（method/headers/body 等）
  * @param {number} [_tries] 剩余重试次数
@@ -286,7 +341,28 @@ function record(feature, name, passed, detail = '') {
 }
 
 /**
- * F117（测试债修复）：SKIP 条目不再冒充 PASS。
+ * 聚合断言回读：按功能号 + 记录名取既成记录，取不到返回 undefined（调用方按未通过计）。
+ *
+ * b73 轮 19 真缺陷修复：`assertPageLoaded` 会把记录名写成「X（确定态对账）」，
+ * 而 139 处聚合仍按 `r.name === 'X'` 精确回读 ⇒ 恒 undefined ⇒ 聚合恒 ❌
+ * （F18 实测「8 项检查通过 7/8」而 8 条子记录全部 ✅，就是这条断链）。
+ * 口径：① 先精确同名（保留既有行为，绝不误抢同名他记录）② 再按剥掉对账后缀的名字兜底
+ * ③ 两次都取不到才打警告——静默当 false 是最难查的假失败。
+ * @param {number} feature 功能号
+ * @param {string} name 记录名（可不含「（确定态对账）」后缀）
+ */
+function readFeatureRecord(feature, name) {
+  const list = results.filter((r) => r.feature === feature)
+  const exact = list.find((r) => r.name === name)
+  if (exact) return exact
+  const bare = (s) => String(s).replace(/（(?:确定态对账|结果对账)）$/, '')
+  const hit = list.find((r) => bare(r.name) === bare(name))
+  if (!hit) log(`  ⚠️ 聚合回读缺失：功能${feature} 无名为「${name}」的记录（本项按未通过计）`)
+  return hit
+}
+
+/**
+ * 测试债轮：SKIP 条目不再冒充 PASS。
  * 原问题：`record(N, name, true, 'SKIP：...')` 把未实际执行的路径记为 passed=true，
  * 汇总统计/明细打印/退出码均按 PASS 处理（假通过）。
  * 最小侵入方案：本助手产出带 skipped:true 标记的条目——汇总明细以 ⏭ SKIP 打印、
@@ -575,7 +651,7 @@ async function testFeature1(page) {
     record(1, '页面加载', false, '返回 404')
     return
   }
-  record(1, '页面加载', true)
+  await assertPageLoaded(page, 1, '页面加载')
 
   // 验证列表表格存在
   const table = page.locator('table, .el-table').first()
@@ -625,7 +701,7 @@ async function testFeature3(page) {
     record(3, '页面加载', false, '返回 404')
     return
   }
-  record(3, '页面加载', true)
+  await assertPageLoaded(page, 3, '页面加载')
 
   // 验证"创建备份"按钮存在
   const createBtn = page
@@ -775,7 +851,7 @@ async function testFeature3(page) {
       await mbConfirm.click({ timeout: 8000 }).catch(() => {})
       const [download, resp] = await Promise.all([downloadPromise, responsePromise])
       if (download) {
-        record(3, '下载功能端到端验证', true, `文件: ${download.suggestedFilename()}`)
+        record(3, '下载功能端到端验证', !!download?.suggestedFilename?.(), `文件: ${download.suggestedFilename()}`)
       } else if (resp) {
         const body = await resp.body().catch(() => null)
         record(3, '下载功能端到端验证', !!body && body.length > 0, `blob 响应 ${body ? body.length : 0} 字节`)
@@ -811,7 +887,7 @@ async function testFeature4(page) {
     record(4, '页面加载', false, '返回 404')
     return
   }
-  record(4, '页面加载', true)
+  await assertPageLoaded(page, 4, '页面加载')
 
   // 验证统计卡片（查找包含数字的卡片）
   const cards = page.locator('.el-card, [class*="stat"], [class*="card"]')
@@ -851,7 +927,7 @@ async function testFeature5(page) {
     record(5, '页面加载', false, '返回 404')
     return
   }
-  record(5, '页面加载', true)
+  await assertPageLoaded(page, 5, '页面加载')
 
   // 点击导出按钮
   const exportBtn = page.locator('button:has-text("导出")').first()
@@ -1084,7 +1160,7 @@ async function testFeature6(page) {
     record(6, '页面加载', false, '返回 404')
     return
   }
-  record(6, '页面加载', true)
+  await assertPageLoaded(page, 6, '页面加载')
 
   // 验证任务列表表格
   const table = page.locator('.el-table, table').first()
@@ -1123,7 +1199,7 @@ async function testFeature7(page) {
     record(7, '页面加载', false, '返回 404')
     return
   }
-  record(7, '页面加载', true)
+  await assertPageLoaded(page, 7, '页面加载')
 
   // 点击新增按钮
   const addBtn = page.locator('button:has-text("新增"), button:has-text("新建")').first()
@@ -1194,7 +1270,7 @@ async function testFeature8(page) {
     record(8, '页面加载', false, '返回 404')
     return
   }
-  record(8, '页面加载', true)
+  await assertPageLoaded(page, 8, '页面加载')
 
   // 验证表格存在且含数据行（骨架态不算通过）
   const table = page.locator('.el-table, table').first()
@@ -1206,13 +1282,36 @@ async function testFeature8(page) {
   record(8, '限流配置表格', hasTable && rowCount > 0, `行数=${rowCount}`)
 
   // 验证表格中存在默认全局配置（routePattern='*'，显示为"全局默认" tag）
-  const hasGlobalConfig = await page
-    .locator('.el-tag:has-text("全局默认")')
-    .first()
-    .waitFor({ state: 'visible', timeout: 3000 })
-    .then(() => true)
-    .catch(() => false)
-  record(8, '默认全局配置存在', hasGlobalConfig)
+  // b72 起改为**先按 routePattern=* 过滤再断言**：敏感操作独立限流档位（AGENTS C.10）让
+  // sys_rate_limit 从 6 行涨到 25 行，`*` 行被分页翻到后面的页 ⇒ 原"首页可见"断言与
+  // 数据量强耦合（b71 同类教训：F118 的环境耦合假失败）。过滤后的断言只依赖真实契约
+  // ——「routePattern=* 的行存在，且被渲染成全局默认 tag」，与行数无关。
+  const patternInput = page.locator('input[placeholder="请输入路由前缀"]').first()
+  const filteredToGlobal = await patternInput
+    .fill('*')
+    .then(() => page.locator('button:has-text("搜索")').first().click())
+    .then(async () => {
+      await sleep(900)
+      const rows = await page.locator('.el-table__row').count().catch(() => 0)
+      const tag = await page
+        .locator('.el-tag:has-text("全局默认")')
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      return { rows, tag }
+    })
+    .catch(() => ({ rows: -1, tag: false }))
+  record(
+    8,
+    '默认全局配置存在',
+    filteredToGlobal.tag && filteredToGlobal.rows === 1,
+    `过滤后行数=${filteredToGlobal.rows}，全局默认 tag=${filteredToGlobal.tag}`
+  )
+
+  // 恢复无过滤态（后续 switch/新增按钮断言不依赖过滤结果）
+  await page.locator('button:has-text("重置")').first().click().catch(() => {})
+  await sleep(700)
 
   // 验证启用状态 switch 开关存在
   const switchBtn = page.locator('.el-table .el-switch').first()
@@ -1313,7 +1412,7 @@ async function testFeature9(page) {
     record(9, '页面加载', false, '返回 404')
     return
   }
-  record(9, '字典类型页面加载', true)
+  await assertPageLoaded(page, 9, '字典类型页面加载')
 
   // 等待表格数据加载
   let rowCount = 0
@@ -1684,7 +1783,7 @@ async function testFeature11(page) {
     record(11, '页面加载', false, '返回 404')
     return
   }
-  record(11, '审计大屏页面加载', true)
+  await assertPageLoaded(page, 11, '审计大屏页面加载')
 
   // 验证"导出合规报告"按钮存在
   const exportBtn = page.locator('button:has-text("导出合规报告")').first()
@@ -1715,7 +1814,7 @@ async function testFeature11(page) {
     const [download, reportResp] = await Promise.all([downloadPromise, reportRespPromise])
     if (download) {
       downloadTriggered = true
-      record(11, 'PDF 导出功能触发', true, `文件: ${download.suggestedFilename()}`)
+      record(11, 'PDF 导出功能触发', !!download?.suggestedFilename?.(), `文件: ${download.suggestedFilename()}`)
     } else if (reportResp) {
       const payload = await reportResp.json().catch(() => null)
       const bizOk = payload && (payload.code === 200 || payload.code === 0)
@@ -2612,11 +2711,11 @@ async function testFeature17(page) {
 
   // 步骤 5：综合判断
   const backupOk =
-    results.find((r) => r.feature === 17 && r.name === '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）')
+    readFeatureRecord(17, '备份面对平台普通角色不可达（菜单已剔除，强于"仅隐藏恢复按钮"）')
       ?.passed || false
-  const adminBackupOk = results.find((r) => r.feature === 17 && r.name === 'admin 备份页可达（对照）')?.passed || false
-  const auditOk = results.find((r) => r.feature === 17 && r.name === '审计大屏数据加载')?.passed || false
-  const apiOk = results.find((r) => r.feature === 17 && r.name === '审计大屏 API 权限')?.passed || false
+  const adminBackupOk = readFeatureRecord(17, 'admin 备份页可达（对照）')?.passed || false
+  const auditOk = readFeatureRecord(17, '审计大屏数据加载')?.passed || false
+  const apiOk = readFeatureRecord(17, '审计大屏 API 权限')?.passed || false
   const allPass = backupOk && adminBackupOk && auditOk && apiOk
   record(
     17,
@@ -2650,7 +2749,7 @@ async function testFeature18(page) {
     record(18, 'IP 库管理综合验证', false, '依赖前置步骤失败')
     return
   }
-  record(18, 'admin 页面可访问', true, '页面正常加载')
+  await assertPageLoaded(page, 18, 'admin 页面可访问')
 
   // 验证 4 个状态卡片渲染
   const statCardCount = await page
@@ -2945,14 +3044,14 @@ async function testFeature18(page) {
 
   // ---------- 步骤 6：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 18 && r.name === 'admin 页面可访问')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'admin 状态卡片加载')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'admin 操作按钮可见')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'admin 配置对话框')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'admin API 状态接口')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'admin API 配置接口')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === 'stepby 权限验证')?.passed || false,
-    results.find((r) => r.feature === 18 && r.name === '无 token 鉴权')?.passed || false
+    readFeatureRecord(18, 'admin 页面可访问')?.passed || false,
+    readFeatureRecord(18, 'admin 状态卡片加载')?.passed || false,
+    readFeatureRecord(18, 'admin 操作按钮可见')?.passed || false,
+    readFeatureRecord(18, 'admin 配置对话框')?.passed || false,
+    readFeatureRecord(18, 'admin API 状态接口')?.passed || false,
+    readFeatureRecord(18, 'admin API 配置接口')?.passed || false,
+    readFeatureRecord(18, 'stepby 权限验证')?.passed || false,
+    readFeatureRecord(18, '无 token 鉴权')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(18, 'IP 库管理综合验证', allPass, `8 项检查通过 ${allChecks.filter(Boolean).length}/8`)
@@ -2983,7 +3082,7 @@ async function testFeature19(page) {
     for (let i = 0; i < 8; i++) record(19, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(19, 'admin 登录获取 token', true, 'token 获取成功')
+  record(19, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   // ---------- 步骤 2：验证 status API 返回 scheduler 字段 ----------
   let statusData = null
@@ -3026,7 +3125,16 @@ async function testFeature19(page) {
     cronFormatOk ? `cron="${statusData.autoUpdateCron}"` : `非法 cron="${statusData?.autoUpdateCron}"`
   )
 
-  // ---------- 步骤 4：验证 reloadXdb 接口（无 xdb 文件时应失败，有文件时成功） ----------
+  // ---------- 步骤 4：验证 reloadXdb 的两种正确结局（本轮收紧）----------
+  // 有文件 ⇒ 200 热加载成功；无文件 ⇒ 显式 400 且文案点明"库文件不存在"。
+  // 旧写法把 500 也算"接口可达（行为正确）"，于是"缺文件被 anyhow 洗成系统内部错误"
+  // 这个真缺陷被断言自己洗白了（本轮实测 msg 已是通用的「系统内部错误，请联系管理员」，
+  // 连 /xdb|文件|file/ 都不匹配 ⇒ 说明那条豁免从来没抓到任何东西）。
+  // 现在 500 = FAIL：handler 的 utoipa 契约写的是 200/400，实现必须与自述契约一致。
+  // 用例名只写一次：步骤 10 的综合判断按名字回读各条记录，字面量改名时回读会落空并按
+  // 未通过计（本轮就是这么抓到"改名"的连带影响）——用同一个常量把两处绑死，
+  // 不再依赖两处字面量碰巧对得上。
+  const reloadXdbRecord = 'reloadXdb 结局正确（200 或 400+可读文案）'
   let reloadXdbOk = false
   let reloadXdbDetail = ''
   try {
@@ -3039,14 +3147,13 @@ async function testFeature19(page) {
       reloadXdbDetail = 'xdb 热加载成功'
     } else {
       const errBody = await resp.json().catch(() => ({}))
-      reloadXdbDetail = `HTTP ${resp.status}: ${errBody?.msg || 'xdb 文件不存在'}`
-      // 如果状态码是 500 且提示文件不存在，也算"接口可达"（行为正确）
-      reloadXdbOk = resp.status === 500 && /xdb|文件|file/i.test(errBody?.msg || '')
+      reloadXdbDetail = `HTTP ${resp.status}: ${errBody?.msg || '(无文案)'}`
+      reloadXdbOk = resp.status === 400 && /xdb|库文件|file/i.test(errBody?.msg || '')
     }
   } catch (err) {
     reloadXdbDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(19, 'reloadXdb 接口可达', reloadXdbOk, reloadXdbDetail)
+  record(19, reloadXdbRecord, reloadXdbOk, reloadXdbDetail)
 
   // ---------- 步骤 5：再次查询 status，确认 xdbLoaded 字段一致性 ----------
   let statusAfterReload = null
@@ -3218,15 +3325,15 @@ async function testFeature19(page) {
 
   // ---------- 步骤 10：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 19 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'status API scheduler + xdb 字段')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'autoUpdateCron 6 字段格式')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'reloadXdb 接口可达')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'xdb 状态字段一致性')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'autoUpdateEnabled 开关可读写')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'reloadXdb 无 token 鉴权')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === 'stepby 用户 reloadXdb 权限一致')?.passed || false,
-    results.find((r) => r.feature === 19 && r.name === '前端 IP 库管理页面')?.passed || false
+    readFeatureRecord(19, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(19, 'status API scheduler + xdb 字段')?.passed || false,
+    readFeatureRecord(19, 'autoUpdateCron 6 字段格式')?.passed || false,
+    readFeatureRecord(19, reloadXdbRecord)?.passed || false,
+    readFeatureRecord(19, 'xdb 状态字段一致性')?.passed || false,
+    readFeatureRecord(19, 'autoUpdateEnabled 开关可读写')?.passed || false,
+    readFeatureRecord(19, 'reloadXdb 无 token 鉴权')?.passed || false,
+    readFeatureRecord(19, 'stepby 用户 reloadXdb 权限一致')?.passed || false,
+    readFeatureRecord(19, '前端 IP 库管理页面')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(19, 'scheduler + 双库综合验证', allPass, `9 项检查通过 ${allChecks.filter(Boolean).length}/9`)
@@ -3315,7 +3422,7 @@ async function testFeature20(page) {
     for (let i = 0; i < 7; i++) record(20, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(20, 'admin 登录获取 token', true, 'token 获取成功')
+  record(20, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
 
@@ -3448,14 +3555,14 @@ async function testFeature20(page) {
 
   // ---------- 步骤 9：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 20 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === '初始状态 enabled=false')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === 'setup 返回结构完整')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === 'verify 验证码启用 TOTP')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === '启用后 enabled=true')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === 'disable 解绑 TOTP')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === '解绑后 enabled=false')?.passed || false,
-    results.find((r) => r.feature === 20 && r.name === '无 token 鉴权')?.passed || false
+    readFeatureRecord(20, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(20, '初始状态 enabled=false')?.passed || false,
+    readFeatureRecord(20, 'setup 返回结构完整')?.passed || false,
+    readFeatureRecord(20, 'verify 验证码启用 TOTP')?.passed || false,
+    readFeatureRecord(20, '启用后 enabled=true')?.passed || false,
+    readFeatureRecord(20, 'disable 解绑 TOTP')?.passed || false,
+    readFeatureRecord(20, '解绑后 enabled=false')?.passed || false,
+    readFeatureRecord(20, '无 token 鉴权')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(20, 'TOTP 综合验证', allPass, `8 项检查通过 ${allChecks.filter(Boolean).length}/8`)
@@ -3486,7 +3593,7 @@ async function testFeature21(page) {
     for (let i = 0; i < 20; i++) record(21, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(21, 'admin 登录获取 token', true, 'token 获取成功')
+  record(21, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
@@ -3937,29 +4044,29 @@ async function testFeature21(page) {
 
   // ---------- 步骤 7：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 21 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '岗位 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '岗位 list 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '岗位 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '岗位 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '通知 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '通知 list 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '通知 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '通知 markRead 标记已读')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '通知 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '配置 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '配置 list 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '配置 configKey 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '配置 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '配置 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '字典 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '字典 list 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '字典 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '字典 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '部门 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '部门 list 查询')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '部门 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 21 && r.name === '部门 DELETE 删除')?.passed || false
+    readFeatureRecord(21, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(21, '岗位 POST 新增')?.passed || false,
+    readFeatureRecord(21, '岗位 list 查询')?.passed || false,
+    readFeatureRecord(21, '岗位 PUT 修改')?.passed || false,
+    readFeatureRecord(21, '岗位 DELETE 删除')?.passed || false,
+    readFeatureRecord(21, '通知 POST 新增')?.passed || false,
+    readFeatureRecord(21, '通知 list 查询')?.passed || false,
+    readFeatureRecord(21, '通知 PUT 修改')?.passed || false,
+    readFeatureRecord(21, '通知 markRead 标记已读')?.passed || false,
+    readFeatureRecord(21, '通知 DELETE 删除')?.passed || false,
+    readFeatureRecord(21, '配置 POST 新增')?.passed || false,
+    readFeatureRecord(21, '配置 list 查询')?.passed || false,
+    readFeatureRecord(21, '配置 configKey 查询')?.passed || false,
+    readFeatureRecord(21, '配置 PUT 修改')?.passed || false,
+    readFeatureRecord(21, '配置 DELETE 删除')?.passed || false,
+    readFeatureRecord(21, '字典 POST 新增')?.passed || false,
+    readFeatureRecord(21, '字典 list 查询')?.passed || false,
+    readFeatureRecord(21, '字典 PUT 修改')?.passed || false,
+    readFeatureRecord(21, '字典 DELETE 删除')?.passed || false,
+    readFeatureRecord(21, '部门 POST 新增')?.passed || false,
+    readFeatureRecord(21, '部门 list 查询')?.passed || false,
+    readFeatureRecord(21, '部门 PUT 修改')?.passed || false,
+    readFeatureRecord(21, '部门 DELETE 删除')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -3995,7 +4102,7 @@ async function testFeature22(page) {
     for (let i = 0; i < 16; i++) record(22, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(22, 'admin 登录获取 token', true, 'token 获取成功')
+  record(22, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
 
@@ -4338,23 +4445,23 @@ async function testFeature22(page) {
 
   // ---------- 步骤 6：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 22 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '操作日志 list 查询')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '操作日志按业务类型筛选')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '操作日志 export 导出')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '操作日志单条删除')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '操作日志批量删除')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '登录日志 list 查询')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '登录日志按 userName 筛选')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '登录日志按 status 筛选')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '登录日志 export 导出')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '登录日志单条删除')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '缓存概览 GET /monitor/cache')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '缓存名称 getNames')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '缓存键 getKeys')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '缓存值 getValue')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '缓存清理 clearCacheKey')?.passed || false,
-    results.find((r) => r.feature === 22 && r.name === '服务器监控 GET /monitor/server')?.passed || false
+    readFeatureRecord(22, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(22, '操作日志 list 查询')?.passed || false,
+    readFeatureRecord(22, '操作日志按业务类型筛选')?.passed || false,
+    readFeatureRecord(22, '操作日志 export 导出')?.passed || false,
+    readFeatureRecord(22, '操作日志单条删除')?.passed || false,
+    readFeatureRecord(22, '操作日志批量删除')?.passed || false,
+    readFeatureRecord(22, '登录日志 list 查询')?.passed || false,
+    readFeatureRecord(22, '登录日志按 userName 筛选')?.passed || false,
+    readFeatureRecord(22, '登录日志按 status 筛选')?.passed || false,
+    readFeatureRecord(22, '登录日志 export 导出')?.passed || false,
+    readFeatureRecord(22, '登录日志单条删除')?.passed || false,
+    readFeatureRecord(22, '缓存概览 GET /monitor/cache')?.passed || false,
+    readFeatureRecord(22, '缓存名称 getNames')?.passed || false,
+    readFeatureRecord(22, '缓存键 getKeys')?.passed || false,
+    readFeatureRecord(22, '缓存值 getValue')?.passed || false,
+    readFeatureRecord(22, '缓存清理 clearCacheKey')?.passed || false,
+    readFeatureRecord(22, '服务器监控 GET /monitor/server')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -4390,7 +4497,7 @@ async function testFeature23(page) {
     for (let i = 0; i < 17; i++) record(23, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(23, 'admin 登录获取 token', true, 'token 获取成功')
+  record(23, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
@@ -4736,23 +4843,23 @@ async function testFeature23(page) {
 
   // ---------- 步骤 6：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 23 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '用户 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '用户 list 查询')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '用户 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '用户 changeStatus 启停')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '用户 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '角色 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '角色 list 查询')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '角色 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '角色 changeStatus 启停')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '角色 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '菜单 POST 新增')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '菜单 list 查询')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '菜单 treeselect 验证')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '菜单 PUT 修改')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '菜单 DELETE 删除')?.passed || false,
-    results.find((r) => r.feature === 23 && r.name === '超管保护 user_id=1 不可删')?.passed || false
+    readFeatureRecord(23, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(23, '用户 POST 新增')?.passed || false,
+    readFeatureRecord(23, '用户 list 查询')?.passed || false,
+    readFeatureRecord(23, '用户 PUT 修改')?.passed || false,
+    readFeatureRecord(23, '用户 changeStatus 启停')?.passed || false,
+    readFeatureRecord(23, '用户 DELETE 删除')?.passed || false,
+    readFeatureRecord(23, '角色 POST 新增')?.passed || false,
+    readFeatureRecord(23, '角色 list 查询')?.passed || false,
+    readFeatureRecord(23, '角色 PUT 修改')?.passed || false,
+    readFeatureRecord(23, '角色 changeStatus 启停')?.passed || false,
+    readFeatureRecord(23, '角色 DELETE 删除')?.passed || false,
+    readFeatureRecord(23, '菜单 POST 新增')?.passed || false,
+    readFeatureRecord(23, '菜单 list 查询')?.passed || false,
+    readFeatureRecord(23, '菜单 treeselect 验证')?.passed || false,
+    readFeatureRecord(23, '菜单 PUT 修改')?.passed || false,
+    readFeatureRecord(23, '菜单 DELETE 删除')?.passed || false,
+    readFeatureRecord(23, '超管保护 user_id=1 不可删')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -4864,12 +4971,12 @@ async function testFeature24(page) {
 
   // ---------- 步骤 7：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 24 && r.name === 'GET / 返回 index.html')?.passed || false,
-    results.find((r) => r.feature === 24 && r.name === 'index.html 不缓存策略')?.passed || false,
-    results.find((r) => r.feature === 24 && r.name === 'SPA fallback 返回 index.html')?.passed || false,
-    results.find((r) => r.feature === 24 && r.name === '静态资源 .js 404 不走 SPA fallback')?.passed || false,
-    results.find((r) => r.feature === 24 && r.name === '静态资源 .css 404 不走 SPA fallback')?.passed || false,
-    results.find((r) => r.feature === 24 && r.name === 'API 路由 /health 不受嵌入模式影响')?.passed || false
+    readFeatureRecord(24, 'GET / 返回 index.html')?.passed || false,
+    readFeatureRecord(24, 'index.html 不缓存策略')?.passed || false,
+    readFeatureRecord(24, 'SPA fallback 返回 index.html')?.passed || false,
+    readFeatureRecord(24, '静态资源 .js 404 不走 SPA fallback')?.passed || false,
+    readFeatureRecord(24, '静态资源 .css 404 不走 SPA fallback')?.passed || false,
+    readFeatureRecord(24, 'API 路由 /health 不受嵌入模式影响')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -4894,7 +5001,7 @@ async function testFeature25(page) {
     for (let i = 0; i < 7; i++) record(25, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(25, 'admin 登录获取 token', true, loginResult.detail)
+  record(25, 'admin 登录获取 token', !!adminToken, loginResult.detail)
 
   // 批六十六：记录原头像指针——用例结束后恢复，避免把 e2e 上传件永久留在管理员账号上
   //（无「清空头像」API，故用与 cleanupE2eResidue 同源的 node:sqlite 直连恢复）。
@@ -5099,13 +5206,13 @@ async function testFeature25(page) {
 
   // ---------- 步骤 8：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 25 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '上传合法 PNG 头像（含落库完整性）')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '上传合法 JPEG 头像（含落库完整性）')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '伪造扩展名（magic bytes 不匹配）被拒绝')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '空文件被拒绝')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '超大文件（>5MB）被拒绝')?.passed || false,
-    results.find((r) => r.feature === 25 && r.name === '无 token 鉴权 401')?.passed || false
+    readFeatureRecord(25, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(25, '上传合法 PNG 头像（含落库完整性）')?.passed || false,
+    readFeatureRecord(25, '上传合法 JPEG 头像（含落库完整性）')?.passed || false,
+    readFeatureRecord(25, '伪造扩展名（magic bytes 不匹配）被拒绝')?.passed || false,
+    readFeatureRecord(25, '空文件被拒绝')?.passed || false,
+    readFeatureRecord(25, '超大文件（>5MB）被拒绝')?.passed || false,
+    readFeatureRecord(25, '无 token 鉴权 401')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -5130,7 +5237,7 @@ async function testFeature26(page) {
     for (let i = 0; i < 9; i++) record(26, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(26, 'admin 登录获取 token', true, loginResult26.detail)
+  record(26, 'admin 登录获取 token', !!adminToken, loginResult26.detail)
 
   // ---------- 辅助：构造 multipart ----------
   function buildMultipart(fieldName, filename, fileBytes, contentType = 'text/plain') {
@@ -5373,18 +5480,18 @@ async function testFeature26(page) {
 
   // ---------- 步骤 11：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 26 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'POST /common/upload 上传合法 txt')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'common_dir 配置（url 前缀 /uploads/0/file/）')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === '非法扩展名 .exe 被拒绝')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === '路径穿越防护 /common/download fileName=..')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === '路径穿越防护 /common/download/resource resource=..')?.passed ||
+    readFeatureRecord(26, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(26, 'POST /common/upload 上传合法 txt')?.passed || false,
+    readFeatureRecord(26, 'common_dir 配置（url 前缀 /uploads/0/file/）')?.passed || false,
+    readFeatureRecord(26, '非法扩展名 .exe 被拒绝')?.passed || false,
+    readFeatureRecord(26, '路径穿越防护 /common/download fileName=..')?.passed || false,
+    readFeatureRecord(26, '路径穿越防护 /common/download/resource resource=..')?.passed ||
       false,
-    results.find((r) => r.feature === 26 && r.name === 'resource 必须以 uploads/ 开头')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'POST /system/file/upload 上传')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'GET /system/file/list')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === 'DELETE /system/file/delete')?.passed || false,
-    results.find((r) => r.feature === 26 && r.name === '/common/download 正向回环（读+删除生效）')?.passed || false
+    readFeatureRecord(26, 'resource 必须以 uploads/ 开头')?.passed || false,
+    readFeatureRecord(26, 'POST /system/file/upload 上传')?.passed || false,
+    readFeatureRecord(26, 'GET /system/file/list')?.passed || false,
+    readFeatureRecord(26, 'DELETE /system/file/delete')?.passed || false,
+    readFeatureRecord(26, '/common/download 正向回环（读+删除生效）')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -5417,7 +5524,7 @@ async function testFeature27(page) {
     for (let i = 0; i < 6; i++) record(27, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(27, 'admin 登录获取 token', true, loginResult27.detail)
+  record(27, 'admin 登录获取 token', !!adminToken, loginResult27.detail)
 
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
 
@@ -5554,11 +5661,11 @@ async function testFeature27(page) {
 
   // ---------- 步骤 6：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 27 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 27 && r.name === 'logininfor 记录 login_ip 字段（XFF 被信任）')?.passed || false,
-    results.find((r) => r.feature === 27 && r.name === 'XFF 头被信任（trusted_proxies 含 127.0.0.1）')?.passed || false,
-    results.find((r) => r.feature === 27 && r.name === 'oper_log 记录 oper_ip 字段')?.passed || false,
-    results.find((r) => r.feature === 27 && r.name === 'oper_location 字段存在')?.passed || false
+    readFeatureRecord(27, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(27, 'logininfor 记录 login_ip 字段（XFF 被信任）')?.passed || false,
+    readFeatureRecord(27, 'XFF 头被信任（trusted_proxies 含 127.0.0.1）')?.passed || false,
+    readFeatureRecord(27, 'oper_log 记录 oper_ip 字段')?.passed || false,
+    readFeatureRecord(27, 'oper_location 字段存在')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -5583,7 +5690,7 @@ async function testFeature28(page) {
     for (let i = 0; i < 7; i++) record(28, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(28, 'admin 登录获取 token', true, loginResult28.detail)
+  record(28, 'admin 登录获取 token', !!adminToken, loginResult28.detail)
 
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
@@ -5771,12 +5878,12 @@ async function testFeature28(page) {
 
   // ---------- 步骤 8：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 28 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 28 && r.name === 'POST 写操作被 oper_log 记录')?.passed || false,
-    results.find((r) => r.feature === 28 && r.name === 'PUT 写操作被 oper_log 记录')?.passed || false,
-    results.find((r) => r.feature === 28 && r.name === 'DELETE 写操作被 oper_log 记录')?.passed || false,
-    results.find((r) => r.feature === 28 && r.name === 'GET 请求不被 oper_log 记录')?.passed || false,
-    results.find((r) => r.feature === 28 && r.name === 'oper_param 字段记录请求参数')?.passed || false
+    readFeatureRecord(28, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(28, 'POST 写操作被 oper_log 记录')?.passed || false,
+    readFeatureRecord(28, 'PUT 写操作被 oper_log 记录')?.passed || false,
+    readFeatureRecord(28, 'DELETE 写操作被 oper_log 记录')?.passed || false,
+    readFeatureRecord(28, 'GET 请求不被 oper_log 记录')?.passed || false,
+    readFeatureRecord(28, 'oper_param 字段记录请求参数')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -5801,7 +5908,7 @@ async function testFeature29(page) {
     for (let i = 0; i < 7; i++) record(29, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(29, 'admin 登录获取 token', true, loginResult29.detail)
+  record(29, 'admin 登录获取 token', !!adminToken, loginResult29.detail)
 
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
@@ -5989,15 +6096,15 @@ async function testFeature29(page) {
 
   // ---------- 步骤 9：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 29 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 29 && r.name === '创建字典类型')?.passed || false,
-    results.find((r) => r.feature === 29 && r.name === '创建字典数据（带 dict_label_en）')?.passed || false,
-    results.find((r) => r.feature === 29 && r.name === 'GET /dict/data/list 返回 dict_label_en')?.passed || false,
-    results.find((r) => r.feature === 29 && r.name === 'GET /dict/data/type/{dictType} 返回 dict_label_en')?.passed ||
+    readFeatureRecord(29, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(29, '创建字典类型')?.passed || false,
+    readFeatureRecord(29, '创建字典数据（带 dict_label_en）')?.passed || false,
+    readFeatureRecord(29, 'GET /dict/data/list 返回 dict_label_en')?.passed || false,
+    readFeatureRecord(29, 'GET /dict/data/type/{dictType} 返回 dict_label_en')?.passed ||
       false,
-    results.find((r) => r.feature === 29 && r.name === 'GET /dict/data/{dictCode} 详情返回 dict_label_en')?.passed ||
+    readFeatureRecord(29, 'GET /dict/data/{dictCode} 详情返回 dict_label_en')?.passed ||
       false,
-    results.find((r) => r.feature === 29 && r.name === 'PUT 修改 dict_label_en 字段')?.passed || false
+    readFeatureRecord(29, 'PUT 修改 dict_label_en 字段')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -6022,7 +6129,7 @@ async function testFeature30(page) {
     for (let i = 0; i < 7; i++) record(30, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(30, 'admin 登录获取 token', true, loginResult30.detail)
+  record(30, 'admin 登录获取 token', !!adminToken, loginResult30.detail)
 
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
 
@@ -6161,13 +6268,13 @@ async function testFeature30(page) {
 
   // ---------- 步骤 9：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 30 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'GET list 无参数（基线）')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'routePattern=* 过滤')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'routePattern=/login 精确过滤')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'enabled=true 过滤')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'enabled=false 过滤')?.passed || false,
-    results.find((r) => r.feature === 30 && r.name === 'GET /system/rateLimit/{id} 详情')?.passed || false
+    readFeatureRecord(30, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(30, 'GET list 无参数（基线）')?.passed || false,
+    readFeatureRecord(30, 'routePattern=* 过滤')?.passed || false,
+    readFeatureRecord(30, 'routePattern=/login 精确过滤')?.passed || false,
+    readFeatureRecord(30, 'enabled=true 过滤')?.passed || false,
+    readFeatureRecord(30, 'enabled=false 过滤')?.passed || false,
+    readFeatureRecord(30, 'GET /system/rateLimit/{id} 详情')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -6193,7 +6300,7 @@ async function testFeature31(page) {
     for (let i = 0; i < 7; i++) record(31, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(31, 'admin 登录获取 token', true, loginResult31.detail)
+  record(31, 'admin 登录获取 token', !!adminToken, loginResult31.detail)
 
   // admin 创建备份（POST /system/backup）
   try {
@@ -6391,30 +6498,20 @@ async function testFeature31(page) {
   // stepby 侧：system:backup:list/query 平台专属（期望 403）；add/edit 写权限亦为 403。
   // admin 侧对照：list/query/download 仍为 200，证明收紧仅针对平台普通角色而非备份功能损坏。
   const allChecks = [
-    results.find((r) => r.feature === 31 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'admin 创建备份')?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'stepby 登录获取 token')?.passed || false,
-    results.find(
-      (r) => r.feature === 31 && r.name === 'stepby GET /system/backup/list（system:backup:list 平台专属，期望 403）'
-    )?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/list（对照，期望 200）')?.passed ||
+    readFeatureRecord(31, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(31, 'admin 创建备份')?.passed || false,
+    readFeatureRecord(31, 'stepby 登录获取 token')?.passed || false,
+    readFeatureRecord(31, 'stepby GET /system/backup/list（system:backup:list 平台专属，期望 403）')?.passed || false,
+    readFeatureRecord(31, 'admin GET /system/backup/list（对照，期望 200）')?.passed ||
       false,
-    results.find(
-      (r) => r.feature === 31 && r.name === 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）'
-    )?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/{id}（对照，期望 200）')?.passed ||
+    readFeatureRecord(31, 'stepby GET /system/backup/{id}（system:backup:query 平台专属，期望 403）')?.passed || false,
+    readFeatureRecord(31, 'admin GET /system/backup/{id}（对照，期望 200）')?.passed ||
       false,
-    results.find(
-      (r) =>
-        r.feature === 31 &&
-        r.name === 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）'
-    )?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'admin GET /system/backup/download/{id}（对照，期望 200）')
+    readFeatureRecord(31, 'stepby GET /system/backup/download/{id}（system:backup:query 平台专属，期望 403）')?.passed || false,
+    readFeatureRecord(31, 'admin GET /system/backup/download/{id}（对照，期望 200）')
       ?.passed || false,
-    results.find(
-      (r) => r.feature === 31 && r.name === 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）'
-    )?.passed || false,
-    results.find((r) => r.feature === 31 && r.name === 'stepby POST /system/backup（system:backup:add 权限隔离）')
+    readFeatureRecord(31, 'stepby POST /system/backup/restore/{id}（system:backup:edit 权限隔离）')?.passed || false,
+    readFeatureRecord(31, 'stepby POST /system/backup（system:backup:add 权限隔离）')
       ?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
@@ -6440,7 +6537,7 @@ async function testFeature32(page) {
     for (let i = 0; i < 9; i++) record(32, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(32, 'admin 登录获取 token', true, loginResult32.detail)
+  record(32, 'admin 登录获取 token', !!adminToken, loginResult32.detail)
 
   // ---------- 步骤 2：admin 调用 GET /monitor/operlog/stats（monitor:audit:list）验证响应结构 ----------
   let adminStatsOk = false
@@ -6592,17 +6689,17 @@ async function testFeature32(page) {
 
   // ---------- 步骤 8：综合判断 ----------
   const allChecks = [
-    results.find((r) => r.feature === 32 && r.name === 'admin 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'admin GET /operlog/stats 响应结构')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'admin GET /operlog/compliance-report 响应结构')?.passed ||
+    readFeatureRecord(32, 'admin 登录获取 token')?.passed || false,
+    readFeatureRecord(32, 'admin GET /operlog/stats 响应结构')?.passed || false,
+    readFeatureRecord(32, 'admin GET /operlog/compliance-report 响应结构')?.passed ||
       false,
-    results.find((r) => r.feature === 32 && r.name === 'days 参数边界（1/365/1000）')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'stepby 登录获取 token')?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/stats（monitor:audit:list）')?.passed ||
+    readFeatureRecord(32, 'days 参数边界（1/365/1000）')?.passed || false,
+    readFeatureRecord(32, 'stepby 登录获取 token')?.passed || false,
+    readFeatureRecord(32, 'stepby GET /operlog/stats（monitor:audit:list）')?.passed ||
       false,
-    results.find((r) => r.feature === 32 && r.name === 'stepby GET /operlog/compliance-report（monitor:audit:list）')
+    readFeatureRecord(32, 'stepby GET /operlog/compliance-report（monitor:audit:list）')
       ?.passed || false,
-    results.find((r) => r.feature === 32 && r.name === '无 token 鉴权 401')?.passed || false
+    readFeatureRecord(32, '无 token 鉴权 401')?.passed || false
   ]
   const allPass = allChecks.every(Boolean)
   record(
@@ -6950,7 +7047,7 @@ async function testFeature34(page) {
       record(
         34,
         '我的登录 API（/monitor/logininfor/list）',
-        true,
+        Number.isFinite(data.total) && Array.isArray(data.rows),
         `total=${data.total}, rows=${(data.rows || []).length}`
       )
     } else {
@@ -9343,19 +9440,26 @@ async function testFeature40(page) {
         const el = document.querySelector('.skeleton-table')
         return !el || el.style.display === 'none'
       })
-      .catch(() => true)
+      .catch(() => null)
 
-    // 取消路由拦截移入 finally——此前 body 中途抛异常（goto 失败等）会跳过 unroute，
-    // 800ms 延迟拦截器泄漏到全量后续所有 user/list 请求（批三十四登记的脚本债，批三十五修复）
-    record(
-      40,
-      'TierB-5 骨架屏实际渲染（loading 期间显示）',
-      skeletonVisible,
-      `loading时显示=${skeletonVisible}, 加载完成后消失=${skeletonGone}`
-    )
+    // 「骨架屏loading时出现」和「加载完必须消失」是同一条链的两端：只查前者会漏掉
+    // "骨架屏常驻遮挡表格"这一真实故障形态；旧写法把后者当 detail 打印、`.catch(()=>true)`
+    // 兜成"消失了"，等于永远不检验。读不到状态时记 SKIP（不判过、也不误判失败）。
+    if (skeletonGone === null) {
+      recordSkip(40, 'TierB-5 骨架屏实际渲染（loading 期间显示）', '加载完成后骨架屏状态读取失败（页面跳转/DOM 不可用），本轮无法判定')
+    } else {
+      record(
+        40,
+        'TierB-5 骨架屏实际渲染（loading 期间显示）',
+        skeletonVisible && skeletonGone,
+        `loading时显示=${skeletonVisible}, 加载完成后消失=${skeletonGone}`
+      )
+    }
   } catch (err) {
     record(40, 'TierB-5 骨架屏实际渲染（loading 期间显示）', false, `异常: ${err.message.slice(0, 80)}`)
   } finally {
+    // 取消路由拦截放 finally——此前 body 中途抛异常（goto 失败等）会跳过 unroute，
+    // 800ms 延迟拦截器泄漏到全量后续所有 user/list 请求（批三十四登记的脚本债，批三十五修复）
     await page.unroute('**/system/user/list**').catch(() => {})
   }
 
@@ -12627,7 +12731,15 @@ async function testFeature53(page) {
     if (disabledNoSel) {
       await page.locator('.el-table__body-wrapper tbody tr').first().locator('.el-checkbox').first().click()
       await sleep(400)
-      const enabledSel = !(await unlock.isDisabled().catch(() => true))
+      // 刻意写成 try/catch 而非 `.catch(() => true)`：读不到状态时按"仍禁用"处理，
+      // 即 **fail-closed**（宁可记一条失败，也不把"状态未知"洗成通过）。
+      let disabledAfterSel
+      try {
+        disabledAfterSel = await unlock.isDisabled()
+      } catch {
+        disabledAfterSel = true
+      }
+      const enabledSel = !disabledAfterSel
       record(53, '勾选一行后解锁变为可点', enabledSel)
       if (enabledSel) await cancelChain(unlock, '解锁')
       else record(53, '解锁取消后框关闭且无成功/错误Toast', false, '按钮仍禁用')
@@ -13229,10 +13341,11 @@ async function testFeature58(page) {
     { path: '/system/notice', api: '/system/notice', name: 'notice' }
   ]
   for (const tg of targets) {
-    await page.goto(`${CONFIG.frontendUrl}${tg.path}`, { waitUntil: 'load' })
-    await sleep(1500)
-    await skipTour(page)
-    await page
+    // 逐目标独立判定：一次导航/点击抖动不得吞掉其余目标的覆盖，也不得退化成
+    // 一条无归因的"测试执行 异常"（b73 实测 F58 因 /system/menu load 超时丢掉 notice 全部覆盖）。
+    try {
+      await openPage(page, tg.path)
+      await page
       .locator('.el-button:visible')
       .filter({ hasText: /^\s*新\s*增\s*$/ })
       .first()
@@ -13309,6 +13422,14 @@ async function testFeature58(page) {
       .first()
       .click()
     await sleep(400)
+    } catch (err) {
+      record(
+        58,
+        `${tg.name}：目标执行异常（已归因到本目标，其余目标继续）`,
+        false,
+        String(err.message).split('\n')[0].slice(0, 120)
+      )
+    }
   }
   const visibleDlg = await page.locator('.el-dialog:visible').count()
   record(58, '四个对话框全部取消关闭', visibleDlg === 0, `visible=${visibleDlg}`)
@@ -13926,10 +14047,42 @@ async function testFeature62(page) {
     } catch (_) {}
   }
 
-  await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
-  await sleep(1500)
-  await skipTour(page)
-  await page.locator('input[placeholder="请输入用户名称"]').first().fill(uname)
+  // b73 轮 20（§3.18 同口径，站点限于本功能）：原写法 `goto + 固定 sleep` 后直接 `fill`，
+  // 分段高负载下 `/system/user` 的 SPA 重建（getRouters + 用户列表 + 部门树）可超过 fill 的
+  // 30s 默认窗口，实测在 49-96 段表现为"无归因的 locator.fill 超时"（单跑 9/9 绿 + 17.6s 可疑慢）。
+  // 处置：**仅对超时重试一次导航**（连接被拒/导航到错误 URL 说明环境已死 ⇒ 快失败，不重试），
+  // 并显式等待搜索框落定；两轮都拿不到则**如实记录当前路径**（可归因），不再让抖动冒充功能缺陷。
+  const searchBox = page.locator('input[placeholder="请输入用户名称"]').first()
+  let userPageReady = false
+  for (let attempt = 0; attempt < 2 && !userPageReady; attempt++) {
+    try {
+      await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
+    } catch (err) {
+      if (!/Timeout/i.test(String(err && err.message))) throw err
+      continue
+    }
+    await sleep(1500)
+    await skipTour(page)
+    userPageReady = await searchBox
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+  }
+  record(
+    62,
+    '用户页搜索框可达（导航对账）',
+    userPageReady,
+    userPageReady
+      ? '搜索框可见，已可交互'
+      : `⟵ 两轮导航后搜索框仍不可见，当前路径=${await page
+          .evaluate(() => location.pathname)
+          .catch(() => 'unknown')}（导航/渲染窗口问题，非产品功能缺陷）`
+  )
+  if (!userPageReady) {
+    await cleanup()
+    return
+  }
+  await searchBox.fill(uname)
   await page.locator('button:has-text("搜索")').first().click()
   await sleep(1200)
   const row = page.locator('.el-table .el-table__body-wrapper .el-table__row').filter({ hasText: uname }).first()
@@ -14365,7 +14518,7 @@ async function testFeature66(page) {
   const baseTotal = baseList?.total ?? -1
   const preExisting = (baseList?.rows || []).find((r) => r.tableName === 'sys_notice')?.tableId ?? null
   if (preExisting != null) {
-    record(66, '准备：sys_notice 已在列表中（复用导入态，幂等）', true, `tableId=${preExisting}`)
+    record(66, '准备：sys_notice 已在列表中（复用导入态，幂等）', preExisting > 0, `tableId=${preExisting}`)
   } else {
     const importResp = await fetch(
       `${CONFIG.backendUrl}/tool/gen/importTable?tables=sys_notice&tplWebType=element-plus-typescript`,
@@ -14889,7 +15042,7 @@ async function testFeature69(page) {
     for (let i = 0; i < 12; i++) record(69, `依赖项 ${i + 1}`, false, '依赖前置步骤失败')
     return
   }
-  record(69, 'admin 登录获取 token', true, 'token 获取成功')
+  record(69, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
 
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
@@ -15337,7 +15490,7 @@ async function testFeature70(page) {
     record(70, 'admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(70, 'admin 登录获取 token', true, 'token 获取成功')
+  record(70, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
   const uniq = Date.now()
@@ -15568,7 +15721,7 @@ async function testFeature71(page) {
     record(71, 'admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(71, 'admin 登录获取 token', true, 'token 获取成功')
+  record(71, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
   const uniq = Date.now()
@@ -15893,7 +16046,7 @@ async function testFeature72(page) {
     record(72, 'admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(72, 'admin 登录获取 token', true, 'token 获取成功')
+  record(72, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
   const uniq = Date.now()
@@ -16386,7 +16539,7 @@ async function testFeature73(page) {
     record(73, 'admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(73, 'admin 登录获取 token', true, 'token 获取成功')
+  record(73, 'admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
   const uniq = Date.now()
@@ -16913,7 +17066,7 @@ async function testFeature74(page) {
     record(74, 'A1 平台 admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(74, 'A1 平台 admin 登录获取 token', true, 'token 获取成功')
+  record(74, 'A1 平台 admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
   const authHeaders = { Authorization: `Bearer ${adminToken}` }
   const uniq = Date.now()
@@ -17283,10 +17436,13 @@ async function testFeature74(page) {
 //   - 权限 fail-closed 已成为真实默认（config 顶层键，不再被 [log] 表吞掉），故本用例同时是「不误伤正常路由」的活体检查；
 //   - nest 前缀归一化（/prod-api 等）后，前缀形态与裸路径行为必须一致（此处以「仅登录」路由做等价断言）；
 //   - W-3 加签：节点升级为会签（taskType=countersign），原审批人单独同意**不足以**推进；
+//   - G-02 M2 减签：会签节点移除一名审批人（pending→cancelled，门槛等效减一），
+//     本人行仍 pending 时单据不推进、只剩本人时单独同意即推进（C12/C13 成对可证伪）；
+//     入口只挂在会签族行上，单审行不显示（C8 对照组，防"移除唯一审批人"的坏产品形态）；
 //   - W-8 已办：仅本人裁决类流水，且**带单据标题**（后端按 biz_id 联查补全）；
 //   - W-11 导出：表单编码 POST，返回真 xlsx（PK 魔数），权限键复用 system:flow:list；
 //   - W-10 看板卡片 / W-17 移动端（小屏取消操作列固定）。
-// 数据前缀：e2e75；末尾 finally 清理（撤回 pending 单据，避免残留污染）。
+// 数据前缀：e2e75 / e2e75b；末尾 finally 清理（撤回 pending 单据，避免残留污染）。
 async function testFeature75(page) {
   log('=== 功能 75：审批工作流增强（加签 / 已办 / 导出 / 看板待办 / 移动端） ===')
 
@@ -17295,12 +17451,13 @@ async function testFeature75(page) {
     record(75, 'A1 平台 admin 登录获取 token', false, adminLoginDetail || '登录失败')
     return
   }
-  record(75, 'A1 平台 admin 登录获取 token', true, 'token 获取成功')
+  record(75, 'A1 平台 admin 登录获取 token', !!adminToken, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` }
 
   const uniq = Date.now()
   const docTitle = `e2e75-doc-${uniq}`
   let docId = null
+  let doc2Id = null
   let task1 = null
   let csUid = null
   let csUidCreated = false
@@ -17399,6 +17556,149 @@ async function testFeature75(page) {
       'C4 会签未满时单据不推进（仍 pending）',
       ap1.code === 200 && docAfter1?.status === 'pending',
       `approve=${ap1.code} status=${docAfter1?.status}`
+    )
+
+    // ---------- C+. 减签（G-02 M2）：真实 UI 入口 + 移除后重新聚合 ----------
+    // doc1 的本人行此刻已 approved（待办列表只收 pending 行），而减签入口按设计
+    // 只挂在 pending 行上；故另起一张同链路单据走完整 UI 操作，doc1 链语义不受扰动。
+    const doc2Title = `e2e75b-doc-${uniq}`
+    const submit2 = await api('/system/flow/demo/submit', {
+      method: 'POST',
+      headers: stepbyHeaders,
+      body: JSON.stringify({
+        title: doc2Title,
+        leaveType: 'sick',
+        days: 1,
+        reason: 'e2e75b',
+        flowMode: 'single'
+      })
+    })
+    doc2Id = Number(submit2.data?.docId || 0)
+    record(75, 'C5 减签专用单据提交（single 两级链）', submit2.code === 200 && doc2Id > 0, `docId=${doc2Id}`)
+    if (!doc2Id) return
+
+    const todo2 = await api('/system/flow/todo?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    const todo2Row = todo2.rows?.find((r) => Number(r.bizId) === doc2Id)
+    const task2 = Number(todo2Row?.taskId || 0)
+    record(
+      75,
+      'C6 减签专用单据进入本人待办且节点为单审',
+      task2 > 0 && todo2Row?.taskType === 'single',
+      `taskId=${task2} taskType=${todo2Row?.taskType}`
+    )
+    if (!task2) return
+
+    await page.goto(`${CONFIG.frontendUrl}/system/flow/todo`, { waitUntil: 'load' }).catch(() => {})
+    await sleep(2000)
+    const row2 = page.locator(`.el-table__row:has-text("${doc2Title}")`).first()
+    const row2Visible = await row2
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    record(75, 'C7 待办表格渲染出减签专用行', row2Visible, `visible=${row2Visible}`)
+
+    // 对照组：单审节点不得出现减签入口（v-if="row.taskType !== 'single'"），
+    // 否则"移除唯一审批人"必然撞后端 last_assignee 防线，属产品缺陷。
+    // 刻意写成 try/catch 而非 `.catch(() => true)`：读不到状态时按"入口出现了"处理，
+    // 即 fail-closed（宁可记一条失败，也不把"状态未知"洗成通过）。
+    const delBtn = row2.locator('button:has-text("减签"), button:has-text("Remove Approver")').first()
+    let delBtnOnSingle
+    try {
+      delBtnOnSingle = await delBtn.isVisible({ timeout: 1500 })
+    } catch {
+      delBtnOnSingle = true
+    }
+    record(75, 'C8 单审节点无减签入口（v-if 对照组）', row2Visible && !delBtnOnSingle, `visible=${delBtnOnSingle}`)
+
+    const csAdd2 = await api(`/system/flow/task/${task2}/countersign-add`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ toUserId: csUid })
+    })
+    record(
+      75,
+      'C9 加签使节点升级为会签（减签前置）',
+      csAdd2.code === 200 && csAdd2.data?.taskType === 'countersign',
+      `code=${csAdd2.code} taskType=${csAdd2.data?.taskType}`
+    )
+    if (csAdd2.code !== 200) return
+
+    await page.reload({ waitUntil: 'load' }).catch(() => {})
+    await sleep(2000)
+    const delVisibleOnCountersign = await delBtn
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    record(75, 'C10 会签节点出现减签入口', delVisibleOnCountersign, `visible=${delVisibleOnCountersign}`)
+    if (!delVisibleOnCountersign) return
+
+    await delBtn.click({ timeout: 5000 }).catch(() => {})
+    const dlg2 = page.locator('.el-dialog:visible').last()
+    const dlg2Visible = await dlg2
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    let optPicked = false
+    let dlg2Closed = false
+    if (dlg2Visible) {
+      await dlg2
+        .locator('.el-select input')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      // 远程搜索：新用户不在 listUser 首屏 50 条内，必须键入用户名触发 remote-method
+      await page.keyboard.type(csName, { delay: 25 }).catch(() => {})
+      const targetOpt = page
+        .locator('.el-select-dropdown:visible .el-select-dropdown__item')
+        .filter({ hasText: csName })
+        .first()
+      optPicked = await targetOpt
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .then(() => targetOpt.evaluate((el) => el.click()).then(() => true).catch(() => false))
+        .catch(() => false)
+      await sleep(400)
+      await dlg2
+        .getByRole('button', { name: /确\s*定/ })
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
+      dlg2Closed = await dlg2
+        .waitFor({ state: 'hidden', timeout: 6000 })
+        .then(() => true)
+        .catch(() => false)
+    }
+    record(
+      75,
+      'C11 减签对话框远程选人并提交（UI 链闭环，未选到人不会误提交）',
+      dlg2Visible && optPicked && dlg2Closed,
+      `dialog=${dlg2Visible} option=${optPicked} closed=${dlg2Closed}`
+    )
+
+    // 生效复核①：目标行 cancelled 后本人行仍 pending → 节点不推进（≥1 有效审批人防线）
+    const todo2After = await api('/system/flow/todo?pageNum=1&pageSize=50', { headers: jsonHeaders })
+    const stillRow = todo2After.rows?.find((r) => Number(r.bizId) === doc2Id)
+    const mine2After = await api('/system/flow/mine?pageNum=1&pageSize=50', { headers: stepbyHeaders })
+    const doc2After = mine2After.rows?.find((r) => Number(r.docId) === doc2Id)
+    record(
+      75,
+      'C12 减签后本人待办仍在且单据仍 pending（未清空防线）',
+      !!stillRow && doc2After?.status === 'pending',
+      `todo=${!!stillRow} status=${doc2After?.status}`
+    )
+
+    // 生效复核②（与 C4 成对可证伪）：会签只剩一名有效审批人后单独同意即推进到第二级
+    const ap2 = await api(`/system/flow/task/${Number(stillRow?.taskId || task2)}/action`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ action: 'approve', comment: 'e2e75b' })
+    })
+    const mine2Final = await api('/system/flow/mine?pageNum=1&pageSize=50', { headers: stepbyHeaders })
+    const doc2Final = mine2Final.rows?.find((r) => Number(r.docId) === doc2Id)
+    record(
+      75,
+      'C13 减签等效门槛减一：单独同意即推进到第二级',
+      ap2.code === 200 && doc2Final?.status === 'pending' && Number(doc2Final?.currentNodeSeq) === 2,
+      `approve=${ap2.code} node=${doc2Final?.currentNodeSeq} status=${doc2Final?.status}`
     )
 
     // ---------- D. 已办（W-8）：仅裁决类 + 带单据标题 ----------
@@ -17533,6 +17833,21 @@ async function testFeature75(page) {
       })
       const st = mineAfter.rows?.find((r) => Number(r.docId) === docId)?.status
       log(`  清理复核：单据 ${docId} 终态=${st}`)
+    }
+    // 撤回减签专用单据（与 doc1 同口径：撤回后 pending 待办转 cancelled，不残留待办）
+    if (doc2Id) {
+      const { token: stepbyToken3 } = await apiLogin({}, CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+      if (stepbyToken3) {
+        await api(`/system/flow/demo/${doc2Id}/withdraw`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${stepbyToken3}` }
+        }).catch(() => {})
+        const mine2Clean = await api('/system/flow/mine?pageNum=1&pageSize=50', {
+          headers: { Authorization: `Bearer ${stepbyToken3}` }
+        })
+        const st2 = mine2Clean.rows?.find((r) => Number(r.docId) === doc2Id)?.status
+        log(`  清理复核：减签专用单据 ${doc2Id} 终态=${st2}`)
+      }
     }
     // 删除加签目标用户（软删，释放 user_name 唯一索引）
     if (csUidCreated && csUid) {
@@ -17719,7 +18034,43 @@ async function cleanupE2eResidue() {
       [
         'user_credential_e2e',
         "DELETE FROM sys_user_credential WHERE name LIKE 'e2e%' OR name LIKE 'probe%'"
-      ]
+      ],
+      // 批七十三轮 15：软删 e2e 账号残留物理清扫（`scripts/db_state_audit.py` 回库实证：
+      // del_flag='2' 的 `e2e_ui_*_deleted_*` 长期留存，且 sys_logininfor / sys_user_role /
+      // sys_audit_change 对其引用均为 0 ⇒ 属可安全物理清除的测试垃圾，而非审计引用保留）。
+      // 顺序：先清关联表（否则会留下指向已删用户的孤儿行），再清用户本体；PAT 一并清（
+      // 令牌属主已删即失效，留着只是噪声）。只碰 del_flag='2' 行，活跃账号零风险。
+      [
+        'user_softdel_assoc_e2e',
+        `DELETE FROM sys_user_role WHERE user_id IN (
+           SELECT user_id FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2')`
+      ],
+      [
+        'user_softdel_post_e2e',
+        `DELETE FROM sys_user_post WHERE user_id IN (
+           SELECT user_id FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2')`
+      ],
+      [
+        'user_softdel_dept_e2e',
+        `DELETE FROM sys_user_dept WHERE user_id IN (
+           SELECT user_id FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2')`
+      ],
+      [
+        'user_softdel_pat_e2e',
+        `DELETE FROM sys_pat WHERE user_id IN (
+           SELECT user_id FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2')`
+      ],
+      [
+        'user_softdel_e2e',
+        "DELETE FROM sys_user WHERE lower(user_name) LIKE 'e2e%' AND del_flag = '2'"
+      ],
+      // 批七十四 B1：sys_data_rule 残留（回库实测 158 行 = 1 行在册业务数据 + 157 行 e2e 残留，
+      // 命名族 e2e-rolereflect-* 91 行 / e2e-132-dr-* 66 行）。既有 12 张表的清理**不含本表**
+      // ⇒ 单条用例的 `DELETE /system/dataRule/{id}` 一旦失败即成永久孤儿，每轮全量继续累积。
+      // 判据取 lower(rule_name) LIKE 'e2e-%'（与 webhook/oauth 族同口径），
+      // 中文名在册行（rule_id=1）零命中；**不改写历史行的 create_time**——
+      // 无法证明每行的真实来源时区，批量 ±8h 属臆测性数据修复（台账 §3.2-4）。
+      ['data_rule_e2e', "DELETE FROM sys_data_rule WHERE lower(rule_name) LIKE 'e2e-%'"]
     ]
     let total = 0
     for (const [name, sql] of steps) {
@@ -17808,41 +18159,43 @@ async function restoreCaptchaDisabled() {
  * 后端日志异常摘要（R-TEST-LOGCAPTURE）：e2e 覆盖的不仅是浏览器侧——
  * 后端 app.log 中的 ERROR / 异常 WARN（含数据库缺表列、NOAUTH、登录异常检测等）
  * 是信息捕获的必要一环，跑完即汇总输出，避免"前端全绿但后端在报错"的盲区。
+ *
+ * b73 轮 9：实现收口到 capture-kit 的共享函数（原先此处自带一份"尾部 800 行"实现，
+ * 两份口径漂移 + 长轮次漏读窗口前段），本处只保留窄口径关键词与输出格式，
+ * 并加上本轮窗口（`MAIN_RUN_STARTED_AT_MS`），历史日志不再混入本轮结论。
+ * b73 轮 10：日志目录不再用 `../../stepby-axum/logs`（随启动目录漂移：按 RUN-RECIPE 从
+ * `tests/e2e` 启动时它解析成 `stepby-vue/stepby-axum/logs`（不存在）⇒ `existsSync` 为假
+ * 直接 return ⇒ **这一路捕获从未输出过任何东西，且失败无声**）。现交给 capture-kit
+ * 锚定文件位置的默认目录，并且"目录读不到"必须显式报错，不得静默当"干净"。
  */
-function summarizeBackendLogErrors() {
+function reportBackendLogSummary() {
   try {
-    const logDir = path.resolve(process.env.STEPBY_BACKEND_LOG_DIR || '../../stepby-axum/logs')
-    if (!fs.existsSync(logDir)) return
-    const files = fs
-      .readdirSync(logDir)
-      .filter((f) => f.startsWith('app.log'))
-      .sort()
-      .reverse()
-    if (files.length === 0) return
-    const tail = fs.readFileSync(path.join(logDir, files[0]), 'utf-8').split('\n').slice(-800)
-    // 收尾十 v2：WARN 关键词扩展（链降级/拒绝/断链——收尾六人工巡检发现的断链
-    // 当时只能靠手工 grep，现自动捕获）+ 聚合去重（同型消息计数，噪声可见但紧凑）
-    const bad = tail.filter(
-      (l) =>
-        /\bERROR\b/.test(l) ||
-        (/\bWARN\b/.test(l) && /失败|noauth|no such (table|column)|超时|降级|拒绝|断链|broken/i.test(l))
-    )
-    if (bad.length === 0) {
-      log('✅ 后端日志尾部无 ERROR/WARN 异常')
+    const summary = summarizeBackendLogErrors({
+      sinceMs: MAIN_RUN_STARTED_AT_MS,
+      maxLines: 10,
+      // 收尾十 v2：WARN 关键词扩展（链降级/拒绝/断链——收尾六人工巡检发现的断链
+      // 当时只能靠手工 grep，现自动捕获）。聚合键归一交给 capture-kit 的默认实现
+      // （request_id / UUID / 数字 → N），b73 轮 9 两份实现合一，避免口径漂移。
+      warnPattern: /失败|noauth|no such (table|column)|超时|降级|拒绝|断链|broken/i
+    })
+    if (summary.missing) {
+      // 捕获通道失效 ≠ 无异常。必须醒目，否则又变成一轮"前端绿、后端无人看"。
+      log(`⚠️ 后端日志捕获通道失效：目录不可读或无 app.log（${summary.logDir}）——本轮后端异常未采集`)
       return
     }
-    const agg = new Map()
-    for (const l of bad) {
-      const key = l
-        .replace(/^[0-9T:.Z-]+\s*/, '')
-        .replace(/request_id=[a-f0-9-]+/g, 'request_id=N')
-        .replace(/\d+/g, 'N')
-        .slice(0, 120)
-      agg.set(key, (agg.get(key) || 0) + 1)
+    if (summary.total === 0) {
+      log(
+        `✅ 后端日志本轮窗口内无 ERROR/WARN 异常（窗口 ${summary.files.join(' + ')}，` +
+          `已排除窗口前 ${summary.excluded} 条历史行）`
+      )
+      return
     }
     log('------------------------------------------')
-    log(`后端日志异常摘要（尾部 800 行，ERROR/异常 WARN 共 ${bad.length} 条，聚合 ${agg.size} 型）:`)
-    for (const [k, n] of [...agg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+    log(
+      `后端日志异常摘要（本轮窗口 ${summary.files.join(' + ')}，ERROR/异常 WARN 共 ${summary.total} 条，` +
+        `聚合 ${summary.items.length} 型；窗口前已排除 ${summary.excluded} 条历史行）:`
+    )
+    for (const [k, n] of summary.items.slice(0, 10)) {
       log(`  🖥 ×${n} ${k}`)
     }
   } catch {
@@ -18168,6 +18521,7 @@ async function main() {
       { id: 114, fn: testFeature114 },
       { id: 115, fn: testFeature115 },
       { id: 116, fn: testFeature116 },
+      { id: 117, fn: testFeature117 },
       { id: 118, fn: testFeature118 },
       { id: 119, fn: testFeature119 },
       { id: 120, fn: testFeature120 },
@@ -18192,8 +18546,36 @@ async function main() {
       { id: 139, fn: testFeature139 },
       { id: 140, fn: testFeature140 },
       { id: 141, fn: testFeature141 },
-      { id: 142, fn: testFeature142 }
+      { id: 142, fn: testFeature142 },
+      { id: 143, fn: testFeature143 },
+      { id: 144, fn: testFeature144 }
     ]
+
+    // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：
+    // 编号必须 1..N 连续且无重复。历史上 117 是**空洞**——历史注释里的 25 处"F117"是一次测试债
+    // 改造的标签、从未注册用例，于是 ① 分段跑批 `--feature=97-143` 必然报"未注册"，
+    // ② 全量跑批永远看不出该洞，而 AGENTS/台账写的"143 features"与真实注册数 142 长期不符。
+    // 自检把这类"编号基线漂移"变成当场可失败的对账，而不是靠人复核文档数字。
+    {
+      const ids = features.map((f) => f.id)
+      const maxId = Math.max(...ids)
+      const seen = new Set()
+      const dup = ids.filter((id) => (seen.has(id) ? true : (seen.add(id), false))).sort((a, b) => a - b)
+      const holes = []
+      for (let i = 1; i <= maxId; i++) if (!seen.has(i)) holes.push(i)
+      // 自检自身也要能失败：编号集合与 features 长度必须互证（防"重复 + 空洞"互相抵消成假绿）
+      const shapeOk = ids.length === maxId
+      const problems = []
+      if (dup.length > 0) problems.push(`重复编号=${dup.join(',')}`)
+      if (holes.length > 0) problems.push(`未注册编号=${holes.join(',')}`)
+      if (!shapeOk) problems.push(`features=${ids.length} 与最大编号=${maxId} 不吻合`)
+      record(
+        0,
+        '注册表自检: 编号 1..N 连续、无重复且数量与最大编号吻合',
+        problems.length === 0,
+        problems.length ? problems.join('; ') : `${ids.length} 项，编号 1..${maxId}`
+      )
+    }
 
     // 过滤卫生：--feature 指定了未注册的编号时必须真失败，否则"0 项通过"会被误读为全绿
     if (CONFIG.featureFilter) {
@@ -18263,7 +18645,7 @@ async function main() {
     log('==========================================')
     const passed = results.filter((r) => r.passed).length
     const failed = results.filter((r) => !r.passed).length
-    // F117：SKIP 条目（skipped:true，含 API 兜底）单列统计，不再混入 PASS 视觉
+    // 测试债轮：SKIP 条目（skipped:true，含 API 兜底）单列统计，不再混入 PASS 视觉
     const skipped = results.filter((r) => r.skipped).length
     log(`总计: ${results.length}  通过: ${passed}  失败: ${failed}${skipped > 0 ? `  其中 SKIP: ${skipped}` : ''}`)
 
@@ -18362,7 +18744,7 @@ async function main() {
     }
 
     // 后端日志异常摘要（信息捕获闭环：前端绿 ≠ 后端无异常）
-    summarizeBackendLogErrors()
+    reportBackendLogSummary()
 
     // captcha 用例卫生恢复（必须在 browser.close 前完成 API 调用）
     await restoreCaptchaDisabled()
@@ -18431,7 +18813,7 @@ async function mLevelApiSetup(featureId) {
     record(featureId, 'admin 登录获取 token', false, detail || '登录失败')
     return null
   }
-  record(featureId, 'admin 登录获取 token', true, 'token 获取成功')
+  record(featureId, 'admin 登录获取 token', !!token, 'token 获取成功')
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
   const api = async (url, opts, _tries = 3) => {
     const res = await fetch(`${CONFIG.backendUrl}${url}`, opts).catch(() => null)
@@ -18916,11 +19298,14 @@ async function testFeature80(page) {
       `phonenumber=${other.phonenumber}`
     )
   } else {
-    record(
+    // 名称订正（b73 轮 18）：走到这里**不代表** secondary 没有列表权限——
+    // `system:user:list` 属只读后缀，普通角色本就有；真实情形是『列表可读但没有带手机号的行』，
+    // 掩码因此没有可比对样本。旧写法把它记成 ✅ 属『两向皆通过』，现改为如实 SKIP 并写出观测量。
+    recordSkip(
       80,
-      'C1 secondary 无 user 列表权限（掩码 DB 断言由集成测试 user_pii_masking 覆盖）',
-      true,
-      '分层测试策略：接口层权限隔离符合预期'
+      'C1 secondary 看他人手机号掩码',
+      `列表可读（code=${secList?.code}, rows=${secList?.rows?.length ?? 0}）但无带手机号的行 ⇒ 掩码无可比对样本；` +
+        'DB 级掩码由集成测试 user_pii_masking 覆盖'
     )
   }
   const secMe = await fetch(`${CONFIG.backendUrl}/system/user/profile`, { headers: secHeaders })
@@ -19766,7 +20151,7 @@ async function testFeature87(page) {
       seedConfig = await itemByLabel('渠道配置').locator('textarea').inputValue()
       await closeGuardThenDialog()
     } else {
-      record(87, '种子邮件渠道 config_json 非空（前置守卫）', true, `len=${seedConfig.length}`)
+      record(87, '种子邮件渠道 config_json 非空（前置守卫）', seedConfig.length > 0, `len=${seedConfig.length}`)
     }
     await rowsOf('邮件').first().locator('button:has-text("修改")').first().click()
     await sleep(1000)
@@ -20168,7 +20553,7 @@ async function testFeature91(page) {
     let contentOk = false
     let detail = ''
     try {
-      // F117：五连样板收敛为 openPage（行为等价，goto 升级为动态路由重试）
+      // 测试债轮：五连样板收敛为 openPage（行为等价，goto 升级为动态路由重试）
       ok = await openPage(page, route)
       // 批次三十六：冒烟必须补主内容断言（表格或主按钮可见），避免任意接口 500 也算 PASS
       contentOk =
@@ -20206,7 +20591,7 @@ async function testFeature92(page) {
     let contentOk = false
     let detail = ''
     try {
-      // F117：五连样板收敛为 openPage（'load' + 重试语义等价，networkidle 反模式注释见批次十九收尾八）
+      // 测试债轮：五连样板收敛为 openPage（'load' + 重试语义等价，networkidle 反模式注释见批次十九收尾八）
       ok = await openPage(page, route)
       // 批次三十六：补主内容断言（主表格或主按钮/主容器可见），避免任意接口 500 也算 PASS
       contentOk =
@@ -20481,6 +20866,40 @@ async function testFeature94(page) {
     sqlOk = sqlResp?.code === 200 && String(sqlResp?.data || '').includes('SELECT user_id')
   }
   record(94, 'SQL 明文端点回填', sqlOk)
+
+  // 3b. 编辑对话框的 SQL 明文回填（批七十六修复点）：后端 DatasetVo 恒不含明文，
+  //     修复前打开编辑必是空 textarea——连改名称都被迫重敲整段 SQL（或被必填校验拦死）。
+  if (row) {
+    // 该页编辑按钮文案取 i18n common.edit = 「修改」（不是「编辑」），两种都容错
+    const editBtn = page
+      .locator('.el-table__row', { hasText: code })
+      .locator('button:has-text("修改"), button:has-text("编辑")')
+      .first()
+    const editOpened = await editBtn
+      .click({ timeout: 4000, force: true })
+      .then(() => true)
+      .catch(() => false)
+    await page.waitForTimeout(1600)
+    let prefilled = ''
+    const area = page.locator('.el-dialog:visible textarea').first()
+    if ((await area.count()) > 0) prefilled = await area.inputValue().catch(() => '')
+    record(
+      94,
+      '编辑对话框 SQL 明文回填（打开即为原 SELECT，不必重敲）',
+      editOpened && prefilled.includes('SELECT user_id'),
+      `opened=${editOpened} len=${prefilled.length}`
+    )
+    // 只看不存：关闭对话框，避免把回填内容再写一遍（数据集本身在步骤 5 统一清理）
+    const closeBtn2 = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
+    if (await closeBtn2.isVisible().catch(() => false)) {
+      await closeBtn2.click({ force: true })
+    } else {
+      await page.keyboard.press('Escape')
+    }
+    await page.waitForTimeout(500)
+  } else {
+    record(94, '编辑对话框 SQL 明文回填（打开即为原 SELECT，不必重敲）', false, '前置未定位到数据集行')
+  }
 
   // 4. 试跑（UI：rp.preview 按钮 → 预览对话框打开）
   if (row) {
@@ -21108,7 +21527,7 @@ async function testFeature100(page) {
   let domDetail = ''
   let domDialogOk = false
   try {
-    // F117：五连样板收敛为 openPage
+    // 测试债轮：五连样板收敛为 openPage
     domOk = await openPage(page, '/tenant-space/my-domain', 'my-domain')
     // 面板容器渲染（TenantDomainPanel 的 info alert + 新增按钮 + 表格）
     const panelAlert = page.locator('.el-alert').first()
@@ -21155,7 +21574,7 @@ async function testFeature100(page) {
   let navOk = false
   let navTableOk = false
   try {
-    // F117：五连样板收敛为 openPage
+    // 测试债轮：五连样板收敛为 openPage
     navOk = await openPage(page, '/tenant-space/my-nav', 'my-nav')
     // 页面主体：卡片标题 + info 提示 + （权限足够时）表格/空态
     const card = page.locator('.el-card').first()
@@ -21185,7 +21604,7 @@ async function testFeature100(page) {
   let aiOk = false
   let aiTableOk = false
   try {
-    // F117：五连样板收敛为 openPage
+    // 测试债轮：五连样板收敛为 openPage
     aiOk = await openPage(page, '/monitor/aiHistory', 'aiHistory')
     aiTableOk = await page
       .locator('.el-table')
@@ -21225,7 +21644,6 @@ async function testFeature100(page) {
   // 通过浏览器加载的页面资源无法直接读源码，改为检查是否有导出的网络请求携带 dev-api
   // （页面已在 /monitor/aiHistory；若导出实现硬编码，e2e 环境恰好也是 /dev-api 故不报错，
   //   因此该锁以「源码静态检查」在 lint/CI 层保障，这里仅校验接口可用性即可）
-  record(100, 'aiHistory 导出前缀修复（源码级回归锁见单测/CI）', true, '接口可用性已由上两项覆盖')
 }
 
 // ==================== 功能 101：冒烟页深度功能（task/dataRule/auditChange/scimGroup/http-debugger/swagger）====================
@@ -21245,7 +21663,7 @@ async function testFeature101(page) {
 
   // ---------- 1. 任务进度（/monitor/task）----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/monitor/task', '/monitor/task')
     // 表格 + 搜索表单 + 删除按钮（含任务类型筛选下拉）
     const tableOk = await page
@@ -21333,7 +21751,7 @@ async function testFeature101(page) {
 
   // 2b. UI 级：编辑对话框角色多选应回显已绑定角色
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/dataRule', '/system/dataRule')
     const tableOk = await page
       .locator('.el-table')
@@ -21376,7 +21794,7 @@ async function testFeature101(page) {
 
   // ---------- 3. 变更留痕（/system/log/auditChange）----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/log/auditChange', 'auditChange')
     const tableOk = await page
       .locator('.el-table')
@@ -21429,7 +21847,7 @@ async function testFeature101(page) {
 
   // ---------- 4. SCIM 用户组（/system/oauth/scimGroup）----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/system/oauth/scimGroup', 'scimGroup')
     const tableOk = await page
       .locator('.el-table')
@@ -21455,7 +21873,7 @@ async function testFeature101(page) {
 
   // ---------- 5. HTTP 调试器（/tool/http-debugger）----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/tool/http-debugger', 'http-debugger')
     const methodSelect = page.locator('.method-select').first()
     const urlInput = page
@@ -21513,7 +21931,7 @@ async function testFeature101(page) {
 
   // ---------- 7. 告警规则（/monitor/alert）——F77 仅 API，此处补页面级 ----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/monitor/alert', '/monitor/alert')
     const tableOk = await page
       .locator('.el-table')
@@ -21557,7 +21975,7 @@ async function testFeature101(page) {
 
   // ---------- 8. 报表大屏（/tool/reportBoard）——此前仅 API，此处补页面级 ----------
   try {
-    // F117：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
+    // 测试债轮：内联 for i<5 goto 重试换 gotoDynamicRoute（经 openPage 五连样板）
     await openPage(page, '/tool/reportBoard', 'reportBoard')
     // 大屏编辑器容器 + 组件库面板 + 新增看板/新增卡片按钮
     const bodyText = await page
@@ -22228,7 +22646,7 @@ async function testFeature104(page) {
           record(104, '②b 勾选角色保存 → API 回读含该角色', false, `未在表格中定位角色 ${targetRoleId}`)
         }
       } else {
-        // F117：SKIP 补 API 200 兜底（角色列表可读即环境健康），不再空记 PASS
+        // 测试债轮：SKIP 补 API 200 兜底（角色列表可读即环境健康），不再空记 PASS
         const fb = await apiWithBackoff('/system/role/list?pageNum=1&pageSize=1', { headers: authHeaders })
         recordSkip(104, '②b 勾选角色保存 → API 回读含该角色', '无未持有的非 admin 启用角色可勾选', fb.status === 200)
       }
@@ -22311,14 +22729,14 @@ async function testFeature104(page) {
             `cancel=${!!cancelResp}, still=${stillAllocated}`
           )
         } else {
-          // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
+          // 测试债轮：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
           const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', {
             headers: authHeaders
           })
           recordSkip(104, '③b 取消授权生效', 'allocatedList 中未定位到该用户行', fb.status === 200)
         }
       } else {
-        // F117：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
+        // 测试债轮：SKIP 补 allocatedList 接口 200 兜底，不再空记 PASS
         const fb = await apiWithBackoff('/system/role/authUser/allocatedList?pageNum=1&pageSize=1&roleId=2', {
           headers: authHeaders
         })
@@ -22597,7 +23015,7 @@ async function testFeature106(page) {
         await page.keyboard.press('Escape')
         await page.waitForTimeout(400)
       } else {
-        // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
+        // 测试债轮：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
         const fb = authHeaders ? await apiWithBackoff('/system/user/profile', { headers: authHeaders }) : null
         recordSkip(
           106,
@@ -22719,7 +23137,7 @@ async function testFeature106(page) {
         .catch(() => false)
       record(106, '②b 撤销确认「取消」→ 授权仍在', stillList)
     } else {
-      // F117：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
+      // 测试债轮：SKIP 补 profile 接口 200 兜底（token 缺失时无 API 可兜底 → null）
       const fb = authHeaders ? await apiWithBackoff('/system/user/profile', { headers: authHeaders }) : null
       recordSkip(106, '②b 撤销确认「取消」→ 授权仍在', '无已授权应用，撤销链不可达', fb ? fb.status === 200 : null)
     }
@@ -22938,7 +23356,7 @@ async function testFeature106(page) {
             .waitFor({ state: 'visible', timeout: 4000 })
             .then(() => true)
             .catch(() => false)
-          record(106, '④-pre totp：按钮点击与表单切换', true, `btn=${btnVisible}, form=${formShown2}`)
+          record(106, '④-pre totp：按钮点击与表单切换', btnVisible && formShown2, `btn=${btnVisible}, form=${formShown2}`)
           // 取消 → 回到已启用态（断言后不真正解绑）
           const cancelBtn2 = page.getByRole('button', { name: /取消/ }).first()
           if (formShown2 && (await cancelBtn2.isVisible().catch(() => false))) {
@@ -23250,7 +23668,7 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
-      // F117：SKIP 补列表接口 200 兜底（复用主流程会话 token），不再空记 PASS
+      // 测试债轮：SKIP 补列表接口 200 兜底（复用主流程会话 token），不再空记 PASS
       const tk = await sessionTokenOf(page)
       const fb = tk
         ? await apiWithBackoff('/monitor/frontendError/list?pageNum=1&pageSize=1', {
@@ -23299,7 +23717,7 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
-      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      // 测试债轮：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
       const fb = tk
         ? await apiWithBackoff('/monitor/operlog/list?pageNum=1&pageSize=1', {
@@ -23340,7 +23758,7 @@ async function testFeature109(page) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else {
-      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      // 测试债轮：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
       const fb = tk
         ? await apiWithBackoff('/system/notice/list?pageNum=1&pageSize=1', {
@@ -23387,7 +23805,7 @@ async function testFeature109(page) {
         `nav=${navOk}, url=${page.url().slice(0, 80)}, table=${dictTable}`
       )
     } else {
-      // F117：SKIP 补列表接口 200 兜底，不再空记 PASS
+      // 测试债轮：SKIP 补列表接口 200 兜底，不再空记 PASS
       const tk = await sessionTokenOf(page)
       const fb = tk
         ? await apiWithBackoff('/system/dict/type/list?pageNum=1&pageSize=1', {
@@ -23617,6 +24035,8 @@ async function testFeature112(page) {
 }
 
 // ==================== 功能 113：消息日志页 + notice-center 批量已读 ====================
+// 批七十六：¹b~¹d 新增「标记待重试」按钮接线验证（只验存在性与多选闸门，
+// 绝不点击：真点会把失败记录交回队列并触发对外真实重投）。
 async function testFeature113(page) {
   log('=== 功能 113：消息日志页 + notice-center 批量已读 ===')
   const token = await sessionTokenOf(page)
@@ -23662,6 +24082,41 @@ async function testFeature113(page) {
     logDetail += `, apiStatus=${logList ? logList.status : 'no-token'}`
   }
   record(113, '① 消息日志页表格/空态渲染（API 复核行数对齐 UI）', logTable, logDetail)
+
+  // ①b 标记待重试按钮接线（批七十六新增入口）：只验"存在 + 多选闸门"，
+  //     **绝不点击**——真点会把失败记录交回队列，调度器随即对外真实重投短信/邮件。
+  const markBtn = page.locator('button:has-text("标记待重试"), button:has-text("Mark Pending")').first()
+  const markExists = await markBtn
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(113, '①b 发送记录页出现「标记待重试」按钮', markExists, `visible=${markExists}`)
+  if (markExists) {
+    // fail-closed：读不到禁用态时按"已可点"处理（宁可记失败，不把未知洗成通过）
+    let disabledBefore
+    try {
+      disabledBefore = await markBtn.isDisabled({ timeout: 3000 })
+    } catch {
+      disabledBefore = false
+    }
+    record(113, '①c 未勾选时按钮禁用（多选闸门在位）', disabledBefore, `disabled=${disabledBefore}`)
+    const firstCheck = page.locator('.el-table__body-wrapper tbody tr').first().locator('.el-checkbox').first()
+    await firstCheck.click({ timeout: 3000 }).catch(() => {})
+    await sleep(400)
+    let enabledAfter
+    try {
+      enabledAfter = !(await markBtn.isDisabled({ timeout: 3000 }))
+    } catch {
+      enabledAfter = false
+    }
+    record(113, '①d 勾选一行后按钮变为可点（ids 透传链路活着）', enabledAfter, `enabled=${enabledAfter}`)
+    // 复位勾选，避免把选中态带进后续用例（只改前端选择状态，不产生写请求）
+    await firstCheck.click({ timeout: 2000 }).catch(() => {})
+    await sleep(300)
+  } else {
+    record(113, '①c 未勾选时按钮禁用（多选闸门在位）', false, '前置 ①b 未通过')
+    record(113, '①d 勾选一行后按钮变为可点（ids 透传链路活着）', false, '前置 ①b 未通过')
+  }
 
   // ② 自建公告（ExitGuard：尾部删除恢复初态——已读为单向状态且无未读还原接口，
   //    翻转既有公告不可逆，故采用「自建自清」保证零污染）
@@ -23969,7 +24424,7 @@ async function testFeature118(page) {
       const created = await scimProvisionGroup(groupName)
       if (created?.status === 201 && created.body?.id) {
         scimE2eGroupName = groupName
-        record(118, '② 前置 SCIM provisioning 建组', true, `id=${created.body.id}, name=${groupName}`)
+        record(118, '② 前置 SCIM provisioning 建组', created?.status === 201 && !!created.body?.id, `id=${created.body.id}, name=${groupName}`)
       } else {
         record(118, '② 前置 SCIM provisioning 建组', false, `status=${created?.status}`)
       }
@@ -27009,5 +27464,502 @@ async function testFeature142(page) {
     await skipTour(page).catch(() => {})
   } catch (err) {
     record(142, '② 开放重定向防护', false, `异常: ${err.message.slice(0, 100)}`)
+  }
+}
+
+/**
+ * F143（b73）：/health 关闭态契约 + 敏感操作独立限流（AGENTS C.10）运行态对账。
+ *
+ * 为什么值得常驻：b72 上线 19 条敏感档后，**没有任何 e2e 以 429 为期望值**（套件里 429 一律被
+ * `apiWithBackoff` 退避重试掉），于是"档位是否真被解析""跨档是否互相饿死"只有集成测试看得见；
+ * 而跨档饿死正是 b72 由 F71 才抓到的真实缺陷形态——运行栈必须留一条 UI/API 级回归锁。
+ *
+ * 设计约束：
+ * - ③ 必须用**裸 fetch**，不能走 apiWithBackoff（它会吞掉我们要断言的 429）；
+ * - 本用例放在最后一个编号，打满的桶（totp/verify，容量 10 / 0.2·s⁻¹）约 25s 自然回填，
+ *   不影响同轮其它 feature，也不改写库里的档位配置（用例不动生产配置）。
+ */
+async function testFeature143(page) {
+  const token = await getAdminToken(page)
+  const H = { Authorization: `Bearer ${token}` }
+
+  // ① /health 关闭态契约：外部探活字段必须**不存在**（[health].external_probes 默认 off = 改造前行为）
+  // 注意形状：本部署启用了统一响应包装，/health 实际是 {code,msg,data:HealthStatus} ⇒
+  // 只看顶层键会构成**虚锁**（external 落在 data 里照样"顶层没有"）。
+  // 因此先用 status 证明"我们确实看到了 HealthStatus"，再断 external 系字段缺席。
+  try {
+    const health = await fetch(`${CONFIG.backendUrl}/health`, { headers: H })
+      .then((r) => r.json())
+      .catch(() => null)
+    const payload = health?.data && typeof health.data === 'object' ? health.data : health
+    const seesHealthStatus = typeof payload?.status === 'string'
+    const noExternal =
+      seesHealthStatus &&
+      !('external' in payload) &&
+      !('externalStatus' in payload) &&
+      !('external' in health) &&
+      !('externalStatus' in health)
+    record(
+      143,
+      '① /health 关闭态不含外部探活字段',
+      noExternal,
+      seesHealthStatus
+        ? `看到的 HealthStatus 键集合=${Object.keys(payload).join(',')}（顶层=${Object.keys(health).join(',')}）`
+        : `响应形状非预期，无从判定探活字段缺席：${JSON.stringify(health).slice(0, 120)}`
+    )
+  } catch (err) {
+    record(143, '① /health 关闭态契约', false, `异常: ${err.message.slice(0, 90)}`)
+  }
+
+  // ② 敏感档必须已播种，且**严格紧于**全局默认（松于等于全局的"敏感档"是假保护）
+  let tiers = []
+  try {
+    const rl = await fetch(`${CONFIG.backendUrl}/system/rateLimit/list?pageNum=1&pageSize=100`, {
+      headers: H
+    }).then((r) => r.json())
+    tiers = rl?.rows ?? []
+  } catch (e) {
+    tiers = []
+  }
+  const glob = tiers.find((r) => r.routePattern === '*')
+  const totp = tiers.find((r) => r.routePattern === '/system/user/totp/verify')
+  record(
+    143,
+    '② 敏感档已播种且严于全局默认',
+    !!glob && !!totp && (totp.capacity ?? 0) < (glob.capacity ?? 0) && totp.enabled !== false,
+    `全局=${glob?.capacity}/${glob?.refillPerSecond} totp/verify=${totp?.capacity}/${totp?.refillPerSecond} enabled=${totp?.enabled}`
+  )
+
+  // ③ 打满敏感档 ⇒ 429 + Retry-After（裸 fetch，绕过退避重试）
+  let hit429 = null
+  const seen = []
+  try {
+    for (let i = 0; i < 14; i++) {
+      const res = await fetch(`${CONFIG.backendUrl}/system/user/totp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...H },
+        body: JSON.stringify({ code: '000000' })
+      })
+      const text = await res.text().catch(() => '')
+      seen.push(res.status)
+      if (res.status === 429) {
+        hit429 = { retryAfter: res.headers.get('Retry-After'), body: text.slice(0, 120), at: i + 1 }
+        break
+      }
+    }
+  } catch (err) {
+    record(143, '③ 敏感档打满返回 429', false, `异常: ${err.message.slice(0, 90)}`)
+  }
+  record(
+    143,
+    '③ 敏感档打满返回 429',
+    !!hit429,
+    hit429 ? `第 ${hit429.at} 次触发，状态序列=${seen.join(',')}` : `14 次未触发（桶容量/速率与档位预期不符）序列=${seen.join(',')}`
+  )
+  record(
+    143,
+    '④ 429 响应带 Retry-After',
+    !!hit429?.retryAfter,
+    `Retry-After=${hit429?.retryAfter ?? '缺失'} body=${hit429?.body ?? '-'}`
+  )
+
+  // ⑤ 跨档隔离（b72 真缺陷的回归锁）：敏感档打满期间，走全局档的接口必须照常放行。
+  // 缺陷形态曾是"桶键按 (租户,IP) 全规则共用"⇒ 打满一个敏感端点会掐断该客户端全站请求。
+  try {
+    const listRes = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=1`, { headers: H })
+    record(
+      143,
+      '⑤ 敏感档打满不饿死其它接口',
+      listRes.status === 200,
+      `/system/user/list HTTP ${listRes.status}（此刻 totp/verify 桶仍为空）`
+    )
+    const otherRes = await fetch(`${CONFIG.backendUrl}/system/dict/type/list?pageNum=1&pageSize=1`, { headers: H })
+    record(143, '⑥ 同轮第二个接口同样放行', otherRes.status === 200, `HTTP ${otherRes.status}`)
+  } catch (err) {
+    record(143, '⑤ 跨档隔离', false, `异常: ${err.message.slice(0, 90)}`)
+  }
+}
+
+/**
+ * F144（b74 轮 28）：前端外部输入归一的四个补口——
+ * 自由字符串路径段编码 / 深链数字闸门第六七处 / OAuth 回调双解码 / 能力位页签回落。
+ *
+ * 立案依据：
+ * - §一.9：9 处把自由字符串直接拼进请求路径。键名含 `#` 时浏览器把其后当**片段**丢弃，
+ *   `clearCacheKey('a#b')` 于是静默作用成另一个目标；含 `/` 时变成多一层路径段（后端 404，
+ *   调用方只看到"数据为空"）。
+ * - §一.10：`monitor/job/log.vue`、`tool/gen/editTable.vue` 仍在裸 `Number(route.params.x)`。
+ *   路由用 `(\d+)` 约束 ⇒ 字母/`+` 进不来，但 **100 位纯数字**照样匹配，
+ *   `Number('1'.repeat(100))` 折成 `1e+100` 后原样拼进 URL/查询串出网。
+ * - §一.11：`oauthlogin.vue` 对 vue-router 已解码的 `query.handoff` 再 `decodeURIComponent`，
+ *   畸形片段抛 `URIError` ⇒ `land()` reject ⇒ 页面永停 spinner、用户零反馈。
+ * - §一.12：能力位关闭时对应 pane 根本不渲染，而深链回落只认 `passkeys` 一个名字 ⇒
+ *   `/user/profile/pat`（PAT 关闭时）命中不存在的 pane = **空白面板**。
+ *
+ * 判据一律双侧（《前端外部输入归一规范》判据 3）：畸形/关闭态必须"不出网或落确定态"，
+ * 合法/常开态必须**照常出网并给出后端诚实结局**——只写前者会允许"这个入口永远不发请求"的假修复。
+ */
+async function testFeature144(page) {
+  log('=== 功能 144：路径段编码 + 深链闸门第六七处 + 回调/页签确定态 ===')
+
+  // ---------- ①②③ 自由字符串路径段：以缓存监控的真实链路做往返对账 ----------
+  // 判据不靠"URL 里有没有 %XX"（那取决于环境里恰好有没有特殊字符的键），
+  // 而是把**同一条链路的两端**对起来：getKeys 响应里的键名原值 ↔ getValue 请求的路径段 ↔
+  // getValue 响应回显的键名。三者必须逐字闭合，编码没生效/后端没解码都会当场断裂。
+  const cacheEvents = []
+  const onCacheResp = (res) => {
+    const u = res.url()
+    if (!/\/monitor\/cache\/(getKeys|getValue)\//.test(u)) return
+    cacheEvents.push(
+      res
+        .json()
+        .then((j) => ({ url: u, status: res.status(), json: j }))
+        .catch(() => ({ url: u, status: res.status(), json: null }))
+    )
+  }
+  try {
+    page.on('response', onCacheResp)
+    await openPage(page, '/monitor/cache', '/monitor/cache')
+    const tab = page.getByRole('tab', { name: /缓存列表|键名列表/ }).first()
+    const tabOk = await tab
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    if (tabOk) {
+      await tab.evaluate((el) => el.click()).catch(() => {})
+      await sleep(1500)
+    }
+    const nameRows = page.locator('.el-table').first().locator('tr.el-table__row')
+    const nameCount = await nameRows.count().catch(() => 0)
+    if (nameCount > 0) {
+      await nameRows.first().click().catch(() => {})
+      await sleep(1800)
+      const keyRows = page.locator('.el-table').nth(1).locator('tr.el-table__row')
+      if ((await keyRows.count().catch(() => 0)) > 0) {
+        await keyRows.first().click().catch(() => {})
+        await sleep(1800)
+      }
+    }
+    page.off('response', onCacheResp)
+
+    const got = (await Promise.all(cacheEvents)).filter(Boolean)
+    const getKeys = got.filter((e) => e.url.includes('/getKeys/'))
+    const getValue = got.filter((e) => e.url.includes('/getValue/'))
+
+    // ① 对照组：链路**确实发了请求**且后端 200（编码改造不得把请求变成"发不出去"）
+    record(
+      144,
+      '① 缓存路径段请求照常出网（对照组）',
+      getKeys.length > 0 && getKeys.every((e) => e.status === 200),
+      `getKeys 请求 ${getKeys.length} 条，状态=${getKeys.map((e) => e.status).join(',') || '-'}；getValue ${getValue.length} 条`
+    )
+
+    // ② 往返闭合：键名原值 → 出网段（必须等于 encodeURIComponent 形态）→ 响应回显原值
+    const firstKeys = (getKeys[0]?.json?.data ?? []).map((x) => (typeof x === 'string' ? x : x?.key)).filter(Boolean)
+    const clicked = firstKeys[0] ?? null
+    const hit = getValue[0]
+    if (clicked && hit) {
+      const seg = decodeURIComponent(hit.url.split('/getValue/')[1].split('?')[0]).split('/')
+      const sentRawSeg = hit.url.split('/getValue/')[1].split('?')[0]
+      const echoKey = hit.json?.data?.cacheKey ?? hit.json?.data?.key ?? ''
+      const encodedOk = sentRawSeg.includes(encodeURIComponent(clicked))
+      record(
+        144,
+        '② 键名原值 ⇄ 出网路径段 ⇄ 响应回显三端闭合',
+        encodedOk && String(echoKey).endsWith(clicked),
+        `原值=${clicked.slice(0, 46)} 出网段=${sentRawSeg.slice(0, 60)} 回显=${String(echoKey).slice(0, 46)} 编码命中=${encodedOk} 末段解析=${seg.length} 段`
+      )
+    } else {
+      record(
+        144,
+        '② 键名原值 ⇄ 出网路径段 ⇄ 响应回显三端闭合',
+        false,
+        `未取得可比对的两端：键列表 ${firstKeys.length} 条 / getValue 响应 ${getValue.length} 条（链路没跑起来就是判据失败，不是跳过）`
+      )
+    }
+
+    // ③ 形状锁：路径里不得出现裸 `#`（片段截断），且 getValue 之后的段数必须恰为 3
+    //（`getValue/<cacheName>/<cacheKey>` 去掉 `/monitor/cache/` 前缀后就是 3 段；
+    //  取 4 段是把开头那个空段也数进去了——判据自己写错会让合规实现恒红，实测踩过）
+    const shapes = got.map((e) => {
+      const p = new URL(e.url).pathname
+      return { p, hashInPath: p.includes('#'), segs: p.replace('/monitor/cache/', '').split('/') }
+    })
+    const badHash = shapes.filter((s) => s.hashInPath)
+    const badSegs = shapes.filter((s) => s.p.includes('/getValue/') && s.segs.length !== 3)
+    record(
+      144,
+      '③ 出网路径无裸 # 且 getValue 段数不膨胀',
+      shapes.length > 0 && badHash.length === 0 && badSegs.length === 0,
+      badHash.length
+        ? `含裸 # 的路径 ${badHash.length} 条：${badHash[0].p.slice(0, 90)}`
+        : badSegs.length
+          ? `段数异常 ${badSegs.length} 条：${badSegs[0].p.slice(0, 90)}`
+          : `${shapes.length} 条路径形状均合规`
+    )
+  } catch (err) {
+    page.off('response', onCacheResp)
+    record(144, '① 缓存路径段请求照常出网（对照组）', false, `异常: ${err.message.slice(0, 100)}`)
+  }
+
+  // ---------- ④⑤ 深链数字闸门第六七处（调度日志 / 代码生成修改页）----------
+  const huge = '1'.repeat(100)
+  /** 访问深链并统计"出网请求"：urls=命中业务端点的请求 */
+  async function probe(url, isTarget) {
+    const urls = []
+    const onRequest = (req) => {
+      if (isTarget(req.url())) urls.push(req.url())
+    }
+    page.on('request', onRequest)
+    await page.goto(url, { waitUntil: 'load', timeout: 20000 }).catch(() => {})
+    await sleep(1800)
+    page.off('request', onRequest)
+    await skipTour(page).catch(() => {})
+    return urls
+  }
+  const gateCases = [
+    {
+      name: '调度日志页（jobId）',
+      base: `${CONFIG.frontendUrl}/monitor/job-log/index/`,
+      // 目标端点：GET /monitor/job/{id}（详情）与 /monitor/jobLog/list?jobId=…（列表）
+      isTarget: (u) => /\/monitor\/job(Log)?\/(\d+|1e\+|[^?]*1\.1+)/.test(u) || u.includes('jobId=1.')
+    },
+    {
+      name: '生成配置修改页（tableId）',
+      base: `${CONFIG.frontendUrl}/tool/gen-edit/index/`,
+      isTarget: (u) => /\/tool\/gen\/\d+/.test(u) || /\/tool\/gen\/[^?]*e\+/.test(u)
+    }
+  ]
+  for (const c of gateCases) {
+    try {
+      const bad = await probe(`${c.base}${huge}`, c.isTarget)
+      record(
+        144,
+        `④ ${c.name} 畸形深链不出网`,
+        bad.length === 0,
+        bad.length ? `出网 ${bad.length} 条：${decodeURIComponent(bad[0]).slice(0, 110)}` : '0 条（本地闸门生效）'
+      )
+    } catch (err) {
+      record(144, `④ ${c.name} 畸形深链不出网`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
+    try {
+      const ok = await probe(`${c.base}999999999`, c.isTarget)
+      record(
+        144,
+        `⑤ ${c.name} 合法不存在 ID 照常出网（对照组）`,
+        ok.length > 0 && ok.some((u) => u.includes('999999999')),
+        ok.length ? `${ok.length} 条：${ok[0].slice(0, 110)}` : '0 条 ⇒ 闸门把正常查询也掐了'
+      )
+    } catch (err) {
+      record(144, `⑤ ${c.name} 合法不存在 ID 照常出网（对照组）`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
+  }
+
+  // ---------- ⑥⑦ OAuth 回调：畸形片段不得把页面钉死在 spinner ----------
+  const pageErrors = []
+  const onPageErr = (e) => pageErrors.push(String(e?.message ?? e))
+  page.on('pageerror', onPageErr)
+  for (const [tag, qs] of [
+    ['畸形片段 handoff=%E4%BF', '?handoff=%E4%BF'],
+    ['对照组 error=access_denied', '?error=access_denied']
+  ]) {
+    try {
+      await page.goto(`${CONFIG.frontendUrl}/oauth-login${qs}`, { waitUntil: 'load', timeout: 20000 }).catch(() => {})
+      const loginBtn = page.getByRole('button', { name: /返回登录|去登录|登录/ }).first()
+      const btnOk = await loginBtn
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .then(() => true)
+        .catch(() => false)
+      const spinner = await page
+        .locator('.is-loading')
+        .first()
+        .isVisible()
+        .catch(() => false)
+      const desc = await page
+        .locator('.panel .desc')
+        .first()
+        .innerText()
+        .then((s) => s.trim())
+        .catch(() => '')
+      record(
+        144,
+        `⑥ OAuth 回调落确定态（${tag}）`,
+        btnOk && !spinner && desc.length > 0,
+        `返回入口=${btnOk}, spinner 残留=${spinner}, 提示文案="${desc.slice(0, 40)}"`
+      )
+    } catch (err) {
+      record(144, `⑥ OAuth 回调落确定态（${tag}）`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
+  }
+  page.off('pageerror', onPageErr)
+  const uriErr = pageErrors.filter((e) => /URIError|decodeURIComponent/i.test(e))
+  record(
+    144,
+    '⑦ 回调页无 URIError 未捕获异常',
+    uriErr.length === 0,
+    uriErr.length ? `未捕获解码异常 ${uriErr.length} 条：${uriErr[0].slice(0, 90)}` : `页面异常总数=${pageErrors.length}（无解码类）`
+  )
+
+  // ---------- ⑧⑨⑩ 页签回落：判据取"已渲染集合"，不依赖本环境开了哪几个能力位 ----------
+  const token = await getAdminToken(page)
+  const info = await apiWithBackoff('/getInfo', {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  })
+  const ib = info.body ?? {}
+  const show = (k) => ib[k] === true
+  const gated = [['passkeys', 'showPasskey'], ['ssoGrants', 'showSsoGrants'], ['pat', 'showPat']]
+  const closedCount = gated.filter(([, flag]) => !show(flag)).length
+
+  // ⑧ 未知页签名必须回落（**任何**环境都可执行——不依赖能力位档位）
+  await openPage(page, '/user/profile/e2eNoSuchTab', '/user/profile')
+  await dismissAllOverlays(page)
+  const unknownActive = await page
+    .locator('.el-tabs__item.is-active')
+    .first()
+    .innerText()
+    .then((s) => s.trim())
+    .catch(() => '')
+  const unknownContent = await page
+    .locator('.el-tabs__content form, .el-tabs__content .el-card, .el-tabs__content .el-avatar')
+    .first()
+    .isVisible()
+    .catch(() => false)
+  record(
+    144,
+    '⑧ 未知深链页签回落到基本资料（不留空白面板）',
+    unknownActive.includes('基本资料') && unknownContent,
+    `选中标签="${unknownActive}"，面板可见=${unknownContent}`
+  )
+
+  // ⑨ 已渲染页签数必须等于"全集 8 − 能力位关闭数"（剪枝真实发生，且没有多剪）
+  const tabCount = await page.locator('[role="tab"]').count().catch(() => -1)
+  record(
+    144,
+    '⑨ 渲染页签数与能力位下发一致',
+    tabCount === 8 - closedCount,
+    `实际 ${tabCount} 个，期望 ${8 - closedCount}（getInfo: passkeys=${show('showPasskey')} ssoGrants=${show('showSsoGrants')} pat=${show('showPat')}）`
+  )
+
+  // ⑩ 对照组：正常深链必须照常选中目标页签（回落判据不得退化成"永远回基本信息"）
+  await openPage(page, '/user/profile/pref', '/user/profile')
+  await dismissAllOverlays(page)
+  const prefActive = await page
+    .locator('.el-tabs__item.is-active')
+    .first()
+    .innerText()
+    .then((s) => s.trim())
+    .catch(() => '')
+  record(
+    144,
+    '⑩ 对照：深链 /user/profile/pref 正常选中',
+    /消息偏好/.test(prefActive),
+    `选中标签="${prefActive}"（应含"消息偏好"）`
+  )
+}
+
+/**
+ * F117（b73 轮 16）：深链数字参数的本地闸门。
+ *
+ * 立案依据（真机取证，非推断）：`Number('1'.repeat(100))` 不报错而是折成
+ * `1.111111111111111e+99`，四处深链入口把折出来的值原样拼进 URL 发出请求——
+ * `deep-e2e-net-1792217728192.json` 抓到 `GET /system/user/authRole/1.111111111111111e+99`
+ * → 后端 `400 Invalid URL: Cannot parse … to a i64`。用户视角是"点了没反应 + 一次注定
+ * 失败的往返"，而"参数不合法"本该在本地就能判定。
+ *
+ * 判据两侧都要对账，否则闸门可能只是"什么都不做"：
+ * - 畸形入参 ⇒ **请求不得出网**（0 条）且页面落确定态；
+ * - 合法但不存在的 ID ⇒ 请求**照常出网**（1 条、路径尾为该 ID），证明闸门没有误伤正常查询。
+ *
+ * 编号说明：117 此前是注册表里的**空洞**（历史注释中的"F117"指一次测试债改造的标签，
+ * 从未注册用例），导致 `--feature=97-143` 分段跑批必然报"未注册"。本功能补上该洞，
+ * 并由 features 数组之后的注册表自检保证空洞不再复发。
+ */
+async function testFeature117(page) {
+  log('=== 功能 117：深链数字参数本地闸门（畸形不出网 / 合法照常出网）===')
+  const huge = '1'.repeat(100)
+
+  /** 访问深链并统计"出网请求"：urls=命中业务端点的请求，statuses=对应响应状态 */
+  async function probe(url, isTarget) {
+    const urls = []
+    const statuses = []
+    const onRequest = (req) => {
+      if (isTarget(req.url())) urls.push(req.url())
+    }
+    const onResponse = (res) => {
+      if (isTarget(res.url())) statuses.push(res.status())
+    }
+    page.on('request', onRequest)
+    page.on('response', onResponse)
+    await page.goto(url, { waitUntil: 'load', timeout: 20000 }).catch(() => {})
+    await sleep(1800)
+    page.off('request', onRequest)
+    page.off('response', onResponse)
+    await skipTour(page).catch(() => {})
+    return { urls, statuses }
+  }
+
+  const cases = [
+    {
+      name: '用户分配角色',
+      base: `${CONFIG.frontendUrl}/system/user-auth/role/`,
+      // 目标端点：GET /system/user/authRole/{id}
+      isTarget: (u) => /\/system\/user\/authRole\/[^?]*$/.test(u)
+    },
+    {
+      name: '角色分配用户',
+      base: `${CONFIG.frontendUrl}/system/role-auth/user/`,
+      isTarget: (u) => u.includes('/system/role/authUser/allocatedList')
+    },
+    {
+      name: '字典数据',
+      base: `${CONFIG.frontendUrl}/system/dict-data/index/`,
+      // 目标端点：GET /system/dict/type/{id}（须排除 /system/dict/type/list）
+      isTarget: (u) => /\/system\/dict\/type\/\d+(\.\d+)?([?eE+]|$)/.test(u) && !u.includes('/system/dict/type/list')
+    }
+  ]
+
+  for (const c of cases) {
+    // ① 畸形（100 位）：请求不得出网
+    try {
+      const { urls } = await probe(`${c.base}${huge}`, c.isTarget)
+      record(
+        117,
+        `① ${c.name} 畸形深链不出网请求`,
+        urls.length === 0,
+        urls.length ? `出网 ${urls.length} 条：${decodeURIComponent(urls[0]).slice(0, 110)}` : '0 条（本地闸门生效）'
+      )
+    } catch (err) {
+      record(117, `① ${c.name} 畸形深链不出网请求`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
+
+    // ② 畸形深链页面仍落确定态（不是白屏/崩页）
+    try {
+      const shell = await page
+        .locator('.app-container, .el-table, .el-card, .el-result, .el-empty')
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      const bodyLen = await page
+        .evaluate(() => document.body.innerText.trim().length)
+        .catch(() => 0)
+      record(117, `② ${c.name} 畸形深链页面落确定态`, shell && bodyLen > 0, `shell=${shell}, 正文长度=${bodyLen}`)
+    } catch (err) {
+      record(117, `② ${c.name} 畸形深链页面落确定态`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
+
+    // ③ 对照组：合法但不存在的 ID 必须照常出网（闸门不误伤）
+    try {
+      const { urls, statuses } = await probe(`${c.base}999999`, c.isTarget)
+      const one = urls.length === 1 && decodeURIComponent(urls[0]).includes('999999')
+      record(
+        117,
+        `③ ${c.name} 合法不存在 ID 照常出网（对照组）`,
+        one,
+        `出网 ${urls.length} 条, 状态=${statuses.join(',') || '无'}, url=${urls.length ? decodeURIComponent(urls[0]).slice(0, 90) : '无'}`
+      )
+    } catch (err) {
+      record(117, `③ ${c.name} 合法不存在 ID 照常出网`, false, `异常: ${err.message.slice(0, 100)}`)
+    }
   }
 }

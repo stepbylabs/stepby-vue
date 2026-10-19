@@ -19,10 +19,11 @@
           <el-table-column :label="t('flow.colNode')" prop="nodeName" width="150" />
           <el-table-column :label="t('flow.colType')" width="100">
             <template #default="{ row }">
-              <el-tag v-if="row.taskType === 'countersign'" type="warning">
-                {{ t('flow.typeCountersign') }}
+              <!-- 待办行 taskType 是引擎四模式定格值（NodeSpec::task_type），
+                   single 以外的会签族一律高亮 -->
+              <el-tag :type="row.taskType === 'single' ? 'primary' : 'warning'">
+                {{ flowTypeLabel(row.taskType) }}
               </el-tag>
-              <el-tag v-else>{{ t('flow.typeSingle') }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colDue')" width="170">
@@ -30,7 +31,7 @@
               <span :class="{ 'flow-overdue': isOverdue(row) }">{{ row.dueAt || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.column.operation')" width="330" :fixed="opFixed">
+          <el-table-column :label="t('common.column.operation')" width="400" :fixed="opFixed">
             <template #default="{ row }">
               <el-button link type="success" icon="Check" @click="openAct(row, 'approve')">
                 {{ t('flow.actApprove') }}
@@ -44,6 +45,17 @@
               <!-- 加签（W-3）：当前节点追加会签审批人，节点由单审升级为会签 -->
               <el-button link type="warning" icon="UserFilled" @click="openAct(row, 'countersign')">
                 {{ t('flow.actCountersign') }}
+              </el-button>
+              <!-- 减签（G-02 M2）：移除本节点一名审批人；节点至少剩一名有效审批人，
+                   否则后端 400 防线（与 designer 的 countersign_del 动作白名单同源） -->
+              <el-button
+                v-if="row.taskType !== 'single'"
+                link
+                type="warning"
+                icon="RemoveFilled"
+                @click="openAct(row, 'countersignDel')"
+              >
+                {{ t('flow.actCountersignDel') }}
               </el-button>
               <el-button link icon="View" @click="openDetail(row)">
                 {{ t('common.detail') }}
@@ -74,16 +86,7 @@
           </el-table-column>
           <el-table-column :label="t('flow.colDays')" prop="days" width="80" />
           <el-table-column :label="t('flow.colMode')" width="110">
-            <template #default="{ row }">
-              {{
-                ({
-                  single: t('flow.typeSingle'),
-                  countersign: t('flow.typeCountersign'),
-                  or_sign: t('flow.typeOrSign'),
-                  weighted: t('flow.typeWeighted'),
-                } as Record<string, string>)[row.flowMode] ?? row.flowMode
-              }}
-            </template>
+            <template #default="{ row }">{{ flowTypeLabel(row.flowMode) }}</template>
           </el-table-column>
           <el-table-column :label="t('flow.colStatus')" width="100">
             <template #default="{ row }">
@@ -232,7 +235,7 @@
     <!-- ============ 审批动作对话框 ============ -->
     <el-dialog v-model="actOpen" :title="actTitle" width="460px" append-to-body>
       <el-form label-width="90px">
-        <el-form-item v-if="actAction !== 'transfer' && actAction !== 'countersign'" :label="t('flow.formComment')">
+        <el-form-item v-if="!needsTargetUser" :label="t('flow.formComment')">
           <el-input v-model="actComment" type="textarea" :rows="3" :maxlength="500" />
         </el-form-item>
         <el-form-item v-else :label="t('flow.formToUser')">
@@ -244,7 +247,7 @@
             clearable
             :remote-method="searchUsers"
             :loading="userSearching"
-            :placeholder="t('flow.phToUser')"
+            :placeholder="actAction === 'countersignDel' ? t('flow.phToUserDel') : t('flow.phToUser')"
             class="!w-full"
           >
             <el-option
@@ -318,6 +321,7 @@ import {
   withdrawFlowDemo,
   actFlowTask,
   countersignAddFlowTask,
+  countersignDelFlowTask,
   type SysFlowTask,
   type FlowDoneVo,
   type FlowDemoDoc,
@@ -369,6 +373,17 @@ const { sys_flow_task_status, sys_flow_leave_type } = useDict(
 )
 const leaveTypeLabel = (value: string) =>
   sys_flow_leave_type.value.find((o: { value: string }) => o.value === value)?.label ?? value
+
+// 引擎四模式标签：待办行的 taskType 与单据的 flowMode 同源（NodeSpec::task_type）
+const flowTypeLabel = (value: string) =>
+  (
+    {
+      single: t('flow.typeSingle'),
+      countersign: t('flow.typeCountersign'),
+      or_sign: t('flow.typeOrSign'),
+      weighted: t('flow.typeWeighted'),
+    } as Record<string, string>
+  )[value] ?? value
 
 const isOverdue = (row: SysFlowTask) =>
   !!row.dueAt && row.status === 'pending' && new Date(row.dueAt).getTime() < Date.now()
@@ -492,13 +507,19 @@ async function handleSubmit() {
 }
 
 // ---------- 审批动作 ----------
+/** approve/reject/withdraw/transfer 走 /action，加减签各走独立端点 */
+type ActKind = FlowActionForm['action'] | 'countersign' | 'countersignDel'
 const actOpen = ref(false)
 const acting = ref(false)
-const actAction = ref<FlowActionForm['action'] | 'countersign'>('approve')
+const actAction = ref<ActKind>('approve')
 const actTaskId = ref(0)
 const actComment = ref('')
 const actToUserId = ref<number | undefined>(undefined)
 const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
+/** 需要选择目标用户的动作（转办/加签/减签）：这三类不填审批意见 */
+const needsTargetUser = computed(() =>
+  ['transfer', 'countersign', 'countersignDel'].includes(actAction.value)
+)
 
 // 加签/转办用户选择：复用既有用户列表 API（userName 模糊搜索），选项显示 昵称(用户名)
 const userSearching = ref(false)
@@ -514,7 +535,7 @@ async function searchUsers(keyword: string) {
   }
 }
 
-function openAct(row: SysFlowTask, action: FlowActionForm['action'] | 'countersign') {
+function openAct(row: SysFlowTask, action: ActKind) {
   actTaskId.value = row.taskId
   actAction.value = action
   actComment.value = ''
@@ -525,7 +546,7 @@ function openAct(row: SysFlowTask, action: FlowActionForm['action'] | 'countersi
 }
 
 async function handleAct() {
-  if ((actAction.value === 'countersign' || actAction.value === 'transfer') && !actToUserId.value) {
+  if (needsTargetUser.value && !actToUserId.value) {
     ElMessage.warning(t('flow.rules.toUserRequired'))
     return
   }
@@ -534,6 +555,10 @@ async function handleAct() {
     if (actAction.value === 'countersign') {
       // 加签走独立端点（节点由单审升级为会签，须全部通过）
       await countersignAddFlowTask(actTaskId.value, actToUserId.value)
+    } else if (actAction.value === 'countersignDel') {
+      // 减签走独立端点（pending 目标行转 cancelled、已投票转 discarded，
+      // 移除后节点仍满足完成条件时后端立即重新聚合推进）
+      await countersignDelFlowTask(actTaskId.value, actToUserId.value)
     } else {
       await actFlowTask(actTaskId.value, {
         action: actAction.value,
@@ -572,7 +597,7 @@ async function openDetail(row: SysFlowTask) {
 }
 
 function timelineType(action: string) {
-  if (action === 'approve' || action === 'auto_approve') return 'success'
+  if (action === 'approve') return 'success'
   if (action === 'reject') return 'danger'
   if (action === 'timeout_remind') return 'warning'
   return 'primary'

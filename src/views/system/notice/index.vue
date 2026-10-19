@@ -298,7 +298,10 @@ const data = reactive({
     pageSize: 10,
     noticeTitle: undefined,
     createBy: undefined,
-    status: undefined
+    status: undefined,
+    // 排序键必须显式声明，否则 URL 同步引发的页面重建会把用户排序丢掉（operlog 同族缺陷，b73 轮 14）
+    orderByColumn: undefined,
+    isAsc: undefined
   } as NoticeQueryParams,
   rules: {
     noticeTitle: [{ required: true, message: t('notice.validate.noticeTitleRequired'), trigger: 'blur' }],

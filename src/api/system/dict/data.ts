@@ -19,9 +19,10 @@ export function getData(dictCode: number): Promise<AjaxResult<SysDictData>> {
 }
 
 // 根据字典类型查询字典数据信息
+// 字典类型是自由字符串，作为路径段必须编码（含 # 时未编码会取到另一个类型的数据）
 export function getDicts(dictType: string): Promise<AjaxResult<SysDictData[]>> {
   return request({
-    url: '/system/dict/data/type/' + dictType,
+    url: '/system/dict/data/type/' + encodeURIComponent(dictType),
     method: 'get'
   })
 }

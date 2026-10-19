@@ -11,16 +11,22 @@
  * 运行：
  *   PLAYWRIGHT_BROWSERS_PATH=D:/Projects/.pw-browsers \
  *   node collect-warnings.mjs
- * 环境变量覆盖：FRONTEND_URL / STEPBY_TEST_USER / STEPBY_TEST_PASS / INTERACT=1。
+ * 环境变量覆盖：FRONTEND_URL / STEPBY_UI_URL / STEPBY_TEST_USER / STEPBY_TEST_PASS / INTERACT=1。
  */
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
+import { BASE_URL, TEST_USER, TEST_PASS } from './test-config.mjs'
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:4173'
-const USER = process.env.STEPBY_TEST_USER || 'admin'
-const PASS = process.env.STEPBY_TEST_PASS || 'admin123'
+// 口径与 main.mjs / deep-e2e.mjs / a11y-full.mjs 对齐（批七十六）：
+// 原先这里写死 `|| 'http://localhost:4173'`，既不认 STEPBY_UI_URL 也不回落 BASE_URL，
+// 于是"后端嵌入档起在 8080、照兄弟套件的姿势跑本套件"必然卡在登录框找不到
+// （实测：locator.fill Timeout 30000ms，报的是"没有输入框"而不是"地址错了"）。
+// 凭据同样收口到 test-config（它要求显式注入、无弱口令默认值）。
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.STEPBY_UI_URL || BASE_URL
+const USER = TEST_USER
+const PASS = TEST_PASS
 
 // 覆盖 sys_menu 中已注册（status=0）的全部可达功能页面。
 // 路径权威来源是后端 getRouters 组合结果（/父目录path/子path），不是手写猜测。

@@ -243,7 +243,10 @@ const queryParams = ref<AuditChangeQueryParams>({
   tableName: undefined,
   rowPk: undefined,
   action: undefined,
-  operatorName: undefined
+  operatorName: undefined,
+  // 排序键必须显式声明，否则 URL 同步引发的页面重建会把用户排序丢掉（operlog 同族缺陷，b73 轮 14）
+  orderByColumn: undefined,
+  isAsc: undefined
 })
 
 // 本页为只读审计页（无新增/编辑/删除表单）：getApi/addApi/updateApi 按只读页惯例传空实现（operlog 同模式）

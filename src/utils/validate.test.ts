@@ -1,10 +1,4 @@
-import {
-  isExternal,
-  isPathMatch,
-  isEmpty,
-  isHttp,
-  verifyImageMagicBytes
-} from '@/utils/validate'
+import { isExternal, isPathMatch, isEmpty, isHttp, toPositiveInt, verifyImageMagicBytes } from '@/utils/validate'
 import { afterEach, vi } from 'vitest'
 
 /** 构造内存 File：bytes 为文件内容，name 用于扩展名白名单判断 */
@@ -239,5 +233,57 @@ describe('verifyImageMagicBytes', () => {
     stubFileReader()
     const file = makeFile([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a.png')
     expect(await verifyImageMagicBytes(file, ['bmp'])).toBe(false)
+  })
+})
+
+// ============================================================================
+// toPositiveInt 深链数字参数消毒闸（批七十三 轮 16 接线，此前只有 routeParamNumber
+// 守卫测试间接引用它，闸本身的取值契约没有单测 ⇒ 改坏正则或去掉 isSafeInteger 都不会红）
+// ============================================================================
+describe('toPositiveInt', () => {
+  /** 非正整数一律归 0：闸的产出永远是"可直接拼进请求的数"，不是 undefined/NaN */
+  const toZero: Array<[string, unknown]> = [
+    ['空串', ''],
+    ['零', '0'],
+    ['负号', '-1'],
+    ['小数', '1.5'],
+    ['科学计数', '1e3'],
+    ['前导空格', ' 4'],
+    ['尾随空格', '4 '],
+    ['加号', '+4'],
+    ['十六进制', '0x4'],
+    ['非数字串', 'abc'],
+    ['数值溢出（超出安全整数）', '9007199254740992'],
+    ['数字 0', 0],
+    ['负数', -1],
+    ['小数（number）', 2.5],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['null', null],
+    ['undefined', undefined],
+    ['布尔', true],
+    ['数组（不 coercion）', ['5']],
+    ['对象（不 coercion）', { toString: () => '5' }]
+  ]
+  for (const [label, input] of toZero) {
+    it(`${label} ⇒ 0`, () => {
+      expect(toPositiveInt(input)).toBe(0)
+    })
+  }
+
+  it('正整数字符串与数字都按值保留', () => {
+    expect(toPositiveInt('7')).toBe(7)
+    expect(toPositiveInt('007')).toBe(7)
+    expect(toPositiveInt(7)).toBe(7)
+    // 恰好等于最大安全整数仍保留（闸只挡"会变成 float 丢精度"的那一侧）
+    expect(toPositiveInt('9007199254740991')).toBe(9007199254740991)
+  })
+
+  it('产出值可直接拼进请求（不出现 NaN / undefined / 空串）', () => {
+    for (const [, input] of toZero) {
+      const out = toPositiveInt(input)
+      expect(Number.isSafeInteger(out)).toBe(true)
+      expect(out).toBeGreaterThanOrEqual(0)
+    }
   })
 })

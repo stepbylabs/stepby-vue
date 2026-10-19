@@ -219,6 +219,7 @@
 import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub, listReport } from '@/api/system/report'
 import type { SysReportSub, SysReport } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -301,6 +302,10 @@ const {
   formRef: subRefRef,
   queryRef: queryRefRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 // 表单数据与渠道勾选同步：打开新增时默认邮件；修改时按提交内容回填
 watch(

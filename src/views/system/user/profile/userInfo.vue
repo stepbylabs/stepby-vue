@@ -4,7 +4,11 @@
       <el-input v-model.trim="form.nickName" maxlength="30" />
     </el-form-item>
     <el-form-item :label="t('profile.label.phone')" prop="phonenumber">
-      <el-input v-model.trim="form.phonenumber" maxlength="20" class="w-[70%]">
+      <!-- aria-label 必须显式给：这一格的 #prepend 里有 el-select，Element Plus 的
+           el-form-item 只把 label 的 for 关联到插槽内**第一个**表单控件（即区号选择器），
+           于是手机号输入框本身没有任何可访问名称——读屏只会念"编辑框"。
+           a11y-full 实测 /user/profile/* 4 个路由各 1 处（批七十六收口）。 -->
+      <el-input v-model.trim="form.phonenumber" :aria-label="t('profile.label.phone')" maxlength="20" class="w-[70%]">
         <template #prepend>
           <el-select :aria-label="t('profile.label.country')" v-model="form.countryCode" :placeholder="t('profile.placeholder.areaCode')" class="w-[120px]">
             <el-option v-for="opt in regionOptions" :key="opt.value" :label="t(opt.labelKey)" :value="opt.value" />

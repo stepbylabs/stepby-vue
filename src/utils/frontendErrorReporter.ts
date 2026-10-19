@@ -34,6 +34,8 @@ const BASE_API = import.meta.env.VITE_APP_BASE_API || ''
 const REPORT_URL = `${BASE_API}/monitor/frontendError/report`
 const FLUSH_DEBOUNCE_MS = 2000
 const MAX_BUFFER = 50
+/** keepalive 请求体上限 64 KiB，留 4 KiB 余量（头/编码差异）；超限改用普通请求，见 flush() */
+const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024
 
 /**
  * 已知良性错误名单：命中则不持久化上报（批五十四）。
@@ -120,6 +122,13 @@ function flush(): void {
   const token = getToken()
   if (!token) return
   const body = JSON.stringify({ items })
+  // keepalive 的请求体在各浏览器实现里上限是 64 KiB：**超限时 fetch 直接 reject**
+  // （不是"退化成普通请求"），于是整批观测数据被上面的 catch 静默丢掉。
+  // MAX_BUFFER=50 条含 stack 的错误完全可能超（50 × ~1.5 KB）。
+  // ⇒ 超限的那一批改用普通请求：页面仍在时照常送达，只有"发完前就离开页面"才丢，
+  //    比"永远发不出去"好。阈值留 4 KB 余量给请求头与编码差异。
+  const bytes = new TextEncoder().encode(body).length
+  const canKeepAlive = bytes <= KEEPALIVE_BODY_LIMIT_BYTES
   try {
     fetch(REPORT_URL, {
       method: 'POST',
@@ -128,7 +137,7 @@ function flush(): void {
         Authorization: `Bearer ${token}`
       },
       body,
-      keepalive: true
+      keepalive: canKeepAlive
     }).catch(() => {
       /* 静默：上报失败不影响业务，也不再次进入 errorHub（避免反馈环） */
     })

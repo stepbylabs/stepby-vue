@@ -365,7 +365,10 @@ const queryParams = ref<AlertRuleQueryParams>({
   pageSize: 10,
   name: undefined,
   metric: undefined,
-  enabled: undefined
+  enabled: undefined,
+  // 排序键必须显式声明，否则 URL 同步引发的页面重建会把用户排序丢掉（operlog 同族缺陷，b73 轮 14）
+  orderByColumn: undefined,
+  isAsc: undefined
 })
 
 const defaultForm = (): AlertRuleSaveDto => ({

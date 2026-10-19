@@ -343,9 +343,56 @@ describe('composables/useCrudTable', () => {
     })
   })
 
+  // ===== UX-5 未保存守卫的基准快照（b73 轮 13 真机复现缺陷的回归锁） =====
+  // 缺陷形态：页面覆写 handleAdd/handleUpdate 时漏调 snapshotForm → 快照仍是上一轮表单，
+  // 用户"打开新增、一个字没改、点关闭"却弹「当前表单内容尚未保存」（角色管理/部门管理实测复现）。
+  describe('unsaved guard baseline snapshot', () => {
+    it('标准 handleAdd 后未改动 → cancel 不弹确认且直接关闭', async () => {
+      const { ctx } = makeCtx()
+      elMessageBoxConfirm.mockResolvedValue(undefined)
+      ctx.handleAdd()
+      await flush()
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).not.toHaveBeenCalled()
+      expect(ctx.open.value).toBe(false)
+    })
+
+    it('对照组：改动内容后 cancel 必须弹确认（证明上一条不是虚锁）', async () => {
+      const { ctx, form } = makeCtx()
+      elMessageBoxConfirm.mockResolvedValue(undefined)
+      ctx.handleAdd()
+      await flush()
+      form.value.postName = 'typed by user'
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).toHaveBeenCalledTimes(1)
+    })
+
+    it('页面自行置 open（不调 snapshotForm）时，挂载点必须自动补快照', async () => {
+      const { ctx, form } = makeCtx()
+      // 复刻 role/dept 本地 handleAdd：只改表单 + 置 open，完全不碰 snapshotForm
+      form.value = { postId: 7, postName: '' }
+      ctx.open.value = true
+      await flush()
+      elMessageBoxConfirm.mockResolvedValue(undefined)
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).not.toHaveBeenCalled()
+      expect(ctx.open.value).toBe(false)
+    })
+
+    it('打开之后再设默认值（部门新增挂父节点形态）也不算脏', async () => {
+      const { ctx, form } = makeCtx()
+      ctx.handleAdd()
+      // 同一轮同步块内在 open 之后继续改表单：快照必须取"最终值"而不是 open 那一刻的中间值
+      form.value.postId = 42
+      await flush()
+      elMessageBoxConfirm.mockResolvedValue(undefined)
+      await ctx.cancel()
+      expect(elMessageBoxConfirm).not.toHaveBeenCalled()
+    })
+  })
+
   // ===== 修改 =====
-  describe('handleUpdate', () => {
-    it('携带 row 时按 row[idField] 拉详情并回填', async () => {
+  describe('handleUpdate', () => {    it('携带 row 时按 row[idField] 拉详情并回填', async () => {
       const { ctx, getApi, form } = makeCtx()
       ctx.handleUpdate({ postId: 12, postName: 'x' })
       expect(getApi).toHaveBeenCalledWith(12)
@@ -644,15 +691,39 @@ describe('composables/useCrudTable', () => {
       expect(ctx.exportLoading.value).toBe(false)
     })
 
-    it('未传文件名时生成 `${url末段}_${时间戳}.xlsx`', () => {
+    it('未传文件名时按「实体名_时间戳」自动命名（取 URL 倒数第二段，不是末段 export）', () => {
       const { ctx } = makeCtx()
       download.mockResolvedValueOnce({})
       ctx.handleExport()
       expect(download).toHaveBeenCalledWith(
         '/system/post/export',
         { pageNum: 2, name: 'a' },
-        expect.stringMatching(/^export_\d+\.xlsx$/)
+        expect.stringMatching(/^post_\d+\.xlsx$/)
       )
+    })
+
+    it('模板裸绑 `@click="handleExport"` 传入事件对象时不得污染文件名（b73 真缺陷回归锁）', () => {
+      // 缺陷现场：7 个页面把导出物存成 `[object PointerEvent].txt`——el-button 的 click 载荷
+      // 在类型上是宽松的，vue-tsc 拦不住，只能由 composable 自己拒收非字符串覆写
+      const { ctx } = makeCtx()
+      download.mockResolvedValueOnce({})
+      ;(ctx.handleExport as (filename?: unknown) => void)(new Event('click'))
+      const name = download.mock.calls[0][2]
+      expect(name).toMatch(/^post_\d+\.xlsx$/)
+      expect(name).not.toContain('[object')
+    })
+
+    it('空字符串文件名按未传处理（不得下载成无后缀空名）', () => {
+      const { ctx } = makeCtx()
+      download.mockResolvedValueOnce({})
+      ctx.handleExport('')
+      expect(download.mock.calls[0][2]).toMatch(/^post_\d+\.xlsx$/)
+    })
+
+    it('对照组：旧写法 `filename || 默认` 会把事件对象洗成 [object Event]', () => {
+      // 证明上一把锁真的受约束：实现若改回 `filename || default`，事件分支得到的就是这个名字
+      const ev = new Event('click') as unknown as string
+      expect(`${ev || 'post.xlsx'}`).toBe('[object Event]')
     })
 
     it('导出进行中忽略重复触发（exportLoading 守卫）', async () => {
@@ -666,5 +737,52 @@ describe('composables/useCrudTable', () => {
       await flush()
       expect(ctx.exportLoading.value).toBe(false)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 批七十三 轮 16：URL 数值注入闸门。
+// 缺陷形态：restoreQueryFromUrl 用裸 Number() 解析 URL 值，IEEE754 把 100 位数字串折成
+// 1.11e+99 并注入查询对象，随后 syncUrlQuery 又把折出来的值写回 URL——畸形深链由此
+// 从"一次本地就能拒绝的坏参数"变成"注定 400 的出网请求 + 被污染的地址栏"。
+// ---------------------------------------------------------------------------
+describe('useCrudTable restoreQueryFromUrl 数值注入闸门（b73 轮 16）', () => {
+  const huge = '1'.repeat(100)
+
+  function mountWith(query: Record<string, unknown>, initial: Record<string, unknown>) {
+    routeState.query = query
+    const queryParams = ref<Record<string, unknown>>({ ...initial })
+    makeCtx({ queryParams })
+    routeState.query = {}
+    return queryParams
+  }
+
+  it('pageNum：合法字符串正常回填', () => {
+    expect(mountWith({ pageNum: '7' }, { pageNum: 2, name: 'a' }).value.pageNum).toBe(7)
+  })
+
+  it('pageNum：畸形（100 位 / 小数 / 0 / 脏字符）保持页面默认，不注入', () => {
+    for (const bad of [huge, '1.5', '0', '12abc']) {
+      expect(mountWith({ pageNum: bad }, { pageNum: 2, name: 'a' }).value.pageNum, bad).toBe(2)
+    }
+  })
+
+  it('其它数值键：往返无损才注入（0 与负数按字面保留，畸形串保持默认）', () => {
+    expect(mountWith({ deptId: '12' }, { pageNum: 1, deptId: 5 }).value.deptId).toBe(12)
+    expect(mountWith({ deptId: '0' }, { pageNum: 1, deptId: 5 }).value.deptId).toBe(0)
+    for (const bad of ['007', '1e99', huge, '12abc']) {
+      expect(mountWith({ deptId: bad }, { pageNum: 1, deptId: 5 }).value.deptId, bad).toBe(5)
+    }
+  })
+
+  it('字符串键不受影响（原样回填）', () => {
+    expect(mountWith({ name: 'zzz' }, { pageNum: 1, name: 'a' }).value.name).toBe('zzz')
+  })
+
+  it('控制组：旧判据（裸 Number + NaN 检查）确实会放行 100 位串（证明本锁真在约束）', () => {
+    const oldAccepts = (v: string) => !Number.isNaN(Number(v)) && Number(v) > 0
+    expect(oldAccepts(huge)).toBe(true) // 旧写法：注入 1.11e+99
+    expect(oldAccepts('1e99')).toBe(true)
+    expect(mountWith({ deptId: huge }, { pageNum: 1, deptId: 5 }).value.deptId).toBe(5) // 新判据：拒绝
   })
 })

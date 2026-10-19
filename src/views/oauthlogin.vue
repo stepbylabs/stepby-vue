@@ -47,8 +47,22 @@ const status = ref('')
 const showLoginLink = ref(false)
 
 async function land() {
-  const error = route.query.error as string | undefined
-  const handoff = decodeURIComponent((route.query.handoff as string) || '')
+  try {
+    await resolveLanding()
+  } catch {
+    // 兜底：任何取参/解析/跳转异常都必须落到确定态（可见提示 + 返回登录入口）。
+    // 此前 land() 一旦 reject，页面就永远停在 spinner，用户零反馈、也无路可退。
+    status.value = t('common.loadFailed')
+    showLoginLink.value = true
+  }
+}
+
+async function resolveLanding() {
+  // 查询值是外部输入且可为数组（?handoff=a&handoff=b），统一按 string 归一后再用
+  const error = typeof route.query.error === 'string' ? route.query.error : ''
+  // vue-router 已对查询串解码过一次，这里再 decodeURIComponent 会二次改写值（%25 → %），
+  // 且畸形片段（如 %E4%BF）直接抛 URIError 让整条链路 reject。信任 router 的解码结果。
+  const handoff = typeof route.query.handoff === 'string' ? route.query.handoff : ''
 
   // 1. 授权失败
   if (error) {
@@ -68,8 +82,11 @@ async function land() {
         await router.replace(redirect)
         return
       } catch {
-        // 绑定失败（如 handoff 已过期/第三方身份已被他人绑定），回落到登录页重新走流程
-        router.replace('/login')
+        // 批七十四 F1 补口：已登录用户绑定失败（handoff 过期/畸形/已被他人绑定）时，
+        // 原实现 `router.replace('/login')` 会把一个**已有会话**的人甩到登录页且零解释——
+        // 既丢了当前上下文，也让人误以为登录失效。改为留在本页给出可见原因 + 下一步入口。
+        status.value = t('login.oauthBindFailed')
+        showLoginLink.value = true
         return
       }
     }
@@ -85,13 +102,13 @@ async function land() {
   }
 
   // 3. 登录成功（后端已签发 token）
-  const token = route.query.token as string | undefined
+  const token = typeof route.query.token === 'string' ? route.query.token : ''
   if (!token) {
     status.value = t('oauth.error.loadFailed')
     showLoginLink.value = true
     return
   }
-  const username = route.query.username as string | undefined
+  const username = typeof route.query.username === 'string' ? route.query.username : undefined
   setToken(token)
   userStore.token = token
   useLockStore().unlockScreen()

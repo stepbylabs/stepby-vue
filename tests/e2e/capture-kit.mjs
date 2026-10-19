@@ -30,6 +30,27 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * 后端日志目录默认值：**锚定到本文件位置**，与 `process.cwd()` 无关。
+ *
+ * b73 轮 10 发现的静默失效：旧写法用 `path.resolve(process.cwd(), '..', 'stepby-axum', 'logs')`
+ * 与 main.mjs 的 `'../../stepby-axum/logs'`，两者都随启动目录漂移。RUN-RECIPE 规定的
+ * main.mjs 启动目录是 `tests/e2e` ⇒ 解析出 `stepby-vue/stepby-axum/logs`（不存在）⇒
+ * `existsSync` 为假直接 return ⇒ **"后端日志异常摘要"这一路捕获通道从未输出过任何东西**，
+ * 且失败无声。deep-e2e 从仓根启动才恰好命中，于是同一份代码一处有效一处失效。
+ * 现在：目录不存在时不再静默返回，而是通过 `missing` 字段让调用方**打印出来**。
+ */
+export const DEFAULT_BACKEND_LOG_DIR = path.resolve(HERE, '..', '..', '..', 'stepby-axum', 'logs')
+
+/** 解析后端日志目录（环境变量优先，绝对/相对都按当前目录解析） */
+export function resolveBackendLogDir() {
+  const raw = process.env.STEPBY_BACKEND_LOG_DIR
+  return raw ? path.resolve(raw) : DEFAULT_BACKEND_LOG_DIR
+}
 
 /** 响应体截取长度上限（避免报告过大） */
 const BODY_SNIPPET_MAX = 500
@@ -39,6 +60,8 @@ const TEXT_SNIPPET_MAX = 400
 const SLOW_REQUEST_MS = 3000
 /** 每条失败条目最多附带的证据条数 */
 const EVIDENCE_LIMIT = 3
+/** 单模块失败请求样本上限（汇总对账需要全量，见 netFails 注入处注释） */
+const NET_FAIL_LIMIT = 200
 
 /**
  * 在页面上注册全部捕获通道
@@ -125,10 +148,36 @@ export function createCaptureHub(page, options = {}) {
     )
     .catch(() => {})
 
-  // ---- ② 失败请求（含响应体 msg）+ ③ 慢请求 ----
+  // ---- ② 失败请求（含响应体 msg）+ ③ 慢请求 + ⑦ 每动作请求数分布（批七十四 T5）----
   const startedAt = new Map()
+  /**
+   * 每动作请求数：`当前动作标签` × `方法 + 归一化端点` → 次数。
+   *
+   * 为什么本批**只采集不判红**（b73 §5.3-4 移交项）：现有 11 路捕获没有一路监
+   * "同一个页面动作发出了几次同类请求"，而重复提交/循环触发/守卫失效正是这一形状。
+   * 没有实测分布就设阈值，等于再造一条噪声通道污染 `❌0` 基线——所以先落盘分布，
+   * 阈值由数据定下一次再升级为硬判据。归一化沿用日志聚合口径（数字/UUID → N），
+   * 否则 `/system/user/12` 与 `/system/user/13` 会被算成两种端点。
+   */
+  const requestCounts = new Map()
+  let actionTag = 'load'
+  const normalizeEndpoint = (url) => {
+    let pathname = url
+    const q = pathname.indexOf('?')
+    if (q >= 0) pathname = pathname.slice(0, q)
+    try {
+      pathname = new URL(pathname).pathname
+    } catch {
+      /* 相对路径形态（非本项目入参），原样使用 */
+    }
+    return pathname
+      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'N')
+      .replace(/\d+/g, 'N')
+  }
   page.on('request', (req) => {
     startedAt.set(req, Date.now())
+    const key = `${actionTag} | ${req.method()} ${normalizeEndpoint(req.url())}`
+    requestCounts.set(key, (requestCounts.get(key) || 0) + 1)
   })
   page.on('response', async (resp) => {
     try {
@@ -151,7 +200,9 @@ export function createCaptureHub(page, options = {}) {
           status: resp.status(),
           body: (body || '').replace(/\s+/g, ' ').slice(0, BODY_SNIPPET_MAX)
         })
-        if (netFails.length > 30) netFails.shift()
+        // 上限 200（原 30）：汇总阶段要拿失败请求与负路径断言**逐条对账**，
+        // 截断样本会让"11 条只显示 4 条"这类观测缺口无法闭合（b73 轮 14 实证）。
+        if (netFails.length > NET_FAIL_LIMIT) netFails.shift()
       }
     } catch {
       /* 捕获通道自身不得影响测试执行 */
@@ -296,6 +347,8 @@ export function createCaptureHub(page, options = {}) {
   }
 
   return {
+    /** 归属标签（M<id>）：汇总阶段把失败请求归因到模块，负路径对账才能逐条闭合 */
+    tag,
     initPromise,
     toasts,
     netFails,
@@ -310,26 +363,95 @@ export function createCaptureHub(page, options = {}) {
     /** 当前失败请求条数（供汇总判断） */
     get netFailCount() {
       return netFails.length
+    },
+    /** 批七十四 T5：标记"从现在起的请求属于哪个动作"（用例在动作前调用一次） */
+    beginAction(name) {
+      actionTag = String(name || 'unnamed').slice(0, 60)
+    },
+    /** 批七十四 T5：本轮 `(动作, 方法 端点)` 请求数分布快照（按次数降序） */
+    requestStatSnapshot() {
+      return Array.from(requestCounts.entries())
+        .map(([key, count]) => ({ key, count }))
+        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
     }
   }
 }
 
 /**
+ * 后端日志行首的 tracing 时间戳（UTC RFC3339，可带 6 位小数）→ epoch ms。
+ * 解析不出来返回 NaN（调用方按"不可归因"处理，宁可丢弃也不要把历史行当本轮信号）。
+ */
+function parseLogTimestamp(line) {
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:\d{2})?/.exec(line)
+  if (!m) return NaN
+  // 无时缀的日志行按 UTC 解释（后端 tracing 层输出 naive-UTC，与项目时间基一致）
+  return Date.parse(`${m[1]}T${m[2]}${m[3] || 'Z'}`)
+}
+
+/**
+ * 默认聚合键归一（b73 轮 9）：削 ANSI → 削时间戳 → 归一 request_id / UUID / 数字。
+ * 不做这层归一时，同一个消息形状会因每请求不同的 request_id 裂成"一条一种"，
+ * 实测 unscoped 438 行聚成 766 型（几乎每型 ×1），计数排序失去"抓高频共性问题"的意义。
+ * 先削 ANSI：修复前落盘的历史日志里 `request_id` 两侧带 ESC 码，不归一就匹配不到
+ * `request_id=` 前缀（product 侧已在 logger.rs 关闭 span 层 ANSI，这里是消费端的纵深防御，
+ * 让历史日志与新日志一样可聚合）。
+ */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g
+const DEFAULT_KEY_SANITIZER = (line) =>
+  line
+    .replace(ANSI_RE, '')
+    .replace(/^\d{4}-\d{2}-\d{2}[T\s][\d:.,]+Z?\s*/, '')
+    .replace(/request_id=[0-9a-fA-F-]+/g, 'request_id=N')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, 'N')
+    .replace(/\d+/g, 'N')
+    .slice(0, 160)
+
+/**
  * 汇总后端日志中的 ERROR / 异常 WARN（跨脚本共用）
  *
- * 从给定日志目录读取最新的 app.log*，抽取 ERROR/WARN 行并去重计数。
- * 未找到日志时返回空数组（不报错，避免日志缺失导致测试失败）。
+ * 从给定日志目录读取 app.log*，抽取 ERROR/WARN 行并去重计数。
+ * 未找到日志时返回空结构（不报错，避免日志缺失导致测试失败）。
+ *
+ * **b73 轮 9 窗口化改造**：原先"读最新两个文件全量 + 聚合"会把**历史轮次/历史日期**的
+ * ERROR 混进本轮报告（实证：模块 29 轮次报出 ×9 `tower_http on_failure 503`，逐条核对
+ * 时间戳全属 2026-10-15，与本轮无关，白白消耗一轮归因）。现在：
+ *   - 传 `sinceMs`（本轮开跑时刻）⇒ 只统计时间戳落在窗口内的行，窗口前条目单独计数回报；
+ *   - 文件选择按 mtime 过滤（历史滚动文件整体不读，省 IO 且消除跨轮误读），
+ *     仍覆盖"轮次内跨零点滚动"的多文件场景；
+ *   - 不传 sinceMs 时保持旧行为（全量尾部），供人工巡检历史使用。
+ * 原先 main.mjs 里另有一份"尾部 800 行"实现，两份口径会漂移且长轮次漏读；
+ * 现 main.mjs 改为调用本函数（`warnPattern` 保留其"只报可疑 WARN"的窄口径）。
  *
  * @param {object} [options] - 配置
- * @param {string} [options.logDir] - 日志目录，默认 stepby-axum/logs
+ * @param {string} [options.logDir] - 日志目录，默认 `resolveBackendLogDir()`（锚定文件位置，非 cwd）
  * @param {number} [options.maxLines] - 最多返回行数，默认 20
- * @returns {string[]} 汇总行（含数量前缀）
+ * @param {number|null} [options.sinceMs] - 窗口起点（epoch ms）；null = 不过滤
+ * @param {RegExp|null} [options.warnPattern] - WARN 行需命中的关键词；null = 全部 WARN 都算
+ * @param {Function|null} [options.keySanitizer] - 聚合键定制（默认归一 request_id/UUID/数字后截断）
+ * @returns {{lines: string[], items: Array<[string, number]>, total: number, excluded: number, files: string[], windowStart: number|null, missing: boolean, logDir: string}}
  */
 export function summarizeBackendLogErrors(options = {}) {
   const {
-    logDir = path.resolve(process.cwd(), '..', 'stepby-axum', 'logs'),
-    maxLines = 20
+    logDir = resolveBackendLogDir(),
+    maxLines = 20,
+    sinceMs = null,
+    warnPattern = null,
+    keySanitizer = null
   } = options
+  // missing=true 表示"目录读不到 / 无 app.log 文件"——这是**捕获通道失效**，
+  // 与"通道正常但本轮无异常"（missing=false, total=0）是两种完全不同的结论，
+  // 调用方必须把前者打印出来，不得当成"干净"。（b73 轮 10 的静默失效就是这么漏掉的）
+  const empty = {
+    lines: [],
+    items: [],
+    total: 0,
+    excluded: 0,
+    files: [],
+    windowStart: sinceMs ?? null,
+    missing: true,
+    logDir
+  }
   let files = []
   try {
     files = fs
@@ -338,11 +460,16 @@ export function summarizeBackendLogErrors(options = {}) {
       .map((f) => ({ f, p: path.join(logDir, f), m: fs.statSync(path.join(logDir, f)).mtimeMs }))
       .sort((a, b) => b.m - a.m)
   } catch {
-    return []
+    return empty
   }
-  if (!files.length) return []
+  if (!files.length) return empty
+  // 时钟对齐容差：日志写盘与本地时钟可能有秒级偏差，窗口起点前 5 分钟内的文件仍要读
+  const SKEW_MS = 5 * 60 * 1000
+  const targets =
+    sinceMs == null ? files.slice(0, 2) : files.filter((x) => x.m >= sinceMs - SKEW_MS).slice(0, 3)
+  if (!targets.length) return empty
   const lines = []
-  for (const { p } of files.slice(0, 2)) {
+  for (const { p } of targets) {
     try {
       const content = fs.readFileSync(p, 'utf8')
       lines.push(...content.split('\n'))
@@ -350,14 +477,35 @@ export function summarizeBackendLogErrors(options = {}) {
       /* 忽略不可读日志 */
     }
   }
-  const hits = lines.filter((l) => /\bERROR\b/.test(l) || /\bWARN\b/.test(l))
+  const isLevel = (l) =>
+    /\bERROR\b/.test(l) || (/\bWARN\b/.test(l) && (!warnPattern || warnPattern.test(l)))
+  const hits = []
+  let excluded = 0
+  for (const l of lines) {
+    if (!isLevel(l)) continue
+    if (sinceMs == null) {
+      hits.push(l)
+      continue
+    }
+    const ts = parseLogTimestamp(l)
+    if (Number.isFinite(ts) && ts >= sinceMs) hits.push(l)
+    else excluded += 1 // 无时间戳或窗口前 ⇒ 不可归因，不计入本轮
+  }
   const counter = new Map()
+  const keyOf = keySanitizer || DEFAULT_KEY_SANITIZER
   for (const l of hits) {
-    const key = l.replace(/^\d{4}-\d{2}-\d{2}[T\s][\d:.,]+/, '').slice(0, 180)
+    const key = keyOf(l)
     counter.set(key, (counter.get(key) || 0) + 1)
   }
-  return Array.from(counter.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, maxLines)
-    .map(([text, n]) => `    · ×${n} ${text}`)
+  const items = Array.from(counter.entries()).sort((a, b) => b[1] - a[1])
+  return {
+    lines: items.slice(0, maxLines).map(([text, n]) => `    · ×${n} ${text}`),
+    items,
+    total: hits.length,
+    excluded,
+    files: targets.map((x) => x.f),
+    windowStart: sinceMs ?? null,
+    missing: false,
+    logDir
+  }
 }

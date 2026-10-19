@@ -63,7 +63,7 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 /* menu item */
-.topbar-menu.el-menu--horizontal :deep(.el-submenu__title),
+.topbar-menu.el-menu--horizontal :deep(.el-sub-menu__title),
 .topbar-menu.el-menu--horizontal :deep(.el-menu-item) {
   padding: 0 10px !important;
   transition:
@@ -87,14 +87,14 @@ onMounted(() => {
 :deep(.el-sub-menu.is-active) .svg-icon,
 :deep(.el-menu-item.is-active) .svg-icon + span,
 :deep(.el-sub-menu.is-active) .svg-icon + span,
-:deep(.el-sub-menu.is-active) .el-submenu__title span {
+:deep(.el-sub-menu.is-active) .el-sub-menu__title span {
   color: v-bind(theme);
 }
 
 /* sub-menu item */
 /* Vue scoped 编译器只转换选择器中的第一个 :deep()，再出现的 :deep() 会以字面量形式残留在产物中，
    而 :deep 并非标准 CSS 伪类，浏览器会丢弃整条规则。故合并为单个 :deep(.a .b)，语义等价且规则生效。 */
-.topbar-menu.el-menu--horizontal > :deep(.el-sub-menu .el-submenu__title) {
+.topbar-menu.el-menu--horizontal > :deep(.el-sub-menu .el-sub-menu__title) {
   float: left;
   line-height: 50px !important;
   color: var(--el-text-color-primary) !important;

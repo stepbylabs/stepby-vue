@@ -1,5 +1,5 @@
 // zh-CN · 分类：system（系统管理）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   menu: {
@@ -1104,7 +1104,8 @@ export default {
       },
       btn: {
         clean: '清空',
-        retry: '重试'
+        retry: '重试',
+        markPending: '标记待重试'
       },
       status: {
         success: '成功',
@@ -1114,10 +1115,12 @@ export default {
       tip: {
         confirmDelete: '是否确认删除发送记录编号为"{ids}"的数据项？',
         confirmClean: '是否确认清空全部发送记录？此操作不可恢复！',
-        confirmRetry: '是否确认重试发送记录"{logId}"？'
+        confirmRetry: '是否确认重试发送记录"{logId}"？',
+        confirmMarkPending: '已选 {count} 条：仅失败终态记录会被交回重试队列（成功记录跳过，不会重复投递），确认？'
       },
       cleanSuccess: '发送记录已清空',
-      retrySuccess: '重试成功'
+      retrySuccess: '重试成功',
+      markPendingSuccess: '已交回重试队列 {count} 条'
     }
   },
   task: {
@@ -1669,6 +1672,7 @@ export default {
     sqlRuleHint:
       '仅允许单条参数化 SELECT（:param 命名占位符）；DML/DDL/注释/多语句/子查询/UNION 一律拒绝',
     paramsSchema: '参数 Schema',
+    sqlLoadFailed: 'SQL 明文加载失败，请手动填写完整 SQL 后再保存',
     paramsSchemaInvalid: '参数 Schema 不是合法 JSON',
     preview: '试跑',
     previewTitle: '数据集试跑（LIMIT 100）',
@@ -1823,6 +1827,7 @@ export default {
     cardTodoEmpty: '暂无待办',
     actTransfer: '转办',
     actCountersign: '加签',
+    actCountersignDel: '减签',
     actWithdraw: '撤回',
     actResubmit: '重新提交',
     btnSubmit: '提交请假单',
@@ -1837,11 +1842,13 @@ export default {
     formComment: '审批意见',
     formToUser: '目标用户（用户 ID）',
     phToUser: '输入用户名远程搜索',
+    phToUserDel: '选择本节点另一名审批人（减签后须至少剩一名）',
     actTitle: {
       approve: '同意审批',
       reject: '驳回审批',
       transfer: '转办审批',
-      countersign: '加签审批'
+      countersign: '加签审批',
+      countersignDel: '减签审批'
     },
     rules: {
       title: '请输入单据标题',
@@ -1868,8 +1875,10 @@ export default {
       reject: '驳回',
       withdraw: '撤回',
       transfer: '转办',
-      timeout_remind: '超时提醒',
-      auto_approve: '自动通过'
+      delegate: '委托',
+      countersign_add: '加签',
+      countersign_del: '减签',
+      timeout_remind: '超时提醒'
     },
     msgSubmitted: '提交成功，已进入审批流程',
     msgNoTaskFound: '未找到该单据的待办任务'

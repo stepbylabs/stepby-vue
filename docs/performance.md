@@ -36,6 +36,17 @@ pnpm dedupe --check   # CI 同步执行；存在可合并的重复依赖实例�
 npm run build:analyze   # rollup-plugin-visualizer → dist/stats.html treemap
 ```
 
+闸门是 `.env.analyze` 里的 `VITE_ANALYZE = true`（`vite build --mode analyze` 按 mode
+读该文件，`vite/plugins/index.ts` 判 `viteEnv.VITE_ANALYZE === 'true'` 才挂插件）。
+**批七十六实证**：本节此前就写着"已修复"，但 `.env.analyze` 因老 `.gitignore`
+（忽略 `.env.*` + 只逐个 `!` 放行）从未进过仓库，磁盘副本又被删除 ⇒ 闸门永不打开，
+整条优化实际是断的；同一规则先后吞掉过 `.env.embedded` 与 `.env.analyze`。现
+`.gitignore` 已改为"先 `!.env.*` 放行、再精确忽略 `.env` / `.env.local` /
+`.env.*.local`"，新增的 `--mode <x>` 档默认入库。产物路径也订正为文档口径的
+`dist/stats.html`（插件的 `filename` 按 **cwd** 解析，写成裸 `stats.html` 会把 2 MB
+报告落在包根、脱离 `dist/` 的忽略范围）。回归锁：
+`src/utils/bundleAnalyze.link.test.ts`（四段链路 + 老规则复现）与 e2e 功能 41 Perf-2。
+
 `vite.config.ts` 已开 `treeshake: true`；结合 stats.html 可核对具名导入是否被
 tree-shake（全量 `import *` 例外，见 §4.3 图标说明）。
 
@@ -51,9 +62,13 @@ tree-shake（全量 `import *` 例外，见 §4.3 图标说明）。
 
 ### 2.2 告警（FCP-010）
 
-`deploy/prometheus/rules.yml` 的 `stepby-frontend-vitals` 组：基于 `sys_frontend_error`
-vitals 数据经 metrics 导出后的 `stepby_frontend_vital_p95_ms / stepby_frontend_error_rate`
-等指标做退化告警（阈值与 `perf-budget.json` runtime 段对齐）。部署方式见该文件头注释。
+`deploy/prometheus/rules.yml` 的 `stepby-frontend-vitals` 组基于 `/metrics` **真实导出**的两个族做退化告警：
+`stepby_frontend_vital_seconds`（histogram，标签 `name,device`；p95 由 `histogram_quantile()` 在 `_bucket` 上算，
+指标名里没有 `_p95_ms` 这种东西）与 `stepby_frontend_cls`（gauge，最新 CLS 累计值，按 `device` 分桶）。
+**没有** `stepby_frontend_error_rate` 这类指标：前端错误只落 `sys_frontend_error` 表并出列表页，
+要做错误率告警得走 SQL 侧看板而不是 `/metrics`（阈值与 `perf-budget.json` runtime 段对齐）。
+两个族都是**有数据才渲染**（首次上报/首次执行之前 `/metrics` 里查不到），所以"指标缺席"不能当成"服务宕机"，
+宕机判定用的是 `absent(stepby_uptime_seconds{job="stepby"})`。部署方式见 rules.yml 头注释。
 
 ### 2.3 错误堆栈还原（SMAP-001~004）
 

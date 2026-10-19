@@ -1,7 +1,8 @@
 # e2e 套件运行配方（已验证）
 
-> 本文件记录 `stepby-vue/tests/e2e/main.mjs`（**142 个功能**，套件已并入 stepby-vue 仓库；b71 订正：
-> 原头部长期写"75 个功能"是批四十前后的历史枚举，功能数已随批次追加到 142，见 main.mjs 头部同一条订正）
+> 本文件记录 `stepby-vue/tests/e2e/main.mjs`（功能数以文件内**注册表自检**为唯一事实源：编号 1..N 连续、
+> 无重复、`features.length === maxId`；b73 起为 **143**，套件已并入 stepby-vue 仓库；b71 订正：
+> 原头部长期写"75 个功能"是批四十前后的历史枚举，功能数已随批次追加，见 main.mjs 头部同一条订正）
 > 在本地跑通所需的**完整环境**，
 > 以及 source-check 断言的**防混淆（minify-stable）约定**。先前多次“假失败”均源于环境与混淆问题，
 > 按本文配置可稳定复现全绿。
@@ -370,6 +371,21 @@ embedded 环境**不跑 Migrator**（架构约定：启动只跑 `initialize` �
 cd stepby-axum
 DATABASE_URL="sqlite://./data/mig-verify.db?mode=rwc" cargo run -p migration   # 期望「迁移完成」+ exit 0
 ```
+
+```bash
+# 1b) 回滚演练（批七十六 R-10 新增档位；本仓 121 条迁移的 down() 在此之前从未被执行过）
+#     三趟口径 = 全新库 up 全量 → down 全量 → 再 up 全量；CLI 逐条走，失败会打印卡住的迁移名。
+#     ⚠ 开跑前先 `df -h /c`：可用低于 ~10 GB 不要开（本批就遇过 C 盘写满，
+#        SQLite 报 code 13 SQLITE_FULL、e2e 被洗成假失败，见 quality-batch-76 §10.4）。
+cd stepby-axum
+cargo build -q -j 4 -p migration --bin migration
+D="sqlite://./data/mig-down.db?mode=rwc"
+DATABASE_URL="$D" ./target/debug/migration.exe          # 期望：迁移完成（实进 121 条）
+DATABASE_URL="$D" ./target/debug/migration.exe --down   # 期望：回滚完成（全量，实退 121 条）
+DATABASE_URL="$D" ./target/debug/migration.exe          # SQLite/MySQL 期望绿；PG 见 R-11（第 64 条）
+# MySQL：scratch 库自建自删，见 C:\stepby-restore\_probe\mysql_rollback_drill.py
+# PostgreSQL：现网 prod 容器没有宿主端口 ⇒ 起一次性容器（postgres:17-alpine 已在本地缓存），
+#             见 _probe\pg_rollback_drill.py（跑完 docker rm -f）
 
 ```js
 // 2) 查证治理结果（落一个临时 .mjs 跑完即删，避免 shell 引号地狱；Node 内置 sqlite 无需额外依赖）
@@ -1189,8 +1205,16 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
   - Windows 下 `node_modules/.bin/vite` 是 sh 脚本，PowerShell 直跑会 `SyntaxError: missing ) after argument list`；
     改用 `node node_modules/vite/bin/vite.js build --mode <mode>` 等价且跨 shell 稳定。
   - `cargo test --lib` 曾因 `test_support::migrated_db()` 以 `pid+nanos` 命名临时库、Windows 时钟粒度约 100ns 导致并行测试抢同一文件并发 `Migrator::up` → `UNIQUE constraint failed: seaql_migrations.version`（偶发）。已加进程内 `AtomicU64` 自增序号消除，须连跑两次确认不再 flaky。
-- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（当前 **50** 个类型；新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——本轮 `FlowDoneVo` 即因此先漏后补）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="stepby-axum"` 消歧义。
+- 类型导出：`cargo ts`（= `cargo run --bin export_ts`）刷新 ts-rs 生成的前端类型（实测 **86** 个类型：73 个写 `export_to`、13 个只写 `export` 按类型名/rename 落盘；条数不再手抄进文档，以 `python scripts/ts_export_audit.py` 的输出为准——上一句写死的"50 个"就是这么烂掉的）。新增带 `#[ts(export)]` 的类型若非既有类型的依赖，**必须**在 `src/bin/export_ts.rs` 的清单里登记一行，否则 `cargo ts` 会静默漏导——`FlowDoneVo` 先漏后补（旧记录），批七十六又机械核出**根清单漏了 22 个（20%）**：`cargo ts` 只实出 64/86，而 CI 跑 `cargo test`（derive 兜底会刷全），所以这条断裂 CI 看不见、只有照本配方用本地命令的人拿到过期类型（本轮改 `entity/sys_flow_log.rs` 注释后 `SysFlowLog.ts` 一字未变即为此）。现已补齐 22 个根，并有常驻门禁 `python scripts/ts_export_audit.py --selftest` + 本体（已接进 `ci.yml` backend job）；`cargo run` 因新增 `export_ts` bin 已在 `Cargo.toml` 设 `default-run="stepby-axum"` 消歧义。
 - CI 额外强制：`stepby-axum` job 校验 ts-rs 生成的 TS 类型与 `stepby-vue/src/types/api/generated/` 一致（`git diff --exit-code`）；`compose-config` job 对全部 5 个编排执行 `docker compose config --quiet`（含 `include` 复用的 `deploy/docker-compose.db.yml`）。
+- 浏览器引擎（Playwright）前置与本轮临时状态：`tests/e2e/node_modules/playwright` 锁 **1.62.1**，
+  它需要缓存里的 `chromium_headless_shell-1234`（Chrome for Testing 151）。批七十六跑
+  `npx playwright install chromium` 时 CDN 与镜像站都不可达，**下载失败并把已存在的 1234 目录清掉了**
+  （失败的安装也会先删目标目录，这条要记住）。为不让 e2e 全线停摆，当前把
+  `node_modules/{playwright,playwright-core}` 换成全局 **1.61.1**（其 `chromium-1228` = Chrome 149 在缓存里可用），
+  原 1.62.1 目录改名保留为 `playwright__v1621_bak` / `playwright_core__v1621_bak`。
+  ⇒ 网络可达后必须：`npx playwright install chromium` 复原 1234，再把两个 `__v1621_bak` 目录换回原名；
+  换回前 `npx playwright`/`node main.mjs` 用的是 149，跨段比对 e2e 数据时按这颗浏览器区分。
 - 全部通过后，stepby-vue 与 stepby-axum 分别提交；e2e 套件随 stepby-vue 提交（位于 `stepby-vue/tests/e2e/`）。
 - 多租户（根仓）：`node scripts/tenant-audit.mjs --full` 必须 `EXIT=0` 且 **R8.1–R8.7 全 PASS**；
   CI 门禁为 `--full --gate`（与已提交基线 `docs/optimization/tenant-audit.json` 做差集，**新增非 info 候选即 FAIL**）。
@@ -2100,6 +2124,9 @@ axios 1.20 的 `transformRequest` 见「JSON 头 + FormData」直接走 `formDat
 
 - **main.mjs**：142 features / **1211 断言 / 0 失败**，分 5 段前台跑，各段 EXIT=0：
   `1-30` 235、`31-60` 352、`61-90` 343、`91-116,118-120` 151、`121-142` 130（SKIP 4 均为设计内）。
+  （**b73 订正**：这里的"142"是**最大编号**，真实注册数当时为 **141**——117 是空洞，故分段
+  `--feature=97-143` 会撞上"未注册"硬失败；b73 补注册 F117 + 新增 F143 ⇒ 现 143 项连续，
+  并加无条件注册表自检使该类漂移**当场可失败**，见 §3.59.13。）
 - **a11y-full**：**560/560**，EXIT=0。首跑 559/560——`/workbench/index` 的 `el-avatar` 未给 `alt`
   （EP 的 `alt` prop 才会落到内层 `<img>`），补 `avatarAlt` computed 并复用既有键
   `layout.navbar.avatarAlt`；同族扫 `sso/consent.vue` logo（`:alt="clientName"`）；
@@ -2155,3 +2182,239 @@ PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node ux-compat-verify.mjs   
    与手工 `EMBEDDED_FRONTEND=true … cargo run` 等价但**不受会话回收**——见 §3.34 进程树级联教训）；
 4. `/health` 探活 200 后**再等 ≥25s** 起跑（§3.55 503 连接风暴教训）；
 5. 全量重跑主套件（分 5 段）+ 受影响域的 deep-e2e。
+
+## 3.58 批七十二（2026-10-17）：敏感操作独立限流上线后的三条配方 + 虚锁自查
+
+### 3.58.1 数据量增长会让"首页可见"类断言变成假失败（F8）
+
+`sys_rate_limit` 由 6 行涨到 **25 行**（敏感操作独立限流 19 档，AGENTS C.10）后，F8 原断言
+"表格首页出现 `全局默认` tag"必然翻红——`*` 行被分页翻到后面。
+**修复口径（不是放宽断言）**：先按 `routePattern=*` 过滤再断言"过滤后行数 = 1 且渲染成 `全局默认` tag"，
+用例末尾**重置过滤条件**（防污染后续用例的表格状态）。
+**通用判据**：向任何被 e2e 覆盖的配置表播种新行前，先 grep 该页面对应的 feature，把"位置依赖"
+（首页/第一行/前 N 行）断言改成"契约依赖"（过滤后唯一命中）。同类前例：b71 F118 环境耦合、b70 F141。
+
+### 3.58.2 429 的第二种成因：桶键共用（F71），与"限流太松"无关
+
+b71 的 429 教训是"配额取太紧"；b72 是**分桶口径**：`rate_limit_bucket_key(tenant, ip)` 被所有规则共用，
+于是打满 `/system/user/profile/updatePwd`（容量 5）会令同一客户端的 `/system/user/list`（走 `*`，容量 100）
+一并被拒。取证顺序：
+
+1. 看 429 响应的 `Retry-After` 与**被拒路径**是否与"打满的路径"不同 ⇒ 若是，怀疑跨规则共桶而非配额；
+2. 直接查库确认命中规则：`SELECT route_pattern, capacity, refill_per_second FROM sys_rate_limit WHERE enabled='0'`；
+3. 复现最小化：集成测试里"打满 A → 断言 B 不得 429"（`test_own_tier_exhaustion_does_not_starve_other_routes`）。
+
+修复后口径：**命中自有档位的走路由级桶**（`rate_limit_route_bucket_key`），回落全局的仍走 (租户,IP) 共享桶。
+
+### 3.58.3 虚锁自查：harness 缺省值会把自己的断言洗白
+
+上条集成锁**首轮是虚锁**——把分桶修复回退后仍然绿。根因：`integration_tests/mod.rs` 把全局 `*`
+钳到 `capacity=1e6 / refill=1e6`，"其它接口不被饿死"在该缺省下恒真。处置：
+
+- 用例内**显式钉回生产量级**（`UPDATE sys_rate_limit SET capacity=100, refill_per_second=10.0 WHERE route_pattern='*'`
+  + `invalidate_all_cache`）后再断言，此时回退修复会**立刻复现 429**；
+- 判据口诀：**"某接口不受影响"类断言，必须先让对照组真的受配额约束**，否则锁的是环境不是代码；
+- 另：本批把用例里一处 `/system/user/resetPwd` 换成 `POST /system/pat/999999/rotate-ak`——
+  前者会改掉 admin 密码并破坏并行用例（**用例不得动全局凭据**）。
+
+### 3.58.4 `[health].external_probes` 翻档的正确姿势（勿用 set_var）
+
+`[health]` 是部署态开关段：`off`（默认 = 现状，响应体不含 `external`/`externalStatus`）与 `basic`。
+集成测试已在 `integration_tests/mod.rs` 钳制为 `HealthConfig::default()`（AGENTS 开关规范⑧）；
+用例需翻档时**必须在该用例的 `configure` 闭包内**声明 `s.rate_limit`/`s.health` 字段，
+禁止进程级 `set_var`（会污染并行测试）。真实探活只在 `basic` 档发生，故 off 档跑全量 e2e 不引入外呼。
+
+### 3.58.5 长套件分段被系统转后台时的接管口径
+
+deep-e2e 单段（如 `--range=16-30`）可能超过单次工具超时而被自动转后台。正确做法：
+**前台等待完成通知后一次性读整份日志**，不轮询、不 `tail` 截断（截断会丢掉 `❌` 行与终局统计）。
+b72 分 6 段实测：302 + 172 + 134 + 158 + 149 + 138 = **1053**，与 b71 全量单轮同数（§3.57.6 量级对账口径）。
+
+### 3.58.6 基线与门禁实测（b72 终值，全部真实执行）
+
+| 门禁 | 实测 |
+|---|---|
+| `cargo test --lib` | **1426 passed / 0 failed**（`-- --list` 交叉核对同数；integration_tests **274**） |
+| fmt / clippy `-D warnings` / `cargo doc -D warnings` | 全 PASS（`-j 4`） |
+| `vitest run` | **92 文件 / 1162 例**；覆盖率（`--coverage`）All files **69.30 / 62.86 / 55.80 / 70.33** |
+| `vue-tsc` / `eslint` | 0 错误 / 0 error 0 warning |
+| e2e 主套件（分 5 段） | **1211 断言 / ❌0 / SKIP 5**，全段 EXIT=0 |
+| deep-e2e（分 6 段） | **86 模块 / ✅1053 / ❌0 / SKIP 48**，全段 EXIT=0（约 40.5min） |
+| a11y / ux-compat / perf-budget / duplicate-deps | 560/560 / 11/11 / 6/6 / 0 重复 |
+| `seed_diff.py` | **PASS 漂移 0 / 豁免 48**（首跑 19 处假漂移见 b72 台账 §五 轮 5：`sys_rate_limit` 需登记业务键） |
+| 后端窗口 | **0 ERROR / 47 WARN**（WARN 全部归入设计内负路径：限流拒绝 / 探活 DOWN / best-effort 留痕） |
+
+## 3.59 批七十三（2026-10-17）：假断言判据配方 + 断言工具自曝 + common 授权跨语言锁
+
+### 3.59.1 两个必须知道的取证事实（否则"接口没被调用"全是假失败）
+
+1. **axios 入参全为 `undefined` 时不生成查询串**：`GET /monitor/online/list` 实测 URL **不带 `?`** ⇒
+   `listHint: /\/x\/list\?/` 永不命中。统一写法：`(\?|$)` 收尾；同一页多面板共用端点时按查询串区分
+   （如 `/monitor/logininfor/list(\?(?!.*userName=)|$)` = 全部日志 vs `list\?(?=.*userName=)` = 我的登录）。
+2. **Element Plus 的 `el-tab-pane` 默认非 lazy**：面板在**挂载时**就发自己的请求并留在 DOM（`display:none`），
+   点 Tab **不产生新请求** ⇒ 把"点 Tab"当触发器必然误报。配方：以 reload 为触发 + `activate` 切面板 +
+   `container: '.el-tab-pane:visible'` 限域（否则行数为全站之和）。
+
+### 3.59.2 Playwright 的 "visible" ≠ 在画布内
+
+`translate3d(-210px,0,0)` 移出视口的抽屉式侧栏，`isVisible()` 仍返回 **true**（只看有无非零盒）。
+移动端/抽屉类判据必须取几何：`getBoundingClientRect()` 关闭态 `right<=1`、展开态 `left>=-1 && right>1`。
+
+### 3.59.3 未命中的 `locator.textContent()` 会等满默认 30s
+
+M47「执行一次」逐按钮 hover 取 tooltip 一段实测拖到 62s：`textContent()` 对**不存在**的元素按默认超时等待。
+统一改为"先 `waitFor({state:'visible', timeout:N})` 再取文本 + 显式超时"，且把等待失败计入可打印的计数。
+
+### 3.59.4 HTTP 400 的用户提示走 **warning** 通道，且有 600ms 聚合窗口
+
+`request` 拦截器把 400/403/404/429 交给 `errorHub.report('warning','api', backendMsg)`，
+经 **600ms 聚合**后弹 `.el-message--warning`（存活 5s）。只数 `.el-message--error` 的负路径断言必然假失败
+（M26「岗位唯一性」改前三段皆假绿）。正确判据：① watched 请求确实发出且被拒 +
+② **提示文案包含后端返回的 `msg`**（用 `hasText: msg` 匹配，不猜 Toast 类型）+ ③ 弹窗仍未关闭。
+
+### 3.59.5 断言工具自身的缺陷必须自曝，不得降级成被测系统的失败
+
+`verifyListLoaded` 的容器限域分支曾调用 `page.evaluate((c) => …)` **漏传第二个实参** ⇒ `c.replace` 抛错 ⇒
+`catch` 静默返回兜底对象 ⇒ 所有带 `container` 的判据一律报"表格未落定"（工具 bug 冒充产品缺陷）。
+修复：补传实参，并把异常文本收进 `evalError`、在 `why` 里显式标注"⟵ 断言工具异常，非产品问题"。
+
+### 3.59.6 失败请求要能全量对账（抽样打印等于没有）
+
+门禁判据是"负路径断言与 `失败请求(HTTP>=400)` 逐条对账"，旧实现每 hub 只取最后 2 条、总量截到 12 行
+（实测"总数 11 / 只打印 4 行"）。现口径：`capture-kit` 单 hub 上限 **200** 并暴露 `tag`（M<id> 归因）；
+`runner` 按（模块, 方法, 状态, 路径, 响应体）聚合去重、打印**全部种类 + 重复计数**，
+全量清单落盘 `screenshots/deep-e2e-net-<ts>.json` 供轮后复核。
+
+### 3.59.7 分片参数不得静默缩水
+
+`--feature=1,21,70` 曾因 `parseInt` **只跑模块 1 且退出码 0**（覆盖率被静默高估，台账数字失真）。
+现支持单值 / 逗号 / 区间，且解析失败、命中未注册模块号、`--range` 非法 → **退出码 2 当场失败**。
+
+### 3.59.8 `<Transition mode="out-in">` × 模板 ref = 图表永不首绘
+
+`out-in` 要等**旧分支 leave 动画结束**才插入新分支 ⇒ 数据到达后单次 `nextTick()` 时模板 ref 仍是 `null`。
+产品侧修法见 `useChart.ts::waitForRef`（轮询到容器进 DOM，超时返回 `null`）；
+`CacheOverview.vue` 两张图**各自独立**取实例（旧写法第一张 `return` 会连累第二张），
+无数据时渲染 `el-empty` 而非空白卡片。测试侧若判据依赖 canvas，必须先按档位分支
+（SharedStore `local` 档合法地没有 Redis 内存图 ⇒ `c.pass || 可见 el-empty` 才算过）。
+
+### 3.59.9 排序键必须在初始 `queryParams` 里声明
+
+`useCrudTable.getList()` → `syncUrlQuery()` → `router.replace({query})`，而 `AppMain.vue:11`
+用 `:key="route.fullPath"` 缓存页面 ⇒ **query 变化即重建组件**；`restoreQueryFromUrl()` 只回填
+"初始查询对象里已存在的键"。`handleSortChange` 事后挂的 `orderByColumn` / `isAsc` 若未在初始对象声明，
+重建时被丢弃 ⇒ 用户点排序等于没点（实测请求带 `isAsc=asc` 而渲染仍倒序）。
+四个页面补键 + 两页面 `defaultSort` 回灌/`resetQuery` 拉回，判据用**整列单调性**而非首行文本
+（同名行、同秒记录会洗白）。
+
+### 3.59.10 跨语言判据镜像的唯一机械对账器是 `seed_diff.py`
+
+M9 前置在 JS 侧镜像了两张后端表：`PLATFORM_ONLY_PERM_PREFIXES`（后端 12 条，JS 曾漏 2 条）与
+common 写权限例外（后端 `governance::COMMON_ROLE_WRITE_EXCEPTIONS`）。**镜像必然漂移**，
+本轮就是靠 `seed_diff.py`（纯种子库 vs 运行库逐行 diff）抓回 12 处漂移与 2 条前缀缺失。
+纪律：新增/修改任一侧判据后必须跑一次 seed_diff；前置记录同时做**写后读回闭环**
+（`roleMenuTreeselect/2` 读回 === 目标集合，打印 `补N/剔M`；种子正确时应为 `补0/剔0（种子即终态）`）。
+
+### 3.59.11 `Statement::from_string` 与迁移 `execute_unprepared` 的参数解析路径不同
+
+生成的 SQL 里漏一个闭引号（`perms LIKE '%:list`）会让后续 `'%:query'` 失去字符串字面量身份，
+sqlx 把它当**命名参数** ⇒ `unsupported SQL parameter format: :query`，且只在走 `execute_raw` 的
+兜底路径报错、走 `execute_unprepared` 的迁移路径不报。教训：拼接 SQL 的子句必须有
+**单引号成对**静态锁（`governance` 已有），不要指望"迁移里能跑"代表兜底也能跑。
+
+
+### 3.59.12 深链数字参数禁裸 `Number(route.…)`：IEEE754 会把畸形值"洗白"成可发请求
+
+`Number('1'.repeat(100))` **不抛错**，而是折成 `1.111111111111111e+99`，于是
+`Number(route.params.userId)` 直接把畸形深链变成一个**看起来合法**的出网请求
+（真机取证：`GET /system/user/authRole/1.111111111111111e+99` → 后端
+`400 Invalid URL: Cannot parse … to a i64`）。用户视角＝"点了没反应 + 一次注定失败的往返"。
+
+- 统一写法：`toPositiveInt(route.params.userId)`（`src/utils/validate.ts`，
+  `^\d{1,15}$` + `Number.isSafeInteger` 双闸，非法返回 0 ⇒ 调用方以 0 判"不发请求"）。
+  放 `validate.ts` 不是审美问题：`utils/index.ts` 引 `i18n` + DOMPurify，
+  而 `useCrudTable.test.ts` 整体禁真实加载这些重依赖（否则 fork worker 超时）。
+- 形状锁：`src/utils/routeParamNumber.guard.test.ts` 扫全 src，裸 `Number(route.` 必须 0 处，
+  并钉住五处已接线站点；含"扫描器自检"控制组（合成样本必须被抓、注释行不得误抓）。
+- **同族第五处**在 `useCrudTable.restoreQueryFromUrl`：`pageNum/pageSize` 走 `toPositiveInt`，
+  其它数值型查询键只在 **`String(Number(v)) === v.trim()`（往返无损）** 时才接受 URL 注入。
+  这样 `007 / 1e99 / 100 位串` 保持页面默认，而 `0`、负数、`1.5` 仍按字面注入
+  （页面自己 `syncUrlQuery` 写出的值必然往返无损，正常深链与刷新恢复不受影响）。
+- e2e 判据必须**两侧都钉**：畸形 ⇒ 请求不得出网 + 页面落确定态；
+  对照组（合法不存在的 ID）⇒ 必须照常出网且路径尾为该 ID。只测前者，实现可以是"永远不发请求"。
+  见 `main.mjs` F117 与 `deep-e2e.mjs` M32 的 32.3/32.4/32.4b。
+
+### 3.59.13 分段跑批会撞上"注册表编号空洞"——全量跑批永远看不出
+
+`main.mjs` 的过滤卫生要求 `--feature` 指定的编号必须已注册，否则记 ❌（这是对的：
+否则"0 项通过"会被误读成全绿）。但 features 数组历史上**从未注册 117**——注释里的
+"F117"指一次测试债改造的标签。后果是双重的：
+
+1. `--feature=97-143` 必然报一条"未注册"硬失败（实测本批唯一 ❌）；
+2. 全量跑批看不出该洞，于是文档写的"143 features"与真实注册数长期不符——**b73 机械对账订正**：
+   `git show HEAD:tests/e2e/main.mjs` 数 `{ id: N, fn: … }` 条目得 **141 条 / 最大编号 142 / 空洞 = [117]**，
+   即当时"142"这个数本身就是**最大编号被当成条目数**的误读（AGENTS 写 143、main.mjs 头写 142、
+   §3.57.5 记 142，三处各错一个方向，而全量跑批永远看不出来）。
+
+处置不是"让范围过滤跳过未注册编号"（那等于把静默缩水重新请回来），而是
+**补上真实用例 + 加无条件注册表自检**：编号 1..N 连续、无重复，且
+"用例数 === 最大编号"（第三项专防"一个重复 + 一个空洞"互相抵消成假绿）。
+自检每段贡献 1 条记录（`[功能0]`），因此**分段基线数字要 +1 重算**——
+台账/AGENTS 里写的条目数必须由该自检输出对账，不再靠人记。
+
+### 3.59.14 免鉴权端点的每个响应字段都是泄露面（`/health` 曾带出绝对路径）
+
+`[health].external_probes = basic` 档运行栈实测：storage 探针 detail 原样输出
+`D:\...\uploads\file`，而 `/health` 挂在 `router/public.rs`（免鉴权 200）⇒ 部署目录结构
+交给未认证访问者。此前脱敏口径只覆盖"密码/token/PII"，没人把**路径**当敏感项。
+双层修复：源头 `writable_probe` 只报 `file_name()`；`sanitize_detail()` 第④步把绝对路径
+折叠为 `<path>`，边界口径钉死为"Windows 盘符 + ASCII 段（不含括号/空格/CJK）"与
+"POSIX 必须行首或空白起手且 ≥3 层段"，以保住 `https://host:465`、`GET /models`
+这类**排障必需**的信息不被过度脱敏。判据：单测四组边界 + basic 档集成以同源正则断言
+detail 不含绝对路径。
+
+### 3.59.15 `waitUntil: 'load'` 超时的重试必须**只对超时**生效
+
+b73 分段跑批实测：`/system/menu` 一次 `page.goto(..., {waitUntil:'load'})` 30s 超时——
+同段同时出现 5 条"可疑慢"（F54 99.7s / F56 74s / F52 52.4s / F87 49.1s），后端窗口
+**零 ERROR、零 5xx、无失败资源**，是典型的高负载抖动（SPA 首屏要等全部子资源 `load`，
+而 embedded 模式的后端在同一个 CPU 上做 gzip 解压，与 Chromium 争核）。
+
+两个真实缺陷被这次抖动暴露出来（都属于"测试自己的缺陷被记成产品失败"，同 §3.59.5）：
+
+1. `gotoDynamicRoute` 名义上"重试 5 次"，但 `page.goto` **抛错**时直接上抛——重试只对
+   "落到错误 URL"生效，对最常见的失败形态（超时）完全不生效；
+2. 一次抛错使整个功能中止：F58 的四个目标（user/dept/menu/notice）里 menu 抖动
+   ⇒ notice 的**全部覆盖丢失**，且只剩一条无归因的 `❌ 测试执行 - 异常: page.goto…`。
+
+处置（**加固 harness，不放宽判据**）：
+
+- `main.mjs::gotoDynamicRoute` 与 `deep-e2e.mjs::safeGoto` 都对导航加"仅超时重试"环
+  （`if (!/Timeout/i.test(err.message)) break`）：
+  **连接被拒 / 空响应 ⇒ 立刻失败**——那说明后端或整台机器已经没了，重试只会把一个坏环境
+  跑成三倍时长，且把"环境已死"伪装成"某模块偶发慢"；
+- F58 循环体改为**逐目标 try/catch**，异常记在该目标名下并继续下一个目标
+  （覆盖不得因一次抖动缩水，与 §3.59.7"分片参数不得静默缩水"同族）。
+
+判据侧保持硬度：`safeGoto` 重试耗尽仍 `record(..., false, '异常: …')`，
+`gotoDynamicRoute` 耗尽后抛出带"5 次均未成功"的归因信息。
+
+### 3.59.16 断言扫描器自身也会误报/漏报——判据必须按实参粒度
+
+`scripts/e2e_assertion_scan.py` 的 literal-true 判据此前是"本行 + 两行续写"的窗口配 `re.S` + `[^;]*?`。
+b73 轮 17 实测它**同时**有两类错：
+
+| 方向 | 形态 | 后果 |
+|---|---|---|
+| 误报 | `[^;]*?` 跨过本调用的右括号，摸到**下一条** `record(..., true)` | 一条 `, false,` 的失败分支被记成恒真断言 ⇒ 人去"改代码消警"，判据与真实代码脱钩（deep-e2e 多报 3 处） |
+| 漏报 | 窗口只有三行，跨 4 行书写的 `record(\n id,\n name,\n true,\n detail)` 抓不到 | 恒真断言蒙混过关（main.mjs 少报 1 处） |
+
+另外偏移换算也错：用 `line.strip()` 的相对位置加行首偏移 ⇒ 缩进行的起点整体左移。
+
+**修法**：`_call_args()` 按括号平衡取顶层实参（跳过引号/模板串），判据为
+"第三个实参 strip 后 `=== 'true'`"。并配 `--selftest`：合成样本断言"该报的 4 处（含模板含括号、
+跨行 `recordSoft`）恰好报，不该报的（失败分支 `false`、变量判据、缩进行、注释里的文档引用）一处不报"。
+
+**基线口径**：修具后 `157 → 155`（`main 39→40` 补回漏报、`deep-e2e 118→115` 去掉误报）。
+这是**工具判据修正**，不是放宽棘轮——"只允许下降"从 155 起继续生效。
+凡因修工具而重算基线，必须同时写清"哪几处、为什么、方向如何"，否则无法与"偷偷放宽"区分。

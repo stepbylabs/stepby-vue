@@ -66,6 +66,20 @@ describe('composables/useExport', () => {
     expect(download).toHaveBeenCalledWith('/u', {}, expect.stringMatching(/^pre_\d+\.xlsx$/))
   })
 
+  it('模板裸绑传入的事件对象既不得当查询条件、也不得当文件名（与 useCrudTable 同族设防）', () => {
+    download.mockResolvedValueOnce({})
+    const { handleExport } = useExport('/u', 'pre')
+    ;(handleExport as (params?: unknown, filename?: unknown) => void)(new Event('click'))
+    expect(download).toHaveBeenCalledWith('/u', {}, expect.stringMatching(/^pre_\d+\.xlsx$/))
+  })
+
+  it('非 Event 的普通对象仍按查询条件透传（上一把锁不得过宽把真筛选也丢掉）', () => {
+    download.mockResolvedValueOnce({})
+    const { handleExport } = useExport('/u', 'pre')
+    handleExport({ deptId: 103, status: '0' })
+    expect(download.mock.calls[0][1]).toEqual({ deptId: 103, status: '0' })
+  })
+
   it('配置 successKey 时成功提示', async () => {
     download.mockResolvedValueOnce({})
     const { handleExport } = useExport('/u', 'pre', { successKey: 'export.ok' })

@@ -16,36 +16,44 @@
             </template>
             <el-descriptions :column="4" border size="small">
               <el-descriptions-item :label="t('cache.info.redisVersion')">
-                {{ cache.info.redis_version }}
+                {{ dash(cache.info.redis_version) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.runMode')">
-                {{ cache.info.redis_mode == 'standalone' ? t('cache.info.standalone') : t('cache.info.cluster') }}
+                {{ runModeLabel(cache.info) }}
               </el-descriptions-item>
-              <el-descriptions-item :label="t('cache.info.port')">{{ cache.info.tcp_port }}</el-descriptions-item>
+              <el-descriptions-item :label="t('cache.info.port')">{{ dash(cache.info.tcp_port) }}</el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.clients')">
-                {{ cache.info.connected_clients }}
+                {{ dash(cache.info.connected_clients) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.uptimeDays')">
-                {{ cache.info.uptime_in_day }}
+                {{ dash(cache.info.uptime_in_day) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.usedMemory')">
-                {{ cache.info.used_memory_human }}
+                {{ dash(cache.info.used_memory_human) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.usedCpu')">
-                {{ (parseFloat(cache.info.used_cpu_user_children) || 0).toFixed(2) }}
+                {{
+                  cache.info.used_cpu_user_children
+                    ? (parseFloat(cache.info.used_cpu_user_children) || 0).toFixed(2)
+                    : '-'
+                }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.maxMemory')">
-                {{ cache.info.maxmemory_human }}
+                {{ dash(cache.info.maxmemory_human) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.aofEnabled')">
-                {{ cache.info.aof_enabled == '0' ? t('common.no') : t('common.yes') }}
+                {{ boolLabel(cache.info.aof_enabled) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.rdbStatus')">
-                {{ cache.info.rdb_last_bgsave_status }}
+                {{ dash(cache.info.rdb_last_bgsave_status) }}
               </el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.keyCount')">{{ cache.dbSize }}</el-descriptions-item>
               <el-descriptions-item :label="t('cache.info.network')">
-                {{ cache.info.instantaneous_input_kbps }}kps/{{ cache.info.instantaneous_output_kbps }}kps
+                {{
+                  cache.info.instantaneous_input_kbps || cache.info.instantaneous_output_kbps
+                    ? `${dash(cache.info.instantaneous_input_kbps)}kps/${dash(cache.info.instantaneous_output_kbps)}kps`
+                    : '-'
+                }}
               </el-descriptions-item>
             </el-descriptions>
           </el-card>
@@ -58,7 +66,9 @@
               <span class="align-middle">{{ t('cache.info.commandStats') }}</span>
             </template>
             <div v-loading="loading" :element-loading-text="t('common.loading')">
-              <div ref="commandstats" class="h-[420px] w-full min-w-[300px]" />
+              <!-- 有可画数据才挂容器；无数据给 el-empty 说明，不留 420px 空白 -->
+              <div v-if="hasCommandStats" ref="commandstats" class="h-[420px] w-full min-w-[300px]" />
+              <el-empty v-else :image-size="80" :description="t('common.empty')" />
               <Transition name="fade">
                 <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
                   <el-icon><WarningFilled /></el-icon>
@@ -77,7 +87,8 @@
               <span class="align-middle">{{ t('cache.info.memoryInfo') }}</span>
             </template>
             <div v-loading="loading" :element-loading-text="t('common.loading')">
-              <div ref="usedmemory" class="h-[420px] w-full min-w-[300px]" />
+              <div v-if="hasMemoryInfo" ref="usedmemory" class="h-[420px] w-full min-w-[300px]" />
+              <el-empty v-else :image-size="80" :description="t('common.empty')" />
             </div>
           </el-card>
         </el-col>
@@ -96,7 +107,7 @@ import useSettingsStore from '@/store/modules/settings'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
-const { getChart, withDark, resize } = useChart()
+const { getChart, withDark, waitForRef, resize } = useChart()
 const settingsStore = useSettingsStore()
 
 // ====== 概览数据 ======
@@ -113,6 +124,38 @@ const commandstats = useTemplateRef<HTMLDivElement>('commandstats')
 const usedmemory = useTemplateRef<HTMLDivElement>('usedmemory')
 let commandstatsInstance: ECharts | null = null
 let usedmemoryInstance: ECharts | null = null
+
+/**
+ * 两张图各自"有没有可画的数据"。
+ *
+ * 为什么必须显式判：SharedStore `local` 档（无 Redis 的单文件部署，官方推荐档之一）
+ * 返回的 `info` 里没有 `used_memory_human`，`commandStats` 为空数组。
+ * 此前无脑 init + setOption 的结果是两张 420px 空白卡片——既不是图也没有说明，
+ * 用户只能自己猜"页面坏了"。空态必须给可读解释（项目统一标准）。
+ */
+const hasCommandStats = computed(() => (cache.value?.commandStats ?? []).length > 0)
+const hasMemoryInfo = computed(() => !!cache.value?.info?.used_memory_human)
+
+/** 后端字段缺失时显示占位符而不是空白/臆造值（local 档 info 字段集与 Redis 档不同） */
+function dash(v: unknown): string {
+  const s = v === undefined || v === null ? '' : String(v).trim()
+  return s === '' ? '-' : s
+}
+
+/** AOF 开关：只有明确的 0/1 才回答"否/是"，未知就未知 */
+function boolLabel(v: string | undefined): string {
+  if (v === '1') return t('common.yes')
+  if (v === '0') return t('common.no')
+  return '-'
+}
+
+/** 运行模式：Redis 档给单机/集群，其他档位（local 等）原样展示，未知给占位 */
+function runModeLabel(info: Record<string, string> | undefined): string {
+  const mode = info?.redis_mode
+  if (mode === 'standalone') return t('cache.info.standalone')
+  if (mode === 'cluster') return t('cache.info.cluster')
+  return dash(mode ?? info?.mode)
+}
 
 let initResizeTimer: ReturnType<typeof setTimeout> | null = null
 // resize 防抖（150ms）与实例复用统一交由 useChart().resize() 处理，
@@ -145,16 +188,10 @@ function parseMemoryMB(memStr: string): number {
   return value * (units[unit] || 1)
 }
 
-/** 渲染缓存图表（从已有数据，不请求接口），主题切换时复用 */
-async function renderCharts(data: CacheData): Promise<void> {
-  await nextTick()
-  await new Promise<void>((resolve) => setTimeout(resolve, 0))
-
-  const cmdChart = await getChart(commandstats.value!)
-  if (!cmdChart) return
-  commandstatsInstance = cmdChart
-  cmdChart.setOption(
-    withDark(cmdChart, {
+/** 命令统计饼图：实例就位后由 renderCharts 调用（主题切换时复用同一份数据重画） */
+function paintCommandPie(chart: ECharts, data: CacheData): void {
+  chart.setOption(
+    withDark(chart, {
       tooltip: {
         trigger: 'item',
         formatter: '{a} <br/>{b} : {c} ({d}%)'
@@ -193,15 +230,15 @@ async function renderCharts(data: CacheData): Promise<void> {
     } as EChartsOption),
     true
   )
+}
 
-  const usedMB = parseMemoryMB(data.info.used_memory_human)
-  const maxMB = parseMemoryMB(data.info.maxmemory_human)
+/** 内存用量仪表盘：`info.used_memory_human` 缺失（SharedStore local 档）时不调用 */
+function paintMemoryGauge(chart: ECharts, data: CacheData): void {
+  const usedMB = parseMemoryMB(data.info.used_memory_human ?? '')
+  const maxMB = parseMemoryMB(data.info.maxmemory_human ?? '')
   const gaugeMax = maxMB > 0 ? maxMB : Math.max(usedMB * 2, 1000)
-  const memChart = await getChart(usedmemory.value!)
-  if (!memChart) return
-  usedmemoryInstance = memChart
-  memChart.setOption(
-    withDark(memChart, {
+  chart.setOption(
+    withDark(chart, {
       tooltip: {
         formatter: '{b} <br/>{a} : ' + data.info.used_memory_human
       },
@@ -236,7 +273,39 @@ async function renderCharts(data: CacheData): Promise<void> {
     } as EChartsOption),
     true
   )
+}
 
+/**
+ * 渲染缓存图表（从已有数据，不请求接口），主题切换时复用。
+ *
+ * 两处必须显式处理，否则会出现"卡片永久空白且没有任何提示"（b73 轮 14 实证缺陷）：
+ *  1. `<Transition mode="out-in">` 下，空态→内容态的新分支要等旧分支 leave 结束才进 DOM，
+ *     单靠一次 `nextTick` 时模板 ref 仍是 null，`getChart(null)` 静默返回 null，
+ *     于是两张 420px 卡片谁都没画、`chartError` 也没置位；
+ *  2. 没有可画数据的图（local 档 commandStats 为空 / 无 used_memory_human）根本不进 DOM，
+ *     由卡片内 el-empty 说明取代——不能空等容器，也不能算成错误。
+ * 单张图初始化失败不再 `return`：那会把另一张图一起跳过（一处失败掩盖两处）。
+ */
+async function renderCharts(data: CacheData): Promise<void> {
+  await nextTick()
+  if (hasCommandStats.value) {
+    const chart = await getChart(await waitForRef(() => commandstats.value ?? null))
+    if (chart) {
+      commandstatsInstance = chart
+      paintCommandPie(chart, data)
+    } else {
+      chartError.value = true
+    }
+  }
+  if (hasMemoryInfo.value) {
+    const chart = await getChart(await waitForRef(() => usedmemory.value ?? null))
+    if (chart) {
+      usedmemoryInstance = chart
+      paintMemoryGauge(chart, data)
+    } else {
+      chartError.value = true
+    }
+  }
   // 图表渲染后需稍后触发 resize 以适配容器尺寸（保存 timer ID 在卸载时清理）
   if (initResizeTimer) clearTimeout(initResizeTimer)
   initResizeTimer = setTimeout(() => {

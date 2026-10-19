@@ -21,11 +21,12 @@ export function getConfig(configId: number | string): Promise<AjaxResult<SysConf
 
 // 根据参数键名查询参数值（带 30s TTL 内存缓存 + 并发请求去重，按 configKey 区分）
 // 缓存 key 形如 system:config:configKey:sys.user.initPassword，避免与其它接口冲突
+// configKey 是自由字符串，作为路径段必须编码（含 # / 时未编码会读到另一个键）
 export const getConfigKey = cachedApi(
   (configKey: string) => `system:config:configKey:${configKey}`,
   (configKey: string): Promise<AjaxResult> =>
     request({
-      url: '/system/config/configKey/' + configKey,
+      url: '/system/config/configKey/' + encodeURIComponent(configKey),
       method: 'get'
     })
 )

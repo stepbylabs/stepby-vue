@@ -19,9 +19,10 @@ export function delLogininfor(infoId: number | number[]): Promise<AjaxResult> {
 }
 
 // 解锁用户登录状态（POST：写操作须用 POST，避免 CSRF 风险）
+// 用户名是自由字符串，必须按路径段编码，否则含 # / 时请求会作用到错误目标
 export function unlockLogininfor(userName: string): Promise<AjaxResult> {
   return request({
-    url: '/monitor/logininfor/unlock/' + userName,
+    url: '/monitor/logininfor/unlock/' + encodeURIComponent(userName),
     method: 'post'
   })
 }

@@ -1,5 +1,5 @@
 // en-US · 分类：tool（系统工具）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   httpDebug: {
@@ -558,6 +558,7 @@ export default {
     confirmClear: 'Are you sure to clear all components?',
     copyCodeSuccess: 'Code has been copied to the clipboard, ready to paste.',
     copyCodeFail: 'Code copy failed',
+    addNodeTargetMissing: 'No container can receive the new field: select a target node in the structure tree first. Your input was not written; you can retry directly',
     uploadTip: 'Only {type} files up to {size}{unit} can be uploaded',
     rightPanel: {
       tabField: 'Field Properties',

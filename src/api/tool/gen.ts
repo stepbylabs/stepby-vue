@@ -117,9 +117,10 @@ export function delTable(tableId: number | number[]): Promise<AjaxResult> {
 }
 
 // 生成代码（自定义路径）
+// 表名是自由字符串，作为路径段必须编码（含 # / 时未编码会作用到另一张表）
 export function genCode(tableName: string): Promise<AjaxResult> {
   return request({
-    url: '/tool/gen/genCode/' + tableName,
+    url: '/tool/gen/genCode/' + encodeURIComponent(tableName),
     method: 'get'
   })
 }
@@ -134,7 +135,7 @@ export function batchGenCode(tableNames: string[]): string {
 // 同步数据库（POST：写操作须用 POST，避免 CSRF 风险）
 export function synchDb(tableName: string): Promise<AjaxResult> {
   return request({
-    url: '/tool/gen/synchDb/' + tableName,
+    url: '/tool/gen/synchDb/' + encodeURIComponent(tableName),
     method: 'post'
   })
 }

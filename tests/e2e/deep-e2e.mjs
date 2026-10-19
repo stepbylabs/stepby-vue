@@ -14,6 +14,8 @@
  * 运行方式：
  *   node tests/deep-e2e.mjs                  # 全量深度测试（默认无头）
  *   node tests/deep-e2e.mjs --feature=10     # 仅测试模块 10
+ *   node tests/deep-e2e.mjs --feature=21-30,1  # 集合分段（逗号分段 + 连字符区间）
+ *   node tests/deep-e2e.mjs --range=31-40    # 连续区间分段（长跑用前台分段，避免被系统转后台）
  *   node tests/deep-e2e.mjs --headed         # 有头模式（人工观察浏览器）
  *
  * 前置条件：
@@ -30,6 +32,7 @@ import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { runMain } from './e2e/run/runner.mjs'
 import { createCaptureHub } from './capture-kit.mjs'
+import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import {
   readCaptchaCodeFromRedis,
   capturePageCaptcha,
@@ -68,10 +71,29 @@ const CONFIG = {
   featureFilter: null,
   featureRange: null,
   domainFilter: null,
-  except: []
+  except: [],
+  /** 批七十四 T2：把本轮实测 SKIP 写回棘轮基线（仅全量跑批有效，见 runner.mjs） */
+  updateSkipBaseline: false
 }
 
 // 命令行参数解析
+/**
+ * 解析 `10` / `1-20,51` 形式的模块集合（runner 的 --feature 集合语法在 deep-e2e 侧
+ * 此前用 parseInt 只取第一个数字：传 `--feature=1,21,70` 会**静默只跑模块 1**，
+ * 分片覆盖被高估、台账数字失真（b73 轮 14 实证）。
+ */
+function parseModuleSet(spec) {
+  const ids = new Set()
+  for (const part of String(spec || '').split(',')) {
+    const m = part.trim().match(/^(\d+)(?:-(\d+))?$/)
+    if (!m) continue
+    const a = parseInt(m[1], 10)
+    const b = m[2] ? parseInt(m[2], 10) : a
+    for (let i = a; i <= b; i++) ids.add(i)
+  }
+  return ids
+}
+
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i]
   if (arg === '--headless') {
@@ -80,9 +102,19 @@ for (let i = 2; i < process.argv.length; i++) {
     // 显式有头模式（需要人工观察浏览器动画时使用）
     CONFIG.headless = false
   } else if (arg.startsWith('--feature=')) {
-    CONFIG.featureFilter = parseInt(arg.split('=')[1], 10)
+    const set = parseModuleSet(arg.split('=')[1])
+    if (set.size === 0) {
+      console.error(`❌ --feature 参数无法解析为模块集合：${arg}（支持 N 或 A-B,C 形式）`)
+      process.exit(2)
+    }
+    CONFIG.featureFilter = set
   } else if (arg === '--module') {
-    CONFIG.featureFilter = parseInt(process.argv[i + 1], 10)
+    const set = parseModuleSet(process.argv[i + 1])
+    if (set.size === 0) {
+      console.error(`❌ --module 参数无法解析为模块集合：${process.argv[i + 1]}（支持 N 或 A-B,C 形式）`)
+      process.exit(2)
+    }
+    CONFIG.featureFilter = set
     i++
   } else if (arg.startsWith('--range=')) {
     // 支持 --range=67-75 过滤模块范围；单数字 --range=84 等价于 --range=84-84
@@ -93,6 +125,9 @@ for (let i = 2; i < process.argv.length; i++) {
   } else if (arg.startsWith('--domain=')) {
     // 支持 --domain=system,monitor 按业务域过滤
     CONFIG.domainFilter = arg.split('=')[1].split(',')
+  } else if (arg === '--update-skip-baseline') {
+    // 批七十四 T2：全量跑批后收紧 SKIP 棘轮基线（分段跑会被 runner 拒绝）
+    CONFIG.updateSkipBaseline = true
   } else if (arg.startsWith('--except=')) {
     // 支持 --except=13,29 排除指定模块
     CONFIG.except = arg
@@ -181,8 +216,668 @@ function recordSkip(module, name, reason) {
  * @param {string} skipDetail 条件不成立时的跳过说明
  */
 function recordSoft(module, name, cond, passDetail = '', skipDetail = '元素未渲染（软断言）') {
-  if (cond) record(module, name, true, passDetail)
+  // 第三参照实传 cond（此前写 `true`）：语义完全等价（正在 `if (cond)` 分支内），
+  // 但让常驻扫描器按"实参粒度"判据时不再把样板自身记成恒真断言（b73 轮 18）。
+  if (cond) record(module, name, cond, passDetail)
   else recordSkip(module, name, skipDetail)
+}
+
+/**
+ * 页面"落确定态"判据（批七十四 T1：探针与判据统一收进 `page-state.mjs`，本套件不再自带一份）。
+ *
+ * b73 轮 18 把 74 处恒真 `record(M, 'x 页面加载', true)` 换成四条判据，方向对，
+ * 但 `contentRoot` 在整份 document 上求可见性（布局外壳恒真）、`text` 取
+ * `document.body.innerText`（导航菜单恒有字）——深链落空 / 路由未匹配 / 内容区空白
+ * 仍然全记 ✅。新判据把测量**作用域收到路由出口 `.app-main` 内**（无布局页退到 body），
+ * 外壳再也贡献不了内容量；两条套件的实现合并为一份，杜绝"两处各写一遍必然漂移"。
+ *
+ * 探针自身失败（evaluate 异常）**不得**降级成产品结论——按 §3.59.5 如实标注。
+ */
+async function assertPageLoaded(page, module, name, extra = '') {
+  const v = await page.evaluate(PAGE_STATE_PROBE).catch(() => null)
+  if (!v) {
+    record(
+      module,
+      `${name}（确定态对账）`,
+      false,
+      `⟵ 断言工具异常（evaluate 失败），非产品问题：${extra}`
+    )
+    return false
+  }
+  const verdict = judgePageLoaded(v)
+  record(
+    module,
+    `${name}（确定态对账）`,
+    verdict.ok,
+    `${verdict.detail}${extra ? `, ${extra}` : ''}${verdict.ok ? '' : ` ⟵ ${verdict.reasons.join(' / ')}`}`
+  )
+  return verdict.ok
+}
+
+/**
+ * 错误页专用判据（b73 轮 19）。
+ *
+ * `/401`、`/404` 这类路由的**目的就是渲染错误视图**，用 assertPageLoaded 的
+ * "不得命中 notFound 容器 / 必须有业务内容根"判据必然假失败（实测 M8 两条 ❌）：
+ * 404 页正好命中 `.wscn-http404-container`，401 页用的是自有容器 `.errPage-container`，
+ * 不在业务内容根清单里。这里按各错误页的真实 DOM 契约判定：
+ * 容器可见 ∧ 页面有文本 ∧ 无错误 Toast。
+ *
+ * @param {import('playwright').Page} page
+ * @param {number} module 模块号
+ * @param {string} name 断言名
+ * @param {string} containerSel 该错误页的容器选择器（须与组件实际 DOM 一致）
+ */
+async function assertErrorPageRendered(page, module, name, containerSel, extra = '') {
+  const v = await page
+    .evaluate((sel) => {
+      const el = document.querySelector(sel)
+      return {
+        found: !!el && el.getClientRects().length > 0,
+        text: (document.body.innerText || '').trim().length,
+        msg: document.querySelectorAll('.el-message--error, .el-message--warning').length
+      }
+    }, containerSel)
+    .catch(() => null)
+  if (!v) {
+    record(module, `${name}（错误视图对账）`, false, `⟵ 断言工具异常（evaluate 失败），非产品问题${extra ? `, ${extra}` : ''}`)
+    return false
+  }
+  const ok = v.found && v.text > 0 && v.msg === 0
+  record(
+    module,
+    `${name}（错误视图对账）`,
+    ok,
+    `容器 ${containerSel} 可见=${v.found}, text=${v.text}, msgToast=${v.msg}${extra ? `, ${extra}` : ''}`
+  )
+  return ok
+}
+
+// ==================== 列表/搜索判据（b73 轮 12 固化，取代 29 处 `rowCount >= 0` 恒真断言） ====================
+
+// 「阅读用户」行内按钮：i18n notice.btn.readUsers='阅读用户'，历史文案"已读用户"/英文 "Read" 兼容
+const READ_USERS_BTN_SEL =
+  '.el-table__row button:has-text("阅读"), .el-table__row button:has-text("已读"), .el-table__row button[title*="阅读"], .el-table__row button[title*="已读"], .el-table__row button:has-text("Read")'
+
+/**
+ * 表格当前是否落在「确定态」。
+ *
+ * 旧写法 `record(M, 'x: 数据行数', rowCount >= 0)` 无论后端返回什么、无论页面是否白屏都恒绿，
+ * 属于"占着 ✅ 名额但不检验任何东西"。确定态的定义（三条同时成立）：
+ *   ① 存在 `.el-table`（表格组件挂载了）；
+ *   ② 有数据行，**或**明确渲染了 Element Plus 的空态占位（`.el-table__empty-block`）——
+ *      "查无结果"是合法结果，白屏不是；
+ *   ③ 没有错误 Toast（列表链路失败必须在界面上可见，不得静默）。
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{hasTable:boolean, rows:number, emptyBlock:boolean, errorToast:number, settled:boolean}>}
+ */
+async function readListState(page) {
+  const s = await page
+    .evaluate(() => {
+      const table = document.querySelector('.el-table')
+      const rows = document.querySelectorAll('.el-table__body .el-table__row').length
+      const emptyBlock = !!document.querySelector('.el-table__empty-block, .el-table__empty-text')
+      const errorToast = document.querySelectorAll('.el-message--error, .el-notification--error').length
+      return { hasTable: !!table, rows, emptyBlock, errorToast }
+    })
+    // evaluate 失败（页面正在跳转/销毁）必须落到"未确定"，不能兜成通过
+    .catch(() => ({ hasTable: false, rows: -1, emptyBlock: false, errorToast: -1 }))
+  return { ...s, settled: s.hasTable && (s.rows > 0 || s.emptyBlock) && s.errorToast === 0 }
+}
+
+/**
+ * 把"第一个过滤框"对齐到它真正过滤的那一列，并取该列首行值作关键词。
+ *
+ * 为什么要对齐列（b73 轮 12 实证的两条漏检路径）：
+ * - 直接取"首行第一个像文本的单元格"会拿到与过滤框无关的值——用户页第一个框是「用户名称」，
+ *   而首行第一个可用单元格是归属列「平台」，用它搜必然 0 命中；旧断言"行数 ≤ 基线"连 0 行都算过；
+ * - 手写 `'admin' / 'ceo' / 'sex'` 这类猜测词，数据一变就静默失真。
+ * 按**可见表头文本 = 表单项 label** 对齐列序后，"结果里每一行该列都含该值"才成为可证伪判据。
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{term:string, label:string, col:number, headers:number}>} col=-1 表示没对齐上
+ */
+async function pickTermForFirstFilter(page) {
+  return page
+    .evaluate(() => {
+      const input = document.querySelector('.query-form input, .el-form--inline input')
+      if (!input) return { term: '', label: '(无过滤框)', col: -1, headers: 0 }
+      const item = input.closest('.el-form-item')
+      const labelEl = item ? item.querySelector('.el-form-item__label') : null
+      const label = (labelEl ? labelEl.textContent || '' : '').replace(/[:：\s]/g, '')
+      const headers = Array.from(document.querySelectorAll('.el-table__header th')).map((t) =>
+        (t.textContent || '').replace(/\s+/g, '')
+      )
+      if (!label) return { term: '', label: '(label 为空)', col: -1, headers: headers.length }
+      let col = headers.findIndex((h) => h === label)
+      if (col < 0) col = headers.findIndex((h) => h && h.includes(label))
+      if (col < 0) col = headers.findIndex((h) => h && h.length >= 2 && label.includes(h))
+      if (col < 0) return { term: '', label, col: -1, headers: headers.length }
+      const row = document.querySelector('.el-table__body .el-table__row')
+      const tds = row ? Array.from(row.querySelectorAll('td')) : []
+      // 固定列/多选列会让 th 与 td 的列序错位，用"该列文本确实出现在首行"再校验一次
+      const rowText = tds.map((td) => (td.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ')
+      const raw = (tds[col] ? tds[col].textContent || '' : '').replace(/\s+/g, ' ').trim()
+      if (!raw || raw.length < 2 || !rowText.includes(raw)) return { term: '', label, col: -1, headers: headers.length }
+      return { term: raw.slice(0, 24), label, col, headers: headers.length }
+    })
+    .catch(() => ({ term: '', label: '(evaluate 失败)', col: -1, headers: 0 }))
+}
+
+/**
+ * 「搜索是否真的生效」的可证伪判据（取代 fill→sleep→`rowCount >= 0` 三段式）。
+ *
+ * 五条同时成立才算过，每条都对应一个历史真实漏检方式：
+ *   ① 点击搜索**确实成功**——按钮点不到不得被 `.catch(()=>{})` 洗成通过；
+ *   ② 监听窗口内**本页自己的 list 接口**被调用——两个子条件都是踩过的坑：
+ *      arm 之前必须等初始请求静默（否则页面加载那次就满足），
+ *      且 URL 特征必须**按页指定**（实证：泛化的 `/\/list\?/` 被无关的
+ *      `/system/notice/list?noticeType=F…` 轮询满足，"请求确实发出"于是成假证据）；
+ *   ③ 结果落在确定态（见 readListState）；
+ *   ④ 命中口径自洽：关键词取自"该过滤列首行真实值"，所以结果必须 ≥1 行，
+ *      且**每一行该列都含该关键词**（服务端 LIKE 真生效）；
+ *   ⑤ 过滤不得把结果放大：`行数 ≤ 基线`。
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} o
+ * @param {string} o.term 关键词（来自 pickTermForFirstFilter）
+ * @param {number} o.col 关键词所属列序
+ * @param {RegExp} o.listHint **本页** list 接口特征，如 /\/system\/user\/list\?/
+ * @param {string} [o.searchBtn] 搜索按钮选择器
+ * @param {string} [o.resetBtn] 重置按钮选择器
+ * @returns {Promise<{clicked:boolean, requested:boolean, status:number, before:number, after:number, matched:number, state:object, pass:boolean, why:string}>}
+ */
+async function verifySearchWorks(page, { term, col, listHint, searchBtn = 'button:has-text("搜索")' }) {
+  const baseState = await readListState(page)
+  const before = baseState.rows
+  const snap = (patch) => ({
+    clicked: false,
+    requested: false,
+    status: 0,
+    before,
+    after: before,
+    matched: -1,
+    state: baseState,
+    pass: false,
+    why: '',
+    ...patch
+  })
+
+  const input = page.locator('.query-form input, .el-form--inline input').first()
+  if (!(await input.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) {
+    return snap({ why: '搜索输入框不可见' })
+  }
+  await input.fill(term)
+
+  // 等"在途的初始 list 请求"静默后再 arm ⇒ 监听窗口里出现的才是本次搜索的请求
+  const quietMs = await waitListQuiet(page, listHint, 8000)
+  if (quietMs < 0) return snap({ why: '初始 list 请求未在 8s 内静默（页面持续轮询或请求未完成）' })
+
+  const watch = { requested: false, status: 0, url: '', serverRows: -1 }
+  const handler = (resp) => {
+    if (!listHint.test(resp.url())) return
+    watch.requested = true
+    watch.status = resp.status()
+    watch.url = resp.url().replace(CONFIG.frontendUrl, '')
+    // 取本次响应**自己的** rows 长度作为"应渲染的行数"。
+    // 不能读"当前接口最新 total"：列表接口是共享的，重置/翻页/别的组件轮询（实证
+    // `/system/notice/list?noticeType=F…`）都会把 total 覆盖掉，读到的是别的请求的结果。
+    resp
+      .json()
+      .then((body) => {
+        const rows = body && Array.isArray(body.rows) ? body.rows : Array.isArray(body?.data?.rows) ? body.data.rows : null
+        if (rows) watch.serverRows = rows.length
+      })
+      .catch(() => {})
+  }
+  page.on('response', handler)
+  try {
+    const clicked = await page
+      .locator(searchBtn)
+      .first()
+      .click({ timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!clicked) return snap({ why: '搜索按钮不可点击（5s 超时，可能被遮罩/禁用）' })
+
+    const deadline = Date.now() + 8000
+    while (!watch.requested && Date.now() < deadline) await sleep(120)
+
+    // 关键：等 **DOM 行数 == 本次响应 rows 长度**，而不是"有行就算落定"。
+    // 实证：搜 admin 后端只返回 1 行，但 `settled` 在搜索前的 2 行陈旧 DOM 上就为真，
+    // 于是读到的还是旧 2 行 ⇒ "命中 1/2 行"被误判成缺陷。这里改成与响应体对账。
+    let state = await readListState(page)
+    const settleDeadline = Date.now() + 10000
+    while (Date.now() < settleDeadline) {
+      if (watch.serverRows >= 0 ? state.rows === watch.serverRows : state.settled) break
+      await sleep(200)
+      state = await readListState(page)
+    }
+
+    // 逐行命中校验：过滤列每一行都必须包含关键词
+    const hit = await page
+      .evaluate(
+        ({ c, term: t }) => {
+          const rows = Array.from(document.querySelectorAll('.el-table__body .el-table__row'))
+          const texts = rows.map((r) => {
+            const td = r.querySelectorAll('td')[c]
+            return (td ? td.textContent || '' : '').replace(/\s+/g, ' ').trim()
+          })
+          return { total: rows.length, matched: texts.filter((x) => x.includes(t)).length, first: texts[0] || '' }
+        },
+        { c: col, term: term }
+      )
+      .catch(() => ({ total: -1, matched: -1, first: '' }))
+
+    const allMatch = hit.total > 0 && hit.matched === hit.total
+    const notWidened = state.rows <= before
+    // DOM 渲染行数必须等于本次响应**自己的** rows 长度（serverRows 由该响应体解析得到）。
+    // 这是"接口返回 N 行、页面却渲染 M 行"这类真实缺陷的唯一可靠判据——
+    // 只看 state.settled（有行即真）会被搜索前的陈旧 DOM 骗过。
+    const renders = watch.serverRows < 0 ? state.settled : state.rows === watch.serverRows
+    const pass = clicked && watch.requested && watch.status < 400 && renders && allMatch && notWidened
+
+    let why = ''
+    if (!watch.requested) why = '点击搜索后本页 list 接口未被调用（搜索未接线或点到了别的按钮）'
+    else if (watch.status >= 400) why = `list 请求返回 ${watch.status}`
+    else if (!renders) why = `渲染行数与响应不符（DOM ${state.rows} 行 vs 响应 ${watch.serverRows} 行，empty=${state.emptyBlock} errToast=${state.errorToast}）`
+    else if (state.rows === 0) why = '按首行真实值搜索却 0 命中（列序错位或后端 LIKE 失效）'
+    else if (!allMatch) why = `命中口径不符：${hit.matched}/${hit.total} 行含关键词（首行该列=${JSON.stringify(hit.first.slice(0, 24))}）`
+    else if (!notWidened) why = `结果被放大：基线 ${before} 行 → ${state.rows} 行`
+    return snap({
+      clicked,
+      requested: watch.requested,
+      status: watch.status,
+      url: watch.url,
+      serverRows: watch.serverRows,
+      after: state.rows,
+      matched: hit.matched,
+      state,
+      pass,
+      why
+    })
+  } finally {
+    page.off('response', handler)
+  }
+}
+
+/**
+ * 点「重置」并等待表格回到不窄于搜索前基线的确定态。
+ *
+ * 为什么必须轮询而不是固定 sleep：列表页 `syncUrlQuery() → router.replace({query})` 会触发
+ * **路由卸载→重挂**，中间有一小段"表格短暂消失"的空白窗口（RUN-RECIPE §… useCrudTable 复位
+ * 同款根因）。固定 800ms 正好落在窗口里 ⇒ 误报 rows=0/白屏。这里给到 10s 轮询预算。
+ *
+ * @returns {Promise<{rows:number, state:object, pass:boolean, why:string}>}
+ */
+async function verifyResetRestores(page, baselineRows) {
+  const btn = page.locator('button:has-text("重置"), button:has-text("Reset")').first()
+  const clicked = await btn
+    .click({ timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!clicked) return { rows: -1, state: { settled: false }, pass: false, why: '重置按钮不可点击' }
+
+  let state = await readListState(page)
+  const deadline = Date.now() + 10000
+  while (Date.now() < deadline) {
+    state = await readListState(page)
+    if (state.settled && state.rows >= baselineRows) break
+    await sleep(250)
+  }
+  const pass = state.settled && state.rows >= baselineRows
+  return {
+    rows: state.rows,
+    state,
+    pass,
+    why: pass
+      ? ''
+      : `重置后未回到基线（rows=${state.rows} < 基线 ${baselineRows}，table=${state.hasTable} empty=${state.emptyBlock}）`
+  }
+}
+
+/**
+ * 等待 list 类请求"静默"：连续 `quietForMs` 内没有新的 list 响应即认为在途请求已结束。
+ * 返回实际等待毫秒数；超时返回 -1。
+ */
+async function waitListQuiet(page, listHint, maxWaitMs = 6000, quietForMs = 800) {
+  let lastSeen = Date.now()
+  const handler = (resp) => {
+    if (listHint.test(resp.url())) lastSeen = Date.now()
+  }
+  page.on('response', handler)
+  const t0 = Date.now()
+  try {
+    while (Date.now() - t0 < maxWaitMs) {
+      if (Date.now() - lastSeen >= quietForMs) return Date.now() - t0
+      await sleep(100)
+    }
+    return -1
+  } finally {
+    page.off('response', handler)
+  }
+}
+
+/**
+ * 「列表是否真的把后端返回的数据渲染出来了」的可证伪判据。
+ *
+ * 历史写法 `record(M, 'x: 数据行数', rowCount >= 0)` 恒真：接口 500、返回 0 行、
+ * 表格根本没挂载、DOM 与响应不一致——全都记 ✅，占着通过率名额却不检验任何东西。
+ * 本判据把"行数"从**单方面数 DOM** 改成**与本页 list 接口响应体对账**：
+ *   ① 触发（默认 reload，Tab 切换场景传入点击动作）后**本页 list 接口**确实被调用；
+ *   ② 响应 <400；
+ *   ③ 表格落在确定态（见 readListState：有表 + 有行或有空态占位 + 无错误 Toast）；
+ *   ④ **DOM 行数 === 响应 rows 长度**（这是真正能抓出"渲染丢行/空表假象/脏缓存行"的一条）；
+ *   ⑤ 若声明 `minRows`（业务上必然有数据的页面：登录后的在线用户/我的会话/登录日志），
+ *      行数必须 ≥ 该值——把"`>= 0` 恒真"改写成"确实有我的数据"这一可失败的断言。
+ *
+ * ⚠ 两个由 b73 轮 14 机械取证订正的事实（都是"断言写错"而非"产品缺陷"，但都会造成假失败）：
+ *   1. **list 请求可能完全没有查询串**：`/monitor/online/list` 的入参全为 undefined 时
+ *      axios 不生成问号，hint 里强制要求查询串会永远不命中 → 误报"接口未被调用"。
+ *      统一写成"有查询串或到此为止"两种收尾。
+ *   2. **el-tab-pane 默认非 lazy 挂载**：未选中的面板也在挂载时发起自己的 list 请求
+ *      （实证：reload 期间 `/monitor/online/list` 与 `/monitor/my-session/list?userName=admin`
+ *      同时出现）。因此"点 Tab 才是触发请求"的 `trigger` 是错的——点击不会产生任何新请求，
+ *      且隐藏面板的行仍计入页面级 `.el-table__row`（两个面板 4+2=6 行 vs 响应 4 行必然不一致）。
+ *      Tab 场景一律用缺省 reload 触发 + `activate` 切面板 + `container: '.el-tab-pane:visible'` 限域。
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} o
+ * @param {RegExp} o.listHint 本页 list 接口特征（必须按页指定，泛化 `/list?` 会被轮询洗白）
+ * @param {()=>Promise<any>} [o.trigger] 重新发起请求的动作；缺省为 reload
+ * @param {()=>Promise<any>} [o.activate] 触发之后执行的"让目标面板可见"动作（Tab 切换）；
+ *        点击失败**不抛错也不放行**：面板没切过去就与响应行数对账不上，按真实不一致判 FAIL
+ * @param {number} [o.minRows=0] 业务上必须存在的最少行数
+ * @param {string} [o.container=''] 行数统计的作用域选择器（对话框内表格传 `.el-dialog:visible`，
+ *        Tab 内表格传 `.el-tab-pane:visible`）
+ * @param {number} [o.timeoutMs=15000] 等待响应+渲染落定的总预算
+ * @returns {Promise<{requested:boolean,status:number,url:string,serverRows:number,total:number,domRows:number,state:object,pass:boolean,why:string}>}
+ */
+async function verifyListLoaded(page, { listHint, trigger, activate, minRows = 0, container = '', timeoutMs = 15000 }) {
+  const watch = { requested: false, status: 0, url: '', serverRows: -1, total: -1 }
+  const handler = (resp) => {
+    if (!listHint.test(resp.url())) return
+    watch.requested = true
+    watch.status = resp.status()
+    watch.url = resp.url()
+    if (resp.status() >= 400) return
+    resp
+      .json()
+      .then((body) => {
+        const rows = Array.isArray(body?.rows) ? body.rows : Array.isArray(body?.data?.rows) ? body.data.rows : null
+        if (Array.isArray(rows)) watch.serverRows = rows.length
+        // AjaxResult 风格的数组载荷（如 /monitor/cache/getNames 的 data: SysCache[]）同样可对账
+        else if (Array.isArray(body?.data)) watch.serverRows = body.data.length
+        const total = body?.total ?? body?.data?.total
+        if (typeof total === 'number') watch.total = total
+      })
+      // 非 JSON（或被压缩/流式）→ serverRows 保持 -1，判据降级为"确定态 + minRows"，
+      // 但**不**降级为通过：仍要求 DOM 落在确定态且行数满足业务下限。
+      .catch(() => {})
+  }
+  // 作用域内确定态。container 为空 → 直接用页面级 readListState；
+  // 带 container（对话框内表格）时必须**在容器内**判定：页面级选择器会先命中背景页的表格，
+  // 用它对账必然错位。容器串允许 Playwright 的 `:visible`，浏览器原生 CSS 不认，
+  // 故剥掉伪类后改用"有无布局矩形"等价判定可见。
+  const scopedState = async () => {
+    if (!container) return await readListState(page)
+    return page
+      .evaluate((c) => {
+        const norm = c.replace(/:visible/g, '')
+        const hosts = Array.from(document.querySelectorAll(norm)).filter((n) => n.getClientRects().length > 0)
+        const table = hosts.map((h) => h.querySelector('.el-table')).find(Boolean)
+        const rows = table ? table.querySelectorAll('.el-table__body .el-table__row').length : -1
+        return {
+          hasTable: !!table,
+          rows,
+          emptyBlock: !!table && !!table.querySelector('.el-table__empty-block, .el-table__empty-text'),
+          errorToast: document.querySelectorAll('.el-message--error, .el-notification--error').length
+        }
+      }, container)
+      // 限域统计本身出错（选择器写错 / evaluate 传参漏了）必须**显式暴露**，
+      // 否则 helper 静默返回兜底对象会被读成"产品表格未落定"，把断言工具的缺陷算到被测系统头上。
+      .catch((e) => ({
+        hasTable: false,
+        rows: -1,
+        emptyBlock: false,
+        errorToast: -1,
+        evalError: String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 90)
+      }))
+      .then((s) => ({ ...s, settled: s.hasTable && (s.rows > 0 || s.emptyBlock) && s.errorToast === 0 }))
+  }
+
+  page.on('response', handler)
+  try {
+    if (trigger) await trigger()
+    else await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
+    if (activate) {
+      try {
+        await activate()
+      } catch {
+        // 面板没切过去不在此处放行：隐藏面板不计入 :visible 限域，
+        // 后续"DOM 行数 === 响应行数"对账必然失败 → 判 FAIL，不静默降级。
+      }
+    }
+
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline && !watch.requested) await sleep(150)
+    // 响应体是异步解析的：等 serverRows 落地（或再给 1.5s 上限）
+    const bodyDeadline = Math.min(deadline, Date.now() + 1500)
+    while (Date.now() < bodyDeadline && watch.serverRows < 0) await sleep(100)
+
+    let state = await scopedState()
+    while (Date.now() < deadline) {
+      const consistent = watch.serverRows < 0 ? state.settled : state.settled && state.rows === watch.serverRows
+      if (consistent && state.rows >= minRows) break
+      state = await scopedState()
+      await sleep(250)
+    }
+
+    const renders = watch.serverRows < 0 ? state.settled : state.rows === watch.serverRows
+    const enough = state.rows >= minRows
+    const pass = watch.requested && watch.status < 400 && state.settled && renders && enough
+
+    let why = ''
+    if (!watch.requested) why = '触发后本页 list 接口未被调用（列表未接线或请求特征不符）'
+    else if (watch.status >= 400) why = `list 接口返回 ${watch.status}`
+    else if (!state.settled)
+      why =
+        `表格未落定（table=${state.hasTable} rows=${state.rows} empty=${state.emptyBlock} errToast=${state.errorToast}）` +
+        (state.evalError ? ` ⟵ 断言工具异常，非产品问题：${state.evalError}` : '')
+    else if (!renders) why = `DOM 与响应不一致：响应 ${watch.serverRows} 行 → DOM ${state.rows} 行`
+    else if (!enough) why = `业务上应 ≥${minRows} 行，实际 ${state.rows} 行`
+    return { ...watch, domRows: state.rows, state, pass, why, url: watch.url.split('?')[0], query: watch.url.split('?')[1] || '' }
+  } finally {
+    page.off('response', handler)
+  }
+}
+
+/**
+ * 按**可见文本**在卡片里找内容块（取代 `[class*="memory"]` 这类猜类名的软断言）。
+ *
+ * 猜类名的写法在健康检查页**永远 SKIP**（该页用 i18n 文案，DOM 上没有 memory/disk 类），
+ * 于是"内存/磁盘区块整块没渲染或数值缺失"这种真故障会一直被记成跳过而不是失败
+ * （b73 轮 14 取证）。文本锚定还要求命中卡片正文里**有数值**：只有标题没数据同样判失败。
+ *
+ * @param {import('playwright').Page} page
+ * @param {RegExp} keyword 卡片文本需匹配的关键字（中英双写，如 /内存|Memory/）
+ * @returns {Promise<{count:number, hit:string}>} count=-1 表示统计失败
+ */
+/**
+ * 整列单调性判定（排序类断言的数据面判据）。
+ *
+ * 为什么不能用"首行是否变化"：登录日志绝大多数行同名（admin）、同秒记录成批出现，
+ * 首行对比既会假失败也会假通过（b73 轮 14 取证：M84 的两条软断言正因此长期 SKIP）。
+ * 全列逐行比较允许并列（相等），只惩罚方向性反例。
+ *
+ * 数值口径只在"每行都是 `数字 + 同一单位后缀`"时启用（如 `0ms / 123ms`）；
+ * 时间戳串（`2026-09-30…`）后缀各异 ⇒ 退回字符串字典序比较（同格式下与时间序一致），
+ * 避免把"整列都取到前导 2026"当成单调（那会是虚锁）。
+ *
+ * @param {string[]} vals 列值（已去空白）
+ * @param {'asc'|'desc'} dir
+ * @returns {{ok:boolean, bad:string, numeric:boolean}}
+ */
+function orderCheck(vals, dir) {
+  if (!Array.isArray(vals) || vals.length < 2) {
+    return { ok: false, bad: `样本不足(${Array.isArray(vals) ? vals.length : 0})`, numeric: false }
+  }
+  const parsed = vals.map((v) => {
+    const m = /^(-?\d+(?:\.\d+)?)(.*)$/.exec(String(v).replace(/[,，\s]/g, ''))
+    return m ? { n: parseFloat(m[1]), u: m[2] } : null
+  })
+  const units = new Set(parsed.map((p) => (p ? p.u : '\u0000none')))
+  const numeric = parsed.every((p) => p !== null) && units.size === 1
+  const key = (i) => (numeric ? parsed[i].n : String(vals[i]))
+  for (let i = 1; i < vals.length; i++) {
+    const a = key(i - 1)
+    const b = key(i)
+    const reverse = dir === 'asc' ? a > b : a < b
+    if (reverse) return { ok: false, bad: `${vals[i - 1]} → ${vals[i]}`, numeric }
+  }
+  return { ok: true, bad: '', numeric }
+}
+
+async function readCardMatching(page, keyword) {
+  return page
+    .evaluate((re) => {
+      const rx = new RegExp(re.source, re.flags)
+      const texts = Array.from(document.querySelectorAll('.el-card'))
+        .filter((c) => c.getClientRects().length > 0)
+        .map((c) => (c.innerText || '').replace(/\s+/g, ' ').trim())
+        .filter((tx) => rx.test(tx))
+      return { count: texts.length, hit: (texts.find((tx) => /\d/.test(tx)) || '').slice(0, 90) }
+    }, { source: keyword.source, flags: keyword.flags })
+    .catch(() => ({ count: -1, hit: '' }))
+}
+
+/**
+ * 图表是否**真的画出来了**（取代 3 处 `chartCount >= 0` 恒真断言）。
+ *
+ * 只数 `canvas` 个数抓不到真实故障形态：ECharts 容器未完成布局 / init 抛错后，
+ * DOM 里会有 `[_echarts_instance_]` 与 canvas 节点，但画布是 0×0（空白大屏）。
+ * 因此判据取"至少有 1 个 canvas 同时具备非零 CSS 尺寸与非零位图尺寸"。
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<{total:number, painted:number, pass:boolean}>}
+ */
+async function readRenderedCharts(page) {
+  const s = await page
+    .evaluate(() => {
+      const nodes = Array.from(document.querySelectorAll('canvas, [_echarts_instance_]'))
+      const painted = nodes.filter((n) => {
+        const c = n.tagName === 'CANVAS' ? n : n.querySelector('canvas')
+        if (!c) return false
+        const r = c.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 && c.width > 0 && c.height > 0
+      }).length
+      return { total: nodes.length, painted }
+    })
+    .catch(() => ({ total: -1, painted: -1 }))
+  return { ...s, pass: s.painted > 0 }
+}
+
+/**
+ * 搜索面板"有没有真命中"的可证伪判据（命令面板 / 顶部搜索 / 其它结果列表共用）。
+ *
+ * 替代 `record(M, '搜索结果', count >= 0)`：那种写法连**选择器写错导致 count 恒 0** 都记 ✅
+ * （实证：HeaderSearch 真实 DOM 是 `.search-item` + `.menu-title`，旧用例数的是根本不存在的
+ * `.header-search-result / .el-select-dropdown`）。
+ * 判据两条：① 条目 ≥1；② 至少一条文本含关键词（"有结果但与输入无关"也是失效）。
+ *
+ * @param {import('playwright').Page} page
+ * @param {{itemSel:string, textSel?:string, term:string}} o
+ * @returns {Promise<{count:number, hit:number, pass:boolean, detail:string}>}
+ */
+async function readSearchHits(page, { itemSel, textSel = '', term }) {
+  const s = await page
+    .evaluate(
+      ({ itemSel, textSel, term }) => {
+        const items = Array.from(document.querySelectorAll(itemSel))
+        const texts = items.map((n) => {
+          const target = textSel ? n.querySelector(textSel) : n
+          return ((target ? target.textContent : n.textContent) || '').replace(/\s+/g, ' ').trim()
+        })
+        return { count: items.length, hit: texts.filter((x) => x.includes(term)).length, first: texts[0] || '' }
+      },
+      { itemSel, textSel, term }
+    )
+    .catch(() => ({ count: -1, hit: -1, first: '' }))
+  const pass = s.count > 0 && s.hit > 0
+  return {
+    ...s,
+    pass,
+    detail: pass
+      ? `${s.count} 项，其中 ${s.hit} 项含「${term}」（首项=${JSON.stringify(s.first.slice(0, 20))}）`
+      : s.count < 0
+        ? '结果列表读取失败（页面已跳转或 DOM 不可用）'
+        : s.count === 0
+          ? `搜索「${term}」0 命中（选择器 ${itemSel} 未匹配到任何条目，可能与真实 DOM 不符）`
+          : `搜索「${term}」有 ${s.count} 项但无一含关键词（结果与输入无关，搜索未生效）`
+  }
+}
+
+/**
+ * 登录页"后端下发档位 ↔ 前端呈现"一致性判据
+ * （取代 `record(M,'验证码可见',true, cond?'已启用':'已禁用')` 这类两向都记 ✅ 的写法）。
+ *
+ * 事实源是同一个响应：`GET /captchaImage` 返回 `captchaEnabled` / `registerEnabled`
+ * （login.vue:403-404 明确"读后端字段，不靠探测 /register 触发 403"），
+ * 前端 `v-if="captchaEnabled"` / `v-if="register"` 据此渲染。于是：
+ *   · 档位开而 DOM 没画出来 = 用户被卡死在登录页（真缺陷）；
+ *   · 档位关而 DOM 还在 = 拿不到验证码图 / 注册入口假开放（真缺陷）。
+ * 旧写法两种情形都记 ✅，恰好把上面两类缺陷全吞掉。
+ *
+ * @param {import('playwright').Page} page
+ * @param {string} frontendUrl
+ * @returns {Promise<object>} {requested,status,captchaEnabled,registerEnabled,hasImage,hasInput,hasRegister,pass,why,flags}
+ */
+async function verifyLoginFeatureFlags(page, frontendUrl) {
+  const watch = { requested: false, status: 0, captchaEnabled: null, registerEnabled: null }
+  const handler = (resp) => {
+    if (!/\/captchaImage/.test(resp.url())) return
+    watch.requested = true
+    watch.status = resp.status()
+    resp
+      .json()
+      .then((b) => {
+        if (typeof b?.captchaEnabled === 'boolean') watch.captchaEnabled = b.captchaEnabled
+        if (typeof b?.registerEnabled === 'boolean') watch.registerEnabled = b.registerEnabled
+      })
+      .catch(() => {})
+  }
+  page.on('response', handler)
+  try {
+    await page.goto(`${frontendUrl}/login`, { waitUntil: 'load', timeout: 30000 }).catch(() => {})
+    const deadline = Date.now() + 12000
+    while (Date.now() < deadline && !watch.requested) await sleep(150)
+    await sleep(800) // 等响应体解析 + 条件渲染落定
+    const dom = await page
+      .evaluate(() => ({
+        hasImage: !!document.querySelector('.login-code img[src^="data:image"], .el-image__inner[src^="data:image"]'),
+        hasInput: !!document.querySelector('input[placeholder*="验证码"], input[placeholder*="Captcha"], input[placeholder*="Verification"]'),
+        // 注册入口是 `<router-link to="/register">` 渲染出的 a[href*=register]
+        hasRegister: Array.from(document.querySelectorAll('a')).some((a) =>
+          /register/i.test(a.getAttribute('href') || '')
+        )
+      }))
+      .catch(() => ({ hasImage: false, hasInput: false, hasRegister: false }))
+    const mismatches = []
+    const captchaOk =
+      watch.captchaEnabled === null || watch.captchaEnabled === (dom.hasImage && dom.hasInput)
+    const registerOk = watch.registerEnabled === null || watch.registerEnabled === dom.hasRegister
+    if (!captchaOk) mismatches.push(`验证码：档位=${watch.captchaEnabled} 但 DOM 图=${dom.hasImage}/输入框=${dom.hasInput}`)
+    if (!registerOk) mismatches.push(`注册：档位=${watch.registerEnabled} 但 DOM 入口=${dom.hasRegister}`)
+    const pass = watch.requested && watch.status < 400 && mismatches.length === 0
+    let why = ''
+    if (!watch.requested) why = '登录页未请求 /captchaImage（下发链路未接线）'
+    else if (watch.status >= 400) why = `/captchaImage 返回 ${watch.status}`
+    else if (mismatches.length) why = `档位与呈现不一致 → ${mismatches.join('；')}`
+    return { ...watch, ...dom, captchaOk, registerOk, pass, why }
+  } finally {
+    page.off('response', handler)
+  }
 }
 
 // ==================== 控制台错误收集 ====================
@@ -354,7 +1049,7 @@ function checkConsoleErrors(consoleErrors, pageErrors, moduleName, ignorePattern
     record(
       moduleName,
       '无控制台错误',
-      true,
+      !hasErrors,
       totalRaw > 0 ? `0 个错误（豁免 ${totalRaw} 条负向测试预期错误）` : '0 个错误'
     )
   }
@@ -538,12 +1233,68 @@ async function clickButton(page, selector, options = {}) {
 }
 
 /**
+ * 关闭动作的**结果**判据（b73 轮 18）：点"取消/关闭/ESC"之后必须真的没有可见浮层残留。
+ *
+ * 旧写法记 `true, '已执行关闭'` 只能证明"调用过关闭"，证明不了"关掉了"——
+ * append-to-body 遗留节点、关闭动画未完成、ESC 被拦截这三种坏结局照样记 ✅。
+ */
+async function assertOverlayClosed(page, module, name) {
+  const res = await page
+    .evaluate(() => {
+      const list = Array.from(
+        document.querySelectorAll('.el-dialog, .el-drawer, .el-message-box')
+      ).filter((n) => n.getClientRects().length > 0)
+      return {
+        count: list.length,
+        items: list.slice(0, 4).map((n) => {
+          const r = n.getBoundingClientRect()
+          const title = (n.querySelector('.el-dialog__title, .el-drawer__title, .el-message-box__title')?.textContent || '').trim()
+          const btns = Array.from(n.querySelectorAll('button'))
+            .map((b) => (b.textContent || '').trim())
+            .filter(Boolean)
+            .slice(0, 3)
+            .join('/')
+          return `${n.className.split(' ').find((c) => c.startsWith('el-')) || n.className} ${Math.round(r.width)}x${Math.round(r.height)}${title ? ` «${title.slice(0, 16)}»` : ''}${btns ? ` [${btns.slice(0, 28)}]` : ''}`
+        })
+      }
+    })
+    .catch(() => null)
+  if (!res) {
+    record(module, `${name}（结果对账）`, false, '⟵ 断言工具异常（evaluate 失败），非产品问题')
+    return false
+  }
+  // 残留节点身份必须打印：只报"有几个"无法判定是产品没关成、还是测试自己没应答拦截框
+  record(
+    module,
+    `${name}（结果对账）`,
+    res.count === 0,
+    res.count === 0 ? '浮层已全部关闭' : `残留可见浮层=${res.count}：${res.items.join(' | ')}`
+  )
+  return res.count === 0
+}
+
+/**
  * 安全访问页面，等待 load 并检测 404
  */
 async function safeGoto(page, url, options = {}) {
   const { waitMs = 1500, moduleName = 0, allowFail = false } = options
   try {
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+    // `waitUntil: 'load'` 超时在全量跑批里多为高负载抖动（chunk 解压与浏览器争 CPU），
+    // 一次即记 ❌ 会把环境噪声冒充成模块缺陷；但**连接被拒/空响应**说明后端已不在，
+    // 重试只会把一个坏环境跑成三倍时长——那种情况必须立刻失败（b73 轮 17，主套件同款缺陷）。
+    let navErr = null
+    for (let i = 0; i < 3; i++) {
+      try {
+        await page.goto(url, { waitUntil: 'load', timeout: 30000 })
+        navErr = null
+        break
+      } catch (e) {
+        navErr = e
+        if (!/Timeout/i.test(e.message)) break
+        log(`  [safeGoto] 第 ${i + 1} 次导航超时，重试：${String(e.message).split('\n')[0].slice(0, 70)}`)
+      }
+    }
+    if (navErr) throw navErr
     await sleep(waitMs)
 
     // 关闭可能出现的 Tour 遮罩
@@ -640,8 +1391,19 @@ async function openDialog(page, triggerText, options = {}) {
       )
       return titleVisible
     }
-    record(moduleName, name || `对话框: ${triggerText}`, true, '对话框已打开')
-    return true
+    const dlgNow = await page
+      .locator('.el-dialog:visible')
+      .first()
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      moduleName,
+      name || `对话框: ${triggerText}`,
+      dlgNow,
+      dlgNow ? '对话框已落到可见态（实测）' : '对话框未落到可见态'
+    )
+    return dlgNow
   } catch (err) {
     record(moduleName, name || `对话框: ${triggerText}`, false, `异常: ${err.message.slice(0, 80)}`)
     return false
@@ -661,11 +1423,36 @@ async function closeDialog(page) {
   if (await cancelBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)) {
     await cancelBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(500)
+    await dismissUnsavedGuard(page)
     return
   }
   // 备用：按 Escape
   await page.keyboard.press('Escape').catch(() => {})
   await sleep(500)
+  await dismissUnsavedGuard(page)
+}
+
+/**
+ * 脏表单守卫（useUnsavedGuard.confirmLeave，b73 §3.4）善后。
+ *
+ * 表单被改动过再关闭时，产品**故意**弹「当前表单内容尚未保存，确定要离开吗？」，
+ * 必须点「不保存并离开」对话框才真的关闭。旧 closeDialog 不认这层拦截：
+ * M55 只是把「菜单类型」从 目录 切成 菜单 就记 ❌「残留可见浮层=2」
+ * （残留 = 未关的 el-dialog + 无人应答的 el-message-box），b73 轮 18 实证。
+ *
+ * 只匹配"未保存"文案才动作——删除/清空类确认框绝不能被顺手点成"确定"。
+ * @returns {Promise<boolean>} 是否确实遇到并处理了未保存确认
+ */
+async function dismissUnsavedGuard(page) {
+  const box = page.locator('.el-message-box:visible').first()
+  if (!(await box.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false))) return false
+  const text = (await box.locator('.el-message-box__message').first().textContent().catch(() => '')) || ''
+  if (!/尚未保存|未保存|unsaved|Leave without saving/i.test(text)) return false
+  const leave = box.locator('button:has-text("不保存并离开"), button:has-text("Leave without saving")').first()
+  if (!(await leave.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))) return false
+  await leave.click({ timeout: 2000 }).catch(() => {})
+  await sleep(500)
+  return true
 }
 
 /**
@@ -846,7 +1633,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.1 用户管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '用户管理页面加载', true)
+    await assertPageLoaded(page, M, '用户管理页面加载')
     // 左侧部门树侧边栏
     const hasTreeSidebar = await page
       .locator('.tree-sidebar, .tree-panel, .head-container')
@@ -918,7 +1705,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
       }
     } else {
       // 无用户数据时表格中没有 el-link，标记为通过
-      record(M, '用户管理: 用户详情抽屉', true, '无用户数据')
+      recordSkip(M, '用户管理: 用户详情抽屉', '表格无用户数据行 ⇒ 行内详情入口本就不存在（非缺陷；有数据分支已实断言抽屉可见）')
     }
 
     // 测试新增对话框（handleAdd 会先调用 getUser() API 获取选项，需要等待）
@@ -978,7 +1765,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.2 角色管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M })) {
-    record(M, '角色管理页面加载', true)
+    await assertPageLoaded(page, M, '角色管理页面加载')
     await checkTableColumns(
       page,
       ['角色编号', '角色名称', '权限字符', '显示顺序', '状态', '创建时间', '操作'],
@@ -1058,7 +1845,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.3 菜单管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/menu`, { moduleName: M })) {
-    record(M, '菜单管理页面加载', true)
+    await assertPageLoaded(page, M, '菜单管理页面加载')
     // 菜单管理是树形表格
     const hasTreeTable = await page
       .locator('.el-table')
@@ -1110,7 +1897,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.4 部门管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dept`, { moduleName: M })) {
-    record(M, '部门管理页面加载', true)
+    await assertPageLoaded(page, M, '部门管理页面加载')
     const hasTreeTable = await page
       .locator('.el-table')
       .first()
@@ -1161,7 +1948,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.5 岗位管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M })) {
-    record(M, '岗位管理页面加载', true)
+    await assertPageLoaded(page, M, '岗位管理页面加载')
     await checkTableColumns(
       page,
       ['岗位编号', '岗位编码', '岗位名称', '显示顺序', '状态', '创建时间', '操作'],
@@ -1175,7 +1962,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.6 字典管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict`, { moduleName: M })) {
-    record(M, '字典管理页面加载', true)
+    await assertPageLoaded(page, M, '字典管理页面加载')
     await checkTableColumns(page, ['字典编号', '字典名称', '字典类型', '状态', '创建时间', '操作'], M, '字典管理')
     await checkSearchForm(page, ['字典名称', '字典类型', '状态'], M, '字典管理')
     const hasAdd = await isButtonVisible(page, ['新增'])
@@ -1205,7 +1992,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.7 参数设置
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M })) {
-    record(M, '参数设置页面加载', true)
+    await assertPageLoaded(page, M, '参数设置页面加载')
     await checkTableColumns(
       page,
       ['参数主键', '参数名称', '参数键名', '参数键值', '系统内置', '创建时间', '操作'],
@@ -1219,7 +2006,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.8 通知公告
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice`, { moduleName: M })) {
-    record(M, '通知公告页面加载', true)
+    await assertPageLoaded(page, M, '通知公告页面加载')
     await checkTableColumns(page, ['序号', '公告标题', '公告类型', '创建者', '创建时间', '操作'], M, '通知公告')
     const hasAdd = await isButtonVisible(page, ['新增'])
     record(M, '通知公告按钮: 新增', hasAdd)
@@ -1241,37 +2028,50 @@ async function testModule1(page, consoleErrors, pageErrors) {
       record(M, '通知公告: 公告详情抽屉', false, '公告标题链接不可见')
     }
 
-    // 已读用户对话框：行内按钮文本可能是"已读"/"已读用户"或其他，验证表格行内按钮数量 >= 2 即可
-    const noticeRowBtnCount = await page
-      .evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('.el-table__row button, .el-table__row .el-button'))
-        return { count: btns.length, enough: btns.length >= 2 }
-      })
-      .catch(() => ({ count: 0, enough: false }))
-    if (noticeRowBtnCount.enough) {
-      // 通过 evaluate 触发点击事件，绕过 tooltip 包裹（点击"已读"或"已读用户"按钮）
-      await page
-        .evaluate(() => {
-          const btns = Array.from(
-            document.querySelectorAll('.el-table__row button, .el-table__row a, .el-table__row .el-tooltip')
-          )
-          const target = btns.find((b) => /已读/.test(b.textContent || b.getAttribute('aria-label') || ''))
-          if (target) target.click()
-        })
-        .catch(() => {})
-      await clickButton(page, '.el-table__row button:has-text("已读"), .el-table__row a:has-text("已读")')
-      const ruDialog = await page.waitForSelector('.el-dialog', { state: 'visible', timeout: 10000 }).catch(() => null)
-      // 已读用户对话框是条件功能，按钮存在即通过
-      record(M, '通知公告: 已读用户对话框', true, `行内按钮数量=${noticeRowBtnCount.count}, 对话框打开=${!!ruDialog}`)
-      if (ruDialog) await closeDialog(page)
+    // 「阅读用户」对话框（views/system/notice/index.vue:166 行内 el-button，
+    // i18n notice.btn.readUsers：zh=阅读用户 / en=Read Users）
+    // 旧写法只数"行内按钮 ≥2"再用 /已读/ 找按钮——真实文案是「阅读用户」，找不到就什么都不点，
+    // 却恒记 ✅（b73 轮 13 把假记录改成真判定后立刻暴露：该链路此前从未被点过）。
+    const ruBtn = page.locator(READ_USERS_BTN_SEL).first()
+    const ruBtnVisible = await ruBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!ruBtnVisible) {
+      record(M, '通知公告: 已读用户按钮', false, '行内没有「阅读用户」按钮（权限位 system:notice:list 或文案漂移）')
+      recordSkip(M, '通知公告: 已读用户对话框', '前置按钮不存在')
     } else {
-      record(M, '通知公告: 已读用户对话框', false, '已读用户按钮不可见')
+      await ruBtn.click({ timeout: 3000 }).catch(() => {})
+      const ruDialog = await waitForVisibleDialog(page, 8000)
+      // 打开后必须能看到已读用户表格（无数据时是空态占位，不是白屏）
+      const ruBody = await page
+        .evaluate(() => {
+          const d = Array.from(document.querySelectorAll('.el-dialog')).find((n) => n.getClientRects().length > 0)
+          if (!d) return { dialog: false, table: false, empty: false, rows: -1, errorToast: -1 }
+          const t = d.querySelector('.el-table')
+          return {
+            dialog: true,
+            table: !!t,
+            rows: t ? t.querySelectorAll('.el-table__body .el-table__row').length : -1,
+            empty: !!d.querySelector('.el-table__empty-block, .el-empty'),
+            errorToast: document.querySelectorAll('.el-message--error').length
+          }
+        })
+        .catch(() => ({ dialog: false, table: false, empty: false, rows: -1, errorToast: -1 }))
+      record(M, '通知公告: 已读用户按钮', ruBody.dialog, `点击后对话框可见=${ruBody.dialog}`)
+      record(
+        M,
+        '通知公告: 已读用户对话框',
+        ruDialog && ruBody.table && (ruBody.rows > 0 || ruBody.empty) && ruBody.errorToast === 0,
+        `对话框=${ruDialog} 表格=${ruBody.table} 行数=${ruBody.rows} 空态=${ruBody.empty} 错误Toast=${ruBody.errorToast}`
+      )
+      if (ruDialog) await closeDialog(page)
     }
   }
 
   // 1.9 通知中心
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice-center`, { moduleName: M })) {
-    record(M, '通知中心页面加载', true)
+    await assertPageLoaded(page, M, '通知中心页面加载')
     const hasContent = await page
       .locator('.app-container, .notice-center, .el-tabs')
       .first()
@@ -1425,7 +2225,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.10 备份管理（菜单挂在系统监控目录下，前端注册路径为 /monitor/backup，使用 SkeletonTable，需等待加载完成）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/backup`, { moduleName: M, waitMs: 2500 })) {
-    record(M, '备份管理页面加载', true)
+    await assertPageLoaded(page, M, '备份管理页面加载')
     await checkTableColumns(page, ['文件名', '文件大小', '备份类型', '状态', '创建时间', '操作'], M, '备份管理')
     const hasCreate = await isButtonVisible(page, ['创建备份'])
     record(M, '备份管理按钮: 创建备份', hasCreate)
@@ -1453,7 +2253,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.11 任务进度（菜单挂在系统监控目录下，前端注册路径为 /monitor/task，使用 EmptyState，表格可能为空但表头应存在）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/task`, { moduleName: M, waitMs: 2500 })) {
-    record(M, '任务进度页面加载', true)
+    await assertPageLoaded(page, M, '任务进度页面加载')
     // 表格可能为空，但表头应渲染
     const hasTable = await page
       .locator('.el-table')
@@ -1483,7 +2283,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.12 限流配置（菜单挂在系统监控目录下，前端注册路径为 /monitor/rateLimit，使用 SkeletonTable，需等待加载完成）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/rateLimit`, { moduleName: M, waitMs: 2500 })) {
-    record(M, '限流配置页面加载', true)
+    await assertPageLoaded(page, M, '限流配置页面加载')
     await checkTableColumns(page, ['路由前缀', '桶容量', '启用状态', '创建时间', '操作'], M, '限流配置')
     const hasAdd = await isButtonVisible(page, ['新增'])
     record(M, '限流配置按钮: 新增', hasAdd)
@@ -1523,7 +2323,7 @@ async function testModule1(page, consoleErrors, pageErrors) {
 
   // 1.13 文件管理（之前未覆盖）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/file`, { moduleName: M })) {
-    record(M, '文件管理页面加载', true)
+    await assertPageLoaded(page, M, '文件管理页面加载')
     await checkTableColumns(page, ['文件名', '类型', '大小', '修改时间', '操作'], M, '文件管理')
     // 文件管理搜索表单的"类型"字段是 el-select，placeholder 是"全部"
     const hasFileNameInput = await page
@@ -1583,7 +2383,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.1 在线用户
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/online`, { moduleName: M })) {
-    record(M, '在线用户页面加载', true)
+    await assertPageLoaded(page, M, '在线用户页面加载')
     await checkTableColumns(
       page,
       ['会话编号', '登录名称', '所属部门', '主机', '登录地点', '浏览器', '操作系统', '登录时间', '操作'],
@@ -1621,7 +2421,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.2 登录日志
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/logininfor`, { moduleName: M })) {
-    record(M, '登录日志页面加载', true)
+    await assertPageLoaded(page, M, '登录日志页面加载')
     await checkTableColumns(
       page,
       ['访问编号', '用户名称', '地址', '登录地点', '浏览器', '操作系统', '登录状态', '访问时间'],
@@ -1674,7 +2474,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.3 操作日志（菜单挂在"系统管理/日志管理"下，前端注册路径为 /system/log/operlog）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M })) {
-    record(M, '操作日志页面加载', true)
+    await assertPageLoaded(page, M, '操作日志页面加载')
     await checkTableColumns(
       page,
       ['日志编号', '系统模块', '操作类型', '操作人员', '操作地址', '操作状态', '操作日期'],
@@ -1742,7 +2542,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.4 定时任务
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job`, { moduleName: M })) {
-    record(M, '定时任务页面加载', true)
+    await assertPageLoaded(page, M, '定时任务页面加载')
     await checkTableColumns(
       page,
       ['任务编号', '任务名称', '任务组名', '调用目标', 'cron', '状态', '操作'],
@@ -1820,7 +2620,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.5 缓存管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/cache`, { moduleName: M })) {
-    record(M, '缓存管理页面加载', true)
+    await assertPageLoaded(page, M, '缓存管理页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
@@ -1863,7 +2663,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.6 健康检查
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/health`, { moduleName: M })) {
-    record(M, '健康检查页面加载', true)
+    await assertPageLoaded(page, M, '健康检查页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .health-status')
       .first()
@@ -1894,7 +2694,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.7 审计大屏
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/audit-dashboard`, { moduleName: M })) {
-    record(M, '审计大屏页面加载', true)
+    await assertPageLoaded(page, M, '审计大屏页面加载')
     const hasChart = await page
       .locator('.echarts, canvas, [class*="chart"]')
       .first()
@@ -1929,7 +2729,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
 
   // 2.8 IP 库管理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/ip-location`, { moduleName: M })) {
-    record(M, 'IP 库管理页面加载', true)
+    await assertPageLoaded(page, M, 'IP 库管理页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .el-table')
       .first()
@@ -1999,7 +2799,7 @@ async function testModule3(page, consoleErrors, pageErrors) {
 
   // 3.1 表单构建器（之前未覆盖）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/build`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '表单构建器页面加载', true)
+    await assertPageLoaded(page, M, '表单构建器页面加载')
     // 验证左侧组件列表
     const hasLeftPanel = await page
       .locator('.left-panel, [class*="components-list"], .el-scrollbar')
@@ -2068,7 +2868,7 @@ async function testModule3(page, consoleErrors, pageErrors) {
     await ensureGenTableImported(await getApiToken())
   } catch {}
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen`, { moduleName: M })) {
-    record(M, '代码生成器页面加载', true)
+    await assertPageLoaded(page, M, '代码生成器页面加载')
     await checkTableColumns(page, ['表名称', '表描述', '实体', '创建时间', '更新时间', '操作'], M, '代码生成器')
     await checkSearchForm(page, ['表名称', '表描述', '创建时间'], M, '代码生成器')
     const hasImport = await isButtonVisible(page, ['导入'])
@@ -2130,7 +2930,7 @@ async function testModule3(page, consoleErrors, pageErrors) {
           .locator('.el-dialog input[placeholder*="表名称"], .el-dialog input[placeholder*="表名"]')
           .first()
           .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-        record(M, '代码生成器: 导入对话框', true, `表名称搜索 input=${hasSearchInput}`)
+        record(M, '代码生成器: 导入对话框', hasSearchInput, `表名称搜索 input=${hasSearchInput}`)
         await closeDialog(page)
       } else {
         record(M, '代码生成器: 导入对话框', false, '对话框未打开')
@@ -2183,18 +2983,55 @@ async function testModule3(page, consoleErrors, pageErrors) {
       // 使用 :visible 伪类等待可见对话框
       const dialogOpened = await waitForVisibleDialog(page, 15000)
       if (dialogOpened) {
-        const hasTabs = await page
-          .locator('.el-dialog:visible .el-tabs')
+        // 预览对话框的真实契约（src/views/tool/gen/preview.vue）：文件下拉 + 带行号的代码面板 + 复制按钮，
+        // 无文件时才是 el-empty。旧判据 `.el-tabs` 是被替换掉的 Tabs 方案留下的**过期 DOM**，
+        // 与产品现状不符 ⇒ 对话框正常显示代码也照样记 ❌（b73 轮 19 实测「代码 Tabs=false」）。
+        //
+        // 另须等异步收敛：openPreview 是"先开框、清 dataMap、再 GET /tool/gen/preview/{id}"，
+        // 数据到达前 v-if=false 渲染的就是 el-empty——开框后立刻判定会把合法中间态误判成空态
+        // （b73 轮 19 实证：curl 同一 tableId 返回 200 + 完整生成代码，浏览器里的"空态"是抢跑）。
+        const codeShown = await page
+          .locator('.el-dialog:visible .gen-preview-code')
           .first()
-          .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-        record(M, '代码生成器: 预览对话框', true, `代码 Tabs=${hasTabs}`)
+          .waitFor({ state: 'visible', timeout: 8000 })
+          .then(() => true)
+          .catch(() => false)
+        const pv = await page
+          .evaluate(() => {
+            const dlg = Array.from(document.querySelectorAll('.el-dialog')).find(
+              (d) => d.getClientRects().length > 0
+            )
+            if (!dlg) return null
+            const code = dlg.querySelector('code.gen-preview-source')
+            return {
+              select: !!dlg.querySelector('.gen-preview-select') && !!dlg.querySelector('.el-select input'),
+              codeChars: code ? (code.textContent || '').trim().length : 0,
+              lineNo: dlg.querySelectorAll('.gen-preview-line-no').length,
+              copyBtn: Array.from(dlg.querySelectorAll('button')).some((b) =>
+                /复制|Copy/.test((b.textContent || '').trim())
+              ),
+              empty: !!dlg.querySelector('.el-empty'),
+              toast: Array.from(document.querySelectorAll('.el-message'))
+                .map((m) => (m.textContent || '').trim().slice(0, 30))
+                .join('/')
+            }
+          })
+          .catch(() => null)
+        record(
+          M,
+          '代码生成器: 预览对话框',
+          !!pv && pv.select && pv.codeChars > 0 && pv.lineNo > 0,
+          pv
+            ? `代码面板可见=${codeShown}, 文件下拉=${pv.select}, 代码字符=${pv.codeChars}, 行号=${pv.lineNo}, 复制按钮=${pv.copyBtn}, 空态=${pv.empty}${pv.toast ? `, toast=${pv.toast}` : ''}`
+            : '⟵ 断言工具异常（evaluate 失败），非产品问题'
+        )
         await closeDialog(page)
       } else {
         record(M, '代码生成器: 预览对话框', false, '对话框未打开')
       }
     } else {
       // 无表格数据时不测试预览对话框，标记通过
-      record(M, '代码生成器: 预览对话框', true, `无表格数据或预览按钮, 行数=${genTableRowCount}, 预览=${hasPreview}`)
+      recordSkip(M, '代码生成器: 预览对话框', `无表格数据或预览按钮（行数=${genTableRowCount}, 预览按钮=${hasPreview}）⇒ 本项无可测对象`)
     }
     // 3.2.1 代码生成器: 同步数据库（synchDb）实际功能测试（P1 补充覆盖）
     // 仅在有表格行数据时执行，避免无数据误报
@@ -2307,17 +3144,45 @@ async function testModule3(page, consoleErrors, pageErrors) {
     }
   }
 
-  // 3.3 接口文档（之前未覆盖）
+  // 3.3 接口文档（iframe 承载页）
+  // b73 轮 19：本页 100% 内容在 iframe 里，宿主 DOM 永远是空壳，
+  // 用面向宿主内容根的 assertPageLoaded 判它必然假失败（实测 contentRoot=false / text=190）。
+  // 改为对 iframe 本身定性：可见 ∧ src 指向 swagger ∧ iframe 文档真加载出 Swagger UI。
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/swagger`, { moduleName: M, waitMs: 3000 })) {
-    record(M, '接口文档页面加载', true)
-    // Swagger 是 iframe，验证 iframe 加载
     const iframe = page.locator('iframe').first()
-    const hasIframe = await iframe.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    record(M, '接口文档: iframe 加载', hasIframe)
+    const hasIframe = await iframe.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)
+    record(M, '接口文档: iframe 可见', hasIframe)
     if (hasIframe) {
       // 验证 iframe src
       const src = await iframe.getAttribute('src').catch(() => '')
       record(M, '接口文档: iframe src', !!src && src.includes('swagger'), `src=${src?.slice(0, 60) || ''}`)
+      const frameHandle = await iframe.elementHandle().catch(() => null)
+      const frameObj = frameHandle ? await frameHandle.contentFrame().catch(() => null) : null
+      const inner = frameObj
+        ? await frameObj
+            .evaluate(() => ({
+              ready: document.readyState,
+              title: (document.title || '').slice(0, 40),
+              text: (document.body?.innerText || '').trim().length,
+              ui: document.querySelectorAll('.swagger-ui, #swagger-ui, .opblock, .tk-content, #api-reference')
+                .length
+            }))
+            .catch(() => null)
+        : null
+      if (!inner) {
+        record(M, '接口文档: iframe 文档真实加载', false, `⟵ iframe 文档不可读（frameObj=${!!frameObj}），无法判定`)
+      } else {
+        // 404/空白页都必须在这里现形：文本量与 Swagger UI 节点数同时为正才算加载
+        record(
+          M,
+          '接口文档: iframe 文档真实加载',
+          inner.text > 0 && inner.ui > 0,
+          `ready=${inner.ready}, title=${inner.title || '<空>'}, text=${inner.text}, swaggerUI节点=${inner.ui}`
+        )
+      }
+    } else {
+      record(M, '接口文档: iframe src', false, 'iframe 不可见，无从取 src')
+      record(M, '接口文档: iframe 文档真实加载', false, 'iframe 不可见')
     }
   }
 
@@ -2332,7 +3197,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
 
   // 4.1 关于系统
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/about`, { moduleName: M })) {
-    record(M, '关于系统页面加载', true)
+    await assertPageLoaded(page, M, '关于系统页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
@@ -2381,7 +3246,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
 
   // 4.2 更新日志
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/changelog`, { moduleName: M })) {
-    record(M, '更新日志页面加载', true)
+    await assertPageLoaded(page, M, '更新日志页面加载')
     const hasTimeline = await page
       .locator('.el-timeline, .el-card')
       .first()
@@ -2409,7 +3274,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
 
   // 4.3 快捷键中心
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/shortcuts`, { moduleName: M })) {
-    record(M, '快捷键中心页面加载', true)
+    await assertPageLoaded(page, M, '快捷键中心页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
       .first()
@@ -2437,7 +3302,7 @@ async function testModule4(page, consoleErrors, pageErrors) {
 
   // 4.4 帮助中心
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/help`, { moduleName: M })) {
-    record(M, '帮助中心页面加载', true)
+    await assertPageLoaded(page, M, '帮助中心页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .el-collapse')
       .first()
@@ -2480,7 +3345,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
 
   // 5.1 数据看板
   if (await safeGoto(page, `${CONFIG.frontendUrl}/dashboard`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '数据看板页面加载', true)
+    await assertPageLoaded(page, M, '数据看板页面加载')
     // 验证统计卡片
     const hasStatCard = await page
       .locator('.el-card, [class*="stat"], [class*="dashboard-card"]')
@@ -2529,8 +3394,12 @@ async function testModule5(page, consoleErrors, pageErrors) {
     const viewAllBtn = page
       .locator('a:has-text("查看全部"), button:has-text("查看全部"), .el-button:has-text("查看全部")')
       .first()
-    if (await viewAllBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-      record(M, '数据看板: 查看全部按钮可见', true)
+    const viewAllVisible = await viewAllBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    if (viewAllVisible) {
+      record(M, '数据看板: 查看全部按钮可见', viewAllVisible, `可见=${viewAllVisible}`)
       await viewAllBtn.click().catch(() => {})
       await sleep(2000)
       const afterUrl = page.url()
@@ -2543,7 +3412,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
 
   // 5.2 个人工作台
   if (await safeGoto(page, `${CONFIG.frontendUrl}/workbench`, { moduleName: M })) {
-    record(M, '个人工作台页面加载', true)
+    await assertPageLoaded(page, M, '个人工作台页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .el-row')
       .first()
@@ -2608,7 +3477,7 @@ async function testModule5(page, consoleErrors, pageErrors) {
 
   // 5.3 首页（index）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M })) {
-    record(M, '首页页面加载', true)
+    await assertPageLoaded(page, M, '首页页面加载')
     const hasContent = await page
       .locator('.app-container, .el-card')
       .first()
@@ -2649,7 +3518,7 @@ async function testModule6(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 个人中心深度测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M })) {
-    record(M, '个人中心页面加载', true)
+    await assertPageLoaded(page, M, '个人中心页面加载')
     // 左侧用户信息卡片存在
     const hasUserInfoCard = await page
       .locator('.el-card, [class*="user-info"], [class*="profile-card"]')
@@ -2803,7 +3672,7 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
       if (
         await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen-edit/index/${tableId}`, { moduleName: M, waitMs: 2000 })
       ) {
-        record(M, '代码生成编辑页加载', true, `tableId=${tableId}`)
+        await assertPageLoaded(page, M, '代码生成编辑页加载', `tableId=${tableId}`)
         // 验证 Tab 结构
         const hasBasicTab = await page
           .locator('.el-tabs__item:has-text("基本信息"), .el-tabs__item:has-text("Basic")')
@@ -2851,7 +3720,7 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
       if (
         await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job-log/index/${jobId}`, { moduleName: M, waitMs: 2000 })
       ) {
-        record(M, '定时任务日志页加载', true, `jobId=${jobId}`)
+        await assertPageLoaded(page, M, '定时任务日志页加载', `jobId=${jobId}`)
         await checkTableColumns(
           page,
           ['日志编号', '任务名称', '任务组名', '调用目标字符串', '日志信息', '执行状态', '执行时间'],
@@ -2892,7 +3761,7 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
       if (
         await safeGoto(page, `${CONFIG.frontendUrl}/system/user-auth/role/${userId}`, { moduleName: M, waitMs: 2000 })
       ) {
-        record(M, '用户分配角色页加载', true, `userId=${userId}`)
+        await assertPageLoaded(page, M, '用户分配角色页加载', `userId=${userId}`)
         await checkTableColumns(page, ['角色编号', '角色名称', '权限字符', '创建时间'], M, '用户分配角色')
         const hasSubmit = await isButtonVisible(page, ['提交'])
         const hasBack = await isButtonVisible(page, ['返回'])
@@ -2921,7 +3790,7 @@ async function testModule7(page, consoleErrors, pageErrors, token) {
       if (
         await safeGoto(page, `${CONFIG.frontendUrl}/system/role-auth/user/${roleId}`, { moduleName: M, waitMs: 2000 })
       ) {
-        record(M, '角色分配用户页加载', true, `roleId=${roleId}`)
+        await assertPageLoaded(page, M, '角色分配用户页加载', `roleId=${roleId}`)
         await checkTableColumns(page, ['用户名', '用户昵称', '邮箱', '手机号', '状态', '创建时间'], M, '角色分配用户')
         const hasAdd = await isButtonVisible(page, ['新增'])
         const hasBatchCancel = await isButtonVisible(page, ['批量取消授权'])
@@ -2951,7 +3820,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.1 401 错误页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/401`, { moduleName: M })) {
-    record(M, '401 错误页加载', true)
+    await assertErrorPageRendered(page, M, '401 错误页加载', '.errPage-container')
     // 401 页面使用 errPage-container 类，不使用 el-result
     const hasContent = await page
       .locator('.errPage-container, .el-result, .error-page, [class*="error"]')
@@ -2969,7 +3838,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.2 403 错误页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/403`, { moduleName: M })) {
-    record(M, '403 错误页加载', true)
+    await assertPageLoaded(page, M, '403 错误页加载')
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
@@ -2992,7 +3861,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
     await page.goto(`${CONFIG.frontendUrl}/404`, { waitUntil: 'load', timeout: 30000 })
     await sleep(1500)
     await dismissTour(page)
-    record(M, '404 错误页加载', true)
+    await assertErrorPageRendered(page, M, '404 错误页加载', '.wscn-http404-container')
     const hasContent = await page
       .locator('.el-result, .error-page, .wscn-http404, [class*="error"], [class*="404"]')
       .first()
@@ -3012,7 +3881,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.4 500 错误页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/500`, { moduleName: M })) {
-    record(M, '500 错误页加载', true)
+    await assertPageLoaded(page, M, '500 错误页加载')
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
@@ -3031,7 +3900,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.5 网络错误页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/network-error`, { moduleName: M })) {
-    record(M, '网络错误页加载', true)
+    await assertPageLoaded(page, M, '网络错误页加载')
     const hasContent = await page
       .locator('.el-result, .error-page, [class*="error"]')
       .first()
@@ -3045,7 +3914,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.6 隐私政策页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/privacy`, { moduleName: M })) {
-    record(M, '隐私政策页加载', true)
+    await assertPageLoaded(page, M, '隐私政策页加载')
     const hasContent = await page
       .locator('.app-container, .el-card, .legal-content')
       .first()
@@ -3055,7 +3924,7 @@ async function testModule8(page, consoleErrors, pageErrors) {
 
   // 8.7 锁屏页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/lock`, { moduleName: M })) {
-    record(M, '锁屏页加载', true)
+    await assertPageLoaded(page, M, '锁屏页加载')
     const hasContent = await page
       .locator('input[type="password"], .lock-screen, [class*="lock"]')
       .first()
@@ -3090,10 +3959,13 @@ async function testModule9(page, consoleErrors, pageErrors) {
     .clearCookies()
     .catch(() => {})
 
-  // 9.0 测试前置：通过角色管理 API 将 common(role_id=2) 收紧为"仅页面可见"（剔除全部 F 按钮权限）
+  // 9.0 测试前置：把 common(role_id=2) 收敛为**后端策略声明的目标态**（页面 + 只读按钮 + 登记例外）
   // 背景：初始迁移（m20250711_000001_init.rs）把全部菜单关联给普通角色（含全站写权限），
-  // 与"普通角色只读"的隔离测试预期不符（详见专题文档安全发现登记）。
-  // 此处真实调用角色重分配 API（幂等），把 stepby 恢复为纯只读后，再验证前端/后端隔离机制本身。
+  // 与"普通角色只读"的隔离测试预期不符（§8.2 安全发现，m20260924_000010 收紧）。
+  // b73 轮 15 订正：判据的**单一事实源已上移到后端** `governance::common_role_grant_where`
+  // （只读后缀 + `COMMON_ROLE_WRITE_EXCEPTIONS` 例外），种子与兜底都按它发放；本前置只对
+  // 遗留库做幂等收敛，因此目标集合必须与后端逐条一致——不一致时常驻门禁
+  // `stepby-axum/scripts/seed_diff.py`（纯种子库 vs 运行库）会当场报漂移（本轮 12 处即由它抓回）。
   try {
     const adminToken = await getApiToken()
     if (adminToken) {
@@ -3101,13 +3973,17 @@ async function testModule9(page, consoleErrors, pageErrors) {
       const menuResp = await fetch(`${CONFIG.backendUrl}/system/menu/list`, { headers: h })
       if (menuResp.status === 200) {
         const menus = (await menuResp.json()).data || []
-        // 声明式目标状态：common 角色 = 全部目录(M)/页面(C) + F 按钮中的只读权限（:list/:query/:view/:center）。
+        // 声明式目标状态：common 角色 = 全部目录(M)/页面(C) + F 按钮中的只读权限（:list/:query/:view/:center）
+        // + 下方例外表。
         // 不基于 roleMenuTreeselect 的 checkedKeys 过滤——若库已被旧策略污染（写权限已收、只读也丢），
         // checkedKeys 无法还原目标集合；直接按菜单清单生成目标 menuIds 幂等重分配。
         // 页面内子资源 API 依赖 :query，若连只读按钮权限一并剔除，页面会 403 加载不出数据。
         // R-TEST-SEC（2026-10-02）：**平台专属 perms 必须排除**——旧规则把 118(备份管理 C)/1200(:query F)
         // 授权回 role2，导致功能 17"备份页对普通角色不可达"回归（对齐后端
         // common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES 单一事实源）。
+        // ⚠️ 本表必须与后端 `common/tenant.rs::PLATFORM_ONLY_PERM_PREFIXES` **逐条等长**
+        //（b73 轮 15 实测本表曾漏 `monitor:operlogArchive:` / `system:aiConfig:` 两条 ⇒
+        //  运行库比纯种子库多 2 项授权，seed_diff 以"运行库独有行"暴露）。
         const PLATFORM_ONLY_PREFIXES = [
           'system:tenant:domain:',
           'system:tenantMenu:',
@@ -3117,37 +3993,72 @@ async function testModule9(page, consoleErrors, pageErrors) {
           'monitor:log:',
           'monitor:slowSql:',
           'monitor:health:',
+          'monitor:operlogArchive:',
+          // b74 B3：后端登记 `monitor:alert:`（告警规则整组已挂 platform_only_guard，
+          // 租户一律 403）⇒ 本镜像必须同步，否则 M9 会期望 4110 发给 common，
+          // 与后端真实终态相反（该跨语言漂移正是 seed_diff.py 存在的理由）。
+          'monitor:alert:',
           'system:backup:',
-          'system:rateLimit:'
+          'system:rateLimit:',
+          'system:aiConfig:'
         ]
         const isPlatformOnly = (perms) => PLATFORM_ONLY_PREFIXES.some((p) => (perms || '').startsWith(p))
         const readOnlyPerms = /:(list|query|view|center)$/
+        // COMMON_WRITE_EXCEPTIONS：**必须与后端 governance::COMMON_ROLE_WRITE_EXCEPTIONS 逐条一致**
+        // （4131 看板保存作用于本人看板；4142-4145 / 4147 流程定义与数据集编辑受
+        //  `flow.designer` / `report.designer` 能力位默认 off 封顶，批次十三 用户拍板授予）。
+        // 两侧不一致时不需要人工发现——`stepby-axum/scripts/seed_diff.py` 常驻门禁
+        // （纯种子库 vs 运行库逐行 diff）会直接报漂移并阻断合入。
+        const COMMON_WRITE_EXCEPTIONS = [4131, 4142, 4143, 4144, 4145, 4147]
         const newIds = menus
           .filter((m) => {
             if (isPlatformOnly(m.perms)) return false
+            if (COMMON_WRITE_EXCEPTIONS.includes(m.menuId)) return true
             return m.menuType !== 'F' || readOnlyPerms.test(m.perms || '')
           })
           .map((m) => m.menuId)
+        // 前置执行前的现状（可观测性：本前置会改写系统数据，必须留下"改了什么"的证据；
+        // 种子正确时此处差集应为空 ⇒ "幂等 no-op"）
+        const beforeResp = await fetch(`${CONFIG.backendUrl}/system/menu/roleMenuTreeselect/2`, {
+          headers: h
+        })
+        const beforeBody = await beforeResp.json().catch(() => ({}))
+        const beforeIds = Array.isArray(beforeBody.checkedKeys) ? beforeBody.checkedKeys : []
+        const missing = newIds.filter((id) => !beforeIds.includes(id))
+        const extra = beforeIds.filter((id) => !newIds.includes(id))
         const putResp = await fetch(`${CONFIG.backendUrl}/system/role`, {
           method: 'PUT',
           headers: h,
           body: JSON.stringify({ roleId: 2, menuIds: newIds })
         })
         const putBody = await putResp.json().catch(() => ({}))
+        // 写后读回闭环：目标集合必须真实落库（否则后续"普通角色只读"隔离断言全部失去前提）
+        const afterResp = await fetch(`${CONFIG.backendUrl}/system/menu/roleMenuTreeselect/2`, {
+          headers: h
+        })
+        const afterBody = await afterResp.json().catch(() => ({}))
+        const afterIds = Array.isArray(afterBody.checkedKeys) ? afterBody.checkedKeys : []
+        const sameSet =
+          afterIds.length === newIds.length && newIds.every((id) => afterIds.includes(id))
         record(
           M,
-          '测试前置: stepby 权限收紧为只读',
-          putResp.status === 200 && putBody.code === 200,
-          `HTTP ${putResp.status} code=${putBody.code}, 目标 ${newIds.length} 项（全部页面+只读按钮）`
+          '测试前置: stepby 权限收敛为策略目标态',
+          putResp.status === 200 && putBody.code === 200 && sameSet,
+          sameSet
+            ? `HTTP ${putResp.status} code=${putBody.code}, 目标 ${newIds.length} 项` +
+                `（页面+只读按钮+例外 ${COMMON_WRITE_EXCEPTIONS.length}），` +
+                `收敛差集 补${missing.length}/剔${extra.length}` +
+                (missing.length || extra.length ? ` 缺失=${missing} 多余=${extra}` : '（种子即终态）')
+            : `HTTP ${putResp.status} code=${putBody.code} 读回不一致: 目标 ${newIds.length} / 实际 ${afterIds.length}`
         )
       } else {
-        record(M, '测试前置: stepby 权限收紧为只读', false, `menu=${menuResp.status}`)
+        record(M, '测试前置: stepby 权限收敛为策略目标态', false, `menu=${menuResp.status}`)
       }
     } else {
-      record(M, '测试前置: stepby 权限收紧为只读', false, 'admin token 获取失败')
+      record(M, '测试前置: stepby 权限收敛为策略目标态', false, 'admin token 获取失败')
     }
   } catch (e) {
-    record(M, '测试前置: stepby 权限收紧为只读', false, `异常: ${e.message.slice(0, 80)}`)
+    record(M, '测试前置: stepby 权限收敛为策略目标态', false, `异常: ${e.message.slice(0, 80)}`)
   }
 
   // 登录 stepby 用户
@@ -3317,7 +4228,9 @@ async function testModule10(page, consoleErrors, pageErrors) {
     if (await enOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
       await enOption.click().catch(() => {})
       await sleep(1500)
-      record(M, '切换到英文', true)
+      // 结果判据：i18n 切换必须真的落到 <html lang>（主套件 F59 同源口径），仅"选项被点到"不算切换成功
+      const langAfterEn = await page.evaluate(() => document.documentElement.lang || '')
+      record(M, '切换到英文', /en/i.test(langAfterEn), `htmlLang=${langAfterEn}`)
     } else {
       record(M, '切换到英文', false, '英文选项不可见')
     }
@@ -3491,11 +4404,11 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
     record(M, 'admin 重新登录', false, '登录失败，跳过 CRUD 测试')
     return
   }
-  record(M, 'admin 重新登录', true)
+  record(M, 'admin 重新登录', loginSuccess, `loginSuccess=${loginSuccess}`)
 
   // 12.1 岗位管理 CRUD
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M })) {
-    record(M, '岗位管理页面加载', true)
+    await assertPageLoaded(page, M, '岗位管理页面加载')
     // 测试新增对话框（使用 clickButton 绕过遮挡，添加显式短超时避免 hang）
     await page
       .locator('button:has-text("新增")')
@@ -3525,7 +4438,7 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
 
   // 12.2 字典管理 CRUD
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict`, { moduleName: M })) {
-    record(M, '字典管理页面加载', true)
+    await assertPageLoaded(page, M, '字典管理页面加载')
     await page
       .locator('button:has-text("新增")')
       .first()
@@ -3553,7 +4466,7 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
 
   // 12.3 参数设置 CRUD
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M })) {
-    record(M, '参数设置页面加载', true)
+    await assertPageLoaded(page, M, '参数设置页面加载')
     await page
       .locator('button:has-text("新增")')
       .first()
@@ -3581,7 +4494,7 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
 
   // 12.4 通知公告 CRUD
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice`, { moduleName: M })) {
-    record(M, '通知公告页面加载', true)
+    await assertPageLoaded(page, M, '通知公告页面加载')
     await page
       .locator('button:has-text("新增")')
       .first()
@@ -3636,11 +4549,16 @@ async function testModule13(browser) {
     // 检查是否被重定向到 /login（注册功能禁用时的预期行为）
     const currentUrl = page.url()
     if (currentUrl.includes('/login')) {
-      record(M, '注册页（功能已禁用重定向）', true, '注册功能已禁用，重定向到 /login（预期行为）')
+      record(
+        M,
+        '注册页（功能已禁用重定向）',
+        /\/login(\?|$)/.test(currentUrl),
+        `注册功能已禁用，观测 URL=${currentUrl}`
+      )
       return
     }
 
-    record(M, '注册页加载', true)
+    await assertPageLoaded(page, M, '注册页加载')
 
     // 验证注册表单字段
     const hasUsername = await page
@@ -3658,7 +4576,7 @@ async function testModule13(browser) {
       .locator('input[placeholder*="验证码"], input[placeholder*="Captcha"]')
       .first()
       .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-    record(M, '注册表单: 验证码', true, codeInput ? '验证码输入框可见' : '验证码已禁用（预期行为）')
+    recordSoft(M, '注册表单: 验证码', !!codeInput, '验证码输入框可见', '验证码档位关闭（与 /captchaImage 一致，非缺陷）')
 
     // 验证注册按钮
     const hasRegisterBtn = await page
@@ -3734,7 +4652,7 @@ async function testModule14(page, consoleErrors, pageErrors, token) {
 
   // 访问字典数据详情页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict-data/index/${dictId}`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '字典数据详情页加载', true)
+    await assertPageLoaded(page, M, '字典数据详情页加载')
 
     // 验证表格列（实际列名是"字典编号"而非"字典编码"，"显示排序"包含"排序"）
     await checkTableColumns(
@@ -3802,7 +4720,7 @@ async function testModule15(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 遗漏对话框深度测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '个人中心页面加载（头像测试）', true)
+    await assertPageLoaded(page, M, '个人中心页面加载（头像测试）')
     const avatarTrigger = page.locator('.user-info-head').first()
     const avatarVisible = await avatarTrigger.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
     if (avatarVisible) {
@@ -3841,7 +4759,7 @@ async function testModule15(page, consoleErrors, pageErrors) {
     if (
       await safeGoto(page, `${CONFIG.frontendUrl}/system/role-auth/user/${roleId}`, { moduleName: M, waitMs: 2000 })
     ) {
-      record(M, '角色分配用户页加载', true)
+      await assertPageLoaded(page, M, '角色分配用户页加载')
       // i18n common.add = "新增"（zh-CN），非"添加"
       const addBtn = page.locator('button:has-text("新增")').first()
       const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
@@ -3867,7 +4785,7 @@ async function testModule15(page, consoleErrors, pageErrors) {
   }
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '定时任务页加载（详情测试）', true)
+    await assertPageLoaded(page, M, '定时任务页加载（详情测试）')
     // 任务详情通过点击 jobName el-link 触发，而非"详细"按钮
     const detailLink = page.locator('.el-table__row .el-link').first()
     const detailVisible = await detailLink.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
@@ -3893,7 +4811,7 @@ async function testModule15(page, consoleErrors, pageErrors) {
   }
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/tool/build`, { moduleName: M, waitMs: 3000 })) {
-    record(M, '表单构建器页加载（图标测试）', true)
+    await assertPageLoaded(page, M, '表单构建器页加载（图标测试）')
     // 先点击左侧面板的输入型组件添加到画布（支持 click-to-add）
     const inputComponent = page.locator('.components-item').first()
     const inputCompVisible = await inputComponent.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
@@ -3984,107 +4902,53 @@ async function testModule16(page, consoleErrors, pageErrors) {
   const M = 16
   log(`\n=== 模块 ${M}: 搜索筛选功能深度测试 ===`)
 
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '用户管理页面加载（搜索测试）', true)
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('admin')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '用户管理: 搜索筛选', rowCount > 0, `搜索"admin"结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '用户管理: 搜索筛选', false, '搜索输入框不可见')
+  // 六个列表页的"搜索筛选"（b73 轮 12 重写）
+  //
+  // 旧写法三处都不成立，合起来就是"永远不可能红的搜索测试"：
+  //   ① 关键词是**手写猜的**（'admin' / 'ceo' / 'sex' / 'index'）——词一旦不存在于当前数据，
+  //      搜索返回 0 行也不会被发现；
+  //   ② 等待是固定 sleep(500)/sleep(2000)——慢环境下"没等到就当通过"，快环境下白等；
+  //   ③ 判据是 `rowCount >= 0`（除用户页 `> 0`）——后端返回什么、页面是否白屏都恒绿。
+  // 现在：关键词取自"第一个过滤框所对应列"的首行真实值（label↔表头对齐），等**本页**
+  // list 接口在本次点击后真的被调用，再要求逐行命中 + 表格落在确定态 + 结果未放大。
+  const SEARCH_PAGES = [
+    { path: '/system/user', label: '用户管理', api: /\/system\/user\/list(\?|$)/ },
+    { path: '/system/role', label: '角色管理', api: /\/system\/role\/list(\?|$)/ },
+    { path: '/system/post', label: '岗位管理', api: /\/system\/post\/list(\?|$)/ },
+    { path: '/system/dict', label: '字典管理', api: /\/system\/dict\/type\/list(\?|$)/ },
+    { path: '/system/config', label: '参数设置', api: /\/system\/config\/list(\?|$)/ },
+    { path: '/system/log/operlog', label: '操作日志', api: /\/monitor\/operlog\/list(\?|$)/ }
+  ]
+  for (const sp of SEARCH_PAGES) {
+    if (!(await safeGoto(page, `${CONFIG.frontendUrl}${sp.path}`, { moduleName: M, waitMs: 1500 }))) continue
+    const baseState = await readListState(page)
+    if (!baseState.settled || baseState.rows === 0) {
+      recordSkip(
+        M,
+        `${sp.label}: 搜索筛选`,
+        `基线表格非确定态或无数据（table=${baseState.hasTable} rows=${baseState.rows}），无从挑真实关键词`
+      )
+      continue
     }
-  }
-
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M, waitMs: 2000 })) {
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('admin')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '角色管理: 搜索筛选', rowCount >= 0, `搜索结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '角色管理: 搜索筛选', false, '搜索输入框不可见')
+    const pick = await pickTermForFirstFilter(page)
+    if (!pick.term || pick.col < 0) {
+      recordSkip(
+        M,
+        `${sp.label}: 搜索筛选`,
+        `第一个过滤框「${pick.label}」没能对齐到表头列（表头 ${pick.headers} 个），不硬猜列序`
+      )
+      continue
     }
-  }
-
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('ceo')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '岗位管理: 搜索筛选', rowCount >= 0, `搜索结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '岗位管理: 搜索筛选', false, '搜索输入框不可见')
-    }
-  }
-
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/dict`, { moduleName: M, waitMs: 2000 })) {
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('sex')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '字典管理: 搜索筛选', rowCount >= 0, `搜索结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '字典管理: 搜索筛选', false, '搜索输入框不可见')
-    }
-  }
-
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('index')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '参数设置: 搜索筛选', rowCount >= 0, `搜索结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '参数设置: 搜索筛选', false, '搜索输入框不可见')
-    }
-  }
-
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2000 })) {
-    const searchInput = page.locator('.query-form input, .el-form--inline input').first()
-    const searchVisible = await searchInput.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    if (searchVisible) {
-      await searchInput.fill('admin')
-      await sleep(500)
-      await clickButton(page, 'button:has-text("搜索")', { timeout: 3000 })
-      await sleep(2000)
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '操作日志: 搜索筛选', rowCount >= 0, `搜索结果: ${rowCount} 行`)
-      await clickButton(page, 'button:has-text("重置")', { timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-    } else {
-      record(M, '操作日志: 搜索筛选', false, '搜索输入框不可见')
-    }
+    const r = await verifySearchWorks(page, { term: pick.term, col: pick.col, listHint: sp.api })
+    record(
+      M,
+      `${sp.label}: 搜索筛选`,
+      r.pass,
+      `「${pick.label}」列#${pick.col}="${pick.term}" ${r.status}${r.url ? ' ' + r.url : ''} DOM ${r.before}→${r.after} 响应 ${r.serverRows} 行 命中=${r.matched}${r.why ? ' ' + r.why : ''}`
+    )
+    // 重置必须回到基线量级（筛选态残留会让后续用例读到错数据）
+    const rb = await verifyResetRestores(page, r.before)
+    record(M, `${sp.label}: 重置回到基线`, rb.pass, `重置后 rows=${rb.rows}（基线 ${r.before}）${rb.why}`)
   }
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice-center`, { moduleName: M, waitMs: 2000 })) {
@@ -4095,13 +4959,23 @@ async function testModule16(page, consoleErrors, pageErrors) {
       const radioButtons = radioGroup.locator('.el-radio-button')
       const radioCount = await radioButtons.count()
       if (radioCount >= 2) {
+        // 结果判据：切筛选必须发起列表重查（不发请求＝筛选没生效）
+        const unreadReq = page
+          .waitForResponse((r) => r.url().includes('/system/notice') && r.status() < 400, { timeout: 6000 })
+          .catch(() => null)
         await radioButtons
           .nth(1)
           .click({ timeout: 3000 })
           .catch(() => {}) // 切换到"未读"
+        const unreadResp = await unreadReq
         await sleep(1500)
         const rowCount = await page.locator('.el-table__row, .notice-list .notice-item, [class*="notice-card"]').count()
-        record(M, '通知中心: 筛选切换', true, `未读筛选结果: ${rowCount} 项`)
+        record(
+          M,
+          '通知中心: 筛选切换',
+          !!unreadResp,
+          `重查响应=${unreadResp ? unreadResp.status() : '未发出'}, 未读筛选结果: ${rowCount} 项`
+        )
         await radioButtons
           .nth(0)
           .click({ timeout: 3000 })
@@ -4115,13 +4989,22 @@ async function testModule16(page, consoleErrors, pageErrors) {
       const tabs = page.locator('.el-tabs__item')
       const tabCount = await tabs.count()
       if (tabCount > 1) {
+        const tabReq = page
+          .waitForResponse((r) => r.url().includes('/system/notice') && r.status() < 400, { timeout: 6000 })
+          .catch(() => null)
         await tabs
           .nth(1)
           .click({ timeout: 3000 })
           .catch(() => {})
+        const tabResp = await tabReq
         await sleep(1500)
         const rowCount = await page.locator('.el-table__row, .notice-list .notice-item').count()
-        record(M, '通知中心: 筛选切换', true, `切换后列表项: ${rowCount}`)
+        record(
+          M,
+          '通知中心: 筛选切换',
+          !!tabResp,
+          `重查响应=${tabResp ? tabResp.status() : '未发出'}, 切换后列表项: ${rowCount}`
+        )
         await tabs
           .nth(0)
           .click({ timeout: 3000 })
@@ -4143,7 +5026,7 @@ async function testModule17(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: Tab 切换深度测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/online`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '在线用户页加载', true)
+    await assertPageLoaded(page, M, '在线用户页加载')
     const tabs = page.locator('.el-tabs__item')
     const tabCount = await tabs.count()
     if (tabCount >= 2) {
@@ -4305,7 +5188,7 @@ async function testModule18(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 行内编辑删除+确认对话框测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '岗位管理页加载', true)
+    await assertPageLoaded(page, M, '岗位管理页加载')
 
     const editBtn = page
       .locator('.el-table__row button:has-text("修改"), .el-table__row button:has-text("编辑")')
@@ -4423,17 +5306,25 @@ async function testModule19(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: 分页+导出+表单校验测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '用户管理页加载（分页测试）', true)
+    await assertPageLoaded(page, M, '用户管理页加载（分页测试）')
     const pagination = page.locator('.el-pagination').first()
     const paginationVisible = await pagination.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
     record(M, '用户管理: 分页组件可见', paginationVisible)
     if (paginationVisible) {
       const nextBtn = pagination.locator('.btn-next, .el-pager li.number').nth(1)
       const nextVisible = await nextBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      if (nextVisible) {
+      const pagerNumbers = await page.locator('.el-pager li.number').count()
+      if (nextVisible && pagerNumbers < 2) {
+        recordSkip(M, '用户管理: 页码切换', `分页仅 ${pagerNumbers} 个页码（数据不足两页），翻页无可测对象`)
+      } else if (nextVisible) {
         await nextBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(1500)
-        record(M, '用户管理: 页码切换', true)
+        const activePage = await page
+          .locator('.el-pagination .is-active, .el-pager li.number.active')
+          .first()
+          .innerText()
+          .catch(() => '')
+        record(M, '用户管理: 页码切换', activePage.trim() === '2', `当前页码="${activePage.trim()}"`)
       } else {
         record(M, '用户管理: 页码切换', false, '下一页按钮不可见')
       }
@@ -4721,7 +5612,7 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
       allowFail: true
     })
   ) {
-    record(M, '404 页面加载', true)
+    await assertErrorPageRendered(page, M, '404 页面加载', '.wscn-http404-container')
     const has404Text = await page
       .locator('.wscn-http404-container, .wscn-http404, .bullshit__oops, img[alt="404"]')
       .first()
@@ -4733,7 +5624,7 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
       .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     record(M, '404 页面: 返回按钮', hasBackBtn)
   } else {
-    record(M, '404 页面加载', true, '通过路由匹配渲染')
+    await assertErrorPageRendered(page, M, '404 页面加载', '.wscn-http404-container', '通过路由匹配渲染')
     const has404Text = await page
       .locator('.wscn-http404-container, .wscn-http404, .bullshit__oops, img[alt="404"]')
       .first()
@@ -4741,7 +5632,10 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     record(M, '404 页面: 错误提示可见', has404Text)
   }
 
-  // 21.2 用户详情页（view.vue）
+  // 21.2 用户详情（真实形态：views/system/user/view.vue 是 user/index.vue 内联的抽屉，
+  //      由行内「用户名称」el-link → handleViewData → userViewRef.open(userId) 打开。
+  //      不存在 /system/user-view/:id 或 /system/user/view/:id 路由——旧用例先 goto 两个
+  //      不存在的路径、再把"路由未注册"记成 PASS，等于用 404 页给自己记分。）
   let userId = null
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=1`, {
@@ -4753,38 +5647,42 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     if (data.rows && data.rows.length > 0) userId = data.rows[0].userId
   } catch {}
 
-  if (userId) {
-    if (
-      await safeGoto(page, `${CONFIG.frontendUrl}/system/user-view/${userId}`, {
-        moduleName: M,
-        waitMs: 2000,
-        allowFail: true
-      })
-    ) {
-      record(M, '用户详情页（user-view）加载', true)
-      const hasContent = await page
-        .locator('.app-container, .el-descriptions, .el-card')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '用户详情页: 内容渲染', hasContent)
-    } else {
-      if (
-        await safeGoto(page, `${CONFIG.frontendUrl}/system/user/view/${userId}`, {
-          moduleName: M,
-          waitMs: 2000,
-          allowFail: true
+  if (!userId) {
+    record(M, '用户详情抽屉: 打开', false, '无可用用户 ID')
+    record(M, '用户详情: 内容渲染', false, '无可用用户 ID')
+  } else if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
+    const nameLink = page.locator('.el-table__body .el-table__row .el-link').first()
+    const linkOk = await nameLink
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const drawer = linkOk ? await waitForVisibleDrawer(page, 5000) : false
+    record(M, '用户详情抽屉: 打开', linkOk && drawer, linkOk ? `抽屉可见=${drawer}` : '行内用户名称链接点不到')
+    if (drawer) {
+      const content = await page
+        .evaluate(() => {
+          const d = Array.from(document.querySelectorAll('.el-drawer')).find((n) => n.getClientRects().length > 0)
+          const txt = d ? (d.textContent || '').replace(/\s+/g, ' ').trim() : ''
+          return {
+            len: txt.length,
+            hasFields: /手机|昵称|状态|创建时间|Phone|Status|Create/i.test(txt),
+            errorToast: document.querySelectorAll('.el-message--error').length
+          }
         })
-      ) {
-        record(M, '用户详情页（user/view）加载', true)
-      } else {
-        record(M, '用户详情页加载', true, '路由可能未注册（view 通过抽屉显示）')
-      }
+        .catch(() => ({ len: -1, hasFields: false, errorToast: -1 }))
+      record(
+        M,
+        '用户详情: 内容渲染',
+        content.len > 40 && content.hasFields && content.errorToast === 0,
+        `抽屉文本=${content.len} 字，含详情字段=${content.hasFields}，错误 Toast=${content.errorToast}`
+      )
+      await closeDrawer(page)
+    } else {
+      record(M, '用户详情: 内容渲染', false, '抽屉未打开')
     }
-  } else {
-    record(M, '用户详情页加载', false, '无可用用户 ID')
   }
 
-  // 21.3 角色分配用户页（authUser.vue）
+  // 21.3 角色分配用户页（真实路由 /system/role-auth/user/:roleId，router/index.ts 静态登记）
   let roleId2 = null
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/role/list?pageNum=1&pageSize=1`, {
@@ -4796,26 +5694,25 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     if (data.rows && data.rows.length > 0) roleId2 = data.rows[0].roleId
   } catch {}
 
-  if (roleId2) {
-    if (
-      await safeGoto(page, `${CONFIG.frontendUrl}/system/role/authUser/${roleId2}`, {
-        moduleName: M,
-        waitMs: 2000,
-        allowFail: true
-      })
-    ) {
-      record(M, '角色分配用户页（authUser）加载', true)
-      const hasTable = await page
-        .locator('.el-table')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, 'authUser: 表格渲染', hasTable)
+  if (!roleId2) {
+    record(M, '角色分配用户页（authUser）加载', false, '无可用角色 ID')
+    record(M, 'authUser: 表格渲染', false, '无可用角色 ID')
+  } else {
+    const auGoto = await safeGoto(page, `${CONFIG.frontendUrl}/system/role-auth/user/${roleId2}`, {
+      moduleName: M,
+      waitMs: 2000
+    })
+    record(M, '角色分配用户页（authUser）加载', auGoto, auGoto ? '' : '真实路由打不开（旧用例这时记 PASS）')
+    if (auGoto) {
+      const au = await verifyListLoaded(page, { listHint: /\/system\/role\/authUser\/allocatedList(\?|$)/ })
+      record(M, 'authUser: 表格渲染', au.pass, au.pass ? `已分配用户 ${au.domRows} 行（DOM=响应 ${au.serverRows}，total=${au.total}）` : au.why)
     } else {
-      record(M, '角色分配用户页加载', true, '路径可能由 role-auth 统一处理')
+      record(M, 'authUser: 表格渲染', false, '页面未打开')
     }
   }
 
-  // 21.4 任务详情页（job/detail.vue）
+  // 21.4 任务详情（真实形态：job/index.vue 行内「任务名称」el-link → handleView →
+  //      GET /monitor/job/{id} → <job-detail> 对话框；不存在 /monitor/job/detail/:id 路由）
   let jobId = null
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/monitor/job/list?pageNum=1&pageSize=1`, {
@@ -4827,32 +5724,51 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     if (data.rows && data.rows.length > 0) jobId = data.rows[0].jobId
   } catch {}
 
-  if (jobId) {
-    if (
-      await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job/detail/${jobId}`, {
-        moduleName: M,
-        waitMs: 2000,
-        allowFail: true
-      })
-    ) {
-      record(M, '任务详情页（job/detail）加载', true)
-      const hasContent = await page
-        .locator('.app-container, .el-descriptions, .el-card, .el-form')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, 'job/detail: 内容渲染', hasContent)
-    } else {
-      record(M, '任务详情页加载', true, '路径可能由对话框形式处理')
-    }
-  } else {
+  if (!jobId) {
     record(M, '任务详情页加载', false, '无可用任务 ID')
+    record(M, 'job/detail: 内容渲染', false, '无可用任务 ID')
+  } else if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job`, { moduleName: M, waitMs: 2000 })) {
+    // 详情接口是 `GET /monitor/job/{数字}`；用 \d 排除 `/monitor/job/list?`，避免"列表请求洗白详情请求"
+    const jobWatch = { requested: false, status: 0 }
+    const jobHandler = (resp) => {
+      if (!/\/monitor\/job\/\d+(?:\?|$)/.test(resp.url())) return
+      jobWatch.requested = true
+      jobWatch.status = resp.status()
+    }
+    page.on('response', jobHandler)
+    const jobLink = page.locator('.el-table__body .el-table__row .el-link').first()
+    const linkOk = await jobLink.click({ timeout: 3000 }).then(() => true).catch(() => false)
+    const dialog = linkOk ? await waitForVisibleDialog(page, 6000) : false
+    await sleep(400)
+    page.off('response', jobHandler)
+    record(
+      M,
+      '任务详情页加载',
+      linkOk && dialog && jobWatch.requested && jobWatch.status < 400,
+      `入口点击=${linkOk} 对话框=${dialog} 详情请求=${jobWatch.requested}/${jobWatch.status}`
+    )
+    if (dialog) {
+      const content = await page
+        .evaluate(() => {
+          const d = Array.from(document.querySelectorAll('.el-dialog')).find((n) => n.getClientRects().length > 0)
+          const txt = d ? (d.textContent || '').replace(/\s+/g, ' ').trim() : ''
+          return { len: txt.length, hasJobFields: /调用|cron|Cron|分组|策略|Invoke|Group/i.test(txt) }
+        })
+        .catch(() => ({ len: -1, hasJobFields: false }))
+      record(M, 'job/detail: 内容渲染', content.len > 40 && content.hasJobFields, `对话框文本=${content.len} 字，含任务字段=${content.hasJobFields}`)
+      await closeDialog(page)
+    } else {
+      record(M, 'job/detail: 内容渲染', false, '对话框未打开')
+    }
   }
 
-  // 21.5 操作日志详情页（operlog/detail.vue）— 详情通过对话框显示，已在 M2 测试
-  // 此处仅验证 operlog/detail.vue 组件存在性（无独立路由）
-  record(M, '操作日志详情页加载', true, 'operlog/detail.vue 通过对话框显示（已在 M2 测试）')
+  // 21.5 操作日志详情：operlog/detail.vue 由 index.vue 的「详细」按钮开对话框（无独立路由），
+  //      该链路已由 M2 的操作日志对话框用例真实覆盖——此处不再用 `record(true,'已在 M2 测')`
+  //      占一条 ✅ 名额（那会让覆盖率虚高，且 M2 万一失守这里仍然绿）。
+  recordSkip(M, '操作日志详情页加载', '详情为列表页内对话框、无独立路由，真实链路已由 M2 覆盖（本模块不重复计数）')
 
-  // 21.6 字典详情页（dict/detail.vue）
+  // 21.6 字典数据页（真实路由 /system/dict-data/index/:dictId → views/system/dict/data.vue；
+  //      dict/detail.vue 是字典管理页里的抽屉，同样不存在 /system/dict/detail/:id 路由）
   let dictId2 = null
   try {
     const resp = await fetch(`${CONFIG.backendUrl}/system/dict/type/list?pageNum=1&pageSize=1`, {
@@ -4864,25 +5780,21 @@ async function testModule21(page, consoleErrors, pageErrors, token) {
     if (data.rows && data.rows.length > 0) dictId2 = data.rows[0].dictId
   } catch {}
 
-  if (dictId2) {
-    if (
-      await safeGoto(page, `${CONFIG.frontendUrl}/system/dict/detail/${dictId2}`, {
-        moduleName: M,
-        waitMs: 2000,
-        allowFail: true
-      })
-    ) {
-      record(M, '字典详情页（dict/detail）加载', true)
-      const hasContent = await page
-        .locator('.app-container, .el-descriptions, .el-card')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, 'dict/detail: 内容渲染', hasContent)
-    } else {
-      record(M, '字典详情页加载', true, '路径可能由 dict-data 处理')
-    }
+  if (!dictId2) {
+    record(M, '字典详情页（dict/detail）加载', false, '无可用字典 ID')
+    record(M, 'dict/detail: 内容渲染', false, '无可用字典 ID')
   } else {
-    record(M, '字典详情页加载', false, '无可用字典 ID')
+    const ddGoto = await safeGoto(page, `${CONFIG.frontendUrl}/system/dict-data/index/${dictId2}`, {
+      moduleName: M,
+      waitMs: 2000
+    })
+    record(M, '字典详情页（dict/detail）加载', ddGoto, ddGoto ? `dictId=${dictId2} → /system/dict-data/index/${dictId2}` : '真实路由打不开')
+    if (ddGoto) {
+      const dd = await verifyListLoaded(page, { listHint: /\/system\/dict\/data\/list(\?|$)/, minRows: 1 })
+      record(M, 'dict/detail: 内容渲染', dd.pass, dd.pass ? `字典数据 ${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why)
+    } else {
+      record(M, 'dict/detail: 内容渲染', false, '页面未打开')
+    }
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -4914,11 +5826,11 @@ async function testModule22(page, consoleErrors, pageErrors) {
     const cpInputVisible = await cpInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (cpInputVisible) {
       await cpInput.fill('用户')
-      await sleep(800)
-      const cpResults = await page
-        .locator('.command-palette .command-item, .el-dialog:visible .command-item, .el-dialog:visible li')
-        .count()
-      record(M, '命令面板: 搜索结果', cpResults >= 0, `${cpResults} 项`)
+      await sleep(1000)
+      // 旧断言数的是 `.command-item / .el-dialog li`——本组件真实条目是 `.palette-item`（标题
+      // `.palette-item-title`），旧选择器恒 0，配 `>= 0` 就是"永远通过的空检查"。
+      const cp = await readSearchHits(page, { itemSel: '.palette-item', textSel: '.palette-item-title', term: '用户' })
+      record(M, '命令面板: 搜索结果', cp.pass, cp.detail)
     }
     await page.keyboard.press('Escape').catch(() => {})
     await sleep(500)
@@ -4931,13 +5843,20 @@ async function testModule22(page, consoleErrors, pageErrors) {
   if (hsVisible) {
     await headerSearch.click({ timeout: 3000 }).catch(() => {})
     await sleep(800)
-    const hsInput = page.locator('.header-search input, .el-input__inner:visible').first()
+    // 输入框在 `el-dialog[append-to-body]` 内、不在 `.header-search` 子树里；旧选择器
+    // `.header-search input, .el-input__inner:visible` 只能靠第二条兜底，而它命中的可能是
+    // 页面上任意一个可见输入框（假定位 → 填进无关框里再"搜索成功"）。
+    const hsInput = page.locator('.el-dialog:visible .el-input__inner').first()
     const hsInputVisible = await hsInput.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (hsInputVisible) {
       await hsInput.fill('用户')
-      await sleep(800)
-      const hsResults = await page.locator('.header-search-result, .el-select-dropdown:visible').count()
-      record(M, 'HeaderSearch: 搜索结果', hsResults >= 0, `${hsResults} 项`)
+      await sleep(1500)
+      // 旧断言 `hsResults >= 0` 恒真，且 `.header-search-result/.el-select-dropdown` 在本组件里
+      // 并不存在（真实结构是 append-to-body 弹窗内的 `.search-item` + `.menu-title`），
+      // 等于"数一个不存在的选择器然后永远通过"。该弹窗带 destroy-on-close，条目只在打开时存在；
+      // readSearchHits 走 page.evaluate，浏览器原生 CSS 不认 Playwright 的 `:visible`，故用裸类名。
+      const hs = await readSearchHits(page, { itemSel: '.search-item', textSel: '.menu-title', term: '用户' })
+      record(M, 'HeaderSearch: 搜索结果', hs.pass, hs.detail)
       await page.keyboard.press('Escape').catch(() => {})
       await sleep(500)
     } else {
@@ -5066,12 +5985,18 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
   const captchaImg = loginPage.locator(
     '.login-code, .captcha-img, img[src*="data:image"], img[src*="captcha"], img[src*="code"]'
   )
-  const captchaVisible = await captchaImg
-    .first()
-    .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-  // 验证码可见性取决于后端配置（captchaEnabled），不可见时标记为通过（配置已禁用）
-  record(M, '登录页: 验证码图片可见', true, captchaVisible ? '验证码已启用' : '验证码已禁用（配置）')
-  if (captchaVisible) {
+  const flags = await verifyLoginFeatureFlags(loginPage, CONFIG.frontendUrl)
+  // 旧写法 `record(M, ..., true, captchaVisible ? '已启用' : '已禁用')`：开/关两种结果都记 ✅，
+  // 连"后端说开了但图上没画出来"（用户无法登录）都能吞掉。改判一致性。
+  record(
+    M,
+    '登录页: 验证码图片可见',
+    flags.pass && flags.captchaOk,
+    flags.captchaOk
+      ? `档位 captchaEnabled=${flags.captchaEnabled} 与 DOM（图=${flags.hasImage} 输入框=${flags.hasInput}）一致`
+      : flags.why
+  )
+  if (flags.hasImage) {
     const captchaSrc = await captchaImg
       .first()
       .getAttribute('src')
@@ -5079,7 +6004,7 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
     const validCaptcha = captchaSrc && !captchaSrc.includes('undefined') && captchaSrc.length > 50
     record(M, '登录页: 验证码图片有效', validCaptcha, `src 长度: ${captchaSrc?.length || 0}`)
   } else {
-    recordSkip(M, '登录页: 验证码图片有效', '验证码禁用，跳过有效性检查')
+    recordSkip(M, '登录页: 验证码图片有效', '验证码档位为关闭（与 /captchaImage 一致），跳过有效性检查')
   }
   const hasUsername = await loginPage
     .locator('input[type="text"], input[placeholder*="账号"], input[placeholder*="用户"]')
@@ -5095,12 +6020,17 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
     .first()
     .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
   record(M, '登录页: 记住我选项', hasRememberMe)
-  const hasRegisterLink = await loginPage
-    .locator('a:has-text("注册"), router-link:has-text("注册")')
-    .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-  // 注册链接可见性取决于后端配置（registerEnabled），不可见时标记为通过（配置已禁用）
-  record(M, '登录页: 注册链接', true, hasRegisterLink ? '注册已启用' : '注册已禁用（配置）')
+  // 旧写法 `record(M, '登录页: 注册链接', true, hasRegisterLink ? '已启用' : '已禁用')` 两向皆 ✅。
+  // 注册入口同样由 /captchaImage 的 registerEnabled 下发（login.vue:404 注释明确"不靠探测 /register 触发 403"），
+  // 因此判"档位 ↔ 入口"一致性：档位开了入口没有 = 功能假死；档位关着却有入口 = 点了必然 403 的假入口。
+  record(
+    M,
+    '登录页: 注册链接',
+    flags.pass && flags.registerOk,
+    flags.registerOk
+      ? `档位 registerEnabled=${flags.registerEnabled} 与 DOM 入口=${flags.hasRegister} 一致`
+      : flags.why
+  )
   await loginCtx.close().catch(() => {})
 
   // 23.2 登出流程（在新 context 中测试，避免影响主 session）
@@ -5121,10 +6051,67 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
       const itemCount = await page.locator('.el-dropdown-menu:visible .el-dropdown-menu__item').count()
       record(M, '登出流程: 菜单项数量', itemCount >= 3, `${itemCount} 项（含个人中心/设置/登出）`)
     }
-    // 不实际登出，避免破坏 session
+    // 不实际登出主会话（会打断后续全部模块），改在**独立 context** 里跑真登出链路。
     await page.keyboard.press('Escape').catch(() => {})
     await sleep(500)
-    record(M, '登出流程: 跳转登录页', true, '已验证登出按钮可见（未实际登出以保持 session）')
+    // 旧写法：`record(M, '登出流程: 跳转登录页', true, '已验证登出按钮可见（未实际登出以保持 session）')`
+    // ——没登出却记一条 ✅，"logout 接口 + 清凭据 + 跳登录页"整条链路从未被验证过。
+    {
+      const outCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+      const outPage = await outCtx.newPage()
+      try {
+        const ok = await login(outPage)
+        if (!ok) {
+          record(M, '登出流程: 真登出后回到登录页', false, '独立会话登录失败，登出链路未能验证')
+          record(M, '登出流程: 登出后原 token 失效', false, '独立会话登录失败，登出链路未能验证')
+        } else {
+          const cookiesBefore = await outCtx.cookies()
+          const tk = (cookiesBefore.find((c) => c.name === 'Admin-Token') || {}).value || ''
+          await safeGoto(outPage, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1200 })
+          await outPage.locator('.avatar-container, .user-avatar').first().click({ timeout: 3000 }).catch(() => {})
+          await sleep(800)
+          const itemClicked = await outPage
+            .locator('.el-dropdown-menu:visible .el-dropdown-menu__item')
+            .last()
+            .click({ timeout: 3000 })
+            .then(() => true)
+            .catch(() => false)
+          // Navbar.logout() 先走 modal.confirm → 必须点「确定」才真正登出
+          await sleep(700)
+          const confirmBtn = outPage.locator('.el-message-box__btns .el-button--primary').first()
+          if (await confirmBtn.isVisible().catch(() => false)) {
+            await confirmBtn.click({ timeout: 2000 }).catch(() => {})
+          }
+          let atLogin = false
+          const dl = Date.now() + 12000
+          while (Date.now() < dl && !atLogin) {
+            atLogin = /\/login/.test(outPage.url())
+            if (!atLogin) await sleep(300)
+          }
+          record(
+            M,
+            '登出流程: 真登出后回到登录页',
+            itemClicked && atLogin,
+            itemClicked ? (atLogin ? '已跳转 /login' : `10s 内未跳转，当前 ${outPage.url()}`) : '退出登录菜单项点不到'
+          )
+          // 安全契约：登出必须服务端撤销会话（SharedStore.revoke_session），旧 token 不能再换到身份
+          let after = 0
+          if (tk) {
+            after = await fetch(`${CONFIG.backendUrl}/getInfo`, { headers: { Authorization: `Bearer ${tk}` } })
+              .then((r) => r.status)
+              .catch(() => -1)
+          }
+          record(
+            M,
+            '登出流程: 登出后原 token 失效',
+            !!tk && after >= 400,
+            tk ? `旧 token 调 /getInfo 返回 ${after}（期望 401/403）` : '登出前没取到 Admin-Token，无法验证撤销'
+          )
+        }
+      } finally {
+        await outCtx.close().catch(() => {})
+      }
+    }
   } else {
     record(M, '登出流程: 退出按钮可见', false, '头像容器不可见')
     record(M, '登出流程: 菜单项数量', false, '头像容器不可见')
@@ -5184,7 +6171,38 @@ async function testModule23(page, consoleErrors, pageErrors, browser) {
     const totpContentVisible = await totpContent.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     record(M, 'TOTP Tab: 内容可见', totpContentVisible)
     if (totpContentVisible) {
-      record(M, 'TOTP: 二维码/绑定区域', true, 'TOTP 组件已加载')
+      // TOTP Tab 的真实 DOM 契约（src/views/system/user/profile/totp.vue）：
+      // 未绑定态 = .totp-card + 状态标签 + el-steps + 「开始绑定」按钮；已绑定态 = .enabled-state + 解除绑定入口；
+      // `canvas/img/.qr` 只出现在点击"开始绑定"之后的 step1（那条 setup→verify→enable→disable 全链
+      // 已由主套件 功能20 逐接口覆盖，本模块的职责是 UI 契约，不重复造绑定副作用）。
+      // 旧判据 `canvas, img, [class*="qr"], .qrcode, input` 只命中"绑定中"这一中间态，
+      // 对两种合法初始态都恒 false ⇒ 假失败（b73 轮 19 实测「二维码或绑定输入可见=false」）。
+      const totpDom = await page
+        .evaluate(() => {
+          const card = document.querySelector('.totp-card')
+          const btns = Array.from(card?.querySelectorAll('button') || [])
+          return {
+            visible: !!card && card.getClientRects().length > 0,
+            tag: !!card?.querySelector('.el-tag'),
+            steps: !!card?.querySelector('.el-step'),
+            enabledState: !!card?.querySelector('.enabled-state'),
+            setupState: !!card?.querySelector('.setup-state'),
+            qrSection: !!card?.querySelector('.qr-section'),
+            actionBtn: btns.some((b) =>
+              /生成密钥|解除绑定|绑定|启用|Generate Secret|Unbind|Bind|Disable|Enable/i.test((b.textContent || '').trim())
+            ),
+            btnTexts: btns.map((b) => (b.textContent || '').trim()).filter(Boolean).slice(0, 3).join('/')
+          }
+        })
+        .catch(() => null)
+      record(
+        M,
+        'TOTP: 绑定区域（DOM 契约）',
+        !!totpDom && totpDom.visible && totpDom.tag && (totpDom.actionBtn || totpDom.qrSection),
+        totpDom
+          ? `卡片=${totpDom.visible}, 状态标签=${totpDom.tag}, 步骤条=${totpDom.steps}, 设置态=${totpDom.setupState}, 已启用态=${totpDom.enabledState}, QR区=${totpDom.qrSection}, 入口按钮=${totpDom.actionBtn} [${totpDom.btnTexts}]`
+          : '⟵ 断言工具异常（evaluate 失败），非产品问题'
+      )
     }
   } else {
     record(M, 'TOTP Tab: 内容可见', false, 'Tab 不可见')
@@ -5208,45 +6226,88 @@ async function testModule24(page, consoleErrors, pageErrors) {
 
   // 24.1 批量选择 + 批量删除
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '岗位管理页加载（批量测试）', true)
+    await assertPageLoaded(page, M, '岗位管理页加载（批量测试）')
     const rowCheckbox = page.locator('.el-table__row .el-checkbox').first()
     const cbVisible = await rowCheckbox.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (cbVisible) {
+      // 真实契约（views/system/post/index.vue:57 `:disabled="multiple"`）：
+      // 未选中时「删除」必须禁用，选中一行后必须解禁。旧写法 `true, batchVisible?'已显示':'未显示（功能可选）'`
+      // 两向皆 ✅——按钮不存在、一直禁用、选中后仍禁用，全都记通过。
+      const delBtn = page
+        .locator('.mb8 button:has-text("删除"), .el-form--inline ~ * button:has-text("删除"), button:has-text("删除")')
+        .first()
+      const disabledBefore = await delBtn.isDisabled().catch(() => null)
       await rowCheckbox.click({ timeout: 3000 }).catch(() => {})
       await sleep(800)
-      const batchBtn = page
-        .locator('button:has-text("批量删除"), button:has-text("删除选中"), .batch-actions button')
-        .first()
-      const batchVisible = await batchBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      // 批量操作按钮可能未启用或选中行数不足，标记为通过（功能可选）
-      record(M, '批量选择: 出现批量操作按钮', true, batchVisible ? '批量按钮已显示' : '批量按钮未显示（功能可选）')
+      const enabledAfterSelect = (await delBtn.isDisabled().catch(() => null)) === false
+      record(
+        M,
+        '批量选择: 出现批量操作按钮',
+        disabledBefore === true && enabledAfterSelect,
+        `未选中禁用=${disabledBefore} → 选中一行后可点=${enabledAfterSelect}`
+      )
       await rowCheckbox.click({ timeout: 3000 }).catch(() => {})
       await sleep(500)
+      const disabledAfterUnselect = await delBtn.isDisabled().catch(() => null)
+      record(
+        M,
+        '批量选择: 取消选中后按钮重新禁用',
+        disabledAfterUnselect === true,
+        `取消选中后禁用态=${disabledAfterUnselect}`
+      )
     } else {
       record(M, '批量选择: 出现批量操作按钮', false, 'checkbox 不可见')
     }
 
-    // 24.2 导出对话框
+    // 24.2 导出结局对账：三种合法分支（二次确认框 / 导出配置对话框 / 直接产出下载）
+    // b73 轮 18 两处真实缺陷：
+    // ① 旧写法点击后先 sleep(1000)+2s+2s 才 `waitForEvent('download')`——Playwright 事件不回放，
+    //    而岗位表只有几行、后端 5.9KB xlsx 在点击后 <1s 就已 saveAs，监听器建在事件之后必然错过；
+    //    结果"导出真的快"反而被判 ❌（先建监听再动作是 download 类断言的唯一正确姿势）。
+    // ② 改造前该分支记的是字面量 true + 文案"无对话框（直接触发下载）"，下载到底有没有发生无人验证。
     const exportBtn = page.locator('button:has-text("导出")').first()
     const exportVisible = await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (exportVisible) {
+      const clickedAt = Date.now()
+      let downloadAtMs = 0
+      const downloadPromise = page
+        .waitForEvent('download', { timeout: 15000 })
+        .then((dl) => {
+          // 事件到达时刻必须在 resolve 当场取：await 时点混着 5s 的分支探测，会把"1s 就下好了"报成"5s"
+          downloadAtMs = Date.now() - clickedAt
+          return dl
+        })
+        .catch(() => null)
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
         .locator('.el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定"), .el-message-box:visible button:has-text("确认")')
         .first()
-      if (await confirmBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      const confirmVisible2 = await confirmBtn
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      if (confirmVisible2) {
         const cancelBtn = page.locator('.el-message-box:visible button:has-text("取消")').first()
         await cancelBtn.click({ timeout: 2000 }).catch(() => {})
         await sleep(500)
-        record(M, '导出: 二次确认对话框', true)
+        record(M, '导出: 二次确认对话框', confirmVisible2, '二次确认框可见且已取消')
       } else {
         const exportDialog = await waitForVisibleDialog(page, 2000)
         if (exportDialog) {
-          record(M, '导出: 导出配置对话框', true)
+          record(M, '导出: 导出配置对话框', !!exportDialog, '导出配置对话框可见')
           await closeDialog(page)
         } else {
-          record(M, '导出: 二次确认对话框', true, '无对话框（直接触发下载）')
+          // 既无确认框也无配置框 ⇒ 唯一可接受的结局是"直接产出下载"，用下载事件定性
+          const dl = await downloadPromise
+          record(
+            M,
+            '导出: 无对话框时必须直接下载',
+            !!dl,
+            dl
+              ? `下载文件=${dl.suggestedFilename()}（点击后 ${downloadAtMs}ms 到达）`
+              : `未观测到下载事件（监听器已先于点击建立，15s 内无 download）`
+          )
         }
       }
     } else {
@@ -5366,37 +6427,34 @@ async function testModule25(page, consoleErrors, pageErrors) {
   const roleRows = await page.locator('.el-table__row').count()
   record(M, 'v-hasRole: 角色管理行数', roleRows > 0, `${roleRows} 行`)
 
-  // 25.3 v-watermark 指令（水印可见性取决于用户偏好设置，未启用时标记为通过）
+  // 25.3 v-watermark 默认安全态（b73 轮 12 收紧）
+  // 旧写法：`hasWatermark || count > 0` 走 recordSoft，且 selector 里带 `.watermark/[class*=watermark]`
+  // 这类通用类名（任何页面都可能命中）⇒ 无论指令是否真的生效都"算过"。
+  // 新判据锁一条**可证伪不变量**：新 context 的 localStorage 为空 ⇒ 偏好默认关闭 ⇒
+  // 指令不得向 .app-wrapper 注入任何 style/class。行为面（开→关往返）由模块 52 承担。
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
-  const hasWatermark = await page
-    .locator('style[data-watermark="true"], .watermark, [class*="watermark"]')
-    .first()
-    .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-  const watermarkStyleCount = await page.locator('style[data-watermark="true"]').count()
-  recordSoft(
+  const wmDefault = await page
+    .evaluate(() => ({
+      styles: document.querySelectorAll('style[data-watermark="true"]').length,
+      classes: Array.from(
+        (document.querySelector('.app-wrapper') || { classList: [] }).classList || []
+      ).filter((c) => c.startsWith('v-watermark-')).length
+    }))
+    .catch(() => ({ styles: -1, classes: -1 }))
+  record(
     M,
-    'v-watermark: 水印指令生效',
-    hasWatermark || watermarkStyleCount > 0,
-    `水印已启用（${watermarkStyleCount} 个样式）`,
-    '水印未启用（用户偏好设置）'
+    'v-watermark: 默认关闭态零注入',
+    wmDefault.styles === 0 && wmDefault.classes === 0,
+    `style=${wmDefault.styles} class=${wmDefault.classes}`
   )
 
-  // 25.4 v-copyText 指令
-  await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })
-  const copyBtnCount = await page
-    .locator('[class*="copy"], button[aria-label*="复制"], .el-icon-CopyDocument, .el-icon-document-copy')
-    .count()
-  record(M, 'v-copyText: 复制图标存在', copyBtnCount >= 0, `${copyBtnCount} 个`)
-
-  // 25.5 v-desensitize 指令
-  await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
-  const hasDesensitize = await page
-    .evaluate(() => {
-      const cells = Array.from(document.querySelectorAll('.el-table__row td'))
-      return cells.some((td) => /\d{3}\*+\d{4}|\*{4,}/.test(td.textContent || ''))
-    })
-    .catch(() => false)
-  recordSoft(M, 'v-desensitize: 敏感信息脱敏', hasDesensitize, '若无敏感字段则为 true')
+  // 25.4 / 25.5 已移除（b73 轮 12）：
+  // - 旧 25.4 `copyBtnCount >= 0` 是**恒真断言**，且打在 `/system/config`——全 src 该页没有
+  //   任何 v-copyText 使用点（只有 `tool/gen/preview.vue` 与 `user/profile/totp.vue` 两处），
+  //   等于"在不存在入口的页面上证明入口存在"；
+  // - 旧 25.5 `recordSoft('若无敏感字段则为 true')` 只要求"表格里有个星号"，不是规则对账。
+  // 两者的真实覆盖在模块 52：复制打在 gen 预览并校验 copy 事件 + 选区非空 + 无残留 textarea，
+  // 脱敏按 `138****5678` 精确输出逐格对账。此处不再重复探针，避免两处口径漂移。
 
   // 25.6 锁屏页面（通过头像下拉菜单触发，验证组件存在性）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
@@ -5466,14 +6524,71 @@ async function testModule25(page, consoleErrors, pageErrors) {
     record(M, '锁屏: 解锁按钮', false, '锁屏未触发')
   }
 
-  // 25.7 错误边界
+  // 25.7 错误边界（AppMain 用 <ErrorBoundary> 包住 router-view）
   await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
-  const errorBoundaryCount = await page.locator('.error-boundary, [class*="error-boundary"]').count()
-  record(M, 'ErrorBoundary: 组件存在', errorBoundaryCount >= 0, `${errorBoundaryCount} 个`)
+  // 旧断言 `errorBoundaryCount >= 0` 恒真：它数的是**兜底态**类名，健康页本来就 0 个，
+  // 于是"边界根本没挂载 / 边界误触发把整页吞成兜底"两种相反的故障都记 ✅。
+  // 改判"透传态"这条真实不变量：主内容已渲染 **且** 兜底未出现。
+  const eb = await page
+    .evaluate(() => {
+      const main = document.querySelector('.app-main')
+      const contentNodes = main ? main.querySelectorAll('section, .app-container, [class*="card"], [class*="panel"]').length : -1
+      return {
+        hasMain: !!main,
+        contentNodes,
+        textLen: main ? (main.textContent || '').trim().length : -1,
+        fallback: document.querySelectorAll('.error-boundary').length
+      }
+    })
+    .catch(() => ({ hasMain: false, contentNodes: -1, textLen: -1, fallback: -1 }))
+  record(
+    M,
+    'ErrorBoundary: 健康页透传（未误触发兜底）',
+    eb.hasMain && eb.contentNodes > 0 && eb.textLen > 0 && eb.fallback === 0,
+    `app-main=${eb.hasMain} 内容节点=${eb.contentNodes} 文本长度=${eb.textLen} 兜底=${eb.fallback}`
+  )
 
-  // 25.8 公告横幅
-  const bannerCount = await page.locator('.announcement-banner, [class*="announcement"]').count()
-  record(M, 'AnnouncementBanner: 组件存在', bannerCount >= 0, `${bannerCount} 个`)
+  // 25.8 公告横幅（layout/index.vue 全局挂载，onMounted 拉 noticeType='F' 的最新 1 条）
+  // 旧断言 `bannerCount >= 0` 恒真：组件没挂载、接口 500、被 dismiss 缓存抑制——全都记 ✅。
+  // 改判据：请求必须发出且 <400；若确实有 F 类公告，则横幅必须可见（或被本地 dismiss 抑制）。
+  const bannerWatch = { requested: false, status: 0, rows: -1 }
+  const bannerHandler = (resp) => {
+    if (!/\/system\/notice\/list\?noticeType=F/.test(resp.url())) return
+    bannerWatch.requested = true
+    bannerWatch.status = resp.status()
+    if (resp.status() < 400) {
+      resp
+        .json()
+        .then((b) => {
+          if (Array.isArray(b?.rows)) bannerWatch.rows = b.rows.length
+        })
+        .catch(() => {})
+    }
+  }
+  page.on('response', bannerHandler)
+  await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
+  const bannerDeadline = Date.now() + 12000
+  while (Date.now() < bannerDeadline && !bannerWatch.requested) await sleep(150)
+  await sleep(600) // 等响应体解析 + 横幅过渡渲染
+  page.off('response', bannerHandler)
+  const bannerVisible = await page
+    .locator('.announcement-banner')
+    .first()
+    .isVisible()
+    .catch(() => false)
+  const bannerDismissed = await page
+    .evaluate(() => !!localStorage.getItem('announcement-banner-dismissed'))
+    .catch(() => false)
+  const bannerOk =
+    bannerWatch.requested && bannerWatch.status < 400 && (bannerWatch.rows <= 0 || bannerVisible || bannerDismissed)
+  record(
+    M,
+    'AnnouncementBanner: 已挂载并按公告数据决定可见性',
+    bannerOk,
+    bannerOk
+      ? `请求=${bannerWatch.status} F类行数=${bannerWatch.rows} 可见=${bannerVisible} 本地已关闭=${bannerDismissed}`
+      : `请求发出=${bannerWatch.requested} status=${bannerWatch.status} F类行数=${bannerWatch.rows} 可见=${bannerVisible} 本地已关闭=${bannerDismissed}`
+  )
 
   // 25.9 Cookie 同意对话框（已同意或未启用时不可见，标记为通过）
   const cookieConsent = await page
@@ -5501,7 +6616,7 @@ async function testModule25(page, consoleErrors, pageErrors) {
     )
   } else {
     // 直接访问 /network-error 可能被路由守卫拦截，标记为通过（页面在错误时才显示）
-    record(M, 'network-error: 重试按钮', true, '页面在真实网络错误时才显示（直接访问受限）')
+    recordSkip(M, 'network-error: 重试按钮', '直接访问被路由守卫拦截：该页仅在真实网络错误时渲染，本环境无法构造（可见分支已实断言重试按钮/内容）')
   }
 
   // 25.11 SkeletonTable 加载骨架屏
@@ -5553,7 +6668,7 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
 
   // 26.1.1 新增岗位
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '岗位管理页加载（CRUD测试）', true)
+    await assertPageLoaded(page, M, '岗位管理页加载（CRUD测试）')
     const addBtn = page.locator('button:has-text("新增")').first()
     const addVisible = await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (addVisible) {
@@ -5784,26 +6899,61 @@ async function testModule26(page, consoleErrors, pageErrors, token) {
           .locator('.el-dialog:visible button:has-text("确 定"), .el-dialog:visible button:has-text("确定")')
           .first()
         if (await submitBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+          // 旧判据 `dialogStillOpen || errorMsg` 两条都能单独放行：
+          // "后端拒绝但前端一条提示都不给"（用户只看到弹窗没关，不知道为什么）这种真缺陷
+          // 会因 dialogStillOpen=true 记成 ✅（b73 轮 14 取证）。改为三段同时对账：
+          //   ① 唯一性检查真的走到了后端（POST /system/post 被调用）；
+          //   ② 后端确实拒绝（HTTP>=400 或 body.code!=200）；
+          //   ③ 用户当场看到**后端给出的具体理由**（Toast 文案必须包含 body.msg）。
+          // 提示通道取证：HTTP 400 走 request.ts 的 `errorHub.report('warning', 'api', backendMsg)`
+          // → `.el-message--warning`（不是 --error），且经 600ms 聚合窗口才渲染、存活 5s。
+          // 因此必须"先等响应体拿到 msg，再等含该 msg 的提示出现"，只数 --error 必然假失败。
+          const postWatch = { requested: false, status: 0, code: null, msg: '' }
+          const postHandler = (resp) => {
+            const u = resp.url()
+            if (!/\/system\/post(\?|$)/.test(u) || resp.request().method() !== 'POST') return
+            postWatch.requested = true
+            postWatch.status = resp.status()
+            resp
+              .json()
+              .then((b) => {
+                postWatch.code = typeof b?.code === 'number' ? b.code : null
+                postWatch.msg = (b?.msg || '').trim()
+              })
+              .catch(() => {})
+          }
+          page.on('response', postHandler)
           await submitBtn.click({ timeout: 3000 }).catch(() => {})
-          await sleep(2500)
-          // 验证出现错误提示（对话框未关闭 或 显示错误消息）
+          const msgDeadline = Date.now() + 8000
+          while (Date.now() < msgDeadline && !(postWatch.requested && postWatch.msg !== '')) await sleep(120)
+          page.off('response', postHandler)
+          const toastLoc = page
+            .locator('.el-message:visible, .el-notification:visible')
+            .filter({ hasText: postWatch.msg })
+            .first()
+          // msg 为空说明后端连理由都没给 → 直接判 FAIL（不写 hasText:'' 的"匹配一切"假断言）
+          let toastShown = false
+          if (postWatch.msg) {
+            toastShown = await toastLoc
+              .waitFor({ state: 'visible', timeout: 5000 })
+              .then(() => true)
+              .catch(() => false)
+          }
+          const toastText = toastShown ? ((await toastLoc.textContent().catch(() => '')) || '').trim() : ''
+          // 弹窗必须保持打开（提交失败不得当成成功关闭）
           const dialogStillOpen = await page
             .locator('.el-dialog:visible')
             .first()
-            .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-          const errorMsg = await page
-            .locator('.el-message--error:visible, .el-form-item__error:visible')
-            .first()
-            .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
+            .waitFor({ state: 'visible', timeout: 1000 })
+            .then(() => true)
+            .catch(() => false)
+          const rejected = postWatch.requested && (postWatch.status >= 400 || (postWatch.code !== null && postWatch.code !== 200))
           record(
             M,
             'CRUD: 唯一性校验',
-            dialogStillOpen || errorMsg,
-            dialogStillOpen
-              ? '对话框保持打开（校验失败）'
-              : errorMsg
-                ? '错误提示可见'
-                : '可能校验通过或后端未做唯一性检查'
+            rejected && toastShown && dialogStillOpen,
+            `POST=${postWatch.status}/${postWatch.code} msg="${postWatch.msg.slice(0, 30)}" ` +
+              `弹窗仍在=${dialogStillOpen} 提示=${JSON.stringify(toastText.slice(0, 40))}`
           )
         }
         await closeDialog(page)
@@ -5826,7 +6976,7 @@ async function testModule27(page, consoleErrors, pageErrors) {
 
   // 27.1 用户管理：邮箱格式校验
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '用户管理页加载（邮箱校验）', true)
+    await assertPageLoaded(page, M, '用户管理页加载（邮箱校验）')
     const addBtn = page.locator('button:has-text("新增")').first()
     if (await addBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
       await clickButton(page, 'button:has-text("新增")')
@@ -6056,12 +7206,43 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
   const noticeVisible = await headerNotice.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
   record(M, '通知铃铛: 可见', noticeVisible)
   if (noticeVisible) {
-    // 检查红点（badge）— HeaderNotice 使用自定义 .notice-badge 类
-    const hasBadge = await page
-      .locator('#header-notice .notice-badge, #header-notice .el-badge__content, [class*="badge"]')
-      .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-    record(M, '通知铃铛: 红点状态', true, hasBadge ? '有未读通知' : '无未读通知')
+    // 铃铛红点的唯一事实源是 `/system/notice/listTop` 的 unreadCount（store/modules/notice.ts:72），
+    // HeaderNotice/index.vue:73 用 `v-if="unreadCount > 0"` 渲染并把同一个数写进徽标文本。
+    // 旧写法 `record(M, ..., true, hasBadge?'有未读通知':'无未读通知')` 两向皆 ✅：
+    // "接口说有 3 条未读但红点不出现"（用户永远收不到提醒）这种真缺陷会被记成通过。
+    const topWatch = { requested: false, status: 0, unread: null }
+    const topHandler = (resp) => {
+      if (!/\/system\/notice\/listTop/.test(resp.url())) return
+      topWatch.requested = true
+      topWatch.status = resp.status()
+      resp
+        .json()
+        .then((b) => {
+          if (typeof b?.unreadCount === 'number') topWatch.unread = b.unreadCount
+        })
+        .catch(() => {})
+    }
+    page.on('response', topHandler)
+    await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
+    const topDeadline = Date.now() + 12000
+    while (Date.now() < topDeadline && !topWatch.requested) await sleep(150)
+    await sleep(800) // 等 store 落位 + Transition 渲染
+    page.off('response', topHandler)
+    const badgeLoc = page.locator('#header-notice .notice-badge').first()
+    const hasBadge = await badgeLoc.isVisible().catch(() => false)
+    const badgeText = hasBadge ? ((await badgeLoc.textContent().catch(() => '')) || '').trim() : ''
+    // 契约（HeaderNotice/index.vue:75 `v-if="unreadCount > 0"` + 同数写进文本）：
+    //   unreadCount>0 ⇔ 徽标存在；徽标存在时文本必须等于该数。
+    // 旧写法把"文本相等"写成无条件比较，unreadCount=0（全部已读，本轮 M1 刚点过已读）时
+    // 徽标本就不渲染、文本恒空 → `"" === "0"` 必然假 → 把正确行为判成缺陷（b73 轮 14 实证假失败）。
+    const presenceOk = hasBadge === (topWatch.unread !== null && topWatch.unread > 0)
+    const countOk = !hasBadge || badgeText === String(topWatch.unread)
+    record(
+      M,
+      '通知铃铛: 红点状态',
+      topWatch.requested && topWatch.status < 400 && topWatch.unread !== null && presenceOk && countOk,
+      `listTop unreadCount=${topWatch.unread} 红点存在=${hasBadge} 文本=${JSON.stringify(badgeText)}`
+    )
     // 打开通知面板 — 使用 hover 触发 mouseenter（el-popover trigger="manual"，mouseenter 打开面板）
     // 注意：click 会触发 toggleNotice 导致面板关闭（mouseenter 已打开，click 再 toggle 关闭）
     const noticeTrigger = page
@@ -6088,8 +7269,10 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
 
   // 28.2 通知中心列表加载
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice-center`, { moduleName: M, waitMs: 2000 })) {
-    const noticeRows = await page.locator('.el-table__row, .notice-item, [class*="notice-card"]').count()
-    record(M, '通知中心: 列表加载', noticeRows >= 0, `${noticeRows} 条通知`)
+    // 全局 AnnouncementBanner 也在轮询 `/system/notice/list?noticeType=F&…&pageSize=1`，
+    // 必须用负向前瞻排除，否则"本页列表请求已被调用"会被它的响应洗白（b73 M16 实证同款漏检）。
+    const nc = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!noticeType=F)|$)/ })
+    record(M, '通知中心: 列表加载', nc.pass, nc.pass ? `${nc.domRows} 条通知（DOM=响应）` : nc.why)
     // 检查统计卡片
     const statCards = await page.locator('.stat-card, .el-card, [class*="stat"]').count()
     record(M, '通知中心: 统计卡片', statCards > 0, `${statCards} 个统计卡片`)
@@ -6097,31 +7280,59 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
 
   // 28.3 在线用户列表（验证当前用户在线）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/online`, { moduleName: M, waitMs: 2000 })) {
-    const onlineRows = await page.locator('.el-table__row').count()
-    record(M, '在线用户: 列表加载', onlineRows >= 0, `${onlineRows} 个在线用户`)
+    // minRows=1：本轮刚登录，"自己不在线"是真实缺陷（旧 `>= 0` 连空表都记 ✅）。
+    // 本页两个非 lazy 面板在挂载时各自发请求（reload 抓包实证：online/list 与
+    // my-session/list?userName=admin 同轮出现），故 DOM 必须**限当前可见面板**统计，
+    // 否则两个面板的行相加（实测 4+2=6）与单个响应（4）必然对不上。
+    const on = await verifyListLoaded(page, {
+      listHint: /\/monitor\/online\/list(\?|$)/,
+      minRows: 1,
+      container: '.el-tab-pane:visible'
+    })
+    record(M, '在线用户: 列表加载', on.pass, on.pass ? `${on.domRows} 个在线用户（DOM=响应）` : on.why)
     // 验证"我的会话" Tab
     const mySessionTab = page
       .locator('.el-tabs__item:has-text("我的会话"), .el-tabs__item:has-text("My Session")')
       .first()
     if (await mySessionTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-      await mySessionTab.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1500)
-      const mySessionRows = await page.locator('.el-table__row').count()
-      record(M, '在线用户: 我的会话数据', mySessionRows >= 0, `${mySessionRows} 条我的会话`)
+      // 点 Tab 不产生新请求（面板早已挂载），它只负责把面板切到可见；触发请求仍用缺省 reload。
+      const ms = await verifyListLoaded(page, {
+        listHint: /\/monitor\/my-session\/list(\?|$)/,
+        minRows: 1,
+        container: '.el-tab-pane:visible',
+        activate: () => mySessionTab.click({ timeout: 3000 })
+      })
+      record(M, '在线用户: 我的会话数据', ms.pass, ms.pass ? `${ms.domRows} 条我的会话（DOM=响应）` : ms.why)
+    } else {
+      recordSkip(M, '在线用户: 我的会话数据', '「我的会话」Tab 不可见（无 mySession 权限，非缺陷）')
     }
   }
 
   // 28.4 登录日志：验证当前用户登录记录存在
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/logininfor`, { moduleName: M, waitMs: 2000 })) {
-    const loginRows = await page.locator('.el-table__row').count()
-    record(M, '登录日志: 列表加载', loginRows > 0, `${loginRows} 条登录记录`)
+    // 本页双面板**共用同一个** `/monitor/logininfor/list`：全部日志不带 userName，
+    // 我的登录带 `userName=<当前用户>`（reload 抓包实证两条 URL）。
+    // 旧 `page.locator('.el-table__row').count() > 0` 数的是两个面板之和（实测 10+10=20），
+    // "可见面板只渲染了一半数据"这类真缺陷会被隐藏面板洗白。
+    const li = await verifyListLoaded(page, {
+      listHint: /\/monitor\/logininfor\/list(\?(?!.*userName=)|$)/,
+      minRows: 1,
+      container: '.el-tab-pane:visible'
+    })
+    record(M, '登录日志: 列表加载', li.pass, li.pass ? `${li.domRows} 条登录记录（DOM=响应 ${li.serverRows}）` : li.why)
     // 验证"我的登录" Tab
     const myLoginTab = page.locator('.el-tabs__item:has-text("我的登录"), .el-tabs__item:has-text("My Login")').first()
     if (await myLoginTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-      await myLoginTab.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1500)
-      const myLoginRows = await page.locator('.el-table__row').count()
-      record(M, '登录日志: 我的登录数据', myLoginRows >= 0, `${myLoginRows} 条我的登录记录`)
+      // minRows=1：本轮已登录成功，"我的登录"必然 ≥1 条；旧 `>= 0` 把接口 500 / 空表都记 ✅
+      const ml = await verifyListLoaded(page, {
+        listHint: /\/monitor\/logininfor\/list\?(?=.*userName=)/,
+        minRows: 1,
+        container: '.el-tab-pane:visible',
+        activate: () => myLoginTab.click({ timeout: 3000 })
+      })
+      record(M, '登录日志: 我的登录数据', ml.pass, ml.pass ? `${ml.domRows} 条我的登录记录（DOM=响应）` : ml.why)
+    } else {
+      recordSkip(M, '登录日志: 我的登录数据', '「我的登录」Tab 不可见（非缺陷）')
     }
   }
 
@@ -6152,10 +7363,14 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
     // 切换到键管理 Tab
     const keyTab = page.locator('.el-tabs__item:has-text("键管理"), .el-tabs__item:has-text("缓存名")').first()
     if (await keyTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-      await keyTab.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1500)
-      const cacheNameRows = await page.locator('.el-table__row').count()
-      record(M, '缓存监控: 缓存名列表', cacheNameRows >= 0, `${cacheNameRows} 个缓存名`)
+      // 缓存名表格与 /monitor/cache/getNames 的 data[] 对账（本地档位可能无缓存名 → minRows 0，
+      // 但"接口必须被调用 + 表格落在确定态 + DOM 行数=响应行数"是真实判据）。
+      // 点 Tab 的动作必须交给 trigger：请求在面板挂载时才发出，先点再挂监听会漏掉响应。
+      const cn = await verifyListLoaded(page, {
+        listHint: /\/monitor\/cache\/getNames/,
+        trigger: () => keyTab.click({ timeout: 3000 })
+      })
+      record(M, '缓存监控: 缓存名列表', cn.pass, cn.pass ? `${cn.domRows} 个缓存名（DOM=响应 ${cn.serverRows}）` : cn.why)
     }
   }
 
@@ -6171,8 +7386,13 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
 
   // 28.8 审计大屏：图表渲染
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/audit-dashboard`, { moduleName: M, waitMs: 3000 })) {
-    const chartCount = await page.locator('canvas, .echarts, [_echarts_instance_]').count()
-    record(M, '审计大屏: 图表渲染', chartCount >= 0, `${chartCount} 个图表`)
+    const charts = await readRenderedCharts(page)
+    record(
+      M,
+      '审计大屏: 图表渲染',
+      charts.pass,
+      charts.pass ? `${charts.painted}/${charts.total} 个图表已实际绘制（非 0×0 空容器）` : `无有效绘制图表（节点=${charts.total}）`
+    )
     // 时间范围切换
     const timeRange = page.locator('.el-radio-button, .el-date-editor, [class*="time-range"]').first()
     const hasTimeRange = await timeRange.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
@@ -6238,6 +7458,29 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     record(M, 'stepby 用户登录', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
+  /** 判定"请求被拦/落到错误页"。b73 实测口径：未授权路径由 router 的 catch-all
+   *  （`src/router/index.ts:75` `/:pathMatch(.*)*` → `views/error/404.vue`）**原地渲染**错误页，
+   *  URL 不变、无 navbar——只看 URL 是否含 /404 会把它误判成"空白页"（假失败）。
+   *  真正要抓的缺陷形态是"既没有业务内容、也没有错误页"（用户点了没反应）。 */
+  const intercepted = async (pg) => {
+    const u = pg.url()
+    if (u.includes('/403') || u.includes('/404')) return '重定向到错误页'
+    if (u.endsWith('/index') || u.endsWith('/')) return '回首页'
+    const err = await pg
+      .locator('.wscn-http404-container, .errtip, .error-page, [class*="404"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 1200 })
+      .then(() => true)
+      .catch(() => false)
+    return err ? '原地渲染错误页' : ''
+  }
+
+  // 29.4 中判定为"不在授权内"的路径样本，供 29.12 越权直访复用（避免硬编码猜测哪个页面无权限）
+  const deniedSample = []
+  // stepby 的 API token 与菜单授权集合：29.4 赋值、29.9 复用 ⇒ 必须声明在外层作用域
+  let stepbyApiToken = null
+  let stepbyGrantedPaths = null
+
   if (stepbyLoggedIn) {
     // 禁用新手引导
     await stepbyPage.evaluate(() => {
@@ -6251,36 +7494,78 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     const stepbyMenuItemCount = await stepbyPage.locator('.el-menu-item, .sidebar-item, .el-sub-menu__title').count()
     record(M, 'stepby 用户: 菜单项数量', stepbyMenuItemCount > 0, `${stepbyMenuItemCount} 个菜单项`)
 
-    // 29.4 stepby 用户访问系统管理页面（部分页面应可访问）
+    // 29.4 stepby 用户路由可达性 ⇔ 菜单授权（判据来自 getRouters，见下）
+    // expectAccess 仅在"拿不到 stepby token"时作为退化预期（b73 按实测授权面校准过）
     const pagesToTest = [
-      { url: '/system/user', name: '用户管理', expectAccess: true }, // stepby 可能可访问
+      { url: '/system/user', name: '用户管理', expectAccess: true },
       { url: '/system/role', name: '角色管理', expectAccess: true },
-      { url: '/system/menu', name: '菜单管理', expectAccess: false }, // stepby 无权限
+      { url: '/system/menu', name: '菜单管理', expectAccess: true }, // 实测：stepby 确有该菜单授权
       { url: '/system/dict', name: '字典管理', expectAccess: true },
       { url: '/monitor/online', name: '在线用户', expectAccess: true },
       { url: '/monitor/logininfor', name: '登录日志', expectAccess: true },
-      { url: '/monitor/job', name: '定时任务', expectAccess: false }, // stepby 可能无权限
-      { url: '/tool/gen', name: '代码生成', expectAccess: false } // stepby 无权限
+      { url: '/monitor/job', name: '定时任务', expectAccess: true },
+      { url: '/tool/gen', name: '代码生成', expectAccess: false } // 实测：stepby 的 getRouters 无此路径
     ]
 
+    // 判据来自授权事实源：stepby 的 getRouters（菜单树）决定"应该可达"，
+    // 浏览器侧（路由守卫 / 403 重定向 / 页面是否渲染）决定"实际可达"——两者必须一致。
+    // 原实现带着 expectAccess 字段却整轮 `record(..., true, ...)`（假断言，永不会红）。
+    stepbyApiToken = await getApiToken(CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+    if (stepbyApiToken) {
+      try {
+        const r = await fetch(`${CONFIG.backendUrl}/getRouters`, {
+          headers: { Authorization: `Bearer ${stepbyApiToken}` }
+        })
+        const j = await r.json()
+        const acc = new Set()
+        const walk = (nodes, prefix) => {
+          for (const n of nodes || []) {
+            if (!n || !n.path) continue
+            const full = n.path.startsWith('/') ? n.path : `${prefix}/${n.path}`
+            acc.add(full.replace(/\/{2,}/g, '/'))
+            if (n.children) walk(n.children, full)
+          }
+        }
+        walk(j?.data || j?.rows || [], '')
+        stepbyGrantedPaths = acc
+      } catch (e) {
+        log(`  ⚠️ getRouters 取授权失败（退化为人工预期）: ${e.message.slice(0, 60)}`)
+      }
+    }
     for (const p of pagesToTest) {
       try {
         await stepbyPage.goto(`${CONFIG.frontendUrl}${p.url}`, { waitUntil: 'load', timeout: 15000 })
         await sleep(1500)
         const currentUrl = stepbyPage.url()
-        // 检查是否被重定向到 403/404 或停留在首页
-        const blocked =
-          currentUrl.includes('/403') ||
-          currentUrl.includes('/404') ||
-          currentUrl.endsWith('/index') ||
-          currentUrl.endsWith('/')
+        const hit = await intercepted(stepbyPage)
+        const blocked = hit !== ''
         const hasContent = await stepbyPage
           .locator('.el-table, .app-container, .el-card')
           .first()
           .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-        record(M, `stepby 用户访问: ${p.name}`, true, blocked ? '被拦截（无权限）' : hasContent ? '可访问' : '页面加载中')
+        // 期望优先取授权事实源（**精确匹配**：getRouters 里 `/tool` 这类目录节点只代表分组，
+        // 不等于其子路径都被授予——按前缀展开会把未授权路径误判成"应可达"）；
+        // 取不到时退回用例里的人工预期。
+        const expected = stepbyGrantedPaths
+          ? stepbyGrantedPaths.has(p.url)
+          : p.expectAccess
+        const ok = expected ? !blocked && hasContent : blocked
+        if (!expected) deniedSample.push(p.url)
+        record(
+          M,
+          `stepby 用户访问: ${p.name}`,
+          ok,
+          `期望=${expected ? '可达(菜单精确授予)' : '应被拦(不在授权内)'} 实际=${
+            blocked ? hit : hasContent ? '渲染业务内容' : '空白(既无内容也无错误页)'
+          } 落点=${currentUrl.replace(CONFIG.frontendUrl, '')}`
+        )
       } catch (err) {
-        record(M, `stepby 用户访问: ${p.name}`, true, `访问异常（可能无权限）: ${err.message.slice(0, 60)}`)
+        record(
+          M,
+          `stepby 用户访问: ${p.name}`,
+          false,
+          `导航异常: ${err.message.slice(0, 70)}`
+        )
       }
     }
 
@@ -6306,24 +7591,108 @@ async function testModule29(browser, consoleErrors, pageErrors) {
     record(M, 'stepby 用户: 删除按钮隐藏', !stepbyDelVisible, stepbyDelVisible ? '删除按钮可见' : '删除按钮已隐藏')
   }
 
+  // 29.12 越权直访：**用 29.4 实测"不在授权内"的路径**做判定，而不是写死 /tool/gen 再断 true。
+  // （必须在关闭 stepby context 之前测——原位置在 close 之后，属结构错误）
+  if (stepbyLoggedIn && deniedSample.length > 0) {
+    const target = deniedSample[0]
+    await stepbyPage.goto(`${CONFIG.frontendUrl}${target}`, { waitUntil: 'load', timeout: 15000 }).catch(() => {})
+    await sleep(1500)
+    const nowUrl = stepbyPage.url()
+    const hit = await intercepted(stepbyPage)
+    record(
+      M,
+      '越权访问: 无授权路径 URL 直访被拦',
+      hit !== '',
+      `路径=${target} 落点=${nowUrl.replace(CONFIG.frontendUrl, '')} 判定=${hit || '未拦截（页面照常渲染）'}`
+    )
+  } else {
+    recordSkip(
+      M,
+      '越权访问: 无授权路径 URL 直访被拦',
+      stepbyLoggedIn ? '29.4 未发现"不在授权内"的路径（该账号授权面比用例预期宽）' : 'stepby 用户未登录'
+    )
+  }
+
   await stepbyContext.close().catch(() => {})
 
-  // 29.8 admin 用户权限完整性验证（在主 page 中已登录）
-  // 注：此处仅记录权限矩阵测试完成，实际访问验证已在其他模块完成
-  record(M, 'admin 用户: 完整权限', true, 'admin 用户具有所有权限（已在其他模块验证）')
+  // 29.8 admin 权限完整性：**取事实源 /getInfo 判定**，不再用"已在别处验证"充当结论。
+  const adminToken = await getApiToken()
+  if (!adminToken) {
+    record(M, 'admin 用户: getInfo 角色', false, 'API 登录失败，无法取 getInfo')
+    record(M, 'admin 用户: getInfo 权限', false, 'API 登录失败，无法取 getInfo')
+  } else {
+    const infoResp = await fetch(`${CONFIG.backendUrl}/getInfo`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    })
+    const info = await infoResp.json().catch(() => ({}))
+    const roles = info?.data?.roles ?? info?.roles ?? []
+    const perms = info?.data?.permissions ?? info?.permissions ?? []
+    record(M, 'admin 用户: getInfo 角色', infoResp.status === 200 && roles.includes('admin'), `HTTP ${infoResp.status} roles=${roles.join(',')}`)
+    record(
+      M,
+      'admin 用户: getInfo 权限为超管口径',
+      perms.includes('*:*:*') || perms.length >= 50,
+      `perms=${perms.length} 项${perms.includes('*:*:*') ? '（含 *:*:*）' : ''}`
+    )
 
-  // 29.9 数据权限验证（不同角色看到的数据范围不同）
-  // 此处验证 admin 能看到所有用户数据
-  record(M, '数据权限: admin 可见全部数据', true, 'admin 用户具有所有数据权限（dataScope=1）')
+    // 29.9 数据权限：admin（dataScope=1 全部数据可见）的列表 total 必须 > 0，且 ⊇ 受限账号可见 total
+    const totalOf = async (token) => {
+      const r = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=1`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const j = await r.json().catch(() => ({}))
+      return { status: r.status, total: Number(j?.total ?? -1) }
+    }
+    const adminList = await totalOf(adminToken)
+    record(M, '数据权限: admin 可见用户数据', adminList.status === 200 && adminList.total > 0, `admin total=${adminList.total}`)
+    if (stepbyApiToken) {
+      const stepbyList = await totalOf(stepbyApiToken)
+      record(
+        M,
+        '数据权限: admin ⊇ 受限账号',
+        stepbyList.total >= 0 && adminList.total >= stepbyList.total,
+        `admin=${adminList.total} stepby=${stepbyList.total}`
+      )
+    } else {
+      recordSkip(M, '数据权限: admin ⊇ 受限账号', 'stepby API 登录失败，无从比对')
+    }
+  }
 
-  // 29.10 v-hasPermi 指令系统性验证
-  record(M, 'v-hasPermi 指令: 系统性验证', true, '已在 M25 和上述测试中验证')
+  // 29.10 v-hasPermi **正向可见**（b72 修的正是"恢复显示"分支：授权存在时按钮必须重现，
+  // 而此前所有 e2e 只验负方向"隐藏"，故 display 基线采集写歪这件事在 e2e 层无人看见）
+  const adminCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const adminPage = await adminCtx.newPage()
+  try {
+    const adminLoggedIn = await login(adminPage, CONFIG.username, CONFIG.password)
+    if (adminLoggedIn) {
+      await safeGoto(adminPage, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2500 })
+      // 作用域说明：用户页工具栏的 新增/导出 是**顶层 el-button**（`src/views/system/user/index.vue:70,99`
+      // 带 v-hasPermi），不在 `.top-right-btn` 容器内（那是 b71 TreePanel 刷新按钮的作用域）。
+      // 用与 29.5（stepby 侧隐藏判定）同一形状的 locator，两侧口径必须一致，否则"隐藏/重现"
+      // 两半各按各的选择器判，等于没判。
+      const addDisplay = await adminPage
+        .locator('button:has-text("新增")')
+        .first()
+        .evaluate((el) => getComputedStyle(el).display)
+        .catch(() => '<未找到>')
+      record(M, 'v-hasPermi: 有权限时新增按钮可见', addDisplay !== 'none' && addDisplay !== '<未找到>', `display=${addDisplay}`)
+      // 同页采样第二个受控按钮，防"只有一个按钮恰好没被指令处理"蒙过去
+      const exportDisplay = await adminPage
+        .locator('button:has-text("导出")')
+        .first()
+        .evaluate((el) => getComputedStyle(el).display)
+        .catch(() => '<未找到>')
+      record(M, 'v-hasPermi: 有权限时导出按钮可见', exportDisplay !== 'none' && exportDisplay !== '<未找到>', `display=${exportDisplay}`)
+    } else {
+      record(M, 'v-hasPermi: 有权限时按钮可见', false, 'admin UI 登录失败')
+    }
+  } finally {
+    await adminCtx.close().catch(() => {})
+  }
 
-  // 29.11 v-hasRole 指令验证
-  record(M, 'v-hasRole 指令: 系统性验证', true, '已在 M25 中验证角色管理行数')
-
-  // 29.12 越权访问测试（直接 URL 访问无权限页面）
-  record(M, '越权访问: URL 直接访问', true, 'stepby 用户访问 /tool/gen 已在 29.4 中验证')
+  // 29.11 v-hasRole：本仓**零挂载点**（`grep -r "v-hasRole" src` 除指令定义与测试外无使用），
+  // 原实现用"角色管理行数"充当它的验证属虚锁。改判显式 SKIP 并写明真实保护在哪。
+  recordSkip(M, 'v-hasRole 指令: 系统性验证', '全 src 无 v-hasRole 使用点（指令无承载面）；行为由 src/directive/permission/hasRole.test.ts 21 例（含恢复显示回归锁）覆盖')
 
   if (stepbyConsoleErrors.length > 0) {
     record(
@@ -6333,7 +7702,7 @@ async function testModule29(browser, consoleErrors, pageErrors) {
       `${stepbyConsoleErrors.length} 个错误: ${stepbyConsoleErrors.slice(0, 2).join(' || ').slice(0, 300)}`
     )
   } else {
-    record(M, 'stepby 用户: 无控制台错误', true)
+    record(M, 'stepby 用户: 无控制台错误', stepbyConsoleErrors.length === 0, `errors=${stepbyConsoleErrors.length}`)
   }
 }
 
@@ -6542,25 +7911,50 @@ async function testModule30(page, consoleErrors, pageErrors) {
     )
 
     // 30.6 切换回中文
+    // `<html lang>` 的唯一写入点是 src/i18n/index.ts 的 setLanguage()（启动同步 + 切换时同步），
+    // 所以 lang 仍是 en-US 只有两种可能：① 下拉/选项没点到（测试没走完）② setLanguage 没被调用（产品）。
+    // 旧写法只给一个 `htmlLang=en-US`，无法归因 ⇒ 必须把三步各自的结果打出来（b73 轮 19）。
     await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 1500 })
     const langSelect2 = page.locator('#lang-select, .lang-select').first()
-    if (await langSelect2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+    const select2Visible = await langSelect2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+    let zhOptionVisible = false
+    let zhOptionClicked = false
+    if (select2Visible) {
       await langSelect2.click({ timeout: 3000 }).catch(() => {})
       await sleep(800)
       const zhOption = page
         .locator(
-          '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中文"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中"), .el-select-dropdown__item:has-text("中文")'
+          '.el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中文"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("中"), .el-select-dropdown__item:has-text("中文"), .el-dropdown-menu:visible .el-dropdown-menu__item:has-text("Chinese")'
         )
         .first()
-      if (await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-        await zhOption.click({ timeout: 3000 }).catch(() => {})
+      zhOptionVisible = await zhOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+      if (zhOptionVisible) {
+        zhOptionClicked = await zhOption.click({ timeout: 3000 }).then(() => true).catch(() => false)
         await sleep(1500)
       } else {
+        // 选项没出现：把菜单里实际有什么打出来，否则下次还是只能猜
+        const menuItems = await page
+          .evaluate(() =>
+            Array.from(document.querySelectorAll('.el-dropdown-menu__item, .el-select-dropdown__item'))
+              .map((i) => (i.textContent || '').trim())
+              .filter(Boolean)
+              .slice(0, 8)
+              .join('/')
+          )
+          .catch(() => '')
+        log(`  ⟂ 中文选项未定位到，当前下拉可见项：${menuItems || '<空>'}`)
         await page.keyboard.press('Escape').catch(() => {})
         await sleep(500)
       }
     }
-    record(M, 'i18n: 切换回中文', true)
+    const langAfterZh = await page.evaluate(() => document.documentElement.lang || '')
+    const zhSwitchedUi = /^zh/i.test(langAfterZh)
+    record(
+      M,
+      'i18n: 切换回中文',
+      zhSwitchedUi,
+      `htmlLang=${langAfterZh || '<空>'}, 语言下拉可见=${select2Visible}, 中文选项可见=${zhOptionVisible}, 已点击=${zhOptionClicked}`
+    )
   }
 
   // 30.7 尺寸切换（SizeSelect）
@@ -6578,8 +7972,14 @@ async function testModule30(page, consoleErrors, pageErrors) {
     if (await smallOption.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
       await smallOption.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
-      // 验证尺寸切换效果（按钮变小）
-      record(M, '尺寸切换: 切换到小尺寸', true)
+      // 结果判据：SizeSelect 走全局配置，切换后必须真有 small 档按钮渲染出来
+      const hasSmallBtn = await page
+        .locator('.el-button--small')
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      record(M, '尺寸切换: 切换到小尺寸', hasSmallBtn, `.el-button--small 可见=${hasSmallBtn}`)
       // 切换回默认
       await sizeSelect.click({ timeout: 3000 }).catch(() => {})
       await sleep(800)
@@ -6613,7 +8013,7 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
 
   // 31.1 文件管理：实际上传测试
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/file`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '文件管理页加载（上传测试）', true)
+    await assertPageLoaded(page, M, '文件管理页加载（上传测试）')
     const beforeCount = await page.locator('.el-table__row').count()
     const uploadInput = page.locator('input[type="file"]').first()
     // Playwright 的 setInputFiles() 支持隐藏 input，无需先判断可见性
@@ -6753,12 +8153,8 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
         .locator('.el-message--success:visible, .el-message:visible')
         .first()
         .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      record(
-        M,
-        '文件复制链接: 触发复制',
-        true,
-        successMsg ? '复制成功提示可见' : '复制按钮已点击（headless 下剪贴板可能受限）'
-      )
+      if (successMsg) record(M, '文件复制链接: 触发复制', successMsg, '复制成功提示可见')
+      else recordSkip(M, '文件复制链接: 触发复制', '按钮已点击但无成功提示：headless 剪贴板权限受限，无法判定复制结果')
     } else {
       recordSkip(M, '文件复制链接: 触发复制', '复制按钮不可见（跳过）')
     }
@@ -6804,25 +8200,29 @@ async function testModule31(page, consoleErrors, pageErrors, token) {
   }
 
   // 31.5 岗位导出：实际触发导出
+  // 31.5 岗位导出：实际触发导出
+  // b73 轮 18 覆盖洞：旧写法只在"出现确认框"分支内 record，无确认框时**一条记录都不产生**
+  // （全量日志实证：本模块有 用户导出/下载模板 两条下载断言，独缺 岗位导出）；
+  // 且监听器建在点击之后，快下载必然错过。改为先建监听、两个分支都记。
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const exportBtn = page.locator('button:has-text("导出")').first()
     if (await exportBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
+      const downloadPromise = page.waitForEvent('download', { timeout: 15000 }).catch(() => null)
       await exportBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const confirmBtn = page
         .locator('.el-message-box:visible button:has-text("确定导出"), .el-message-box:visible button:has-text("确 定"), .el-message-box:visible button:has-text("确定")')
         .first()
       if (await confirmBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) {
-        const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null)
         await confirmBtn.click({ timeout: 3000 }).catch(() => {})
-        const download = await downloadPromise
-        record(
-          M,
-          '岗位导出: 实际导出文件',
-          download !== null,
-          download ? `导出文件: ${download.suggestedFilename()}` : '导出未触发'
-        )
       }
+      const download = await downloadPromise
+      record(
+        M,
+        '岗位导出: 实际导出文件',
+        download !== null,
+        download ? `导出文件: ${download.suggestedFilename()}` : '导出未触发（点击后 15s 内无 download 事件）'
+      )
     } else {
       recordSkip(M, '岗位导出: 实际导出文件', '导出按钮不可见（跳过）')
     }
@@ -6936,7 +8336,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     )
   } else {
     // redirect 路由可能不在路由表中，直接访问 /redirect/index 会被路由守卫处理
-    record(M, 'redirect 页面: 重定向功能', true, 'redirect 路由由 Vue Router 内部处理（不直接暴露）')
+    recordSkip(M, 'redirect 页面: 重定向功能', '未落到 /redirect 路由（被守卫改写），无法判定重定向结果；主链路跳转由主套件 F142 实断言')
   }
 
   // 32.2 带参数路由：无效 ID
@@ -6957,54 +8357,123 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
       recordSoft(M, `边界场景: ${t.name}`, hasContent, '页面正常渲染', '页面可能为空（无数据）')
     } catch (err) {
-      record(M, `边界场景: ${t.name}`, true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
+      recordSkip(M, `边界场景: ${t.name}`, `导航自身异常，无法判定：${err.message.slice(0, 60)}`)
     }
   }
 
-  // 32.3 带参数路由：超长 ID
+  // 32.3 带参数路由：超长 ID —— 必须**在本地拦下**，不得把 IEEE754 折出来的畸形 ID 发出去。
+  // b73 轮 16 前的真实行为：`Number('1'.repeat(100))` → `1.111111111111111e+99` 被原样拼进
+  // URL 并发出请求（取证 `screenshots/deep-e2e-net-1792217728192.json`：
+  // `GET /system/user/authRole/1.111111111111111e+99` → 后端 400 Invalid URL），
+  // 用户看到的是"点了没反应 + 一次注定失败的往返"。判据从此对账"请求是否出网"。
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/user-auth/role/${'1'.repeat(100)}`, {
-      waitUntil: 'load',
-      timeout: 15000
-    })
+    const issued = []
+    const onRequest = (req) => {
+      const u = req.url()
+      if (u.includes('/system/user/authRole/')) issued.push(u)
+    }
+    page.on('request', onRequest)
+    let gotoErr = null
+    try {
+      await page.goto(`${CONFIG.frontendUrl}/system/user-auth/role/${'1'.repeat(100)}`, {
+        waitUntil: 'load',
+        timeout: 15000
+      })
+    } catch (e) {
+      gotoErr = e
+    }
     await sleep(1500)
-    const hasContent = await page
-      .locator('.el-table, .el-card, .app-container, .el-result, .el-empty')
-      .first()
-      .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-    recordSoft(M, '边界场景: 超长 ID', hasContent, '页面正常渲染', '页面为空')
+    page.off('request', onRequest)
+    if (gotoErr) {
+      recordSkip(M, '边界场景: 超长 ID 不出畸形请求', `导航自身异常，无法判定：${gotoErr.message.slice(0, 60)}`)
+      recordSkip(M, '边界场景: 超长 ID 页面渲染确定态', '导航自身异常')
+    } else {
+      record(
+        M,
+        '边界场景: 超长 ID 不出畸形请求（本地闸门）',
+        issued.length === 0,
+        `authRole 请求出网 ${issued.length} 条${issued.length ? `：${issued[0]}` : ''}`
+      )
+      const hasContent = await page
+        .locator('.el-table, .el-card, .app-container, .el-result, .el-empty')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      record(
+        M,
+        '边界场景: 超长 ID 页面仍落确定态',
+        hasContent,
+        hasContent ? '壳层已渲染（非白屏/崩页）' : '页面为空（无壳层渲染）'
+      )
+    }
   } catch (err) {
-    record(M, '边界场景: 超长 ID', true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
+    recordSkip(M, '边界场景: 超长 ID', `探针自身异常：${err.message.slice(0, 60)}`)
   }
 
-  // 32.4 带参数路由：特殊字符 ID
+  // 32.4 带参数路由：特殊字符 ID（同一闸门：本地拒绝，不发注定 400 的请求）
   try {
-    await page.goto(`${CONFIG.frontendUrl}/system/user-auth/role/abc!@#`, { waitUntil: 'load', timeout: 15000 })
+    const issued = []
+    const onRequest = (req) => {
+      const u = req.url()
+      if (u.includes('/system/user/authRole/')) issued.push(u)
+    }
+    page.on('request', onRequest)
+    let gotoErr = null
+    try {
+      await page.goto(`${CONFIG.frontendUrl}/system/user-auth/role/abc!@#`, { waitUntil: 'load', timeout: 15000 })
+    } catch (e) {
+      gotoErr = e
+    }
     await sleep(1500)
-    // 特殊字符可能被路由拒绝，验证不会崩溃
-    const currentUrl = page.url()
-    const notCrashed =
-      !currentUrl.includes('/500') ||
-      (await page
-        .locator('.el-result, .error-page, .app-container')
-        .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
-    recordSoft(M, '边界场景: 特殊字符 ID', notCrashed, '页面未崩溃')
+    page.off('request', onRequest)
+    if (gotoErr) {
+      recordSkip(M, '边界场景: 特殊字符 ID 不出畸形请求', `导航自身异常，无法判定：${gotoErr.message.slice(0, 60)}`)
+    } else {
+      record(
+        M,
+        '边界场景: 特殊字符 ID 不出畸形请求（本地闸门）',
+        issued.length === 0,
+        `authRole 请求出网 ${issued.length} 条${issued.length ? `：${issued[0]}` : ''}`
+      )
+    }
   } catch (err) {
-    record(M, '边界场景: 特殊字符 ID', true, `访问异常（预期）: ${err.message.slice(0, 60)}`)
+    recordSkip(M, '边界场景: 特殊字符 ID', `探针自身异常：${err.message.slice(0, 60)}`)
+  }
+
+  // 32.4b 合法但不存在的 ID（999999）必须**照常发请求**——闸门只拦畸形，不吞正常查询
+  try {
+    const issued = []
+    const onRequest = (req) => {
+      const u = req.url()
+      if (u.includes('/system/user/authRole/')) issued.push(u)
+    }
+    page.on('request', onRequest)
+    await page.goto(`${CONFIG.frontendUrl}/system/user-auth/role/999999`, { waitUntil: 'load', timeout: 15000 })
+    await sleep(1500)
+    page.off('request', onRequest)
+    record(
+      M,
+      '对照组: 合法不存在 ID 照常发请求（闸门不误伤）',
+      issued.length === 1 && issued[0].endsWith('/999999'),
+      `出网 ${issued.length} 条：${issued[0] || '无'}`
+    )
+  } catch (err) {
+    recordSkip(M, '对照组: 合法不存在 ID 照常发请求', `探针自身异常：${err.message.slice(0, 60)}`)
   }
 
   // 32.5 网络异常模拟：拦截 API 请求返回 500
-  // 注：此处使用 route 拦截，仅拦截一次，避免影响后续测试
+  // 注：此处使用 evaluate 覆写 fetch，**必须**放 finally 恢复——历史上恢复写在 try 尾部，
+  // 中途抛错时 catch 只记了一条 `true` 就继续跑，主 page 带着被污染的 fetch 进入后续所有模块
+  // （b73 订正：这类"测试自身把环境弄坏"正是跨模块假失败的来源）。
   try {
-    // 在新 context 中测试，避免影响主 page
-    // 直接验证错误处理逻辑（已登录用户的 API 调用失败时的前端处理）
     await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
     // 模拟 API 失败：通过 evaluate 修改 fetch 行为
     await page.evaluate(() => {
       const originalFetch = window.fetch
+      window._originalFetch = originalFetch
       window.fetch = function (...args) {
-        // 仅拦截一次 user list 请求
+        // 仅拦截 user list 请求
         if (args[0] && args[0].toString().includes('/system/user/list')) {
           return Promise.resolve(
             new Response(JSON.stringify({ code: 500, msg: '模拟服务器错误' }), {
@@ -7027,16 +8496,20 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .first()
         .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
       recordSoft(M, '网络异常: API 错误提示', errorMsg, '错误提示可见', '可能已恢复或未触发')
+    } else {
+      recordSkip(M, '网络异常: API 错误提示', '搜索按钮不可见，无法触发请求')
     }
-    // 恢复 fetch
-    await page.evaluate(() => {
-      if (window._originalFetch) window.fetch = window._originalFetch
-    })
-    // 刷新页面恢复正常状态
+  } catch (err) {
+    recordSkip(M, '网络异常: API 错误提示', `测试自身异常，本轮无法判定：${err.message.slice(0, 60)}`)
+  } finally {
+    // 恢复 fetch 并整页重载（双保险：即使 evaluate 失败，重载也会把 window 还原）
+    await page
+      .evaluate(() => {
+        if (window._originalFetch) window.fetch = window._originalFetch
+      })
+      .catch(() => {})
     await page.reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {})
     await sleep(1500)
-  } catch (err) {
-    record(M, '网络异常: API 错误提示', true, `测试异常（已恢复）: ${err.message.slice(0, 60)}`)
   }
 
   // 32.6 并发操作：快速连续点击提交按钮
@@ -7059,11 +8532,13 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
   }
 
   // 32.7 会话过期模拟：修改 token 导致 API 401
-  // 注：token 存储在 Cookie (Admin-Token) 而非 localStorage，必须通过 document.cookie 操作
+  // 注：token 存储在 Cookie (Admin-Token) 而非 localStorage，必须通过 document.cookie 操作。
+  // 还原必须放 finally：中途抛错若只记一条 `true` 就往下跑，主 page 会带着无效 token 进入
+  // 后续全部模块（b73 订正——这是跨模块污染的源头，不是"已恢复"）。
+  let originalToken = null
   try {
     await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })
-    // 临时修改 Cookie 中的 token（先保存原值，再设置无效 token）
-    const originalToken = await page.evaluate(() => {
+    originalToken = await page.evaluate(() => {
       const match = document.cookie.match(/(?:^|;\s*)Admin-Token=([^;]+)/)
       return match ? decodeURIComponent(match[1]) : null
     })
@@ -7085,25 +8560,25 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
           .first()
           .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false))
       recordSoft(M, '会话过期: 401 处理', hasReLoginPrompt, '跳转登录页或显示提示', '可能未触发或已恢复')
+    } else {
+      recordSkip(M, '会话过期: 401 处理', '搜索按钮不可见，无法触发请求')
     }
-    // 恢复 token
+  } catch (err) {
+    recordSkip(M, '会话过期: 401 处理', `测试自身异常，本轮无法判定：${err.message.slice(0, 60)}`)
+  } finally {
     if (originalToken) {
-      await page.evaluate((t) => {
-        document.cookie = `Admin-Token=${encodeURIComponent(t)};path=/;SameSite=Lax`
-      }, originalToken)
+      await page
+        .evaluate((t) => {
+          document.cookie = `Admin-Token=${encodeURIComponent(t)};path=/;SameSite=Lax`
+        }, originalToken)
+        .catch(() => {})
     }
-    // 如果跳转到了登录页，重新登录
+    // 跳转到了登录页就真重登，否则重载让 Pinia 重新拉权限
     if (page.url().includes('/login')) {
-      await login(page)
+      await login(page).catch(() => {})
     } else {
       await page.reload({ waitUntil: 'load', timeout: 15000 }).catch(() => {})
       await sleep(1500)
-    }
-  } catch (err) {
-    record(M, '会话过期: 401 处理', true, `测试异常（已恢复）: ${err.message.slice(0, 60)}`)
-    // 确保恢复登录状态
-    if (page.url().includes('/login')) {
-      await login(page)
     }
   }
 
@@ -7155,7 +8630,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     recordSoft(M, '401 错误页面', has401, '401 页面显示', '页面可能通过路由守卫处理')
   } else {
-    record(M, '401 错误页面', true, '401 页面在权限不足时自动显示')
+    recordSkip(M, '401 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 401 时渲染 ⇒ 本项无可测对象')
   }
 
   // 32.12 403 错误页面
@@ -7166,7 +8641,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     recordSoft(M, '403 错误页面', has403, '403 页面显示', '页面可能通过路由守卫处理')
   } else {
-    record(M, '403 错误页面', true, '403 页面在权限不足时自动显示')
+    recordSkip(M, '403 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 403 时渲染 ⇒ 本项无可测对象')
   }
 
   // 32.13 500 错误页面
@@ -7177,7 +8652,7 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
       .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     recordSoft(M, '500 错误页面', has500, '500 页面显示', '页面可能通过路由守卫处理')
   } else {
-    record(M, '500 错误页面', true, '500 页面在服务器错误时自动显示')
+    recordSkip(M, '500 错误页面', '导航被守卫拦截（safeGoto=false），该页仅在真实 5xx 时渲染 ⇒ 本项无可测对象')
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -7480,7 +8955,7 @@ async function testModule34(page, consoleErrors, pageErrors) {
         `已用: ${memInfo.used}MB / 总计: ${memInfo.total}MB / 上限: ${memInfo.limit}MB`
       )
     } else {
-      record(M, '内存使用: JS 堆', true, '浏览器不支持 performance.memory')
+      recordSkip(M, '内存使用: JS 堆', '本 Chromium 版本不暴露 performance.memory（有值分支实断 used<250MB）')
     }
   }
 
@@ -7722,14 +9197,29 @@ async function testModule36(page, consoleErrors, pageErrors) {
     record(M, 'TagsView: 刷新后恢复', tagsAfter >= 1, `刷新前: ${tagsBefore} → 刷新后: ${tagsAfter}`)
   }
 
-  // 36.6 标签页affix（固定标签）
+  // 36.6 标签页 affix（固定标签）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })) {
-    const affixTags = await page
-      .locator('.tags-view-item.is-affix')
-      .count()
-      .catch(() => 0)
-    // 首页标签通常是 affix 的
-    record(M, 'TagsView: Affix 固定标签', affixTags >= 0, `${affixTags} 个固定标签`)
+    // 旧断言数的是 `.tags-view-item.is-affix`——这个类**在组件里不存在**（affix 的可观察形态是
+    // "没有关闭按钮 + draggable=false"），于是恒 0 个配 `>= 0` 永远绿。
+    // 改判真实形态：≥1 个不可关闭的固定标签，且其中包含 affix:true 的「首页」。
+    const affix = await page
+      .evaluate(() => {
+        const items = Array.from(document.querySelectorAll('.tags-view-item'))
+        const fixed = items.filter((n) => !n.querySelector('.tags-close-btn'))
+        return {
+          total: items.length,
+          affix: fixed.length,
+          texts: fixed.map((n) => (n.textContent || '').replace(/\s+/g, '').trim()).join(',')
+        }
+      })
+      .catch(() => ({ total: -1, affix: -1, texts: '' }))
+    const hasHome = /首页|Home/i.test(affix.texts)
+    record(
+      M,
+      'TagsView: Affix 固定标签',
+      affix.affix >= 1 && hasHome,
+      `固定标签=${affix.affix}/${affix.total} 个（不可关闭项=${JSON.stringify(affix.texts.slice(0, 24))}，含首页=${hasHome}）`
+    )
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -7797,10 +9287,60 @@ async function testModule37(page, consoleErrors, pageErrors) {
 
       // 检查侧边栏在移动端是否自动隐藏
       if (vp.width < 768) {
-        const sidebar = page.locator('.sidebar-container, .el-aside').first()
-        const sidebarVisible = await sidebar.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-        // 移动端侧边栏可能隐藏或覆盖
-        record(M, `响应式: 移动端侧边栏`, true, sidebarVisible ? '侧边栏可见（可能为抽屉模式）' : '侧边栏已隐藏')
+        // 移动端档位契约（sidebar.scss:269-287：`.mobile:not(.openSidebar) .sidebar-container`
+        // 用 `translate3d(-$base-sidebar-width,0,0)` 整体推出视口；layout/index.vue:22 的侧栏 DOM
+        // 由 `v-if="!sidebar.hide"` 控制，移动端**仍然存在**）。
+        // 所以判据只能取**几何**：关闭态右边缘必须 ≤0（完全不占视口、不遮挡内容），
+        // 展开态必须回到视口内。用 isVisible()/waitFor('visible') 判定必然失真——
+        // Playwright 的 visible 只看"有无非零盒 + visibility 不为 hidden"，
+        // 平移出屏的元素照样算可见（b73 轮 14 实证：375px 下"侧栏仍然常驻"是断言方法错，非产品缺陷）。
+        const readSidebar = () =>
+          page
+            .evaluate(() => {
+              const el = document.querySelector('.sidebar-container')
+              if (!el) return { exists: false, left: 0, right: 0, width: 0, open: false }
+              const r = el.getBoundingClientRect()
+              const wrap = el.closest('.app-wrapper')
+              return {
+                exists: true,
+                left: Math.round(r.left),
+                right: Math.round(r.right),
+                width: Math.round(r.width),
+                open: !!(wrap && wrap.classList.contains('openSidebar'))
+              }
+            })
+            .catch(() => ({ exists: false, left: 0, right: 0, width: 0, open: false }))
+        const closedState = await readSidebar()
+        record(
+          M,
+          '响应式: 移动端侧边栏',
+          !closedState.exists || closedState.right <= 1,
+          closedState.exists
+            ? `关闭态 left=${closedState.left} right=${closedState.right} 宽=${closedState.width} openSidebar=${closedState.open}（应整体移出视口）`
+            : '侧栏 DOM 未渲染（sidebar.hide 档位，等同收起）'
+        )
+        // 汉堡展开后抽屉必须真的滑进视口，否则移动端无法导航
+        const burger = page.locator('.hamburger-container, .hamburger, [class*="hamburger"]').first()
+        const burgerOk = await burger
+          .click({ timeout: 2000 })
+          .then(() => true)
+          .catch(() => false)
+        await sleep(700)
+        const openedState = await readSidebar()
+        record(
+          M,
+          '响应式: 移动端汉堡可展开抽屉',
+          burgerOk && openedState.exists && openedState.left >= -1 && openedState.right > 1,
+          !burgerOk
+            ? '汉堡按钮点不到'
+            : openedState.exists
+              ? `展开后 left=${openedState.left} right=${openedState.right} openSidebar=${openedState.open}（应进入视口）`
+              : '展开后侧栏 DOM 反而消失（导航在移动端不可用）'
+        )
+      // 复原：抽屉展开态会污染下一档位的水平滚动条测量，必须收起
+      await page.keyboard.press('Escape').catch(() => {})
+      await page.locator('.drawer-bg, .el-drawer__overlay').first().click({ timeout: 1000 }).catch(() => {})
+      await sleep(400)
       }
     } catch (err) {
       record(M, `响应式: ${vp.name}`, false, `测试异常: ${err.message.slice(0, 60)}`)
@@ -7891,14 +9431,36 @@ async function testModule38(page, consoleErrors, pageErrors) {
 
   // 38.3 审计大屏图表
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/audit-dashboard`, { moduleName: M, waitMs: 3000 })) {
-    const auditCharts = await page.locator('canvas, [_echarts_instance_]').count()
-    record(M, '审计大屏: 图表数量', auditCharts >= 0, `${auditCharts} 个图表`)
+    const c = await readRenderedCharts(page)
+    record(M, '审计大屏: 图表数量', c.pass, c.pass ? `${c.painted}/${c.total} 个图表已实际绘制` : `无有效绘制图表（节点=${c.total}）`)
   }
 
-  // 38.4 缓存监控图表
+  // 38.4 缓存监控图表（概览 Tab 的 CacheOverview 使用 echarts）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/cache`, { moduleName: M, waitMs: 2000 })) {
-    const cacheCharts = await page.locator('canvas, [_echarts_instance_]').count()
-    record(M, '缓存监控: 图表', cacheCharts >= 0, `${cacheCharts} 个图表`)
+    const c = await readRenderedCharts(page)
+    // 概览面板**按后端档位分支**（CacheOverview.vue:4 `v-if="!cache?.info"`）：
+    //   取到 Redis INFO → 两张 echarts（命令占比 / 内存用量）；
+    //   取不到（本机 `[cache].mode=local`，无 Redis）→ el-empty「未连接」说明 + 刷新按钮。
+    // 判据必须两分支各自可失败，不能只数 canvas：
+    //   ① 有图时必须**真画出来**（非 0×0 空容器，见 readRenderedCharts）；
+    //   ② 空态时必须给出**可读的未连接说明**（只有图标没文案 = 用户不知道为何空白）。
+    // 旧写法 `chartCount >= 0` 连"选择器写错恒 0"都记 ✅；把它改成"必须有图"则会在
+    // local 档位假失败（b73 轮 14 实证），档位分支才是正确口径。
+    const emptyLoc = page.locator('.el-empty:visible .el-empty__description').first()
+    const emptyShown = await emptyLoc.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+    // 已确认存在才取文本：未命中时 `textContent()` 会等满默认 30s（Redis 档位无 el-empty 时会白等）
+    const emptyText = emptyShown ? ((await emptyLoc.textContent({ timeout: 500 }).catch(() => '')) || '').trim() : ''
+    const emptyOk = emptyText !== ''
+    record(
+      M,
+      '缓存监控: 图表',
+      c.pass || emptyOk,
+      c.pass
+        ? `${c.painted}/${c.total} 个图表已实际绘制`
+        : emptyOk
+          ? `Redis 未连接档位，空态说明="${emptyText.slice(0, 24)}"（此档位无图表属正确行为）`
+          : `既无绘制出的图表（节点=${c.total}），也无未连接说明（el-empty 文案为空）`
+    )
   }
 
   // 38.5 我的登录面板（MyLoginPanel 是 logininfor 页的 Tab，不是独立路由）
@@ -7982,18 +9544,29 @@ async function testModule39(browser, consoleErrors, pageErrors) {
     const loggedIn = await login(page)
     if (loggedIn) {
       if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/online`, { moduleName: M, waitMs: 2000 })) {
-        const onlineRows = await page.locator('.el-table__row').count()
-        record(M, '在线用户: 列表加载', onlineRows >= 0, `${onlineRows} 个在线用户`)
+        // 本轮在独立 context 里新登录了一个会话，"自己不在线"是真实缺陷（旧 `>= 0` 空表也 ✅）。
+        // 双非 lazy 面板挂载时各自发请求 → DOM 限可见面板，Tab 切换只负责"切过去"不负责"触发请求"。
+        const on = await verifyListLoaded(page, {
+          listHint: /\/monitor\/online\/list(\?|$)/,
+          minRows: 1,
+          container: '.el-tab-pane:visible'
+        })
+        record(M, '在线用户: 列表加载', on.pass, on.pass ? `${on.domRows} 个在线用户（DOM=响应）` : on.why)
 
         // 验证"我的会话" Tab
         const mySessionTab = page
           .locator('.el-tabs__item:has-text("我的会话"), .el-tabs__item:has-text("会话管理")')
           .first()
         if (await mySessionTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-          await mySessionTab.click({ timeout: 3000 }).catch(() => {})
-          await sleep(1500)
-          const mySessionRows = await page.locator('.el-table__row').count()
-          record(M, '在线用户: 我的会话', mySessionRows >= 0, `${mySessionRows} 条我的会话`)
+          const ms = await verifyListLoaded(page, {
+            listHint: /\/monitor\/my-session\/list(\?|$)/,
+            minRows: 1,
+            container: '.el-tab-pane:visible',
+            activate: () => mySessionTab.click({ timeout: 3000 })
+          })
+          record(M, '在线用户: 我的会话', ms.pass, ms.pass ? `${ms.domRows} 条我的会话（DOM=响应）` : ms.why)
+        } else {
+          recordSkip(M, '在线用户: 我的会话', '「我的会话」Tab 不可见（无 mySession 权限，非缺陷）')
         }
       }
     } else {
@@ -8234,59 +9807,118 @@ async function testModule41(page, consoleErrors, pageErrors) {
     recordSoft(M, '锁屏: 用户头像', hasAvatar, '头像可见', '头像可能未渲染')
 
     // 41.5 测试错误密码
+    // 【b73 轮 22 判据重写：等响应落回，不再固定 sleep（台账 §3.27）】
+    // 取证：`/unlockscreen` 走 Argon2id 校验，`sys_oper_log.cost_time` 实测 **3482–4282ms**
+    // （同一二进制、同一台机器；成功与失败同样慢，校验前先哈希）。而原写法点完只 `sleep(2000)`
+    // 就去读 DOM ⇒ 请求仍在飞 ⇒ `:disabled="loading"` 使第二次点击落空 ⇒ 断言把"响应还没回来"
+    // 报成"解锁失败（可能密码不匹配）"——**误归因**（按钮在飞时禁用是产品正确行为，防重复提交）。
+    // 现改为：先挂 waitForResponse，再点击，再以 **HTTP 状态 + 是否仍锁屏** 双条件判定，
+    // 并把状态写进结论，下次一眼看出是"密码错=预期拒绝"还是"校验慢/被禁用=环境问题"。
+    const unlockResp = () =>
+      page.waitForResponse((r) => r.url().includes('/unlockscreen'), { timeout: 30000 }).catch(() => null)
+    const stillLockedNow = async () =>
+      page.url().includes('/lock') ||
+      (await page
+        .locator('.lock-container, .lock-card')
+        .first()
+        .waitFor({ state: 'visible', timeout: 1000 })
+        .then(() => true)
+        .catch(() => false))
+
     if (hasPwdInput) {
       const pwdInput = page.locator('.lock-card input[type="password"], .lock-container input[type="password"]').first()
       await pwdInput.fill('wrong_password_123')
       await sleep(300)
+      const wrongRespP = unlockResp()
+      let wrongClickErr = ''
       if (hasUnlockBtn) {
         await page
           .locator('.unlock-btn, .lock-card button')
           .first()
-          .click({ timeout: 3000 })
-          .catch(() => {})
+          .click({ timeout: 30000 })
+          .catch((e) => {
+            wrongClickErr = String(e && e.message ? e.message : e).split('\n')[0].slice(0, 80)
+          })
       } else {
         await page.keyboard.press('Enter').catch(() => {})
       }
-      await sleep(2000)
-      const stillLocked =
-        page.url().includes('/lock') ||
-        (await page
-          .locator('.lock-container, .lock-card')
-          .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
-      record(M, '锁屏: 错误密码不解锁', stillLocked, stillLocked ? '仍处于锁屏状态' : '页面已离开锁屏（异常）')
+      const wrongResp = await wrongRespP
+      const wrongStatus = wrongResp ? wrongResp.status() : 0
+      const wrongRejected = wrongStatus === 401
+      const stillLocked = await stillLockedNow()
+      record(
+        M,
+        '锁屏: 错误密码不解锁',
+        wrongRejected && stillLocked,
+        wrongRejected && stillLocked
+          ? `HTTP 401 拒绝且仍处于锁屏（cost 窗口内校验完成）`
+          : `HTTP=${wrongStatus || '无响应（点击未生效：' + (wrongClickErr || '未知') + '）'}，`
+              + `仍锁屏=${stillLocked ? '是' : '否'}（0/非 401 = 请求未出网或被禁用按钮吞掉，401 之外=后端语义漂移）`
+      )
 
       const hasErrorMsg = await page
         .locator('.error-msg, .el-message--error:visible')
         .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false)
       recordSoft(M, '锁屏: 错误密码提示', hasErrorMsg, '错误提示可见', '可能无提示但未解锁')
     } else {
       record(M, '锁屏: 错误密码不解锁', false, '密码输入框不可见')
       record(M, '锁屏: 错误密码提示', false, '密码输入框不可见')
     }
 
-    // 41.6 测试正确密码解锁
+    // 41.6 测试正确密码解锁（同 41.5：以响应 + 页面状态双条件判定，不靠 sleep 猜校验耗时）
     const pwdInput2 = page.locator('.lock-card input[type="password"], .lock-container input[type="password"]').first()
     const pwdVisible2 = await pwdInput2.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
     if (pwdVisible2) {
+      // 上一轮校验落回后按钮才恢复可用（防重复提交的 `:disabled="loading"`）。
+      // 注意：`locator.waitFor({state})` 只接受 visible/hidden/attached/detached，**没有 'enabled'**
+      // ——写错状态名会立刻抛错而被 catch 吞成"未恢复可用"（b73 轮 22 实测踩过），故用 isEnabled() 轮询。
+      const unlockBtn2 = page.locator('.unlock-btn, .lock-card button').first()
+      let btnEnabled = false
+      for (let i = 0; i < 60 && !btnEnabled; i++) {
+        btnEnabled = await unlockBtn2.isEnabled().catch(() => false)
+        if (!btnEnabled) await sleep(500)
+      }
       await pwdInput2.fill(CONFIG.password)
       await sleep(300)
-      const unlockBtn = page.locator('.unlock-btn, .lock-card button').first()
-      if (await unlockBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-        await unlockBtn.click({ timeout: 3000 }).catch(() => {})
-      } else {
-        await page.keyboard.press('Enter').catch(() => {})
+      const okRespP = unlockResp()
+      let okClickErr = ''
+      await unlockBtn2
+        .click({ timeout: 30000 })
+        .catch((e) => {
+          okClickErr = String(e && e.message ? e.message : e).split('\n')[0].slice(0, 80)
+        })
+      const okResp = await okRespP
+      const okStatus = okResp ? okResp.status() : 0
+      // 200 之后要等**导航真的完成**再判定：`handleUnlock` 成功路径是
+      // `lockStore.unlockScreen() → router.replace(lockPath)`，Vue Router 切换 + 组件卸载需要时间，
+      // 用 1s 的可见性轮询会把"已成功解锁但还在过渡"读成"仍锁屏"（b73 轮 22 实测）。
+      let leftLock = false
+      if (okStatus === 200) {
+        leftLock = await page
+          .waitForFunction(
+            () =>
+              !window.location.pathname.includes('/lock') &&
+              !document.querySelector('.lock-container, .lock-card'),
+            null,
+            { timeout: 10000 }
+          )
+          .then(() => true)
+          .catch(() => false)
       }
-      await sleep(3000)
-      const stillLocked =
-        page.url().includes('/lock') ||
-        (await page
-          .locator('.lock-container, .lock-card')
-          .first()
-          .waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false))
-      record(M, '锁屏: 正确密码解锁', !stillLocked, !stillLocked ? '解锁成功' : '解锁失败（可能密码不匹配）')
-      if (stillLocked) {
+      const unlocked = okStatus === 200 && leftLock
+      record(
+        M,
+        '锁屏: 正确密码解锁',
+        unlocked,
+        unlocked
+          ? 'HTTP 200 且锁屏视图已卸载（离开 /lock）'
+          : `HTTP=${okStatus || '无响应'}，解锁后过渡完成=${leftLock ? '是' : '否'}，`
+              + `按钮曾恢复可用=${btnEnabled ? '是' : '否'}，点击${okClickErr ? `失败(${okClickErr})` : '已发出'}`
+      )
+      if (!unlocked) {
         await page.evaluate(() => {
           localStorage.removeItem('screen-lock')
           localStorage.removeItem('screen-lock-path')
@@ -8333,7 +9965,7 @@ async function testModule42(page, consoleErrors, pageErrors) {
   log(`\n=== 模块 ${M}: TOTP 设置/禁用完整流程测试 ===`)
 
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '个人中心页加载', true)
+    await assertPageLoaded(page, M, '个人中心页加载')
 
     const totpTab = page
       .locator(
@@ -8365,7 +9997,15 @@ async function testModule42(page, consoleErrors, pageErrors) {
           .catch(() => ({ text: '', classes: '' }))
         const statusText = tagInfo.text
         const isEnabled = tagInfo.classes.includes('el-tag--success')
-        record(M, 'TOTP: 当前状态', true, `状态: ${statusText || '未知'} (${isEnabled ? '已启用' : '未启用'})`)
+        // 状态标签必须"有文本 + 档位类名与语义一致"（success=已启用 / info=未启用）。
+        // 旧写法恒 true，标签没渲染、渲染成第三种样式都记通过。
+        const tagClassOk = tagInfo.classes.includes('el-tag--success') || tagInfo.classes.includes('el-tag--info')
+        record(
+          M,
+          'TOTP: 当前状态',
+          !!statusText && tagClassOk,
+          `状态文本=${JSON.stringify(statusText || '')} 档位类名=${tagClassOk ? 'success/info 之一' : '不识别'}`
+        )
 
         const hasSteps = await page
           .locator('.totp-card .el-steps, .totp-card .el-step')
@@ -8427,7 +10067,14 @@ async function testModule42(page, consoleErrors, pageErrors) {
             if (copyVisible) {
               await copyBtn.click({ timeout: 3000 }).catch(() => {})
               await sleep(500)
-              record(M, 'TOTP: 复制密钥按钮', true, '按钮已点击')
+              const totpCopyMsg = await page
+                .locator('.el-message--success:visible')
+                .first()
+                .waitFor({ state: 'visible', timeout: 2000 })
+                .then(() => true)
+                .catch(() => false)
+              if (totpCopyMsg) record(M, 'TOTP: 复制密钥按钮', totpCopyMsg, '复制成功提示可见')
+              else recordSkip(M, 'TOTP: 复制密钥按钮', '按钮已点击但无成功提示：headless 剪贴板权限受限')
             } else {
               recordSkip(M, 'TOTP: 复制密钥按钮', '复制按钮不可见（跳过）')
             }
@@ -8635,8 +10282,9 @@ async function testModule43(page, consoleErrors, pageErrors) {
     record(M, '通知中心: 表格加载', hasTable)
 
     if (hasTable) {
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '通知中心: 数据行数', rowCount >= 0, `${rowCount} 行`)
+      // 排除全局 AnnouncementBanner 的 `/system/notice/list?noticeType=F…` 轮询（它会先于本页响应到达）
+      const nr = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!noticeType=F)|$)/ })
+      record(M, '通知中心: 数据行数', nr.pass, nr.pass ? `${nr.domRows} 行（DOM=响应 ${nr.serverRows}，total=${nr.total}）` : nr.why)
 
       // 通知类型 Tab
       const hasTabs = await page
@@ -8779,7 +10427,7 @@ async function testModule46(page, consoleErrors, pageErrors) {
 
   // 个人中心（Tab 文本为"基本资料"，没有独立头像 Tab，头像在左侧卡片常驻）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
-    record(M, '偏好: 个人中心加载', true)
+    await assertPageLoaded(page, M, '偏好: 个人中心加载')
 
     // 基本资料 Tab（i18n: profile.basicInfo = "基本资料"）
     const basicTab = page.locator('.el-tabs__item:has-text("基本资料"), .el-tabs__item:has-text("Basic Info")').first()
@@ -8912,8 +10560,12 @@ async function testModule47(page, consoleErrors, pageErrors) {
     record(M, '在线用户: 表格加载', hasTable)
 
     if (hasTable) {
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '在线用户: 数据行数', rowCount >= 0, `${rowCount} 行`)
+      const on = await verifyListLoaded(page, {
+        listHint: /\/monitor\/online\/list(\?|$)/,
+        minRows: 1,
+        container: '.el-tab-pane:visible'
+      })
+      record(M, '在线用户: 数据行数', on.pass, on.pass ? `${on.domRows} 行（DOM=响应，本会话在线）` : on.why)
 
       const forceLogoutBtn = page
         .locator('button:has-text("强退"), button:has-text("强制"), button:has-text("Force")')
@@ -8932,18 +10584,48 @@ async function testModule47(page, consoleErrors, pageErrors) {
     record(M, '定时任务: 表格加载', hasTable)
 
     if (hasTable) {
-      const rowCount = await page.locator('.el-table__row').count()
-      record(M, '定时任务: 数据行数', rowCount >= 0, `${rowCount} 行`)
+      // minRows=1：机械取证 `select count(*) from sys_job` = 4，定时任务列表不可能为空
+      const jr = await verifyListLoaded(page, { listHint: /\/monitor\/job\/list(\?|$)/, minRows: 1 })
+      record(M, '定时任务: 数据行数', jr.pass, jr.pass ? `${jr.domRows} 行（DOM=响应 ${jr.serverRows}，total=${jr.total}）` : jr.why)
 
       // 状态切换
       const statusSwitch = page.locator('.el-switch').first()
       const switchVisible = await statusSwitch.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
       recordSoft(M, '定时任务: 状态切换', switchVisible)
 
-      // 执行一次按钮
-      const runBtn = page.locator('button:has-text("执行"), button:has-text("运行"), button:has-text("Run")').first()
-      const runVisible = await runBtn.waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
-      recordSoft(M, '定时任务: 执行一次', runVisible)
+      // 执行一次入口
+      // 行内操作是**纯图标 el-tooltip 按钮**（job/index.vue:140-149：`icon="CaretRight"`，
+      // 文案只在 hover 后出现在 `.el-popper`）→ 原判据 `button:has-text("执行")` 永远匹配不到，
+      // 于是一条"执行入口丢失"的真实故障会以「元素未渲染（软断言）」长期跳过（b73 轮 14 取证）。
+      // 改成语义锚定：逐个 hover 行内按钮，要求某个按钮的可访问提示确实是「执行一次」。
+      let execTip = ''
+      let execAt = -1
+      const rowBtns = page.locator('.el-table__row button')
+      const btnCount = await rowBtns.count().catch(() => 0)
+      for (let bi = 0; bi < Math.min(btnCount, 8); bi++) {
+        await page.mouse.move(0, 0).catch(() => {})
+        await rowBtns.nth(bi).hover({ timeout: 1500 }).catch(() => {})
+        await sleep(400)
+        const tipLoc = page.locator('.el-popper:visible').filter({ hasText: /执行一次|执行|Execute/ }).first()
+        // 必须先 waitFor 再取文本：未命中时 `textContent()` 会等满**默认 30s** 才抛错
+        //（实测 2 次未命中就把本段拖到 60s+；b73 轮 14 取证）
+        const tipShown = await tipLoc.waitFor({ state: 'visible', timeout: 800 }).then(() => true).catch(() => false)
+        const tipText = tipShown ? ((await tipLoc.textContent({ timeout: 500 }).catch(() => '')) || '').trim() : ''
+        if (tipText !== '') {
+          execTip = tipText
+          execAt = bi
+          break
+        }
+      }
+      await page.mouse.move(0, 0).catch(() => {})
+      record(
+        M,
+        '定时任务: 执行一次入口',
+        execTip !== '',
+        execAt >= 0
+          ? `第 ${execAt + 1}/${btnCount} 个行内按钮 hover 提示「${execTip}」`
+          : `${btnCount} 个行内按钮均未给出「执行一次」提示`
+      )
     }
   }
 
@@ -8956,23 +10638,31 @@ async function testModule47(page, consoleErrors, pageErrors) {
     record(M, '服务监控: 页面加载', hasCard)
 
     if (hasCard) {
-      const hasCpu = await page
-        .locator('[class*="cpu"], .el-progress')
-        .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      recordSoft(M, '服务监控: CPU 信息', hasCpu)
-
-      const hasMem = await page
-        .locator('[class*="memory"], [class*="mem"]')
-        .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
-      recordSoft(M, '服务监控: 内存信息', hasMem)
-
-      const hasDisk = await page
-        .locator('[class*="disk"], [class*="drive"]')
-        .first()
-        .waitFor({ state: 'visible', timeout: 1500 }).then(() => true).catch(() => false)
-      recordSoft(M, '服务监控: 磁盘信息', hasDisk)
+      // 三块都改成**文本锚定 + 必须带数值**（原判据猜 CSS 类名 `[class*="cpu"] / [class*="memory"] /
+      // [class*="disk"]`，而本页卡片由 i18n 文案驱动、没有这些类 → 三条永远走 recordSoft 跳过，
+      // "内存/磁盘区块整块没渲染"也会以 SKIP 形态长期隐身。b73 轮 14 取证：实测卡片为
+      // 「CPU 使用率 28.2% 核心数：20」「内存使用率 78.73% 12.39 / 15.73」「磁盘信息」）。
+      const cpu = await readCardMatching(page, /CPU/i)
+      record(
+        M,
+        '服务监控: CPU 信息',
+        cpu.count > 0 && cpu.hit !== '',
+        cpu.hit || `未命中含数值的 CPU 卡片（命中=${cpu.count}）`
+      )
+      const mem = await readCardMatching(page, /内存|Memory/)
+      record(
+        M,
+        '服务监控: 内存信息',
+        mem.count > 0 && mem.hit !== '',
+        mem.hit || `未命中含数值的内存卡片（命中=${mem.count}）`
+      )
+      const disk = await readCardMatching(page, /磁盘|Disk|文件系统/)
+      record(
+        M,
+        '服务监控: 磁盘信息',
+        disk.count > 0 && disk.hit !== '',
+        disk.hit || `未命中含数值的磁盘卡片（命中=${disk.count}）`
+      )
     }
   }
 
@@ -9129,12 +10819,22 @@ async function testModule50(page, consoleErrors, pageErrors) {
         .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
       record(M, '表单构建: 右侧属性面板', hasRight)
 
-      // 组件列表
+      // 组件列表（真实条目类名是 `.components-item`，旧选择器写的 `li` 根本不存在，
+      // 而 `[class*="component"]` 会连 `.components-list` 容器一起数 → 配 `>= 0` 恒绿）
       if (hasLeftPanel) {
-        const components = await page
-          .locator('.left-board .components-list li, .left-board [class*="component"]')
-          .count()
-        record(M, '表单构建: 组件数量', components >= 0, `${components} 个组件`)
+        const palette = await page
+          .evaluate(() => {
+            const items = Array.from(document.querySelectorAll('.left-board .components-item'))
+            const labeled = items.filter((n) => (n.textContent || '').trim().length > 0).length
+            return { items: items.length, labeled, groups: document.querySelectorAll('.left-board .components-title').length }
+          })
+          .catch(() => ({ items: -1, labeled: -1, groups: -1 }))
+        record(
+          M,
+          '表单构建: 组件数量',
+          palette.items > 0 && palette.labeled === palette.items && palette.groups >= 2,
+          `${palette.labeled}/${palette.items} 个可拖拽组件带标签，分 ${palette.groups} 组`
+        )
       }
 
       // 操作按钮
@@ -9274,149 +10974,341 @@ async function testModule51(page, consoleErrors, pageErrors) {
 
 // ==================== 模块 52: 指令深度（水印/复制/脱敏）测试 ====================
 
+// ==================== 模块 52: 指令深度（水印/复制/脱敏）测试 ====================
+
+/**
+ * 前端自定义指令的**行为**验证。
+ *
+ * b73 轮 12 重写（原实现是假覆盖：与产品行为无关也必绿/必 SKIP）：
+ * - `style[data-watermark] count >= 0`、`record(M,'当前状态', true)`、`copyElements >= 0`
+ *   三条恒真，指令从未被真正执行过一次；
+ * - v-copyText 的探针打在 `/system/config`，而全 src 的 `v-copyText` 使用点只有
+ *   `tool/gen/preview.vue`（复制生成代码）与 `user/profile/totp.vue`（第二步复制密钥）两处
+ *   ⇒ 该页永远没有复制按钮，SKIP 是结构性的，不是环境性的；
+ * - v-desensitize 的"脱敏提示"在 `td[title]` 上找，而 title 是指令写在**被脱敏元素**（span）上
+ *   ⇒ 永远找不到；又把"邮箱/身份证/姓名脱敏"当预期，但视图层只有手机号一列挂了该指令。
+ *
+ * 现口径（全部可证伪）：
+ * - 水印走「头像下拉 → 偏好设置 → 页面水印 → 保存」的真实开→关往返（用户偏好只写
+ *   localStorage，无后端副作用；往返后回到默认关闭态，不污染后续模块）；
+ * - 复制打在真实使用点 gen 预览，且校验**剪贴板真的有内容**（不只是弹提示）；
+ * - 脱敏按规则精确输出对账（`138****5678`），不是"含星号就算过"。
+ */
 async function testModule52(page, consoleErrors, pageErrors) {
   const M = 52
   log(`\n=== 模块 ${M}: 指令深度（水印/复制/脱敏）测试 ===`)
 
-  // 52.1 v-watermark
-  await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
-  const watermarkStyleCount = await page.locator('style[data-watermark="true"]').count()
-  record(M, 'v-watermark: 样式标签', watermarkStyleCount >= 0, `${watermarkStyleCount} 个样式标签`)
+  // ---------- 52.A v-watermark：偏好设置对话框真实往返 ----------
 
-  const hasWatermarkVisible = await page
-    .evaluate(() => {
-      const styles = document.querySelectorAll('style[data-watermark="true"]')
-      if (styles.length === 0) return false
-      for (const s of styles) {
-        if (s.textContent && s.textContent.includes('background-image')) return true
-      }
-      return false
-    })
-    .catch(() => false)
-  recordSoft(M, 'v-watermark: 水印渲染', hasWatermarkVisible, '水印已渲染', '水印未启用（用户偏好设置）')
-
-  const watermarkEnabled = hasWatermarkVisible
-  record(M, 'v-watermark: 当前状态', true, watermarkEnabled ? '已启用' : '未启用')
-
-  // 52.3 v-copyText
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
-    const copyElements = await page
-      .locator(
-        '[class*="copy"], button[aria-label*="复制"], .el-icon-CopyDocument, .el-icon-document-copy, [v-copyText], [data-copy]'
-      )
-      .count()
-    record(M, 'v-copyText: 复制元素数量', copyElements >= 0, `${copyElements} 个`)
-
-    const configCopyBtn = page
-      .locator(
-        '.el-table__row button:has-text("复制"), .el-table__row [class*="copy"], .el-table__row .el-icon-CopyDocument'
-      )
-      .first()
-    const copyBtnVisible = await configCopyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-    recordSoft(M, 'v-copyText: 配置页复制按钮', copyBtnVisible, '复制按钮可见', '复制按钮不可见')
-
-    if (copyBtnVisible) {
-      const clipboardText = ''
-      await page
-        .evaluate(() => {
-          window.__copySuccess = false
-          document.addEventListener('copy', (e) => {
-            window.__copySuccess = true
-          })
-        })
-        .catch(() => {})
-
-      await configCopyBtn.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1000)
-
-      const successMsg = await page
-        .locator('.el-message--success:visible, .el-notification:visible')
-        .first()
-        .waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      const copySuccess = await page.evaluate(() => window.__copySuccess).catch(() => false)
-      recordSoft(
-        M,
-        'v-copyText: 触发复制',
-        successMsg || copySuccess,
-        successMsg ? '成功提示可见' : 'copy 事件已触发',
-        'headless 下剪贴板可能受限'
-      )
-    } else {
-      recordSkip(M, 'v-copyText: 触发复制', '复制按钮不可见（跳过）')
-    }
-  }
-
-  // 52.5 v-copyText TOTP
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
-    const totpTab = page
-      .locator('.el-tabs__item:has-text("MFA"), .el-tabs__item:has-text("安全设置"), .el-tabs__item:has-text("TOTP")')
-      .first()
-    if (await totpTab.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)) {
-      await totpTab.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1500)
-
-      const totpCopyBtn = page.locator('.totp-card button:has-text("复制"), .totp-card [class*="copy"]').first()
-      const totpCopyVisible = await totpCopyBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      recordSoft(M, 'v-copyText: TOTP 复制按钮', totpCopyVisible, 'TOTP 复制按钮可见', 'TOTP 复制按钮不可见（可能未生成密钥）')
-    } else {
-      recordSkip(M, 'v-copyText: TOTP 复制按钮', 'TOTP Tab 不可见（跳过）')
-    }
-  }
-
-  // 52.6 v-desensitize
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
-    const hasDesensitize = await page
+  /** 读取水印指令落在 DOM 上的三件证据（style 节点 / background-image / 唯一 class） */
+  const readWatermark = () =>
+    page
       .evaluate(() => {
-        const cells = Array.from(document.querySelectorAll('.el-table__row td'))
-        const phoneMasked = cells.some((td) => /\d{3}\*+\d{4}/.test(td.textContent || ''))
-        const emailMasked = cells.some((td) => /\w+\*+@\w+/.test(td.textContent || ''))
-        const idCardMasked = cells.some((td) => /\d{6}\*+\d{4}/.test(td.textContent || ''))
-        const nameMasked = cells.some((td) => /[\u4e00-\u9fa5]\*+/.test(td.textContent || ''))
+        const styles = Array.from(document.querySelectorAll('style[data-watermark="true"]'))
+        const wrapper = document.querySelector('.app-wrapper')
         return {
-          phone: phoneMasked,
-          email: emailMasked,
-          idCard: idCardMasked,
-          name: nameMasked,
-          any: phoneMasked || emailMasked || idCardMasked || nameMasked
+          styleCount: styles.length,
+          painted: styles.some((s) => (s.textContent || '').includes('background-image')),
+          classes: wrapper ? Array.from(wrapper.classList).filter((c) => c.startsWith('v-watermark-')).length : -1
         }
       })
-      .catch(() => ({ any: false, phone: false, email: false, idCard: false, name: false }))
-    recordSoft(
-      M,
-      'v-desensitize: 脱敏数据存在',
-      hasDesensitize.any,
-      `手机=${hasDesensitize.phone}, 邮箱=${hasDesensitize.email}, 身份证=${hasDesensitize.idCard}, 姓名=${hasDesensitize.name}`,
-      '无脱敏数据（可能无敏感字段）'
-    )
+      .catch(() => ({ styleCount: -1, painted: false, classes: -1 }))
 
-    const domSafe = await page
-      .evaluate(() => {
-        const cells = Array.from(document.querySelectorAll('.el-table__row td'))
-        const hasMaskedTitle = cells.some((td) => {
-          const title = td.getAttribute('title') || ''
-          return /脱敏|masked|敏感/i.test(title)
-        })
-        return hasMaskedTitle
-      })
-      .catch(() => false)
-    recordSoft(M, 'v-desensitize: 脱敏提示', domSafe, '脱敏提示可见', '可能无提示')
+  /** 打开「头像下拉 → 偏好设置」对话框 */
+  const openPrefsDialog = async () => {
+    const avatar = page.locator('.avatar-container').first()
+    if (!(await avatar.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))) return false
+    await avatar.click({ timeout: 3000 }).catch(() => {})
+    const item = page
+      .locator('.el-dropdown-menu:visible .el-dropdown-menu__item')
+      .filter({ hasText: /偏好设置|Preferences/ })
+      .first()
+    if (!(await item.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) {
+      await page.keyboard.press('Escape').catch(() => {})
+      return false
+    }
+    await item.click({ timeout: 3000 }).catch(() => {})
+    const dialog = page.locator('.el-dialog:visible').filter({ hasText: /用户偏好设置|Preference/ }).first()
+    return await dialog.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
   }
 
-  // 52.8 v-desensitize IP
-  if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/logininfor`, { moduleName: M, waitMs: 2500 })) {
-    const loginRows = await page.locator('.el-table__row').count()
-    if (loginRows > 0) {
-      const hasIpMasked = await page
-        .evaluate(() => {
-          const cells = Array.from(document.querySelectorAll('.el-table__row td'))
-          return cells.some((td) =>
-            /\d+\.\d+\.\d+\.\*+|\d+\.\d+\.\*+\.\*+|\*+\.\d+\.\d+\.\d+/.test(td.textContent || '')
-          )
-        })
-        .catch(() => false)
-      recordSoft(M, 'v-desensitize: IP 脱敏', hasIpMasked, 'IP 已脱敏', 'IP 可能未脱敏（管理员可见完整 IP）')
+  /**
+   * 把「页面水印」切到目标态并保存。
+   * 只在当前态 ≠ 目标态时点击（重复点击会翻转），并校验保存 Toast 与开关落位。
+   */
+  const setWatermarkPref = async (want) => {
+    if (!(await openPrefsDialog())) return { ok: false, why: '偏好设置对话框未打开' }
+    const field = page.locator('.el-dialog:visible .el-form-item').filter({ hasText: /页面水印|Page Watermark/ }).first()
+    if (!(await field.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false))) {
+      await page.keyboard.press('Escape').catch(() => {})
+      return { ok: false, why: '水印表单项不可见' }
+    }
+    const sw = field.locator('.el-switch').first()
+    const isOn = () => sw.evaluate((el) => el.classList.contains('is-checked')).catch(() => null)
+    const before = await isOn()
+    if (before !== want) {
+      await sw.click({ timeout: 3000 }).catch(() => {})
+      await sleep(300)
+    }
+    const after = await isOn()
+    await page
+      .locator('.el-dialog:visible button')
+      .filter({ hasText: /保存|Save/ })
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {})
+    const toast = await page
+      .locator('.el-message--success:visible')
+      .filter({ hasText: /偏好设置已保存|saved/i })
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    // layout 的 watermarkValue 是 computed，保存后需等一次 patch 才会走指令 updated 钩子
+    await sleep(800)
+    return { ok: after === want && toast, before, after, toast }
+  }
+
+  await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })
+
+  // 52.1 默认态必须是"零注入"（新 context 的 localStorage 为空 ⇒ 偏好默认关闭）
+  const base = await readWatermark()
+  record(
+    M,
+    'v-watermark: 默认关闭态零注入',
+    base.styleCount === 0 && base.classes === 0,
+    `style=${base.styleCount} class=${base.classes}（开启态不应是默认）`
+  )
+
+  // 52.2 开启 ⇒ style + background-image + 唯一 class 三件证据齐备
+  const turnOn = await setWatermarkPref(true)
+  const on = await readWatermark()
+  record(
+    M,
+    'v-watermark: 开启后注入水印',
+    turnOn.ok === true && on.styleCount === 1 && on.painted === true && on.classes === 1,
+    `开关=${turnOn.before}→${turnOn.after} 保存提示=${turnOn.toast} style=${on.styleCount} bgImage=${on.painted} class=${on.classes}${turnOn.why ? ' ' + turnOn.why : ''}`
+  )
+
+  // 52.3 关闭 ⇒ clearWatermark 必须把 style 与 class 都收干净（同时把偏好还原，避免污染）
+  const turnOff = await setWatermarkPref(false)
+  const off = await readWatermark()
+  record(
+    M,
+    'v-watermark: 关闭后清理彻底',
+    turnOff.ok === true && off.styleCount === 0 && off.classes === 0,
+    `开关=${turnOff.before}→${turnOff.after} style=${off.styleCount} class=${off.classes}${turnOff.why ? ' ' + turnOff.why : ''}`
+  )
+
+  // 52.4 防篡改观察器必须已随关闭 disconnect（残留会导致关不掉水印）
+  const tamperProbe = await page
+    .evaluate(async () => {
+      const wrapper = document.querySelector('.app-wrapper')
+      if (!wrapper) return { ok: false, why: '无 .app-wrapper' }
+      const before = document.querySelectorAll('style[data-watermark="true"]').length
+      // 触碰一次属性：若观察器仍挂着，会重新注入 style（关闭态下不该发生）
+      wrapper.setAttribute('data-b73-probe', '1')
+      await new Promise((r) => setTimeout(r, 400))
+      const after = document.querySelectorAll('style[data-watermark="true"]').length
+      wrapper.removeAttribute('data-b73-probe')
+      return { ok: before === 0 && after === 0, before, after }
+    })
+    .catch((e) => ({ ok: false, why: e.message.slice(0, 60) }))
+  record(M, 'v-watermark: 关闭后观察器不再重绘', tamperProbe.ok === true, JSON.stringify(tamperProbe))
+
+
+  // ---------- 52.B v-copyText：打在唯一可达的真实使用点（gen 预览对话框） ----------
+  // 说明：另一处使用点是个人中心 TOTP「第二步」的密钥复制，点它必须先「生成密钥」
+  // ——那会写入待验证密钥（共享态 + 用户 MFA 态漂移），只读用例不做，见 52.C 的登记。
+  await safeGoto(page, `${CONFIG.frontendUrl}/tool/gen`, { moduleName: M, waitMs: 2500 })
+  const genRows = await page.locator('.el-table__row').count()
+  const previewBtn = page
+    .locator('.el-table__row')
+    .first()
+    .getByRole('button', { name: /^预览$|^Preview$/ })
+    .first()
+  const previewOk =
+    genRows > 0 &&
+    (await previewBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false))
+
+  if (!previewOk) {
+    recordSkip(
+      M,
+      'v-copyText: gen 预览复制代码',
+      `gen 列表无可预览表（rows=${genRows}，预览按钮不可见）——指令本身由 preview.vue 唯一挂载`
+    )
+    recordSkip(M, 'v-copyText: 复制后无残留 textarea', '同上（无复制入口）')
+  } else {
+    // copy 事件监听必须在点击前挂好（指令用 execCommand('copy')，事件同步冒泡到 document）
+    await page
+      .evaluate(() => {
+        window.__b73Copy = { events: 0, lastText: '' }
+        document.addEventListener(
+          'copy',
+          (e) => {
+            window.__b73Copy.events += 1
+            // execCommand 路径下 selection 即待复制文本，这里同步取一份用于对账
+            try {
+              const sel = document.getSelection()
+              window.__b73Copy.lastText = sel ? String(sel.toString()).slice(0, 4000) : ''
+            } catch {
+              /* 取不到不影响主判据 */
+            }
+          },
+          true
+        )
+      })
+      .catch(() => {})
+
+    await previewBtn.click({ timeout: 3000 }).catch(() => {})
+    const codeBlock = page.locator('.gen-preview-code').first()
+    const dialogOk = await codeBlock
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!dialogOk) {
+      record(M, 'v-copyText: gen 预览对话框打开', false, '预览对话框未出现（代码生成接口可能失败）')
+      recordSkip(M, 'v-copyText: 复制生效', '预览对话框未打开')
+      recordSkip(M, 'v-copyText: 复制后无残留 textarea', '预览对话框未打开')
     } else {
-      recordSkip(M, 'v-desensitize: IP 脱敏', '无登录日志数据（跳过）')
+      // 对话框打开且代码块**有内容**才算通过：旧写法把空/非空只写进 detail、结果恒 true，
+      // 等于"预览接口返回空数组也记 ✅"。
+      const codeText = (await codeBlock.textContent({ timeout: 2000 }).catch(() => '')) || ''
+      record(
+        M,
+        'v-copyText: gen 预览对话框打开',
+        codeText.trim().length > 0,
+        `代码块字符数=${codeText.trim().length}`
+      )
+      const copyBtn = page
+        .locator('.el-dialog:visible button')
+        .filter({ hasText: /复制$|Copy$/ })
+        .first()
+      const copyBtnOk = await copyBtn
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!copyBtnOk) {
+        record(M, 'v-copyText: 复制按钮可见', false, '对话框内未找到复制按钮（aria-label/文案漂移）')
+        recordSkip(M, 'v-copyText: 复制生效', '复制按钮不可见')
+        recordSkip(M, 'v-copyText: 复制后无残留 textarea', '复制按钮不可见')
+      } else {
+        await copyBtn.click({ timeout: 3000 }).catch(() => {})
+        const toast = await page
+          .locator('.el-message--success:visible')
+          .filter({ hasText: /复制成功|Copied|copied/i })
+          .first()
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
+        const copyFact = await page
+          .evaluate(() => ({
+            events: window.__b73Copy ? window.__b73Copy.events : -1,
+            len: window.__b73Copy ? (window.__b73Copy.lastText || '').length : -1
+          }))
+          .catch(() => ({ events: -1, len: -1 }))
+        // 三条判据同时成立才算过：copy 事件触发 / 选区非空（真内容而非空串）/ 回调 Toast
+        record(
+          M,
+          'v-copyText: 复制生效',
+          copyFact.events >= 1 && copyFact.len > 0 && toast === true,
+          `copy事件=${copyFact.events} 选区长度=${copyFact.len} 成功提示=${toast}`
+        )
+        // 指令用临时 textarea 承载选区，复制完必须 remove()；残留=每次复制漏一个节点
+        const stray = await page
+          .evaluate(
+            () =>
+              Array.from(document.querySelectorAll('textarea')).filter(
+                (t) => t.style && t.style.left === '-9999px'
+              ).length
+          )
+          .catch(() => -1)
+        record(M, 'v-copyText: 复制后无残留 textarea', stray === 0, `离屏 textarea 残留数=${stray}`)
+        await page.keyboard.press('Escape').catch(() => {})
+        await sleep(400)
+      }
+    }
+  }
+
+  // 52.C TOTP 密钥复制：使用点真实存在，但触发它要先「生成密钥」（写待验证密钥、改用户 MFA 态）
+  // ⇒ 只在**未进入第二步**时确认按钮确实不存在（关闭态安全），真正的复制链由
+  //    `--feature=20`（TOTP setup/verify/disable 全链）承担；此处显式登记而非留一个永远 SKIP 的探针。
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/user/profile`, { moduleName: M, waitMs: 2000 })) {
+    const totpTab = page
+      .locator('.el-tabs__item')
+      .filter({ hasText: /安全设置|MFA|Security/ })
+      .first()
+    const tabOk = await totpTab.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+    if (!tabOk) {
+      record(M, 'v-copyText: TOTP 页签可达', false, '安全设置(MFA) 页签不可见（能力位 auth.webauthn/MFA 下发或 i18n 漂移）')
+    } else {
+      await totpTab.click({ timeout: 3000 }).catch(() => {})
+      await sleep(1500)
+      const stepOneBtn = page
+        .locator('.el-tab-pane:visible, .el-tabs__content')
+        .first()
+        .getByRole('button', { name: /生成密钥|Generate/ })
+        .first()
+      const stepOneOk = await stepOneBtn.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false)
+      const copyBeforeSetup = await page
+        .locator('.el-input__append .el-button[aria-label="复制"], .el-input__append button:has-text("复制")')
+        .count()
+      record(
+        M,
+        'v-copyText: 未生成密钥时不暴露复制入口',
+        stepOneOk === true && copyBeforeSetup === 0,
+        `第一步按钮可见=${stepOneOk} 第二步复制按钮数=${copyBeforeSetup}（复制链见 --feature=20）`
+      )
+    }
+  }
+
+  // ---------- 52.D v-desensitize：逐元素对账（视图层只有手机号一列挂了该指令） ----------
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2500 })) {
+    const mask = await page
+      .evaluate(() => {
+        const spans = Array.from(document.querySelectorAll('span[data-value]'))
+        const cells = spans
+          .map((s) => ({
+            raw: (s.getAttribute('data-value') || '').trim(),
+            shown: (s.textContent || '').trim(),
+            title: s.getAttribute('title') || ''
+          }))
+          .filter((c) => /^1[3-9]\d{9}$/.test(c.raw))
+        // 与指令实现同一条规则：保留前 3 后 4，中间 4 个星号
+        const expect = (v) => v.replace(/(\d{3})\d*(\d{4})/, '$1****$2')
+        const exact = cells.filter((c) => c.shown === expect(c.raw))
+        const titled = cells.filter((c) => c.title.length > 0)
+        return {
+          total: spans.length,
+          phones: cells.length,
+          exact: exact.length,
+          titled: titled.length,
+          sample: cells[0] ? { raw: cells[0].raw, shown: cells[0].shown, title: cells[0].title } : null
+        }
+      })
+      .catch(() => null)
+
+    if (!mask || mask.phones === 0) {
+      recordSkip(
+        M,
+        'v-desensitize: 手机号按规则精确掩码',
+        `当前页无 11 位有效手机号单元格（span[data-value]=${mask ? mask.total : 'n/a'}）——指令面由 desensitize.test.ts 覆盖`
+      )
+      recordSkip(M, 'v-desensitize: 脱敏提示挂在本元素', '同上')
+    } else {
+      record(
+        M,
+        'v-desensitize: 手机号按规则精确掩码',
+        mask.exact === mask.phones && mask.phones > 0,
+        `有效手机号单元格=${mask.phones}，精确匹配=${mask.exact}，样例=${JSON.stringify(mask.sample)}`
+      )
+      // title 是指令写在**被脱敏元素**上的（旧用例在 td[title] 找，结构上永远找不到）
+      record(
+        M,
+        'v-desensitize: 脱敏提示挂在本元素',
+        mask.titled === mask.phones && mask.phones > 0,
+        `带 title 单元格=${mask.titled}/${mask.phones}，title=${mask.sample ? JSON.stringify(mask.sample.title) : 'n/a'}`
+      )
     }
   }
 
@@ -9425,7 +11317,9 @@ async function testModule52(page, consoleErrors, pageErrors) {
     const pageNormal = await page
       .locator('.app-container, .el-table')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
     record(M, '指令: 全局注册正常', pageNormal, pageNormal ? '通知公告页正常渲染' : '页面渲染异常')
   }
 
@@ -9530,12 +11424,10 @@ async function testModule53(page, consoleErrors, pageErrors) {
           .catch(() => 0)
         record(M, '任务进度: 表格列数', tableColumns >= 8, `${tableColumns} 列`)
 
-        // 数据行数
-        const rowCount = await page
-          .locator('.el-table__row')
-          .count()
-          .catch(() => 0)
-        record(M, '任务进度: 数据行数', rowCount >= 0, `${rowCount} 行`)
+        // 数据行数（机械取证 sys_task=0 行 ⇒ 空态合法，但"接口必须发出 + 表格落定 + DOM=响应行数"
+        // 才是判据；旧 `rowCount >= 0` 把接口 500、表格没挂载一律记 ✅）
+        const tp = await verifyListLoaded(page, { listHint: /\/system\/task\/list(\?|$)/ })
+        record(M, '任务进度: 数据行数', tp.pass, tp.pass ? `${tp.domRows} 行（DOM=响应 ${tp.serverRows}，total=${tp.total}）` : tp.why)
 
         // 进度条（el-progress）存在
         const hasProgress = await page
@@ -9890,7 +11782,7 @@ async function testModule55(page, consoleErrors, pageErrors) {
         // 关闭对话框
         await closeDialog(page)
         await sleep(500)
-        record(M, '菜单管理: 关闭对话框', true, '已执行关闭')
+        await assertOverlayClosed(page, M, '菜单管理: 关闭对话框')
       } else {
         ;[
           '菜单管理: 菜单类型 radio',
@@ -10045,7 +11937,7 @@ async function testModule56(page, consoleErrors, pageErrors) {
         // 关闭对话框
         await closeDialog(page)
         await sleep(500)
-        record(M, '部门管理: 关闭对话框', true, '已执行关闭')
+        await assertOverlayClosed(page, M, '部门管理: 关闭对话框')
       } else {
         ;[
           '部门管理: 部门名称输入框',
@@ -10210,7 +12102,7 @@ async function testModule57(page, consoleErrors, pageErrors) {
         // 关闭角色配置对话框
         await closeDialog(page)
         await sleep(500)
-        record(M, '角色管理: 关闭对话框', true, '已执行关闭')
+        await assertOverlayClosed(page, M, '角色管理: 关闭对话框')
       } else {
         ;[
           '角色管理: 角色名称输入框',
@@ -10491,7 +12383,7 @@ async function testModule58(page, consoleErrors, pageErrors) {
         // 关闭对话框
         await closeDialog(page)
         await sleep(500)
-        record(M, '用户管理: 关闭对话框', true, '已执行关闭')
+        await assertOverlayClosed(page, M, '用户管理: 关闭对话框')
       } else {
         ;[
           '用户管理: 用户名输入框',
@@ -10631,7 +12523,7 @@ async function testModule59(page, consoleErrors, pageErrors) {
         // 关闭导入对话框
         await closeDialog(page)
         await sleep(500)
-        record(M, '代码生成: 关闭导入对话框', true, '已执行关闭')
+        await assertOverlayClosed(page, M, '代码生成: 关闭导入对话框')
       } else {
         ;[
           '代码生成: 导入对话框搜索表单',
@@ -11388,20 +13280,13 @@ async function testModule66(page, consoleErrors, pageErrors) {
       record(M, '已读用户: 通知列表加载', rowCount > 0, `行数: ${rowCount}`)
 
       if (rowCount > 0) {
-        // 查找"阅读用户"按钮（i18n notice.btn.readUsers='阅读用户'；历史文案"已读用户"兼容保留）
-        const readUsersBtn = page
-          .locator(
-            '.el-table__row button:has-text("阅读"), .el-table__row button:has-text("已读"), .el-table__row button[title*="阅读"], .el-table__row button[title*="已读"], .el-table__row button:has-text("Read")'
-          )
-          .first()
+        // 查找"阅读用户"按钮
+        const readUsersBtn = page.locator(READ_USERS_BTN_SEL).first()
         const btnVisible = await readUsersBtn.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
         record(M, '已读用户: 已读用户按钮', btnVisible)
 
         if (btnVisible) {
-          await clickButton(
-            page,
-            '.el-table__row button:has-text("阅读"), .el-table__row button:has-text("已读"), .el-table__row button[title*="阅读"], .el-table__row button[title*="已读"], .el-table__row button:has-text("Read")'
-          )
+          await clickButton(page, READ_USERS_BTN_SEL)
           await sleep(1500)
 
           // 对话框打开
@@ -11428,12 +13313,17 @@ async function testModule66(page, consoleErrors, pageErrors) {
             record(M, '已读用户: 列表表格', tableVisible)
 
             if (tableVisible) {
-              // 已读用户行数
-              const readRowCount = await page
-                .locator('.el-dialog:visible .el-table__row')
-                .count()
-                .catch(() => 0)
-              record(M, '已读用户: 用户行数', readRowCount >= 0, `行数: ${readRowCount}`)
+              // 旧断言 `readRowCount >= 0` 恒真：接口 500、表格空渲染、根本没发请求都记 ✅。
+              // readUsers 列表只在对话框挂载时发一次请求，事后已无法对账 → 先关闭，再由判据重新打开，
+              // 这样"响应行数 = 对话框内 DOM 行数"才是真判据（对话框保持打开，后续断言不受影响）。
+              await closeDialog(page)
+              await sleep(600)
+              const ru = await verifyListLoaded(page, {
+                listHint: /\/system\/notice\/readUsers\/list(\?|$)/,
+                container: '.el-dialog:visible',
+                trigger: () => clickButton(page, READ_USERS_BTN_SEL)
+              })
+              record(M, '已读用户: 用户行数', ru.pass, ru.pass ? `${ru.domRows} 行（DOM=响应 ${ru.serverRows}）` : ru.why)
 
               // 表格列（用户名、昵称、阅读时间等）
               const columnCount = await page
@@ -11542,7 +13432,7 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         .locator('input[placeholder="验证码"], input[placeholder="Captcha"], input[placeholder="Verification Code"]')
         .first()
       const codeVisible = await codeInput.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      record(M, '登录页: 验证码输入框', true, codeVisible ? '已启用' : '未启用')
+      recordSoft(M, '登录页: 验证码输入框', codeVisible, '已启用', '验证码档位为关闭（一致性由 M23 的 /captchaImage 对账断言负责）')
 
       // 67.5 登录按钮
       const loginBtn = page
@@ -11558,7 +13448,13 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         )
         .first()
       const registerVisible = await registerLink.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      record(M, '登录页: 注册链接', true, registerVisible ? '开放注册' : '未开放')
+      // 两种结局都是产品预期（取决于租户是否开放注册），本项不判红也不判绿：如实记 SKIP 并把观测值写进原因，避免"两向皆 ✅"
+      recordSkip(
+        M,
+        '登录页: 注册链接',
+        `观测：链接${registerVisible ? '可见（开放注册）' : '不可见（未开放注册）'}——两种均为设计内结局，` +
+          '正向注册链路由 M45 实断言'
+      )
 
       // 67.7 空表单提交校验
       if (loginBtnVisible) {
@@ -11600,14 +13496,10 @@ async function testModule67(browser, consoleErrors, pageErrors) {
         record(M, '登录页: 错误密码提示', false, '缺少必要表单元素')
       }
 
-      // 67.9 语言切换/主题按钮（功能检查：不存在也算 PASS）
-      const langBtn = page
-        .locator(
-          '.lang-select, .theme-switch, #lang-select, .theme-switch-wrapper, button[aria-label*="lang"], button[aria-label*="theme"]'
-        )
-        .first()
-      const langVisible = await langBtn.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      record(M, '登录页: 语言/主题切换', true, langVisible ? '存在' : '不存在')
+      // 67.9 语言切换/主题按钮
+      // 语言/主题控件在 Navbar 内（登录页没有），此处恒 true 属于"在错误的页面上找一个不存在的入口"。
+      // 真实覆盖在登录后的布局模块，这里记 SKIP 而不是假 PASS。
+      recordSkip(M, '登录页: 语言/主题切换', '登录页不含 Navbar 的语言/主题控件（已登录态功能，见布局模块）')
 
       checkConsoleErrors(consoleErrors, pageErrors, M)
       return
@@ -11720,10 +13612,28 @@ async function testModule68(page, consoleErrors, pageErrors) {
         record(M, '密码修改: 不一致校验', false, '缺少密码输入框')
       }
 
-      // 68.7 密码强度提示（功能检查：不存在也算 PASS）
-      const strengthBar = page.locator('.pwd-strength, .password-strength, .el-progress').first()
-      const strengthVisible = await strengthBar.waitFor({ state: 'visible', timeout: 1000 }).then(() => true).catch(() => false)
-      record(M, '密码修改: 强度提示', true, strengthVisible ? '已显示' : '不存在')
+      // 68.7 密码强度提示（真实契约：resetPwd.vue 内嵌 PasswordStrength，
+      // 组件 `v-if="password"` ⇒ 一旦输入新密码就必须出现强度条）
+      await newPwdInput.fill('Str0ng!Pass2026').catch(() => {})
+      await sleep(500)
+      const strength = await page
+        .evaluate(() => {
+          const box = document.querySelector('.password-strength')
+          if (!box) return { exists: false, bars: 0, active: 0, label: '' }
+          return {
+            exists: true,
+            bars: box.querySelectorAll('.strength-bar').length,
+            active: box.querySelectorAll('.strength-bar.active').length,
+            label: ((box.querySelector('.strength-label') || {}).textContent || '').trim()
+          }
+        })
+        .catch(() => ({ exists: false, bars: 0, active: 0, label: '' }))
+      record(
+        M,
+        '密码修改: 强度提示',
+        strength.exists && strength.bars >= 4 && strength.active >= 1 && !!strength.label,
+        `强度条=${strength.exists} 档位=${strength.bars} 已点亮=${strength.active} 文案=${JSON.stringify(strength.label)}`
+      )
 
       // 68.8 清空表单（避免影响其他测试）
       await oldPwdInput.fill('').catch(() => {})
@@ -11897,9 +13807,19 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
   const M = 70
   log(`\n=== 模块 ${M}: 用户/字典详情页测试 ===`)
 
-  // 70.1 用户详情页（/system/user/view/:userId）
-  // 先获取一个用户 ID
-  let userId = 1
+  // M70：详情页**字段级**核对（比 M21 的"入口能打开"更深一层）。
+  // 真实形态（router/index.ts 静态登记 + 组件引用关系已机械取证）：
+  //   · 用户详情 = views/system/user/view.vue，是 /system/user 行内「用户名称」el-link 打开的
+  //     el-drawer（class="detail-drawer"，字段按 .info-item / .info-label / .info-value 排布，
+  //     打开时 GET /system/user/{id}）；**不存在** /system/user/view/:userId 路由。
+  //   · 字典数据 = 静态路由 /system/dict-data/index/:dictId → views/system/dict/data.vue；
+  //     **不存在** /system/dict/detail/:dictId 路由（dict/detail.vue 是字典管理页内联的抽屉）。
+  // 旧写法 goto 两个不存在的路径 → 落到 404 兜底页 → else 分支再 `record(true,'路由未注册也算 PASS')`，
+  // 十条 ✅ 全部由 404 页签发，是本套件里最典型的"假覆盖"（b73 轮 13 清除）。
+
+  // 70.1-70.5 用户详情抽屉（字段级 + 接口对账）
+  let userId = 0
+  let expectUserName = ''
   if (token) {
     try {
       const resp = await fetch(`${CONFIG.backendUrl}/system/user/list?pageNum=1&pageSize=1`, {
@@ -11907,71 +13827,132 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
       })
       const data = await resp.json()
       if (data.code === 200 && data.rows && data.rows.length > 0) {
-        userId = data.rows[0].userId || 1
+        userId = data.rows[0].userId || 0
+        expectUserName = data.rows[0].userName || ''
       }
-    } catch (e) {
-      // 使用默认 userId
-    }
+    } catch {}
   }
-  record(M, '用户详情: 获取用户 ID', !!token, `userId: ${userId}`)
+  record(M, '用户详情: 获取用户 ID', !!userId && !!expectUserName, `userId=${userId} userName=${expectUserName}`)
 
-  if (
-    await safeGoto(page, `${CONFIG.frontendUrl}/system/user/view/${userId}`, {
-      moduleName: M,
-      waitMs: 2500,
-      allowFail: true
-    })
-  ) {
-    const hasContent = await page
-      .locator('.app-container, .user-view, .detail-container')
+  if (!userId) {
+    ;['用户详情: 页面加载', '用户详情: 信息卡片', '用户详情: 描述列表', '用户详情: 字段与接口一致', '用户详情: 关闭抽屉'].forEach(
+      (item) => record(M, item, false, '前置：取不到用户 ID')
+    )
+  } else if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
+    const detailWatch = { requested: false, status: 0, bodyUserName: '' }
+    // 只认详情请求 `GET /system/user/{数字}`——用 \d 把 `/system/user/list?` 排除，
+    // 否则"列表请求成功"会把"详情请求 404/500"洗成通过（b73 M16 实证同类漏检）
+    const detailHandler = (resp) => {
+      if (!/\/system\/user\/\d+(?:\?|$)/.test(resp.url())) return
+      detailWatch.requested = true
+      detailWatch.status = resp.status()
+      if (resp.status() < 400) {
+        resp
+          .json()
+          .then((b) => {
+            detailWatch.bodyUserName = (b && b.data && b.data.userName) || ''
+          })
+          .catch(() => {})
+      }
+    }
+    page.on('response', detailHandler)
+    const linkOk = await page
+      .locator('.el-table__body .el-table__row .el-link')
       .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    record(M, '用户详情: 页面加载', hasContent)
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const drawerVisible = linkOk
+      ? await page
+          .locator('.detail-drawer')
+          .first()
+          .waitFor({ state: 'visible', timeout: 6000 })
+          .then(() => true)
+          .catch(() => false)
+      : false
+    await sleep(500)
+    const drawer = await page
+      .evaluate(() => {
+        const d = Array.from(document.querySelectorAll('.detail-drawer')).find((n) => n.getClientRects().length > 0)
+        if (!d) return null
+        const items = Array.from(d.querySelectorAll('.info-item'))
+        const labelOf = (n) => ((n.querySelector('.info-label') || {}).textContent || '').trim()
+        const valueOf = (n) => ((n.querySelector('.info-value') || {}).textContent || '').trim()
+        const accountItem = items.find((n) => /登录账号|Login|login/i.test(labelOf(n)))
+        return {
+          sections: d.querySelectorAll('.section-header').length,
+          fields: items.length,
+          filled: items.filter((n) => valueOf(n).length > 0).length,
+          hasTag: !!d.querySelector('.el-tag'),
+          account: accountItem ? valueOf(accountItem) : '',
+          closeBtn: !!d.querySelector('.el-drawer__close-btn')
+        }
+      })
+      .catch(() => null)
+    page.off('response', detailHandler)
 
-    if (hasContent) {
-      // 70.2 用户基本信息展示
-      const hasInfoCard = await page
-        .locator('.el-card, .info-card, .user-info')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '用户详情: 信息卡片', hasInfoCard)
-
-      // 70.3 用户描述列表（el-descriptions）
-      const hasDescriptions = await page
-        .locator('.el-descriptions')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '用户详情: 描述列表', hasDescriptions)
-
-      // 70.4 返回按钮
-      const backBtn = page
-        .locator(
-          'button:has-text("返 回"), button:has-text("返回"), button:has-text("Back"), .el-button:has(.el-icon-back)'
-        )
-        .first()
-      const backVisible = await backBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '用户详情: 返回按钮', backVisible)
-
-      // 70.5 头像展示
-      const avatar = page.locator('.el-avatar, .user-avatar img, .avatar').first()
-      const avatarVisible = await avatar.waitFor({ state: 'visible', timeout: 2000 }).then(() => true).catch(() => false)
-      record(M, '用户详情: 头像展示', avatarVisible)
-    }
-  } else {
-    // 用户详情页通过抽屉显示，无独立路由（功能检查：路由未注册也算 PASS）
-    ;[
+    record(
+      M,
       '用户详情: 页面加载',
-      '用户详情: 信息卡片',
+      drawerVisible && detailWatch.requested && detailWatch.status < 400,
+      `抽屉可见=${drawerVisible} 详情接口=${detailWatch.requested}/${detailWatch.status}`
+    )
+    record(M, '用户详情: 信息卡片', !!drawer && drawer.sections >= 2, `分区标题=${drawer ? drawer.sections : -1} 个（基本信息/其他信息）`)
+    record(
+      M,
       '用户详情: 描述列表',
-      '用户详情: 返回按钮',
-      '用户详情: 头像展示'
-    ].forEach((item) => {
-      record(M, item, true, '路由未注册，详情通过抽屉显示')
-    })
+      !!drawer && drawer.fields >= 6 && drawer.filled >= 4 && drawer.hasTag,
+      `字段=${drawer ? drawer.fields : -1} 非空=${drawer ? drawer.filled : -1} 状态标签=${drawer ? drawer.hasTag : false}`
+    )
+    record(
+      M,
+      '用户详情: 字段与接口一致',
+      !!drawer && !!detailWatch.bodyUserName && drawer.account === detailWatch.bodyUserName && drawer.account === expectUserName,
+      `接口 userName=${JSON.stringify(detailWatch.bodyUserName)} 抽屉登录账号=${JSON.stringify(drawer ? drawer.account : '')} 列表首行=${JSON.stringify(expectUserName)}`
+    )
+    let closed = false
+    const hasCloseBtn = !!(drawer && drawer.closeBtn)
+    if (hasCloseBtn) {
+      // 必须限定在**当前这个抽屉**内点关闭：全局 `.el-drawer__close-btn` 的 first() 可能命中
+      // 其它隐藏抽屉实例（点了个不可见的东西，本抽屉当然还在）——b73 轮 13 实跑抓到的假失败根因。
+      await page
+        .locator('.detail-drawer .el-drawer__close-btn')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      const closeDeadline = Date.now() + 3000
+      while (Date.now() < closeDeadline) {
+        let stillVisible
+        try {
+          stillVisible = await page.locator('.detail-drawer').first().isVisible()
+        } catch {
+          stillVisible = true // 读不到就当作"没关掉"（fail-closed，不把未知洗成通过）
+        }
+        if (!stillVisible) {
+          closed = true
+          break
+        }
+        await sleep(200)
+      }
+    }
+    record(
+      M,
+      '用户详情: 关闭抽屉',
+      closed,
+      closed
+        ? '关闭按钮生效，抽屉已隐藏'
+        : `有可见关闭按钮=${hasCloseBtn}，点它后 3s 内抽屉未隐藏（before-close 卡住或点了隐藏实例）`
+    )
+  } else {
+    ;['用户详情: 页面加载', '用户详情: 信息卡片', '用户详情: 描述列表', '用户详情: 字段与接口一致', '用户详情: 关闭抽屉'].forEach(
+      (item) => record(M, item, false, '用户列表页打不开')
+    )
   }
 
-  // 70.6 字典详情页（/system/dict/detail/:dictId）
-  let dictId = 1
+  // 70.6-70.10 字典数据页（真实路由 /system/dict-data/index/:dictId）
+  let dictId = 0
+  let expectDictType = ''
+  let expectDictName = ''
   if (token) {
     try {
       const resp = await fetch(`${CONFIG.backendUrl}/system/dict/type/list?pageNum=1&pageSize=1`, {
@@ -11979,69 +13960,71 @@ async function testModule70(page, consoleErrors, pageErrors, token) {
       })
       const data = await resp.json()
       if (data.code === 200 && data.rows && data.rows.length > 0) {
-        dictId = data.rows[0].dictId || 1
+        dictId = data.rows[0].dictId || 0
+        expectDictType = data.rows[0].dictType || ''
+        expectDictName = data.rows[0].dictName || ''
       }
-    } catch (e) {
-      // 使用默认 dictId
-    }
+    } catch {}
   }
-  record(M, '字典详情: 获取字典 ID', !!token, `dictId: ${dictId}`)
+  record(M, '字典详情: 获取字典 ID', !!dictId && !!expectDictType, `dictId=${dictId} dictType=${expectDictType}`)
 
-  if (
-    await safeGoto(page, `${CONFIG.frontendUrl}/system/dict/detail/${dictId}`, {
+  const DICT_ITEMS = ['字典详情: 页面加载', '字典详情: 查询表单', '字典详情: 数据表格', '字典详情: 数据行数', '字典详情: 字典类型回显']
+  if (!dictId) {
+    DICT_ITEMS.forEach((item) => record(M, item, false, '前置：取不到字典 ID'))
+  } else {
+    const dictGoto = await safeGoto(page, `${CONFIG.frontendUrl}/system/dict-data/index/${dictId}`, {
       moduleName: M,
-      waitMs: 2500,
-      allowFail: true
+      waitMs: 2500
     })
-  ) {
-    const hasContent = await page
-      .locator('.app-container, .dict-detail')
-      .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    record(M, '字典详情: 页面加载', hasContent)
+    record(M, '字典详情: 页面加载', dictGoto, dictGoto ? `dictId=${dictId}` : '真实路由打不开（旧写法这时记 PASS）')
+    if (!dictGoto) {
+      DICT_ITEMS.slice(1).forEach((item) => record(M, item, false, '页面未打开'))
+    } else {
+      const formItems = await page.locator('.query-form .el-form-item, .el-form--inline .el-form-item').count()
+      record(M, '字典详情: 查询表单', formItems >= 3, `${formItems} 个过滤项（字典名称/字典标签/状态）`)
 
-    if (hasContent) {
-      // 70.7 字典基本信息
-      const hasInfo = await page
-        .locator('.el-descriptions, .el-card, .info-card')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '字典详情: 基本信息区', hasInfo)
-
-      // 70.8 字典数据表格
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
       record(M, '字典详情: 数据表格', hasTable)
 
-      // 70.9 字典数据行数
-      if (hasTable) {
-        const rowCount = await page
-          .locator('.el-table__row')
-          .count()
-          .catch(() => 0)
-        record(M, '字典详情: 数据行数', rowCount >= 0, `行数: ${rowCount}`)
-      } else {
-        record(M, '字典详情: 数据行数', false, '无表格')
-      }
+      // minRows=1：机械取证 sys_dict_data 共 46 行、每个种子字典类型 ≥2 行，
+      // 首个类型 sys_user_sex 有 3 行 ⇒ "打开某个字典的数据页却是空的"是真实缺陷
+      const dd = await verifyListLoaded(page, { listHint: /\/system\/dict\/data\/list(\?|$)/, minRows: 1 })
+      record(M, '字典详情: 数据行数', dd.pass, dd.pass ? `${dd.domRows} 行（DOM=响应 ${dd.serverRows}，total=${dd.total}）` : dd.why)
 
-      // 70.10 返回按钮
-      const backBtn = page.locator('button:has-text("返 回"), button:has-text("返回"), button:has-text("Back")').first()
-      const backVisible = await backBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '字典详情: 返回按钮', backVisible)
+      // 「打开哪个字典就查哪个字典」是这条路由唯一的核心契约，两条都必须对上：
+      //   ① 请求参数 dictType == 进页时那个类型的 dictType；
+      //   ② 「字典名称」下拉显示的是同一个类型的 dictName。
+      // EP 2.14 的 el-select 把选中项渲染进 `.el-select__placeholder > span`（input.value 恒空，
+      // 未选中时该 span 带 is-transparent）——读 input.value 的写法在本项目里必然假失败（b73 轮 13 实跑取证）。
+      const reqDictType = new URLSearchParams(dd.query).get('dictType') || ''
+      const selState = await page
+        .evaluate(() => {
+          const s = document.querySelector('.el-form--inline .el-select, .query-form .el-select')
+          if (!s) return { found: false, text: '', transparent: true }
+          const ph = s.querySelector('.el-select__placeholder')
+          return {
+            found: true,
+            text: ph ? (ph.textContent || '').trim() : '',
+            transparent: ph ? ph.classList.contains('is-transparent') : true
+          }
+        })
+        .catch(() => ({ found: false, text: '', transparent: true }))
+      record(
+        M,
+        '字典详情: 字典类型回显',
+        !!reqDictType &&
+          reqDictType === expectDictType &&
+          selState.found &&
+          !selState.transparent &&
+          selState.text === expectDictName,
+        `请求 dictType=${JSON.stringify(reqDictType)} 期望=${JSON.stringify(expectDictType)}；下拉显示=${JSON.stringify(selState.text)}（占位态=${selState.transparent}）期望名称=${JSON.stringify(expectDictName)}`
+      )
     }
-  } else {
-    // 字典详情页通过抽屉显示，无独立路由（功能检查：路由未注册也算 PASS）
-    ;[
-      '字典详情: 页面加载',
-      '字典详情: 基本信息区',
-      '字典详情: 数据表格',
-      '字典详情: 数据行数',
-      '字典详情: 返回按钮'
-    ].forEach((item) => {
-      record(M, item, true, '路由未注册，详情通过抽屉显示')
-    })
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -12066,13 +14049,10 @@ async function testModule71(page, consoleErrors, pageErrors) {
       await closeDialog(page)
       await sleep(500)
 
-      // 等待表格加载
-      await page.waitForSelector('.el-table__row', { timeout: 5000 }).catch(() => {})
-      const rowCount = await page
-        .locator('.el-table__row')
-        .count()
-        .catch(() => 0)
-      record(M, '操作日志: 列表行数', rowCount >= 0, `行数: ${rowCount}`)
+      // 操作日志列表（sys_oper_log 实测 8 万余行 ⇒ minRows=1；旧 `>= 0` 恒真）
+      const ol = await verifyListLoaded(page, { listHint: /\/monitor\/operlog\/list(\?|$)/, minRows: 1 })
+      record(M, '操作日志: 列表行数', ol.pass, ol.pass ? `${ol.domRows} 行（DOM=响应 ${ol.serverRows}，total=${ol.total}）` : ol.why)
+      const rowCount = ol.domRows
 
       // 71.2 详情按钮（中文"详细"，英文"Detail"）
       if (rowCount > 0) {
@@ -12147,41 +14127,52 @@ async function testModule71(page, consoleErrors, pageErrors) {
     })
   }
 
-  // 71.6 任务详情页（monitor/job/detail/:jobId - 通过对话框显示，无独立路由）
-  if (
-    await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job/detail/1`, { moduleName: M, waitMs: 2500, allowFail: true })
-  ) {
-    const hasContent = await page
-      .locator('.app-container, .job-detail')
-      .first()
-      .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-    record(M, '任务详情: 页面加载', hasContent)
-
-    if (hasContent) {
-      // 71.7 任务基本信息
-      const hasInfo = await page
-        .locator('.el-descriptions, .el-card, .info-card')
-        .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '任务详情: 基本信息区', hasInfo)
-
-      // 71.8 任务执行日志表格
+  // 71.6-71.9 调度日志页（真实路由 /monitor/job-log/index/:jobId → views/monitor/job/log.vue）
+  // 旧写法 goto `/monitor/job/detail/1`——该路由不存在（静态路由登记的是 /monitor/job-log/index/:jobId），
+  // 落到 404 兜底后 `hasContent=false`，四条断言**一条都不记**（比假 PASS 更隐蔽：覆盖率静默缩水）。
+  // 任务详情对话框本身已由 M21.4 在 /monitor/job 行内真实链路上验证。
+  const JOB_LOG_ITEMS = ['任务详情: 页面加载', '任务详情: 基本信息区', '任务详情: 日志表格', '任务详情: 日志详情对话框']
+  {
+    const logGoto = await safeGoto(page, `${CONFIG.frontendUrl}/monitor/job-log/index/1`, { moduleName: M, waitMs: 2500 })
+    if (!logGoto) {
+      JOB_LOG_ITEMS.forEach((item) => record(M, item, false, '调度日志页打不开'))
+    } else {
+      const jl = await verifyListLoaded(page, { listHint: /\/monitor\/jobLog\/list(\?|$)/, minRows: 1 })
+      record(M, '任务详情: 页面加载', jl.requested && jl.status < 400, `jobLog 列表接口=${jl.requested}/${jl.status}`)
+      const formItems = await page.locator('.el-form--inline .el-form-item, .query-form .el-form-item').count()
+      record(M, '任务详情: 基本信息区', formItems >= 3, `${formItems} 个过滤项（任务名称/任务组名/执行状态/时间范围）`)
       const hasTable = await page
         .locator('.el-table')
         .first()
-        .waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '任务详情: 日志表格', hasTable)
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      record(M, '任务详情: 日志表格', hasTable && jl.pass, hasTable ? `${jl.domRows} 行（DOM=响应 ${jl.serverRows}，total=${jl.total}）` : '无表格')
 
-      // 71.9 返回按钮
-      const backBtn = page.locator('button:has-text("返 回"), button:has-text("返回"), button:has-text("Back")').first()
-      const backVisible = await backBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      record(M, '任务详情: 返回按钮', backVisible)
+      // 行内「详细」→ <job-detail type="log"> 对话框：必须真的打开并带出该行的调用信息
+      const detailBtn = page.locator('.el-table__row button:has-text("详细"), .el-table__row button:has-text("Detail")').first()
+      const btnOk = await detailBtn
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      const detailDialog = btnOk ? await waitForVisibleDialog(page, 6000) : false
+      const detailContent = detailDialog
+        ? await page
+            .evaluate(() => {
+              const d = Array.from(document.querySelectorAll('.el-dialog')).find((n) => n.getClientRects().length > 0)
+              const txt = d ? (d.textContent || '').replace(/\s+/g, ' ').trim() : ''
+              return { len: txt.length, hasInvoke: /调用目标|任务名称|执行时间|状态|Invoke|Job Name/i.test(txt) }
+            })
+            .catch(() => ({ len: -1, hasInvoke: false }))
+        : { len: -1, hasInvoke: false }
+      record(
+        M,
+        '任务详情: 日志详情对话框',
+        btnOk && detailDialog && detailContent.len > 40 && detailContent.hasInvoke,
+        `按钮=${btnOk} 对话框=${detailDialog} 文本=${detailContent.len} 字，含调用信息=${detailContent.hasInvoke}`
+      )
+      if (detailDialog) await closeDialog(page)
     }
-  } else {
-    // 任务详情通过对话框显示，无独立路由（功能检查：路由未注册也算 PASS）
-    ;['任务详情: 页面加载', '任务详情: 基本信息区', '任务详情: 日志表格', '任务详情: 返回按钮'].forEach((item) => {
-      record(M, item, true, '路由未注册，详情通过对话框显示')
-    })
   }
 
   checkConsoleErrors(consoleErrors, pageErrors, M)
@@ -12271,11 +14262,10 @@ async function testModule72(page, consoleErrors, pageErrors) {
       }
 
       // 72.7 表单类型选择对话框（CodeTypeDialog.vue）
-      // CodeTypeDialog 仅在添加特定组件（如选择器）时才弹出，未触发也算 PASS（组件存在但未激活）
-      const codeTypeDialogExists = await page.evaluate(
-        () => !!document.querySelector('[class*="code-type"], .el-dialog')
-      )
-      record(M, '表单构建: 类型对话框组件', true, codeTypeDialogExists ? '已存在' : '组件存在但未触发')
+      // 旧判据 `document.querySelector('[class*="code-type"], .el-dialog')` 里的 `.el-dialog`
+      // 会匹配页面上**任意**对话框，恒真；而该弹窗只在添加"带选项的组件"（下拉/单选组）时触发，
+      // 本模块没做这一步 ⇒ 无法判定，记 SKIP 而不是假 PASS。
+      recordSkip(M, '表单构建: 类型对话框组件', '该对话框需先添加带选项的组件才触发，本模块未触发，无法判定')
 
       // 72.8 导出按钮（表单构建页使用"导出vue文件"/"Export Vue File"而非预览）
       const exportBtn = page
@@ -12341,13 +14331,10 @@ async function testModule73(page, consoleErrors, pageErrors) {
       await closeDialog(page)
       await sleep(500)
 
-      // 73.2 表格行数
-      await page.waitForSelector('.el-table__row', { timeout: 5000 }).catch(() => {})
-      const rowCount = await page
-        .locator('.el-table__row')
-        .count()
-        .catch(() => 0)
-      record(M, '代码生成: 表格行数', rowCount >= 0, `行数: ${rowCount}`)
+      // 73.2 表格行数（ensureGenTableImported 已保证 ≥1 张表 ⇒ minRows=1；旧 `>= 0` 恒真）
+      const gl = await verifyListLoaded(page, { listHint: /\/tool\/gen\/list(\?|$)/, minRows: 1 })
+      record(M, '代码生成: 表格行数', gl.pass, gl.pass ? `${gl.domRows} 行（DOM=响应 ${gl.serverRows}，total=${gl.total}）` : gl.why)
+      const rowCount = gl.domRows
 
       // 73.3 编辑按钮（编辑按钮 aria-label 为"修改"，仅含图标）
       if (rowCount > 0) {
@@ -12677,9 +14664,9 @@ async function testModule75(page, consoleErrors, pageErrors) {
         )
         .first()
       const btnVisible = await exportBtn.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)
-      // 可选页面（如通知管理）无导出功能时也标记为 PASS
+      // 可选页面（如通知管理）没有导出功能是合法状态 → 记 SKIP，不再记假 ✅
       if (target.optional) {
-        record(M, `导出: ${target.name} 导出按钮`, true, btnVisible ? '已启用' : '未启用')
+        recordSoft(M, `导出: ${target.name} 导出按钮`, btnVisible, '已启用', '该页无导出功能（可选页面，非缺陷）')
       } else {
         record(M, `导出: ${target.name} 导出按钮`, btnVisible)
       }
@@ -12798,7 +14785,9 @@ async function testModule76(page, consoleErrors, pageErrors) {
       record(
         M,
         'SCIM 组: 详情 API 可达',
-        [200, 404, 500].includes(resp2.status),
+        // 500 不得算"可达"——按 ID 查询不存在的主键返回 500 正是缺陷本身
+        // （原实现写 [200, 404, 500]，会把 handler panic/ unwrap 类真缺陷记成正例）
+        [200, 404].includes(resp2.status),
         `HTTP ${resp2.status}`
       )
     } else {
@@ -13268,48 +15257,6 @@ async function tableColumnTexts(page, tableIndex, colIndex) {
     .catch(() => [])
 }
 
-/** 点击某列的排序箭头（order = 'ascending' | 'descending'），触发服务端排序 */
-async function clickSortCaret(page, columnLabel, order) {
-  return await page
-    .evaluate(
-      ({ label, ord }) => {
-        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
-        const table = tables[0]
-        if (!table) return false
-        const norm = (x) => (x || '').replace(/\s+/g, '')
-        const th = Array.from(table.querySelectorAll('.el-table__header th')).find((t) =>
-          norm(t.innerText).includes(norm(label))
-        )
-        if (!th) return false
-        const caret = th.querySelector(`.sort-caret.${ord}`)
-        if (!caret) return false
-        caret.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
-        return true
-      },
-      { label: columnLabel, ord: order }
-    )
-    .catch(() => false)
-}
-
-/** 读取主表格首行指定列文本（用于排序结果比对） */
-async function firstRowCellText(page, columnLabel) {
-  return await page
-    .evaluate((label) => {
-      const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
-      const table = tables[0]
-      if (!table) return ''
-      const norm = (x) => (x || '').replace(/\s+/g, '')
-      const ths = Array.from(table.querySelectorAll('.el-table__header th'))
-      const idx = ths.findIndex((t) => norm(t.innerText).includes(norm(label)))
-      if (idx < 0) return ''
-      const row = table.querySelector('.el-table__body .el-table__row')
-      if (!row) return ''
-      const cells = Array.from(row.querySelectorAll('td'))
-      return ((cells[idx]?.innerText) || '').trim()
-    }, columnLabel)
-    .catch(() => '')
-}
-
 /** 按表头文本定位列索引（不同页面列顺序不固定，避免硬编码列号） */
 async function colIndexByLabel(page, label, tableIndex = 0) {
   return await page
@@ -13373,7 +15320,7 @@ async function testModule78(page, consoleErrors, pageErrors) {
     checkConsoleErrors(consoleErrors, pageErrors, M)
     return
   }
-  record(M, '报表管理: 页面加载', true)
+  await assertPageLoaded(page, M, '报表管理: 页面加载')
   await checkTableColumns(page, ['报表编码', '报表名称', '报表类型', '创建时间', '操作'], M, '报表管理')
 
   const btnAdd = await isButtonVisible(page, ['新增'])
@@ -13474,7 +15421,7 @@ async function testModule78(page, consoleErrors, pageErrors) {
 
   // 78.5 报表订阅独立页：新增订阅 → handleRun 立即推送 → 删除订阅
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/report/sub`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '报表订阅: 页面加载', true)
+    await assertPageLoaded(page, M, '报表订阅: 页面加载')
     await checkTableColumns(page, ['订阅名称', '报表ID', '周期', '状态', '操作'], M, '报表订阅')
     const subAdd = await isButtonVisible(page, ['新增'])
     const subDel = await isButtonVisible(page, ['删除'])
@@ -13649,7 +15596,7 @@ async function testModule79(page, consoleErrors, pageErrors) {
     checkConsoleErrors(consoleErrors, pageErrors, M)
     return
   }
-  record(M, '回调配置: 页面加载', true)
+  await assertPageLoaded(page, M, '回调配置: 页面加载')
   await checkTableColumns(page, ['回调名称', '事件类型', '目标 URL', '状态', '操作'], M, '回调配置')
 
   const bAdd = await isButtonVisible(page, ['新增'])
@@ -13692,7 +15639,7 @@ async function testModule79(page, consoleErrors, pageErrors) {
     const aToast = await waitToastText(page)
     hookCreated = /新增成功/.test(aToast) && !!aResp && aResp.status() === 200
     if (hookCreated) {
-      record(M, '回调配置: 新增回调', true, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
+      record(M, '回调配置: 新增回调', hookCreated, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
     } else {
       recordSkip(
         M,
@@ -13792,7 +15739,7 @@ async function testModule79(page, consoleErrors, pageErrors) {
 
   // 79.7 推送记录页：清空（仅验证弹窗后取消）/ 重试（未选中时禁用）/ 查看详情
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/webHook/log`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '推送记录: 页面加载', true)
+    await assertPageLoaded(page, M, '推送记录: 页面加载')
     const lDel = await isButtonVisible(page, ['删除'])
     const lClean = await isButtonVisible(page, ['清空'])
     const lRetry = await isButtonVisible(page, ['重试'])
@@ -13878,7 +15825,7 @@ async function testModule80(page, consoleErrors, pageErrors) {
 
   // 80.1 消息渠道页：新增 → 测试 runTest → 删除清理
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/channel`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '消息渠道: 页面加载', true)
+    await assertPageLoaded(page, M, '消息渠道: 页面加载')
     await checkTableColumns(page, ['渠道名称', '渠道编码', '渠道类型', '操作'], M, '消息渠道')
     const cAdd = await isButtonVisible(page, ['新增'])
     const cDel = await isButtonVisible(page, ['删除'])
@@ -13910,7 +15857,7 @@ async function testModule80(page, consoleErrors, pageErrors) {
         record(
           M,
           '消息渠道: 新增渠道',
-          true,
+          cOk,
           `toast="${cToast.slice(0, 20)}", HTTP ${cResp.status()}, 类型=${pick ? pick.label : '默认'}`
         )
       } else {
@@ -14003,7 +15950,7 @@ async function testModule80(page, consoleErrors, pageErrors) {
 
   // 80.2 消息模板页
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/template`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '消息模板: 页面加载', true)
+    await assertPageLoaded(page, M, '消息模板: 页面加载')
     await checkTableColumns(page, ['模板名称', '模板编码', '渠道编码', '模板主题', '操作'], M, '消息模板')
     const tAdd = await isButtonVisible(page, ['新增'])
     const tDel = await isButtonVisible(page, ['删除'])
@@ -14069,7 +16016,7 @@ async function testModule80(page, consoleErrors, pageErrors) {
 
   // 80.3 发送记录页：清空（只验证弹窗后取消）/ 重试（有数据才执行，否则 SKIP）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/log`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '发送记录: 页面加载', true)
+    await assertPageLoaded(page, M, '发送记录: 页面加载')
     const lgDel = await isButtonVisible(page, ['删除'])
     const lgClean = await isButtonVisible(page, ['清空'])
     record(M, '发送记录: 工具栏按钮(删除/清空)', lgDel && lgClean, `删除=${lgDel}, 清空=${lgClean}`)
@@ -14146,7 +16093,7 @@ async function testModule81(page, consoleErrors, pageErrors) {
     checkConsoleErrors(consoleErrors, pageErrors, M)
     return
   }
-  record(M, '登录配置: 页面加载', true)
+  await assertPageLoaded(page, M, '登录配置: 页面加载')
   await checkTableColumns(page, ['提供商名称', '提供商编码', '是否启用', '操作'], M, '登录配置')
   const pAdd = await isButtonVisible(page, ['新增'])
   const pEdit = await isButtonVisible(page, ['编辑提供商', '修改'])
@@ -14190,7 +16137,7 @@ async function testModule81(page, consoleErrors, pageErrors) {
   const aToast = await waitToastText(page)
   const created = /新增成功/.test(aToast) && !!aResp && aResp.status() === 200
   if (created) {
-    record(M, '登录配置: 新增提供商', true, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
+    record(M, '登录配置: 新增提供商', created, `toast="${aToast.slice(0, 20)}", HTTP ${aResp.status()}`)
   } else {
     recordSkip(
       M,
@@ -14289,7 +16236,7 @@ async function testModule82(page, consoleErrors, pageErrors) {
     checkConsoleErrors(consoleErrors, pageErrors, M)
     return
   }
-  record(M, '缓存监控: 页面加载', true)
+  await assertPageLoaded(page, M, '缓存监控: 页面加载')
 
   // 82.1 切换到「缓存列表」Tab
   const tabClicked = await page
@@ -14356,7 +16303,7 @@ async function testModule82(page, consoleErrors, pageErrors) {
   record(
     M,
     '缓存监控: 选中白名单内缓存名称',
-    true,
+    !!targetName,
     `选中="${targetName}", 行索引=${targetIdx}, 全部名称=${allNames.slice(0, 8).join('|')}`
   )
 
@@ -14485,7 +16432,7 @@ async function testModule83(page, consoleErrors, pageErrors) {
     checkConsoleErrors(consoleErrors, pageErrors, M)
     return
   }
-  record(M, '文件管理: 页面加载', true)
+  await assertPageLoaded(page, M, '文件管理: 页面加载')
   const upBtn = await isButtonVisible(page, ['上传文件'])
   const batchDelBtn = await isButtonVisible(page, ['批量删除'])
   const refreshBtn = await isButtonVisible(page, ['刷新'])
@@ -14680,19 +16627,43 @@ async function testModule84(page, consoleErrors, pageErrors) {
     return r
   }
 
-  /** 对指定列做「第一次点击排序 → 读首行 → 再次点击切换方向 → 读首行」的一轮真实交互 */
+  /** 读**当前可见表格**指定列的整列行值（排序验收的数据面证据） */
+  const readColumnValues = async (label) =>
+    page
+      .evaluate((lb) => {
+        const norm = (x) => (x || '').replace(/\s+/g, '')
+        const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
+        const table = tables[0]
+        if (!table) return { values: [], col: -1 }
+        const heads = Array.from(table.querySelectorAll('.el-table__header th'))
+        const col = heads.findIndex((t) => norm(t.innerText).includes(norm(lb)))
+        if (col < 0) return { values: [], col }
+        const rows = Array.from(table.querySelectorAll('.el-table__body .el-table__row'))
+        const values = rows.map((r) => {
+          const cell = r.querySelectorAll('td')[col]
+          return norm(cell ? cell.innerText : '')
+        })
+        return { values, col }
+      }, label)
+      .catch(() => ({ values: [], col: -1 }))
+
+  /** 对同一列做「点击 → 读整列值 → 再点击 → 再读」的一轮真实交互 */
   const sortRound = async (label) => {
     const rAsc = await clickSortToggle(label)
     await sleep(1500)
-    const firstAsc = await firstRowCellText(page, label)
+    const vAsc = await readColumnValues(label)
+    const firstAsc = vAsc.values[0] || ''
     const rDesc = await clickSortToggle(label)
     await sleep(1500)
-    const firstDesc = await firstRowCellText(page, label)
+    const vDesc = await readColumnValues(label)
+    const firstDesc = vDesc.values[0] || ''
     return {
       rDesc,
       rAsc,
       firstDesc,
       firstAsc,
+      vAsc,
+      vDesc,
       descCol: qp(rDesc, 'orderByColumn'),
       ascCol: qp(rAsc, 'orderByColumn'),
       descIsAsc: qp(rDesc, 'isAsc'),
@@ -14700,10 +16671,18 @@ async function testModule84(page, consoleErrors, pageErrors) {
     }
   }
 
-  /** 对同一页同一列的排序结果做三项断言：
-   *  1) 两次点击都真实发出了带 orderByColumn 的查询（硬）
-   *  2) 两次点击的排序方向不同（硬，证明升降序切换生效）
-   *  3) 首行文本随升降序变化（软：后端目前未实现动态排序，见 SKIP 说明） */
+  /** 对同一页同一列的排序结果做断言。
+   *
+   * ⚠ 结论订正（b73 轮 14 机械复核）：此处原注释断言"后端 `sys_logininfor_service.rs:58` /
+   * `sys_oper_log_service.rs:66` 把 order_by_column/is_asc 硬编码为 None，全库没有任何 service
+   * 消费 PageDomain.order_by_column"，与现状不符——两表都有 `SORTABLE_COLUMNS` 白名单并经
+   * `sort::resolve_column` + `SortOrder` 落到 repository 的 `order_by`。curl 实测
+   * `loginTime/isAsc=ascending` 首行 `2026-09-30T13:58:27Z`、`descending` 首行
+   * `2026-10-17T05:25:40Z`，`userName` 升序 admin…/降序 tu… ——排序**确实生效**。
+   * 因此原判据（首行文本是否变化 + isAsc 是否不同）被两条弱信号拖累成长期 SKIP：
+   *   · 首行对比会被高度重复的取值洗白（登录日志里绝大多数是 admin）；
+   *   · `isAsc` 两次相同多半是点击轮转与请求捕获的竞态，不是后端缺陷。
+   * 现改以**整列单调性**为硬判据：按该轮请求真正携带的方向，要求可见列逐行非严格单调。 */
   const assertSort = async (pageName, label, r, extra = '') => {
     record(
       M,
@@ -14711,34 +16690,47 @@ async function testModule84(page, consoleErrors, pageErrors) {
       !!r.rDesc && !!r.rAsc && r.descCol !== '' && r.ascCol !== '',
       `desc=${r.descCol}/${r.descIsAsc} | asc=${r.ascCol}/${r.ascIsAsc}`
     )
-    // 方向切换用软断言：前端把 EP 的 order 透传给 isAsc 时存在 asc/ascending 两种风格，
-    // 且 EP toggleOrder 的请求在跨列连续点击时可能与 waitForApi 捕获错位（列表重渲染竞态）；
-    // 排序是否真正生效取决于后端是否消费排序参数（当前未消费，见下方台账说明），
-    // 方向参数本身的变化不足以作为硬验收点。
+    // 方向切换保留软断言（竞态导致的同向不影响单调性验收，但值得留痕）
     recordSoft(
       M,
       `${pageName}: ${label}列排序-升降序方向切换`,
       r.descIsAsc !== '' && r.ascIsAsc !== '' && r.descIsAsc !== r.ascIsAsc,
-      `升序点击后 isAsc="${r.ascIsAsc}", 降序点击后 isAsc="${r.descIsAsc}"`,
-      `方向参数未随点击切换（升序="${r.ascIsAsc}", 降序="${r.descIsAsc}"；后端忽略排序参数，前端透传风格 asc/ascending 混用，见优化台账 SORT-BACKLOG）`
+      `第 1 次点击 isAsc="${r.ascIsAsc}", 第 2 次点击 isAsc="${r.descIsAsc}"`,
+      `两次点击捕获到同方向（isAsc 均="${r.ascIsAsc}"，属点击/捕获竞态，改由下方单调性验收）`
     )
-    // 后端 sys_logininfor_service.rs:58 / sys_oper_log_service.rs:66 的 From impl 把
-    // order_by_column / is_asc 硬编码为 None，列表固定按时间倒序；全库也没有任何 service
-    // 消费 PageDomain.order_by_column。故「首行随排序变化」在当前后端实现下不可能成立，
-    // 用软断言如实记录（后端补齐排序后会自动转为 PASS）。
-    recordSoft(
-      M,
-      `${pageName}: ${label}列排序-首行随升降序变化`,
-      r.firstDesc !== '' && r.firstAsc !== '' && r.firstDesc !== r.firstAsc,
-      `降序首行="${r.firstDesc}", 升序首行="${r.firstAsc}"${extra}`,
-      `首行未变化（后端忽略排序参数，列表固定按时间倒序：降序首行="${r.firstDesc}", 升序首行="${r.firstAsc}"）`
-    )
+    const dirOf = (q) => (/^asc/i.test(q || '') ? 'asc' : 'desc')
+    const rounds = [
+      { tag: '第1轮', q: r.rAsc, isAsc: r.ascIsAsc, v: r.vAsc },
+      { tag: '第2轮', q: r.rDesc, isAsc: r.descIsAsc, v: r.vDesc }
+    ].filter((x) => x.q)
+    for (const rd of rounds) {
+      const oc = orderCheck(rd.v.values, dirOf(rd.isAsc))
+      record(
+        M,
+        `${pageName}: ${label}列排序-整列单调(${rd.tag} ${dirOf(rd.isAsc)})`,
+        oc.ok,
+        oc.ok
+          ? `${rd.v.values.length} 行按 ${rd.isAsc} 单调${extra}`
+          : `列值不单调：反例 ${JSON.stringify(oc.bad)}（${rd.v.values.slice(0, 3).join(' | ')} …共 ${rd.v.values.length} 行）`
+      )
+    }
+    if (rounds.length < 2) {
+      recordSkip(M, `${pageName}: ${label}列排序-整列单调`, '未捕获到两轮排序请求（无法验收单调性）')
+    }
   }
 
   // 84.1 登录日志页：按「访问时间」列真实点击排序箭头（i18n 中 loginTime 的中文文案是「访问时间」）
   if (await safeGoto(page, `${CONFIG.frontendUrl}/monitor/logininfor`, { moduleName: M, waitMs: 2500 })) {
-    record(M, '登录日志: 页面加载', true)
+    // 原 `record(M, '登录日志: 页面加载', true)` 字面真：路由可达不等于页面把列表渲染出来。
     await waitRowsReady()
+    const liTable = await page
+      .locator('.el-table:visible')
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const liRows = await page.locator('.el-table:visible .el-table__row').count().catch(() => 0)
+    record(M, '登录日志: 页面加载', liTable && liRows > 0, `表格可见=${liTable} 可见行数=${liRows}`)
     const sortableCount = await page
       .evaluate(() => {
         const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
@@ -14762,8 +16754,16 @@ async function testModule84(page, consoleErrors, pageErrors) {
   // 84.2 操作日志页：按「操作日期」列真实点击排序
   // 路由说明：操作日志菜单挂在「系统管理/日志管理」下，前端注册路径为 /system/log/operlog
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/log/operlog`, { moduleName: M, waitMs: 2500 })) {
-    record(M, '操作日志: 页面加载', true)
+    // 同上：字面真不检验任何东西，必须看表格与行是否真渲染。
     await waitRowsReady()
+    const olTable = await page
+      .locator('.el-table:visible')
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const olRows = await page.locator('.el-table:visible .el-table__row').count().catch(() => 0)
+    record(M, '操作日志: 页面加载', olTable && olRows > 0, `表格可见=${olTable} 可见行数=${olRows}`)
     const o = await sortRound('操作日期')
     await assertSort('操作日志', '操作日期', o)
   } else {
@@ -15175,7 +17175,7 @@ async function testModule86(page, consoleErrors, pageErrors) {
 
   // 86.4 发送记录页 UI 回显：搜索模板编码 → 行命中 + 主题列已渲染（无 {{ 残留）+ 状态=成功
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/msg/log`, { moduleName: M, waitMs: 2200 })) {
-    record(M, '发送记录: 页面加载', true)
+    await assertPageLoaded(page, M, '发送记录: 页面加载')
     await checkTableColumns(page, ['模板编码', '渠道编码', '收件地址', '主题', '状态'], M, '发送记录')
     await fillSearchField(page, '模板编码', tplCode)
     const listP = waitForApi(page, '/system/msg/log/list', 8000)
@@ -15379,6 +17379,34 @@ try {
 } catch (e) {
   log(`❌ 启动预检失败: ${e.message}`)
   process.exit(1)
+}
+
+// 过滤参数 ↔ 注册表对账（b73 轮 14）：请求了未注册的模块号必须**当场失败**。
+// 此前的行为是"少跑几个照样报绿、退出码 0"，分片覆盖率被静默高估——台账数字不可信。
+{
+  const registered = new Set(Object.keys(testFns).map(Number))
+  const maxId = Math.max(...registered)
+  let requested = null
+  if (CONFIG.featureFilter instanceof Set) requested = [...CONFIG.featureFilter]
+  else if (typeof CONFIG.featureFilter === 'number') requested = [CONFIG.featureFilter]
+  else if (CONFIG.featureRange) {
+    const { start, end } = CONFIG.featureRange
+    if (!Number.isInteger(start) || !Number.isInteger(end) || end < start) {
+      console.error(`❌ --range 参数非法：start=${start} end=${end}（需两个整数且 start<=end）`)
+      process.exit(2)
+    }
+    requested = []
+    for (let id = start; id <= end; id++) requested.push(id)
+  }
+  if (requested) {
+    const unknown = requested.filter((id) => !registered.has(id)).sort((a, b) => a - b)
+    if (unknown.length > 0) {
+      console.error(
+        `❌ 过滤参数命中未注册模块：${unknown.join(',')}（已注册 ${[...registered].sort((a, b) => a - b).length} 个，1..${maxId}）`
+      )
+      process.exit(2)
+    }
+  }
 }
 
 runMain({ testFns, config: CONFIG, helpers, state })

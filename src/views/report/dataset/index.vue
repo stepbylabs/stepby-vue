@@ -149,6 +149,7 @@ import {
   addDataset,
   editDataset,
   getDataset,
+  getDatasetSql,
   listDataset,
   previewDataset,
   removeDataset,
@@ -241,13 +242,22 @@ async function openEdit(row?: ReportDataset) {
       datasetId: d?.datasetId,
       datasetCode: d?.datasetCode ?? '',
       datasetName: d?.datasetName ?? '',
-      sqlTemplate: d?.sqlTemplate ?? '',
+      // VO 恒不含 SQL 明文，必须走 edit 权限专属端点回填；取不到则留空并提示
+      // （保存时 SQL 为空会被必填校验拦住，不会把空串写回覆盖原模板）
+      sqlTemplate: '',
       paramsSchema: d?.paramsSchema,
       status: d?.status ?? '0',
       remark: d?.remark
     }
     paramsSchemaText.value =
       d?.paramsSchema != null ? JSON.stringify(d.paramsSchema) : ''
+    try {
+      const sqlRes = await getDatasetSql(Number(d?.datasetId ?? row.datasetId))
+      form.value.sqlTemplate = sqlRes.data ?? ''
+    } catch (e) {
+      ElMessage.warning(t('rp.sqlLoadFailed'))
+      if (import.meta.env.DEV && e instanceof Error) console.error('[reportDataset] sql 明文回填:', e)
+    }
   } else {
     form.value = { datasetCode: '', datasetName: '', sqlTemplate: '', status: '0' }
     paramsSchemaText.value = ''

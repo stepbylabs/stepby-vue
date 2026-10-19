@@ -1,0 +1,5 @@
+{
+  "total": 48,
+  "generatedAt": "2026-10-18T00:00:00.000Z",
+  "note": "批七十四 T2 引入 SKIP 棘轮时的起点基线。来源：b72 全量跑批实测（1053✅ / ❌0 / 48 SKIP，见 AGENTS.md 测试门禁全景 deep-e2e 行）。本轮未重跑全量，故沿用该实测值；下次全量跑批须执行 `node tests/e2e/deep-e2e.mjs --update-skip-baseline` 收紧基线（只许降）。"
+}

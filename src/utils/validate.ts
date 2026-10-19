@@ -32,6 +32,23 @@ export function isEmpty(value: unknown): boolean {
 }
 
 /**
+ * 外部输入（URL 参数等）→ 正整数 ID；非法一律返回 0（调用方以 0 判"不发请求"）。
+ *
+ * 不用裸 `Number()`：IEEE754 把 100 位数字串折成 `1.11e+99`，畸形深链因此**照常发出**
+ * 成 `/system/user/authRole/1.111111111111111e+99` 这样的请求（b73 轮 16 取证见
+ * `tests/e2e/RUN-RECIPE.md` §3.59）。15 位上限是 `Number.isSafeInteger` 的十进制位数边界。
+ * 形状锁：`src/utils/routeParamNumber.guard.test.ts` 禁止全仓再出现裸 `Number(route.…)`。
+ * @param raw
+ * @returns {Number}
+ */
+export function toPositiveInt(raw: unknown): number {
+  const s = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : ''
+  if (!/^\d+$/.test(s)) return 0
+  const n = Number(s)
+  return Number.isSafeInteger(n) && n > 0 ? n : 0
+}
+
+/**
  * 判断url是否是http或https
  * 同时处理协议相对 URL（以 // 开头）
  * @param url

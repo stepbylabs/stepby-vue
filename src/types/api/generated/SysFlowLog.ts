@@ -18,7 +18,8 @@ roundNo: number,
  */
 nodeSeq: number | null, 
 /**
- * 动作（submit/approve/reject/withdraw/transfer/timeout_remind/auto_approve）
+ * 动作（submit/approve/reject/withdraw/transfer/delegate/countersign_add/
+ * countersign_del/timeout_remind 九值即引擎全集，与字典 sys_flow_action 双向锁定）
  */
 action: string, 
 /**

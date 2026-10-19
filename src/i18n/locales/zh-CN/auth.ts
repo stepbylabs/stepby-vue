@@ -1,5 +1,5 @@
 // zh-CN · 分类：auth（认证会话）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   login: {
@@ -22,6 +22,7 @@ export default {
     oauthDivider: '或使用第三方账号登录',
     oauthTitle: '第三方登录',
     oauthBindRequired: '该第三方账号尚未绑定本系统账号，请先使用账号密码登录后绑定。',
+    oauthBindFailed: '第三方身份绑定失败（凭据已过期或已被其他账号绑定），请重新发起第三方登录。',
     oauthGoLogin: '前往登录',
     passkeyLogin: '使用通行密钥登录',
     passkeyDivider: '或使用通行密钥登录',

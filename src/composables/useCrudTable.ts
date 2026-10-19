@@ -1,6 +1,7 @@
-import { nextTick, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
+import { nextTick, ref, shallowRef, watch, type Ref, type ShallowRef } from 'vue'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
+import { toPositiveInt } from '@/utils/validate'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
@@ -177,6 +178,17 @@ export function resetQueryDefaults<Q extends object>(queryParams: Ref<Q>): void 
   Object.assign(target, defaults)
 }
 
+/**
+ * 默认导出文件名前缀：取 URL 的**倒数第二段**（实体名）而非末段。
+ * `/system/post/export` → `post`（旧写法取末段得到 `export`，7 个页面导出物同名，
+ * 下载目录里全是 `export_<ts>.xlsx`，用户无法分辨哪份是岗位哪份是角色）。
+ */
+function exportNamePrefix(url: string): string {
+  const segs = url.split('/').filter(Boolean)
+  if (segs.length === 0) return 'export'
+  return segs.length >= 2 ? segs[segs.length - 2] : segs[0]
+}
+
 /** 完整表单模式：三个表单 API 齐备时暴露 handleAdd/handleUpdate/submitForm */
 export function useCrudTable<T extends object, Q extends object = Record<string, unknown>>(
   options: UseCrudTableOptions<T, Q> & {
@@ -257,6 +269,21 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   // 未保存守卫（UX-5）：编辑弹窗脏表单关闭前确认
   const { snapshotForm, markSaved, confirmLeave } = useUnsavedGuard()
 
+  // UX-5 补强（b73 轮 13 实证缺陷）：页面**自己覆写 handleAdd/handleUpdate** 时极易漏调
+  // snapshotForm——快照停留在上一轮表单上，"打开新增、一个字没改、点关闭"就弹"尚未保存"
+  // （角色管理/部门管理 真机复现）。守卫的正确基准应由挂载点统一维护，不该靠每个页面记得调用，
+  // 因此这里在弹窗打开的下一帧自动补一次快照：
+  //   · handleAdd 系（reset → open）：捕到的是重置后的干净表单；
+  //   · 打开后再同步改默认值的页面（如部门新增把 parentId 设为父节点）：nextTick 在其后，捕到最终值；
+  //   · handleUpdate 系（getApi 回填后才 open）：与显式 snapshotForm 同值，重复调用无害。
+  watch(
+    open,
+    (visible: boolean) => {
+      if (visible) nextTick(() => snapshotForm(form.value))
+    },
+    { flush: 'post' }
+  )
+
   // ====== 方法 ======
 
   /**
@@ -273,11 +300,20 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       // 批六十四：对象容器键（params 等）不接受字符串注入，防 `[object Object]` 腐化
       if (typeof target[k] === 'object' && target[k] !== null) continue
       if (k === 'pageNum' || k === 'pageSize') {
-        const n = Number(v)
-        if (!Number.isNaN(n) && n > 0) target[k] = n
+        const n = toPositiveInt(v)
+        if (n) target[k] = n
         continue
       }
-      target[k] = typeof target[k] === 'number' && !Number.isNaN(Number(v)) ? Number(v) : v
+      if (typeof target[k] === 'number') {
+        // 数值键只在「String(Number(v)) === v」即**往返无损**时接受注入：IEEE754 会把
+        // 100 位数字串折成 1.11e+99，那已不是用户输入的值，注入后既被 syncUrlQuery 回写
+        // 污染 URL，又把畸形请求打到后端（b73 轮 16，取证 RUN-RECIPE §3.59）。
+        // 页面自己写出的查询值必然往返无损，故正常深链不受该判据影响。
+        const n = Number(v)
+        if (Number.isFinite(n) && String(n) === String(v).trim()) target[k] = n
+        continue
+      }
+      target[k] = v
     }
   }
 
@@ -497,10 +533,15 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   }
 
   /** 导出按钮操作（UX-8：导出前提示"导出中"，完成后给成功反馈） */
-  function handleExport(filename?: string): void {
+  function exportRaw(filename?: unknown): void {
     if (!exportUrl || exportLoading.value) return
     exportLoading.value = true
-    const name = filename || `${exportUrl.split('/').pop()}_${Date.now()}.xlsx`
+    // 形参刻意取 unknown：模板里裸写 `@click="handleExport"` 时 Vue 会把 PointerEvent 送进第一个实参，
+    // 而 el-button 的 click 载荷在类型上是宽松的，vue-tsc 拦不住。b73 实证：7 个页面
+    // （post/role/config/dict/job/alert/webHook）因此把导出文件存成 `[object PointerEvent].txt`。
+    // 只接受非空字符串覆写，其余一律走自动命名。
+    const name =
+      typeof filename === 'string' && filename ? filename : `${exportNamePrefix(exportUrl)}_${Date.now()}.xlsx`
     // 数据量较大时后端流式生成可能耗时数秒，先给"导出中"提示避免用户以为点了没反应
     const startedAt = Date.now()
     const notifyStart = setTimeout(() => {
@@ -519,6 +560,12 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         exportLoading.value = false
       })
   }
+
+  /**
+   * 对外只暴露 `(filename?: string) => void` 契约（保持页面调用点的类型不变），
+   * 实现按 unknown 收，模板裸绑送进来的事件在 exportRaw 内被拒收。
+   */
+  const handleExport: UseCrudTableReturn<T>['handleExport'] = exportRaw
 
   // UX-6：进入页面时先从 URL 恢复筛选条件（此后 getList 会持续回写 URL）。
   // supportsSort 开启时先保证排序键存在（页面可省略手写初始化），

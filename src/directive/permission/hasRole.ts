@@ -14,6 +14,16 @@ function getOriginalDisplay(el: HTMLElement): string {
   return originalDisplay.get(el) as string
 }
 
+/**
+ * 隐藏元素：先取基线再写 none（与 v-hasPermi 同修，口径必须一致）。
+ * 基线在 `display:none` 写入之后才采集会把 none 当成原始值，导致角色就绪后
+ * 入口永久不可见。
+ */
+function hide(el: HTMLElement): void {
+  getOriginalDisplay(el)
+  el.style.display = 'none'
+}
+
 function checkRole(el: HTMLElement, binding: DirectiveBinding) {
   const { value } = binding
   const super_admin = 'admin'
@@ -21,13 +31,13 @@ function checkRole(el: HTMLElement, binding: DirectiveBinding) {
 
   // 空值检查：避免角色未加载或为空时抛错导致白屏（P0-47）
   if (!(value && value instanceof Array && value.length > 0)) {
-    el.style.display = 'none'
+    hide(el)
     if (import.meta.env.DEV) console.warn('[v-hasRole] Please set role tags, e.g. v-hasRole="[\'admin\']"')
     return
   }
   // 角色列表为空时直接隐藏元素，不报错
   if (!roles || roles.length === 0) {
-    el.style.display = 'none'
+    hide(el)
     return
   }
 
@@ -39,7 +49,8 @@ function checkRole(el: HTMLElement, binding: DirectiveBinding) {
   // P0 修复：使用 display:none 隐藏而非物理移除（removeChild 不可逆），
   // 与 v-hasPermi 保持一致；角色变化时可通过 updated 钩子恢复
   // P1：恢复时还原原始 display 值
-  el.style.display = hasRole ? getOriginalDisplay(el) : 'none'
+  if (hasRole) el.style.display = getOriginalDisplay(el)
+  else hide(el)
 }
 
 export default {

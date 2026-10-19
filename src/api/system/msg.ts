@@ -142,3 +142,14 @@ export function retrySendLog(logIds: number | string | Array<number | string>): 
     method: 'post'
   })
 }
+
+// 把失败终态记录交回重试队列（单条或批量）：仅 status='1' 行生效，
+// 成功行由后端跳过（防重复投递）；data = 实际交回队列的条数
+export function markPendingSendLog(
+  logIds: number | string | Array<number | string>
+): Promise<AjaxResult<number>> {
+  return request({
+    url: '/system/msg/log/markPending/' + logIds,
+    method: 'post'
+  })
+}

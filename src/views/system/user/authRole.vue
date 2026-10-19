@@ -74,6 +74,7 @@ import type { SysRole } from '@/types/api/system/role'
 import type { SysUser, SysRoleWithFlag } from '@/types/api/system/user'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
+import { toPositiveInt } from '@/utils/validate'
 
 const route = useRoute()
 const roleRefRef = useTemplateRef('roleRef')
@@ -142,7 +143,7 @@ function submitForm() {
 }
 
 ;(() => {
-  const userId = route.params && Number(route.params.userId)
+  const userId = toPositiveInt(route.params.userId)
   if (userId) {
     loading.value = true
     getAuthRole(userId)

@@ -163,6 +163,7 @@ import { getGenTable, updateGenTable } from '@/api/tool/gen'
 import { optionselect as getDictOptionselect } from '@/api/system/dict/type'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
+import { toPositiveInt } from '@/utils/validate'
 import type { FormInstance } from 'element-plus'
 import type { GenTable, GenTableColumn, GenTableInfoResult } from '@/types/api/tool/gen'
 import type { SysDictType } from '@/types/api/system/dict'
@@ -256,10 +257,11 @@ function close(): void {
 
 // M5: 改用 onMounted 确保在组件挂载生命周期内执行，而非 setup 同步阶段
 onMounted(() => {
-  const tableId = route.params && route.params.tableId
-  if (tableId) {
+  // 深链参数必须过闸门：裸 Number() 会把 100 位数字串折成 1.11e+99 并照常出网（b73 轮 16 取证）
+  const tableId = toPositiveInt(route.params?.tableId)
+  if (tableId !== 0) {
     // 获取表详细信息
-    getGenTable(Number(tableId))
+    getGenTable(tableId)
       .then((res) => {
         const data = res.data as GenTableInfoResult
         columns.value = data.rows

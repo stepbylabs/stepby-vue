@@ -39,6 +39,33 @@ try {
 
 /** 需要 API token 第四参的模块集合 */
 const TOKEN_MODULES = new Set([7, 12, 14, 21, 26, 28, 31, 32, 70])
+
+/** SKIP 棘轮基线文件（与套件同目录，提交进仓；只允许下降） */
+const SKIP_BASELINE_PATH = path.resolve(
+  path.dirname(decodeURIComponent(import.meta.url)),
+  '..',
+  '..',
+  'deep-e2e-skip-baseline.json'
+)
+
+/** 读基线；文件不存在返回 null（调用方据此"不强制但响亮提示"，不得静默当 0） */
+function readSkipBaseline() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(SKIP_BASELINE_PATH, 'utf-8'))
+    return typeof raw.total === 'number' ? raw.total : null
+  } catch {
+    return null
+  }
+}
+
+/** 写基线（`--update-skip-baseline` 专用：跑完一轮全量后收紧棘轮） */
+function writeSkipBaseline(total, at) {
+  fs.writeFileSync(
+    SKIP_BASELINE_PATH,
+    `${JSON.stringify({ total, generatedAt: new Date().toISOString(), note: at }, null, 2)}\n`,
+    'utf-8'
+  )
+}
 /** 首参为 browser 的模块（自管页面/独立上下文，runner 不提供 page） */
 const BROWSER_FIRST_MODULES = new Set([13, 29, 39, 67])
 /** 第四参需要 browser 的模块 */
@@ -74,6 +101,11 @@ export async function runMain({ testFns, config, helpers, state }) {
   const { results, getPassCount, getFailCount } = state
   /** 各模块的捕获中枢，汇总阶段统一输出被吞异常与网络失败 */
   const hubs = []
+  /**
+   * 本轮窗口起点（b73 轮 9）：后端日志摘要只统计此刻之后的 ERROR/WARN。
+   * 取 runMain 入口而非模块循环起点，确保浏览器启动/登录阶段的日志同样可归因。
+   */
+  const roundStartMs = Date.now()
 
   log('==========================================')
   log('stepby 深度端到端测试（deep-e2e）')
@@ -215,6 +247,45 @@ export async function runMain({ testFns, config, helpers, state }) {
     log('SKIP 最多的模块 TOP5: 无')
   }
 
+  // ==================== 批七十四 T2/T3：SKIP 必须分类，"工具坏了"不得洗成 SKIP ====================
+  //
+  // 历史形状：`catch ⇒ recordSkip('探针/导航自身异常')`。断言工具自己抛错时**什么都不知道**，
+  // 却把一个 SKIP 记进"1053✅ / ❌0"的绿基线里——harness 永久坏掉，套件永远全绿。
+  // 现在按 reason 分两桶：
+  //   · TOOL_BROKEN（探针/导航/断言工具/evaluate 自身异常）⇒ **必须为 0**，否则退出码 1；
+  //   · 业务跳过（无数据 / 能力位关 / 环境未启用）⇒ 计入 SKIP 棘轮基线。
+  // 棘轮只在**全量跑批**上强制：分段跑的 skip 数是子集，与全量基线不可比（比较即假信号）。
+  const skipRows = results.filter((r) => r.passed === null)
+  const TOOL_BROKEN_RE = /探针自身异常|导航自身异常|断言工具异常|evaluate 失败|工具异常|harness/
+  const toolBroken = skipRows.filter((r) => TOOL_BROKEN_RE.test(String(r.detail || '')))
+  const businessSkip = skipRows.length - toolBroken.length
+  const isFullRun =
+    !config.featureFilter && !config.featureRange && !(config.except && config.except.length > 0)
+  log(
+    `SKIP 分桶: 业务跳过 ${businessSkip} / 工具自曝 ${toolBroken.length}` +
+      `${isFullRun ? '' : '（分段跑，棘轮不强制）'}`
+  )
+  if (toolBroken.length > 0) {
+    log('❌ 工具自曝明细（这些 SKIP 不代表产品状态，必须修 harness 或让断言真判红）:')
+    for (const r of toolBroken.slice(0, 20)) {
+      log(`  · [M${r.module}] ${r.name} — ${String(r.detail || '').slice(0, 120)}`)
+    }
+  }
+  // SKIP 棘轮：基线只允许下降（新增跳过＝有断言被降级成"不算失败"）
+  let skipRatchetBroken = false
+  if (isFullRun) {
+    const baseline = readSkipBaseline()
+    if (baseline === null) {
+      log('⚠ SKIP 棘轮基线文件缺失，本轮不强制（生成：--update-skip-baseline）')
+    } else if (skipRows.length > baseline) {
+      skipRatchetBroken = true
+      log(`❌ SKIP 棘轮回退：本轮 ${skipRows.length} > 基线 ${baseline}（只许降不许升）`)
+    } else if (skipRows.length < baseline) {
+      log(`✅ SKIP 低于基线（${skipRows.length} < ${baseline}）——请 ` +
+        `node tests/e2e/deep-e2e.mjs --update-skip-baseline 收紧基线`)
+    }
+  }
+
   const failedModules = moduleStats.filter((s) => s.fail > 0 || s.error)
   if (failedModules.length > 0) {
     log('失败模块明细:')
@@ -252,23 +323,84 @@ export async function runMain({ testFns, config, helpers, state }) {
   log('\n---- 信息捕获汇总 ----')
   log(`失败请求（HTTP>=400）总数: ${netFailTotal}`)
   if (netFailTotal > 0) {
-    const samples = []
+    // 旧写法每个 hub 只取最后 2 条、再整体截到 12 行 → "总数 11"只显示 4 行，
+    // 而门禁判据是"失败请求须与负路径断言逐条对账"，抽样打印使它无法执行（b73 轮 14 实证观测缺口）。
+    // 现在按模块归因全量列出（同 hub 内同 URL+状态重复计数由聚合行给出），并全量落盘供轮后复核。
+    const kinds = new Map()
     for (const h of hubs) {
-      for (const n of (h.netFails || []).slice(-2)) {
-        samples.push(`    · ${n.method} ${n.status} ${n.url}${n.body ? ` :: ${n.body.slice(0, 120)}` : ''}`)
+      for (const n of h.netFails || []) {
+        const key = `${h.tag || 'x'}|${n.method} ${n.status} ${n.url} ${n.body || ''}`
+        kinds.set(key, (kinds.get(key) || 0) + 1)
       }
     }
-    for (const s of samples.slice(0, 12)) log(s)
+    const lines = [...kinds.entries()].map(([key, count]) => {
+      const at = key.indexOf('|')
+      const tag = key.slice(0, at)
+      const rest = key.slice(at + 1)
+      return `    · [${tag}] ${rest}${count > 1 ? ` ×${count}` : ''}`
+    })
+    const NET_PRINT_CAP = 60
+    for (const s of lines.slice(0, NET_PRINT_CAP)) log(s)
+    if (lines.length > NET_PRINT_CAP) {
+      log(`    · （其余 ${lines.length - NET_PRINT_CAP} 种已折叠，全量见 net 清单 JSON）`)
+    }
+    try {
+      const netDump = []
+      for (const h of hubs) for (const n of h.netFails || []) netDump.push({ tag: h.tag || 'x', ...n })
+      const netPath = path.join(config.screenshotDir, `deep-e2e-net-${Date.now()}.json`)
+      fs.writeFileSync(netPath, JSON.stringify(netDump, null, 2), 'utf-8')
+      log(`失败请求全量清单已写入: ${netPath}`)
+    } catch {
+      log('⚠️ 失败请求清单写盘失败（不影响退出码）')
+    }
   }
+  // ==================== 批七十四 T5：每动作请求数分布落盘（只采集，不判红）====================
+  // 阈值必须由实测分布定，所以先把全轮数据写出来；本文件不进退出码判据。
+  try {
+    const reqStats = []
+    for (const h of hubs) {
+      if (typeof h.requestStatSnapshot !== 'function') continue
+      for (const row of h.requestStatSnapshot()) reqStats.push({ tag: h.tag || 'x', ...row })
+    }
+    reqStats.sort((a, b) => b.count - a.count)
+    const reqPath = path.join(config.screenshotDir, 'deep-e2e-reqstats.json')
+    fs.writeFileSync(
+      reqPath,
+      JSON.stringify({ generatedAt: new Date().toISOString(), rows: reqStats }, null, 2),
+      'utf-8'
+    )
+    const top = reqStats.slice(0, 8).map((r) => `[${r.tag}] ${r.key} ×${r.count}`).join('\n')
+    log(`每动作请求数分布已落盘（共 ${reqStats.length} 类，Top8:\n${top}\n）: ${reqPath}`)
+  } catch (e) {
+    log(`⚠ 请求数分布写盘失败（不影响退出码）: ${e.message}`)
+  }
+
   log(`被吞掉的异常种类: ${swallowedLines.length}`)
   for (const s of swallowedLines.slice(0, 20)) log(s)
   try {
-    const backendLines = summarizeBackendLogErrors()
-    log(`后端日志 ERROR/WARN 种类: ${backendLines.length}`)
-    for (const s of backendLines.slice(0, 20)) log(s)
+    const backend = summarizeBackendLogErrors({ sinceMs: roundStartMs })
+    if (backend.missing) {
+      log(`⚠️ 后端日志捕获通道失效：目录不可读或无 app.log（${backend.logDir}）——本轮后端异常未采集`)
+    } else {
+      log(
+        `后端日志 ERROR/WARN 种类: ${backend.lines.length}（本轮窗口 ${backend.files.join(' + ') || '无文件'}，` +
+          `窗口内 ${backend.total} 条 / 窗口前已排除 ${backend.excluded} 条）`
+      )
+      for (const s of backend.lines.slice(0, 20)) log(s)
+    }
   } catch {
     log('后端日志摘要不可用（跳过）')
   }
 
-  return totalFail > 0 ? 1 : 0
+  // 棘轮收紧入口（跑完一轮**全量**后执行）：把实测 SKIP 写回基线
+  if (config.updateSkipBaseline) {
+    if (!isFullRun) {
+      log('❌ --update-skip-baseline 只允许在**全量跑批**上使用（分段跑的 SKIP 是子集，写进去等于放松基线）')
+      return 2
+    }
+    writeSkipBaseline(skipRows.length, 'deep-e2e 全量实测')
+    log(`✅ SKIP 棘轮基线已更新为 ${skipRows.length}`)
+  }
+
+  return totalFail > 0 || toolBroken.length > 0 || skipRatchetBroken ? 1 : 0
 }

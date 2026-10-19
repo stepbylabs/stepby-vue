@@ -1,5 +1,6 @@
 <template>
-  <div class="container">
+  <!-- build-container 为本页专属类：样式全部收敛在其下，禁止再向全局裸写 .container（会与 Tailwind 的 container 工具类串台） -->
+  <div class="container build-container">
     <!-- D8 真机核查修复：三栏设计工具（组件面板/画布/属性面板）在手机档无降级空间，
          逐层叠压不可用——明确告知用户使用平板横屏或桌面端（能力不砍，体验如实提示） -->
     <el-alert
@@ -410,9 +411,12 @@ watch(
 </script>
 
 <style lang="scss">
+// 样式规范豁免说明：本页为三栏拖拽设计器，需覆盖 el-form / el-scrollbar 等第三方组件深层 DOM
+// 且依赖 keyframes 与拖拽态级联，Tailwind 工具类与 EP props 无法表达；故保留 SCSS，
+// 但整棵树收敛在页面专属类 .build-container 下（不再向全局裸写 .container）。
 $lighterBlue: var(--el-color-primary);
 
-.container {
+.build-container {
   position: relative;
   width: 100%;
   background-color: var(--el-bg-color-overlay);

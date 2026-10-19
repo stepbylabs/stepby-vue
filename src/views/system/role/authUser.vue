@@ -108,6 +108,7 @@ import { allocatedUserList, authUserCancel, authUserCancelAll } from '@/api/syst
 import type { SysUser, AuthUserQueryParams } from '@/types/api/system/user'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
+import { toPositiveInt } from '@/utils/validate'
 
 const route = useRoute()
 const queryRefRef = useTemplateRef('queryRef')
@@ -128,7 +129,7 @@ const userIds = ref<number[]>([])
 const queryParams = reactive<AuthUserQueryParams>({
   pageNum: 1,
   pageSize: 10,
-  roleId: Number(route.params.roleId),
+  roleId: toPositiveInt(route.params.roleId),
   userName: undefined,
   phonenumber: undefined
 })
@@ -206,7 +207,9 @@ function cancelAuthUserAll() {
     .catch(() => {})
 }
 
-getList()
+// 深链 roleId 非法（缺失/畸形/越界）时不发注定 400 的请求，表格直接落空态
+if (queryParams.roleId) getList()
+else loading.value = false
 </script>
 
 <style scoped>

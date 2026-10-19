@@ -1,0 +1,23 @@
+# 与 stepby-axum 同一口径：`.editorconfig` 声明 `end_of_line = lf`，但仓里没有本文件时
+# `core.autocrlf=true` 的 Windows 检出会把 .ts/.vue/.mjs 写成 CRLF。测试里存在跨行
+# `includes(...)` 断言（以及 `tests/e2e/*.sh` 之类给 bash 执行的脚本），换行随平台变化
+# 会让同一份代码在两台机器上给出不同结论 ⇒ 检出即 LF。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.gz binary

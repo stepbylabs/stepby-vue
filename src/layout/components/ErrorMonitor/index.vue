@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
 import { errorHub, type ErrorLevel, type MonitorIssue } from '@/utils/errorHub'
 
 const { t } = useI18n()
@@ -93,7 +94,16 @@ function clear(): void {
 
 /** UX-3：直达前端异常明细页（列表/筛选/设备分桶在该页） */
 function goDetail(): void {
-  void import('@/router').then(({ default: router }) => router.push('/monitor/frontendError'))
+  // b72：原写法 `void import('@/router').then(...)` 没有 catch——router chunk 动态加载失败
+  // （弱网 / 发版后 chunk hash 换代导致旧 chunk 404）时会抛 unhandledrejection：
+  // 用户点了没任何反应，而**错误监视器自己**在生产遥测里制造噪声（b69 终局捕获会把
+  // 未分类 console error 计入失败）。失败时给出可见反馈并整页兜底跳转（同源路由，无外跳面）。
+  import('@/router')
+    .then(({ default: router }) => router.push('/monitor/frontendError'))
+    .catch(() => {
+      ElMessage.error(t('common.requestFailed'))
+      window.location.assign('/monitor/frontendError')
+    })
 }
 
 function tagType(level: ErrorLevel): 'danger' | 'warning' | 'info' {

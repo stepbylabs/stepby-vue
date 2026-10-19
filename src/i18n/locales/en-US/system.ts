@@ -1,5 +1,5 @@
 // en-US · 分类：system（系统管理）
-// 本文件由 split_i18n.py 生成，勿手工编辑；新增文案请改对应模块块
+// split_i18n.py 为一次性迁移脚本（旧单文件 locales/zh-CN.ts|en-US.ts 已删除），本文件即事实源，新增/修改文案直接改这里
 
 export default {
   menu: {
@@ -1118,7 +1118,8 @@ export default {
       },
       btn: {
         clean: 'Clean',
-        retry: 'Retry'
+        retry: 'Retry',
+        markPending: 'Mark Pending'
       },
       status: {
         success: 'Success',
@@ -1128,10 +1129,12 @@ export default {
       tip: {
         confirmDelete: 'Are you sure to delete the send log with ID "{ids}"?',
         confirmClean: 'Are you sure you want to clear all send logs? This action cannot be undone!',
-        confirmRetry: 'Are you sure you want to retry send log "{logId}"?'
+        confirmRetry: 'Are you sure you want to retry send log "{logId}"?',
+        confirmMarkPending: '{count} selected: only terminally failed rows are requeued (successful rows are skipped, so nothing is delivered twice). Continue?'
       },
       cleanSuccess: 'Send logs cleared',
-      retrySuccess: 'Retry succeeded'
+      retrySuccess: 'Retry succeeded',
+      markPendingSuccess: '{count} row(s) requeued for retry'
     }
   },
   task: {
@@ -1685,6 +1688,7 @@ export default {
     sqlRuleHint:
       'Single parameterized SELECT only (:param placeholders); DML/DDL/comments/multi-statement/subquery/UNION rejected',
     paramsSchema: 'Params Schema',
+    sqlLoadFailed: 'Failed to load the plaintext SQL; type the full SQL before saving',
     paramsSchemaInvalid: 'Params schema is not valid JSON',
     preview: 'Preview',
     previewTitle: 'Dataset Preview (LIMIT 100)',
@@ -1840,6 +1844,7 @@ export default {
     cardTodoEmpty: 'No pending approvals',
     actTransfer: 'Transfer',
     actCountersign: 'Add Approver',
+    actCountersignDel: 'Remove Approver',
     actWithdraw: 'Withdraw',
     actResubmit: 'Resubmit',
     btnSubmit: 'Submit Leave Request',
@@ -1854,11 +1859,13 @@ export default {
     formComment: 'Comment',
     formToUser: 'Target user (User ID)',
     phToUser: 'Type a username to search remotely',
+    phToUserDel: 'Pick another approver of this node (at least one must remain)',
     actTitle: {
       approve: 'Approve',
       reject: 'Reject',
       transfer: 'Transfer',
-      countersign: 'Add Approver'
+      countersign: 'Add Approver',
+      countersignDel: 'Remove Approver'
     },
     rules: {
       title: 'Please enter the title',
@@ -1885,8 +1892,10 @@ export default {
       reject: 'Reject',
       withdraw: 'Withdraw',
       transfer: 'Transfer',
-      timeout_remind: 'Timeout Remind',
-      auto_approve: 'Auto Approve'
+      delegate: 'Delegate',
+      countersign_add: 'Approver Added',
+      countersign_del: 'Approver Removed',
+      timeout_remind: 'Timeout Remind'
     },
     msgSubmitted: 'Submitted and entered the approval flow',
     msgNoTaskFound: 'No pending task found for this document'

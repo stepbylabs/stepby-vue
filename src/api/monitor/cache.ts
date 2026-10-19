@@ -34,9 +34,11 @@ export function getPrefixStats(): Promise<AjaxResult<CachePrefixStat[]>> {
 }
 
 // 查询缓存键名列表
+// 缓存名/键名是自由字符串，必须按路径段编码：含 # 时未编码会被浏览器当片段丢弃，
+// 导致这条查询/清理指令静默作用到另一个目标（键名含 / 时同理会被当成多一层路径段）
 export function listCacheKey(cacheName: string): Promise<AjaxResult<string[]>> {
   return request({
-    url: '/monitor/cache/getKeys/' + cacheName,
+    url: '/monitor/cache/getKeys/' + encodeURIComponent(cacheName),
     method: 'get'
   })
 }
@@ -44,7 +46,7 @@ export function listCacheKey(cacheName: string): Promise<AjaxResult<string[]>> {
 // 查询缓存内容
 export function getCacheValue(cacheName: string, cacheKey: string): Promise<AjaxResult<SysCache>> {
   return request({
-    url: '/monitor/cache/getValue/' + cacheName + '/' + cacheKey,
+    url: '/monitor/cache/getValue/' + encodeURIComponent(cacheName) + '/' + encodeURIComponent(cacheKey),
     method: 'get'
   })
 }
@@ -52,7 +54,7 @@ export function getCacheValue(cacheName: string, cacheKey: string): Promise<Ajax
 // 清理指定名称缓存
 export function clearCacheName(cacheName: string): Promise<AjaxResult> {
   return request({
-    url: '/monitor/cache/clearCacheName/' + cacheName,
+    url: '/monitor/cache/clearCacheName/' + encodeURIComponent(cacheName),
     method: 'delete'
   })
 }
@@ -60,7 +62,7 @@ export function clearCacheName(cacheName: string): Promise<AjaxResult> {
 // 清理指定键名缓存
 export function clearCacheKey(cacheKey: string): Promise<AjaxResult> {
   return request({
-    url: '/monitor/cache/clearCacheKey/' + cacheKey,
+    url: '/monitor/cache/clearCacheKey/' + encodeURIComponent(cacheKey),
     method: 'delete'
   })
 }

@@ -176,6 +176,7 @@
 import { listPost, addPost, delPost, getPost, updatePost } from '@/api/system/post'
 import type { SysPost, PostQueryParams } from '@/types/api/system/post'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 
 const { t } = useI18n()
@@ -244,6 +245,10 @@ const {
   formRef: postRefRef,
   queryRef: queryRefRef
 })
+
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 getList()
 </script>

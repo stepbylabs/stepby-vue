@@ -95,7 +95,9 @@ html.dark {
   box-sizing: content-box;
 }
 
-.el-menu--collapse > div > .el-submenu > .el-submenu__title .el-submenu__icon-arrow {
+// Element Plus 2.x 只输出 `.el-sub-menu`（`useNamespace('sub-menu')`），不存在 `.el-submenu`；
+// 旧写法恒不命中 ⇒ 收起态子菜单箭头从未被隐藏。侧栏 DOM 为 ul.el-menu--collapse > div(SidebarItem 根) > li.el-sub-menu
+.el-menu--collapse > div > .el-sub-menu > .el-sub-menu__title .el-sub-menu__icon-arrow {
   display: none;
 }
 

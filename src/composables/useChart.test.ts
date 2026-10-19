@@ -429,10 +429,76 @@ describe('composables/useChart', () => {
     })
   })
 
-  // Silence unused import if nextTick tree-shakes — keep it referenced so
-  // the mock environment mirrors real callers.
-  it('imports nextTick for parity with composable usage', async () => {
-    await nextTick()
-    expect(true).toBe(true)
+  // ---------------------------------------------------------------------------
+  // waitForRef — regression lock for the b73 cache-overview blank-chart defect.
+  //
+  // Real failure shape (mechanically reproduced in the browser before the fix):
+  // `<Transition mode="out-in">` keeps the *old* branch mounted until its leave
+  // finishes, so reading a template ref right after `await nextTick()` yields
+  // `null`. `getChart(null)` returns `null`, and the caller's
+  // `if (!chart) return` skipped BOTH charts — two 420px blank cards, no error
+  // hint, until the theme watcher re-rendered them.
+  // ---------------------------------------------------------------------------
+  describe('waitForRef', () => {
+    it('resolves immediately when the element is already present', async () => {
+      const { api, wrapper } = withChart()
+      const el = document.createElement('div')
+      document.body.appendChild(el)
+      try {
+        await expect(api.waitForRef(() => el)).resolves.toBe(el)
+      } finally {
+        el.remove()
+        wrapper.unmount()
+      }
+    })
+
+    it('waits for a late mount that a single nextTick would miss', async () => {
+      const { api, wrapper } = withChart()
+      const el = document.createElement('div')
+      let mounted: HTMLElement | null = null
+      // 模拟 `<Transition mode="out-in">` 的迟到插入：leave 结束后节点才进 DOM。
+      setTimeout(() => {
+        document.body.appendChild(el)
+        mounted = el
+      }, 40)
+      const pending = api.waitForRef(() => mounted, 2000)
+      // 控制组：旧写法"await nextTick 就够"确实拿不到节点，否则本锁是虚锁。
+      await nextTick()
+      expect(mounted).toBeNull()
+      await vi.advanceTimersByTimeAsync(120)
+      await expect(pending).resolves.toBe(el)
+      el.remove()
+      wrapper.unmount()
+    })
+
+    it('gives up with null instead of hanging forever', async () => {
+      const { api, wrapper } = withChart()
+      const pending = api.waitForRef(() => null, 80)
+      await vi.advanceTimersByTimeAsync(150)
+      await expect(pending).resolves.toBeNull()
+      wrapper.unmount()
+    })
+
+    it('passes the node through getChart so a late mount still paints', async () => {
+      // The composable pair is the actual call shape used by CacheOverview:
+      // getChart(await waitForRef(...)). Locks "waiting then painting" as one
+      // contract — a `getChart(ref.value!)` regression (no waiting) yields zero charts.
+      const { api, wrapper } = withChart()
+      const el = makeReadyEl()
+      let mounted: HTMLElement | null = null
+      setTimeout(() => {
+        document.body.appendChild(el)
+        mounted = el
+      }, 40)
+      const pending = api
+        .waitForRef(() => mounted, 2000)
+        .then((node) => api.getChart(node))
+      await vi.advanceTimersByTimeAsync(150)
+      const chart = await pending
+      expect(chart).toBeTruthy()
+      expect(initMock).toHaveBeenCalledWith(el)
+      el.remove()
+      wrapper.unmount()
+    })
   })
 })

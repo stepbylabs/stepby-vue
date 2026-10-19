@@ -188,6 +188,7 @@ import type { SysLogininfor, TableDataInfo, LogininforQueryParams } from '@/type
 import useUserStore from '@/store/modules/user'
 import { addDateRange } from '@/utils/stepby'
 import modal from '@/plugins/modal'
+import { useMobileFilter } from '@/composables/useMobileFilter'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -201,6 +202,9 @@ const total = ref(0)
 const dateRange = ref<string[]>([])
 const successCount = ref(0)
 const failCount = ref(0)
+// G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
+const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
+void isMobileFilter
 
 const queryParams = reactive<LogininforQueryParams>({
   pageNum: 1,

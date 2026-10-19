@@ -164,8 +164,13 @@ export default [
   // - @typescript-eslint/no-unused-vars = off：运行脚本含大量"声明后等待/断言用"的辅助
   //   与调试变量（如点击返回值、临时 token、page 参数等），维护价值低且逐处加 `_` 会
   //   降低可读性；同时该规则为 warn 时会把注意力从真实问题引开，故对测试脚本整体关闭。
+  //
+  // 本轮补 `.cjs`（原 glob 只有 `*.mjs`）：`tests/e2e/_*.cjs` 与 `.mjs` 探针是同一种东西
+  // （一次性审计/巡检 CLI，stdout 就是它的产出），此前只有扩展名不同就吃到
+  // `no-console` / `no-unused-vars` 的误伤，属 glob 漏写而非规则分歧。真实缺陷
+  // （valid-typeof、prefer-const）不在本块豁免内，已逐条修代码。
   {
-    files: ['tests/e2e/**/*.mjs'],
+    files: ['tests/e2e/**/*.{mjs,cjs}'],
     rules: {
       'no-console': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],

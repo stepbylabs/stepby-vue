@@ -26,10 +26,20 @@ tests/e2e/_rounds2026*
 *.sln
 *.local
 
-# 环境变量（保留 .env.example 作为模板）
+# 环境变量：**只有 `.env` 本身与 `.local` 本机覆盖项**属于私密/临时文件，模式文件一律入库。
+#
+# 为什么改成"先全放行、再精确忽略"（批七十六）：原先是"忽略 `.env.*` + 逐个 `!` 放行"的
+# **枚举白名单**，同一个失误犯了两次——批七十五 .env.embedded 从未进库（embedded 档构建出
+# 的 bundle 里 VITE_APP_BASE_API=undefined），批七十六又发现 .env.analyze 同样漏网
+# （`pnpm build:analyze` 因 VITE_ANALYZE 取不到值而根本不开 visualizer）。
+# 每加一个 `--mode <x>` 档都要记得回来补一行 `!`，这种判据必然再漏。
+#
+# gitignore 语义是"最后匹配的规则生效"，所以下面 `!.env.*` 必须先写、三条忽略项后置：
+# `.env` / `.env.local` / `.env.*.local` 依旧不入库，而任何新增的 `.env.<模式>` 自动入库。
+!.env.*
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
 
 # 自动生成的类型声明
 auto-imports.d.ts
@@ -56,3 +66,25 @@ tsconfig.tsbuildinfo
 # e2e 归档与覆盖率产物（批五十：可再生数据不入库）
 tests/e2e/_archive/
 coverage/
+# 根级一次性会话脚本（_fix_menus.py / _gc_priv6.py / _probe.mjs 这类）——
+# 只服务于当次会话，且历史上出过"硬编码远端 token 被留在脚本里"的情况，一律不入库。
+/_*.py
+/_*.ps1
+/_*.mjs
+/_*.cjs
+/_*.sh
+
+# 一次性改造/取证脚本（批七十六 R-8 口径，与 stepby-axum/.gitignore 同源判据）
+# tests/e2e 下的 diag-/probe-/_* 是历轮浏览器探针：留在原地可复查，但不进版本库视野，
+# 免得下一次 `git add .` 把 78 个中转脚本一起提交（本批已发生过一次，见台账 §9.7）。
+/patch_*.py
+/clean_f*.py
+/scan_*.py
+/commit_msg*.txt
+/_m.txt
+/scripts/_tmp_*.py
+/tests/e2e/_*.py
+/tests/e2e/_*.cjs
+/tests/e2e/_tmp/
+/tests/e2e/diag-*.mjs
+/tests/e2e/probe-*.mjs

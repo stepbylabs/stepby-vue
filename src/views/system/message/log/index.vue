@@ -75,6 +75,20 @@
         </el-button>
       </el-col>
       <el-col :span="1.5">
+        <!-- 标记待重试：把选中的**失败终态**记录交回重试队列（成功记录由后端跳过，
+             不会被重复投递）；与单条「重试」同权限键 system:msg:log:retry -->
+        <el-button
+          type="warning"
+          plain
+          icon="RefreshRight"
+          :disabled="multiple"
+          @click="handleMarkPending"
+          v-hasPermi="['system:msg:log:retry']"
+        >
+          {{ t('msg.log.btn.markPending') }}
+        </el-button>
+      </el-col>
+      <el-col :span="1.5">
         <el-button type="warning" plain icon="Delete" @click="handleClean" v-hasPermi="['system:msg:log:clean']">
           {{ t('msg.log.btn.clean') }}
         </el-button>
@@ -206,8 +220,9 @@
 </template>
 
 <script setup lang="ts" name="MsgLog">
-import { listSendLog, delSendLog, cleanSendLog, retrySendLog } from '@/api/system/msg'
+import { listSendLog, delSendLog, cleanSendLog, retrySendLog, markPendingSendLog } from '@/api/system/msg'
 import type { SysMsgSendLog, SendLogQueryParams } from '@/types/api/system/msg'
+import type { AjaxResult } from '@/types'
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
@@ -239,6 +254,7 @@ const {
   loading,
   showSearch,
   multiple,
+  ids,
   total,
   getList,
   handleQuery,
@@ -324,6 +340,25 @@ function handleRetry(row: SysMsgSendLog): void {
     })
     .catch((e: unknown) => {
       if (import.meta.env.DEV && e instanceof Error) console.error('[MsgLog] retry:', e)
+    })
+}
+
+/** 批量标记待重试：把选中记录交回重试队列（后端仅改判 status='1' 的失败终态行） */
+function handleMarkPending(): void {
+  const selected: Array<string | number> = ids.value.filter(
+    (x: string | number) => x !== '' && x !== null && x !== undefined
+  )
+  if (!selected.length) return
+  modal
+    .confirm(t('msg.log.tip.confirmMarkPending', { count: selected.length }))
+    .then(() => markPendingSendLog(selected.join(',')))
+    .then((res: AjaxResult<number>) => {
+      // data = 真正交回队列的条数：混选成功记录时该值小于选中数，必须如实提示
+      modal.msgSuccess(t('msg.log.markPendingSuccess', { count: Number(res?.data ?? 0) }))
+      getList()
+    })
+    .catch((e: unknown) => {
+      if (import.meta.env.DEV && e instanceof Error) console.error('[MsgLog] markPending:', e)
     })
 }
 

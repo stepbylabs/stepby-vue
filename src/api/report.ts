@@ -89,6 +89,18 @@ export function getDataset(datasetId: number): Promise<AjaxResult<ReportDataset>
   })
 }
 
+/**
+ * 取 SQL 模板**明文**（编辑回填专用）。
+ * list/info 的 VO 恒不含明文（普通可见权限），明文只由 `report:dataset:edit`
+ * 经本端点获取——不回填则编辑表单的 SQL 恒为空，改名/备注也要重敲整段 SQL。
+ */
+export function getDatasetSql(datasetId: number): Promise<AjaxResult<string>> {
+  return request({
+    url: `/report/dataset/${datasetId}/sql`,
+    method: 'post'
+  })
+}
+
 export function addDataset(data: DatasetUpsertForm): Promise<AjaxResult<ReportDataset>> {
   return request({
     url: '/report/dataset',

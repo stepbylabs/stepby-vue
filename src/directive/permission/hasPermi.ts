@@ -16,6 +16,18 @@ function getOriginalDisplay(el: HTMLElement): string {
   return originalDisplay.get(el) as string
 }
 
+/**
+ * 隐藏元素：必须**先取基线再写 none**。
+ * 基线惰性采集若发生在写入 `display:none` 之后，读到的"原始值"就是 none 本身
+ * （WeakMap 此后不再覆写），元素将**永久不可见**——权限/入参修正后 updated 依旧
+ * 恢复到 none。批七十二单测实证：冷加载期 permissions 为空走本分支 → getInfo 之后
+ * 放行的按钮全部再也显示不出来。
+ */
+function hide(el: HTMLElement): void {
+  getOriginalDisplay(el)
+  el.style.display = 'none'
+}
+
 function checkPermission(el: HTMLElement, binding: DirectiveBinding) {
   const { value } = binding
   const all_permission = '*:*:*'
@@ -23,14 +35,14 @@ function checkPermission(el: HTMLElement, binding: DirectiveBinding) {
 
   // 空值检查：避免权限未加载或为空时抛错导致白屏（P0-47）
   if (!(value && value instanceof Array && value.length > 0)) {
-    el.style.display = 'none'
+    hide(el)
     if (import.meta.env.DEV)
       console.warn('[v-hasPermi] Please set permission tags, e.g. v-hasPermi="[\'system:user:add\']"')
     return
   }
   // 权限列表为空时直接隐藏元素，不报错
   if (!permissions || permissions.length === 0) {
-    el.style.display = 'none'
+    hide(el)
     return
   }
 
@@ -41,7 +53,8 @@ function checkPermission(el: HTMLElement, binding: DirectiveBinding) {
 
   // 使用 display:none 隐藏而非物理移除，权限变化时可通过 updated 钩子恢复；
   // 恢复时还原原始 display 值（P1：不再写死 ''，避免 inline-flex 等布局被破坏）
-  el.style.display = hasPermissions ? getOriginalDisplay(el) : 'none'
+  if (hasPermissions) el.style.display = getOriginalDisplay(el)
+  else hide(el)
 }
 
 export default {

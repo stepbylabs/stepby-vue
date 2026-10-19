@@ -208,6 +208,7 @@ import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/stepby'
+import { toPositiveInt } from '@/utils/validate'
 import type { SysJobLog, JobLogQueryParams } from '@/types/api/monitor/jobLog'
 
 const { t } = useI18n()
@@ -345,9 +346,9 @@ function handleExport() {
 }
 
 ;(() => {
-  const rawJobId = route.params?.jobId
-  const jobId = rawJobId !== undefined ? Number(rawJobId) : NaN
-  if (!Number.isNaN(jobId) && jobId !== 0) {
+  // 深链参数必须过闸门：裸 Number() 会把 100 位数字串折成 1.11e+99 并照常出网（b73 轮 16 取证）
+  const jobId = toPositiveInt(route.params?.jobId)
+  if (jobId !== 0) {
     getJob(jobId)
       .then((response) => {
         queryParams.value.jobName = response.data!.jobName

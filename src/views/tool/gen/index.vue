@@ -213,6 +213,7 @@ import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import downloadPlugin from '@/plugins/download'
 import { addDateRange } from '@/utils/stepby'
+import { toPositiveInt } from '@/utils/validate'
 import type { GenTable, GenQueryParams } from '@/types/api/tool/gen'
 import type { FormInstance } from 'element-plus'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
@@ -275,7 +276,8 @@ onActivated(() => {
   const time = route.query.t
   if (time != null && time != uniqueId.value) {
     uniqueId.value = time
-    queryParams.value.pageNum = Number(route.query.pageNum)
+    const backPageNum = toPositiveInt(route.query.pageNum)
+    if (backPageNum) queryParams.value.pageNum = backPageNum
     dateRange.value = []
     queryRef.value?.resetFields()
     getList()

@@ -127,14 +127,21 @@ onMounted(loadDashboards)
 // 从设计态切回运行态时刷新布局
 watch(mode, (m: 'view' | 'design') => {
   if (m === 'view') {
-    loadDashboards().then(() => {
-      reloadTick.value++
-      if (selectedId.value) {
-        getDashboard(selectedId.value).then((res) => {
-          charts.value = parseLayout(res.data?.layoutJson).charts
-        })
-      }
-    })
+    // b72：整条链原先无 catch——切回运行态时若看板接口失败（401 之外的 5xx / 网络），
+    // 会产生 unhandledrejection 污染前端错误遥测。失败提示仍由全局响应拦截器给出，
+    // 这里只保证"结局有主"（内层 getDashboard 同样挂在链尾，一并覆盖）。
+    loadDashboards()
+      .then(() => {
+        reloadTick.value++
+        if (selectedId.value) {
+          return getDashboard(selectedId.value).then((res) => {
+            charts.value = parseLayout(res.data?.layoutJson).charts
+          })
+        }
+      })
+      .catch((e: unknown) => {
+        if (import.meta.env.DEV) console.error('[report/view] 刷新看板失败:', e)
+      })
   }
 })
 
