@@ -375,6 +375,8 @@ DATABASE_URL="sqlite://./data/mig-verify.db?mode=rwc" cargo run -p migration   #
 ```bash
 # 1b) 回滚演练（批七十六 R-10 新增档位；本仓 121 条迁移的 down() 在此之前从未被执行过）
 #     三趟口径 = 全新库 up 全量 → down 全量 → 再 up 全量；CLI 逐条走，失败会打印卡住的迁移名。
+#     批七十七 R-11 收口后，第三趟在 SQLite/MySQL/PostgreSQL 上全部实测通过
+#     （旧执行器"先执行再按错误文案吞掉"在 PG 上会让整笔事务 aborted，现已改为按方言探测）。
 #     ⚠ 开跑前先 `df -h /c`：可用低于 ~10 GB 不要开（本批就遇过 C 盘写满，
 #        SQLite 报 code 13 SQLITE_FULL、e2e 被洗成假失败，见 quality-batch-76 §10.4）。
 cd stepby-axum
@@ -382,10 +384,18 @@ cargo build -q -j 4 -p migration --bin migration
 D="sqlite://./data/mig-down.db?mode=rwc"
 DATABASE_URL="$D" ./target/debug/migration.exe          # 期望：迁移完成（实进 121 条）
 DATABASE_URL="$D" ./target/debug/migration.exe --down   # 期望：回滚完成（全量，实退 121 条）
-DATABASE_URL="$D" ./target/debug/migration.exe          # SQLite/MySQL 期望绿；PG 见 R-11（第 64 条）
-# MySQL：scratch 库自建自删，见 C:\stepby-restore\_probe\mysql_rollback_drill.py
-# PostgreSQL：现网 prod 容器没有宿主端口 ⇒ 起一次性容器（postgres:17-alpine 已在本地缓存），
-#             见 _probe\pg_rollback_drill.py（跑完 docker rm -f）
+DATABASE_URL="$D" ./target/debug/migration.exe          # 期望：再次实进 121 条（三库均应绿）
+rm -f data/mig-down.db*
+
+# 1c) 活库方言 smoke（批七十七新增；MySQL/PG 兜底段 + 回滚重放的真库验证，CI 已进矩阵）
+#     它替代了此前散在 _probe 目录里的一次性演练脚本——判据在仓内、跑法只有一条命令。
+cargo build -q -j 4 -p migration --bin migration
+STEPBY_SMOKE_DATABASE_URL="mysql://root:<pw>@127.0.0.1:3306/stepby_smoke" \
+  cargo test -j 4 --lib live_db_smoke -- --ignored --nocapture     # 约 80s
+STEPBY_SMOKE_DATABASE_URL="postgres://stepby:<pw>@127.0.0.1:5432/stepby_smoke" \
+  cargo test -j 4 --lib live_db_smoke -- --ignored --nocapture     # 约 8s
+# scratch 库自建自删（MySQL：CREATE DATABASE stepby_smoke；PG：createdb -U stepby stepby_smoke）
+```
 
 ```js
 // 2) 查证治理结果（落一个临时 .mjs 跑完即删，避免 shell 引号地狱；Node 内置 sqlite 无需额外依赖）
@@ -1809,7 +1819,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
     （与 execute_idempotent_insert 同款）。
 - **方法论沉淀**：本地复刻 CI 的标准姿势 = `docker compose down -v`（必须 -v 清 volume，
   半迁移态 seaql_migrations 残留会掩盖错误）+ `DATABASE_URL=<三库串> cargo run -q -p
-  migration` 逐库跑全新库；ci.yml mysql health-cmd 须用 root/root123（对齐根版）。
+migration` 逐库跑全新库；ci.yml mysql health-cmd 须用 root/root123（对齐根版）。
 
 ### 3.51 批六十二：企业级交付加固——冒烟门禁/checksums/dependabot/e2e embedded 兼容
 
@@ -1847,7 +1857,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   才有 query_all_raw/query_one_raw（run 实证 E0599）。
 - **三平台推送纪律**：origin（gitcode）只是开发同步；github/gitee/labs 的 main 是
   孤儿基线线——全史 main 直推必非快进拒绝，必须走 commit-tree 基线重建 + `--force
-  clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根因即此 + 网络
+clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根因即此 + 网络
   劣化叠加）。
 
 ### 3.53 批六十三：发布流程正常化——孤儿基线作废，正常 GitHub Flow 生效
@@ -1945,7 +1955,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   用例前向依赖链，id 取模分片实证破坏依赖产生假失败）→ 每片落盘 shard-N.json →
   `node main.mjs --merge` 合并总汇总。SQLite 档建议顺序跑各片（并行会加剧 503 风暴）。
 - **视觉回归**：`TEST_BASE=http://localhost:8080 node tests/e2e/visual-regression.mjs`
-  （多页面像素比对，阈值 1%；基线库 __baselines__/ 入库；有意变更后 --update 重新生成；
+  （多页面像素比对，阈值 1%；基线库 **baselines**/ 入库；有意变更后 --update 重新生成；
   零数据依赖静态页 login/lock/notfound——动态数据页会产生假差异不纳入）。
 - **passkeys 激活**：e2e 档 config/config.toml（gitignore 本机文件）`[features] "auth.webauthn" = "on"`
   → F106①/F129③ 激活；headless 注册走 CDP 虚拟认证器（`WebAuthn.enable` +
@@ -1970,6 +1980,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 **无限累积**并与业务数据混放，最终让"系统数据是否合理/状态是否正常"无法判断。
 
 ### B66-1 F25 头像：桩图污染管理员头像指针（真实缺陷）
+
 - **现象**：`Resource load failed: IMG http://localhost:8080/user/profile` 每页加载必报
   （24h 31 条 / 累计 109 条，仅出现在 `/user/profile`）。
 - **根因**：F25 的"合法 PNG/JPEG"用 **64 字节 magic-only 桩图**（仅 magic bytes + 零填充）。
@@ -1984,6 +1995,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   3. 记录**原头像指针**，用例结束**恢复**（无"清空头像" API，用 `node:sqlite` 直连恢复）。
 
 ### B66-2 uploads 磁盘无限增长（真实缺陷）
+
 - **现象**：`stepby-axum/uploads` 累积 **1.3 GB / 1702 文件**（`uploads/0/file/` 下 ~754 个
   11 MB 测试 zip）——e2e 上传永不回收，且与业务数据混放。
 - **⚠️ 陷阱**：`uploads/<tenant>/audit-archive/anchor_*.jsonl`（74 个）是**审计链归档锚
@@ -1997,6 +2009,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - **存量清退**：b66 删除 1579 个测试上传件，释放 **1.24 GB**；74 个审计锚完好。
 
 ### B66-3 生产代码 panic 硬化（真实缺陷）
+
 - `handler/sso_handler.rs`：`serde_json::to_value(result).unwrap()` → 失败走
   `tracing::error!` + `AppError::internal` 500（保留 RFC 6749 §5.1 的 `Cache-Control: no-store`）。
 - `service/gen_table_service.rs::import_table`：`models.pop().unwrap()` → `ServiceError::internal`。
@@ -2006,12 +2019,15 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
   （`no_panic_guard::no_panic_guard` → 内层改名 `no_panic_mod`）。
 
 ### B66-4 纪律重申：全量期间零并行
+
 b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
+
 - 后端集成测试 **263 假失败**（Redis 连接超时，非代码缺陷）；
 - e2e F4 **假失败**（ECharts 0 个，CPU 饱和图表未渲染）。
-**单跑复核**：e2e F4 **4/4 PASS、6 个 ECharts 图表**（假失败确认为 CPU 争用）。
+  **单跑复核**：e2e F4 **4/4 PASS、6 个 ECharts 图表**（假失败确认为 CPU 争用）。
 
 ### B66-5 后端集成测试 263 失败 = Redis 容器退出（环境定因，非代码缺陷）
+
 - 报错：`连接测试 Redis 失败（请确认本机 Redis 可达...）: Redis 连接超时`。
 - 根因：**docker 容器 `stepby-redis`（redis:7-alpine）退出**（`docker ps -a` 可见 `Exited`）。
   `docker start stepby-redis` 后复跑即绿。
@@ -2023,6 +2039,7 @@ b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
 ---
 
 ## 3.8 前端 dist 构建模式辨析（b66 取证，排除嫌疑）
+
 - `.env.production` = `VITE_APP_BASE_API='/prod-api'`；`.env.embedded` = `''`。
 - 后端 `Router::nest` 同时挂 **`/prod-api`、`/dev-api`、`/stage-api`** 三前缀
   （`middleware/mod.rs:31` `API_PATH_PREFIXES`），三者行为等价。
@@ -2149,11 +2166,11 @@ axios 1.20 的 `transformRequest` 见「JSON 头 + FormData」直接走 `formDat
 AGENTS.md/TESTING.md 自 2026-10-14 起记 `84 模块 / 2106✅`，与同段"历史口径 1029"差整 2 倍。
 b71 用**两条独立路径**实测同一套件：
 
-| 口径 | 结果 |
-|---|---|
-| 全量单轮（无过滤，修复中期产物） | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2423.2s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
-| 全量单轮（无过滤，**最终二进制复跑**） | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2550.3s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
-| 分 6 段（`--range=1-15 / 16-30 / 31-45 / 46-60 / 61-75 / 76-86`）求和，与"修复中期产物"单轮同产物互证 | 302+173+134+158+149+138 = **1054**，0 失败 |
+| 口径                                                                                                  | 结果                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 全量单轮（无过滤，修复中期产物）                                                                      | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2423.2s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
+| 全量单轮（无过滤，**最终二进制复跑**）                                                                | **86 模块 / ✅ 1053 / ❌ 0 / SKIP 48 / 2550.3s**，被吞异常 0、后端 ERROR·WARN 0，EXIT=0 |
+| 分 6 段（`--range=1-15 / 16-30 / 31-45 / 46-60 / 61-75 / 76-86`）求和，与"修复中期产物"单轮同产物互证 | 302+173+134+158+149+138 = **1054**，0 失败                                              |
 
 两条路径互相印证（差 1 为时间敏感软断言），且 `deep-e2e.mjs` 全文 `record(` 调用点仅 1167 处
 ——**单次运行不可能产出 2106 条计数**。结论：2106 是历史誊写/翻倍错误，现行基线以 **86 模块 / 1053✅** 为准。
@@ -2212,7 +2229,7 @@ b71 的 429 教训是"配额取太紧"；b72 是**分桶口径**：`rate_limit_b
 钳到 `capacity=1e6 / refill=1e6`，"其它接口不被饿死"在该缺省下恒真。处置：
 
 - 用例内**显式钉回生产量级**（`UPDATE sys_rate_limit SET capacity=100, refill_per_second=10.0 WHERE route_pattern='*'`
-  + `invalidate_all_cache`）后再断言，此时回退修复会**立刻复现 429**；
+  - `invalidate_all_cache`）后再断言，此时回退修复会**立刻复现 429**；
 - 判据口诀：**"某接口不受影响"类断言，必须先让对照组真的受配额约束**，否则锁的是环境不是代码；
 - 另：本批把用例里一处 `/system/user/resetPwd` 换成 `POST /system/pat/999999/rotate-ak`——
   前者会改掉 admin 密码并破坏并行用例（**用例不得动全局凭据**）。
@@ -2232,17 +2249,17 @@ b72 分 6 段实测：302 + 172 + 134 + 158 + 149 + 138 = **1053**，与 b71 全
 
 ### 3.58.6 基线与门禁实测（b72 终值，全部真实执行）
 
-| 门禁 | 实测 |
-|---|---|
-| `cargo test --lib` | **1426 passed / 0 failed**（`-- --list` 交叉核对同数；integration_tests **274**） |
-| fmt / clippy `-D warnings` / `cargo doc -D warnings` | 全 PASS（`-j 4`） |
-| `vitest run` | **92 文件 / 1162 例**；覆盖率（`--coverage`）All files **69.30 / 62.86 / 55.80 / 70.33** |
-| `vue-tsc` / `eslint` | 0 错误 / 0 error 0 warning |
-| e2e 主套件（分 5 段） | **1211 断言 / ❌0 / SKIP 5**，全段 EXIT=0 |
-| deep-e2e（分 6 段） | **86 模块 / ✅1053 / ❌0 / SKIP 48**，全段 EXIT=0（约 40.5min） |
-| a11y / ux-compat / perf-budget / duplicate-deps | 560/560 / 11/11 / 6/6 / 0 重复 |
-| `seed_diff.py` | **PASS 漂移 0 / 豁免 48**（首跑 19 处假漂移见 b72 台账 §五 轮 5：`sys_rate_limit` 需登记业务键） |
-| 后端窗口 | **0 ERROR / 47 WARN**（WARN 全部归入设计内负路径：限流拒绝 / 探活 DOWN / best-effort 留痕） |
+| 门禁                                                 | 实测                                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `cargo test --lib`                                   | **1426 passed / 0 failed**（`-- --list` 交叉核对同数；integration_tests **274**）                |
+| fmt / clippy `-D warnings` / `cargo doc -D warnings` | 全 PASS（`-j 4`）                                                                                |
+| `vitest run`                                         | **92 文件 / 1162 例**；覆盖率（`--coverage`）All files **69.30 / 62.86 / 55.80 / 70.33**         |
+| `vue-tsc` / `eslint`                                 | 0 错误 / 0 error 0 warning                                                                       |
+| e2e 主套件（分 5 段）                                | **1211 断言 / ❌0 / SKIP 5**，全段 EXIT=0                                                        |
+| deep-e2e（分 6 段）                                  | **86 模块 / ✅1053 / ❌0 / SKIP 48**，全段 EXIT=0（约 40.5min）                                  |
+| a11y / ux-compat / perf-budget / duplicate-deps      | 560/560 / 11/11 / 6/6 / 0 重复                                                                   |
+| `seed_diff.py`                                       | **PASS 漂移 0 / 豁免 48**（首跑 19 处假漂移见 b72 台账 §五 轮 5：`sys_rate_limit` 需登记业务键） |
+| 后端窗口                                             | **0 ERROR / 47 WARN**（WARN 全部归入设计内负路径：限流拒绝 / 探活 DOWN / best-effort 留痕）      |
 
 ## 3.59 批七十三（2026-10-17）：假断言判据配方 + 断言工具自曝 + common 授权跨语言锁
 
@@ -2321,7 +2338,6 @@ common 写权限例外（后端 `governance::COMMON_ROLE_WRITE_EXCEPTIONS`）。
 sqlx 把它当**命名参数** ⇒ `unsupported SQL parameter format: :query`，且只在走 `execute_raw` 的
 兜底路径报错、走 `execute_unprepared` 的迁移路径不报。教训：拼接 SQL 的子句必须有
 **单引号成对**静态锁（`governance` 已有），不要指望"迁移里能跑"代表兜底也能跑。
-
 
 ### 3.59.12 深链数字参数禁裸 `Number(route.…)`：IEEE754 会把畸形值"洗白"成可发请求
 
@@ -2404,10 +2420,10 @@ b73 分段跑批实测：`/system/menu` 一次 `page.goto(..., {waitUntil:'load'
 `scripts/e2e_assertion_scan.py` 的 literal-true 判据此前是"本行 + 两行续写"的窗口配 `re.S` + `[^;]*?`。
 b73 轮 17 实测它**同时**有两类错：
 
-| 方向 | 形态 | 后果 |
-|---|---|---|
-| 误报 | `[^;]*?` 跨过本调用的右括号，摸到**下一条** `record(..., true)` | 一条 `, false,` 的失败分支被记成恒真断言 ⇒ 人去"改代码消警"，判据与真实代码脱钩（deep-e2e 多报 3 处） |
-| 漏报 | 窗口只有三行，跨 4 行书写的 `record(\n id,\n name,\n true,\n detail)` 抓不到 | 恒真断言蒙混过关（main.mjs 少报 1 处） |
+| 方向 | 形态                                                                         | 后果                                                                                                  |
+| ---- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 误报 | `[^;]*?` 跨过本调用的右括号，摸到**下一条** `record(..., true)`              | 一条 `, false,` 的失败分支被记成恒真断言 ⇒ 人去"改代码消警"，判据与真实代码脱钩（deep-e2e 多报 3 处） |
+| 漏报 | 窗口只有三行，跨 4 行书写的 `record(\n id,\n name,\n true,\n detail)` 抓不到 | 恒真断言蒙混过关（main.mjs 少报 1 处）                                                                |
 
 另外偏移换算也错：用 `line.strip()` 的相对位置加行首偏移 ⇒ 缩进行的起点整体左移。
 
