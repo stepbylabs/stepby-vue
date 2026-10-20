@@ -1,13 +1,13 @@
 # Stepby Vue
 
 [![CI](https://github.com/stepbylabs/stepby-vue/actions/workflows/ci.yml/badge.svg)](https://github.com/stepbylabs/stepby-vue/actions/workflows/ci.yml)
-![Release](https://img.shields.io/badge/release-v0.2.0-blue)
+![Release](https://img.shields.io/badge/release-v0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Vue](https://img.shields.io/badge/Vue-3-brightgreen?logo=vuedotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
 ![Vite](https://img.shields.io/badge/Vite-8-purple?logo=vite)
 ![Element Plus](https://img.shields.io/badge/Element%20Plus-2-409EFF?logo=elementplus)
-![Tests](https://img.shields.io/badge/e2e-135%20features%20%2F%201173%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/e2e-144%20features%20%2F%201260%20assertions-brightgreen)
 
 Stepby 开源中后台管理系统前端，基于 **Vue 3 + TypeScript + Vite + Element Plus + TailwindCSS 4 + Pinia + Vue I18n** 构建。配套后端：[stepby-axum](https://github.com/stepbylabs/stepby-axum)（Rust / axum）。
 
@@ -83,13 +83,31 @@ npm run typecheck
 
 ```bash
 npm run typecheck    # vue-tsc 类型检查
+npm run test:run     # vitest 单测：100 个文件 / 1253 例
+npm run lint         # eslint
 ```
 
-E2E 测试基于 Playwright，共 **135 个功能 / 1173 项断言**（单套件全量），入口为 `tests/e2e/main.mjs`。运行前需：
+E2E 测试基于 Playwright，共 **144 个功能 / 1260 项断言**（单套件全量），入口为 `tests/e2e/main.mjs`。
+另有补充深测 `tests/e2e/deep-e2e.mjs`（88 个模块 / 1231 项断言）与全站无障碍检查 `tests/e2e/a11y-full.mjs`
+（56 条路由 / 560 检查）。运行前需：
 
 1. 后端启动在 `http://localhost:8080`（零配置单文件即可）
 2. 前端启动在 `http://localhost:5173`（或通过 `FRONTEND_URL` 环境变量指定）
 3. 关闭验证码：参数 `sys.account.captchaEnabled = false`
+
+完整跑批口径、分段方式与判据基线见 [`tests/e2e/RUN-RECIPE.md`](tests/e2e/RUN-RECIPE.md)。
+
+## 🚀 预编译产物
+
+每个版本在 [Releases](https://github.com/stepbylabs/stepby-vue/releases) 附 `stepby-frontend-v<版本>.tar.gz`
+（解压得到 `dist/`，即 `VITE_APP_BASE_API=/prod-api` 的反代档，直接交给 Nginx/静态托管）与 `checksums.txt`。
+
+需要**同源直出**（不带 `/prod-api` 前缀）的形态时，用 `npm run build:embedded` 构建后交给后端嵌入，
+或参考后端仓库的预编译单文件包——前端资源已编进 `stepby-axum` 二进制，解压即可运行。
+
+产物由 `.github/workflows/release.yml` 在推送 `v*` 标签时构建；Actions 额度不可用时，可在本机用
+`scripts/package-release.ps1 -Release -Tag v<版本>` 产出同一资产集（命名与结构逐字段一致），再用
+`gh release upload` 挂到 Release。
 
 ## 📄 License
 
@@ -97,4 +115,4 @@ E2E 测试基于 Playwright，共 **135 个功能 / 1173 项断言**（单套件
 
 ## 📦 版本
 
-变更历史见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v0.2.0**（2026-10-12）。
+变更历史见 [CHANGELOG.md](CHANGELOG.md)。当前版本 **v0.3.0**（2026-10-20）。
