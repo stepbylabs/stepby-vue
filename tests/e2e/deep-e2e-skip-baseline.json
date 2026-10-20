@@ -1,5 +1,5 @@
 {
-  "total": 37,
-  "generatedAt": "2026-10-19T13:11:11.000Z",
-  "note": "b78 全量单轮实测（D 盘新鲜服务：target/debug pid 18508 + 17:06 重建的 frontend-dist，Playwright 1.62.1 / Chrome 151，86 模块 2737.6s，1085 ✅ / 0 ❌ / 37 SKIP / 工具自曝 0）。比上一版 41 少 4 条：M63 原先指向不存在的路由 /legal/privacy，4 条判据长期 SKIP，b78 改回真实路由 /privacy 并接真实选择器后转为 6 条真断言。棘轮路径 bug（path.dirname(import.meta.url) 在 Windows 上产出 …\\tests\\e2e\\file:\\D:\\…）同批修复，本轮已实测打印「✅ SKIP 低于基线（37 < 41）」——这是棘轮自 b74 引入以来第一次真正参与判定。"
+  "total": 34,
+  "generatedAt": "2026-10-20T02:18:29.888Z",
+  "note": "deep-e2e 全量实测"
 }

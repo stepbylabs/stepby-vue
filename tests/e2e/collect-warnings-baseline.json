@@ -1,0 +1,10 @@
+{
+  "generatedAt": "2026-10-19T18:21:05.119Z",
+  "full": true,
+  "routes": 56,
+  "signalRoutes": 0,
+  "guardPopups": 0,
+  "guardRoutes": 0,
+  "overlayLeftover": 0,
+  "note": "INTERACT=1 全量跑批基线：--gate 时 signalRoutes/guardPopups/overlayLeftover 不得超过本值（只许降），routes 不得减少"
+}

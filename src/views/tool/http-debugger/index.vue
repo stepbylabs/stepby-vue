@@ -17,7 +17,12 @@
           <el-select :aria-label="t('httpDebug.method')" v-model="form.method" class="method-select w-[130px]">
             <el-option v-for="m in ALLOWED_METHODS" :key="m" :value="m" :label="m" />
           </el-select>
-          <el-input v-model="form.url" :placeholder="t('httpDebug.urlPlaceholder')" clearable :aria-label="t('httpDebug.urlPlaceholder')" />
+          <el-input
+            v-model="form.url"
+            :placeholder="t('httpDebug.urlPlaceholder')"
+            clearable
+            :aria-label="t('httpDebug.urlPlaceholder')"
+          />
           <el-select :aria-label="t('httpDebug.timeout')" v-model="form.timeoutSecs" class="w-[150px]">
             <el-option v-for="s in [5, 10, 20, 30]" :key="s" :value="s" :label="`${s}s`" />
           </el-select>
@@ -33,17 +38,33 @@
         <el-table :data="headers" size="small" border>
           <el-table-column :label="t('httpDebug.key')" min-width="200">
             <template #default="{ row }">
-              <el-input v-model="row.name" :placeholder="t('httpDebug.keyPlaceholder')" size="small" :aria-label="t('httpDebug.keyPlaceholder')" />
+              <el-input
+                v-model="row.name"
+                :placeholder="t('httpDebug.keyPlaceholder')"
+                size="small"
+                :aria-label="t('httpDebug.keyPlaceholder')"
+              />
             </template>
           </el-table-column>
           <el-table-column :label="t('httpDebug.value')" min-width="260">
             <template #default="{ row }">
-              <el-input v-model="row.value" :placeholder="t('httpDebug.valuePlaceholder')" size="small" :aria-label="t('httpDebug.valuePlaceholder')" />
+              <el-input
+                v-model="row.value"
+                :placeholder="t('httpDebug.valuePlaceholder')"
+                size="small"
+                :aria-label="t('httpDebug.valuePlaceholder')"
+              />
             </template>
           </el-table-column>
           <el-table-column :label="t('httpDebug.action')" width="90" align="center">
             <template #default="{ $index }">
-              <el-button link type="danger" icon="Delete" :aria-label="t('common.delete')" @click="headers.splice($index, 1)" />
+              <el-button
+                link
+                type="danger"
+                icon="Delete"
+                :aria-label="t('common.delete')"
+                @click="headers.splice($index, 1)"
+              />
             </template>
           </el-table-column>
           <template #append>
@@ -62,7 +83,13 @@
         <el-divider content-position="left">
           <span class="text-sm text-text-secondary">{{ t('httpDebug.body') }}</span>
         </el-divider>
-        <el-input v-model="form.body" type="textarea" :rows="6" :placeholder="t('httpDebug.bodyPlaceholder')" :aria-label="t('httpDebug.bodyPlaceholder')" />
+        <el-input
+          v-model="form.body"
+          type="textarea"
+          :rows="6"
+          :placeholder="t('httpDebug.bodyPlaceholder')"
+          :aria-label="t('httpDebug.bodyPlaceholder')"
+        />
 
         <div v-if="showBodyHint && allowsBody" class="mt-2 text-xs text-text-secondary">
           <el-icon><InfoFilled /></el-icon>
@@ -134,6 +161,7 @@ import {
   InfoFilled
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import type { AxiosError } from 'axios'
 import { ALLOWED_METHODS, executeHttpDebug, type HttpDebugHeader, type HttpDebugResult } from '@/api/tool/httpDebug'
 import { errorHub } from '@/utils/errorHub'
 
@@ -197,8 +225,13 @@ async function send(): Promise<void> {
       result.value = data
     }
   } catch (e) {
-    // SSRF 拒绝 / 参数非法 → 400 由 request 拦截器弹出错误；此处兜底展示
-    errorMsg.value = e instanceof Error ? e.message : String(e)
+    // SSRF 拒绝 / 参数非法 ⇒ 后端按统一错误契约返回 `{ code, msg }`（AGENTS §C.8）。
+    // 拦截器对 HTTP 400 是**原样 reject axios error**（见 utils/request.ts 的 httpStatus===400 分支），
+    // 所以 `e.message` 取到的是 `Request failed with status code 400` 这类技术串；
+    // 本页是"把结果指给用户看"的调试器，内联危险提示必须显示后端给的可读原因
+    // （b79 M87 实测：SSRF 拦下时页面只有拦截器 Toast 里有中文原因，内联区是裸英文）。
+    const data = (e as AxiosError<{ msg?: string; message?: string }>)?.response?.data
+    errorMsg.value = data?.msg || data?.message || (e instanceof Error ? e.message : String(e))
   } finally {
     loading.value = false
   }

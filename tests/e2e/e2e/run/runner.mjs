@@ -63,6 +63,27 @@ function readSkipBaseline() {
   }
 }
 
+/**
+ * SKIP 棘轮的比较式（抽成纯函数供自检直接调用，`--gate` 语义与收紧入口共用同一份）。
+ * 返回 `{ ratchetBroken, writeAllowed }`：
+ *  - `ratchetBroken`：本轮 SKIP **高于**基线 ⇒ 判红（只许降不许升）。
+ *  - `writeAllowed` ：收紧入口能否回写。基线缺失时可写（首次生成）；否则只允许**持平或下降**。
+ * 两者必须分开：`skipRatchetBroken` 只影响退出码，而退出码只活在这次终端里；
+ * 若在退步轮上照样回写，基线文件本身就被抬高了，下一轮读到的是被放松后的新天花板。
+ * 非数值一律视为退步（"取不到数"不得读成"没有退步"）。
+ */
+export function skipRatchet(baseline, now) {
+  if (typeof now !== 'number') {
+    // 本轮取不到数 = 判据断电 ⇒ fail-closed，不得读成"没有退步"
+    return { ratchetBroken: true, writeAllowed: false }
+  }
+  if (typeof baseline !== 'number') {
+    // 基线缺失/不可读：本轮就是来生成它（调用方另外负责"没带 --update-skip-baseline 就判红"）
+    return { ratchetBroken: false, writeAllowed: true }
+  }
+  return { ratchetBroken: now > baseline, writeAllowed: now <= baseline }
+}
+
 /** 写基线（`--update-skip-baseline` 专用：跑完一轮全量后收紧棘轮） */
 function writeSkipBaseline(total, at) {
   fs.writeFileSync(
@@ -274,12 +295,16 @@ export async function runMain({ testFns, config, helpers, state }) {
     }
   }
   // SKIP 棘轮：基线只允许下降（新增跳过＝有断言被降级成"不算失败"）
+  // 比较式一律走 `skipRatchet`（与收紧入口、自检同源），本处只做"打印哪种文案"
   let skipRatchetBroken = false
   if (isFullRun) {
     const baseline = readSkipBaseline()
+    const verdict = skipRatchet(baseline, skipRows.length)
     if (baseline === null) {
       // 基线缺失 = 棘轮**没有跑**，不能记成"通过"（b78 前此处只打 ⚠ 不判红，
       // 而路径 bug 让它恒缺 ⇒ 棘轮静默空转了一整批）。唯一例外：本次就是来生成基线的。
+      // 这一支的判红**与 skipRatchet 无关**（它对"基线缺失"给的是 writeAllowed=true，
+      // 语义是"允许首建"，不是"允许通过"）——抽比较式时别把它一起抽掉。
       if (config.updateSkipBaseline) {
         log('ℹ SKIP 棘轮基线缺失，本轮按 --update-skip-baseline 生成')
       } else {
@@ -289,7 +314,7 @@ export async function runMain({ testFns, config, helpers, state }) {
             `不得记为通过；生成：node tests/e2e/deep-e2e.mjs --update-skip-baseline`
         )
       }
-    } else if (skipRows.length > baseline) {
+    } else if (verdict.ratchetBroken) {
       skipRatchetBroken = true
       log(`❌ SKIP 棘轮回退：本轮 ${skipRows.length} > 基线 ${baseline}（只许降不许升）`)
     } else if (skipRows.length < baseline) {
@@ -368,19 +393,71 @@ export async function runMain({ testFns, config, helpers, state }) {
       log('⚠️ 失败请求清单写盘失败（不影响退出码）')
     }
   }
+  // 批七十九新增捕获面：HTTP 200 但响应体里写着"一部分失败"的写请求。
+  // 这一族对 netFails（只看 >=400）、body.code（只看非 200）与 Toast 全都隐形，
+  // 典型是批量接口"整体 200 + 逐项结果"（如 batchLogout 的 `{successCount, failed:[…]}`）。
+  // 与失败请求同口径：**枚举 + 逐条对账**，不单独判红（负路径用例本来就会故意造部分失败）。
+  const partialRows = []
+  for (const h of hubs) for (const p of h.bizPartials || []) partialRows.push({ tag: h.tag || 'x', ...p })
+  log(`部分失败响应（HTTP 200 且 body 带失败明细）总数: ${partialRows.length}`)
+  if (partialRows.length > 0) {
+    const pkinds = new Map()
+    for (const p of partialRows) {
+      const key = `${p.tag}|${p.method} ${p.status} ${p.url}|${p.kind}|${p.at || 'load'}`
+      const cur = pkinds.get(key)
+      if (cur) cur.n++
+      else pkinds.set(key, { n: 1, sample: p.sample })
+    }
+    // 键里已含"模块|方法 状态 端点|形态|所属动作"，样本单独带一份失败明细首两项
+    for (const [key, v] of [...pkinds.entries()].sort((a, b) => b[1].n - a[1].n)) {
+      log(`    · ${key} ×${v.n} — ${v.sample}`)
+    }
+    try {
+      const pPath = path.join(config.screenshotDir, `deep-e2e-partial-${Date.now()}.json`)
+      fs.writeFileSync(pPath, JSON.stringify(partialRows, null, 2), 'utf-8')
+      log(`部分失败全量清单已写入: ${pPath}`)
+    } catch {
+      log('⚠️ 部分失败清单写盘失败（不影响退出码）')
+    }
+  }
   // ==================== 批七十四 T5：每动作请求数分布落盘（只采集，不判红）====================
   // 阈值必须由实测分布定，所以先把全轮数据写出来；本文件不进退出码判据。
   try {
     const reqStats = []
     for (const h of hubs) {
       if (typeof h.requestStatSnapshot !== 'function') continue
-      for (const row of h.requestStatSnapshot()) reqStats.push({ tag: h.tag || 'x', ...row })
+      for (const row of h.requestStatSnapshot()) reqStats.push({ tag: h.tag || 'x', navs: h.navCount ?? 0, ...row })
     }
     reqStats.sort((a, b) => b.count - a.count)
-    const reqPath = path.join(config.screenshotDir, 'deep-e2e-reqstats.json')
+    // **全量轮与分段轮写不同文件**（b79）：本文件是将来"接口风暴"判据的唯一数据源，
+    // 若单模块复跑（`--feature=25`）也往同一个路径写，就会把全站分布覆盖成 27 行——
+    // 实测踩过：本批为验证 M25 重写而单跑一轮，`deep-e2e-reqstats.json` 只剩 M25 的动作。
+    // 与 `collect-warnings` 基线的 `full: true`、`tenant-audit.incremental.*` 同口径：
+    // "没跑全量"与"跑了且干净"必须可区分，且部分数据不得覆盖全站数据。
+    const reqPath = path.join(
+      config.screenshotDir,
+      isFullRun ? 'deep-e2e-reqstats.json' : 'deep-e2e-reqstats.incremental.json'
+    )
+    /**
+     * 本轮请求窗口（UTC 裸文本，与 `sys_oper_log.oper_time` 同口径——实测该列是 UTC：
+     * `max(oper_time)=2026-10-20 02:29` 而本地是 10:29）。写进数据集，`endpoint-coverage`
+     * 因此能**自己取窗口**做服务端触达对账，而不必让人手抄时间串（抄错方向就是把窗口
+     * 前挪 8 小时，b79 实测这类错误在两条判据上都出现过）。
+     */
+    const utcNaive = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ')
     fs.writeFileSync(
       reqPath,
-      JSON.stringify({ generatedAt: new Date().toISOString(), rows: reqStats }, null, 2),
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          full: isFullRun,
+          windowStart: utcNaive(roundStartMs),
+          windowEnd: utcNaive(Date.now()),
+          rows: reqStats
+        },
+        null,
+        2
+      ),
       'utf-8'
     )
     const top = reqStats
@@ -419,6 +496,18 @@ export async function runMain({ testFns, config, helpers, state }) {
     if (!isFullRun) {
       log('❌ --update-skip-baseline 只允许在**全量跑批**上使用（分段跑的 SKIP 是子集，写进去等于放松基线）')
       return 2
+    }
+    // **只许降**必须由写入这一步自己守住：上面 `skipRows.length > baseline` 已经置了
+    // skipRatchetBroken（退出码会非 0），但原写法仍会先无条件回写文件 ⇒ 一次"红着的收紧跑批"
+    // 就把基线抬高了一格，而退出码 1 只活在这次终端里，下一次跑批读到的是被放松后的新基线。
+    // 这类"失败路径上仍然落盘"正是棘轮被静默放松的唯一通道（b79 自查发现）。
+    const prev = readSkipBaseline()
+    if (!skipRatchet(prev, skipRows.length).writeAllowed) {
+      log(
+        `❌ 拒绝放松棘轮：本轮 SKIP ${skipRows.length} > 基线 ${prev}，基线文件**未改动**。` +
+          `先查多出来的 SKIP 是"判据没执行"还是"环境缺失"，修完再收紧`
+      )
+      return 1
     }
     writeSkipBaseline(skipRows.length, 'deep-e2e 全量实测')
     log(`✅ SKIP 棘轮基线已更新为 ${skipRows.length}`)

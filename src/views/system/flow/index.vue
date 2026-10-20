@@ -157,13 +157,7 @@
       <el-tab-pane v-if="isManager" :label="t('flow.tabAll')" name="all">
         <el-row :gutter="10" class="mb8">
           <el-col :span="1.5">
-            <el-button
-              type="warning"
-              plain
-              icon="Download"
-              :loading="exporting"
-              @click="handleExport"
-            >
+            <el-button type="warning" plain icon="Download" :loading="exporting" @click="handleExport">
               {{ t('flow.btnExport') }}
             </el-button>
           </el-col>
@@ -201,9 +195,7 @@
           <el-input v-model="submitForm.title" :maxlength="200" />
         </el-form-item>
         <el-form-item :label="t('flow.formLeaveType')" prop="leaveType">
-          <el-select
-            :aria-label="t('flow.formLeaveType')"
-            v-model="submitForm.leaveType" class="w-full">
+          <el-select :aria-label="t('flow.formLeaveType')" v-model="submitForm.leaveType" class="w-full">
             <el-option :label="t('flow.leave.annual')" value="annual" />
             <el-option :label="t('flow.leave.sick')" value="sick" />
             <el-option :label="t('flow.leave.personal')" value="personal" />
@@ -306,6 +298,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useDict } from '@/utils/dict'
+import { validateForm } from '@/utils/formValidate'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
 import useUserStore from '@/store/modules/user'
@@ -336,9 +329,7 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const userId = computed(() => Number(userStore.id ?? 0))
 // 管理视图 tab 依赖权限键 system:flow:list（v-hasPermi 同源）
-const isManager = computed(() =>
-  userStore.permissions.some((p: string) => p === '*:*:*' || p === 'system:flow:list')
-)
+const isManager = computed(() => userStore.permissions.some((p: string) => p === '*:*:*' || p === 'system:flow:list'))
 
 const activeTab = ref('todo')
 const loading = ref(false)
@@ -367,22 +358,19 @@ const allTotal = ref(0)
 
 // 审批状态/请假类型走字典中心（sys_flow_task_status / sys_flow_leave_type，迁移 70 段双语种子；
 // useDict 按 locale 自动选 dict_label / dict_label_en，字典中心改动即时生效——与 notice/task 页面同惯例）
-const { sys_flow_task_status, sys_flow_leave_type } = useDict(
-  'sys_flow_task_status',
-  'sys_flow_leave_type'
-)
+const { sys_flow_task_status, sys_flow_leave_type } = useDict('sys_flow_task_status', 'sys_flow_leave_type')
 const leaveTypeLabel = (value: string) =>
   sys_flow_leave_type.value.find((o: { value: string }) => o.value === value)?.label ?? value
 
 // 引擎四模式标签：待办行的 taskType 与单据的 flowMode 同源（NodeSpec::task_type）
 const flowTypeLabel = (value: string) =>
   (
-    {
+    ({
       single: t('flow.typeSingle'),
       countersign: t('flow.typeCountersign'),
       or_sign: t('flow.typeOrSign'),
-      weighted: t('flow.typeWeighted'),
-    } as Record<string, string>
+      weighted: t('flow.typeWeighted')
+    }) as Record<string, string>
   )[value] ?? value
 
 const isOverdue = (row: SysFlowTask) =>
@@ -459,10 +447,9 @@ function handleExport() {
   // （errorHub）。该工具内部已吞掉异常并自行提示，故**不可**在此按 Promise 结果追加
   // 成功/失败提示——失败时会误报"导出成功"。
   // 护栏②：exporting 期间按钮 loading，防重复提交
-  download('/system/flow/export', { status: allQuery.value.status }, `flow_doc_${Date.now()}.xlsx`)
-    .finally(() => {
-      exporting.value = false
-    })
+  download('/system/flow/export', { status: allQuery.value.status }, `flow_doc_${Date.now()}.xlsx`).finally(() => {
+    exporting.value = false
+  })
 }
 
 // ---------- 提交 ----------
@@ -493,7 +480,7 @@ function openSubmit() {
 }
 
 async function handleSubmit() {
-  await submitRef.value?.validate()
+  if (!(await validateForm(submitRef.value))) return
   submitting.value = true
   try {
     await submitFlowDemo(submitForm.value)
@@ -517,9 +504,7 @@ const actComment = ref('')
 const actToUserId = ref<number | undefined>(undefined)
 const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
 /** 需要选择目标用户的动作（转办/加签/减签）：这三类不填审批意见 */
-const needsTargetUser = computed(() =>
-  ['transfer', 'countersign', 'countersignDel'].includes(actAction.value)
-)
+const needsTargetUser = computed(() => ['transfer', 'countersign', 'countersignDel'].includes(actAction.value))
 
 // 加签/转办用户选择：复用既有用户列表 API（userName 模糊搜索），选项显示 昵称(用户名)
 const userSearching = ref(false)

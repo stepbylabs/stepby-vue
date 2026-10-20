@@ -9,7 +9,9 @@
               :placeholder="t('common.inputText')"
               clearable
               class="w-[180px]"
-              @keyup.enter="handleQuery" :aria-label="t('tenant.tenantName')" />
+              @keyup.enter="handleQuery"
+              :aria-label="t('tenant.tenantName')"
+            />
           </el-form-item>
           <el-form-item :label="t('tenant.tenantCode')">
             <el-input
@@ -17,7 +19,9 @@
               :placeholder="t('tenant.codePlaceholder')"
               clearable
               class="w-[160px]"
-              @keyup.enter="handleQuery" :aria-label="t('tenant.codePlaceholder')" />
+              @keyup.enter="handleQuery"
+              :aria-label="t('tenant.codePlaceholder')"
+            />
           </el-form-item>
           <!-- 生命周期视角切换（回收站仅平台可见；租户操作者列表恒为本租户在册行） -->
           <el-form-item v-if="isPlatform" :label="t('tenant.lifecycle')">
@@ -54,23 +58,12 @@
           <right-toolbar v-model:show-search="showSearch" @query-table="getList" />
         </el-row>
         <el-alert :title="t('tenant.modelTip')" type="info" :closable="false" class="mb-1" />
-        <el-alert
-          v-if="isRecycleView"
-          :title="t('tenant.recycleTip')"
-          type="warning"
-          :closable="false"
-          class="mb-2"
-        />
+        <el-alert v-if="isRecycleView" :title="t('tenant.recycleTip')" type="warning" :closable="false" class="mb-2" />
       </template>
 
       <el-table v-loading="loading" :data="tenantList">
         <el-table-column :label="t('tenant.tenantId')" prop="tenantId" width="90" align="center" />
-        <el-table-column
-          :label="t('tenant.tenantName')"
-          prop="tenantName"
-          min-width="150"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.tenantName')" prop="tenantName" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.tenantName }}</span>
             <el-tag v-if="row.delFlag === '2'" type="danger" size="small" class="ml-1">
@@ -78,49 +71,26 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenant.tenantCode')"
-          prop="tenantCode"
-          min-width="130"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.tenantCode')" prop="tenantCode" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.tenantCode || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenant.contactName')"
-          prop="contactName"
-          min-width="110"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.contactName')" prop="contactName" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.contactName || row.leader || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenant.contactPhone')"
-          prop="contactPhone"
-          min-width="130"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.contactPhone')" prop="contactPhone" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.contactPhone || row.phone || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenant.package')"
-          prop="packageName"
-          min-width="110"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.package')" prop="packageName" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">{{ row.packageName || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenant.domain')"
-          prop="domain"
-          min-width="140"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenant.domain')" prop="domain" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.domain || t('tenant.domainEmpty') }}</template>
         </el-table-column>
         <el-table-column :label="t('tenant.accountUsage')" width="130" align="center">
           <template #default="{ row }">
-            <div>{{ row.userCount }} / {{ row.accountCount > 0 ? row.accountCount : t('tenant.accountUnlimited') }}</div>
+            <div>
+              {{ row.userCount }} / {{ row.accountCount > 0 ? row.accountCount : t('tenant.accountUnlimited') }}
+            </div>
             <!-- 配额用量进度条：上限 >0 时展示已用占比，接近上限变色；上限 0（不限）不展示 -->
             <el-progress
               v-if="row.accountCount > 0"
@@ -229,18 +199,32 @@
     </el-card>
 
     <!-- 新增/编辑对话框 -->
-    <el-dialog v-model="formVisible" :title="formTitle" width="min(90%, 640px)" append-to-body destroy-on-close :close-on-click-modal="false">
+    <el-dialog
+      v-model="formVisible"
+      :title="formTitle"
+      width="min(90%, 640px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" @submit.prevent>
         <el-divider content-position="left">{{ t('tenant.baseSection') }}</el-divider>
         <el-form-item :label="t('tenant.tenantName')" prop="tenantName">
-          <el-input v-model.trim="form.tenantName" :placeholder="t('common.inputText')" maxlength="30" :aria-label="t('tenant.tenantName')" />
+          <el-input
+            v-model.trim="form.tenantName"
+            :placeholder="t('common.inputText')"
+            maxlength="30"
+            :aria-label="t('tenant.tenantName')"
+          />
         </el-form-item>
         <el-form-item v-if="!isEdit" :label="t('tenant.tenantCode')" prop="tenantCode">
           <el-input
             v-model.trim="form.tenantCode"
             :placeholder="t('tenant.codeAutoTip')"
             maxlength="32"
-            :disabled="!isPlatform" :aria-label="t('tenant.codeAutoTip')" />
+            :disabled="!isPlatform"
+            :aria-label="t('tenant.codeAutoTip')"
+          />
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.package')" prop="packageId">
           <el-select
@@ -265,7 +249,9 @@
             type="datetime"
             value-format="YYYY-MM-DD HH:mm:ss"
             :placeholder="t('tenant.expireForever')"
-            class="w-full" :aria-label="t('tenant.expireForever')" />
+            class="w-full"
+            :aria-label="t('tenant.expireForever')"
+          />
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.accountCount')" prop="accountCount">
           <el-input-number v-model="form.accountCount" :min="0" :max="999999" controls-position="right" />
@@ -283,13 +269,28 @@
 
         <el-divider content-position="left">{{ t('tenant.contactSection') }}</el-divider>
         <el-form-item :label="t('tenant.contactName')" prop="contactName">
-          <el-input v-model.trim="form.contactName" :placeholder="t('common.inputText')" maxlength="20" :aria-label="t('tenant.contactName')" />
+          <el-input
+            v-model.trim="form.contactName"
+            :placeholder="t('common.inputText')"
+            maxlength="20"
+            :aria-label="t('tenant.contactName')"
+          />
         </el-form-item>
         <el-form-item :label="t('tenant.contactPhone')" prop="contactPhone">
-          <el-input v-model.trim="form.contactPhone" :placeholder="t('common.inputText')" maxlength="20" :aria-label="t('tenant.contactPhone')" />
+          <el-input
+            v-model.trim="form.contactPhone"
+            :placeholder="t('common.inputText')"
+            maxlength="20"
+            :aria-label="t('tenant.contactPhone')"
+          />
         </el-form-item>
         <el-form-item :label="t('tenant.contactEmail')" prop="contactEmail">
-          <el-input v-model.trim="form.contactEmail" :placeholder="t('common.inputText')" maxlength="50" :aria-label="t('tenant.contactEmail')" />
+          <el-input
+            v-model.trim="form.contactEmail"
+            :placeholder="t('common.inputText')"
+            maxlength="50"
+            :aria-label="t('tenant.contactEmail')"
+          />
         </el-form-item>
         <el-form-item :label="t('tenant.remark')" prop="remark">
           <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="200" show-word-limit />
@@ -309,19 +310,8 @@
       destroy-on-close
     >
       <el-alert :title="t('tenant.capabilityTip')" type="info" :closable="false" class="mb-2" />
-      <el-alert
-        :title="t('tenant.capabilityPlatformCeiling')"
-        type="warning"
-        :closable="false"
-        class="mb-2"
-      />
-      <el-table
-        v-loading="capabilityLoading"
-        :data="capabilityItems"
-        border
-        size="small"
-        row-key="key"
-      >
+      <el-alert :title="t('tenant.capabilityPlatformCeiling')" type="warning" :closable="false" class="mb-2" />
+      <el-table v-loading="capabilityLoading" :data="capabilityItems" border size="small" row-key="key">
         <el-table-column :label="t('tenant.capabilityKey')" prop="key" min-width="220" />
         <el-table-column :label="t('tenant.capabilityMode')" min-width="220">
           <template #default="{ row }">
@@ -386,6 +376,7 @@ import TenantDomainDrawer from './TenantDomainDrawer.vue'
 import { downloadBackup } from '@/api/system/backup'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
 const { t } = useI18n()
@@ -628,7 +619,7 @@ function openDomain(row: TenantVo) {
 }
 
 async function saveForm() {
-  await formRef.value?.validate()
+  if (!(await validateForm(formRef.value))) return
   saving.value = true
   try {
     if (isEdit.value && editingId.value != null) {
@@ -671,9 +662,7 @@ async function saveForm() {
       // 一次性展示租户管理员初始密码（服务端只存哈希，关闭后无法再次获取）
       const created = res.data
       if (created?.adminUserName && created?.adminInitPassword) {
-        proxy?.$modal.alertSuccess(
-          t('tenant.adminInitTip', [created.adminUserName, created.adminInitPassword])
-        )
+        proxy?.$modal.alertSuccess(t('tenant.adminInitTip', [created.adminUserName, created.adminInitPassword]))
       } else {
         proxy?.$modal.msgSuccess(t('common.success'))
       }

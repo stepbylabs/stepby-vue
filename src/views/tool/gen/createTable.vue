@@ -214,6 +214,7 @@
 const { t } = useI18n()
 import { createTable, type CreateTableDto, type CreateTableColumnDto, type ColumnDataType } from '@/api/tool/gen'
 import modal from '@/plugins/modal'
+import { validateForm } from '@/utils/formValidate'
 
 interface CreateTableForm {
   tableName: string
@@ -405,9 +406,7 @@ function show(): void {
 async function handleSubmit(): Promise<void> {
   if (!formRef.value) return
 
-  try {
-    await formRef.value.validate()
-  } catch {
+  if (!(await validateForm(formRef.value))) {
     modal.msgError(t('gen.createTable.validate.formError'))
     return
   }

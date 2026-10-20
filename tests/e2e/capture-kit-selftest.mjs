@@ -18,7 +18,12 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
-import { summarizeBackendLogErrors, resolveBackendLogDir } from './capture-kit.mjs'
+import {
+  summarizeBackendLogErrors,
+  resolveBackendLogDir,
+  detectPartialFailure,
+  createCaptureHub
+} from './capture-kit.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logwin-'))
 const esc = String.fromCharCode(27)
@@ -66,17 +71,130 @@ if (!miss.missing) fail.push('nonexistent log dir must report missing=true')
 if (miss.total !== 0 || miss.items.length !== 0) fail.push('missing dir must not fabricate findings')
 
 // ⑤ 默认目录锚定文件位置而非 cwd：从任意启动目录都该解析到同一个真实 stepby-axum/logs
-const expected = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  '..',
-  'stepby-axum',
-  'logs'
-)
+const expected = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'stepby-axum', 'logs')
 if (path.resolve(resolveBackendLogDir()) !== expected) {
   fail.push(`default log dir should anchor to file, got ${resolveBackendLogDir()}`)
 }
 
-console.log(fail.length ? `SYNTH_FAIL: ${fail.join(' | ')}` : 'SYNTH_OK')
-process.exit(fail.length ? 1 : 0)
+// ⑥ 「HTTP 200 但响应体写着一部分失败」判据（批七十九新增捕获面）——双向都要钉：
+//    漏报 = 这一族永久隐形（batchLogout 就是这么把"撤不掉会话"报成全绿的）；
+//    误报 = 读接口/正常空明细也被记成失败，噪声会把真信号淹掉（同 b69 oper_log 教训）。
+const CJ = 'application/json;charset=utf-8'
+const partialCases = [
+  [
+    'batchLogout 真实形态必须抓',
+    'POST',
+    200,
+    CJ,
+    '{"code":200,"msg":"操作成功","data":{"successCount":1,"failed":[{"tokenHash":"ab","code":401,"msg":"会话已失效"}]}}',
+    true
+  ],
+  ['errors[] 形态必须抓', 'PUT', 200, CJ, '{"code":200,"data":{"errors":["第 3 行导入失败"]}}', true],
+  ['只有 failCount 数字也必须抓', 'DELETE', 200, CJ, '{"code":200,"data":{"successCount":7,"failCount":2}}', true],
+  ['方法名小写也要归一后抓到', 'post', 200, CJ, '{"code":200,"data":{"failed":[{"e":1}]}}', true],
+  // 反例
+  ['读接口不得算部分失败', 'GET', 200, CJ, '{"code":200,"data":{"failed":[1,2,3]}}', false],
+  ['明细为空数组不得报', 'POST', 200, CJ, '{"code":200,"data":{"successCount":2,"failed":[]}}', false],
+  ['没有 data 不得报', 'POST', 200, CJ, '{"code":200,"data":null}', false],
+  ['HTTP >= 400 归 netFails 管，不得重复计数', 'POST', 403, CJ, '{"code":403,"msg":"没有权限"}', false],
+  [
+    '非 JSON（导出流）不得读体判据',
+    'POST',
+    200,
+    'application/octet-stream',
+    '{"code":200,"data":{"failed":[1]}}',
+    false
+  ],
+  ['body.code 非 200 不得进本通道', 'POST', 200, CJ, '{"code":500,"msg":"失败","data":{"failed":[1]}}', false],
+  [
+    '超长度上限不得解析（性能约束）',
+    'POST',
+    200,
+    CJ,
+    '{"code":200,"data":{"failed":[' + '1,'.repeat(12000) + '1]}}',
+    false
+  ],
+  ['非 JSON 文本不得抛（解析失败即 null）', 'POST', 200, CJ, '<html>not json</html>', false]
+]
+for (const [desc, m, st, ct, text, want] of partialCases) {
+  const got = detectPartialFailure(m, st, ct, text) !== null
+  if (got !== want) fail.push(`${desc}：期望 ${want}，实际 ${got}`)
+}
+// 明细必须带得走的取证样本（否则枚举只有条数，对账时无从判断是哪一项）
+const sample = detectPartialFailure('POST', 200, CJ, '{"code":200,"data":{"failed":[{"code":401,"msg":"会话已失效"}]}}')
+if (!(sample && sample.failedCount === 1 && /会话已失效/.test(sample.sample))) {
+  fail.push('部分失败样本缺失，无法逐条对账')
+}
+
+// ==================== ③ hub 的导航计数与请求分布（request-storm 的分母与分子）====================
+// 为什么这条必须进自检而不只是"跑一轮看看"：`request-storm` 判的是 `次数 / max(1, 导航数)`，
+// 分母坏了**不会报错**，只会让所有密度一起变大或变小——密度整体变小的那一半是静默放行，
+// 比缺判据更糟（同 §门禁前言"少报比报错更危险"）。所以采集侧自己要有双向锁。
+const hubFail = []
+let hubChecks = 0
+/** 断言条数由计数器给出，不写进文案——写死的数字抄一次就漂一次（同 md_table_guard 的口径）。 */
+const assertHub = (desc, ok) => {
+  hubChecks += 1
+  if (!ok) hubFail.push(desc)
+}
+{
+  const registered = new Map()
+  const mkPage = (frameUrl) => {
+    const main = { url: () => frameUrl }
+    const page = {
+      on: (ev, cb) => {
+        registered.set(ev, cb)
+        return page
+      },
+      context: () => ({ exposeBinding: () => Promise.resolve() }),
+      addInitScript: () => Promise.resolve(),
+      mainFrame: () => main
+    }
+    return { page, main }
+  }
+  const { page, main } = mkPage('http://127.0.0.1:8080/index')
+  const hub = createCaptureHub(page, { tag: 'SYNTH', screenshot: false })
+  const req = (method, url) => registered.get('request')({ method: () => method, url: () => url })
+  const nav = (frame, url) => {
+    // framenavigated 的入参是"发生导航的 frame"；这里按真实语义把它的 url() 换掉
+    const prev = frame.url
+    frame.url = () => url
+    registered.get('framenavigated')(frame)
+    frame.url = prev
+  }
+  nav(main, 'http://127.0.0.1:8080/system/user')
+  nav(main, 'https://example.org/a')
+  nav(main, 'about:blank')
+  nav({ url: () => 'http://127.0.0.1:8080/child' }, 'http://127.0.0.1:8080/child') // 非 main frame
+  assertHub(
+    `导航计数应为 2（http+https 各一次，about:blank 与子 frame 不计），实际 ${hub.navCount}`,
+    hub.navCount === 2
+  )
+  req('GET', 'http://127.0.0.1:8080/system/user/list')
+  req('GET', 'http://127.0.0.1:8080/system/user/12')
+  req('GET', 'http://127.0.0.1:8080/system/user/13')
+  hub.beginAction('edit')
+  req('PUT', 'http://127.0.0.1:8080/system/user')
+  const snap = hub.requestStatSnapshot()
+  const byKey = Object.fromEntries(snap.map((r) => [r.key, r.count]))
+  // 数字归一：`/user/12` 与 `/user/13` 必须并成 `/user/N`，否则同一形状裂成两型、密度各自虚低
+  assertHub(`数字未归一：${JSON.stringify(byKey)}`, byKey['load | GET /system/user/N'] === 2)
+  assertHub(`beginAction 换桶失败：${JSON.stringify(byKey)}`, byKey['edit | PUT /system/user'] === 1)
+  assertHub(
+    `快照条数应为 3（list / user-N / edit PUT），实际 ${snap.length}：${JSON.stringify(byKey)}`,
+    snap.length === 3
+  )
+  assertHub('快照未按次数降序，Top-N 打印会取错', snap[0].count >= snap[snap.length - 1].count)
+}
+
+const allFail = fail.concat(hubFail)
+const partialFirm = partialCases.filter((c) => c[5]).length
+
+console.log(
+  allFail.length
+    ? `SYNTH_FAIL: ${allFail.join(' | ')}`
+    : `SYNTH_OK 捕获工具自检：部分失败判据 ${partialCases.length} 条双向（${partialFirm} 必抓 / ` +
+        `${partialCases.length - partialFirm} 必不抓）+ hub 采集侧 ${hubChecks} 条` +
+        `（导航只算 main frame 的 http(s)、数字归一、beginAction 换桶、快照条数、降序）`
+)
+process.exit(allFail.length ? 1 : 0)

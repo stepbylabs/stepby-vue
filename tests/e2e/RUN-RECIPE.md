@@ -1398,8 +1398,12 @@ const visible = await el.isVisible({ timeout: 1500 }).catch(() => false)
 ```bash
 STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
 STEPBY_BASE_URL=http://localhost:8080 FRONTEND_URL=http://localhost:8080 \
-PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers" node a11y-full.mjs
+node a11y-full.mjs
 ```
+
+> **`PLAYWRIGHT_BROWSERS_PATH` 一律不写**（b79 清掉本行残留的 `D:/Projects/.pw-browsers`）：
+> 需要哪个构建号由 `tests/e2e/node_modules/playwright` 的版本决定（§3 浏览器引擎段），
+> 写死目录在版本升级后就是"环境没装浏览器"的假象；两处目录都存在时更容易误判。
 
 > ⚠️ **不要传 `--headless`**：`a11y-full.mjs` 的参数解析器只认 `--route=` / `--limit=`，其余一律
 > `throw new Error("未知参数")` → 整轮退化为 `PASS=0 FAIL=1（运行异常）`。脚本内部已默认 headless。
@@ -1604,7 +1608,12 @@ node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
   ②shared_store_kind/db_connected 为带 label 形态（前缀匹配，裸名查不到）；③local 档 SQLite
   池 size=1，单次抓取 busy=1/1 属瞬时正常（断言 busy ≤ size）。
 
-### 3.39 批五十（相位 2）：M85/M86 深测模块（新基线 87 模块 / 1053✅）
+### 3.39 批五十（相位 2）：M85/M86 深测模块（新基线 86 模块 / 1053✅）
+
+> **b79 订正**：本行原标题写的是"87 模块"。M85/M86 是在 §3.37（批四十五）的 **84 模块** 上 +2
+> 得到的 86，与同一条 1053✅ 的另一处实测（§3.57.6，批七十一两次全量单轮 + 分 6 段求和互证）一致；
+> 87 是后来把"当前模块总数"倒灌进历史标题造成的。87 是**批七十九新增 M87 之后**才有的数，
+> 且该数以 `--plan` 现打为准，不得回填历史行。
 
 - **M85（13 断言）flow_definition 版本化/发布不可变链**：草稿 v1→UI 发布→v2 isLatest 切换→
   版本列表双行→**已发布版本修改图定义 = PUT 400**（不可变契约）→ 全清理。publish/version/
@@ -1972,6 +1981,14 @@ clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根�
   > **b71 订正（保留原文）**：该 2106 **不可复现**——b71 在同一套件上全量单轮实测 1053、
   > 分 6 段求和 1054，而 `record(` 调用点总量仅 1167，单次运行不可能产出 2106。
   > 现行基线以 **86 模块 / 1053✅ / 48 SKIP** 为准（§3.57.6）。教训：基线数字必须与"断言调用点总量"做量级对账。
+  >
+  > **b79 再订正**：上面那句"现行基线"到本批也已过期——**唯一事实源是 `AGENTS.md`《测试门禁全景》的
+  > deep-e2e 行**（b79 权威轮为该行的第一组粗体数字；**本处不再抄一遍**——抄了就已经过期一次，
+  > 这一行本身就是证据），
+  > 本文件与各批次台账里的数字都只是当时快照。为什么强调这件事：b71 那次是"数字不可复现"，
+  > b79 这次是"数字可复现但**分片边界**手抄漏了最后一个模块"（见上文「分片边界不得手抄」口径，
+  > 现行做法是跑 `--plan` 从注册表派生），两类都出自同一个动作——
+  > 把别处的计数抄进这里。要查现状就重跑或读 AGENTS，不要读这一段。
 
 ## 3.6 SCIM provisioning 环境要求（循环轮 13 激活 F118②/F119②）
 
@@ -2212,8 +2229,20 @@ b71 用**两条独立路径**实测同一套件：
 
 两条路径互相印证（差 1 为时间敏感软断言），且 `deep-e2e.mjs` 全文 `record(` 调用点仅 1167 处
 ——**单次运行不可能产出 2106 条计数**。结论：2106 是历史誊写/翻倍错误，现行基线以 **86 模块 / 1053✅** 为准。
-**纪律**：基线数字必须"两处同写、每批复跑"，且要与"断言调用点总量"做量级对账——
-一个超过调用点总数的基线必然是错的（本轮就是靠这个量级直觉发现 2106 与 1167 矛盾）。
+**纪律**：基线数字必须"两处同写、每批复跑"。**b79 订正**：原来这条还写着"与断言调用点总量做量级对账，
+超出即错"——**这条不成立**（见下 ③）。调用点计数只能当"值得去重跑"的量级直觉，不能当判据。
+本轮就是靠这个量级直觉发现 2106 与 1167 矛盾，但**真正定性靠的是重跑**。
+
+> **b79 三点订正**：
+> ① "现行基线以 86 模块 / 1053✅ 为准" 到本批已过期——**唯一事实源是 `AGENTS.md`《测试门禁全景》的
+> deep-e2e 行**，模块总数由 `node tests/e2e/deep-e2e.mjs --plan` 现打（本批为 87）；本节只保留
+> "证伪 2106" 这条方法与结论，不当现行值用。
+> ② 上表"差 1 为时间敏感软断言"这句在本批被**落实到了具体判据**：同产物两轮全量的逐条 verdict
+> 差集只翻一条，就是 25.11 的 `SkeletonTable: 骨架屏（瞬时）`（§3.60.7）。它此前被当成"软断言正常抖动"
+> 记账，实际是**判据与竞态耦合**——已改成 route 按住响应构造加载态，不再依赖"恰好抓到那一帧"。
+> ③ 量级对账的口径必须写明，否则"1167"这类数字不可复现。本批口径：
+> `grep -o 'record(\|recordSkip(\|recordSoft(' deep-e2e.mjs | wc -l` = **1448**（含 3 处函数定义行），
+> 单轮实测 1210 条 ⇒ 1210 ≤ 1448 成立。若某轮总数超过该值，先怀疑判据被重复记账，不是"跑得更多"。
 
 ### 3.57.7 ux-compat 的 URL 口径（假失败陷阱）
 
@@ -2284,6 +2313,13 @@ b71 的 429 教训是"配额取太紧"；b72 是**分桶口径**：`rate_limit_b
 deep-e2e 单段（如 `--range=16-30`）可能超过单次工具超时而被自动转后台。正确做法：
 **前台等待完成通知后一次性读整份日志**，不轮询、不 `tail` 截断（截断会丢掉 `❌` 行与终局统计）。
 b72 分 6 段实测：302 + 172 + 134 + 158 + 149 + 138 = **1053**，与 b71 全量单轮同数（§3.57.6 量级对账口径）。
+
+**分片边界不得手抄**（批七十九新增口径）：跑批前用
+`STEPBY_TEST_USER=… STEPBY_TEST_PASS=… node tests/e2e/deep-e2e.mjs --plan` 取当前分片方案——
+它从注册表 `testFns` 派生模块总数与边界，并顺带校验「编号 1..max 连续」（有空洞 ⇒ 退出码 2，
+因为分片会静默跳过那个编号）。此前 `--range=…/76-86` 手抄在本文与 AGENTS 两处，
+M87 落地后若不同步改文档，最后一片会**静默少跑一个模块**而每段照样报绿
+（与路由清单手抄同一类缺陷）。本文里出现的历史段边界只作当时凭证，不作操作指引。
 
 ### 3.58.6 基线与门禁实测（b72 终值，全部真实执行）
 
@@ -2472,3 +2508,479 @@ b73 轮 17 实测它**同时**有两类错：
 **基线口径**：修具后 `157 → 155`（`main 39→40` 补回漏报、`deep-e2e 118→115` 去掉误报）。
 这是**工具判据修正**，不是放宽棘轮——"只允许下降"从 155 起继续生效。
 凡因修工具而重算基线，必须同时写清"哪几处、为什么、方向如何"，否则无法与"偷偷放宽"区分。
+
+---
+
+## 3.60 批七十九（2026-10-20）：三条"绿了也不可信"的判据配方
+
+M87 首跑 ✅32/❌8，逐条取证后 8 条红全部不是"产品按钮坏了"，但挖出 2 个真产品缺陷（P1 表单校验拒绝
+逸出成 unhandledrejection、P2 HTTP 调试器内联显示裸 axios 技术串）与 3 类判据自欺。三条通用配方：
+
+### 3.60.1 首访引导遮罩会吞掉**所有**点击；被咽掉的 TimeoutError 造出假绿
+
+```
+<div class="stepby-tour-mask fixed inset-0 z-[9998] pointer-events-auto"> … intercepts pointer events
+```
+
+新浏览器上下文没有 `localStorage` 的 `*-tour=completed` 标记 ⇒ 每个页面都会起引导 Tour。
+Playwright 的 actionability 检查永远等不到"可点"，`btn.click({timeout:3000}).catch(()=>{})`
+把超时咽掉后代码照样 `return true`。于是"点击=true + 什么都没发生 + 请求数=0"被记成 PASS——
+**本轮 8 条红里两条"不得出网"其实是这个假绿**（红的那条只是同批的"确认框文案"判据先撞上了）。
+
+配方（`deep-e2e.mjs` M87 已接线）：
+
+- 导航后一律 `dismissTour(page)`（本模块用 `gotoPage()` 把 `safeGoto + dismissTour` 绑成一步，
+  靠每条用例自觉必然漏）；**但"进页面时收一次"不够**——引导是在页面数据加载之后才挂出来的，
+  而 `dismissTour` 只在"300ms 内可见"时按 Esc，于是形成时序竞态：赶上就绿、没赶上就
+  `落地=force` 且状态纹丝不动（本批 `/system/menu` 同码两轮跑出相反结论，见 §3.60.5）；
+- 点击必须返回**落地证据**：普通点击 → `force` → 元素自身 `dispatch`，返回用到的策略，
+  失败返回 `false`（`realClick()`，与既有 `clickButton()` 同三段策略）；
+  **每次按下之前**重做"收引导 + 等遮罩"，普通点击失败即重收再试（上限 3 次）——
+  `force` 会跳过 actionability 按坐标点，事件打在遮挡物自己身上，
+  于是"点了没反应"被记成一次成功点击，这是假绿而不是降级取证；
+- **任何"请求数=0 / 不落库 / 不推他人待办"的断言，一律 `!!how && …`**——
+  否则它同时被"闸门生效"和"按钮失灵"两种相反状态满足（与 AGENTS《前端外部输入归一》第 3 条同源）。
+
+### 3.60.2 树表折叠态的行**全量留在 DOM**：`.el-table__row` 计数判不出展开/收起
+
+实测 `/system/menu` 折叠态：`nodes=244 / visible=8 / expandedIcons=0`；展开态 `visible=244 /
+expandedIcons=56`。Element Plus 的树表把子行留在 DOM 里，用 `.el-table__row` 的 `count()`
+判"展开/收起是否生效"是**恒假判据**（点了也永远不变，改一万次都不绿）。必须按
+`getClientRects().length > 0` 数可见行，并**双向对账**（点一次变、点回来复原）——
+单向"变一下"可以是任何抖动造成的。方向取自页面源码的 `defaultExpand` 实参
+（dept=true、menu=false，`views/system/{dept,menu}/index.vue`），不是猜的。
+
+### 3.60.3 外链判据断 `window.open` 的**入参**，不等 popup 真加载
+
+旧写法"等 `context.waitForEvent('page')` 再断 URL"有两个不可接受的面：
+
+| 现象                        | 实测                                                                     |
+| --------------------------- | ------------------------------------------------------------------------ |
+| 外链可达性是环境因素        | 无外网时新标签落 `chrome-error://chromewebdata/`，判据随环境翻转         |
+| `noopener` 切断 opener 关系 | 关于页 8s 内**拿不到 popup 句柄**（`window.open` 返回 null，时序不稳定） |
+
+被测事实只有三条，全在入参里：`target === '_blank'`、features 含 `noopener,noreferrer`
+（tab-napping 防护）、目标是声明的绝对 https 外站。⇒ 装一个 `window.open` 替身捕获调用，
+断言捕获到的参数（`armWindowOpen()/readWindowOpen()/externalOpenChecks()`）。
+**"URL 恰好能打开"不是被测对象**，把它写进判据等于把门禁耦合到外网。
+
+### 3.60.4 行内交互的定位器不得用"会随交互结果变化的属性"
+
+`action-inventory` 收口时新写的行内「展开当前行」判据首跑就红，页面其实按预期变了（`可见行 8→9`、
+`展开图标 0→1`），红在定位器：
+
+| 写法                                               | 为什么错                                                                                                  | 一手证据                                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `button[aria-label="展开当前行"]:visible` 点第二次 | EP 树表折叠态**只隐藏不卸载**子行，展开后新出现的可见行自带同名 `aria-label` ⇒ 第二跳解析到**另一个按钮** | 菜单页 `nodes=244 / visible=8`；第二跳后 `可见行 9→32`、`已展开图标 1→2`（多展开了一个兄弟节点） |
+| 同上，收起方向                                     | 收起后该选择器**一个都不剩** ⇒ `realClick` 三段全失败，`落地=false`                                       | 部门页 `defaultExpand=true`，收起后 `可见行 10→1`，第二次点击 `落地=false`                       |
+
+配方：**先用一次 `evaluate` 取该行在 `tbody.children` 里的下标，再用 `.nth(idx)` 锁同一个 DOM 节点**
+（不卸载 ⇒ 序位在展开/收起前后稳定），随后对**同一节点**读 `aria-label` / `aria-expanded` 的变化。
+推论同样适用于其他"点了会变文案"的控件（展开/收起、启用/停用、已读/未读）：
+凡是**判据要读的那个属性正是被点击改变的那个**，就不许拿它当选择器。
+
+### 3.60.5 复原类判据的期望值必须是"点击前采集的值"，不是常量
+
+同一批新写的"再点一次回到基线"断言写成 `aria-expanded === 'false'`。展开方向确实如此，
+收起方向复原后 `aria-expanded` 本就是 `true` ⇒ 假红。正确形态：点第一跳**之前**采集
+`exp0/label0/visible0`，复原跳一律与这三个**实测基线**比。
+这与 §3.60.2 的"双向对账"是同一条纪律的两半——
+"变一下"要对着前态比，"复原"要对着**初始态**比，两个都不能对着硬编码终态比。
+
+同型缺陷还有链式 `replace`：`'展开当前行'.replace('展开','收起').replace('收起','展开')`
+第二步把刚换好的词又换回去，期望值恒等于原值 ⇒ 判据对"展开成功"必然红。
+成对文案一律显式二值映射（`other = dir === 'up' ? '收起当前行' : '展开当前行'`）。
+
+### 3.60.6 遮罩竞态的取证配方：把 Playwright 报错原文与命中元素写进凭证
+
+同一份代码、同一个页面两轮跑出相反结论（r1 `落地=click` 全绿、r2/r3 `落地=force` 且 `可见行 8→8`）时，
+**不要先改判据、也不要先怀疑环境**，先让判据自己交代遮挡物：
+
+1. `realClick` 在普通点击失败时把 `e.message` 的**尾部两行**存进模块级变量并打进 detail
+   （`… intercepts pointer events` / `element is not stable` 是两种完全不同的根因）；
+2. 配一个一次性探针：对目标按钮盒中心做 `document.elementFromPoint(cx, cy)`，打印
+   `tagName + class + z-index + pointer-events`。本批实测命中
+   `div[stepby-tour-mask] z=9998 pointer-events-auto`，而 `page.keyboard.press('Escape')` 之后
+   `mask=false` ⇒ 结论是"引导在数据加载后才挂、`dismissTour` 的 300ms peek 赶不上"，修法是把
+   收遮罩做成**每次按下前的前置条件**（见 §3.60.1），不是把判据放宽；
+3. 探针用完即删，但**证据写进台账**——否则下一轮还会有人把这轮的红当成"环境抖动"记一遍。
+
+反面形态（本批真踩过）：`overlaysSeen` 是全局去重集合，用"本轮新增条目"做差集打凭证，
+会把第二个页面重见的同类遮罩报成"无"，于是**证据本身**把排查误导了一整轮。
+凭证要么报"当前时刻看到的东西"，要么什么都不报。
+
+### 3.60.7 与竞态耦合的判据：用"同产物两轮 verdict 集合做差集"抓，不许留软断言
+
+瞬时元素（骨架屏、Toast、加载遮罩）写成"导航后看一眼"的软断言，**判据本身**就是环境耦合的：
+b79 在同一产物（`index-BAE7_ZfO.js`）、同一服务（pid 25864）上跑的两轮全量，把逐条
+`verdict + 断言名` 排序做差集，1210 条里**只有 1 条翻了**——就是 `SkeletonTable: 骨架屏（瞬时）`
+（A 轮 SKIP、B 轮 PASS）。这条抖动直接让"只许降"的 SKIP 棘轮基线可被网络快慢决定，
+属 AGENTS 铁律"门禁不得与环境耦合"的同一类缺陷。
+
+检测配方（零新跑批成本，任意两轮同产物全量日志即可）：
+
+```bash
+# 工具：tests/e2e/deep-verdict-diff.mjs（b79 新增；自检已接进 run-gates.py 的 `verdictsynth`）
+node tests/e2e/deep-verdict-diff.mjs <roundA.log> <roundB.log>
+# 退出码：0=两轮逐条同 verdict；1=存在抖动/总数不等/同模块重名；2=输入不是全量日志
+```
+
+修法不是把 SKIP 数放宽，而是**构造该状态**再判：`page.route(/\/system\/role\/list/)` 按住列表
+响应 ⇒ `loading` 恒真 ⇒ 骨架屏**必可见**；放行后再断它**必消失**（反向锁原本没有）。
+三条纪律：
+
+1. 按住/放行的 `release()` 必须放在 `finally` 里——半途抛错时不放开会把后续模块拖到 axios 30s 超时。
+2. **拦截器 0 次命中要响亮自曝**：走 `recordSkip` + 文案含「断言工具异常」，命中
+   `runner.mjs` 的 `TOOL_BROKEN_RE` ⇒ 退出码 1。不得记 PASS（等于没检验），也不得记产品 ❌（冤枉）。
+3. 判据从 1 条变 2 条会改变全量总数 ⇒ 棘轮/基线数字必须用**新一轮复跑实测值**刷新，不得手算
+   （本批 M25 由 1 条软断言变 2 条确定态判据，总数随之变化；写进 AGENTS/TESTING 的是复跑结果，不是推算结果）。
+
+### 3.61 棘轮"收紧入口"必须先比后写：只许降的不变式由**写入**守住，不由退出码守住
+
+本批查出三个收紧入口都是**无条件落盘**——比较只写在 `--gate` 那一路，写入那一路不比：
+
+| 工具                               | 旗标                     | 原来会发生什么                      |
+| ---------------------------------- | ------------------------ | ----------------------------------- |
+| `deep-e2e`（`e2e/run/runner.mjs`） | `--update-skip-baseline` | SKIP 变多的一轮照样把基线抬高       |
+| `action-inventory.mjs`             | `--update-baseline`      | 覆盖率下降 / 路由数减少照样写进基线 |
+| `collect-warnings.mjs`             | `--update-baseline`      | INTERACT 四项上限被退步轮自己抬高   |
+
+要点：**退出码不撤回已经写出去的文件**。判红只活在这次终端里，下一轮读的是被放松后的新天花板。
+三条一起改成"先比后写"，并把比较式抽成**单一事实源**（`--gate` 与收紧入口共用一份）：
+`skipRatchet()` / `ratchetRegressions()` / `makeChecks()`。
+
+自检怎么跑（这三条都是纯函数，不启浏览器，可常驻）：
+
+```bash
+node tests/e2e/skip-ratchet-selftest.mjs        # run-gates.py: skiprsynth
+node tests/e2e/action-inventory.mjs --selftest  # run-gates.py: actsynth（含棘轮比较式 5 条）
+node tests/e2e/deep-verdict-diff.mjs --selftest # run-gates.py: verdictsynth
+# INTERACT 比较式自检必须带凭据（该脚本 import 期读 test-config），挂在 INTERACT 配方第一条：
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node tests/e2e/collect-warnings.mjs --selftest
+```
+
+写这三条自检时**当场抓到三个缺陷**（值得记住，因为它们都不是"判据红"）：
+① `NaN > 容差` 恒 false ⇒ "取不到数"会被读成"没有退步"并放行写入；
+② 基线字段名与本轮字段名不同（`guardPopups` ↔ `guards`、`overlayLeftover` ↔ `leftover`），
+照抄一边造夹具会把"完全持平"误报成退步——**是夹具错**，但正说明两处必须共用一张表；
+③ 把比较式抽成纯函数时，容易把"**基线缺失 ⇒ 判红**"一起抽走（纯函数给的是
+`writeAllowed=true`，语义是"允许首建"，不是"允许通过"）——还原时在该分支上写了禁止性注释。
+
+### 3.62 「HTTP 200 但响应体写着部分失败」捕获通道（批量接口的隐形失败族）
+
+`netFails` 只在 `status >= 400` 时读响应体（性能决定）。这对**批量操作**是盲区，因为本仓后端刻意
+把批量语义做成"整体成功 + 逐项结果"：`POST /monitor/online/batchLogout` 返回
+`{code:200, data:{successCount, failed:[{tokenHash, code, msg}]}}`
+（`stepby-axum/src/handler/monitor_online_handler.rs:599-606`）——撤不掉的会话只出现在
+`data.failed` 里，HTTP 层 / `body.code` 层 / Toast 层可以同时是绿的。
+
+新增判据 `capture-kit.mjs::detectPartialFailure(method, status, contentType, text)`：
+
+| 条件   | 取值                                                                              |
+| ------ | --------------------------------------------------------------------------------- |
+| 方法   | 仅写请求（`POST/PUT/DELETE/PATCH`，大小写归一）                                   |
+| 状态   | `200 ≤ status < 400`（`>=400` 归 `netFails` 管，不得重复计数）                    |
+| 响应体 | `content-type` 含 json 且长度 ≤ 20000；解析失败即 `null`（不得抛）                |
+| 命中   | `body.code === 200` 且 `data.failed[]` / `data.errors[]` 非空，或 `failCount > 0` |
+
+消费侧：深测 `runner.mjs` 按"模块 / 方法 状态 端点 / 形态 / 所属动作"聚合枚举并落
+`deep-e2e-partial-<ts>.json`；主套件 `main.mjs` 打 `🧩 部分失败响应…` 并把 `bizPartialTotal`
+写进报告 JSON 供轮间对账（主套件此前**完全不消费** hub 的失败面）。
+**口径与失败请求一致：枚举 + 逐条对账，不单独判红**（负路径用例本来就会故意造部分失败）。
+
+自检与证伪：
+
+```bash
+node tests/e2e/capture-kit-selftest.mjs
+# SYNTH_OK（含部分失败判据 12 条双向：4 必抓 / 8 必不抓）
+```
+
+8 条"必不抓"不是凑数：读接口带 `failed`、空数组、无 `data`、非 JSON、`code≠200`、超长体，
+任何一条被误报，全量跑批就会出现"几十条噪声里挑一条真信号"——b69 的 `oper_log` 被遥测刷成
+流水正是同一形态。变异证伪实测：删掉 `WRITE_METHODS` 守卫 ⇒
+`SYNTH_FAIL: 读接口不得算部分失败`（exit 1），还原 ⇒ `SYNTH_OK`。
+
+顺带一条**否定结论**（同样值得记）：候选缺口"HTTP 200 但 `body.code` 是失败码"经查**不是缺口**——
+`legacy` 档（默认档）把 `400/401/403/404/409/422/429/500/503` 全映射成同名真实状态码
+（`src/common/http_status.rs:118-131`），且全仓 `src/` 没有任何非标准失败码，所以这一族今天不存在，
+不为它加通道（加了就是"为不可能发生的场景写校验"，还要白付全量读体的成本）。
+
+### 3.63 采集态数据集必须区分"全量轮 / 分段轮"
+
+`deep-e2e-reqstats.json`（每动作出网请求分布，将来的"接口风暴"判据唯一数据源）此前**不分
+全量/分段一律覆盖写**。本批为验证 M25 重写单跑 `--feature=25`，直接把全站动作分布刷成只剩
+M25 的 27 行，而文件照样生成、时间戳照样新 ⇒ 无人报错。现在按 `isFullRun` 分流：
+
+- 全量轮 → `deep-e2e-reqstats.json`，载荷带 `full: true`
+- 分段轮 → `deep-e2e-reqstats.incremental.json`（不覆盖全站数据）
+
+与 `collect-warnings` 基线的 `full: true`、`tenant-audit.incremental.*` 同一条纪律：
+**"没跑全量"与"跑了且干净"必须可区分，部分数据不得覆盖全站数据。**
+
+### 3.64 写端点"触达"覆盖对账（判据取运行期出网路径，不取源码字符串）
+
+问"还有哪些写接口没人碰"时，静态 grep 套件源码会**双向**犯错，两处都是本仓真实代码：
+
+| 误差方向             | 实例                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 假报未覆盖           | UI 触发只写按钮文案：`main.mjs:27065` 用 `getByRole('button',{name:'清空错误日志'})`，源码里没有 `/monitor/error-log/clear`                     |
+| 假报已覆盖（更危险） | `deep-e2e.mjs:20836-20849` 出现 `slow-sql/clear` 字符串，但那是**"取消后 DELETE 不得出网"的跨租户护栏断言**（要求请求数必须 0）——设计上永不触达 |
+
+`node tests/e2e/endpoint-coverage.mjs` 把全量轮的 `(方法 端点)`（来自 `deep-e2e-reqstats.json`，
+必须 `full: true`）与后端 `src/router/*.rs` 的写路由模板做**逐段匹配**：
+
+- 模板 `{id}` 匹配任意一段；数字段 / UUID / 32+ 位十六进制哈希折成 `N`；`/prod-api` 前缀剥离；
+- **段数不同绝不互替**（否则 `/system/user` 会"覆盖" `/system/user/{id}/authRole`）；
+- 方法必须相同（GET 触达不算 POST 端点被覆盖）。
+
+```bash
+node tests/e2e/endpoint-coverage.mjs --selftest             # run-gates.py: endpcovsynth
+node tests/e2e/endpoint-coverage.mjs                        # 打印本轮未触达清单（单源，仅诊断）
+node tests/e2e/endpoint-coverage.mjs --gate --operlog       # 与基线同口径：新增未触达即红（常驻那把）
+node tests/e2e/endpoint-coverage.mjs --update-baseline --operlog  # 全量轮后收紧（只许降，且必须逐条签名）
+```
+
+**触达源必须两路并集**（b79 二轮订正）：只用 `deep-e2e-reqstats.json` 会把 `PUT /system/user`、
+`DELETE /system/user/{id}`、`PUT /system/user/resetPwd` 这类**主套件天天在打、deep-e2e 不打**的
+端点报成"未触达"（实测：单源 197 条写路由里 161 条未触达，其中相当比例属此类误报；并上服务端那一路后
+是 **136**）。第二路取服务端权威留痕 `sys_oper_log` 的 `DISTINCT (request_method, oper_url)`
+并按**窗口**过滤，与客户端数据集做并集；窗口默认由数据集自证字段给出（`windowStart/windowEnd`，
+UTC 裸文本，与 `oper_time` 同口径），只有做**历史对账**时才手动传 `--since/--until`：
+
+```bash
+node tests/e2e/endpoint-coverage.mjs --operlog --since='2026-10-20 00:25:00' --until='2026-10-20 03:20:00' --update-baseline
+```
+
+**旗标必须与基线同口径**（b79 实测，见 §3.68）：基线记的是 `sources=oper_log+reqstats`，
+漏 `--operlog` 跑 `--gate`/`--update-baseline` 会被口径闸拒绝（EXIT=2 并说明源集合不同）。
+**这道口径闸必须排在登记表闸之前**——写反时报出来的是 25 条"没登记理由"，
+而那 25 条正是服务端已证明打过、只因旗标不同而不在单源集合里的端点。
+
+三条边界：① `--operlog` 不给 `--since/--until` 直接 FATAL（无窗口的服务端触达 = "谁打过都算覆盖"）；
+② 基线里记 `sources` 字段，`--gate` 时源集合不一致**拒绝比对**（拿两源结果对一源基线会白赚一个
+更低的数字，那不是变好，是换判据）；③ 已知不足并写进注释：机器遥测通道按 b69 纪律不写 oper_log
+（`/monitor/frontendError/report` 等），所以两源是**并集**而非替换——客户端那一路仍然必须存在。
+`oper_time` 实测是 **UTC 文本**（当日 `max(oper_time)=02:29` 而本地 10:29），窗口值按库内口径写。
+
+四类输入必须**响亮失败**（自检各钉一条）：路由条数低于下限、路由目录缺失、数据集未标 `full`、
+`full` 但零写请求。**"设计上不该触达"的端点逐条签名在 `endpoint-coverage-reasons.json`**（§3.68），
+不是代码里的通配白名单，也不再只写在台账里——将来它被真触达或被删掉，差集会当场说出来。
+
+### 3.65 测试数据态审计：跑批结束后判"测试自己造出来的数据"（b79 新增）
+
+**跑在浏览器套件停止之后**（`run-gates.py` 已把它归入 `LIVE_DB_GATES`）。
+它答两件既有门禁都不答的事：
+
+1. **清理盲区**：命中测试命名族的行，`residue-cleanup.mjs` 里**有没有任何一条谓词会删掉它**。
+   谓词表是导出的 `RESIDUE_STEPS`（单一事实源），判据把每条谓词原文写成
+   `CASE WHEN (<谓词>) THEN 1 ELSE 0 END` 与候选列一次 SELECT——不重implement LIKE 语义、
+   不手抄第二份家族串（b78 实测过手抄的失效形状：清理写 `'e2e75-%'`、用例产出
+   `'e2e75b-doc-…'`，各自"看着对"，残留每轮 +1 无人报）。
+2. **数据终态**：测试数据族的软删残留 / 跨表孤儿 / 状态枚举越界 / 未来时间。
+   `scripts/db_state_audit.py` 判的是业务数据卫生与锚点完整性，两边不重叠。
+
+```bash
+node tests/e2e/test-data-audit.mjs --selftest   # run-gates.py: testdatasynth（临时库夹具，零外部依赖）
+node tests/e2e/test-data-audit.mjs              # run-gates.py: testdata（读运行库，套件停止后）
+```
+
+四条纪律（都是本条实测踩出来的，改判据前先读）：
+
+- **"每族取前 N 行"的取样实现必漏报**：同族内 `status`/`del_flag` 不同 ⇒ 覆盖结果不同，
+  而已覆盖行按主键序恰好排在前面。所以覆盖判定是集合式的（没有取样概念就没有取样偏差）。
+- **软删判据必须带命名信号**：运行库实测 `sys_menu` 有 6 行 `del_flag='2'`
+  （3800-3804 域名按钮组 + 4115 AI 历史查询）是 `m20261007_000011` **故意**软删的假入口，
+  `initialize/tenant.rs:165` 还写了防复活的孪生语句。把它报成测试残留就是"每轮必红的判据"，
+  结局是被当噪声忽略——判据要判的是**测试数据**，不是"所有软删行"。
+- **"现在"只能由 SQL 侧给**：`datetime('now','localtime','+1 hour')`；本地 UTC+8 机器上拿
+  `toISOString()` 的 UTC 串当阈值等于把阈值前挪 8 小时，会把大量正常行判成未来时间。
+- **不得报绿的两条静默通道**：单列扫描失败（谓词引用了该表没有的列）、命中行数超过上限
+  （只看了前 N 行）——都算发现。`countWhere` 的查询错误同样算发现，
+  本条上线第一跑就靠它抓出两处臆测列名（`sys_oper_log` 真实列是 `oper_time`、
+  `sys_logininfor` 是 `login_time`，不是 `create_time`/`check_time`）。
+
+**时序是结论的一部分**：跑在套件中间得到的是"此刻库里有什么"，不是"收尾后漏了什么"。
+本工具首跑就是这样——`软删残留：sys_post=1` 与 `sys_msg_template` 两族"盲区"都是 M24/M86
+的在途数据（套件自己的清理排在收尾），停库复测即归零。同一个数字不得在两种时序下混用。
+
+**这条前置现在是机器闸，不是纪律**（b79 收口第三轮，§10 N-14）：`activeWriteVerdict()` 读
+`operLogFreshness()`，距最近一条 `sys_oper_log` 写入不足 `ACTIVE_WRITE_MINUTES`（2 分钟；
+依据是 round E 实测 88 模块 / 2722.3s ⇒ 平均 31s 一模块，2 分钟跨约 4 个模块的写入窗口）⇒
+报告照常打印（证据不藏），随后打 `[FATAL] 时序前置不成立…以上发现**不作数**` 并 **EXIT=2**（`run-gates.py` 记 UNRUN）。
+`testdata` 那条 **红** 与 **UNRUN** 因此含义不同：红=数据真有洞，UNRUN=证不了"没人在写库"。
+实测取证（就在 round F 写库期间）：`LIVE_EXIT=2`，同一条 `sys_post` 在途残留被拒绝当成结论。
+两道 fail-open 由自检的正控当场抓出：**`Number(null) === 0`** 会把"空库"判成"刚写过"（误拒），
+并把"有行但时间不可解析"那一支整个遮掉（误放）——"取不到"必须先归成 `NaN` 再与"取到了 0"区分。
+
+---
+
+### 3.66 补未触达写端点：先做**非破坏探针**，再把探针的实测文案写进判据（b79 M88）
+
+`endpoint-coverage.mjs --gate` 报出的"未触达"不能直接照着列表写用例——一半是**不该触达**的
+（清库类会洗掉同轮其他模块的判据面，切后端/改套餐类不可逆），一半的契约光看路由猜不出来。
+b79 的做法是先跑一次性只读探针把契约量出来，再写模块：
+
+```bash
+# ① 量基线（窗口必须与跑批对齐；oper_log 落库是 UTC 文本）
+node tests/e2e/endpoint-coverage.mjs --operlog --since='<UTC>' --until='<UTC>'
+# ② 写模块后单模块验证（不整轮，几分钟）
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node tests/e2e/deep-e2e.mjs --feature=88
+# ③ 全量轮跑完再重生成基线（两源，窗口取全量轮的起止）
+node tests/e2e/endpoint-coverage.mjs --operlog --since='<UTC>' --until='<UTC>' --update-baseline
+```
+
+五条纪律（都是 M88 这一步实测逼出来的）：
+
+- **探针要打在真实服务上，但要先问"这一发会不会改全局态"**。b79 探针因此避开了 `*/clean`、
+  `uploadConfig/switchBackend`、`tenant/package/features`、`user/{id}/anonymize` 四类，
+  并且把新建的限流行指向 `/e2e88/unused-{id}`（一个不存在的路由），收尾再 DELETE——
+  活规则留在库里会改变全局节流（b72 F71 同族）。
+- **探针自己的畸形入参不是产品缺陷**。`idB` 还是 `undefined` 时把 `"2477,undefined"` 发进
+  `deptIds`，服务端 `parse_id_list` 丢掉非数字 ⇒ "数量不一致"，看起来像反向缺陷。
+  模块内置 `needId()`：ID 不是有限数字就当场记 FAIL 自曝，绝不发出畸形请求。
+- **异步落库用轮询，不用固定 sleep**。回调投递是后台任务，`test` 之后固定等 3s 在高负载下会假失败；
+  M88 用 `waitFor()`（10s 上限）等日志行出现，等不到就是 FAIL。
+- **不可达目标的失败要"两半都判"**。`POST /webHook/log/{ids}/retry` 的判据是
+  `data.count=0`（成功数必须 0）**AND** 该回调日志 `total` 增长 1（确实重投了）——
+  只写前半，"什么都没做"的实现也能绿；这跟 §3.60.3"请求数 0 必须 AND 点击确实落地"是同一条形状。
+- **SSRF 守卫决定了能用什么目标**。`127.0.0.1`、私网段与 `192.0.2.1`（TEST-NET 也算保留地址）
+  都在创建时就被拒（实测 `禁止访问内网/保留地址 …`），所以外呼类用例只能用公网不可达地址
+  且把 `timeoutSecs` 压到 1，并**在模块内删掉回调**（b78 实测一个遗留活跃回调在 8 分钟里刷出 12 条失败投递）。
+
+新增用例的数据命名族必须同步进 `residue-cleanup.mjs`（`job_softdel_e2e` 就是 M88 补的），
+否则 `test-data-audit.mjs` 的盲区判据下一轮直接红——那是设计如此：**先有谓词，再有残留**。
+
+### 3.67 出站请求**每导航均值**棘轮 + 判据脚本之间只能共享纯函数模块（b79 新增）
+
+`runner.mjs` 每轮都在落 `deep-e2e-reqstats.json`（按动作聚合的出网请求分布），但 **`count` 维度此前采了不判**：
+某页改成"每次渲染都全量拉列表"，套件照旧全绿，只有人工翻 JSON 才看得见。`request-storm.mjs` 把这一轴做成棘轮。
+
+**口径必须是"每导航均值"，不能是"每轮总次数"**（§10 N-13 的结论，本批落地）。总数同时由
+"这个模块本轮访问了几页"和"机器快慢（轮询/心跳类端点与墙钟时长成正比）"两件事驱动，
+所以任何绝对阈值、甚至"总数相对增幅"都是**与环境耦合**的判据——这正是 b74 当初只落盘不判的原因。
+现在分母由采集侧自己给出：`capture-kit.mjs` 的 `navCount` 只数 **main frame 的 http(s) `framenavigated`**
+（子 iframe 与 `about:blank` 不计——少计会让密度偏高，属可发现的错；多计会让密度偏低，属发现不了的错），
+纯 API 动作（如 M88，一次都不导航）分母取 `max(1, navs)`，按"一次工作单元"计，不会算出 `Infinity`。
+
+```bash
+# 全量轮跑完之后（数据集自带窗口与分母，不需要人抄时间串）
+node tests/e2e/request-storm.mjs                      # 打印键数/总次数/Top12（含每导航密度与最密动作）
+node tests/e2e/request-storm.mjs --gate               # 与基线比密度，退步即 EXIT=1
+node tests/e2e/request-storm.mjs --update-baseline    # 先比后写：退步时**不落盘**
+node tests/e2e/request-storm.mjs --selftest           # 13 组合成双向，不碰浏览器/运行库
+node tests/e2e/capture-kit-selftest.mjs               # 采集侧 5 条（分母坏了不会报错，只会全体失真）
+```
+
+判据形状五条，各对应一种"比红更糟"的形态：
+
+- **密度容差 + 新键下限双向**。基线里已有的键，容差（`STORM_TOLERANCE`）内的波动不得报（否则每轮必红，
+  最终被人当成噪声关掉）；密度翻几倍必须报；基线没有的新键按 `NEW_DENSITY_FLOOR`（**每导航**次数）分档。
+  自检 ⑥⑦⑨ 就是这三条的正反两面。
+- **"页数变多而密度不变"必须不报**（自检 ⑧）。这条是换口径唯一要买到的东西，也是它自己的回归锁：
+  把比较式从 `cur.density` 改回 `cur.total`，⑥⑧ 两条同时转红（变异实测 M4）。
+- **基线形状与口径闸（自检 ⑫：1 类正控 + 9 类坏输入）**。棘轮比较式写错方向是"每轮必红"，马上有人来修；
+  **基线形状写错是"永不红"**——缺 `window`、缺 `perKey`、`full` 不为 true、
+  **`metric` 不是 `density-per-nav`**、记录的 `tolerance`/`newDensityFloor` 与代码常量不一致，一律拒绝比对（EXIT=2）。
+  `metric` 那条针对最隐蔽的一种换判据：`perKey` 里的数从"总次数"悄悄换成"每导航均值"，
+  数字形状一模一样，比较式照样跑，结论照样"变好"。
+- **五类输入响亮失败**（自检 ②③④⑤ + ⑫）。实测拿本轮早期（加窗口字段之前）的 round D 产物跑 `--gate` ⇒
+  `[FATAL] 数据集没有 windowStart/windowEnd（旧格式…）`、**EXIT=2**；行里缺 `navs` 同样硬失败——
+  **缺分母绝不能当 0**，那会把密度放大成 `total`，全线误报（变异实测 M1、M2）。
+- **采集侧自己要有锁**。`navCount` 坏掉不会报错，只会让所有密度一起变大或变小，其中"变小"那一半是静默放行
+  ⇒ `capture-kit-selftest.mjs` 用桩 page 直接 fire `framenavigated` / `request`，钉住
+  "main frame 的 http/https 各计一次、`about:blank` 与子 frame 不计、数字归一、`beginAction` 换桶、快照条数与降序"；
+  断言条数由计数器 `hubChecks` 打印，不写进文案（写死的数字抄一次就漂一次）。
+
+- **新键必须有一条"登记通道"，否则棘轮会把自己锁死**（自检 ⑬ 双向）。纯密度棘轮对**新增端点**是死结：
+  正常加一个接口 ⇒ 它天然不在基线里 ⇒ 密度超下限就永远红 ⇒ 唯一出路是放宽 `NEW_DENSITY_FLOOR`（那就是换判据）。
+  解法是 `--accept-new-key=<METHOD /path>` 显式签名吸收，写进基线的 `acceptedNewKeys` 留痕，
+  而 `--gate` 走 `filterAccepted()`：已登记的不再报，**未登记的新键照旧报**。
+  变异证伪：把 `filterAccepted` 写死成"永远返回空集"⇒ ⑬ 三条同时红（正控那两条也红，说明这条锁不是只测拒绝面）。
+
+两条接线纪律（本批实测踩过，写死在这里）：
+
+1. **判据脚本之间共享的只能是纯函数模块，不能是入口脚本**。`request-storm` 最初写
+   `import { loadWindow } from './endpoint-coverage.mjs'`，而 `endpoint-coverage.mjs` 底部按 `argv` 直接执行 ⇒
+   跑 `request-storm --selftest` 打出的是**对方**的 `SYNTH_OK 写端点触达判据 … 条双向` 并且 `process.exit(0)`：
+   自己的 13 组一条没跑，却留下一条看起来正确的"绿"。这比缺判据更坏。
+   修法是把 `readWindow` / `assertFullRun` 抽进 `dataset-window.mjs`（无入口、无副作用），两侧各自 import，
+   两条闸因此只有一份实现。同族约束本仓早已存在（`collect-warnings` 因"import 期就要凭据"而不进 `run-gates.py` 清单）。
+2. **提示语必须点名调用方**。抽出来的 `readWindow()` 文案原本写"请显式给 `--since=/--until=`"，
+   而 `request-storm` 根本没有这两个旗标（它判的是本轮自己的出网分布，"任意窗口"无意义）；
+   `endpoint-coverage` 才有，且只在 `--operlog` 路径生效（已回查其 `main()` 的旗标解析确认，不是凭印象）。
+   一条不存在的恢复路径会被照着敲，然后变成"判据看起来坏了"的误报 ⇒ 文案改为按两个消费者分别说清正确做法。
+
+**载体**：`run-gates.py` 新增 `stormsynth`（常驻自检）与 `storm`（`--gate`，前置同 `endpcov`：必须有刚跑完的
+全量数据集，否则 EXIT=2 → 汇总打 UNRUN、整体非零，"没跑"不冒充干净）；`ci.yml` 的 `doc-gates`
+补 `node request-storm.mjs --selftest`。注意"写了没接线=没写"在本仓仍有一半成立：根仓 `git remote -v` 为空，
+`ci.yml` 从未在任何平台执行过，今天真正会跑的只有 `run-gates.py` 与 preflight。
+
+顺带结掉 §10 的两条立案：
+
+- **N-20**（"`endpoint-coverage --gate` 不能进固定清单，因为窗口得每轮改写"）——它自己给出的解法
+  （把最近一次全量轮的起止写进机器可读产物、让 `--gate` 自己取窗口）本批已落地
+  （`runner.mjs` 写 `windowStart/windowEnd`，UTC 裸文本与 `sys_oper_log.oper_time` 同口径），
+  所以 `endpcov` 与 `storm` 两条现在都在 `run-gates.py` 常驻。
+- **N-13**（"接口风暴判据不能按每动作请求数判"）——分母字段本批已采（`navs`），判据按每导航均值实现，
+  立案时设计的第二步（把端点分"已声明轮询"与"未声明"两类、各自设阈）仍缺，转下批（新立案 N-21）。
+
+### 3.68 未触达写端点的**理由登记表**：定性必须是判据，不是台账里的一段话
+
+`endpoint-coverage --gate` 只回答"还有哪些写端点没被打过"，不回答"这条为什么允许没被打"。
+此前后者只写在优化台账的分类表里——**判据只数条数**，于是留下一个具体漏洞：
+新添一条未触达，只要总数还在降，`--gate` 照样绿。把理由写成登记表 `endpoint-coverage-reasons.json`
+之后，"知道有洞然后记在文档里"这一形态结构上不成立了。
+
+```bash
+node tests/e2e/endpoint-coverage.mjs --selftest            # 40 条双向（含 ㉑ 组 10 条登记表对账）
+node tests/e2e/endpoint-coverage.mjs --gate --operlog      # 未触达 ∖ 已登记 ⇒ EXIT=1
+```
+
+四条形状约束（缺一条就退化成"记账"）：
+
+- **`missing` 判红**：登记表里没有该键，**或** `why` 去掉空白后为空，**或** `why` 含"同上"这类跨条目指代 ⇒ 红。
+  "空字符串理由"与"没写"必须同罪，否则这张表能靠 `why: " "` 刷绿（自检 ㉑ 第 2 条）；
+  "同上"与没写也必须同罪，因为**条目集合一变（新增/删除/改序），"同上"指向的就是另一条理由**
+  ——登记表要能被独立复读，只在整表里读得通的不是理由（自检 ㉑ 双向：含同上必报、自足理由不得误伤）。
+  这条规则是判据上线后**第一个抓到我自己**的：136 条里 93 条共用同一句模板、1 条只写"同上"。
+  模板句 `--gate` 看不出来（形状上是合法签名），所以配套做法是：**签完表回查内容一次**——
+  按 `why` 分组数重复条数、数最短长度，然后逐条换成可复核的证据
+  （`other-suite` 那 94 条的证据来自只读查询 `sys_oper_log` 在**基线窗口外**的真实留痕：
+  `行数 + 首末 UTC 时刻 + 一条样例 URL`，实测 1287 行窗口外留痕、94 条全部命中 ⇒ 分类不是凭印象）。
+- **`badKind` 判红**：`kind` 只允许 `by-design | needs-fixture | other-suite | todo` 四值，表外值点名报出。
+  分类一散，"这条到底欠不欠账"就重新变成口口相传。
+- **`stale` 只打 ℹ，绝不判红**：登记着的端点这轮被打过了 ⇒ 那是**好消息**，
+  该提示的是"这条登记可以退役"。把好消息报成红灯的判据，下一轮就没人再登记（登记率归零）。
+- **`todo` 单独计数并每轮打印**：`未触达登记：136/136 条已签名（kind=todo 欠账 18 条；登记可退役 0 条）`。
+  欠账不许化在水里——这一行就是下一批的工作清单。
+
+登记表缺失 / JSON 坏掉 / 顶层不是对象 ⇒ `loadReasons()` 抛错（EXIT=2 那一路），
+**"没登记"与"表坏了"必须可区分**，与 §3.63 的"没跑 ≠ 干净"同源。
+
+`--gate` 与 `--update-baseline` **两路都拦**：收紧基线时同样要求逐条签名，
+否则"先落基线再补理由"会让补签这一步永远排不到（§3.61 是同一条纪律）。
+
+两类**相对窗口**的条目要分清方向：`other-suite` 判的是"这条由另一条套件在**同一窗口**里打过"。
+窗口的唯一来源是数据集自证字段（那一轮 deep-e2e 全量轮的起止），所以主套件之后写库**不会**改变未触达集合
+——实测主套件六段跑批期间连跑三次 `--gate --operlog` 都是 `136/136 条已签名`、EXIT=0。
+⇒ 需要重生成登记表的时机只有一个：**换一轮新的全量轮**（窗口和触达集合同时变）。
+（这一条本批先写成"每轮收口都要重生成"，是没回查窗口口径就转述因果，已订正。）
+生成器脚本不入库（`_scratch/` 一次性），入库的是生成结果，且必须人工过一遍 `why` 文案，不能留模板句。
+
+**闸的顺序也是判据**（本批实测踩过）：入口里 `assertComparableBaseline`（口径闸）**必须排在登记表闸之前**。
+写反时的症状不是"漏判"而是"报错把你引向错误的修法"——漏 `--operlog` 跑 `--update-baseline` 会把
+25 条"服务端证明打过、只是不在单源集合里"的端点报成"没登记理由"，照着提示去补登记，
+就等于给事实相反的理由签名，而 `--gate` 从此一直绿。修完实测：`--gate --operlog` ⇒ EXIT=0；
+`--gate` / `--update-baseline` 漏旗标 ⇒ `[FATAL] 基线源集合是 oper_log+reqstats，本轮是 reqstats…`、EXIT=2，
+基线文件 md5 不变。未登记报错里另加一行"当前用的是哪套触达源 / 基线记的是哪套"，
+因为这条错的第一反应就是"是不是漏登记了"。
+
+**变异证伪两次**（都属于"红在哪条用例上"必须精确，不能只证明"会红"）：
+
+1. 真数据侧：从登记表删掉 `POST /system/user/importData` ⇒ `--gate` **EXIT=1 并点名该条**，还原后 0。
+2. 代码侧：`missing.push(k)` → `missing.push(...(e ? [k] : []))`（保留检测、只丢"未登记"那一支的上报）
+   ⇒ `SYNTH_FAIL: ㉑ 未登记的新洞必须点名：实际 POST /e`，EXIT=1。
+   第一次尝试写成 `if (false) missing.push(k)`，结果不是干净的 ㉑ 红线而是
+   `TypeError: Cannot read properties of undefined (reading 'kind')`——`!e` 被摘掉后
+   `else if (!kinds.includes(e.kind))` 直接吃到 `undefined`。崩掉同样非零（fail-closed 没破），
+   但**丢失了"红在哪条用例"这条信息**，拿它当变异证据等于没做 ⇒ 变异要挑"只动上报、不动结构"的刀法。

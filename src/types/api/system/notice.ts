@@ -32,8 +32,13 @@ export interface SysNotice extends BaseEntity {
   /** 状态（0正常 1停用） */
   status?: '0' | '1'
   /**
-   * 是否已读：**前端本地状态**，后端 SysNotice 契约不含此列（已读明细在 sys_notice_read，
-   * 由 listTop 的 unreadCount + 前端 readIds 维护）。store 乐观更新时写入，缺省视为未读。
+   * 当前用户是否已读。b79 P3 起由**服务端逐行下发**：`/system/notice/list` 与 `/listTop`
+   * 的行是 `NoticeRowVo`（公告本体 flatten + `isRead`），值取自 `sys_notice_read` 的
+   * (notice_id, user_id) 行。
+   *
+   * 修前该字段只存在于前端内存（store 乐观更新写入），刷新后由 `listTop.isRead` 重建的
+   * `readIds` 恒为空 ⇒ 已读的行全部退回「未读」，而同一时刻铃铛 `unreadCount`（服务端算的）
+   * 显示 0，两个界面互相矛盾。缺省仍按未读处理（可选字段，兼容旧响应）。
    */
   isRead?: boolean
   /** 新增时是否同步通过邮件通知（仅 add 请求提交，对应后端 NoticeDto.notify_email；响应不含） */

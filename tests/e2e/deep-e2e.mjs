@@ -29,7 +29,13 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
+// §10 N-3 的收口：`--plan` 只是**读注册表**（分片口径由 `testFns` 派生），过去却被凭据挡住——
+// `test-config.mjs` 的 fail-fast 在模块导入期就抛，而静态 import 无法"先看 argv 再决定要不要载它"。
+// 凭据纪律本身一个字没松（缺 `STEPBY_TEST_*` 仍然拒绝跑任何用例），变的只是**加载时机**。
+const planOnly = process.argv.includes('--plan')
+const { TEST_USER, TEST_PASS, BASE_URL } = planOnly
+  ? { TEST_USER: '', TEST_PASS: '', BASE_URL: '' }
+  : await import('./test-config.mjs')
 import { runMain } from './e2e/run/runner.mjs'
 import { createCaptureHub } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
@@ -2236,6 +2242,116 @@ async function testModule1(page, consoleErrors, pageErrors) {
       )
       if (ruDialog) await closeDialog(page)
     }
+
+    // ===== 未保存守卫（UX-5）「打开即脏」回归锁（批七十九 R-32b）=====
+    //
+    // 根因（实测取证，详见 b79 台账）：Quill 初始化会把纯文本 `新版本内容` 规范化成
+    // `<p>新版本内容</p>` 回写表单 ⇒ 用户一个字没改、点关闭却弹"尚未保存"。
+    // 判据不能用 text-change 的 `source`——Quill 的 contenteditable MutationObserver 把
+    // 程序写入**也报成 'user'**（dev 模式打印实测：零输入那一笔的 source 就是 user），
+    // 所以改成"用户是否在编辑区/工具栏落下过操作"才成立。
+    //
+    // ③④ 是 ①② 的**对照组**：没有它们，实现可以退化成"永不弹守卫"——那是把用户改动静默
+    // 丢掉（比误弹更坏的失效形态），单看 ①② 全绿看不出来。
+    const guardBoxes = () =>
+      page
+        .locator('.el-message-box:visible')
+        .count()
+        .catch(() => 0)
+    // 守卫的确认按钮文案由 i18n 决定（zh「不保存并离开」/en「Leave without saving」），
+    // 按文案枚举在中文环境命中数为 0（b78 就是这么"以为点了其实没点"）⇒ 只认 EP 主按钮类名
+    const answerGuard = async () => {
+      const primary = page.locator('.el-message-box:visible .el-message-box__btns button.el-button--primary').first()
+      if (await primary.isVisible({ timeout: 400 }).catch(() => false)) {
+        await primary.click({ timeout: 1500 }).catch(() => {})
+        await sleep(500)
+        return true
+      }
+      return false
+    }
+    const clearOverlays = async () => {
+      for (let i = 0; i < 5; i++) {
+        if (await answerGuard()) continue
+        const open = await page
+          .locator('.el-dialog:visible, .el-drawer:visible')
+          .count()
+          .catch(() => 0)
+        if (!open) return
+        await page.keyboard.press('Escape').catch(() => {})
+        await sleep(600)
+      }
+    }
+    const openNoticeForm = async (kind) => {
+      await clearOverlays()
+      const sel =
+        kind === 'add'
+          ? page
+              .locator('.el-button:visible')
+              .filter({ hasText: /新\s*增/ })
+              .first()
+          : page
+              .locator('.el-table')
+              .first()
+              .getByRole('button', { name: /(编辑|修改)/ })
+              .first()
+      await sel.click({ timeout: 4000 }).catch(() => {})
+      await sleep(1500)
+      return await page
+        .locator('.el-dialog:visible')
+        .count()
+        .catch(() => 0)
+    }
+    const guardCase = async (name, kind, expectGuard, action) => {
+      const opened = await openNoticeForm(kind)
+      if (!opened) {
+        record(
+          M,
+          name,
+          false,
+          `公告${kind === 'add' ? '新增' : '编辑'}表单未能打开（前置失效，不能当作"守卫行为正常"）`
+        )
+        return
+      }
+      if (action) await action()
+      await page.keyboard.press('Escape').catch(() => {})
+      await sleep(900)
+      const g = await guardBoxes()
+      record(
+        M,
+        name,
+        expectGuard ? g >= 1 : g === 0,
+        `守卫弹框=${g}（期望${expectGuard ? '≥1：真改过必须拦' : '0：零输入不得拦人'}）`
+      )
+      await clearOverlays()
+    }
+
+    await guardCase('公告守卫: 打开新增零输入不误弹', 'add', false, null)
+    await guardCase('公告守卫: 打开编辑零输入不误弹', 'edit', false, null)
+    await guardCase('公告守卫: 真键入后必须弹（对照组）', 'edit', true, async () => {
+      await page
+        .locator('.ql-editor')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      await page.keyboard.type('Z9', { delay: 60 })
+      await sleep(600)
+    })
+    await guardCase('公告守卫: 只改格式也必须弹（对照组）', 'edit', true, async () => {
+      // 选中已有文本再点加粗：纯文本没变、只有格式变 ⇒ 仍算脏（漏判就是静默丢格式）
+      await page
+        .locator('.ql-editor')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      await page.keyboard.press('Control+A').catch(() => {})
+      await sleep(200)
+      await page
+        .locator('.ql-toolbar button.ql-bold')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      await sleep(700)
+    })
   }
 
   // 1.9 通知中心
@@ -2279,23 +2395,96 @@ async function testModule1(page, consoleErrors, pageErrors) {
     // 只走到确认框就取消：真提交会把 admin 的通知标已读，改变后续用例的初始态。
     {
       const batchBtn = page.locator('.app-container button:has-text("批量已读")').first()
-      if (await batchBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-        const disabledBefore = await batchBtn.isDisabled({ timeout: 2000 }).catch(() => false)
-        const noticeRows = await page
-          .locator('.el-table__body .el-table__row, .notice-item')
-          .count()
-          .catch(() => 0)
-        if (noticeRows > 0) {
-          await checkRow(page, 0, 'page')
+      // 前置自造：b79 P3 之后"已读"是**服务端事实**，历史轮次的「全部已读」会把 admin 的
+      // 全部公告写成 sys_notice_read 行 ⇒ 依赖"库里恰好有未读行"等于把判据耦合到运行库历史
+      // （实测：P3 修完本条立刻红，因为所在行已是已读态、复选框按设计禁用）。
+      // 正确做法是**自己建一条未读夹具**并按标题定位它，跑完删掉。
+      const fixtureTitle = `E2EM1未读${Date.now().toString(36)}`
+      let fixtureId = null
+      let fixtureFail = ''
+      try {
+        const token = await getApiToken()
+        if (!token) {
+          fixtureFail = '未取到 API token'
+        } else {
+          const cr = await fetch(`${CONFIG.backendUrl}/system/notice`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              noticeTitle: fixtureTitle,
+              noticeType: '1',
+              noticeContent: 'b79 M1 批量已读选中态夹具',
+              status: '0'
+            })
+          })
+          if (cr.status !== 200) {
+            fixtureFail = `创建 HTTP=${cr.status}`
+          } else {
+            const lr = await fetch(
+              `${CONFIG.backendUrl}/system/notice/list?pageNum=1&pageSize=20&noticeTitle=${encodeURIComponent(fixtureTitle)}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            )
+            const lj = lr.ok ? await lr.json().catch(() => null) : null
+            const hit = ((lj && lj.rows) || []).find((x) => String(x.noticeTitle) === fixtureTitle)
+            if (hit) fixtureId = hit.noticeId
+            else fixtureFail = `创建 200 但按标题回查不到（lr=${lr.status}）`
+          }
+        }
+      } catch (e) {
+        fixtureFail = String(e).slice(0, 80)
+      }
+      if (fixtureId) {
+        await page.reload({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {})
+        await sleep(2200)
+      }
+      const hasBtn = await batchBtn.isVisible({ timeout: 1500 }).catch(() => false)
+      if (!hasBtn) {
+        recordSkip(M, '通知中心: 批量已读选中态', '跳过（页面无批量已读按钮）')
+        recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（页面无批量已读按钮）')
+      } else if (!fixtureId) {
+        if (fixtureFail.includes('token')) {
+          recordSkip(M, '通知中心: 批量已读选中态', `未读夹具无法创建（${fixtureFail}）`)
+          recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（夹具未就绪）')
+        } else {
+          record(M, '通知中心: 批量已读选中态', false, `未读夹具创建失败（${fixtureFail}）⇒ 前置不成立不得记通过`)
+          recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（夹具未就绪）')
+        }
+      } else {
+        const allRows = page.locator('.el-table__body .el-table__row')
+        const rowCount = await allRows.count().catch(() => 0)
+        let fixtureIdx = -1
+        for (let i = 0; i < rowCount; i++) {
+          const t = await allRows
+            .nth(i)
+            .innerText()
+            .catch(() => '')
+          if (t.includes(fixtureTitle)) {
+            fixtureIdx = i
+            break
+          }
+        }
+        if (fixtureIdx < 0) {
+          record(
+            M,
+            '通知中心: 批量已读选中态',
+            false,
+            `新建的未读公告没有出现在通知中心（行数=${rowCount}，标题="${fixtureTitle}"）`
+          )
+          recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（夹具行未出现）')
+        } else {
+          const disabledBefore = await batchBtn.isDisabled({ timeout: 2000 }).catch(() => null)
+          await checkRow(page, fixtureIdx, 'page')
           await sleep(400)
           const labelAfter = (await batchBtn.innerText({ timeout: 2000 }).catch(() => '')).trim()
-          const enabledAfter = !(await batchBtn.isDisabled({ timeout: 2000 }).catch(() => true))
+          // 三态读取：`null` 表示"没读到"，不得被折成布尔后参与判定（异常路径决定结论＝虚锁）
+          const disabledAfter = await batchBtn.isDisabled({ timeout: 2000 }).catch(() => null)
+          const enabledAfter = disabledAfter === false
           // 文案必须带上选中条数：(0) → (1)，这是"选中态真的传给了按钮"的直接证据
           const countSynced = /\(1\)/.test(labelAfter)
           record(
             M,
             '通知中心: 批量已读选中态',
-            disabledBefore && enabledAfter && countSynced,
+            disabledBefore === true && enabledAfter && countSynced,
             `未选中禁用=${disabledBefore}, 选中后可用=${enabledAfter}, 文案="${labelAfter.slice(0, 16)}"`
           )
 
@@ -2328,15 +2517,20 @@ async function testModule1(page, consoleErrors, pageErrors) {
             )
           }
           // 取消勾选，避免影响后面的「全部已读」用例
-          await checkRow(page, 0, 'page')
+          await checkRow(page, fixtureIdx, 'page')
           await sleep(200)
-        } else {
-          recordSkip(M, '通知中心: 批量已读选中态', '跳过（通知列表为空，无可选行）')
-          recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（通知列表为空）')
         }
-      } else {
-        recordSkip(M, '通知中心: 批量已读选中态', '跳过（页面无批量已读按钮）')
-        recordSkip(M, '通知中心: 批量已读-确认框取消', '跳过（页面无批量已读按钮）')
+        // 收尾删夹具（公告是可删业务数据；不删就会污染后续轮次的"未读"基线）
+        try {
+          const token = await getApiToken()
+          const del = await fetch(`${CONFIG.backendUrl}/system/notice/${fixtureId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          record(M, '通知中心: 未读夹具收尾删除', del.status === 200, `HTTP=${del.status}`)
+        } catch (e) {
+          record(M, '通知中心: 未读夹具收尾删除', false, `异常 ${String(e).slice(0, 80)}`)
+        }
       }
     }
 
@@ -2712,7 +2906,7 @@ async function testModule2(page, consoleErrors, pageErrors) {
       if (onlineRows > 0) {
         await checkRow(page, 0, 'page')
         await sleep(300)
-        const enabledAfter = !(await batchForceBtn.isDisabled({ timeout: 2000 }).catch(() => true))
+        const enabledAfter = (await batchForceBtn.isDisabled({ timeout: 2000 }).catch(() => null)) === false
         record(
           M,
           '在线用户: 批量强退启用契约',
@@ -7624,15 +7818,63 @@ async function testModule25(page, consoleErrors, pageErrors) {
     )
   }
 
-  // 25.11 SkeletonTable 加载骨架屏
-  await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M, waitMs: 200 })
-  const hasSkeleton = await page
-    .locator('.el-skeleton, .skeleton-table, [class*="skeleton"]')
+  // 25.11 SkeletonTable 加载骨架屏（**构造加载态**，不是"祈祷恰好抓到那一帧"）
+  // 原判据：goto 后 500ms 内看一眼。骨架屏只在请求在途那一瞬存在，同一产物、同一服务，
+  // b79 两轮全量实测一轮 PASS 一轮 SKIP（A 35 / B 34 的唯一差集就是这条）⇒ SKIP 总数由
+  // 网络快慢决定，而 SKIP 总数走"只许降"的棘轮基线 ⇒ 门禁与竞态耦合。
+  // 改为用 route 按住列表响应**造出**加载态：在途期间骨架屏**必可见**，放行后**必消失**，
+  // 两条都是确定态判据（含"消失"这条反向锁，原来根本没有）。
+  const SKELETON_SEL = '.skeleton-table, .el-skeleton'
+  const SKELETON_URL_RE = /\/system\/role\/list/
+  let routeHit = false
+  let releaseSkeleton
+  const skeletonGate = new Promise((resolve) => (releaseSkeleton = resolve))
+  await page.route(SKELETON_URL_RE, async (route) => {
+    routeHit = true
+    await skeletonGate
+    await route.continue().catch(() => {})
+  })
+  let duringSkeleton = false
+  let afterSkeleton = false
+  try {
+    await safeGoto(page, `${CONFIG.frontendUrl}/system/role`, { moduleName: M, waitMs: 0, allowFail: true })
+    duringSkeleton = await page
+      .locator(SKELETON_SEL)
+      .first()
+      .waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+  } finally {
+    // 放行必须在 finally 里：半途抛错时按住不放会把后续模块拖到 axios 30s 超时
+    if (duringSkeleton) await sleep(300)
+    releaseSkeleton()
+    await page.unroute(SKELETON_URL_RE).catch(() => {})
+  }
+  // 放行后必须**收敛到非骨架态**（响应落地 ⇒ loading=false）；取反判据不成立说明加载态泄漏
+  afterSkeleton = await page
+    .locator(SKELETON_SEL)
     .first()
-    .waitFor({ state: 'visible', timeout: 500 })
+    .waitFor({ state: 'hidden', timeout: 10000 })
     .then(() => true)
     .catch(() => false)
-  recordSoft(M, 'SkeletonTable: 骨架屏（瞬时）', hasSkeleton, '骨架屏仅在加载瞬间可见')
+  if (!routeHit) {
+    // 拦截器 0 次命中 ⇒ 是**本套件的正则腐化**，不是"产品没有骨架屏"。
+    // 走工具自曝通道（runner.mjs 的 TOOL_BROKEN_RE 命中 SKIP 即退出码 1），
+    // 不得记 PASS（等于没检验），也不得记产品 ❌（冤枉）。
+    recordSkip(
+      M,
+      'SkeletonTable: 在途加载态渲染骨架屏',
+      '⟵ 断言工具异常：/system/role/list 拦截器 0 次命中，请求路径正则已腐化，加载态未被构造，非产品问题'
+    )
+  } else {
+    record(M, 'SkeletonTable: 在途加载态渲染骨架屏', duringSkeleton, '按住响应期间骨架屏可见')
+    record(
+      M,
+      'SkeletonTable: 放行后骨架屏消失（不泄漏加载态）',
+      afterSkeleton,
+      `拦截命中=1 在途可见=${duringSkeleton} 放行后已消失=${afterSkeleton}`
+    )
+  }
 
   // 25.12 EmptyState 空状态组件
   // 锁屏测试可能影响页面状态，重新导航确保页面正常
@@ -10084,41 +10326,50 @@ async function testModule33(page, consoleErrors, pageErrors) {
   if (await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 2000 })) {
     const ariaCheck = await page
       .evaluate(() => {
-        const results = { ariaLabel: 0, role: 0, missing: [] }
-        // 检查头像按钮
-        const avatar = document.querySelector('.avatar-container, .avatar-wrapper')
-        if (avatar) {
-          if (avatar.getAttribute('aria-label') || avatar.getAttribute('role') === 'button') results.ariaLabel++
-          else results.missing.push('avatar')
+        /**
+         * 可访问名必须挂在**可交互节点**上（`role=button` / `tabindex` / 原生 `button`/`a`）。
+         * 旧写法用 `querySelector('.avatar-container, .avatar-wrapper')` 取"选择器组的首个匹配"=
+         * 外层容器，而 `aria-label` 在内层触发元素上 ⇒ 连续多轮把已经做对的 a11y 报成
+         * `缺失: avatar,notice`，而通过条件是 `ariaLabel >= 1 || role >= 3`（几乎恒真），
+         * 于是这条判据**每轮都在喊缺陷却永远绿**——b79 实测两轮逐字相同，正说明它不是竞态而是口径错。
+         */
+        const TARGETS = [
+          ['avatar', '.avatar-container, .avatar-wrapper'],
+          ['theme-switch', '.theme-switch-wrapper'],
+          ['notice', '#header-notice, .notice-trigger']
+        ]
+        const res = { found: 0, labeled: 0, missing: [], role: 0 }
+        for (const [name, sel] of TARGETS) {
+          const els = [...document.querySelectorAll(sel)]
+          if (els.length === 0) continue // 这一面在本页不存在：不计入 found（少于 3 由判据响亮报红）
+          res.found++
+          const interactive = els.filter(
+            (e) =>
+              e.getAttribute('role') === 'button' ||
+              Number(e.tabIndex) >= 0 ||
+              e.tagName === 'BUTTON' ||
+              e.tagName === 'A'
+          )
+          if (interactive.length === 0) {
+            res.missing.push(`${name}(无可交互节点)`)
+            continue
+          }
+          const named = interactive.filter(
+            (e) => (e.getAttribute('aria-label') || '').trim() || e.getAttribute('aria-labelledby')
+          )
+          if (named.length === 0) res.missing.push(`${name}(交互节点无可访问名)`)
+          else res.labeled += named.length
         }
-        // 检查主题切换
-        const themeSwitch = document.querySelector('.theme-switch-wrapper')
-        if (themeSwitch) {
-          if (themeSwitch.getAttribute('aria-label') || themeSwitch.getAttribute('role') === 'button')
-            results.ariaLabel++
-          else results.missing.push('theme-switch')
-        }
-        // 检查通知铃铛
-        const notice = document.querySelector('#header-notice, .notice-trigger')
-        if (notice) {
-          if (notice.getAttribute('aria-label') || notice.getAttribute('role')) results.ariaLabel++
-          else results.missing.push('notice')
-        }
-        // 注意：:has-text() 是 Playwright 伪选择器，不是有效 CSS，不能在 querySelectorAll 中使用
-        // 改为统计所有 el-button--primary 和带 aria-label 的按钮
-        const primaryBtns = document.querySelectorAll('.el-button--primary')
-        for (const btn of primaryBtns) {
-          if (btn.getAttribute('aria-label')) results.ariaLabel++
-        }
-        results.role = document.querySelectorAll('[role="button"], [role="tab"], [role="menu"], [role="dialog"]').length
-        return results
+        res.role = document.querySelectorAll('[role="button"], [role="tab"], [role="menu"], [role="dialog"]').length
+        return res
       })
-      .catch(() => ({ ariaLabel: 0, role: 0, missing: ['eval failed'] }))
+      .catch(() => ({ found: 0, labeled: 0, missing: ['eval failed'], role: 0 }))
     record(
       M,
-      'ARIA: 关键交互元素标签',
-      ariaCheck.ariaLabel >= 1 || ariaCheck.role >= 3,
-      `标签数: ${ariaCheck.ariaLabel}, ARIA角色数: ${ariaCheck.role}, 缺失: ${ariaCheck.missing.join(',') || '无'}`
+      'ARIA: 关键交互元素的可访问名挂在可交互节点上',
+      ariaCheck.found >= 3 && ariaCheck.missing.length === 0,
+      `承载面 ${ariaCheck.found}/3（少于 3 = 选择器与 DOM 脱节，判据失去承载面）、有名交互节点 ${ariaCheck.labeled}、` +
+        `缺失: ${ariaCheck.missing.join(',') || '无'}、ARIA角色数 ${ariaCheck.role}`
     )
   }
 
@@ -19714,6 +19965,617 @@ async function testModule86(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
+// ==================== 模块 88: 写端点补漏（六族 CRUD 闭环 + 档位守卫）====================
+
+/**
+ * 批七十九 R-33：`endpoint-coverage.mjs` 两源对账测出 58 条写端点本轮全量从未触达。
+ * 本模块收其中**可安全自动化**的六族（部门 / 定时任务 / 回调 / 报表数据集·报表·订阅 /
+ * 角色数据范围与授权 / 限流行 / 登录日志解锁），每条都是"写 → 读回 → 反证 → 自清理"闭环。
+ * 其余端点按"设计上不该触达（带理由）"逐条定性（台账 §7.20）——本批**不**为了凑覆盖率去碰
+ * clean 类端点：它们物理清日志表，同轮其他模块的判据面正是那些日志（b78 实测过残留
+ * webhook 把 8 分钟窗口刷成 12 条失败投递同一类耦合）。
+ *
+ * 四条纪律（都由本批实测逼出）：
+ * ① 基线值一律**改前采集**，判据按增量而非绝对数（`jobLog`、`logininfor`、回调日志总数都随库龄变，
+ *    写死绝对数就是"换个数据量就红"的假失败）；
+ * ② fixture 全部走 `e2e88<ts>` 命名并在模块内自删，软删行由 `residue-cleanup.mjs` 物理清扫兜底
+ *    （`test-data-audit.mjs` 的盲区判据据此对账：有命名信号而无谓词覆盖 = 红）；
+ * ③ 前置失败（token 拿不到、回查不到刚建的行、ID 不是有限数字）一律记 **FAIL 并自曝**，
+ *    不得降级成 SKIP——把 `undefined` 拼进 URL 继续发请求，上一轮就据此误判过一个"缺陷"；
+ * ④ 不可达目标造成的失败必须**诚实**：回调测试投递与重试的判据是"成功数必须为 0 且确实产生了
+ *    日志行"，任何一边含糊都放行 b71 那类"把尝试数当成功数"的谎报。
+ */
+async function testModule88(page, consoleErrors, pageErrors) {
+  const M = 88
+  log(`\n=== 模块 ${M}: 写端点补漏（六族 CRUD 闭环 + 档位守卫）===`)
+  const ts = Date.now().toString(36)
+  const N = (s) => `e2e88${ts}-${s}`
+  const B = CONFIG.backendUrl
+
+  const token = await getApiToken()
+  if (!token) {
+    record(
+      M,
+      '前置: API 取 token',
+      false,
+      'getApiToken() 返回空 ⇒ 本模块全部判据无从执行（工具/环境自曝，不是产品缺陷）'
+    )
+    checkConsoleErrors(consoleErrors, pageErrors, M)
+    return
+  }
+  const H = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const api = async (method, path, body) => {
+    try {
+      const r = await fetch(`${B}${path}`, {
+        method,
+        headers: H,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      })
+      let j = null
+      try {
+        j = await r.json()
+      } catch {
+        j = null
+      }
+      return {
+        http: r.status,
+        code: j?.code ?? null,
+        msg: j?.msg ?? '',
+        data: j?.data ?? null,
+        rows: Array.isArray(j?.rows) ? j.rows : null,
+        total: j?.total ?? null
+      }
+    } catch (e) {
+      return { http: 0, code: null, msg: `请求本身失败: ${e.message}`, data: null, rows: null, total: null }
+    }
+  }
+  const rowsOf = (r) => (Array.isArray(r.rows) ? r.rows : Array.isArray(r.data) ? r.data : [])
+  /** 数字 ID 前置闸：非法/缺失就自曝，绝不把 `undefined` 拼进 URL 冒充一次真实请求 */
+  const needId = (v, label) => {
+    const n = Number(v)
+    if (!Number.isFinite(n) || n <= 0) {
+      record(
+        M,
+        `前置: ${label} 应为有效 ID`,
+        false,
+        `实测拿到 ${JSON.stringify(v)} ⇒ 后续发信对象不存在，本族结论不作数（工具自曝，不是产品结论）`
+      )
+      return null
+    }
+    return n
+  }
+  /** 轮询等异步落库（回调投递是后台任务，固定 sleep 会在高负载下假失败） */
+  const waitFor = async (fn, timeoutMs = 10000) => {
+    const until = Date.now() + timeoutMs
+    for (;;) {
+      const v = await fn()
+      if (v) return v
+      if (Date.now() > until) return null
+      await sleep(300)
+    }
+  }
+  /** 负路径统一判据：HTTP 400 + 业务码 400 + 文案非空且不是未解析的 i18n 键名 */
+  const expect400 = (r, label, expectInMsg) => {
+    const codeOk = r.http === 400 && r.code === 400
+    const msgOk = !!r.msg && !String(r.msg).startsWith('error.')
+    const hitOk = !expectInMsg || String(r.msg).includes(expectInMsg)
+    record(
+      M,
+      label,
+      codeOk && msgOk && hitOk,
+      `HTTP=${r.http} code=${r.code} msg=${String(r.msg).slice(0, 60)}` +
+        (expectInMsg ? `（文案须含「${expectInMsg}」=${hitOk}）` : '')
+    )
+  }
+
+  // ---------- 一、部门：新建 ×2 → 改名 → 批量排序（含两个反证）→ 删除 ----------
+  const deptAddA = await api('POST', '/system/dept', { parentId: 100, deptName: N('deptA'), orderNum: 3, status: '0' })
+  const deptAddB = await api('POST', '/system/dept', { parentId: 100, deptName: N('deptB'), orderNum: 4, status: '0' })
+  record(
+    M,
+    '部门: 新建两枚夹具（PUT/排序/删除的前置面）',
+    deptAddA.code === 200 && deptAddB.code === 200,
+    `A code=${deptAddA.code} msg=${String(deptAddA.msg).slice(0, 40)} / B code=${deptAddB.code}`
+  )
+  const deptRows = rowsOf(await api('GET', `/system/dept/list?deptName=${encodeURIComponent(N('dept'))}`))
+  const deptA = needId(deptRows.find((r) => String(r.deptName).endsWith('deptA'))?.deptId, '部门 A')
+  const deptB = needId(deptRows.find((r) => String(r.deptName).endsWith('deptB'))?.deptId, '部门 B')
+  if (deptA && deptB) {
+    const renamed = N('deptA2')
+    const putRes = await api('PUT', '/system/dept', {
+      deptId: deptA,
+      parentId: 100,
+      deptName: renamed,
+      orderNum: 3,
+      status: '0'
+    })
+    const back = (await api('GET', `/system/dept/${deptA}`)).data
+    record(
+      M,
+      '部门: PUT 改名并读回（写后读闭环）',
+      putRes.code === 200 && back?.deptName === renamed,
+      `PUT code=${putRes.code} 读回 deptName=${back?.deptName}（期望 ${renamed}）`
+    )
+
+    const sortRes = await api('PUT', '/system/dept/updateSort', { deptIds: `${deptA},${deptB}`, orderNums: '5,7' })
+    const afterSort = rowsOf(await api('GET', `/system/dept/list?deptName=${encodeURIComponent(N('dept'))}`))
+    const orderOf = (id) => Number(afterSort.find((r) => r.deptId === id)?.orderNum)
+    record(
+      M,
+      '部门: PUT updateSort 两 id 两 orderNum 成对生效',
+      sortRes.code === 200 && orderOf(deptA) === 5 && orderOf(deptB) === 7,
+      `HTTP=${sortRes.http} code=${sortRes.code} 读回 A.orderNum=${orderOf(deptA)}（期望 5）、B.orderNum=${orderOf(deptB)}（期望 7）`
+    )
+    expect400(
+      await api('PUT', '/system/dept/updateSort', { deptIds: `${deptA},${deptB}`, orderNums: '9' }),
+      '部门: updateSort 数量不一致必须被拒（反证）',
+      '数量不一致'
+    )
+    expect400(
+      await api('PUT', '/system/dept/updateSort', { deptIds: '', orderNums: '' }),
+      '部门: updateSort 空入参被 garde 长度下限拒绝（反证）',
+      '长度不能少于 1'
+    )
+
+    const delA = await api('DELETE', `/system/dept/${deptA}`)
+    const delB = await api('DELETE', `/system/dept/${deptB}`)
+    const left = rowsOf(await api('GET', `/system/dept/list?deptName=${encodeURIComponent(N('dept'))}`))
+    record(
+      M,
+      '部门: 删除两枚夹具并读回归零（不留残留）',
+      delA.code === 200 && delB.code === 200 && left.length === 0,
+      `DELETE code=${delA.code}/${delB.code}，删除后列表仍见 ${left.length} 行（必须 0）`
+    )
+  }
+
+  // ---------- 二、定时任务：暂停态新建 → 修改 → 两个反证 → 删除 ----------
+  const jobBody = (name) => ({
+    jobName: name,
+    jobGroup: 'DEFAULT',
+    invokeTarget: 'demoTask.demoNoParams',
+    cronExpression: '0 0 3 * * ?',
+    status: '1',
+    misfirePolicy: '3',
+    concurrent: '1'
+  })
+  // 基线**改前**采集：任务日志总量随库龄变，只有增量能为判据
+  const jobLogBase = (await api('GET', '/monitor/jobLog/list?pageNum=1&pageSize=1')).total
+  const jobAdd = await api('POST', '/monitor/job', jobBody(N('job')))
+  const jobRows = rowsOf(await api('GET', `/monitor/job/list?jobName=${encodeURIComponent(N('job'))}`))
+  const jobId = needId(jobRows[0]?.jobId, '定时任务')
+  record(
+    M,
+    '任务: POST 新建即处于暂停态（不会被调度器装载）',
+    jobAdd.code === 200 && jobRows[0]?.status === '1',
+    `POST code=${jobAdd.code}，读回 status=${jobRows[0]?.status}（暂停='1'；'0' 才会 add_job 装载成真跑任务，见 sys_job_service.rs 的 status=="0" 分支）`
+  )
+  if (jobId) {
+    const edited = await api('PUT', '/monitor/job', { ...jobBody(N('job')), jobId, remark: 'e2e88-edited' })
+    const jobBack = (await api('GET', `/monitor/job/${jobId}`)).data
+    record(
+      M,
+      '任务: PUT 修改 remark 并读回',
+      edited.code === 200 && jobBack?.remark === 'e2e88-edited' && jobBack?.status === '1',
+      `PUT code=${edited.code} 读回 remark=${jobBack?.remark} status=${jobBack?.status}`
+    )
+    expect400(
+      await api('POST', '/monitor/job', jobBody(N('job'))),
+      '任务: 同名新建被拒（反证，钉住唯一性判据）',
+      '已存在'
+    )
+    expect400(
+      await api('POST', '/monitor/job', { ...jobBody(N('badcron')), cronExpression: 'not-a-cron' }),
+      '任务: 非法 cron 被拒（反证，且不得留下半行）',
+      'cron 表达式非法'
+    )
+    const badLeft = rowsOf(await api('GET', `/monitor/job/list?jobName=${encodeURIComponent(N('badcron'))}`))
+    record(
+      M,
+      '任务: 被拒的新增不得落库',
+      badLeft.length === 0,
+      `按名回查 ${N('badcron')} 得 ${badLeft.length} 行（必须 0）`
+    )
+
+    const jobLogAfter = (await api('GET', '/monitor/jobLog/list?pageNum=1&pageSize=1')).total
+    record(
+      M,
+      '任务: 全程未真执行（暂停态 + 不点 run ⇒ 日志增量必须为 0）',
+      Number(jobLogAfter) === Number(jobLogBase),
+      `jobLog total 基线=${jobLogBase} → 现在=${jobLogAfter}，增量 ${Number(jobLogAfter) - Number(jobLogBase)}（必须 0）`
+    )
+    const jobDel = await api('DELETE', `/monitor/job/${jobId}`)
+    const jobLeft = rowsOf(await api('GET', `/monitor/job/list?jobName=${encodeURIComponent(N('job'))}`))
+    record(
+      M,
+      '任务: 删除夹具并读回归零（软删行由收尾清理物理清扫）',
+      jobDel.code === 200 && jobLeft.length === 0,
+      `DELETE code=${jobDel.code}，列表仍见 ${jobLeft.length} 行（必须 0）`
+    )
+  }
+
+  // ---------- 三、回调：停用态新建 → 启停可逆 → 测试投递 → 重试 → 删除 ----------
+  const hookBody = {
+    hookName: N('hook'),
+    targetUrl: 'http://1.1.1.1:81/e2e88',
+    contentType: 'json',
+    timeoutSecs: 1,
+    status: '1',
+    subscribedEvents: ['user.deleted']
+  }
+  const hookAdd = await api('POST', '/monitor/webHook', hookBody)
+  const hookRows = rowsOf(await api('GET', `/monitor/webHook/list?hookName=${encodeURIComponent(N('hook'))}`))
+  const hookId = needId(hookRows[0]?.hookId ?? hookRows[0]?.id, '回调配置')
+  record(
+    M,
+    '回调: 以停用态创建（不订阅业务事件、不会后台投递）',
+    hookAdd.code === 200 && hookRows[0]?.status === '1',
+    `POST code=${hookAdd.code} msg=${String(hookAdd.msg).slice(0, 40)} 读回 status=${hookRows[0]?.status}（目标 ${hookBody.targetUrl}：SSRF 守卫禁内网，b79 实测 127.0.0.1 与 192.0.2.1 均被拒）`
+  )
+  if (hookId) {
+    const onRes = await api('PUT', `/monitor/webHook/${hookId}/status`, { status: '0' })
+    const onBack = (await api('GET', `/monitor/webHook/${hookId}`)).data
+    record(
+      M,
+      '回调: PUT /{id}/status 启用并读回',
+      onRes.code === 200 && onBack?.status === '0',
+      `code=${onRes.code} 读回 status=${onBack?.status}（期望 '0'）`
+    )
+    expect400(await api('PUT', `/monitor/webHook/${hookId}/status`, { status: '9' }), '回调: 非法档位被拒（反证）', '')
+    const testRes = await api('POST', `/monitor/webHook/${hookId}/test`, {})
+    const testLogId = testRes.data?.logId
+    record(
+      M,
+      '回调: /{id}/test 对不可达目标必须诚实报失败（不得谎报成功）',
+      testRes.code === 200 && testRes.data?.ok === false && Number.isFinite(Number(testLogId)),
+      `code=${testRes.code} data.ok=${testRes.data?.ok} statusCode=${testRes.data?.statusCode} costMs=${testRes.data?.costMs} logId=${testLogId}`
+    )
+
+    const logRow = await waitFor(async () => {
+      const r = rowsOf(await api('GET', `/monitor/webHook/log/list?pageNum=1&pageSize=5&hookId=${hookId}`))
+      return r[0] || null
+    })
+    const hookLogId = needId(logRow?.id ?? logRow?.logId, '回调投递日志行')
+    record(
+      M,
+      '回调: 测试投递落库一条推送记录（异步落库轮询到位）',
+      !!logRow && String(logRow.status) === '1',
+      `日志行 id=${hookLogId} status=${logRow?.status}（失败='1'）target=${String(logRow?.targetUrl).slice(0, 40)}`
+    )
+    if (hookLogId) {
+      const totalBefore = (await api('GET', `/monitor/webHook/log/list?pageNum=1&pageSize=1&hookId=${hookId}`)).total
+      const retry = await api('POST', `/monitor/webHook/log/${hookLogId}/retry`, {})
+      // 判据两半：① 不可达 ⇒ 成功数必须 0（b71「把尝试数当成功数」的回归锁）；
+      // ② 重试确实发生 ⇒ 日志行 +1，否则"0 成功"可能只是因为什么都没做
+      const grew = await waitFor(async () => {
+        const t = (await api('GET', `/monitor/webHook/log/list?pageNum=1&pageSize=1&hookId=${hookId}`)).total
+        return Number(t) > Number(totalBefore) ? t : null
+      })
+      record(
+        M,
+        '回调: log/{ids}/retry 成功数为 0 且确实重投了一次',
+        retry.code === 200 && Number(retry.data?.count) === 0 && grew !== null,
+        `retry code=${retry.code} data.count=${retry.data?.count}（不可达必须 0）；日志 total ${totalBefore} → ${grew ?? '(未增长)'}`
+      )
+    }
+    const offRes = await api('PUT', `/monitor/webHook/${hookId}/status`, { status: '1' })
+    const offBack = (await api('GET', `/monitor/webHook/${hookId}`)).data
+    record(
+      M,
+      '回调: 停用复原（可逆，且复原值是实测读回不是硬编码）',
+      offRes.code === 200 && offBack?.status === '1',
+      `code=${offRes.code} 读回 status=${offBack?.status}（期望 '1'）`
+    )
+    const hookDel = await api('DELETE', `/monitor/webHook/${hookId}`)
+    const hookLeft = rowsOf(await api('GET', `/monitor/webHook/list?hookName=${encodeURIComponent(N('hook'))}`))
+    record(
+      M,
+      '回调: 删除夹具并读回归零（活跃回调残留会后台投递，绝不留下）',
+      hookDel.code === 200 && hookLeft.length === 0,
+      `DELETE code=${hookDel.code}，列表仍见 ${hookLeft.length} 行（必须 0）`
+    )
+  }
+
+  // ---------- 四、报表三件套：数据集 PUT / 报表启停 / 订阅启停（含创建反证）----------
+  const dsAdd = await api('POST', '/report/dataset', {
+    datasetCode: N('ds'),
+    datasetName: N('ds'),
+    sqlTemplate: 'SELECT dept_id, dept_name FROM sys_dept'
+  })
+  const dsId = needId(dsAdd.data?.datasetId, '数据集')
+  if (dsId) {
+    const newName = N('ds2')
+    const dsPut = await api('PUT', '/report/dataset', {
+      datasetId: dsId,
+      datasetCode: N('ds'),
+      datasetName: newName,
+      sqlTemplate: 'SELECT dept_id FROM sys_dept'
+    })
+    const dsBack = rowsOf(await api('GET', '/report/dataset/list?pageNum=1&pageSize=50')).find(
+      (r) => r.datasetId === dsId
+    )
+    record(
+      M,
+      '数据集: PUT 改名并读回',
+      dsPut.code === 200 && dsBack?.datasetName === newName,
+      `PUT code=${dsPut.code} 读回 datasetName=${dsBack?.datasetName}（期望 ${newName}）`
+    )
+    expect400(
+      await api('PUT', '/report/dataset', {
+        datasetId: dsId,
+        datasetCode: N('ds'),
+        datasetName: newName,
+        sqlTemplate: 'DELETE FROM sys_dept'
+      }),
+      '数据集: 非 SELECT 语句被 fail-closed 白名单拒绝（反证）',
+      '仅允许 SELECT'
+    )
+
+    const repAdd = await api('POST', '/system/report', {
+      reportCode: N('rep'),
+      reportName: N('rep'),
+      reportType: 'custom',
+      config: '{}',
+      datasetId: dsId
+    })
+    const repRows = rowsOf(
+      await api('GET', `/system/report/list?pageNum=1&pageSize=20&reportName=${encodeURIComponent(N('rep'))}`)
+    )
+    const repId = needId(repRows[0]?.reportId ?? repRows[0]?.id, '报表')
+    record(
+      M,
+      '报表: 新建夹具（自定义类型 + 空配置）',
+      repAdd.code === 200 && repRows.length === 1,
+      `POST code=${repAdd.code}，按名回查 ${repRows.length} 行`
+    )
+    if (repId) {
+      const stOff = await api('PUT', `/system/report/${repId}/status`, { status: '1' })
+      const stOffBack = (await api('GET', `/system/report/${repId}`)).data
+      const stOn = await api('PUT', `/system/report/${repId}/status`, { status: '0' })
+      const stOnBack = (await api('GET', `/system/report/${repId}`)).data
+      record(
+        M,
+        '报表: PUT /{id}/status 停用→启用可逆（两次都读回）',
+        stOff.code === 200 && stOffBack?.status === '1' && stOn.code === 200 && stOnBack?.status === '0',
+        `停用 code=${stOff.code} 读回=${stOffBack?.status}；启用 code=${stOn.code} 读回=${stOnBack?.status}`
+      )
+      expect400(
+        await api('PUT', `/system/report/${repId}/status`, { status: '99' }),
+        '报表: 两位长度 status 被拒（反证）',
+        '长度不能超过 1'
+      )
+
+      expect400(
+        await api('POST', '/system/report/sub', {
+          reportId: repId,
+          subName: N('sub'),
+          cron: '0 0 4 * * ?',
+          pushEmail: '0',
+          pushSysMsg: '0',
+          status: '1'
+        }),
+        '订阅: 两种推送渠道都关必须被拒（反证，防空订阅）',
+        '至少开启一种推送渠道'
+      )
+      const subAdd = await api('POST', '/system/report/sub', {
+        reportId: repId,
+        subName: N('sub'),
+        cron: '0 0 4 * * ?',
+        pushEmail: '0',
+        pushSysMsg: '1',
+        receiveUserIds: '1',
+        status: '1'
+      })
+      const subRows = rowsOf(await api('GET', `/system/report/sub/list?pageNum=1&pageSize=20&reportId=${repId}`))
+      const subId = needId(subRows[0]?.subId ?? subRows[0]?.id, '报表订阅')
+      record(
+        M,
+        '订阅: 以停用态创建（cron 不会真跑，站内信只发给夹具自身）',
+        subAdd.code === 200 && subRows[0]?.status === '1',
+        `POST code=${subAdd.code} msg=${String(subAdd.msg).slice(0, 40)} 读回 status=${subRows[0]?.status}`
+      )
+      if (subId) {
+        const subOff = await api('PUT', `/system/report/sub/${subId}/status`, { status: '1' })
+        const subOn = await api('PUT', `/system/report/sub/${subId}/status`, { status: '0' })
+        const subBack = (await api('GET', `/system/report/sub/${subId}`)).data
+        record(
+          M,
+          '订阅: PUT /sub/{id}/status 可逆并读回',
+          subOff.code === 200 && subOn.code === 200 && subBack?.status === '0',
+          `code=${subOff.code}/${subOn.code} 读回 status=${subBack?.status}（复原为启用='0'）`
+        )
+        const subDel = await api('DELETE', `/system/report/sub/${subId}`)
+        const subLeft = rowsOf(await api('GET', `/system/report/sub/list?pageNum=1&pageSize=20&reportId=${repId}`))
+        record(
+          M,
+          '订阅: 删除并读回归零',
+          subDel.code === 200 && subLeft.length === 0,
+          `DELETE code=${subDel.code}，剩余 ${subLeft.length} 行`
+        )
+      }
+      const repDel = await api('DELETE', `/system/report/${repId}`)
+      const repLeft = rowsOf(
+        await api('GET', `/system/report/list?pageNum=1&pageSize=20&reportName=${encodeURIComponent(N('rep'))}`)
+      )
+      record(
+        M,
+        '报表: 删除并读回归零',
+        repDel.code === 200 && repLeft.length === 0,
+        `DELETE code=${repDel.code}，剩余 ${repLeft.length} 行`
+      )
+    }
+    const dsDel = await api('DELETE', `/report/dataset/${dsId}`)
+    const dsLeft = rowsOf(await api('GET', '/report/dataset/list?pageNum=1&pageSize=100')).filter(
+      (r) => r.datasetId === dsId
+    )
+    record(
+      M,
+      '数据集: 删除并读回归零',
+      dsDel.code === 200 && dsLeft.length === 0,
+      `DELETE code=${dsDel.code}，剩余 ${dsLeft.length} 行`
+    )
+  }
+
+  // ---------- 五、角色：数据范围白名单 + 批量授权/取消配对 ----------
+  const roleAdd = await api('POST', '/system/role', {
+    roleName: N('role'),
+    roleKey: N('key'),
+    roleSort: 9,
+    status: '0',
+    menuIds: []
+  })
+  const roleRows = rowsOf(await api('GET', `/system/role/list?roleName=${encodeURIComponent(N('role'))}`))
+  const roleId = needId(roleRows[0]?.roleId, '角色')
+  record(
+    M,
+    '角色: 新建夹具角色',
+    roleAdd.code === 200 && roleRows.length === 1,
+    `POST code=${roleAdd.code}，回查 ${roleRows.length} 行`
+  )
+  if (roleId) {
+    const ds = await api('PUT', '/system/role/dataScope', { roleId, dataScope: '2', deptIds: [100] })
+    const dsBack = (await api('GET', `/system/role/${roleId}`)).data
+    record(
+      M,
+      '角色: PUT dataScope=2（自定义）写入并读回',
+      ds.code === 200 && String(dsBack?.dataScope) === '2',
+      `code=${ds.code} 读回 dataScope=${dsBack?.dataScope}（期望 '2'）`
+    )
+    // b79 缺陷回归锁：改造前这一条返回 `200 修改成功` 并把 '9' 写进 sys_role，
+    // 而读取侧把未知档位降级成"本部门" ⇒ 管理端显示与实际过滤语义分裂。
+    expect400(
+      await api('PUT', '/system/role/dataScope', { roleId, dataScope: '9', deptIds: [] }),
+      '角色: 非法数据范围档被白名单拒绝（反证）',
+      '数据范围取值无效'
+    )
+    const noTrace = (await api('GET', `/system/role/${roleId}`)).data
+    record(
+      M,
+      '角色: 被拒的档位写入不留痕（读回仍是上一次合法值）',
+      String(noTrace?.dataScope) === '2',
+      `读回 dataScope=${noTrace?.dataScope}（必须仍为 '2'，不得变成 '9'）`
+    )
+    expect400(
+      await api('PUT', '/system/role', { roleId, dataScope: '0' }),
+      '角色: PUT /system/role 侧同判据（三条写入路径共用白名单）',
+      '数据范围取值无效'
+    )
+
+    const grant = await api('PUT', `/system/role/authUser/selectAll?roleId=${roleId}&userIds=2`)
+    const allocatedOn = await api('GET', `/system/role/authUser/allocatedList?roleId=${roleId}&pageNum=1&pageSize=10`)
+    const cancel = await api('PUT', `/system/role/authUser/cancelAll?roleId=${roleId}&userIds=2`)
+    const allocatedOff = await api('GET', `/system/role/authUser/allocatedList?roleId=${roleId}&pageNum=1&pageSize=10`)
+    record(
+      M,
+      '角色: 批量授权→取消授权配对（total 先升后归零）',
+      grant.code === 200 &&
+        Number(allocatedOn.total) >= 1 &&
+        cancel.code === 200 &&
+        Number(allocatedOff.total) === Number(allocatedOn.total) - 1,
+      `授权 code=${grant.code} 已分配 total=${allocatedOn.total} → 取消 code=${cancel.code} total=${allocatedOff.total}（必须恰减 1）`
+    )
+    const roleDel = await api('DELETE', `/system/role/${roleId}`)
+    const roleLeft = rowsOf(await api('GET', `/system/role/list?roleName=${encodeURIComponent(N('role'))}`))
+    record(
+      M,
+      '角色: 取消授权后方可删除（已分配用户会被守卫拒绝），删除后读回归零',
+      roleDel.code === 200 && roleLeft.length === 0,
+      `DELETE code=${roleDel.code} msg=${String(roleDel.msg).slice(0, 40)}，剩余 ${roleLeft.length} 行`
+    )
+  }
+
+  // ---------- 六、限流行：新建 e2e 专属路由 → PUT 改容量 → 反证 → 删除 ----------
+  const rlPattern = '/e2e88/unused-{id}'
+  const rlAdd = await api('POST', '/system/rateLimit', {
+    routePattern: rlPattern,
+    capacity: 5,
+    refillPerSecond: 1,
+    enabled: true,
+    description: 'e2e88 夹具行（指向不存在的路由，不参与任何真实节流）'
+  })
+  const rlRow = rowsOf(await api('GET', '/system/rateLimit/list?pageNum=1&pageSize=200')).find(
+    (r) => r.routePattern === rlPattern
+  )
+  const rlId = needId(rlRow?.id, '限流规则')
+  record(
+    M,
+    '限流: 新建仅覆盖 e2e 专属路由的夹具行（不碰 * 与业务档，避免跨档饿死）',
+    rlAdd.code === 200 && !!rlRow,
+    `POST code=${rlAdd.code} msg=${String(rlAdd.msg).slice(0, 40)}，回查 id=${rlId}`
+  )
+  if (rlId) {
+    const rlPut = await api('PUT', '/system/rateLimit', {
+      id: rlId,
+      routePattern: rlPattern,
+      capacity: 6,
+      refillPerSecond: 2,
+      enabled: true,
+      description: 'e2e88 夹具行(改)'
+    })
+    const rlBack = (await api('GET', `/system/rateLimit/${rlId}`)).data
+    record(
+      M,
+      '限流: PUT 改容量/补给率并读回',
+      rlPut.code === 200 && Number(rlBack?.capacity) === 6 && Number(rlBack?.refillPerSecond) === 2,
+      `code=${rlPut.code} 读回 capacity=${rlBack?.capacity}（期望 6）refillPerSecond=${rlBack?.refillPerSecond}（期望 2）`
+    )
+    expect400(
+      await api('PUT', '/system/rateLimit', {
+        id: rlId,
+        routePattern: rlPattern,
+        capacity: 0,
+        refillPerSecond: 2,
+        enabled: true
+      }),
+      '限流: capacity 下限被 garde 拒绝（反证，容量 0 会把该路由打成全拒）',
+      '数值不能小于 1'
+    )
+    const rlDel = await api('DELETE', `/system/rateLimit/${rlId}`)
+    const rlLeft = rowsOf(await api('GET', '/system/rateLimit/list?pageNum=1&pageSize=200')).find(
+      (r) => r.routePattern === rlPattern
+    )
+    record(
+      M,
+      '限流: 删除夹具行并读回归零（活规则留在库里会改变全局节流）',
+      rlDel.code === 200 && !rlLeft,
+      `DELETE code=${rlDel.code}，回查${rlLeft ? `仍在册 id=${rlLeft.id}` : '已不可见'}`
+    )
+  }
+
+  // ---------- 七、登录日志解锁：正控（不连坐）+ 权限反证 ----------
+  const liBase = (await api('GET', '/monitor/logininfor/list?pageNum=1&pageSize=1')).total
+  const unlock = await api('POST', '/monitor/logininfor/unlock/e2e88_nobody')
+  const liAfter = (await api('GET', '/monitor/logininfor/list?pageNum=1&pageSize=1')).total
+  record(
+    M,
+    '登录日志: 解锁不存在的账号成功，且不得动任何在册行',
+    unlock.code === 200 && Number(liAfter) === Number(liBase),
+    `code=${unlock.code} msg=${String(unlock.msg).slice(0, 30)}；logininfor total ${liBase} → ${liAfter}（增量 ${Number(liAfter) - Number(liBase)}，必须 0）`
+  )
+  const otherToken = await getApiToken(CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+  if (otherToken) {
+    const r = await fetch(`${B}/monitor/logininfor/unlock/e2e88_nobody`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${otherToken}` }
+    })
+    const j = await r.json().catch(() => null)
+    record(
+      M,
+      '登录日志: 无该权限的账号必须被 403 拒绝（反证，权限面不只靠前端隐藏）',
+      r.status === 403,
+      `以 ${CONFIG.secondaryUsername} 调用 HTTP=${r.status} code=${j?.code} msg=${String(j?.msg).slice(0, 40)}`
+    )
+  } else {
+    record(
+      M,
+      '登录日志: 无权限反证',
+      false,
+      `次级账号取 token 失败（${CONFIG.secondaryUsername}）⇒ 权限面判据没有执行，不得记绿`
+    )
+  }
+
+  checkConsoleErrors(consoleErrors, pageErrors, M)
+}
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -19802,7 +20664,9 @@ const testFns = {
   83: testModule83,
   84: testModule84,
   85: testModule85,
-  86: testModule86
+  86: testModule86,
+  87: testModule87,
+  88: testModule88
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
@@ -19815,6 +20679,33 @@ const state = {
 }
 
 const helpers = { log, ensureDir, login, createPage, getApiToken, record, setHub, createCaptureHub }
+
+// 分片方案由注册表派生（批七十九）：`--range=1-15 …76-86` 的边界此前手抄在 RUN-RECIPE 与
+// AGENTS 两处，加一个模块就得同时改两份文档，漏改的一侧会**静默少跑最后几个模块**
+// （与 b78 R-22「两份手抄路由清单」同一类缺陷）。唯一事实源是 testFns，文档只引用这条命令。
+// 顺带把"编号 1..max 连续"钉死：有空洞时分片会跳过那个编号而没人察觉。
+// 注：本命令**不需要**凭据（§10 N-3 已收口：`--plan` 走条件式动态导入，不载 test-config）；
+// 但任何真跑用例的路径仍然要求显式注入 `STEPBY_TEST_*`（test-config 的 fail-fast、无弱口令默认值）。
+if (process.argv.includes('--plan')) {
+  const ids = Object.keys(testFns)
+    .map(Number)
+    .sort((a, b) => a - b)
+  const maxId = ids[ids.length - 1]
+  const gaps = []
+  for (let i = 1; i <= maxId; i++) if (!ids.includes(i)) gaps.push(i)
+  if (gaps.length) {
+    console.error(
+      `❌ 模块编号有空洞：${gaps.join(',')}（已注册 ${ids.length} 个，最大 ${maxId}）⇒ 分片会静默跳过这些编号`
+    )
+    process.exit(2)
+  }
+  const SIZE = 15
+  const ranges = []
+  for (let s = 1; s <= maxId; s += SIZE) ranges.push(`${s}-${Math.min(s + SIZE - 1, maxId)}`)
+  console.log(`模块总数 ${ids.length}（唯一事实源 = deep-e2e.mjs 的 testFns，最大编号 ${maxId}）`)
+  console.log(`分片口径：${ranges.map((r) => `--range=${r}`).join(' / ')}`)
+  process.exit(0)
+}
 
 // 启动预检：验证码启用时先确认可读取真码（fail-fast，不弹浏览器空转）
 try {
@@ -19897,3 +20788,1452 @@ async function runWithResidueCleanup() {
 }
 
 runWithResidueCleanup().then((exitCode) => process.exit(exitCode))
+
+// ==================== 模块 87: 逐页动作盲区补测（批七十九 R-30b） ====================
+/**
+ * action-inventory 扫出的"页面上有按钮、测试源码里从未提及"的动作，逐条补真点击。
+ *
+ * 副作用分级是本模块的设计前提（不是"能点就点"）：
+ *  · 零副作用（纯前端状态 / 路由跳转 / popup）⇒ **真点 + 断言结果**；
+ *  · 会写库但影响面限于本租户的一行 ⇒ 真点 + 收尾还原；
+ *  · 跨租户或不可逆（清空慢请求、整库导出、给他人推待办）⇒ 只断言"闸门确实在"
+ *    （确认框出现→取消→请求不得出网；能力位关→拿到诚实的 403/400），绝不真执行；
+ *    这类边界是**有意的**，与"没测完"不同，注释里逐条写明为什么。
+ * 每条"不得出网"的判据都配一条对照组（合法目标必须照常出网），否则实现可以是
+ * "这个按钮永远不发请求"——同 AGENTS《前端外部输入归一》第 3 条的双侧判据纪律。
+ */
+async function testModule87(page, consoleErrors, pageErrors) {
+  const M = 87
+  const ts = Date.now().toString(36)
+
+  // 通知中心心跳：`listTop` 轮询在每个页面都会周期出网，与"某个按钮发不发请求"无关。
+  // 纯本地按钮的"零请求"判据必须先剔除它，否则判据随轮询相位漂移（假失败）。
+  const BG_POLL_RE = /\/system\/notice\/(listTop|list)(\?|$)/i
+  /** 出网探针：收集点击期间真正发出的请求（排除 HMR/图标等噪声） */
+  const netSpy = () => {
+    const urls = []
+    const handler = (req) => {
+      const u = req.url()
+      if (/hot-update|favicon|\.webp|\.png|\.svg|\.woff/i.test(u)) return
+      urls.push(`${req.method()} ${u}`)
+    }
+    page.on('request', handler)
+    return {
+      urls,
+      match: (re) => urls.filter((u) => re.test(u)),
+      off: () => page.off('request', handler)
+    }
+  }
+  /**
+   * 真实派发点击，并**证明点击落地**（b79 M87 首轮 8 红的共同根因）。
+   *
+   * 首访引导遮罩 `.stepby-tour-mask`（`fixed inset-0 z-[9998] pointer-events-auto`）会拦截
+   * 页面上所有按钮的指针事件：Playwright 的 actionability 检查永远等不到"可点"，
+   * 而旧写法 `await btn.click().catch(() => {})` 把 TimeoutError 咽掉后照样 `return true`
+   * ——于是"点击=true + 什么都没发生 + 请求数=0"被记成 PASS。
+   * **假绿比红更危险**：同 AGENTS《测试门禁全景》"回归锁必须变异证伪 + 对照组真受约束"。
+   *
+   * 三段策略与本文件既有 `clickButton()` 同源：普通点击 → force → 元素自身 dispatch。
+   * 返回 `'click' | 'force' | 'evaluate' | false`，调用方据此把"交互确实发生"写进判据。
+   */
+  /**
+   * 等掉瞬态遮罩再点，并把看到的遮罩名留作凭证（b79 二轮实测的必要性）。
+   *
+   * 同一个 `/system/menu` 页、同一份代码：首轮「展开/收起」`落地=click` 可见行 8→244 全绿，
+   * 二轮 `落地=force` 可见行 **8→8**（第二跳才 244/56）——差别只在按下按钮的那一刻页面上
+   * 有没有遮罩。`force` 会**跳过 actionability 直接按坐标点**，于是事件打在遮罩自己身上：
+   * "点了没反应"被记成"点击成功"，这是假绿的一种（比红更危险，同 realClick 的立因注释）。
+   * 所以这里不是给用例加豁免，而是把"遮罩已消失"变成点击的前置条件，并把确实出现过的遮罩
+   * 写进凭证，便于区分"页面慢"与"真有浮层挡道"。
+   */
+  // 刻意**不含**对话框/消息框的 wrapper：M87 有十几处是"打开对话框后点里面的按钮"，
+  // 那种遮罩在点的时候必然存在，列进来只会让每次点击白等 6 秒（等待≠判据）。
+  const OVERLAY_SEL = '.el-loading-mask, .stepby-tour-mask, .el-image-viewer__wrapper'
+  const overlaysSeen = new Set()
+  /** 本次等待中**确实出现过**的遮罩类名（供凭证用；不要拿"全局见过的集合"做差集，
+   *  那会把第二个页面重见的同类遮罩报成"无"——本批 r3 就是这么把自己误导了一轮）。 */
+  let lastOverlays = ''
+  const waitNoOverlay = async (ms = 6000) => {
+    const t0 = Date.now()
+    lastOverlays = ''
+    for (;;) {
+      const hits = await page
+        .evaluate((sel) => {
+          const out = []
+          for (const el of document.querySelectorAll(sel)) {
+            if (el.getClientRects().length === 0) continue
+            const cs = getComputedStyle(el)
+            if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) continue
+            out.push(String(el.className).split(' ')[0])
+          }
+          return out
+        }, OVERLAY_SEL)
+        .catch(() => [])
+      if (!hits.length || Date.now() - t0 > ms) return hits.length
+      hits.forEach((h) => {
+        overlaysSeen.add(h)
+        lastOverlays = Array.from(new Set([...(lastOverlays ? lastOverlays.split('|') : []), h])).join('|')
+      })
+      // 引导遮罩是 `fixed inset-0 … pointer-events-auto`（src/components/Tour/index.vue:6），
+      // 它**不会自己消失**，干等必然超时 ⇒ 见到就再收一次。
+      // 探针实测（本批 r3 取证，脚本已用完删除）：`/system/menu` 进页 3s 后 `mask=true`、
+      // 按 Escape 后 `mask=false` ⇒ 引导是**数据加载之后**才挂出来的，
+      // 而 `dismissTour` 只在"300ms 内可见"时按 Esc ⇒ 进页面那一次必然扑空。
+      // 所以收引导必须按"点击那一刻的状态"反复判，不能沿用进页面时的那一次。
+      if (hits.some((h) => h === 'stepby-tour-mask')) await dismissTour(page)
+      await sleep(200)
+    }
+  }
+  /**
+   * 普通点击被拦时 Playwright 报的**原文尾两行**（`… intercepts pointer events` /
+   * `element is not stable - waiting…`）。留它是因为"落地=force"只说明没点成，
+   * 不说明**被什么挡住**——没有这一串，红只能靠猜（本批 r2/r3 两轮就是这么过来的）。
+   */
+  let lastClickBlock = ''
+  const realClick = async (locator) => {
+    // 三段式重试：每次按下前都重新"收引导 + 等遮罩"。
+    // 普通点击失败绝不直接退化到 `force`——`force` 跳过 actionability 按坐标点，
+    // 事件会打在**遮罩自己身上**，于是"点了没反应"被记成一次成功点击（假绿）。
+    // 重试上限 3 次：按钮真坏了（禁用/无处理器）时三次都不生效，照样落到 force/evaluate
+    // 并由调用方的"状态确实变了"判据判红，不会因为重试而放过缺陷。
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await dismissTour(page)
+      await waitNoOverlay()
+      try {
+        await locator.click({ timeout: 2500 })
+        return 'click'
+      } catch (e) {
+        lastClickBlock = String((e && e.message) || e)
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(-2)
+          .join(' / ')
+          .slice(0, 150)
+        await sleep(300)
+      }
+    }
+    if (
+      await locator
+        .click({ force: true, timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+    )
+      return 'force'
+    const ok = await locator
+      .evaluate((el) => {
+        if (typeof el?.click !== 'function') return false
+        el.click()
+        return true
+      })
+      .catch(() => false)
+    return ok ? 'evaluate' : false
+  }
+  const clickBtn = async (text, scope) => {
+    const btn = (scope || page).locator('.el-button:visible, button:visible').filter({ hasText: text }).first()
+    if (
+      !(await btn
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false))
+    )
+      return false
+    return realClick(btn)
+  }
+  /** 进页面就收掉引导遮罩：safeGoto 内部不做这件事，靠每条用例自觉必然漏（本轮漏了 8 处） */
+  const gotoPage = async (url, waitMs) => {
+    if (!(await safeGoto(page, url, { moduleName: M, waitMs }))) return false
+    await dismissTour(page)
+    return true
+  }
+  /**
+   * 树表展开状态的**可见**行数。
+   * `.el-table__row` 的 DOM 节点数在折叠态同样包含子行（实测菜单折叠态 nodes=244、visible=8），
+   * 用它判"展开/收起是否生效"永远测不出变化——必须按 getClientRects 数可见行。
+   */
+  const treeState = () =>
+    page
+      .evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('.el-table__body .el-table__row'))
+        return {
+          visible: rows.filter((r) => r.getClientRects().length > 0).length,
+          nodes: rows.length,
+          expandedIcons: document.querySelectorAll('.el-table__expand-icon--expanded').length
+        }
+      })
+      .catch(() => ({ visible: -1, nodes: -1, expandedIcons: -1 }))
+  const toastTexts = () =>
+    page
+      .evaluate(() =>
+        Array.from(document.querySelectorAll('.el-message, .el-message-box'))
+          .filter((e) => e.getClientRects().length > 0)
+          .map((e) => (e.textContent || '').trim())
+      )
+      .catch(() => [])
+  /**
+   * 拦截 `window.open` 捕获入参 —— 外链类判据的稳定做法（b79 二轮订正）。
+   *
+   * 旧写法"等 popup 真加载再断 URL"有两个不可接受的面：
+   * ① 外链可达性是**环境因素**：无外网时新标签落 `chrome-error://chromewebdata/`，
+   *    判据随环境翻转（AGENTS《门禁不得耦合环境》）；
+   * ② `noopener` 切断 opener 关系后 Playwright 的 popup 句柄时序不稳定
+   *    （本轮关于页 8s 内拿不到句柄、引导页拿到的是 error 页，两条都红）。
+   * 判据真正要钉的三件事都在入参里：新标签（`_blank`）、tab-napping 防护（`noopener`）、
+   * 目标是声明的绝对 https 外站——与网络无关，且比"URL 恰好能打开"更强。
+   */
+  const armWindowOpen = async () => {
+    await page
+      .evaluate(() => {
+        window.__opened = []
+        window.open = function patched(url, target, features) {
+          window.__opened.push({
+            url: String(url || ''),
+            target: String(target || ''),
+            features: String(features || '')
+          })
+          return null
+        }
+      })
+      .catch(() => {})
+  }
+  const readWindowOpen = () => page.evaluate(() => window.__opened || []).catch(() => [])
+  const externalOpenChecks = (label, opens, ownOrigin) => {
+    const one = opens.length === 1 ? opens[0] : null
+    record(
+      M,
+      `${label}: 只开一个新标签`,
+      !!one,
+      `捕获到 ${opens.length} 次 window.open：${JSON.stringify(opens).slice(0, 160)}`
+    )
+    record(
+      M,
+      `${label}: 目标为绝对 https 外站`,
+      !!one && /^https:\/\/[^\s]+/.test(one.url) && !one.url.startsWith(ownOrigin),
+      `url="${one ? one.url : ''}"`
+    )
+    record(
+      M,
+      `${label}: 新标签且带 noopener/noreferrer`,
+      !!one && one.target === '_blank' && /noopener/.test(one.features) && /noreferrer/.test(one.features),
+      `target="${one ? one.target : ''}" features="${one ? one.features : ''}"`
+    )
+  }
+
+  // ---------- 87.1 / 87.3 树表「展开/收起」：真点，断言可见行数变化 ----------
+  // 处理函数是 `refreshTable = false → nextTick → true`（useTreeTableSort.ts:69-74），
+  // 销毁重建表格、无任何 API ⇒ 零副作用，可以放开点。
+  for (const [route, name, expectGrow] of [
+    ['/system/dept', '部门', false],
+    ['/system/menu', '菜单', true]
+  ]) {
+    if (!(await gotoPage(`${CONFIG.frontendUrl}${route}`))) continue
+    await assertPageLoaded(page, M, `${name}管理页面加载`)
+    const before = await treeState()
+    const btn = page
+      .locator('.el-button:visible')
+      .filter({ hasText: /展开\/收起/ })
+      .first()
+    const visible = await btn
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!visible) {
+      record(M, `${name}: 「展开/收起」按钮存在`, false, '按钮不可见（文案漂移或被收纳）')
+      continue
+    }
+    const spy = netSpy()
+    // **固定 sleep + 采样一次**在这一族判据上是自欺（round E 实测两条红）：
+    // 处理函数是整表销毁重建（`refreshTable=false→nextTick→true`），菜单页重建 244 行的耗时
+    // 能超过 1600ms ⇒ 第一次读到的是"还没换"的陈旧快照（8→8 看着像没生效），
+    // 第二次读到的是"上一次的效果刚落地、这一次的效果还没落地"（期望 8、实测 244）。
+    // 同码两轮跑出"全绿"与"两红"，正是 §3.60.7 定义的"判据与时序耦合"。
+    // 修法不是把 sleep 调大（换个负载又会犯），而是**轮询到落定**：
+    // 先等期望的变化方向出现，再要求连续两次采样完全相等才认账。
+    const waitTreeSettled = async (predicate, timeoutMs = 9000) => {
+      const t0 = Date.now()
+      let prev = await treeState()
+      let cur = prev
+      while (Date.now() - t0 < timeoutMs) {
+        await sleep(300)
+        cur = await treeState()
+        if (predicate(cur) && cur.visible === prev.visible && cur.expandedIcons === prev.expandedIcons) {
+          return { s: cur, settled: true, ms: Date.now() - t0 }
+        }
+        prev = cur
+      }
+      return { s: cur, settled: false, ms: Date.now() - t0 }
+    }
+    const how = await realClick(btn)
+    const ov = lastOverlays
+    const blk = lastClickBlock
+    const dir1 = expectGrow ? (s) => s.visible > before.visible : (s) => s.visible < before.visible
+    // `visible > 0` 是与数据量无关的下限守卫：整表重建中途会有一瞬 `visible=0`，
+    // 若不加这条，"塌成空表"会被方向判据（期望减少时）读成一次成功收起。
+    const settledAfter = (s) => s.visible > 0 && dir1(s)
+    const got1 = await waitTreeSettled(settledAfter)
+    const after = got1.s
+    // 方向取自两处页面的 `defaultExpand` 实参（dept=true / menu=false，index.vue:284 / :509）：
+    // 部门初始全展开 ⇒ 点一次必是"收起"（可见行净减）；菜单初始折叠 ⇒ 点一次必是"展开"（可见行净增）。
+    // 判据只看可见行：`.el-table__row` 节点数折叠态也全量在 DOM 里（实测菜单 nodes=244 / visible=8），
+    // 用节点数判切换等于恒真——本轮首轮 8 红里两条就是这么"测不出变化"的。
+    const grew = after.visible > before.visible
+    const fell = after.visible < before.visible
+    const directionOk = expectGrow ? grew : fell
+    record(
+      M,
+      `${name}: 「展开/收起」切换生效`,
+      !!how && got1.settled && directionOk && after.expandedIcons !== before.expandedIcons,
+      `点击落地=${how || 'false'} 可见行 ${before.visible}→${after.visible}（期望${expectGrow ? '增加' : '减少'}）、` +
+        `展开图标 ${before.expandedIcons}→${after.expandedIcons}、落定耗时 ${got1.ms}ms（settled=${got1.settled}）、` +
+        `等掉的遮罩="${ov || '无'}"` +
+        (blk ? `、首次普通点击受阻="${blk}"` : '')
+    )
+    // 双向对账：再点一次必须回到原状——单向"变一下"可以是任何抖动造成的。
+    // 期望值是**点击前实测的 before**（§3.60.5），不是硬编码终态。
+    await realClick(btn)
+    const got2 = await waitTreeSettled((s) => s.visible === before.visible && s.expandedIcons === before.expandedIcons)
+    const restored = got2.s
+    record(
+      M,
+      `${name}: 「展开/收起」可逆（点回来复原）`,
+      got2.settled && restored.visible === before.visible && restored.expandedIcons === before.expandedIcons,
+      `二次点击后可见行=${restored.visible}（期望回到 ${before.visible}）、展开图标=${restored.expandedIcons}、` +
+        `落定耗时 ${got2.ms}ms（settled=${got2.settled}）`
+    )
+    record(
+      M,
+      `${name}: 「展开/收起」不发列表请求（纯前端重建）`,
+      spy.match(/\/system\/(dept|menu)\/(list|treeselect)/).length === 0,
+      `期间列表类请求 ${spy.match(/\/system\/(dept|menu)\/(list|treeselect)/).length} 条（必须 0）`
+    )
+    spy.off()
+  }
+
+  // ---------- 87.2 / 87.4 树表「保存显示顺序 / 保存排序」：未改动必须不发请求 ----------
+  // useTreeTableSort.ts:111-114 的契约：orderNum 一个没动就点保存 ⇒ 只弹 warning，
+  // **不发 PUT**。这条判据的价值不是"按钮能用"，而是"空点不会覆写整棵树的排序"
+  // （menu 的 order_num 是平台级共享资源，误发一次就改掉所有租户的侧边栏顺序）。
+  for (const [route, name, btnText, putPath] of [
+    ['/system/dept', '部门', /保存显示顺序/, '/system/dept/updateSort'],
+    ['/system/menu', '菜单', /保存排序/, '/system/menu/updateSort']
+  ]) {
+    if (!(await gotoPage(`${CONFIG.frontendUrl}${route}`))) continue
+    const btn = page.locator('.el-button:visible').filter({ hasText: btnText }).first()
+    if (
+      !(await btn
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
+      record(M, `${name}: 「保存排序」未改动不出网`, false, '按钮不可见')
+      continue
+    }
+    const spy = netSpy()
+    const how = await realClick(btn)
+    await sleep(1500)
+    const pushed = spy.match(new RegExp(putPath)).length
+    const toasts = await toastTexts()
+    // 文案取自两处 i18n 的 `noSortChange`（zh `未检测到排序修改` / en `No sort changes detected`）。
+    // 不用宽松的"排序"二字：按钮名本身含"排序"，松散匹配等于"点了就一定算提示"。
+    const warned = toasts.some((t) => /未检测到排序修改|No sort changes detected/i.test(t))
+    record(
+      M,
+      `${name}: 「保存排序」未改动时不发 PUT（护栏）`,
+      // 必须 AND"点击落地"：否则实现可以是"这个按钮永远点不动"，护栏与死控件不可区分
+      !!how && pushed === 0,
+      `点击落地=${how || 'false'}，${putPath} 请求数=${pushed}（必须 0），toast=${JSON.stringify(toasts)}`
+    )
+    record(
+      M,
+      `${name}: 「保存排序」未改动时给出可见提示`,
+      !!how && warned,
+      `提示文案缺失即"点了没反应"，用户会重复点击。toast=${JSON.stringify(toasts)}`
+    )
+    record(
+      M,
+      `${name}: 「保存排序」空点不产生任何写请求（无 PUT/POST）`,
+      !!how && spy.urls.filter((u) => /^(PUT|POST|DELETE|PATCH) /.test(u)).length === 0,
+      // 只数写方法：通知轮询等 GET 背景流量与本判据无关（把它们算进来就成了环境耦合）
+      `期间写请求 ${spy.urls.filter((u) => /^(PUT|POST|DELETE|PATCH) /.test(u)).length} 条（期望 0：纯本地判等）`
+    )
+    spy.off()
+  }
+
+  // ---------- 87.5 HTTP 调试器「添加请求头」：纯前端状态，真点并数行 ----------
+  // `headers.push({name:'',value:''})`（http-debugger/index.vue:50-58），零 API。
+  if (await gotoPage(`${CONFIG.frontendUrl}/tool/http-debugger`)) {
+    await assertPageLoaded(page, M, 'HTTP 调试器页面加载')
+    const keySel = 'input[placeholder="如 Authorization"]'
+    const before = await page
+      .locator(keySel)
+      .count()
+      .catch(() => -1)
+    const added = await clickBtn(/添加请求头/)
+    await sleep(800)
+    const after = await page
+      .locator(keySel)
+      .count()
+      .catch(() => -1)
+    record(
+      M,
+      'HTTP调试器: 「添加请求头」新增一行可编辑表头',
+      added && before >= 0 && after === before + 1,
+      `表头输入行数 ${before}→${after}（期望 +1），按钮可点=${added}`
+    )
+
+    // ---------- 87.6/87.7 「发送请求」的本地校验必须先拦住畸形入参 ----------
+    // 这两条与批七十三《前端外部输入归一》同源：闸门类判据必须同时断言"畸形不出网"，
+    // 否则坏 URL 会被送到后端去做 SSRF 判定（出网成本 + 错误信息外泄面）。
+    for (const [label, value, mustMatch] of [
+      ['空 URL 不得出网', '', /请输入目标 URL/],
+      ['非 http/https 协议不得出网', 'ftp://example.com/x', /仅支持 http\/https 协议/]
+    ]) {
+      const urlInput = page
+        .locator('input[aria-label="请输入目标 URL（http/https），如 https://httpbin.org/get"]')
+        .first()
+      if (
+        !(await urlInput
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false))
+      ) {
+        record(M, `HTTP调试器: ${label}`, false, 'URL 输入框不可见（aria-label 漂移）')
+        continue
+      }
+      await urlInput.fill(value)
+      const spy = netSpy()
+      await clickBtn(/发送请求/)
+      await sleep(1400)
+      const sent = spy.match(/\/tool\/http-debug\/execute/).length
+      const toasts = await toastTexts()
+      record(
+        M,
+        `HTTP调试器: ${label}`,
+        sent === 0 && toasts.some((t) => mustMatch.test(t)),
+        `execute 请求数=${sent}（必须 0），toast=${JSON.stringify(toasts)}`
+      )
+      spy.off()
+    }
+
+    // ---------- 87.8 对照组：合法 URL 必须照常出网 ----------
+    // 没有这条，上面两条的实现可以是"这个按钮永远不发请求"。
+    // 目标故意指向**本机后端**：ssrf.rs 对环回段是 fail-closed 拒绝 ⇒ 我们既验证了
+    // 前端确实放行合法入参，又保证这一轮不产生任何第三方出站请求。
+    const urlInput = page
+      .locator('input[aria-label="请输入目标 URL（http/https），如 https://httpbin.org/get"]')
+      .first()
+    if (
+      await urlInput
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await urlInput.fill(`${CONFIG.backendUrl}/health`)
+      const spy = netSpy()
+      await clickBtn(/发送请求/)
+      const resp = await page
+        .waitForResponse((r) => /\/tool\/http-debug\/execute/.test(r.url()), { timeout: 12000 })
+        .catch(() => null)
+      await sleep(700)
+      const sent = spy.match(/\/tool\/http-debug\/execute/).length
+      const status = resp ? resp.status() : 0
+      const body = resp ? await resp.json().catch(() => null) : null
+      record(
+        M,
+        'HTTP调试器: 合法 URL 必须照常出网（对照组）',
+        sent >= 1 && !!resp,
+        `execute 请求数=${sent}（必须 ≥1），HTTP=${status}`
+      )
+      // 环回目标必须被 SSRF 拒（实测：`http://localhost:8080/health` ⇒ HTTP 400
+      // msg「禁止访问保留域名后缀 localhost」；`127.0.0.1` ⇒ 「禁止访问内网/保留地址 127.0.0.1」）。
+      // 判据同时钉文案质量：msg 必须非空、不得回显 `error.xxx` 裸键（b74 立案的"i18n 键不可解析"
+      // 缺陷类在这条路径上同样成立才算落地），也不得把内部解析细节原样吐给页面。
+      record(
+        M,
+        'HTTP调试器: 环回目标被 SSRF 拒绝（fail-closed）',
+        status !== 200 && !!body && body.code !== 200,
+        `HTTP=${status} body.code=${body && body.code}`
+      )
+      const msgText = String((body && (body.msg || body.message)) || '')
+      record(
+        M,
+        'HTTP调试器: SSRF 拒绝给出可读原因而非裸 i18n 键',
+        msgText.length > 0 && !/^error\./.test(msgText) && !msgText.includes('error.'),
+        `msg="${msgText.slice(0, 80)}"`
+      )
+      spy.off()
+      // 被拒后的"确定态"必须落在**页面内联区**，不能只剩一条一闪而过的 Toast：
+      // b79 P2 实测修复前，内联 el-alert 显示的是 axios 技术串 `Request failed with status code 400`
+      // （拦截器对 HTTP 400 原样 reject axios error），中文原因只有拦截器 Toast 里有。
+      // 现在两端闭合对账：内联提示必须包含后端 body.msg 的原文，且不得是裸 axios 串。
+      const alertText = await page
+        .evaluate(() => {
+          const box = document.querySelector('.app-container') || document.querySelector('.el-card')
+          const alert = document.querySelector('.el-alert')
+          return {
+            alert: alert ? (alert.innerText || '').replace(/\s+/g, ' ').trim() : '',
+            hasResultCard: !!document.querySelector('.el-card')
+          }
+        })
+        .catch(() => ({ alert: '', hasResultCard: false }))
+      const keyPhrase = msgText.slice(0, Math.min(12, msgText.length))
+      record(
+        M,
+        'HTTP调试器: 被拒后页面内联给出后端可读原因（两端闭合）',
+        !!alertText.alert && !!keyPhrase && alertText.alert.includes(keyPhrase),
+        `内联提示="${alertText.alert.slice(0, 90)}"（应包含后端 msg「${msgText.slice(0, 40)}」）`
+      )
+      record(
+        M,
+        'HTTP调试器: 内联提示不得是裸 axios 技术串',
+        !/Request failed with status code/i.test(alertText.alert),
+        `内联提示="${alertText.alert.slice(0, 90)}"`
+      )
+    }
+  }
+
+  // ---------- 87.9 /tool/about「源码仓库」：外链必须开新页，且带 noopener ----------
+  // `window.open(url,'_blank','noopener,noreferrer')`（about/index.vue:243-247），无 API。
+  if (await gotoPage(`${CONFIG.frontendUrl}/tool/about`)) {
+    await assertPageLoaded(page, M, '关于页加载')
+    await armWindowOpen()
+    const clicked = await clickBtn(/源码仓库/)
+    await sleep(500)
+    const opens = await readWindowOpen()
+    record(M, '关于: 「源码仓库」点击落地', !!clicked, `点击策略=${clicked || 'false（遮罩拦截/按钮不可点）'}`)
+    externalOpenChecks('关于', opens, CONFIG.frontendUrl)
+
+    // ---------- 87.10 「刷新信息」：本地重置 + 可见提示，构建时间必须仍有值 ----------
+    // 不发请求（about/index.vue:253-256），所以判据是"提示 + 数据项非空"，不是接口 200。
+    const beforeBuild = await page
+      .evaluate(() => document.body.innerText.match(/构建时间[^\n]*\n?([^\n]*)/)?.[1]?.trim() || '')
+      .catch(() => '')
+    const spy = netSpy()
+    const refreshed = await clickBtn(/刷新信息/)
+    await sleep(1200)
+    const toasts = await toastTexts()
+    const afterBuild = await page
+      .evaluate(() => document.body.innerText.match(/构建时间[^\n]*\n?([^\n]*)/)?.[1]?.trim() || '')
+      .catch(() => '')
+    record(
+      M,
+      '关于: 「刷新信息」给出可见成功提示且不留空字段',
+      refreshed && toasts.some((t) => /刷新|已更新|成功/i.test(t)) && !!afterBuild,
+      `toast=${JSON.stringify(toasts)} 构建时间 "${beforeBuild}"→"${afterBuild}"`
+    )
+    record(
+      M,
+      '关于: 「刷新信息」不发多余请求（纯本地重置）',
+      // 只数写方法：通知轮询（GET /system/notice/listTop）是背景心跳，与"这个按钮发不发请求"无关
+      spy.urls.filter((u) => /^(PUT|POST|DELETE|PATCH) /.test(u)).length === 0,
+      `期间写请求 ${spy.urls.filter((u) => /^(PUT|POST|DELETE|PATCH) /.test(u)).length} 条：${JSON.stringify(
+        spy.urls.slice(0, 3)
+      )}`
+    )
+    spy.off()
+  }
+
+  // ---------- 87.11 /index「访问主页」：引导页外链必须落到声明的站点 ----------
+  if (await gotoPage(`${CONFIG.frontendUrl}/index`)) {
+    await assertPageLoaded(page, M, '引导页加载')
+    await armWindowOpen()
+    const clicked = await clickBtn(/访问主页/)
+    await sleep(500)
+    const opens = await readWindowOpen()
+    record(M, '引导页: 「访问主页」点击落地', !!clicked, `点击策略=${clicked || 'false（遮罩拦截/按钮不可点）'}`)
+    externalOpenChecks('引导页', opens, CONFIG.frontendUrl)
+    // 「访问主页」与「访问仓库」是两个不同按钮，误点会静默换目标——按声明的官网域名对账
+    record(
+      M,
+      '引导页: 官网按钮指向本站域名而非仓库',
+      opens.length === 1 && /^https:\/\/stepby\.[a-z.]+\/?$/i.test(opens[0].url),
+      `url="${opens[0] ? opens[0].url : ''}"`
+    )
+  }
+
+  // ---------- 87.12 登录日志「重新分析异常」：名字唬人，实为纯读刷新 ----------
+  // MyLoginPanel.vue:311-314 只做 getList() + success toast，无任何后端"分析"动作。
+  // 前置：面板在「我的登录」tab 内（index.vue:210-212，且 tab 受 hasMyLoginPerm 控制），
+  // admin 默认落在「管理」tab ⇒ 必须先切 tab，否则点了没反应会被误读成缺陷。
+  if (await gotoPage(`${CONFIG.frontendUrl}/monitor/logininfor`)) {
+    await assertPageLoaded(page, M, '登录日志页面加载')
+    const tab = page
+      .locator('.el-tabs__item')
+      .filter({ hasText: /我的登录|My Login/i })
+      .first()
+    const tabOk = await tab
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    if (tabOk) {
+      await realClick(tab)
+      await sleep(1600)
+      const spy = netSpy()
+      const clicked = await clickBtn(/重新分析异常/)
+      const resp = await page
+        .waitForResponse((r) => /logininfor|myLogin|logininfor\/my/i.test(r.url()) && r.status() === 200, {
+          timeout: 10000
+        })
+        .catch(() => null)
+      await sleep(600)
+      const toasts = await toastTexts()
+      record(
+        M,
+        '登录日志: 「重新分析异常」确实重新拉取列表并给出提示',
+        clicked && !!resp && toasts.some((t) => /分析|刷新|成功/i.test(t)),
+        `点击=${clicked} 列表响应=${!!resp} toast=${JSON.stringify(toasts)} 期间请求=${spy.urls.length}`
+      )
+      spy.off()
+    } else {
+      record(M, '登录日志: 「我的登录」tab 可达', false, 'tab 不可见（权限 system:mylogin 或文案漂移）')
+    }
+  }
+
+  // ---------- 87.13 IP 归属地「更新 xdb 库」：只断言闸门，绝不真重载 ----------
+  // reloadXdb 仅 re-mmap 本地文件（ip_location_handler.rs:306-315），副作用限于进程内句柄；
+  // 但它带 modal.confirm ⇒ 本条按"确认框出现 → 取消 → 请求不得出网"判，零副作用。
+  // 相邻的「立即更新」才是真发起外网下载的那个 ⇒ 定位必须收紧到精确文案，不能用 has-text("更新")。
+  if (await gotoPage(`${CONFIG.frontendUrl}/monitor/ip-location`)) {
+    await assertPageLoaded(page, M, 'IP 归属地页面加载')
+    const xdbBtn = page
+      .locator('.el-button:visible')
+      .filter({ hasText: /^更新 xdb 库$/ })
+      .first()
+    const present = await xdbBtn
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!present) {
+      record(M, 'IP归属地: 「更新 xdb 库」按钮可见', false, '按钮不可见（权限 monitor:iplocation:edit 或文案漂移）')
+    } else {
+      // 禁用态必须与**服务端事实源**一致（`GET /system/ipLocation/status` 的 `xdbLoaded`，
+      // 页面绑定见 views/monitor/ip-location/index.vue:29 `:disabled="!status?.xdbLoaded"`）。
+      // 原写法是"看到禁用就记 true"——字面 true 的断言永远不可能红，等于没检验；
+      // 现在一条判据覆盖两种状态且**双向可假**：就绪却禁用、或未就绪却可点，都会转红。
+      const disabled = await xdbBtn.isDisabled().catch(() => null)
+      let xdbLoaded = null
+      try {
+        const token = await getApiToken()
+        const sr = await fetch(`${CONFIG.backendUrl}/system/ipLocation/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const sj = sr.ok ? await sr.json().catch(() => null) : null
+        xdbLoaded = typeof sj?.data?.xdbLoaded === 'boolean' ? sj.data.xdbLoaded : null
+      } catch {
+        xdbLoaded = null
+      }
+      record(
+        M,
+        'IP归属地: 「更新 xdb 库」禁用态与服务端 xdbLoaded 一致（关闭态即安全态）',
+        typeof xdbLoaded === 'boolean' && disabled === !xdbLoaded,
+        `服务端 xdbLoaded=${xdbLoaded}，按钮 disabled=${disabled}（两者必须相反；任一读取失败即红）`
+      )
+      if (disabled === false) {
+        const spy = netSpy()
+        const how = await realClick(xdbBtn)
+        await sleep(900)
+        const confirmShown = await page
+          .locator('.el-message-box:visible')
+          .count()
+          .catch(() => 0)
+        const cancel = page
+          .locator('.el-message-box:visible button')
+          .filter({ hasText: /取\s*消|Cancel/ })
+          .first()
+        const cancelled = await realClick(cancel)
+        await sleep(900)
+        const sent = spy.match(/reloadXdb/i).length
+        record(
+          M,
+          'IP归属地: 「更新 xdb 库」确认框取消后请求不出网',
+          !!how && !!cancelled && confirmShown >= 1 && sent === 0,
+          `点击落地=${how || 'false'}/取消落地=${cancelled || 'false'} 确认框=${confirmShown} reloadXdb 请求数=${sent}（必须 0）`
+        )
+        spy.off()
+      }
+    }
+  }
+
+  // ---------- 87.14 观测面板「清空慢请求」：跨租户不可逆 ⇒ 只验闸门，绝不真清 ----------
+  // SlowRequestBus 是**进程内全局环形缓冲且记录里没有 tenant 字段**（observability/slow.rs:33-53），
+  // handler 直接 clear() ⇒ 一按就抹掉本进程内所有租户、所有用户（以及本轮其它用例刚制造的慢请求证据），
+  // 不落库、不可恢复。因此这里只允许走到"确认框出现→取消"为止。
+  if (await gotoPage(`${CONFIG.frontendUrl}/monitor/observability`)) {
+    await assertPageLoaded(page, M, '可观测面板加载')
+    const clearBtn = page
+      .locator('.el-button:visible')
+      .filter({ hasText: /清空慢请求/ })
+      .first()
+    const present = await clearBtn
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!present) {
+      record(M, '观测: 「清空慢请求」按钮受权限控制', false, '按钮不可见（monitor:slowSql:list 未发放）')
+    } else {
+      const spy = netSpy()
+      const how = await realClick(clearBtn)
+      await sleep(1000)
+      const boxText = await page
+        .evaluate(() => {
+          const box = Array.from(document.querySelectorAll('.el-message-box')).find(
+            (n) => n.getClientRects().length > 0
+          )
+          return box ? box.innerText || '' : ''
+        })
+        .catch(() => '')
+      const cancel = page
+        .locator('.el-message-box:visible button')
+        .filter({ hasText: /取\s*消|Cancel/ })
+        .first()
+      const cancelled = await realClick(cancel)
+      await sleep(900)
+      const sent = spy.match(/slow-sql\/clear/i).length
+      record(
+        M,
+        '观测: 「清空慢请求」必须先确认（不可逆操作不得一点即清）',
+        // 三条缺一不可：点击真的落地 + 确认框真的出现 + 文案语义正确。
+        // 只判后两条时，"点击被遮罩吞掉"也会因为 sent===0 而让下一条假绿。
+        !!how && boxText.length > 0 && /清空|慢请求|clear/i.test(boxText),
+        `点击落地=${how || 'false'} 确认框文案="${boxText.replace(/\s+/g, ' ').slice(0, 60)}"`
+      )
+      record(
+        M,
+        '观测: 「清空慢请求」取消后 DELETE 不出网（跨租户护栏）',
+        !!cancelled && boxText.length > 0 && sent === 0,
+        `取消点击落地=${cancelled || 'false'}，slow-sql/clear 请求数=${sent}（必须 0：清空会波及他租户）`
+      )
+      spy.off()
+    }
+  }
+
+  // ---------- 87.15 备份「导出租户数据包」：整库体量 + 60s 限流 ⇒ 只验三层开关的第一层 ----------
+  // export_tenant_package 会扫 33 张表把全量行导出成单个 JSON 落盘并插一条 backup_log
+  // （sys_backup_service.rs:412-426），admin 属 tenant 0 ⇒ 体量接近整库；
+  // 产物只能靠 RETAIN_SUCCESS_BACKUPS 轮转被动回收，测试无法自助清理，
+  // 且同用户 60 秒内第二次点必 400（限流）会让后续任何"再点一次"的用例连锁失真。
+  // ⇒ 本条断言"高危能力默认关"这一安全态，而不是把磁盘写满来证明按钮能点。
+  if (await gotoPage(`${CONFIG.frontendUrl}/monitor/backup`, 2200)) {
+    await assertPageLoaded(page, M, '备份页面加载')
+    const exportBtn = page
+      .locator('.el-button:visible, .el-tooltip__trigger')
+      .filter({ hasText: /导出租户数据包/ })
+      .first()
+    const present = await exportBtn
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const disabled = present ? await exportBtn.isDisabled().catch(() => false) : true
+    record(
+      M,
+      '备份: 「导出租户数据包」入口存在（能力齐备，本轮刻意不点）',
+      present,
+      `按钮可见=${present} disabled=${disabled}；真点会整库导出+落盘+插 backup_log 行且同用户 60s 限流，` +
+        `产物只能靠轮转被动回收 ⇒ 这是有意的执行边界，不是漏测`
+    )
+  }
+
+  /** 关掉本模块可能残留的对话框/确认框（守卫类用例的收尾，避免污染下一条） */
+  const dismissAll = async () => {
+    for (let i = 0; i < 5; i++) {
+      const primary = page.locator('.el-message-box:visible .el-message-box__btns button.el-button--primary').first()
+      if (await primary.isVisible({ timeout: 300 }).catch(() => false)) {
+        await realClick(primary)
+        await sleep(500)
+        continue
+      }
+      const open = await page
+        .locator('.el-dialog:visible, .el-drawer:visible')
+        .count()
+        .catch(() => 0)
+      if (!open) return
+      await page.keyboard.press('Escape').catch(() => {})
+      await sleep(600)
+    }
+  }
+
+  // ---------- 87.16 表单生成器「添加规则」：点击左侧组件即入画布，再点规则 ----------
+  // build/index.vue:38 的 `.components-item` 带 @click="addComponent" ⇒ 不需要真拖拽
+  // （HTML5 DnD 在 Playwright 里不可靠，走官方支持的点击路径）。
+  // addReg 只是 `activeData.regList.push(...)`（RightPanel.vue:685-693），零 API、零后端副作用。
+  if (await gotoPage(`${CONFIG.frontendUrl}/tool/build`, 3000)) {
+    await assertPageLoaded(page, M, '表单构建页加载')
+    const fieldItem = page
+      .locator('.components-item')
+      .filter({ hasText: /输入框|文本框|多行文本/ })
+      .first()
+    const pick = await fieldItem
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!pick) {
+      record(M, '表单构建: 左侧字段组件可点选', false, '组件项不可见（布局漂移）')
+    } else {
+      const picked = await realClick(fieldItem)
+      await sleep(1500)
+      const regBtn = page
+        .locator('.el-button:visible')
+        .filter({ hasText: /添加规则/ })
+        .first()
+      const hasReg = await regBtn
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!hasReg) {
+        record(M, '表单构建: 选中字段后出现「添加规则」', false, `右侧未渲染规则区（组件点选=${picked || 'false'}）`)
+      } else {
+        const spy = netSpy()
+        const before = await page
+          .locator('.reg-item')
+          .count()
+          .catch(() => -1)
+        const addedRule = await realClick(regBtn)
+        await sleep(700)
+        const after = await page
+          .locator('.reg-item')
+          .count()
+          .catch(() => -1)
+        const inputs = await page
+          .locator('.reg-item input')
+          .count()
+          .catch(() => 0)
+        record(
+          M,
+          '表单构建: 「添加规则」新增一条规则项（含表达式与提示两个输入）',
+          !!addedRule && before >= 0 && after === before + 1 && inputs >= 2,
+          `点击落地=${addedRule || 'false'}，.reg-item ${before}→${after}，规则内输入框数=${inputs}`
+        )
+        record(
+          M,
+          '表单构建: 「添加规则」不发任何请求（纯本地状态）',
+          // 剔除通知中心心跳（listTop 轮询在任何页面都会周期性出网），其余一条都不许有
+          spy.urls.filter((u) => !BG_POLL_RE.test(u)).length === 0,
+          `期间出网 ${spy.urls.length} 条，剔除心跳后 ${spy.urls.filter((u) => !BG_POLL_RE.test(u)).length} 条：${JSON.stringify(
+            spy.urls.slice(0, 3)
+          )}`
+        )
+        spy.off()
+        // 增删成对：删掉刚加的规则，回到干净态（close-btn 是 role=button，键盘可达）
+        const del = page.locator('.reg-item .close-btn').last()
+        const deleted = await realClick(del)
+        await sleep(500)
+        const back = await page
+          .locator('.reg-item')
+          .count()
+          .catch(() => -1)
+        record(
+          M,
+          '表单构建: 规则可删除（增删成对）',
+          !!deleted && back === before,
+          `删除点击落地=${deleted || 'false'}，删除后 .reg-item=${back}（期望回到 ${before}）`
+        )
+      }
+    }
+  }
+
+  // ---------- 87.17 流程待办「提交请假单」：只验到"表单打开 + 必填拦下 + 取消不出网" ----------
+  // 真提交会建单据 + 生成他人待办并推 ws/审计（flow_handler.rs:252-258），
+  // `/withdraw` 能撤单据但**撤不回已发出的待办通知与 flow_audit 行** ⇒ 属"对他人可见的副作用"。
+  // 同 M1「批量强退」的先例：启用契约 + 取消路径比"存在按钮"强一个量级，且零外溢。
+  if (await gotoPage(`${CONFIG.frontendUrl}/system/flow/todo`, 2400)) {
+    await assertPageLoaded(page, M, '流程待办页加载')
+    const mineTab = page
+      .locator('.el-tabs__item')
+      .filter({ hasText: /我发起/ })
+      .first()
+    if (
+      await mineTab
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await realClick(mineTab)
+      await sleep(1400)
+    }
+    const spy = netSpy()
+    const opened = await clickBtn(/提交请假单/)
+    await sleep(1400)
+    const dlg = await page
+      .locator('.el-dialog:visible')
+      .first()
+      .isVisible({ timeout: 4000 })
+      .catch(() => false)
+    const formText = await page
+      .evaluate(() => {
+        const d = Array.from(document.querySelectorAll('.el-dialog')).find((n) => n.getClientRects().length > 0)
+        return d ? (d.innerText || '').replace(/\s+/g, ' ').slice(0, 200) : ''
+      })
+      .catch(() => '')
+    record(
+      M,
+      '流程待办: 「提交请假单」打开申请表单且字段齐备',
+      !!opened && dlg && /请假|天数|事由|审批/i.test(formText),
+      `点击落地=${opened || 'false'} 对话框=${dlg} 表单文案="${formText.slice(0, 80)}"`
+    )
+    if (dlg) {
+      // 必填为空直接确定 ⇒ 必须被前端校验拦下、不发 submit（否则空单落库并推他人待办）。
+      // b79 首轮此条红，红出的是**真产品缺陷**：`await submitRef.value?.validate()` 的拒绝
+      // 逸出点击处理器 ⇒ ErrorBoundary 接管，对话框整体被卸载（`dialogsAll: 1→0`）而 submit 请求
+      // 仍是 0——"拦住了"的假象下用户丢掉了整张已填表单。修复见 utils/formValidate.ts。
+      // 判据三腿：点击落地 + 提示红字真实出现 + 文案与 i18n `flow.rules.title` 对齐。
+      const okBtn = page
+        .locator('.el-dialog:visible .el-dialog__footer button')
+        .filter({ hasText: /确\s*定|提\s*交/ })
+        .first()
+      const okClicked = await realClick(okBtn)
+      await sleep(1200)
+      const submitted = spy.match(/flow\/demo\/submit/).length
+      const stillOpen = await page
+        .locator('.el-dialog:visible')
+        .first()
+        .isVisible({ timeout: 1500 })
+        .catch(() => false)
+      const fieldErrors = await page
+        .evaluate(() =>
+          Array.from(document.querySelectorAll('.el-form-item__error')).map((e) => (e.textContent || '').trim())
+        )
+        .catch(() => [])
+      record(
+        M,
+        '流程待办: 必填为空时提交被拦下（不得落库、不得推他人待办）',
+        !!okClicked && submitted === 0 && stillOpen,
+        `点击落地=${okClicked || 'false'}，submit 请求数=${submitted}（必须 0），对话框仍开=${stillOpen}`
+      )
+      record(
+        M,
+        '流程待办: 校验失败给出可见红字且对话框不塌（表单不丢）',
+        fieldErrors.length >= 1 && /单据标题|title/i.test(fieldErrors.join(' ')),
+        `红字=${JSON.stringify(fieldErrors)}`
+      )
+      // 输入敏感的对照组：把必填补上 ⇒ 同一条校验必须放行（红字消失）。
+      // 没有这条，实现可以是"这个按钮永远拦住"——拦住与坏掉不可区分。
+      const titleInput = page
+        .locator('.el-dialog:visible input[aria-label*="标题"], .el-dialog:visible .el-form-item input')
+        .first()
+      const typed = await titleInput
+        .fill(`E2E87闸门对照${ts}`)
+        .then(() => true)
+        .catch(() => false)
+      if (typed) await titleInput.press('Tab').catch(() => {})
+      await sleep(1000)
+      const errorsAfterFill = await page
+        .evaluate(() => document.querySelectorAll('.el-form-item__error').length)
+        .catch(() => -1)
+      record(
+        M,
+        '流程待办: 补上必填后同一条校验放行（闸门输入敏感，非恒拦）',
+        typed && errorsAfterFill === 0,
+        `填入标题=${typed}，剩余红字段数=${errorsAfterFill}（期望 0）`
+      )
+      // 收尾**不点确定**：真提交会生成他人待办与不可回收的审计行 ⇒ 用取消关闭
+      const cancelBtn = page
+        .locator('.el-dialog:visible .el-dialog__footer button')
+        .filter({ hasText: /取\s*消|Cancel/ })
+      await realClick(cancelBtn.first())
+      await sleep(800)
+    }
+    await dismissAll()
+    record(
+      M,
+      '流程待办: 收尾仍未发出 submit（真提交会推他人待办，本轮刻意不执行）',
+      spy.match(/flow\/demo\/submit/).length === 0,
+      '收尾复核'
+    )
+    spy.off()
+  }
+
+  // ---------- 87.18 通知中心「批量已读」的**落库**证明（不是内存乐观态） ----------
+  // b78 补的两条只证到"选中态 + 确认框文案"，main.mjs F113 证到"点了之后标签消失"——
+  // 而 store 是**先乐观更新、失败再回滚**（store/modules/notice.ts:122），
+  // 所以"UI 显示已读"完全可能是回滚前的瞬间。真正的判据是：刷新后仍已读
+  // + 服务端 listTop 里该公告 isRead=true（与 UI 无关的第二条证据链）。
+  const noticeTitle = `E2E87批量已读${ts}`
+  let createdNoticeId = null
+  try {
+    const token = await getApiToken()
+    if (token) {
+      const r = await fetch(`${CONFIG.backendUrl}/system/notice`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          noticeTitle,
+          noticeType: '1',
+          noticeContent: '批七十九 M87 批量已读落库验证',
+          status: '0'
+        })
+      })
+      const j = r.ok ? await r.json().catch(() => null) : null
+      // POST /system/notice 的契约是 `AjaxResult<()>`（sys_notice_handler.rs:97-117：只回 msg，
+      // 不回新建行的主键）——这是 RuoYi 系既有约定，不是缺陷，也不该为一条测试改公开契约。
+      // 因此夹具的 id 必须**按标题回查列表**拿，回查本身就是"确实落库"的第二条证据链。
+      record(
+        M,
+        '通知中心: 夹具公告创建返回 200',
+        r.status === 200 && !!j && j.code === 200,
+        `HTTP=${r.status} body=${JSON.stringify(j).slice(0, 120)}`
+      )
+      if (r.status === 200) {
+        try {
+          const lr = await fetch(
+            `${CONFIG.backendUrl}/system/notice/list?pageNum=1&pageSize=20&noticeTitle=${encodeURIComponent(noticeTitle)}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          )
+          const lj = lr.ok ? await lr.json().catch(() => null) : null
+          const rows = (lj && (lj.rows || (lj.data && lj.data.rows))) || []
+          const hit = rows.find((x) => String(x.noticeTitle) === noticeTitle)
+          if (hit) createdNoticeId = hit.noticeId
+          record(
+            M,
+            '通知中心: 夹具公告按标题回查得到 id（落库证明）',
+            !!createdNoticeId,
+            `回查命中=${!!hit} id=${createdNoticeId} 行数=${rows.length}`
+          )
+        } catch (e) {
+          record(M, '通知中心: 夹具公告按标题回查得到 id（落库证明）', false, `异常 ${String(e).slice(0, 80)}`)
+        }
+      }
+    } else {
+      recordSkip(M, '通知中心: 夹具公告创建成功', 'API 未取到 token')
+    }
+  } catch (e) {
+    record(M, '通知中心: 夹具公告创建成功', false, `异常 ${String(e).slice(0, 80)}`)
+  }
+
+  if (createdNoticeId && (await gotoPage(`${CONFIG.frontendUrl}/system/notice-center`, 2400))) {
+    await assertPageLoaded(page, M, '通知中心页面加载（批量已读落库）')
+    const row = page.locator('.el-table__row').filter({ hasText: noticeTitle }).first()
+    const rowOk = await row
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!rowOk) {
+      record(M, '通知中心: 新建公告出现在通知中心', false, `标题「${noticeTitle}」未出现在列表`)
+    } else {
+      const checked = await realClick(row.locator('.el-checkbox, input[type="checkbox"]').first())
+      await sleep(700)
+      const batchBtn = page
+        .locator('.el-button:visible')
+        .filter({ hasText: /批量已读/ })
+        .first()
+      const btnText = await batchBtn.innerText().catch(() => '')
+      const enabled = (await batchBtn.isDisabled().catch(() => null)) === false
+      const spy = netSpy()
+      const batchClicked = await realClick(batchBtn)
+      await sleep(900)
+      const primary = page.locator('.el-message-box:visible .el-message-box__btns button.el-button--primary').first()
+      const confirmed = await primary.isVisible({ timeout: 1500 }).catch(() => false)
+      if (confirmed) await realClick(primary)
+      const markResp = await page
+        .waitForResponse((r) => /markReadAll/i.test(r.url()), { timeout: 10000 })
+        .catch(() => null)
+      await sleep(1200)
+      record(
+        M,
+        '通知中心: 勾选后可批量已读并真发出 markReadAll',
+        !!checked &&
+          !!batchClicked &&
+          enabled &&
+          /1/.test(btnText) &&
+          confirmed &&
+          !!markResp &&
+          markResp.status() === 200,
+        `勾选落地=${checked || 'false'} 按钮落地=${batchClicked || 'false'} 按钮文案="${btnText.replace(
+          /\s+/g,
+          ' '
+        )}" 可用=${enabled} 确认框=${confirmed} HTTP=${markResp ? markResp.status() : 0}`
+      )
+      const sent = spy.match(/markReadAll/).length
+      spy.off()
+
+      // ① 刷新后仍已读 ⇒ 排除乐观态
+      await page.reload({ waitUntil: 'networkidle', timeout: 30000 }).catch(() => {})
+      await sleep(2200)
+      const afterReload = await page
+        .evaluate((title) => {
+          const rows = Array.from(document.querySelectorAll('.el-table__row'))
+          const hit = rows.find((r) => (r.innerText || '').includes(title))
+          if (!hit) return { found: false, unreadTag: false, text: '' }
+          const t = (hit.innerText || '').replace(/\s+/g, ' ')
+          return { found: true, unreadTag: /未读/.test(t), text: t.slice(0, 90) }
+        }, noticeTitle)
+        .catch(() => ({ found: false, unreadTag: false, text: '' }))
+      record(
+        M,
+        '通知中心: 批量已读在刷新后仍然成立（落库而非内存态）',
+        afterReload.found && !afterReload.unreadTag,
+        `刷新后行文本="${afterReload.text}"`
+      )
+
+      // ② 服务端事实源：listTop 的 isRead 必须为 true
+      try {
+        const token = await getApiToken()
+        const r = await fetch(`${CONFIG.backendUrl}/system/notice/listTop?pageNum=1&pageSize=50`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const j = r.ok ? await r.json().catch(() => null) : null
+        const rows = (j && (j.rows || j.data)) || []
+        const hit = rows.find((x) => String(x.noticeId) === String(createdNoticeId))
+        record(
+          M,
+          '通知中心: 服务端 listTop 标记该公告 isRead=true',
+          !!hit && hit.isRead === true,
+          `命中=${!!hit} isRead=${hit && hit.isRead}`
+        )
+      } catch (e) {
+        record(M, '通知中心: 服务端 listTop 标记该公告 isRead=true', false, `异常 ${String(e).slice(0, 80)}`)
+      }
+      record(M, '通知中心: 批量已读只发一次 markReadAll', sent >= 1 && sent <= 2, `发出 ${sent} 次`)
+
+      // 收尾：删夹具公告（公告是可删业务数据；已读行属用户态，随公告删除失去意义）
+      try {
+        const token = await getApiToken()
+        const del = await fetch(`${CONFIG.backendUrl}/system/notice/${createdNoticeId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        record(M, '通知中心: 夹具公告收尾删除', del.status === 200, `HTTP=${del.status}`)
+      } catch (e) {
+        record(M, '通知中心: 夹具公告收尾删除', false, `异常 ${String(e).slice(0, 80)}`)
+      }
+    }
+  } else if (!createdNoticeId) {
+    recordSkip(M, '通知中心: 批量已读落库证明', '夹具公告未创建成功')
+  }
+
+  /**
+   * 行内「展开当前行 / 收起当前行」的双向闭环判据（87.19 与 87.20 共用，单一事实源）。
+   *
+   * **为什么不能按 aria-label 定位按钮**（首轮实测 4 红的根因）：EP 树表折叠态只**隐藏**不卸载
+   * 子行（菜单页 nodes=244 而 visible=8），展开后新出现的可见行自己带着同名
+   * `aria-label="展开当前行"`——于是第二跳的 `[aria-label="展开当前行"]:visible` 解析到了
+   * **另一个按钮**（实测可见行 9→32、已展开图标 1→2，把兄弟节点也展开了），
+   * 部门页更狠：收起后 `[aria-label="收起当前行"]` 一个都不剩，点击直接 `落地=false`。
+   * 判据必须钉在**同一个 DOM 节点**上：节点在 tbody children 里的下标在展开/收起前后稳定
+   * （不卸载 ⇒ 序位不变），用它取 locator 才能证明"点的就是刚才那一个"。
+   *
+   * @param fromLabel 点击前的 aria-label（决定方向）
+   * @param toLabel   点击后应有的 aria-label
+   */
+  const rowExpandRoundTrip = async (label, pageName) => {
+    const before = await treeState()
+    const idx = await page
+      .evaluate((want) => {
+        const rows = Array.from(document.querySelectorAll('.el-table__body .el-table__row'))
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i].getClientRects().length === 0) continue
+          const btn = rows[i].querySelector('button.el-table__expand-icon')
+          if (btn && btn.getAttribute('aria-label') === want) return i
+        }
+        return -1
+      }, label)
+      .catch(() => -2)
+    // `-1`＝页面正常但没有这样的行（真判据），`-2`/`visible<0`＝**探针自己没跑成**。
+    // 两者必须分开：把"evaluate 失败"记成"按钮不存在"，等于用一条产品红掩盖一次工具裸奔
+    // （同 AGENTS《测试门禁全景》"没跑与跑了且干净必须可区分"）。
+    if (before.visible < 0 || idx === -2) {
+      record(
+        M,
+        `${pageName}: 行内展开/收起判据未能执行（evaluate 失败＝工具自曝，不是按钮缺失）`,
+        false,
+        `treeState=${JSON.stringify(before)} 行定位返回值=${idx}`
+      )
+      return
+    }
+    if (idx < 0) {
+      record(
+        M,
+        `${pageName}: 行内「${label}」按钮存在`,
+        false,
+        `可见行=${before.visible} 节点=${before.nodes} 已展开=${before.expandedIcons}`
+      )
+      return
+    }
+    const icon = page.locator('.el-table__body .el-table__row').nth(idx).locator('button.el-table__expand-icon')
+    const rowText = await icon
+      .evaluate((el) => (el.closest('tr')?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 26))
+      .catch(() => '')
+    const dir = label === '展开当前行' ? 'up' : 'down'
+    // 对立文案必须显式取，**不能用链式 replace**：
+    // `'展开当前行'.replace('展开','收起').replace('收起','展开')` 第二步会把刚换的
+    // "收起"再换回"展开"，期望值恒等于原值 ⇒ 判据对"展开成功"必然红（本批二轮实测踩到）。
+    const other = dir === 'up' ? '收起当前行' : '展开当前行'
+    const spy = netSpy()
+    const exp0 = await icon.getAttribute('aria-expanded').catch(() => '')
+    const clicked1 = await realClick(icon)
+    await sleep(800)
+    const mid = await treeState()
+    const label1 = await icon.getAttribute('aria-label').catch(() => '')
+    const exp1 = await icon.getAttribute('aria-expanded').catch(() => '')
+    record(
+      M,
+      `${pageName}: 行内「${label}」确实${dir === 'up' ? '展开' : '收起'}该子树（第 ${idx} 行）`,
+      !!clicked1 &&
+        label1 === other &&
+        ((dir === 'up' && exp1 === 'true') || (dir === 'down' && exp1 === 'false')) &&
+        (dir === 'up'
+          ? mid.visible > before.visible && mid.expandedIcons === before.expandedIcons + 1
+          : mid.visible < before.visible && mid.expandedIcons === before.expandedIcons - 1),
+      `行="${rowText}" 落地=${clicked1 || 'false'} 可见行 ${before.visible}→${mid.visible} 已展开图标 ${before.expandedIcons}→${mid.expandedIcons} aria-label="${label1}" aria-expanded=${exp0}→${exp1}`
+    )
+    // 反向：同一个节点应换到对立文案，再点一次必须**回到初始态**
+    // （复原的期望值是"初始值"，不是硬编码 'false'——收起方向复原后 aria-expanded 仍是 true）
+    const clicked2 = await realClick(icon)
+    await sleep(800)
+    const after = await treeState()
+    const label2 = await icon.getAttribute('aria-label').catch(() => '')
+    const exp2 = await icon.getAttribute('aria-expanded').catch(() => '')
+    record(
+      M,
+      `${pageName}: 行内「${label1}」回到初始基线（同一节点）`,
+      !!clicked2 &&
+        after.visible === before.visible &&
+        after.expandedIcons === before.expandedIcons &&
+        label2 === label &&
+        exp2 === exp0,
+      `落地=${clicked2 || 'false'} 可见行 ${mid.visible}→${after.visible}（基线 ${before.visible}） 已展开图标 ${mid.expandedIcons}→${after.expandedIcons} aria-label="${label2}" aria-expanded=${exp1}→${exp2}`
+    )
+    // 展开/收起是纯本地态：判据必须是"零写请求"与"可见行数确实变了"**合取**
+    // （单断 0 请求可以是"这个按钮永远点不动"——AGENTS 归一规范第 3 条三侧）
+    const writes = spy.match(/(POST|PUT|DELETE|PATCH) /).filter((u) => !BG_POLL_RE.test(u))
+    spy.off()
+    record(
+      M,
+      `${pageName}: 行内展开/收起不发写请求且确有落地`,
+      writes.length === 0 && !!clicked1 && !!clicked2 && mid.visible !== before.visible,
+      `写请求 ${writes.length} 次${writes.length ? `：${writes[0]}` : ''} 可见行变化 ${before.visible}→${mid.visible}`
+    )
+  }
+
+  // ---------- 87.19 菜单树「展开当前行」行内图标：必须双向可逆 ----------
+  // b79 盲区收口。`action-inventory` 报 `/system/menu` 的**行内**展开动作从未出现在两套件源码里
+  // （244 行的树表只测过工具栏那个「展开/折叠」总开关）。
+  // 该动作是 Element Plus 给树形单元格自动挂的按钮，名字来自 locale：
+  // element-plus/es/components/table/src/config.mjs:143 → `el.table.expandRowLabel`＝「展开当前行」。
+  // 判据实现见 rowExpandRoundTrip（含"为什么不能按 aria-label 定位"的实测取证）。
+  if (await gotoPage(`${CONFIG.frontendUrl}/system/menu`, 2400)) {
+    await assertPageLoaded(page, M, '菜单管理加载（行内展开当前行）')
+    await rowExpandRoundTrip('展开当前行', '菜单')
+  }
+
+  // ---------- 87.20 部门树「收起当前行」行内图标：默认全展开，反向闭环 ----------
+  // `/system/dept` 的 useTreeTableSort 传 `defaultExpand: true`（src/views/system/dept/index.vue:283），
+  // 所以这里的行内图标初始态是「收起当前行」——与 87.19 恰好相反方向，两个方向各有一处真页面才都能测到。
+  if (await gotoPage(`${CONFIG.frontendUrl}/system/dept`, 2200)) {
+    await assertPageLoaded(page, M, '部门管理加载（行内收起当前行）')
+    await rowExpandRoundTrip('收起当前行', '部门')
+  }
+
+  // ---------- 87.21 用户页部门树面板「收起全部 / 展开全部」：整树开关 ----------
+  // 这是 TreePanel 自己的一对动作（src/components/TreePanel/index.vue:21-32，aria-label 取
+  // `treePanel.collapseAll`/`expandAll`＝「收起全部」/「展开全部」，与 EP 表格的行内动作是两套文案）。
+  // 生效链：toggleExpandAll 只翻 expandedAll → watch(expandedAll) 里 nextTick 调 expandAllNodes/collapseAllNodes
+  // （index.vue:291-297、370-405）——若那个 watch 被删，图标照样翻转但树一动不动，所以判据必须数可见节点，
+  // 不能只看 aria-label。
+  if (await gotoPage(`${CONFIG.frontendUrl}/system/user`, 2400)) {
+    await assertPageLoaded(page, M, '用户管理加载（部门树面板整树开关）')
+    /**
+     * 可见树节点数 + 面板是否存在（两件事必须分开报：
+     * "页面没有部门树面板"是产品判据，"探针取不到数"是工具自曝，混在一条红里就分不清了）。
+     */
+    const visNodes = () =>
+      page
+        .evaluate(() => {
+          const side = document.querySelector('.tree-sidebar')
+          if (!side) return { side: false, count: 0 }
+          return {
+            side: true,
+            count: Array.from(side.querySelectorAll('.el-tree-node__content')).filter(
+              (e) => e.getClientRects().length > 0
+            ).length
+          }
+        })
+        .catch(() => null)
+    const toggle = page
+      .locator(
+        '.tree-sidebar .tree-action-icon[aria-label="展开全部"], .tree-sidebar .tree-action-icon[aria-label="收起全部"]'
+      )
+      .first()
+    const tOk = await toggle
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const p0 = await visNodes()
+    if (!p0 || !p0.side) {
+      record(
+        M,
+        p0
+          ? '用户: 页面存在部门树面板（整树开关的宿主）'
+          : '用户: 整树判据未能执行（evaluate 失败＝工具自曝，不是面板缺失）',
+        false,
+        `探针返回=${JSON.stringify(p0)} 开关可见=${tOk}`
+      )
+    } else if (!tOk) {
+      record(M, '用户: 部门树面板整树开关存在', false, `可见树节点=${p0.count}`)
+    } else {
+      const n0 = p0.count
+      const l0 = await toggle.getAttribute('aria-label').catch(() => '')
+      const tClicked1 = await realClick(toggle)
+      await sleep(900)
+      const p1 = await visNodes()
+      const n1 = p1 ? p1.count : -1
+      const l1 = await toggle.getAttribute('aria-label').catch(() => '')
+      // 方向由初始 label 决定：「展开全部」⇒ 节点变多，「收起全部」⇒ 节点变少
+      const dirOk = l0 === '展开全部' ? n1 > n0 : l0 === '收起全部' ? n1 < n0 : false
+      record(
+        M,
+        '用户: 树面板整树开关改变可见节点数并翻转 aria-label',
+        !!tClicked1 && dirOk && !!l1 && l1 !== l0,
+        `初始="${l0}" 落地=${tClicked1 || 'false'} 可见节点 ${n0}→${n1} 点后="${l1}"`
+      )
+      const tClicked2 = await realClick(toggle)
+      await sleep(900)
+      const p2 = await visNodes()
+      const n2 = p2 ? p2.count : -1
+      const l2 = await toggle.getAttribute('aria-label').catch(() => '')
+      record(
+        M,
+        '用户: 再点一次回到初始展开基线',
+        !!tClicked2 && n2 === n0 && l2 === l0,
+        `落地=${tClicked2 || 'false'} 可见节点 ${n1}→${n2}（基线 ${n0}） aria-label="${l2}"`
+      )
+    }
+  }
+
+  // ---------- 87.22 帮助中心「查看全部快捷键」必须真跳到快捷键页 ----------
+  // b79 盲区收口：`/tool/help` 的这个按钮（src/views/tool/help/index.vue:126 `goTo('/tool/shortcuts')`）
+  // 是帮助页唯一的**路由跳转**出口，此前从未被点过。判据用 URL + 目标页加载，而不是"点了没报错"。
+  if (await gotoPage(`${CONFIG.frontendUrl}/tool/help`, 2200)) {
+    await assertPageLoaded(page, M, '帮助中心加载（查看全部快捷键）')
+    const helpClicked = await clickBtn('查看全部快捷键')
+    const jumped = await page
+      .waitForURL(/\/tool\/shortcuts(\?|#|$)/, { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      M,
+      '帮助: 「查看全部快捷键」跳转到快捷键页',
+      !!helpClicked && jumped,
+      `落地=${helpClicked || 'false'} URL=${page.url().replace(CONFIG.frontendUrl, '')}`
+    )
+    if (jumped) await assertPageLoaded(page, M, '快捷键页加载（由帮助页跳入）')
+    else recordSkip(M, '快捷键页二次加载判据', '跳转未发生，无法复检目标页')
+  }
+
+  // ---------- 87.23 批量强退「整体 200 + 逐项结果」契约 ----------
+  // b79 捕获面分析引出的零覆盖接口：`POST /monitor/online/batchLogout`
+  // （`monitor_online_handler.rs:599-606`）刻意设计成 **HTTP 200 + body.code 200 + data.failed[]**，
+  // 所以它对"失败请求(HTTP>=400)"、"body.code 非 200"、"Toast 报错"三个通道**全部隐形**；
+  // 而两套件此前对 `batchLogout` 零引用（`grep -c batchLogout` = 0），M28 那条 UI 用例
+  // 因"在线列表为空，无行可选中"长期 SKIP——判据随数据漂移，不是契约被验过。
+  // 本组改为**自建会话 + API 级对账**：造一个可撤的 stepby 会话、一个不存在的 hash、
+  // 一个应被超管保护拦下的 admin 会话，一次批量提交，逐条判"计数 / 原因码 / 吊销是否真落地"。
+  {
+    const adminTok = await getApiToken()
+    const stepbyTok = await getApiToken(CONFIG.secondaryUsername, CONFIG.secondaryPassword)
+    if (!adminTok || !stepbyTok) {
+      // 登录取不到 token = 产品/环境坏了，必须判红，不得洗成 SKIP
+      record(M, '批量强退: 契约用例前置（双账号 API 登录）', false, `admin=${!!adminTok} stepby=${!!stepbyTok}`)
+    } else {
+      const hdr = (t) => ({ Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' })
+      const getJson = async (path, token) => {
+        const r = await fetch(`${CONFIG.backendUrl}${path}`, { headers: hdr(token) })
+        return { status: r.status, body: await r.json().catch(() => null) }
+      }
+      // 用**本人**的 my-session 面取自己的 tokenHash（`my_session_list` 忽略入参 userName，
+      // 只回调用者自己的会话）——这样"我撤的是哪一条"与"我手里哪张票该失效"天然对齐。
+      // 显式带 pageSize：默认分页 10 条，历史会话多时"我刚建的那条"可能不在第一页，
+      // 那种取法会让判据随库里会话数漂移（同 b72 F8 的数据量耦合教训）。
+      const stepbyMine = await getJson('/monitor/my-session/list?pageNum=1&pageSize=100', stepbyTok)
+      const adminMine = await getJson('/monitor/my-session/list?pageNum=1&pageSize=100', adminTok)
+      const rowsOf = (j) => (j && j.body && (j.body.rows || j.body.data)) || []
+      const newest = (rows) => rows.slice().sort((a, b) => (b.loginTime || 0) - (a.loginTime || 0))[0] || null
+      const stepbySess = newest(rowsOf(stepbyMine))
+      const adminSess = newest(rowsOf(adminMine))
+      const stepbyHash = stepbySess && (stepbySess.tokenHash || stepbySess.tokenId)
+      const adminHash = adminSess && (adminSess.tokenHash || adminSess.tokenId)
+      record(
+        M,
+        '批量强退: 前置取证（两个会话都取自本人 my-session）',
+        !!stepbyHash && !!adminHash,
+        `stepby 会话=${String(stepbyHash).slice(0, 12)}… admin 会话=${String(adminHash).slice(0, 12)}…`
+      )
+      if (!stepbyHash || !adminHash) {
+        record(M, '批量强退: 部分失败契约', false, '⟵ 断言工具异常：my-session 未回任何会话，无法构造批量入参')
+      } else {
+        // 吊销前先确认这张票好用（否则"撤销后 401"可以是"从来就没通过"）
+        const before = await getJson('/getInfo', stepbyTok)
+        const bogus = 'e2e87-not-a-real-session-hash'
+        const resp = await fetch(`${CONFIG.backendUrl}/monitor/online/batchLogout`, {
+          method: 'POST',
+          headers: hdr(adminTok),
+          body: JSON.stringify({ tokenHashes: [stepbyHash, bogus, adminHash] })
+        })
+        const j = await resp.json().catch(() => null)
+        const data = (j && j.data) || {}
+        const failed = Array.isArray(data.failed) ? data.failed : []
+        // 契约一：部分失败**不得**改变整体状态码（批量语义，逐项结果在 body 里）
+        record(
+          M,
+          '批量强退: 部分失败仍返回 HTTP 200 且 body.code=200（契约）',
+          resp.status === 200 && j && j.code === 200,
+          `HTTP=${resp.status} body.code=${j && j.code} successCount=${data.successCount} failed=${failed.length}`
+        )
+        // 契约二：恰好撤掉那一条真会话；超管与不存在的都不得被算进成功
+        record(
+          M,
+          '批量强退: successCount 恰为 1（只撤真会话，超管/不存在均不计成功）',
+          data.successCount === 1 && failed.length === 2,
+          `入参 3 项（真会话 / ${bogus} / 超管会话）⇒ successCount=${data.successCount} failed=${failed.length}`
+        )
+        // 契约三：逐项原因码必须是真实原因（顺序不保证——`buffer_unordered`，故按码值找）
+        const codes = failed.map((f) => f && f.code).sort((a, b) => a - b)
+        const has404 = failed.some((f) => f && f.code === 404)
+        const has403 = failed.some((f) => f && f.code === 403)
+        record(
+          M,
+          '批量强退: 逐项 failed 携真实原因（不存在=404 / 超管保护=403）',
+          has404 && has403,
+          `codes=[${codes.join(',')}] msgs=[${failed.map((f) => String((f && f.msg) || '')).join(' | ')}]`
+        )
+        // 契约四：被撤的会话**确实失效**（不是只返回一个计数）
+        const after = await getJson('/getInfo', stepbyTok)
+        const afterList = await getJson('/monitor/online/list?pageNum=1&pageSize=100', adminTok)
+        const stillOnline = rowsOf(afterList).some((r) => (r.tokenHash || r.tokenId) === stepbyHash)
+        record(
+          M,
+          '批量强退: 被撤会话随后被拒（吊销真落地，非仅回计数）',
+          before.status === 200 && after.status === 401,
+          `撤销前 /getInfo=${before.status}（必须 200，否则对照组不成立）撤销后=${after.status} msg=${(after.body && after.body.msg) || ''}`
+        )
+        // 契约五：幸存项不受影响——超管会话被拒后必须仍然可用（部分失败不得连坐）
+        const adminStill = await getJson('/getInfo', adminTok)
+        record(
+          M,
+          '批量强退: 幸存会话不受影响（超管被拒 403 后票据仍有效）',
+          adminStill.status === 200,
+          `admin /getInfo=${adminStill.status}`
+        )
+        // 契约六：在线列表与吊销态一致（列表不得继续展示已被撤的会话）
+        record(
+          M,
+          '批量强退: 被撤会话从在线列表消失（列表态与吊销态一致）',
+          !stillOnline,
+          `在线列表仍在=${stillOnline}（列表条数=${rowsOf(afterList).length}）`
+        )
+        // 负路径：空列表必须是响亮 400，不得静默成功（`error.monitor.batch_logout_empty`）
+        const empty = await fetch(`${CONFIG.backendUrl}/monitor/online/batchLogout`, {
+          method: 'POST',
+          headers: hdr(adminTok),
+          body: JSON.stringify({ tokenHashes: [] })
+        })
+        const emptyBody = await empty.json().catch(() => null)
+        record(
+          M,
+          '批量强退: 空 token 列表被拒（400 + 可读原因，非静默成功）',
+          empty.status === 400 && !!(emptyBody && emptyBody.msg),
+          `HTTP=${empty.status} msg=${(emptyBody && emptyBody.msg) || ''}`
+        )
+      }
+    }
+  }
+}

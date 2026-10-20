@@ -18607,6 +18607,24 @@ async function main() {
         log(`  ×${n} ${String(t).slice(0, 150)}`)
       }
     }
+    // 批七十九新增捕获面：HTTP 200 但响应体带失败明细的写请求（批量接口"整体成功、局部失败"）。
+    // 主套件此前完全不消费 netFails／这一族，所以必须在此显式枚举，否则部分失败只在
+    // 深测轮可见、主轮全绿。口径与深测一致：枚举 + 逐条对账，不单独判红。
+    const partialRows = captureHub.bizPartials || []
+    if (partialRows.length > 0) {
+      log('------------------------------------------')
+      log(`🧩 部分失败响应（HTTP 200 且 body 带失败明细，共 ${partialRows.length} 条）:`)
+      const aggPart = new Map()
+      for (const p of partialRows) {
+        const k = `${p.method} ${p.url}|${p.kind}|${p.at || 'load'}`
+        const cur = aggPart.get(k)
+        if (cur) cur.n++
+        else aggPart.set(k, { n: 1, sample: p.sample })
+      }
+      for (const [k, v] of [...aggPart].sort((a, b) => b[1].n - a[1].n).slice(0, 12)) {
+        log(`  ×${v.n} ${k} — ${v.sample}`)
+      }
+    }
     if (hubOtherConsoleErrs.length > 0) {
       // b69 轮 3 信噪比治理：hub 镜像是原始流（不含主通道的 EXT_NOISE 过滤），若把扩展
       // CSP / Playwright 阻断 SW 等已知环境噪声与真实错误混排，40 条里挑 1 条真错误靠眼力。
@@ -18641,6 +18659,8 @@ async function main() {
       pageErrors: hubPageErrors,
       suspiciousToasts,
       toastTotal: captureHub.toasts.length,
+      // 批七十九：部分失败（HTTP 200 + body 有失败明细）计数进报告 JSON，供轮间对账
+      bizPartialTotal: (captureHub.bizPartials || []).length,
       hubConsoleErrors: {
         total: hubOtherConsoleErrs.length,
         noise: hubNoiseErrs.length,

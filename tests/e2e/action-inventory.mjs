@@ -70,6 +70,42 @@ const BASELINE_PATH = path.join(__dirname, 'action-inventory-baseline.json')
 // 允许 1 个百分点抖动：同一份代码两次扫描可能因懒加载/弹窗时序差 1-2 个动作
 const COVERAGE_TOLERANCE = 0.01
 
+/**
+ * 棘轮比较式的**唯一**实现（b79）：`--gate` 与 `--update-baseline` 必须走同一段判断。
+ *
+ * 起因：`--update-baseline` 原来**无条件**回写基线文件。在一轮"覆盖率已经掉下来/路由被删减"
+ * 的跑批上执行收紧，就会把基线本身放松——而 `--gate` 下次读的正是这个被放松的值，
+ * "只许升不许降"就静默失效了。任何"失败路径上仍然落盘"的棘轮都是同一个洞
+ * （deep-e2e 的 `--update-skip-baseline` 同批修掉，见 runner.mjs）。
+ *
+ * 返回**放松方向**的问题列表；空数组 = 本轮不比基线差（可以写、gate 该过）。
+ */
+function ratchetRegressions(base, cur) {
+  const bad = []
+  // **取不到数一律算退步**：`base.coverage - undefined` 得 NaN，而 `NaN > tol` 恒 false ⇒
+  // 不加这条守卫，"扫描器自己没产出"会被读成"没有退步"，收紧入口就变成静默放行通道
+  // （与 collect-warnings 的"判据断电"同口径；b79 由本文件自检当场抓出）。
+  if ([cur.routes, cur.coverage, base.routes, base.coverage].some((v) => typeof v !== 'number')) {
+    bad.push(
+      `基线或本轮取到非数值（本轮 routes=${cur.routes} coverage=${cur.coverage} / ` +
+        `基线 routes=${base.routes} coverage=${base.coverage}）——判据断电，不得据此收紧`
+    )
+    return bad
+  }
+  if (cur.routes < base.routes) {
+    bad.push(`路由数 ${cur.routes} < 基线 ${base.routes}（清单被删减？）`)
+  }
+  const drop = base.coverage - cur.coverage
+  if (drop > COVERAGE_TOLERANCE) {
+    bad.push(
+      `覆盖率 ${(cur.coverage * 100).toFixed(1)}% < 基线 ${(base.coverage * 100).toFixed(1)}%` +
+        `（-${(drop * 100).toFixed(1)}pp，容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp）` +
+        `——新增了页面动作却没补用例，或旧用例被删`
+    )
+  }
+  return bad
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = (m) => console.log(`[inventory] ${m}`)
 
@@ -131,15 +167,19 @@ async function login(page) {
  * 用 aria-label 兜底图标按钮（行内操作多为图标-only，纯文本取不到）。
  */
 async function collectActions(page) {
-  return page.evaluate(() => {
+  const got = await page.evaluate(() => {
     const norm = (s) => (s || '').replace(/\s+/g, ' ').trim()
     const label = (el) => {
       const aria = el.getAttribute('aria-label')
       if (aria && norm(aria)) return norm(aria)
       const title = el.getAttribute('title')
       if (title && norm(title)) return norm(title)
-      const text = norm(el.innerText)
-      if (text) return text.slice(0, 24)
+      // **原样返回** innerText（保留换行）：按钮里的计数徽章是独立元素，innerText 会把它
+      // 挤成独占一行的纯数字（b78 实测 /workbench/index 的「我的通知」按钮 = "我的通知\n6"）。
+      // 换行是"这是另一个元素"的结构证据，在这里折叠掉就没法区分徽章与文案里的数字了
+      // ⇒ 交回 Node 侧按行剔除（normalizeActionName）。
+      const text = (el.innerText || '').trim()
+      if (text) return text.slice(0, 40)
       const icon = el.querySelector('i[class*="icon"], svg, [class*="el-icon"]')
       return icon ? '<icon-only>' : ''
     }
@@ -183,13 +223,20 @@ async function collectActions(page) {
       const nm = el.getAttribute('name') || ''
       const aria = el.getAttribute('aria-label') || ''
       const t = norm(ph || aria || nm)
-      if (t) controls.push({ name: t, tag: el.tagName.toLowerCase() })
+      // element-plus 给未显式命名的控件自动生成 `el-id-3177-122` 当 aria-label，
+      // 它既不是文案也不可定位，进清单只会污染报告可读性（b78 报告里 /dashboard 的
+      // 「常驻控件」三项全是 el-id-7817-49，就是这个形态）
+      if (t && !/^el-id-\d+-\d+$/.test(t)) controls.push({ name: t, tag: el.tagName.toLowerCase() })
     }
 
     const emptyText = [...root.querySelectorAll('.el-table__empty-text')].map((e) => norm(e.innerText))[0] || ''
     const rowCount = root.querySelectorAll('.el-table__body .el-table__row').length
     return { toolbar, rowActions, columns, controls, emptyText, rowCount, sortableColumns }
   })
+  // 归一在 Node 侧统一做（见 normalizeActionName）：DOM 文案带着计数徽章与装饰符，原样进清单
+  // 会把同一个控件拆成好几条"动作"，并把已经测过的记成盲区。
+  const clean = (list) => (list || []).map((b) => ({ ...b, name: normalizeActionName(b.name) || b.name }))
+  return { ...got, toolbar: clean(got.toolbar), rowActions: clean(got.rowActions) }
 }
 
 /** 去重（同名按钮只留一条，disabled 取"有任一可用即可用"） */
@@ -203,8 +250,147 @@ function dedupe(list) {
   return [...m.values()]
 }
 
+/**
+ * 动作名归一（R-30a）：DOM 上的按钮文案带着**运行时状态与装饰**，拿原样去源码里找字面串，
+ * 会把"其实已经测过"记成盲区——b78 首轮 15 组盲区里 7 组属于这一类：
+ *   · `我的通知\n6` —— 计数徽章是按钮里的独立元素，innerText 把它挤成独占一行的纯数字；
+ *   · `批量已读 (0)`、`导出Excel【2026】` —— 写在文案里的动态计数/标记（notice-center 的模板
+ *     就是 `批量已读 ({{n}})`，b78 已补该用例却仍被判盲区）；
+ *   · `展开/收起`、`收起/展开侧边栏` —— 产品文案由两个 t() 拼成一个按钮的**并列字面**
+ *     （dept 页 `{{ t('common.expand') }}/{{ t('common.collapse') }}`），保持整串不拆词；
+ *   · `收起全部` / `展开全部` —— 同一个切换按钮的两个状态文案（aria-label 随状态变），
+ *     点过任一状态就等于点过这个控件。
+ * 归一**刻意保守**：只做上述四类，不做"拆词后任一命中"——那会把 `展开/收起` 洗成源码里
+ * 任何一处「展开」都算覆盖，属于放松判据（比缺检查更糟）。
+ */
+const STATE_PAIRS = [
+  ['展开', '收起'],
+  ['折叠', '展开'],
+  ['显示', '隐藏'],
+  ['启用', '禁用'],
+  ['开始', '停止'],
+  ['打开', '关闭']
+]
+
+/** 剥掉动态计数与装饰符，得到按钮的"身份文案" */
+function normalizeActionName(raw) {
+  // ① 按行剔除计数徽章：独占一行且全是数字 ⇒ 它是另一个元素（计数），不是文案。
+  //    只认整行纯数字，因此「清空 30 天」这类同一行内的数字不会被吞掉。
+  const kept = (raw || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^\d+$/.test(l))
+  let n = kept.join(' ').replace(/\s+/g, ' ').trim()
+  // ② 文案里内插的计数：`批量已读 (0)`（b78 实测 notice-center 模板就写成 `批量已读 ({{n}})`）
+  n = n.replace(/\s*[（(]\s*\d+\s*[)）]\s*$/, '')
+  // ③ 装饰箭头
+  n = n.replace(/\s*[→›»↑↓⇅]+\s*$/, '')
+  return n.trim()
+}
+
+/** 一个动作名的所有等价写法（同一控件的不同状态/拼接形态） */
+function coverageKeys(raw) {
+  const base = normalizeActionName(raw)
+  if (!base || base === '<icon-only>') return []
+  const keys = new Set()
+  const add = (s) => {
+    const v = (s || '').replace(/\s+/g, ' ').trim()
+    if (v && v !== '<icon-only>') keys.add(v)
+  }
+  add(base)
+  // 文案中间的内插计数与【】标记：`批量已读 (0)` 的兄弟形态 `选中 (2) 项`
+  const noParen = base
+    .replace(/\s*[（(]\s*\d+\s*[)）]/g, ' ')
+    .replace(/[【[][^】\]]*[】\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  add(noParen)
+  // 状态成对互换（`收起全部` ⇄ `展开全部`、`收起当前行` ⇄ `展开当前行`）
+  for (const src of [...keys]) {
+    for (const [a, b] of STATE_PAIRS) {
+      if (src.startsWith(a)) add(b + src.slice(a.length))
+      if (src.startsWith(b)) add(a + src.slice(b.length))
+    }
+  }
+  return [...keys]
+}
+
+/**
+ * 覆盖判据工厂：便于 --selftest 用合成源码文本驱动（不启浏览器）。
+ * 斜杠并列（dept 页按钮字面就是「展开/收起」，源码 `{{t('expand')}}/{{t('collapse')}}`）
+ * **保持整串**：拆成裸「展开」会让源码里任何一处该词都算覆盖，那是放松判据。
+ * 要让它变绿，正确做法是用例里写整串（`getByText('展开/收起')`），不是把判据改宽。
+ */
+function makeCoveredChecker(sources) {
+  const has = (k) => sources.includes(k)
+  return (name) => coverageKeys(name).some(has)
+}
+
+/**
+ * 判据自检（双向）：既证明归一真的消除了假盲区，也证明它没把没测过的洗成测过。
+ * 只跑正向的自检，等于允许"恒真判据"混进门禁——所以反例与正例同等重要。
+ */
+function runSelftest() {
+  const cases = [
+    // [说明, 合成源码文本, 动作名, 期望是否覆盖]
+    ['文案内插的计数不得产生假盲区', '点击批量已读按钮', '批量已读 (0)', true],
+    ['独占一行的徽章数字不得产生假盲区', '断言「我的通知」入口', '我的通知\n6', true],
+    ['装饰箭头不得产生假盲区', '点「查看全部快捷键」', '查看全部快捷键 →', true],
+    ['状态成对：测过展开即覆盖收起', 'await click("展开全部")', '收起全部', true],
+    ['状态成对：测过收起即覆盖展开', '点「收起当前行」', '展开当前行', true],
+    ['同一行内的数字属于文案，必须原样保留', '点击「清空 30 天」按钮', '清空 30 天', true],
+    // 反例：归一不得放松判据
+    ['斜杠并列必须整串命中，不得拆成裸词', '展开树节点', '展开/收起', false],
+    ['状态互换必须同后缀，不得只换动词', '展开当前行', '收起全部', false],
+    ['无关动作不得被状态互换误配', '展开全部', '删除全部', false],
+    ['不同数字文案不得互相顶替', '清空 30 天', '清空 3 天', false],
+    ['图标-only 占位名永远不算覆盖', '点击批量已读', '<icon-only>', false],
+    ['空名不得算覆盖', '批量已读', '', false]
+  ]
+  let bad = 0
+  for (const [desc, src, name, want] of cases) {
+    const got = makeCoveredChecker(src)(name)
+    const ok = got === want
+    if (!ok) bad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：动作「${name}」期望 covered=${want}，实际 ${got}`
+    )
+  }
+  if (bad) {
+    console.error(`❌ 自检失败 ${bad}/${cases.length} 条——覆盖判据不可信，本次跑批不作数`)
+    process.exit(1)
+  }
+  // 第二族：覆盖率棘轮的比较式。`--gate` 与 `--update-baseline` 共用 ratchetRegressions，
+  // 所以这条自检同时钉住两件事：**放松方向必须报**（否则基线会被越写越松），
+  // **容差内/进步方向不得报**（否则会把正常抖动判成红、逼人放宽）。
+  const rCases = [
+    ['覆盖率下降 2pp 必须报退步', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 0.98 }, true],
+    ['覆盖率下降在 1pp 容差内不得报', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 0.995 }, false],
+    ['路由数减少必须报（哪怕覆盖率没变）', { routes: 56, coverage: 1.0 }, { routes: 55, coverage: 1.0 }, true],
+    ['覆盖率上升不得报', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 1.0 }, false],
+    ['取不到数不得放行（判据断电＝退步）', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: undefined }, true]
+  ]
+  let rBad = 0
+  for (const [desc, base, cur, want] of rCases) {
+    const got = ratchetRegressions(base, cur).length > 0
+    const ok = got === want
+    if (!ok) rBad++
+    console.log(`  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：期望报退步=${want}，实际 ${got}`)
+  }
+  if (rBad) {
+    console.error(`❌ 棘轮比较式自检失败 ${rBad}/${rCases.length} 条——收紧入口不可信，禁用 --update-baseline`)
+    process.exit(1)
+  }
+  console.log(
+    `SYNTH_OK 动作名归一自检通过（${cases.length} 条双向判据：6 条必须覆盖 / 6 条必须不覆盖）` +
+      ` + 棘轮比较式 ${rCases.length} 条双向`
+  )
+  process.exit(0)
+}
+
 function main() {
   const sources = loadSuiteSources()
+  const mark = makeCoveredChecker(sources)
   const routes = onlyRoute ? ROUTES.filter((r) => r === onlyRoute) : ROUTES
   if (routes.length === 0) {
     console.error(`❌ --route=${onlyRoute} 不在 route-list.mjs 的 ${ROUTES.length} 条清单里`)
@@ -276,7 +462,6 @@ function main() {
       const iframeCount = await page.$$eval('iframe', (els) => els.length).catch(() => 0)
       got = merged
 
-      const mark = (name) => (name && name !== '<icon-only>' ? sources.includes(name) : false)
       const toolbar = dedupe(got.toolbar).map((b) => ({ ...b, covered: mark(b.name) }))
       const rowActions = dedupe(got.rowActions).map((b) => ({ ...b, covered: mark(b.name) }))
 
@@ -395,7 +580,17 @@ function main() {
     // ===== 覆盖率棘轮 =====
     // 单路由扫描不参与棘轮（分母不是全站，比较没有意义）
     if (onlyRoute) return
+    const cur = { routes: report.routes, coverage: report.coverage }
+    const base = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) : null
     if (UPDATE_BASELINE) {
+      // 先比后写：放松方向一律拒绝，基线文件保持原样
+      if (base) {
+        const bad = ratchetRegressions(base, cur)
+        if (bad.length) {
+          console.error(`❌ 拒绝放松棘轮：--update-baseline 只收紧不放宽，基线**未改动**\n  · ${bad.join('\n  · ')}`)
+          process.exit(1)
+        }
+      }
       fs.writeFileSync(
         BASELINE_PATH,
         JSON.stringify(
@@ -405,6 +600,10 @@ function main() {
             totalActions,
             totalCovered,
             coverage: report.coverage,
+            // **逐页明细**（b79，N-10 的前置）：基线此前只存聚合数，于是"分母从 405 变成 404"
+            // 这类事件无法归因到某个页面——聚合相等/不等的两种情况都看不出是谁变的。
+            // 明细进基线之后，`--gate` 每轮直接打逐页增减，定位只需一次跑批。
+            perRoute: Object.fromEntries(pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount }])),
             note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少'
           },
           null,
@@ -415,32 +614,52 @@ function main() {
       return
     }
     if (!GATE) return
-    if (!fs.existsSync(BASELINE_PATH)) {
+    if (!base) {
       console.error(`❌ 覆盖率棘轮基线缺失：${BASELINE_PATH}（用 --update-baseline 生成）`)
       process.exit(1)
     }
-    const base = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'))
-    const drop = base.coverage - report.coverage
-    const routeDrop = base.routes - report.routes
-    if (routeDrop > 0) {
-      console.error(`❌ 路由数减少：${report.routes} < 基线 ${base.routes}（清单被删减？）`)
-      process.exit(1)
-    }
-    if (drop > COVERAGE_TOLERANCE) {
-      console.error(
-        `❌ 覆盖率下降：${(report.coverage * 100).toFixed(1)}% < 基线 ${(base.coverage * 100).toFixed(1)}%` +
-          `（-${(drop * 100).toFixed(1)}pp）——新增了页面动作却没补用例，或旧用例被删`
-      )
+    const bad = ratchetRegressions(base, cur)
+    if (bad.length) {
+      console.error(`❌ 覆盖率棘轮回退：\n  · ${bad.join('\n  · ')}`)
       process.exit(1)
     }
     log(
       `✅ 覆盖率棘轮通过：${(report.coverage * 100).toFixed(1)}% ≥ 基线 ` +
         `${(base.coverage * 100).toFixed(1)}%（容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp）`
     )
+    // 逐页对账（信息项，不判红）：聚合数相等不代表同一份数据——一页少一个动作、另一页多一个
+    // 动作，聚合完全不动。b79 的 N-10（405→404 无法归因）就是因为缺这一段。
+    if (base.perRoute) {
+      const curMap = Object.fromEntries(pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount }]))
+      const paths = [...new Set([...Object.keys(base.perRoute), ...Object.keys(curMap)])].sort()
+      const deltas = []
+      for (const p of paths) {
+        const b = base.perRoute[p]
+        const c = curMap[p]
+        if (!b) deltas.push(`新增页面 ${p}：动作 ${c.a} / 覆盖 ${c.c}`)
+        else if (!c) deltas.push(`页面消失 ${p}：基线动作 ${b.a} / 覆盖 ${b.c}`)
+        else if (b.a !== c.a || b.c !== c.c) deltas.push(`${p}：动作 ${b.a}→${c.a}，覆盖 ${b.c}→${c.c}`)
+      }
+      if (deltas.length) {
+        log(`ℹ 逐页明细与基线有 ${deltas.length} 处差异（聚合可能相等，差异在页面之间）：`)
+        for (const d of deltas.slice(0, 30)) log(`    · ${d}`)
+        if (deltas.length > 30) log(`    · （其余 ${deltas.length - 30} 处省略）`)
+      } else {
+        log('✅ 逐页明细与基线完全一致')
+      }
+    } else {
+      log('ℹ 现存基线没有逐页明细（旧格式）——本轮起由 --update-baseline 写入 perRoute')
+    }
   })().catch((e) => {
     console.error(`❌ 扫描失败: ${e.message}`)
     process.exit(1)
   })
 }
 
-main()
+// 判据自检不启浏览器：证明"归一消除了假盲区"，也证明"没把没测过的洗成测过"。
+// 与项目里其余扫描器同纪律——判据自身的缺陷比缺检查更危险，所以双向用例必须常驻可跑。
+if (process.argv.includes('--selftest')) {
+  runSelftest()
+} else {
+  main()
+}

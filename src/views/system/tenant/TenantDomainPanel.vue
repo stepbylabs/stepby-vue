@@ -3,13 +3,7 @@
 
   <el-row :gutter="10" class="mb8">
     <el-col :span="1.5">
-      <el-button
-        v-hasPermi="['system:tenant:domain:add']"
-        type="primary"
-        plain
-        icon="Plus"
-        @click="openAdd"
-      >
+      <el-button v-hasPermi="['system:tenant:domain:add']" type="primary" plain icon="Plus" @click="openAdd">
         {{ t('tenantDomain.add') }}
       </el-button>
     </el-col>
@@ -19,12 +13,7 @@
   </el-row>
 
   <el-table v-loading="loading" :data="rows">
-    <el-table-column
-      :label="t('tenantDomain.domain')"
-      prop="domain"
-      min-width="220"
-      show-overflow-tooltip
-    >
+    <el-table-column :label="t('tenantDomain.domain')" prop="domain" min-width="220" show-overflow-tooltip>
       <template #default="{ row }">
         <span>{{ row.domain }}</span>
         <el-tag v-if="row.isPrimary === '0'" type="success" size="small" class="ml-1">
@@ -49,30 +38,16 @@
     </el-table-column>
     <el-table-column :label="t('common.status')" width="90" align="center">
       <template #default="{ row }">
-        <el-switch
-          v-model="row.status"
-          active-value="0"
-          inactive-value="1"
-          @change="handleStatusChange(row)"
-        />
+        <el-switch v-model="row.status" active-value="0" inactive-value="1" @change="handleStatusChange(row)" />
       </template>
     </el-table-column>
     <el-table-column :label="t('tenantDomain.verifiedAt')" width="170" align="center">
       <template #default="{ row }">{{ formatTime(row.verifiedAt) }}</template>
     </el-table-column>
-    <el-table-column
-      :label="t('common.column.createTime')"
-      width="170"
-      align="center"
-    >
+    <el-table-column :label="t('common.column.createTime')" width="170" align="center">
       <template #default="{ row }">{{ formatTime(row.createTime) }}</template>
     </el-table-column>
-    <el-table-column
-      :label="t('common.column.operation')"
-      width="220"
-      align="center"
-      fixed="right"
-    >
+    <el-table-column :label="t('common.column.operation')" width="220" align="center" fixed="right">
       <template #default="{ row }">
         <el-button
           v-if="row.domainType === '1' && row.verifyStatus !== '1'"
@@ -109,7 +84,8 @@
   <el-empty v-if="!loading && rows.length === 0" :description="t('tenantDomain.empty')" />
 
   <!-- 新增域名绑定 -->
-  <el-dialog :close-on-click-modal="false"
+  <el-dialog
+    :close-on-click-modal="false"
     v-model="addVisible"
     :title="t('tenantDomain.addTitle')"
     width="560px"
@@ -128,7 +104,9 @@
         <el-input
           v-model.trim="addForm.domain"
           :placeholder="t('tenantDomain.domainPlaceholder')"
-          maxlength="128" :aria-label="t('tenantDomain.domainPlaceholder')" />
+          maxlength="128"
+          :aria-label="t('tenantDomain.domainPlaceholder')"
+        />
       </el-form-item>
       <el-form-item :label="t('tenantDomain.domainType')" prop="domainType">
         <el-radio-group v-model="addForm.domainType">
@@ -151,12 +129,7 @@
   </el-dialog>
 
   <!-- DNS TXT 验证结果 -->
-  <el-dialog
-    v-model="verifyVisible"
-    :title="t('tenantDomain.verifyTitle')"
-    width="600px"
-    append-to-body
-  >
+  <el-dialog v-model="verifyVisible" :title="t('tenantDomain.verifyTitle')" width="600px" append-to-body>
     <el-result
       :icon="verifyResult?.verified ? 'success' : 'warning'"
       :title="verifyResult?.verified ? t('tenantDomain.verifyOk') : t('tenantDomain.verifyFail')"
@@ -170,13 +143,7 @@
             {{ verifyResult?.txtValue || '-' }}
           </el-descriptions-item>
         </el-descriptions>
-        <el-button
-          v-if="!verifyResult?.verified"
-          type="primary"
-          plain
-          icon="CopyDocument"
-          @click="copyTxtValue"
-        >
+        <el-button v-if="!verifyResult?.verified" type="primary" plain icon="CopyDocument" @click="copyTxtValue">
           {{ t('tenantDomain.copy') }}
         </el-button>
       </template>
@@ -200,13 +167,10 @@ import {
   changeTenantDomainStatus,
   delTenantDomain
 } from '@/api/system/tenantDomain'
-import type {
-  TenantDomainVo,
-  TenantDomainAddDto,
-  TenantDomainVerifyVo
-} from '@/api/system/tenantDomain'
+import type { TenantDomainVo, TenantDomainAddDto, TenantDomainVerifyVo } from '@/api/system/tenantDomain'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
 /**
@@ -310,7 +274,7 @@ function openAdd() {
 }
 
 async function saveAdd() {
-  await addFormRef.value?.validate()
+  if (!(await validateForm(addFormRef.value))) return
   const tid = effectiveTenantId.value
   if (tid == null) return
   saving.value = true

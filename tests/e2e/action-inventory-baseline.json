@@ -1,8 +1,234 @@
 {
-  "generatedAt": "2026-10-19T16:05:01.038Z",
+  "generatedAt": "2026-10-20T01:30:04.527Z",
   "routes": 56,
-  "totalActions": 405,
-  "totalCovered": 384,
-  "coverage": 0.948,
+  "totalActions": 404,
+  "totalCovered": 404,
+  "coverage": 1,
+  "perRoute": {
+    "/index": {
+      "a": 2,
+      "c": 2
+    },
+    "/dashboard": {
+      "a": 3,
+      "c": 3
+    },
+    "/workbench/index": {
+      "a": 4,
+      "c": 4
+    },
+    "/system/user": {
+      "a": 20,
+      "c": 20
+    },
+    "/system/role": {
+      "a": 16,
+      "c": 16
+    },
+    "/system/dept": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/menu": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/post": {
+      "a": 12,
+      "c": 12
+    },
+    "/system/dict": {
+      "a": 13,
+      "c": 13
+    },
+    "/system/dict-data/index/1": {
+      "a": 13,
+      "c": 13
+    },
+    "/system/config": {
+      "a": 12,
+      "c": 12
+    },
+    "/system/notice": {
+      "a": 13,
+      "c": 13
+    },
+    "/system/notice-center": {
+      "a": 7,
+      "c": 7
+    },
+    "/system/file": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/log/operlog": {
+      "a": 15,
+      "c": 15
+    },
+    "/system/msg/channel": {
+      "a": 12,
+      "c": 12
+    },
+    "/system/msg/template": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/msg/log": {
+      "a": 10,
+      "c": 10
+    },
+    "/system/oauth/provider": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/oauth/client": {
+      "a": 7,
+      "c": 7
+    },
+    "/system/report/index": {
+      "a": 8,
+      "c": 8
+    },
+    "/system/report/sub": {
+      "a": 7,
+      "c": 7
+    },
+    "/system/webHook/index": {
+      "a": 11,
+      "c": 11
+    },
+    "/system/webHook/log": {
+      "a": 9,
+      "c": 9
+    },
+    "/monitor/online": {
+      "a": 8,
+      "c": 8
+    },
+    "/monitor/job": {
+      "a": 15,
+      "c": 15
+    },
+    "/monitor/cache": {
+      "a": 4,
+      "c": 4
+    },
+    "/monitor/audit-dashboard": {
+      "a": 1,
+      "c": 1
+    },
+    "/monitor/ip-location": {
+      "a": 5,
+      "c": 5
+    },
+    "/monitor/health": {
+      "a": 1,
+      "c": 1
+    },
+    "/monitor/logininfor": {
+      "a": 12,
+      "c": 12
+    },
+    "/monitor/logtail": {
+      "a": 2,
+      "c": 2
+    },
+    "/monitor/observability": {
+      "a": 7,
+      "c": 7
+    },
+    "/monitor/rateLimit": {
+      "a": 12,
+      "c": 12
+    },
+    "/monitor/backup": {
+      "a": 12,
+      "c": 12
+    },
+    "/monitor/task": {
+      "a": 6,
+      "c": 6
+    },
+    "/monitor/frontendError": {
+      "a": 9,
+      "c": 9
+    },
+    "/tool/pat": {
+      "a": 4,
+      "c": 4
+    },
+    "/monitor/server": {
+      "a": 1,
+      "c": 1
+    },
+    "/system/flow/todo": {
+      "a": 2,
+      "c": 2
+    },
+    "/tool/build": {
+      "a": 5,
+      "c": 5
+    },
+    "/tool/gen": {
+      "a": 16,
+      "c": 16
+    },
+    "/tool/swagger": {
+      "a": 0,
+      "c": 0
+    },
+    "/tool/http-debugger": {
+      "a": 3,
+      "c": 3
+    },
+    "/tool/shortcuts": {
+      "a": 0,
+      "c": 0
+    },
+    "/tool/help": {
+      "a": 1,
+      "c": 1
+    },
+    "/tool/changelog": {
+      "a": 0,
+      "c": 0
+    },
+    "/tool/about": {
+      "a": 4,
+      "c": 4
+    },
+    "/user/profile/index": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/msgPref": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/oauth": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/pat": {
+      "a": 4,
+      "c": 4
+    },
+    "/user/profile/resetPwd": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/totp": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/userAvatar": {
+      "a": 3,
+      "c": 3
+    },
+    "/user/profile/userInfo": {
+      "a": 3,
+      "c": 3
+    }
+  },
   "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少"
 }

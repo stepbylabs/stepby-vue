@@ -17,11 +17,12 @@
   <div class="editor" :style="editorCssVars">
     <quill-editor
       ref="quillEditorRef"
-      v-model:content="modelValue"
+      :content="modelValue"
       contentType="html"
       :options="options"
       :style="styles"
       @ready="handleQuillReady"
+      @text-change="handleEditorTextChange"
     />
   </div>
 </template>
@@ -265,6 +266,40 @@ watch(
 // 如果设置了上传地址则自定义图片上传事件；同时（无条件）注入可访问名称
 // 使用 @ready 事件确保 Quill 编辑器完全初始化后再注册图片上传处理器
 // 修复 "The quill editor hasn't been instantiated yet" 错误
+
+/**
+ * 内容只在**用户真正操作过之后**回写 v-model。
+ *
+ * Quill 初始化时会把已有内容重新解析并规范化（纯文本 `新版本内容` → `<p>新版本内容</p>`），
+ * 并据此触发一次 text-change。照原样用 `v-model:content` 时这一笔规范化会把 HTML 写进表单，
+ * 于是「打开编辑、一个字没改、点关闭」被未保存守卫（UX-5）判成脏表单而无故弹确认框。
+ *
+ * 为什么不能用 `source === 'user'` 区分：Quill 的编辑区是 contenteditable，程序写 innerHTML
+ * 会被它自己的 MutationObserver 当成用户改动——**实测**（dev 模式打印 source，
+ * 打开「修改公告」零输入那一笔 text-change 的 source 就是 `user`），所以 source 在这个场景里没有信息量。
+ * 可靠的事实是"用户操作过没有"：初始化阶段编辑区不会收到任何键盘/鼠标/粘贴事件，
+ * 用户要改内容或格式必先落到编辑区或工具栏 ⇒ 用一次性 `armed` 标记把这些事件作为开关。
+ *
+ * 图片走 Quill API（`insertEmbed` / `format('image')`）既不产生这些事件也不该被吞，
+ * 由各自调用点显式同步（见 `handleUploadSuccess` 与 toolbar 的 image handler）。
+ */
+let userArmed = false
+/** 用户在编辑区/工具栏上落下过操作 ⇒ 之后的内容变更必须回写（一次性，不回退） */
+const armUserEdits = () => {
+  userArmed = true
+}
+/** 判定"用户参与过"的事件集：程序灌内容时一个都不会触发 */
+const USER_ARM_EVENTS: readonly string[] = ['keydown', 'mousedown', 'touchstart', 'paste', 'input', 'compositionstart']
+
+function syncContentFromEditor(): void {
+  const html = quillEditorRef.value?.getHTML()
+  if (typeof html === 'string') modelValue.value = html
+}
+
+function handleEditorTextChange(): void {
+  if (userArmed) syncContentFromEditor()
+}
+
 function handleQuillReady() {
   // U4：先拿实例 + 注入可访问名称 —— 这两步与"是否自定义图片上传"无关，
   // 必须在任何 early-return 之前完成（否则 type!=='url' 时编辑器会缺少可访问名称）。
@@ -281,10 +316,17 @@ function handleQuillReady() {
   }
   applyEditorA11y()
 
-  // 仅 url 上传模式才注册自定义图片上传处理器
-  if (type !== 'url') return
   // P3-4：捕获局部变量避免闭包内 quillInstance 被 onBeforeUnmount 置 null 后触发空指针
   const inst = quillInstance
+  // 用户操作开关（判据与理由见 handleEditorTextChange 上方注释）：
+  // 编辑区自身 + 工具栏（只改格式不改文本的操作也必须算"用户参与过"，否则会静默丢格式）
+  USER_ARM_EVENTS.forEach((ev) => inst.root.addEventListener(ev, armUserEdits, true))
+  // Quill 的 getModule 返回 unknown，这里只取工具栏容器（随组件 DOM 一起销毁，无需显式摘除）
+  const toolbarEl = (inst.getModule('toolbar') as { container?: HTMLElement } | null)?.container
+  toolbarEl?.addEventListener('mousedown', armUserEdits, true)
+
+  // 仅 url 上传模式才注册自定义图片上传处理器
+  if (type !== 'url') return
   const toolbar = inst.getModule('toolbar') as {
     addHandler: (name: string, handler: (value: boolean) => void) => void
   }
@@ -293,15 +335,20 @@ function handleQuillReady() {
       uploadRef.value?.click()
     } else {
       inst.format('image', false)
+      // 删除图片走的是 Quill API（source='api'），text-change 过滤不到 ⇒ 必须显式回写，
+      // 否则"删掉了图却不算脏"，关闭时守卫不弹、修改被静默丢弃。
+      syncContentFromEditor()
     }
   })
   inst.root.addEventListener('paste', handlePasteCapture, true)
 }
 
 onBeforeUnmount(() => {
-  if (quillInstance) {
-    quillInstance.root.removeEventListener('paste', handlePasteCapture, true)
-    quillInstance.enable(false)
+  const inst = quillInstance
+  if (inst) {
+    inst.root.removeEventListener('paste', handlePasteCapture, true)
+    USER_ARM_EVENTS.forEach((ev) => inst.root.removeEventListener(ev, armUserEdits, true))
+    inst.enable(false)
     quillInstance = null
   }
 })
@@ -347,6 +394,8 @@ function handleUploadSuccess(res: UploadFileResult, _file: File) {
     quill.insertEmbed(length, 'image', import.meta.env.VITE_APP_BASE_API + res.fileName)
     // 调整光标到最后
     quill.setSelection(length + 1)
+    // insertEmbed 默认 source='api'，用户看不见这笔变更 ⇒ 显式回写，保证插图后关闭有守卫
+    syncContentFromEditor()
   } else {
     modal.msgError(t('editor.imageInsertFailed'))
   }

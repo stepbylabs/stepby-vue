@@ -62,6 +62,62 @@ const SLOW_REQUEST_MS = 3000
 const EVIDENCE_LIMIT = 3
 /** 单模块失败请求样本上限（汇总对账需要全量，见 netFails 注入处注释） */
 const NET_FAIL_LIMIT = 200
+/** 部分失败通道的读体上限：只读 JSON 且不超过该长度（成功请求一律读体会拖慢全量跑批） */
+const PARTIAL_BODY_MAX = 20000
+/** 部分失败通道只认写请求——读接口（列表/轮询）本就允许"部分数据缺失"，混进来全是噪声 */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH'])
+
+/**
+ * 「HTTP 200 但响应体里写着失败」判据（批七十九新增捕获面）。
+ *
+ * 为什么现有通道看不见这一族：`netFails` 只在 `status >= 400` 时读体（性能决定，注释就写在
+ * 注入处）。而本仓后端**批量操作**是刻意设计成"整体 200 + 逐项结果"的，例如
+ * `POST /monitor/online/batchLogout` 返回 `{code:200, data:{successCount, failed:[{code,msg,…}]}}`
+ * （`stepby-axum/src/handler/monitor_online_handler.rs:599-606`）——一条会话撤不掉时，
+ * HTTP 层、`body.code` 层、Toast 层全都可能是绿的，只有 `data.failed` 里有真相。
+ *
+ * 判据刻意做窄（宁少不噪）：写请求 + HTTP < 400 + `body.code === 200` + 明细字段非空。
+ * 返回 `null` 表示"不是部分失败"，调用方不得据此判红——本通道是**枚举 + 逐条对账**，
+ * 与 netFails 同一口径（负路径用例本来就会故意制造部分失败）。
+ *
+ * @returns {{kind: string, failedCount: number, sample: string} | null}
+ */
+export function detectPartialFailure(method, status, contentType, text) {
+  if (!WRITE_METHODS.has(String(method || '').toUpperCase())) return null
+  if (!(status >= 200 && status < 400)) return null
+  if (!/json/i.test(String(contentType || ''))) return null
+  if (!text || text.length > PARTIAL_BODY_MAX) return null
+  let body
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!body || typeof body !== 'object' || body.code !== 200) return null
+  const data = body.data
+  if (!data || typeof data !== 'object') return null
+  const pick = (arr) =>
+    `部分失败 ${arr.length} 项：${arr
+      .slice(0, 2)
+      .map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x)).slice(0, 120))
+      .join(' ; ')}`
+  if (Array.isArray(data.failed) && data.failed.length > 0) {
+    return { kind: 'failed[]', failedCount: data.failed.length, sample: pick(data.failed) }
+  }
+  if (Array.isArray(data.errors) && data.errors.length > 0) {
+    return { kind: 'errors[]', failedCount: data.errors.length, sample: pick(data.errors) }
+  }
+  // `successCount` + `failCount` 形态（没有明细数组时的兜底）
+  const failCount = [data.failCount, data.failedCount, data.fail].find((v) => typeof v === 'number')
+  if (typeof failCount === 'number' && failCount > 0) {
+    return {
+      kind: 'failCount',
+      failedCount: failCount,
+      sample: `successCount=${data.successCount ?? '?'} failCount=${failCount}`
+    }
+  }
+  return null
+}
 
 /**
  * 在页面上注册全部捕获通道
@@ -86,6 +142,8 @@ export function createCaptureHub(page, options = {}) {
   const toasts = []
   /** 最近失败请求 {method,url,status,body} */
   const netFails = []
+  /** 批七十九：HTTP 200 但响应体带失败明细的**写请求**（部分失败静默族） */
+  const bizPartials = []
   /** 最近慢请求 {method,url,ms} */
   const slowReqs = []
   /** 最近 console error / pageerror */
@@ -161,6 +219,25 @@ export function createCaptureHub(page, options = {}) {
    */
   const requestCounts = new Map()
   let actionTag = 'load'
+  /**
+   * **文档级导航计数**（b79 收口第三轮，N-13 的采集前提）。一个模块的 `load` 桶里
+   * "某端点被打 103 次"同时受两件事驱动：**这个模块访问了几页** 与 **机器快慢（轮询轮次）**，
+   * 所以对总数设阈值一定随环境翻红（b74 实测 Top8 全是这一类，因此当时只落盘不判）。
+   * 唯一能洗掉"页数"因子的分母是导航数 ⇒ 在这里采出来，由 `request-storm.mjs` 按
+   * `次数 / max(1, 导航数)` 判。`framenavigated` 对**每个 frame**都触发，只有 main frame
+   * 的 http(s) 导航才算"访问了一个页面"（子 iframe、`about:blank` 一律不计——
+   * 少计会让密度偏高，属可发现的错；把非页面事件计进去会让密度偏低，属发现不了的错）。
+   */
+  let navCount = 0
+  page.on('framenavigated', (frame) => {
+    try {
+      if (frame !== page.mainFrame()) return
+      const proto = new URL(frame.url()).protocol
+      if (proto === 'http:' || proto === 'https:') navCount += 1
+    } catch {
+      /* 解析不出 URL 的导航不计（见上：宁可少计） */
+    }
+  })
   const normalizeEndpoint = (url) => {
     let pathname = url
     const q = pathname.indexOf('?')
@@ -170,9 +247,7 @@ export function createCaptureHub(page, options = {}) {
     } catch {
       /* 相对路径形态（非本项目入参），原样使用 */
     }
-    return pathname
-      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'N')
-      .replace(/\d+/g, 'N')
+    return pathname.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'N').replace(/\d+/g, 'N')
   }
   page.on('request', (req) => {
     startedAt.set(req, Date.now())
@@ -203,6 +278,24 @@ export function createCaptureHub(page, options = {}) {
         // 上限 200（原 30）：汇总阶段要拿失败请求与负路径断言**逐条对账**，
         // 截断样本会让"11 条只显示 4 条"这类观测缺口无法闭合（b73 轮 14 实证）。
         if (netFails.length > NET_FAIL_LIMIT) netFails.shift()
+      } else if (WRITE_METHODS.has(req.method().toUpperCase())) {
+        // 批七十九：写请求的 200 响应才读体（读接口一律不读，控制成本），
+        // 用来抓"整体成功、局部失败"这一族——它在 HTTP 层完全隐形。
+        const head = await resp
+          .text()
+          .then((t) => t.slice(0, PARTIAL_BODY_MAX + 1))
+          .catch(() => '')
+        const hit = detectPartialFailure(req.method(), resp.status(), resp.headers()['content-type'] || '', head)
+        if (hit) {
+          bizPartials.push({
+            method: req.method(),
+            url: resp.url().replace(/\?.*$/, '?…'),
+            status: resp.status(),
+            ...hit,
+            at: actionTag
+          })
+          if (bizPartials.length > NET_FAIL_LIMIT) bizPartials.shift()
+        }
       }
     } catch {
       /* 捕获通道自身不得影响测试执行 */
@@ -352,6 +445,7 @@ export function createCaptureHub(page, options = {}) {
     initPromise,
     toasts,
     netFails,
+    bizPartials,
     slowReqs,
     consoleErrs,
     swallowed,
@@ -363,6 +457,14 @@ export function createCaptureHub(page, options = {}) {
     /** 当前失败请求条数（供汇总判断） */
     get netFailCount() {
       return netFails.length
+    },
+    /** 本轮该 hub 的**文档级导航数**（`request-storm` 的每导航均值分母） */
+    get navCount() {
+      return navCount
+    },
+    /** 「200 但部分失败」条数（枚举 + 逐条对账，不单独判红） */
+    get bizPartialCount() {
+      return bizPartials.length
     },
     /** 批七十四 T5：标记"从现在起的请求属于哪个动作"（用例在动作前调用一次） */
     beginAction(name) {
@@ -465,8 +567,7 @@ export function summarizeBackendLogErrors(options = {}) {
   if (!files.length) return empty
   // 时钟对齐容差：日志写盘与本地时钟可能有秒级偏差，窗口起点前 5 分钟内的文件仍要读
   const SKEW_MS = 5 * 60 * 1000
-  const targets =
-    sinceMs == null ? files.slice(0, 2) : files.filter((x) => x.m >= sinceMs - SKEW_MS).slice(0, 3)
+  const targets = sinceMs == null ? files.slice(0, 2) : files.filter((x) => x.m >= sinceMs - SKEW_MS).slice(0, 3)
   if (!targets.length) return empty
   const lines = []
   for (const { p } of targets) {
@@ -477,8 +578,7 @@ export function summarizeBackendLogErrors(options = {}) {
       /* 忽略不可读日志 */
     }
   }
-  const isLevel = (l) =>
-    /\bERROR\b/.test(l) || (/\bWARN\b/.test(l) && (!warnPattern || warnPattern.test(l)))
+  const isLevel = (l) => /\bERROR\b/.test(l) || (/\bWARN\b/.test(l) && (!warnPattern || warnPattern.test(l)))
   const hits = []
   let excluded = 0
   for (const l of lines) {

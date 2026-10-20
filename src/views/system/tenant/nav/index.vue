@@ -36,13 +36,7 @@
         :closable="false"
         class="mb-2"
       />
-      <el-alert
-        v-if="blocked"
-        :title="blockedTip"
-        type="warning"
-        :closable="false"
-        class="mb-2"
-      />
+      <el-alert v-if="blocked" :title="blockedTip" type="warning" :closable="false" class="mb-2" />
       <el-alert
         v-else-if="!canWrite"
         :title="t('tenantNav.readonlyTip')"
@@ -53,13 +47,7 @@
 
       <el-row v-if="canLoad" :gutter="10" class="mb8">
         <el-col :span="1.5">
-          <el-button
-            v-hasPermi="['system:tenantMenu:add']"
-            type="primary"
-            plain
-            icon="Plus"
-            @click="openAdd"
-          >
+          <el-button v-hasPermi="['system:tenantMenu:add']" type="primary" plain icon="Plus" @click="openAdd">
             {{ t('tenantNav.add') }}
           </el-button>
         </el-col>
@@ -69,19 +57,10 @@
       </el-row>
 
       <el-table v-if="canLoad" v-loading="loading" :data="rows" row-key="l3Id" border>
-        <el-table-column
-          :label="t('tenantNav.refMenu')"
-          prop="refMenuName"
-          min-width="220"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenantNav.refMenu')" prop="refMenuName" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             <span>{{ row.refMenuName || '-' }}</span>
-            <el-tag
-              size="small"
-              class="ml-1"
-              :type="row.refMenuType === 'M' ? 'warning' : 'success'"
-            >
+            <el-tag size="small" class="ml-1" :type="row.refMenuType === 'M' ? 'warning' : 'success'">
               {{ row.refMenuType === 'M' ? t('tenantNav.typeDir') : t('tenantNav.typePage') }}
             </el-tag>
           </template>
@@ -89,20 +68,10 @@
         <el-table-column :label="t('tenantNav.parent')" min-width="160">
           <template #default="{ row }">{{ parentLabel(row.parentId) }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenantNav.perms')"
-          prop="refMenuPerms"
-          min-width="180"
-          show-overflow-tooltip
-        >
+        <el-table-column :label="t('tenantNav.perms')" prop="refMenuPerms" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">{{ row.refMenuPerms || '-' }}</template>
         </el-table-column>
-        <el-table-column
-          :label="t('tenantNav.orderNum')"
-          prop="orderNum"
-          width="100"
-          align="center"
-        />
+        <el-table-column :label="t('tenantNav.orderNum')" prop="orderNum" width="100" align="center" />
         <el-table-column :label="t('tenantNav.visible')" width="100" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="row.visible === '1' ? 'info' : 'success'">
@@ -117,20 +86,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column
-          :label="t('common.column.operation')"
-          width="180"
-          align="center"
-          fixed="right"
-        >
+        <el-table-column :label="t('common.column.operation')" width="180" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button
-              v-hasPermi="['system:tenantMenu:edit']"
-              link
-              type="primary"
-              icon="Edit"
-              @click="openEdit(row)"
-            >
+            <el-button v-hasPermi="['system:tenantMenu:edit']" link type="primary" icon="Edit" @click="openEdit(row)">
               {{ t('common.edit') }}
             </el-button>
             <el-button
@@ -148,7 +106,8 @@
       <el-empty v-if="canLoad && !loading && rows.length === 0" :description="t('tenantNav.empty')" />
     </el-card>
 
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       v-model="dialogVisible"
       :title="isEdit ? t('tenantNav.editTitle') : t('tenantNav.addTitle')"
       width="620px"
@@ -176,9 +135,7 @@
               <span class="ml-1 text-xs text-text-placeholder">
                 {{ opt.menuType === 'M' ? t('tenantNav.typeDir') : t('tenantNav.typePage') }}
               </span>
-              <span v-if="opt.selected" class="ml-1 text-xs">
-                ({{ t('tenantNav.selected') }})
-              </span>
+              <span v-if="opt.selected" class="ml-1 text-xs">({{ t('tenantNav.selected') }})</span>
             </el-option>
           </el-select>
           <div class="text-xs text-text-placeholder">{{ t('tenantNav.refMenuTip') }}</div>
@@ -186,12 +143,7 @@
         <el-form-item :label="t('tenantNav.parent')" prop="parentId">
           <el-select :aria-label="t('tenantNav.parent')" v-model="form.parentId" class="w-full">
             <el-option :value="0" :label="t('tenantNav.parentTop')" />
-            <el-option
-              v-for="row in parentCandidates"
-              :key="row.l3Id"
-              :value="row.l3Id"
-              :label="row.refMenuName"
-            />
+            <el-option v-for="row in parentCandidates" :key="row.l3Id" :value="row.l3Id" :label="row.refMenuName" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('tenantNav.orderNum')" prop="orderNum">
@@ -223,18 +175,13 @@
 </template>
 
 <script setup lang="ts">
-import {
-  listTenantNav,
-  tenantNavOptions,
-  addTenantNav,
-  updateTenantNav,
-  delTenantNav
-} from '@/api/system/tenantNav'
+import { listTenantNav, tenantNavOptions, addTenantNav, updateTenantNav, delTenantNav } from '@/api/system/tenantNav'
 import { listTenant } from '@/api/system/tenant'
 import type { SysTenantMenuVo, TenantNavMenuOptionVo } from '@/api/system/tenantNav'
 import type { TenantVo } from '@/api/system/tenant'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
 /**
@@ -368,7 +315,7 @@ function openEdit(row: SysTenantMenuVo) {
 }
 
 async function submitForm() {
-  await formRef.value?.validate()
+  if (!(await validateForm(formRef.value))) return
   saving.value = true
   try {
     if (isEdit.value) {
