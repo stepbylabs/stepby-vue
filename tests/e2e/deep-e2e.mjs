@@ -377,7 +377,7 @@ async function pickTermForFirstFilter(page) {
  *   ② 监听窗口内**本页自己的 list 接口**被调用——两个子条件都是踩过的坑：
  *      arm 之前必须等初始请求静默（否则页面加载那次就满足），
  *      且 URL 特征必须**按页指定**（实证：泛化的 `/\/list\?/` 被无关的
- *      `/system/notice/list?noticeType=F…` 轮询满足，"请求确实发出"于是成假证据）；
+ *      公告横幅请求 `/system/notice/list?…&pageSize=1&…` 满足，"请求确实发出"于是成假证据）；
  *   ③ 结果落在确定态（见 readListState）；
  *   ④ 命中口径自洽：关键词取自"该过滤列首行真实值"，所以结果必须 ≥1 行，
  *      且**每一行该列都含该关键词**（服务端 LIKE 真生效）；
@@ -430,8 +430,8 @@ async function verifySearchWorks(page, { term, col, listHint, searchBtn = 'butto
     watch.status = resp.status()
     watch.url = resp.url().replace(CONFIG.frontendUrl, '')
     // 取本次响应**自己的** rows 长度作为"应渲染的行数"。
-    // 不能读"当前接口最新 total"：列表接口是共享的，重置/翻页/别的组件轮询（实证
-    // `/system/notice/list?noticeType=F…`）都会把 total 覆盖掉，读到的是别的请求的结果。
+    // 不能读"当前接口最新 total"：列表接口是共享的，重置/翻页/别的组件请求（实证
+    // 公告横幅 `/system/notice/list?…&pageSize=1&…`）都会把 total 覆盖掉，读到的是别的请求的结果。
     resp
       .json()
       .then((body) => {
@@ -7737,47 +7737,132 @@ async function testModule25(page, consoleErrors, pageErrors) {
     `app-main=${eb.hasMain} 内容节点=${eb.contentNodes} 文本长度=${eb.textLen} 兜底=${eb.fallback}`
   )
 
-  // 25.8 公告横幅（layout/index.vue 全局挂载，onMounted 拉 noticeType='F' 的最新 1 条）
-  // 旧断言 `bannerCount >= 0` 恒真：组件没挂载、接口 500、被 dismiss 缓存抑制——全都记 ✅。
-  // 改判据：请求必须发出且 <400；若确实有 F 类公告，则横幅必须可见（或被本地 dismiss 抑制）。
-  const bannerWatch = { requested: false, status: 0, rows: -1 }
-  const bannerHandler = (resp) => {
-    if (!/\/system\/notice\/list\?noticeType=F/.test(resp.url())) return
-    bannerWatch.requested = true
-    bannerWatch.status = resp.status()
-    if (resp.status() < 400) {
-      resp
-        .json()
-        .then((b) => {
-          if (Array.isArray(b?.rows)) bannerWatch.rows = b.rows.length
-        })
-        .catch(() => {})
+  // 25.8 公告横幅（layout/index.vue 全局挂载，onMounted 拉"最新一条公告"）
+  // 判据演进三步，每一步都是实测出来的：
+  //  b78 前：`bannerCount >= 0` 恒真（组件没挂载、接口 500、被 dismiss 抑制——全记 ✅）。
+  //  b79：改成"请求发出 + 若有行则必须可见"。看似收紧，实则**被产品的假过滤喂成绿灯**：
+  //       组件查的是 `noticeType='F'`，而公告类型只有 '1'/'2' ⇒ rows 恒 0 ⇒ 后半句永不生效，
+  //       "横幅从来没有内容"这个真缺陷在绿旗下长期隐身（本轮把 'F' 修成 '2' 才暴露出来）。
+  //  b80：判据改为**自己构造该状态**——建一条真实公告 ⇒ 横幅必须可见、且显示的就是它；
+  //       删掉它 ⇒ 横幅文本必须换成别的内容（可见性由数据驱动，不是 CSS 卡住）。
+  //       顺带钉住排序：只取最新 1 条，标题必须等于刚建的夹具而非种子公告。
+  const bannerTs = Date.now()
+  const bannerTitle = `E2E25横幅公告${bannerTs}`
+  const bannerToken = await getApiToken().catch(() => null)
+  if (!bannerToken) {
+    recordSkip(M, 'AnnouncementBanner: 横幅按最新公告可见', 'API 未取到 token，无法构造夹具公告')
+  } else {
+    const bannerHdr = { Authorization: `Bearer ${bannerToken}`, 'Content-Type': 'application/json' }
+    // 采一次横幅加载：清掉本地 dismiss 标记 → 重进页面 → 等横幅那一次请求 → 读它的响应与渲染文本
+    const captureBanner = async () => {
+      const box = { requested: false, status: 0, rows: -1, firstTitle: '', visible: false, text: '' }
+      const handler = (resp) => {
+        const u = resp.url()
+        if (!/\/system\/notice\/list/.test(u)) return
+        // 横幅请求的唯一形状：只取 1 条（本页列表恒 ≥10；补 '&' 后按整段匹配，防 pageSize=10 误命中）
+        const qs = (u.split('?')[1] || '') + '&'
+        if (!/(^|&)pageSize=1(&|$)/.test(qs)) return
+        box.requested = true
+        box.status = resp.status()
+        if (resp.status() < 400) {
+          resp
+            .json()
+            .then((b) => {
+              const rows = Array.isArray(b && b.rows) ? b.rows : []
+              box.rows = rows.length
+              box.firstTitle = String((rows[0] && rows[0].noticeTitle) || '')
+            })
+            .catch(() => {})
+        }
+      }
+      page.on('response', handler)
+      await page.evaluate(() => localStorage.removeItem('announcement-banner-dismissed')).catch(() => {})
+      await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
+      const deadline = Date.now() + 12000
+      while (Date.now() < deadline && !box.requested) await sleep(150)
+      await sleep(600) // 等响应体解析 + 横幅过渡渲染
+      page.off('response', handler)
+      box.visible = await page
+        .locator('.announcement-banner')
+        .first()
+        .isVisible()
+        .catch(() => false)
+      box.text = await page
+        .locator('.announcement-banner')
+        .first()
+        .innerText()
+        .catch(() => '')
+      return box
     }
+    let bannerNoticeId = null
+    try {
+      const cr = await fetch(`${CONFIG.backendUrl}/system/notice`, {
+        method: 'POST',
+        headers: bannerHdr,
+        body: JSON.stringify({
+          noticeTitle: bannerTitle,
+          noticeType: '2',
+          noticeContent: '批八十横幅判据夹具',
+          status: '0'
+        })
+      }).catch(() => null)
+      record(M, 'AnnouncementBanner: 夹具公告创建返回 200', !!cr && cr.status === 200, `HTTP=${cr && cr.status}`)
+      const lr = await fetch(
+        `${CONFIG.backendUrl}/system/notice/list?pageSize=20&status=0&noticeType=2&noticeTitle=${encodeURIComponent(bannerTitle)}`,
+        { headers: bannerHdr }
+      ).catch(() => null)
+      const lj = lr && lr.ok ? await lr.json().catch(() => null) : null
+      const lrows = (lj && (lj.rows || (lj.data && lj.data.rows))) || []
+      const hit = lrows.find((x) => String(x.noticeTitle) === bannerTitle)
+      if (hit) bannerNoticeId = hit.noticeId
+      // 这条同时是"服务端按 noticeType + status 过滤真的生效"的判据（改造前 status 被丢弃）
+      record(
+        M,
+        'AnnouncementBanner: 夹具按 noticeType=2&status=0 回查得到 id',
+        !!bannerNoticeId,
+        `id=${bannerNoticeId} 回查行数=${lrows.length}`
+      )
+    } catch (e) {
+      record(M, 'AnnouncementBanner: 夹具公告创建返回 200', false, `建夹具异常 ${String(e).slice(0, 90)}`)
+    }
+    const b1 = await captureBanner()
+    record(
+      M,
+      'AnnouncementBanner: 挂载即请求最新公告（pageSize=1 形状）',
+      b1.requested && b1.status < 400,
+      `请求发出=${b1.requested} status=${b1.status} 命中行数=${b1.rows}`
+    )
+    record(
+      M,
+      'AnnouncementBanner: 有公告时横幅可见且显示的正是最新那条',
+      !!bannerNoticeId &&
+        b1.visible === true &&
+        b1.rows === 1 &&
+        b1.firstTitle === bannerTitle &&
+        b1.text.includes(bannerTitle),
+      `可见=${b1.visible} 响应首行="${b1.firstTitle}" 期望="${bannerTitle}" 横幅文本前60="${String(b1.text).replace(/\s+/g, ' ').slice(0, 60)}"`
+    )
+    // 反向复原：删掉夹具，横幅必须改口（证明它跟着数据走，也顺带清掉残留）
+    let delStatus = -1
+    if (bannerNoticeId) {
+      const dr = await fetch(`${CONFIG.backendUrl}/system/notice/${bannerNoticeId}`, {
+        method: 'DELETE',
+        headers: bannerHdr
+      }).catch(() => null)
+      delStatus = dr ? dr.status : -1
+    }
+    const b2 = await captureBanner()
+    record(
+      M,
+      'AnnouncementBanner: 夹具删除后横幅不再显示它（可见性由数据驱动）',
+      !!bannerNoticeId &&
+        delStatus === 200 &&
+        b2.requested &&
+        !b2.text.includes(bannerTitle) &&
+        b2.firstTitle !== bannerTitle,
+      `删除HTTP=${delStatus} 再采: 请求=${b2.requested} 首行="${b2.firstTitle}" 文本仍含夹具=${b2.text.includes(bannerTitle)}`
+    )
   }
-  page.on('response', bannerHandler)
-  await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
-  const bannerDeadline = Date.now() + 12000
-  while (Date.now() < bannerDeadline && !bannerWatch.requested) await sleep(150)
-  await sleep(600) // 等响应体解析 + 横幅过渡渲染
-  page.off('response', bannerHandler)
-  const bannerVisible = await page
-    .locator('.announcement-banner')
-    .first()
-    .isVisible()
-    .catch(() => false)
-  const bannerDismissed = await page
-    .evaluate(() => !!localStorage.getItem('announcement-banner-dismissed'))
-    .catch(() => false)
-  const bannerOk =
-    bannerWatch.requested && bannerWatch.status < 400 && (bannerWatch.rows <= 0 || bannerVisible || bannerDismissed)
-  record(
-    M,
-    'AnnouncementBanner: 已挂载并按公告数据决定可见性',
-    bannerOk,
-    bannerOk
-      ? `请求=${bannerWatch.status} F类行数=${bannerWatch.rows} 可见=${bannerVisible} 本地已关闭=${bannerDismissed}`
-      : `请求发出=${bannerWatch.requested} status=${bannerWatch.status} F类行数=${bannerWatch.rows} 可见=${bannerVisible} 本地已关闭=${bannerDismissed}`
-  )
 
   // 25.9 Cookie 同意对话框（已同意或未启用时不可见，标记为通过）
   const cookieConsent = await page
@@ -8710,9 +8795,11 @@ async function testModule28(page, consoleErrors, pageErrors, token) {
 
   // 28.2 通知中心列表加载
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/notice-center`, { moduleName: M, waitMs: 2000 })) {
-    // 全局 AnnouncementBanner 也在轮询 `/system/notice/list?noticeType=F&…&pageSize=1`，
+    // 全局 AnnouncementBanner 也打同一个端点（`/system/notice/list?noticeType=2&status=0&…&pageSize=1`），
     // 必须用负向前瞻排除，否则"本页列表请求已被调用"会被它的响应洗白（b73 M16 实证同款漏检）。
-    const nc = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!noticeType=F)|$)/ })
+    // 排除形状取 `pageSize=1&`——横幅只取最新 1 条，这是它唯一的、且不会与本页重合的形状
+    // （本页 pageSize 恒 ≥10；`pageSize=1` 后必须紧跟 `&`，故 `pageSize=10` 不会被误排）。
+    const nc = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!.*pageSize=1&)|$)/ })
     record(M, '通知中心: 列表加载', nc.pass, nc.pass ? `${nc.domRows} 条通知（DOM=响应）` : nc.why)
     // 检查统计卡片
     const statCards = await page.locator('.stat-card, .el-card, [class*="stat"]').count()
@@ -12123,8 +12210,8 @@ async function testModule43(page, consoleErrors, pageErrors) {
     record(M, '通知中心: 表格加载', hasTable)
 
     if (hasTable) {
-      // 排除全局 AnnouncementBanner 的 `/system/notice/list?noticeType=F…` 轮询（它会先于本页响应到达）
-      const nr = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!noticeType=F)|$)/ })
+      // 排除全局 AnnouncementBanner 的 `…&pageSize=1&…` 请求（它会先于本页响应到达）
+      const nr = await verifyListLoaded(page, { listHint: /\/system\/notice\/list(\?(?!.*pageSize=1&)|$)/ })
       record(
         M,
         '通知中心: 数据行数',
@@ -21898,6 +21985,188 @@ async function testModule87(page, consoleErrors, pageErrors) {
     }
   } else if (!createdNoticeId) {
     recordSkip(M, '通知中心: 批量已读落库证明', '夹具公告未创建成功')
+  }
+
+  // ---------- 87.18b 通知中心「只看未读」由**服务端**筛选（b80 P-B） ----------
+  // 改造前这里是前端过滤当前页：分页 total 仍是全量 ⇒ "未读 N 条 / 共 M 条 / 第 2 页空页"
+  // 三个结论同时成立；角标 N 由服务端算、筛选由内存做，两者一旦不等没有判据能发现。
+  // 判据四侧（缺一即可被相反实现蒙过）：
+  //  ① 点档位必须发出**带 isRead=0 的请求**（证明过滤发生在服务器而不是内存）；
+  //  ② 该响应的 total 必须等于 listTop.unreadCount（两条独立路径同源，b80 的核心不变式）；
+  //  ③ 页面每一行都必须是「未读」标签，且已读夹具不得出现、未读夹具必须出现；
+  //  ④ 对照组：切回「全部」后 total 必须变大、已读夹具必须重新出现
+  //     （否则"永远只返回未读"这种实现也能全绿）。
+  {
+    const tsB = Date.now()
+    const unreadTitle = `E2E87b未读${tsB}`
+    const readTitle = `E2E87b已读${tsB}`
+    const fixtureIds = []
+    try {
+      const token = await getApiToken()
+      const hdr = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+      for (const title of [unreadTitle, readTitle]) {
+        const r = await fetch(`${CONFIG.backendUrl}/system/notice`, {
+          method: 'POST',
+          headers: hdr,
+          body: JSON.stringify({
+            noticeTitle: title,
+            noticeType: '1',
+            noticeContent: '批八十未读筛选判据夹具',
+            status: '0'
+          })
+        })
+        if (r.status !== 200) break
+        const lr = await fetch(
+          `${CONFIG.backendUrl}/system/notice/list?pageSize=20&status=0&noticeTitle=${encodeURIComponent(title)}`,
+          { headers: hdr }
+        )
+        const lj = lr.ok ? await lr.json().catch(() => null) : null
+        const hit = ((lj && lj.rows) || []).find((x) => String(x.noticeTitle) === title)
+        if (hit) fixtureIds.push({ id: hit.noticeId, title })
+      }
+      // 把其中一条标记为已读 ⇒ 它必须离开未读侧、并留在"全部"侧
+      if (fixtureIds.length === 2) {
+        const readId = fixtureIds.find((x) => x.title === readTitle).id
+        const mr = await fetch(`${CONFIG.backendUrl}/system/notice/markRead?noticeId=${readId}`, {
+          method: 'POST',
+          headers: hdr,
+          body: JSON.stringify({})
+        })
+        record(
+          M,
+          '通知中心: 夹具已建且一条已标记为已读（判据前置自证）',
+          mr.status === 200,
+          `夹具数=${fixtureIds.length} markRead HTTP=${mr.status}`
+        )
+      } else {
+        record(
+          M,
+          '通知中心: 夹具已建且一条已标记为已读（判据前置自证）',
+          false,
+          `夹具仅 ${fixtureIds.length}/2 条回查命中`
+        )
+      }
+    } catch (e) {
+      record(M, '通知中心: 夹具已建且一条已标记为已读（判据前置自证）', false, `异常 ${String(e).slice(0, 80)}`)
+    }
+
+    if (fixtureIds.length === 2 && (await gotoPage(`${CONFIG.frontendUrl}/system/notice-center`, 2400))) {
+      await assertPageLoaded(page, M, '通知中心页面加载（未读服务端筛选）')
+      const unreadChip = page.locator('.toolbar-left .el-radio-button').filter({ hasText: '未读' }).first()
+      const allChip = page.locator('.toolbar-left .el-radio-button').filter({ hasText: '全部' }).first()
+      const isBanner = (u) =>
+        /\/system\/notice\/list/.test(u) && /[?&]pageSize=1(&|$)/.test((u.split('?')[1] || '') + '&')
+
+      const respPromise1 = page
+        .waitForResponse(
+          (r) =>
+            /\/system\/notice\/list\?/.test(r.url()) &&
+            /[?&]isRead=0(&|$)/.test((r.url().split('?')[1] || '') + '&') &&
+            !isBanner(r.url()),
+          {
+            timeout: 10000
+          }
+        )
+        .catch(() => null)
+      const chipLanding = await realClick(unreadChip)
+      const listResp = await respPromise1
+      const body1 = listResp ? await listResp.json().catch(() => null) : null
+      const rows1 = (body1 && body1.rows) || []
+      const total1 = body1 && typeof body1.total === 'number' ? body1.total : -1
+      let badge1 = -1
+      let visibleApi1 = -1
+      try {
+        const tk = await getApiToken()
+        const topR = await fetch(`${CONFIG.backendUrl}/system/notice/listTop`, {
+          headers: { Authorization: `Bearer ${tk}` }
+        })
+        const topJ = topR.ok ? await topR.json().catch(() => null) : null
+        badge1 = topJ && topJ.unreadCount
+        visibleApi1 = topJ && topJ.totalCount
+      } catch (e) {
+        /* 记到下面的判据里，不在这里吞掉 */
+      }
+      record(
+        M,
+        '通知中心: 点「未读」档位确实发出带 isRead=0 的服务端筛选请求',
+        !!chipLanding && !!listResp && listResp.status() === 200,
+        `点击落地=${chipLanding || 'false'} HTTP=${listResp ? listResp.status() : 0} url=${listResp ? listResp.url().replace(CONFIG.backendUrl, '') : '无'}`
+      )
+      record(
+        M,
+        '通知中心: 未读列表 total == 服务端角标 unreadCount（两条路径同源）',
+        total1 >= 0 && badge1 === total1,
+        `列表 total=${total1} 角标=${badge1} 可见总数=${visibleApi1}`
+      )
+      const dom1 = await page
+        .evaluate(() => {
+          const rows = Array.from(document.querySelectorAll('.el-table__row'))
+          return {
+            n: rows.length,
+            allUnread: rows.length > 0 && rows.every((r) => /未读/.test((r.innerText || '').replace(/\s+/g, ' ')))
+          }
+        })
+        .catch(() => ({ n: -1, allUnread: false }))
+      record(
+        M,
+        '通知中心: 未读档下每一行都是未读标签、且响应与 DOM 同一条数',
+        dom1.allUnread && dom1.n === rows1.length,
+        `DOM 行=${dom1.n} 响应行=${rows1.length} 全为未读=${dom1.allUnread}`
+      )
+      const titles1 = rows1.map((x) => String(x.noticeTitle))
+      record(
+        M,
+        '通知中心: 已读夹具不在未读结果里、未读夹具在（集合级对账）',
+        titles1.includes(unreadTitle) && !titles1.includes(readTitle),
+        `未读夹具命中=${titles1.includes(unreadTitle)} 已读夹具误现=${titles1.includes(readTitle)} 首屏标题数=${titles1.length}`
+      )
+
+      // ④ 对照组：切回「全部」⇒ 不带 isRead，total 必须变大且已读夹具回来
+      const respPromise2 = page
+        .waitForResponse(
+          (r) =>
+            /\/system\/notice\/list\?/.test(r.url()) &&
+            !isBanner(r.url()) &&
+            !/[?&]isRead=/.test((r.url().split('?')[1] || '') + '&'),
+          {
+            timeout: 10000
+          }
+        )
+        .catch(() => null)
+      const allLanding = await realClick(allChip)
+      const listResp2 = await respPromise2
+      const body2 = listResp2 ? await listResp2.json().catch(() => null) : null
+      const titles2 = ((body2 && body2.rows) || []).map((x) => String(x.noticeTitle))
+      const total2 = body2 && typeof body2.total === 'number' ? body2.total : -1
+      record(
+        M,
+        '通知中心: 切回「全部」后 total 变大且已读夹具重新出现（对照组）',
+        !!allLanding && !!listResp2 && total2 > total1 && titles2.includes(unreadTitle) && titles2.includes(readTitle),
+        `total ${total1} → ${total2} 未读夹具=${titles2.includes(unreadTitle)} 已读夹具=${titles2.includes(readTitle)}`
+      )
+      record(
+        M,
+        '通知中心: 卡片「全部」用 listTop.totalCount 而非筛选后的列表 total',
+        visibleApi1 >= 0 && total2 === visibleApi1,
+        `listTop.totalCount=${visibleApi1} 全部档 list total=${total2}`
+      )
+    } else {
+      recordSkip(M, '通知中心: 未读服务端筛选闭环', fixtureIds.length === 2 ? '页面未进入' : '夹具未建齐')
+    }
+
+    // 收尾：删夹具（已读行由 residue-cleanup 的 E2E87 族连带清掉）
+    for (const f of fixtureIds) {
+      try {
+        const tk = await getApiToken()
+        const d = await fetch(`${CONFIG.backendUrl}/system/notice/${f.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${tk}` }
+        })
+        record(M, '通知中心: 未读筛选夹具收尾删除', d.status === 200, `id=${f.id} HTTP=${d.status}`)
+      } catch (e) {
+        record(M, '通知中心: 未读筛选夹具收尾删除', false, `id=${f.id} 异常 ${String(e).slice(0, 70)}`)
+      }
+    }
   }
 
   /**

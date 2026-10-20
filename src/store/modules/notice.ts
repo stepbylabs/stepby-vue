@@ -24,6 +24,14 @@ interface NoticeState {
   topNotices: SysNotice[]
   /** 当前用户未读公告数（全量，不限 top 10） */
   unreadCount: number
+  /**
+   * 可见公告总数（`status='0'`，与 `list?status=0` 的 total 同源）
+   *
+   * 通知中心顶部三张卡片需要"全部 / 未读 / 已读"三个自洽的数。列表的 `total` 会随筛选
+   * 变化（'未读' 档下它就是未读数），拿它减 unreadCount 会算出"已读 0"——所以分母由
+   * `listTop.totalCount` 在同一次往返里下发（b80）。
+   */
+  totalCount: number
   /** 当前用户已读公告 ID 集合（用于跨组件判断 isRead） */
   readIds: Set<number>
   /** 是否正在加载顶部公告 */
@@ -36,6 +44,7 @@ const useNoticeStore = defineStore('notice', {
   state: (): NoticeState => ({
     topNotices: [],
     unreadCount: 0,
+    totalCount: 0,
     readIds: new Set<number>(),
     loading: false,
     refreshPromise: null
@@ -45,7 +54,15 @@ const useNoticeStore = defineStore('notice', {
     isRead:
       (state) =>
       (noticeId: number): boolean =>
-        state.readIds.has(noticeId)
+        state.readIds.has(noticeId),
+    /**
+     * 已读数 = 可见总数 − 未读数（两个数都由 `listTop` 同一次往返下发，同一谓词产出）。
+     *
+     * 减法放在 store 而不是页面模板里：卡片要显示的不是"当前筛选结果的总数减角标"
+     * （'未读' 档下列表 total 就是未读数，减出来恒为 0）。钳到 0 只是最后一道防线——
+     * 真出现负数说明两个计数分家了，那属于后端判据要抓的事（集成测试里有同源等式）。
+     */
+    readCount: (state): number => Math.max(0, state.totalCount - state.unreadCount)
   },
   actions: {
     /**
@@ -71,6 +88,8 @@ const useNoticeStore = defineStore('notice', {
           this.topNotices = res.data || []
           this.unreadCount =
             res.unreadCount !== undefined ? res.unreadCount : this.topNotices.filter((n: SysNotice) => !n.isRead).length
+          // 缺字段按 0 fail-safe（与 unreadCount 同口径：宁可不显示数字，也不显示来路不明的数）
+          this.totalCount = res.totalCount !== undefined ? res.totalCount : 0
           // 同步 readIds：listTop 返回的每条公告带 isRead 字段
           this.readIds = new Set(
             this.topNotices.filter((n: SysNotice) => n.isRead).map((n: SysNotice) => n.noticeId as number)
@@ -163,6 +182,7 @@ const useNoticeStore = defineStore('notice', {
     clearAll(): void {
       this.topNotices = []
       this.unreadCount = 0
+      this.totalCount = 0
       this.readIds = new Set<number>()
       this.loading = false
       this.refreshPromise = null

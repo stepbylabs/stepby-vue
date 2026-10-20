@@ -60,8 +60,19 @@ onMounted(async () => {
 
 async function loadAnnouncement() {
   try {
-    // 拉取公告类型（notice_type='F'）的最新 1 条
-    const res = await listNotice({ noticeType: 'F', status: '0', pageNum: 1, pageSize: 1 })
+    // 拉取"公告"类型（notice_type='2'、status='0'）的**最新** 1 条。
+    // 改造前这里写的是 noticeType='F'——公告类型只有 '1'/'2'，'F' 永不命中，
+    // 于是横幅**从来没有内容可显示**（假功能），而 e2e 25.8 的旧判据 `rows >= 0` 恒真看不见它；
+    // 同时缺排序 ⇒ 默认 notice_id ASC 取到的是"最旧"一条，与注释里的"最新"相反。
+    // status='0' 此前也被后端静默丢弃（DTO 无该字段），b80 起才真正生效。
+    const res = await listNotice({
+      noticeType: '2',
+      status: '0',
+      pageNum: 1,
+      pageSize: 1,
+      orderByColumn: 'createTime',
+      isAsc: 'desc'
+    })
     const rows = res.rows || []
     if (rows.length === 0) return
     const notice = rows[0]

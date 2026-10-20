@@ -1229,18 +1229,131 @@ async function testFeature7(page) {
         .catch(() => false)
       record(7, '邮件通知选项存在', hasEmailCheckbox)
 
-      // 取消对话框
-      const cancelBtn = dialog.locator('button:has-text("取消"), button:has-text("关闭")').first()
-      if (
-        await cancelBtn
-          .waitFor({ state: 'visible', timeout: 1000 })
-          .then(() => true)
-          .catch(() => false)
-      ) {
-        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
-        await sleep(500)
-      }
+      // 关闭对话框。**不能用 button:has-text("取消")**：EP 的 autoInsertSpace 把中文双字
+      // 按钮渲染成「取 消」，Playwright 的 has-text 不会把中间空格去掉 ⇒ 匹配不到、点击超时，
+      // 弹窗连同 modal 遮罩留在页面上，后面所有"搜索区下拉"都被它挡住（实测 3 轮假红）。
+      // 右上角关闭按钮与文案无关，且必须等 hidden——否则遮罩仍在 DOM 里拦截指针。
+      await dialog
+        .locator('.el-dialog__headerbtn')
+        .first()
+        .click({ timeout: 3000 })
+        .catch(() => {})
+      await dialog.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {})
+      await sleep(300)
     }
+  }
+
+  // 状态筛选（b80）：改造前 DTO 没有 status 字段，serde 静默丢弃 ⇒ 下拉选了值、请求照发、
+  // 列表一条不少，是个**假控件**。判据必须证明三件事：请求真的带 status=1、服务端按它过滤
+  // （关闭夹具在、正常夹具不在）、且下拉选项确实可交互（不得靠直接改 queryParams 作弊）。
+  const login = await apiLogin().catch(() => ({ token: null }))
+  if (!login.token) {
+    recordSkip(7, '公告状态筛选（关闭态）', 'API token 未取得，无法构造一关闭一正常对照夹具')
+  } else {
+    const ts = Date.now()
+    const closedTitle = `测试关闭公告${ts}`
+    const normalTitle = `测试正常公告${ts}`
+    const hdr = { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' }
+    const mk = (title, status) =>
+      apiWithBackoff('/system/notice', {
+        method: 'POST',
+        headers: hdr,
+        body: JSON.stringify({ noticeTitle: title, noticeType: '1', noticeContent: 'e2e status filter', status })
+      })
+    const mkClosed = await mk(closedTitle, '1')
+    const mkNormal = await mk(normalTitle, '0')
+    const fixtureOk = mkClosed.body?.code === 200 && mkNormal.body?.code === 200
+    record(
+      7,
+      '状态筛选夹具创建（一条关闭 / 一条正常）',
+      fixtureOk,
+      `关闭=${mkClosed.body?.code} 正常=${mkNormal.body?.code}`
+    )
+
+    let ids = []
+    if (fixtureOk) {
+      const lookup = await apiWithBackoff(
+        `/system/notice/list?pageSize=100&noticeTitle=${encodeURIComponent(ts)}&orderByColumn=createTime&isAsc=desc`,
+        { headers: hdr }
+      )
+      ids = (lookup.body?.rows || []).map((r) => r.noticeId).filter((id) => Number.isFinite(id))
+    }
+
+    const requested = page
+      .waitForResponse(
+        (r) => {
+          const u = r.url()
+          if (!/\/system\/notice\/list\?/.test(u)) return false
+          const qs = (u.split('?')[1] || '') + '&'
+          if (/[?&]pageSize=1(&|$)/.test(qs)) return false
+          return /(^|&)status=1(&|$)/.test(qs)
+        },
+        { timeout: 20000 }
+      )
+      .catch(() => null)
+    // 交互必须走真实下拉。EP 2.x 的 placeholder 渲染在 `el-select__placeholder` 而非
+    // `<input placeholder>`（用 getByPlaceholder 会 3s 超时、判据假红），改按表单项标签
+    // 「状态」作用域定位——表头同名但不在 `.el-form-item__label` 里，不会误命中。
+    const statusSelect = page
+      .locator('.el-form-item')
+      .filter({ has: page.locator('.el-form-item__label:text-is("状态")') })
+      .locator('.el-select')
+      .first()
+    const selectVisible = await statusSelect
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    let picked = false
+    let optionTexts = []
+    if (selectVisible) {
+      // EP 2.x 的展开热区在 `.el-select__wrapper`；点根节点在部分版本不触发 popper
+      await statusSelect
+        .locator('.el-select__wrapper')
+        .click()
+        .catch(() => {})
+      const options = page.locator('.el-select-dropdown__item:visible')
+      await options
+        .first()
+        .waitFor({ state: 'visible', timeout: 3000 })
+        .catch(() => {})
+      optionTexts = await options.allInnerTexts().catch(() => [])
+      const option = options.filter({ hasText: /^关闭$/ }).first()
+      picked = await option
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      if (picked) await option.click().catch(() => {})
+    }
+    const searchBtn = page.locator('.el-form button:has-text("搜索")').first()
+    const searchVisible = await searchBtn
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    if (searchVisible) await searchBtn.click().catch(() => {})
+    const resp = await requested
+    const body = resp ? await resp.json().catch(() => null) : null
+    const rows = body?.rows || []
+    const titles = rows.map((r) => String(r.noticeTitle))
+    const allClosed = rows.length > 0 && rows.every((r) => String(r.status) === '1')
+    record(
+      7,
+      '状态筛选：下拉可交互且请求真带 status=1，返回全为关闭态（关闭在、正常不在）',
+      !!fixtureOk &&
+        selectVisible &&
+        picked &&
+        !!resp &&
+        resp.status() === 200 &&
+        allClosed &&
+        titles.includes(closedTitle) &&
+        !titles.includes(normalTitle),
+      `下拉可见=${selectVisible} 选中=${picked} 选项=${JSON.stringify(optionTexts).slice(0, 80)} HTTP=${resp ? resp.status() : 0} 行数=${rows.length} 全关闭=${allClosed} 关闭夹具=${titles.includes(closedTitle)} 正常夹具误现=${titles.includes(normalTitle)}`
+    )
+
+    // 复原：清掉两条夹具，并清空筛选（避免污染后续功能在同一页面上的断言）
+    for (const id of ids) {
+      await apiWithBackoff(`/system/notice/${id}`, { method: 'DELETE', headers: hdr })
+    }
+    record(7, '状态筛选夹具收尾删除', ids.length === 2, `删除 ${ids.length}/2 条`)
   }
 }
 

@@ -225,8 +225,7 @@ export default {
       allowedTables: '选择或输入表名，回车确认'
     },
     tip: {
-      dualSource:
-        '配置热生效：sys.ai.* 优先于 config.toml [ai] 段（出厂缺省）。修改后立即影响 AI 面板，无需重启。',
+      dualSource: '配置热生效：sys.ai.* 优先于 config.toml [ai] 段（出厂缺省）。修改后立即影响 AI 面板，无需重启。',
       apiKeyMasked: '当前 Key：{masked}',
       testOk: '连通正常'
     }
@@ -261,7 +260,6 @@ export default {
     }
   },
   user: {
-
     title: '用户管理',
     search: {
       username: '用户名称',
@@ -365,7 +363,8 @@ export default {
     },
     initialPasswordWarning: '您的密码还是初始密码，请修改密码！',
     passwordExpiredWarning: '您的密码已过期，请尽快修改密码！',
-    forcePasswordChangeWarning: '系统已开启强制改密策略：您正在使用初始密码或密码已过期，必须先修改密码后才能使用其他功能。',
+    forcePasswordChangeWarning:
+      '系统已开启强制改密策略：您正在使用初始密码或密码已过期，必须先修改密码后才能使用其他功能。',
     securityTip: '安全提示'
   },
   scimGroup: {
@@ -447,8 +446,7 @@ export default {
     capabilitySaved: '能力位已保存，并已同步收敛角色菜单授权',
     capabilityNoPackage: '该租户未分配套餐，请先在「编辑」中分配套餐后再配置能力位',
     capabilityModeOffTip: 'off = 关闭（与迁移前行为一致）',
-    capabilityPlatformCeiling:
-      '套餐能力位只能收窄平台层（平台是天花板）：平台未开启的能力位，套餐写什么都不会生效'
+    capabilityPlatformCeiling: '套餐能力位只能收窄平台层（平台是天花板）：平台未开启的能力位，套餐写什么都不会生效'
   },
   tenantDomain: {
     manage: '域名',
@@ -721,8 +719,7 @@ export default {
       visibleToTenant: '租户可见',
       visibleToTenantTip: '开启后该参数出现在租户的参数列表中',
       lockedTip: '该参数受平台治理锁定（Coverage::Locked），治理属性不可修改',
-      confirmChange:
-        '检测到参数治理属性变更：该操作影响所有租户对该参数的可见性与可覆盖性。确认保存？'
+      confirmChange: '检测到参数治理属性变更：该操作影响所有租户对该参数的可见性与可覆盖性。确认保存？'
     },
     validate: {
       configNameRequired: '参数名称不能为空',
@@ -936,7 +933,9 @@ export default {
       phTitle: '请输入公告标题',
       createBy: '创建者',
       phCreateBy: '请输入创建者',
-      type: '公告类型'
+      type: '公告类型',
+      status: '状态',
+      phStatus: '公告状态'
     },
     column: {
       id: '公告编号',
@@ -1669,8 +1668,7 @@ export default {
     datasetName: '数据集名称',
     sqlTemplate: 'SQL 模板',
     sqlPlaceholder: 'SELECT id, name, cnt FROM ... WHERE day <= :days',
-    sqlRuleHint:
-      '仅允许单条参数化 SELECT（:param 命名占位符）；DML/DDL/注释/多语句/子查询/UNION 一律拒绝',
+    sqlRuleHint: '仅允许单条参数化 SELECT（:param 命名占位符）；DML/DDL/注释/多语句/子查询/UNION 一律拒绝',
     paramsSchema: '参数 Schema',
     sqlLoadFailed: 'SQL 明文加载失败，请手动填写完整 SQL 后再保存',
     paramsSchemaInvalid: '参数 Schema 不是合法 JSON',
@@ -1905,7 +1903,7 @@ export default {
     hint: '结果由 AI 生成 SQL 并经安全校验后执行（只读查询，自动按租户隔离）',
     resultTitle: '查询结果',
     rowCount: '{n} 行',
-      tokenUsage: '{promptTokens}+{completionTokens} tokens（共 {totalTokens}）',
+    tokenUsage: '{promptTokens}+{completionTokens} tokens（共 {totalTokens}）',
     exportCsv: '导出 CSV',
     generatedSql: '生成的 SQL（引用表）：',
     emptyResult: '查询成功，但没有符合条件的数据',

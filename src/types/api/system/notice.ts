@@ -8,8 +8,16 @@ export interface NoticeQueryParams extends PageDomain {
   createBy?: string
   /** 公告类型 */
   noticeType?: string
-  /** 状态（0正常 1停用） */
+  /** 状态（0正常 1停用）；b80 起后端真正过滤（此前 DTO 无此字段，serde 静默丢弃 ⇒ 筛选是假控件） */
   status?: '0' | '1'
+  /**
+   * 已读态筛选（0仅未读 1仅已读，缺省不过滤）。
+   *
+   * b80 新增：改造前"只看未读"是**前端过滤当前页**，分页 total 仍是全量 ⇒
+   * 翻到第 2 页可能是空页、且"未读 N 条"与实际渲染条数不符。现在由服务端半连接
+   * `sys_notice_read` 过滤，与铃铛角标同一谓词（`listTop.unreadCount`）。
+   */
+  isRead?: '0' | '1'
 }
 
 /**
@@ -47,8 +55,10 @@ export interface SysNotice extends BaseEntity {
 
 /** 顶部公告列表响应 */
 export interface SysNoticeTopResult extends AjaxResult<SysNotice[]> {
-  /** 未读公告数 */
+  /** 未读公告数（可见面 = status=0 且未读，与 `list?isRead=0&status=0` 的 total 同源） */
   unreadCount: number
+  /** 可见公告总数（status=0，不分页、不按已读/类型筛选）——通知中心卡片"全部/已读"的分母 */
+  totalCount: number
 }
 
 /** 公告已读用户查询参数 */

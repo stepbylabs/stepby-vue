@@ -27,7 +27,7 @@
           </div>
           <div class="summary-meta flex-1">
             <div class="summary-label text-[13px] mb-1.5 text-text-secondary">{{ t('noticeCenter.total') }}</div>
-            <div class="summary-value text-[26px] font-semibold leading-[1.2] text-text-primary">{{ total }}</div>
+            <div class="summary-value text-[26px] font-semibold leading-[1.2] text-text-primary">{{ totalCount }}</div>
             <div class="summary-sub text-xs mt-1">{{ t('noticeCenter.totalTip') }}</div>
           </div>
         </el-card>
@@ -43,7 +43,7 @@
           <div class="summary-meta flex-1">
             <div class="summary-label text-[13px] mb-1.5 text-text-secondary">{{ t('noticeCenter.read') }}</div>
             <div class="summary-value text-[26px] font-semibold leading-[1.2] text-text-primary">
-              {{ Math.max(0, total - unreadCount) }}
+              {{ readCount }}
             </div>
             <div class="summary-sub text-xs mt-1">{{ t('noticeCenter.readTip') }}</div>
           </div>
@@ -116,7 +116,7 @@
 
     <!-- 未读筛选提示（仅未读筛选模式下显示） -->
     <el-alert
-      v-if="filterType === 'unread' && filteredNotices.length === 0 && !loading"
+      v-if="filterType === 'unread' && noticeList.length === 0 && !loading"
       v-motion="slideInRight"
       :title="t('noticeCenter.noUnreadTip')"
       type="success"
@@ -128,7 +128,7 @@
     <!-- 通知列表 -->
     <el-card shadow="never" class="list-card" v-loading="loading">
       <el-table
-        :data="filteredNotices"
+        :data="noticeList"
         :row-key="(row: SysNotice) => row.noticeId"
         @selection-change="handleSelectionChange"
         @row-click="handleRowClick"
@@ -262,7 +262,13 @@ const queryParams = ref<NoticeQueryParams>({
   pageSize: 10,
   noticeTitle: undefined,
   noticeType: undefined,
-  createBy: undefined
+  createBy: undefined,
+  // 通知中心是**用户面**：只应看到正常态公告（关闭态属管理面，公告管理页仍可全量查看）。
+  // 改造前不带 status ⇒ 列表里出现已停用公告，而铃铛角标与"全部已读"都不认它，
+  // 那些行会永远显示"未读"且点不掉（b80 P-B）。
+  status: '0',
+  // 'unread' 档由服务端过滤（undefined = 不过滤）
+  isRead: undefined
 })
 
 // 纯展示页（无删除/表单流程）：仅迁移 list/query 可迁部分。
@@ -304,6 +310,11 @@ const {
 
 // 订阅 store 的 unreadCount（跨组件同步）
 const unreadCount = computed(() => noticeStore.unreadCount)
+// 卡片"全部/已读"的分母取 store.totalCount（listTop 同一次往返下发的可见总数），
+// 不取列表 total：列表 total 随筛选变化，'unread' 档下它就是未读数，减出来的"已读"是假数字
+const totalCount = computed(() => noticeStore.totalCount)
+// "已读"由 store 的 getter 做减法（两个计数同源同次往返），页面不再自行拿列表 total 去减
+const readCount = computed(() => noticeStore.readCount)
 // 订阅 store 的 readIds（跨组件同步已读状态）
 const readIds = computed(() => noticeStore.readIds)
 const filterType = ref<'all' | 'unread' | 'notice' | 'announcement'>('all')
@@ -314,21 +325,18 @@ const currentNotice = ref<SysNotice | null>(null)
 const markAllLoading = ref(false)
 const batchReadLoading = ref(false)
 
-// P1 修复: 修正筛选与分页的不匹配
-// - 'notice'/'announcement': 通过 queryParams.noticeType 走后端查询，分页准确
-// - 'unread': 前端过滤当前页未读项（后端无 isRead 查询支持）
-//   未读数仍由 store.unreadCount（全量）显示，分页只反映当前页未读项
-const filteredNotices = computed(() => {
-  if (filterType.value === 'unread') {
-    return noticeList.value.filter((n: SysNotice) => !isRead(n))
-  }
-  // 'all' / 'notice' / 'announcement' 已通过后端查询过滤，直接返回当前页数据
-  return noticeList.value
-})
+// 'unread' 档改由服务端过滤（b80 P-B）。改造前这里是
+// `noticeList.filter(n => !isRead(n))`——**只过滤当前页**，而分页 total 仍是全量，
+// 于是"未读 3 条 / 共 20 条 / 第 2 页空页"三个结论同时成立且互相矛盾。
+// 现在 queryParams.isRead 进 SQL（与铃铛角标同一谓词），列表数据即筛选结果。
 
-// 判断通知是否已读（从 store 订阅）
+// 判断通知是否已读：**服务端逐行下发的 row.isRead** 为主（b79 P3 起该字段真实存在），
+// store.readIds 作补集——用于"在铃铛里刚标记过、本页尚未重查"的行。
+// 两个来源都只会把"真已读"标成已读（readIds 失败会回滚，见 store.markRead 的 catch），
+// 所以并集不会把未读说成已读；反过来只取一个来源都会漏（只取 row 会漏铃铛侧刚标记的，
+// 只取 store 会在刷新后把服务端已读的行退回未读——那正是 b79 P3 的原始缺陷）。
 function isRead(notice: SysNotice): boolean {
-  return readIds.value.has(notice.noticeId as number)
+  return notice.isRead === true || readIds.value.has(notice.noticeId as number)
 }
 
 // 可选择行（已读行不可选，避免重复标记）
@@ -341,23 +349,17 @@ function resetQuery() {
   queryParams.value.noticeTitle = undefined
   queryParams.value.noticeType = undefined
   queryParams.value.createBy = undefined
+  queryParams.value.isRead = undefined
   filterType.value = 'all'
   handleQuery()
 }
 
-// P1 修复: 筛选类型变化
-// - 'notice'/'announcement' 走后端查询，分页准确
-// - 'unread' 仅前端过滤当前页（后端不支持 isRead 查询）
+// 筛选档位 ⇒ 查询参数（noticeType 与 isRead 两个轴都由后端过滤）
 function handleFilterChange() {
-  if (filterType.value === 'notice') {
-    queryParams.value.noticeType = '1'
-  } else if (filterType.value === 'announcement') {
-    queryParams.value.noticeType = '2'
-  } else {
-    // 'all' / 'unread'：清空 noticeType，避免后端过滤干扰
-    queryParams.value.noticeType = undefined
-  }
-  // 重新查询（'unread' 也重新拉取全部数据后前端过滤）
+  queryParams.value.noticeType =
+    filterType.value === 'notice' ? '1' : filterType.value === 'announcement' ? '2' : undefined
+  queryParams.value.isRead = filterType.value === 'unread' ? '0' : undefined
+  // 换档即回到第 1 页：筛选后的 total 变了，停在原页码会落进空页
   queryParams.value.pageNum = 1
   getList()
 }

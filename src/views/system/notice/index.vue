@@ -8,7 +8,9 @@
             :placeholder="t('notice.search.phTitle')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('notice.search.phTitle')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('notice.search.phTitle')"
+          />
         </el-form-item>
         <el-form-item :label="t('notice.search.createBy')" prop="createBy">
           <el-input
@@ -16,7 +18,9 @@
             :placeholder="t('notice.search.phCreateBy')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('notice.search.phCreateBy')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('notice.search.phCreateBy')"
+          />
         </el-form-item>
         <el-form-item :label="t('notice.search.type')" prop="noticeType">
           <el-select
@@ -27,6 +31,19 @@
             class="w-[200px]"
           >
             <el-option v-for="dict in sys_notice_type" :key="dict.value" :label="dict.label" :value="dict.value" />
+          </el-select>
+        </el-form-item>
+        <!-- b80：`queryParams.status` 与 hasQueryFilter 早就存在，但后端 DTO 没有这个字段
+             ⇒ 值被 serde 静默丢弃。后端补上 status 谓词后，这里把控件接上（否则仍是假控件）。 -->
+        <el-form-item :label="t('notice.search.status')" prop="status">
+          <el-select
+            :aria-label="t('notice.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('notice.search.phStatus')"
+            clearable
+            class="w-[200px]"
+          >
+            <el-option v-for="dict in sys_notice_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -208,7 +225,14 @@
     />
 
     <!-- 添加或修改公告对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(80%, 780px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(80%, 780px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="noticeRef" :model="form" :rules="rules" label-width="80px">
         <el-row>
           <el-col :span="12">
@@ -217,12 +241,18 @@
                 v-model.trim="form.noticeTitle"
                 :placeholder="t('notice.search.phTitle')"
                 :maxlength="50"
-                show-word-limit :aria-label="t('notice.search.phTitle')" />
+                show-word-limit
+                :aria-label="t('notice.search.phTitle')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('notice.form.type')" prop="noticeType">
-              <el-select :aria-label="t('notice.form.type')" v-model="form.noticeType" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('notice.form.type')"
+                v-model="form.noticeType"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="dict in sys_notice_type"
                   :key="dict.value"

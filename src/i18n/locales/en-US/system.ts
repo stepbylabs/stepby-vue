@@ -103,7 +103,8 @@ export default {
       expireDays: 'Validity',
       expireDaysTip: 'Days; 0 means never expires',
       withAk: 'Enable AK/SK',
-      withAkTip: 'Also issue open API access keys (AK/SK) for signed open API calls; the SK plaintext is shown only once'
+      withAkTip:
+        'Also issue open API access keys (AK/SK) for signed open API calls; the SK plaintext is shown only once'
     },
     rule: {
       nameRequired: 'Please enter a token name',
@@ -122,9 +123,12 @@ export default {
     akSk: {
       accessKey: 'Access Key',
       secretKey: 'Secret Key',
-      warning: 'Open API AK/SK generated. Copy and store them now; the SK plaintext is shown only once and cannot be viewed again after closing.',
-      rotateConfirm: 'Rotate the open API SK of token "{name}"? The old SK stops working immediately and all requests signed with it will be rejected.',
-      revokeConfirm: 'Revoke the open API AK/SK of token "{name}"? AK/SK signed requests will stop working immediately.',
+      warning:
+        'Open API AK/SK generated. Copy and store them now; the SK plaintext is shown only once and cannot be viewed again after closing.',
+      rotateConfirm:
+        'Rotate the open API SK of token "{name}"? The old SK stops working immediately and all requests signed with it will be rejected.',
+      revokeConfirm:
+        'Revoke the open API AK/SK of token "{name}"? AK/SK signed requests will stop working immediately.',
       revoked: 'AK/SK revoked'
     },
     admin: {
@@ -261,7 +265,6 @@ export default {
     }
   },
   user: {
-
     title: 'User Management',
     search: {
       username: 'Username',
@@ -364,7 +367,8 @@ export default {
       done: 'User "{user}" has been anonymized (irreversible)'
     },
     initialPasswordWarning: 'Your password is still the initial password. Please change it!',
-    forcePasswordChangeWarning: 'Force password change policy is enabled: you are using the initial password or your password has expired. You must change your password before accessing other features.',
+    forcePasswordChangeWarning:
+      'Force password change policy is enabled: you are using the initial password or your password has expired. You must change your password before accessing other features.',
     passwordExpiredWarning: 'Your password has expired. Please change it as soon as possible!',
     securityTip: 'Security Tip'
   },
@@ -374,22 +378,28 @@ export default {
     mappingType: 'Mapping Type',
     memberCount: 'Members',
     bindingCount: 'Bindings',
-    sourceTip: 'Group data is synced via SCIM (managed on the IdP side). Member and binding sync is maintained automatically; only binding targets can be adjusted here',
+    sourceTip:
+      'Group data is synced via SCIM (managed on the IdP side). Member and binding sync is maintained automatically; only binding targets can be adjusted here',
     editTitle: 'Group Binding Configuration',
     typeRole: 'Map to Roles',
     typeDept: 'Map to Secondary Departments',
     mappingLocked: 'Bindings exist; mapping type cannot be changed (clear bindings first)',
-    mappingTip: 'After binding, group members will be granted automatically; the mapping type cannot be changed arbitrarily once set',
+    mappingTip:
+      'After binding, group members will be granted automatically; the mapping type cannot be changed arbitrarily once set',
     bindRoles: 'Bound Roles',
-    bindRoleTip: 'Group members will automatically be granted the selected roles (sourced from this group, independent of admin manual grants)',
+    bindRoleTip:
+      'Group members will automatically be granted the selected roles (sourced from this group, independent of admin manual grants)',
     bindDept: 'Bound Secondary Departments',
-    bindDeptTip: 'Group members will automatically join the selected departments as secondary membership (primary department unaffected)',
+    bindDeptTip:
+      'Group members will automatically join the selected departments as secondary membership (primary department unaffected)',
     members: 'Group Members',
     userName: 'Username',
     nickName: 'Nickname',
-    memberReadonly: 'Group members are managed on the SCIM IdP side and are read-only here; remove members on the IdP side to sync',
+    memberReadonly:
+      'Group members are managed on the SCIM IdP side and are read-only here; remove members on the IdP side to sync',
     deleteConfirm: 'Delete group "{0}"? Its role/department grants will be revoked and the group will be soft-deleted',
-    batchDeleteConfirm: 'Delete the {0} selected groups? Their role/department grants will be revoked and the groups will be soft-deleted'
+    batchDeleteConfirm:
+      'Delete the {0} selected groups? Their role/department grants will be revoked and the groups will be soft-deleted'
   },
   tenant: {
     tenantId: 'Tenant ID',
@@ -448,8 +458,7 @@ export default {
     capabilityPlatformOff: 'Platform off',
     capabilitySave: 'Save',
     capabilitySaved: 'Capabilities saved; role menu grants have been reconciled',
-    capabilityNoPackage:
-      'This tenant has no package assigned. Assign one via "Edit" before configuring capabilities.',
+    capabilityNoPackage: 'This tenant has no package assigned. Assign one via "Edit" before configuring capabilities.',
     capabilityModeOffTip: 'off = disabled (identical to the behavior before this feature existed)',
     capabilityPlatformCeiling:
       'Package capabilities can only narrow the platform layer (the platform is the ceiling): capabilities the platform has not enabled cannot take effect regardless of the package setting'
@@ -462,8 +471,7 @@ export default {
     addTitle: 'Add Domain Binding',
     domain: 'Domain',
     domainPlaceholder: 'e.g. tenant.example.com (no port or path)',
-    domainRule:
-      'Invalid domain format (lowercase letters, digits, dots and hyphens only, at least one dot)',
+    domainRule: 'Invalid domain format (lowercase letters, digits, dots and hyphens only, at least one dot)',
     domainType: 'Domain Type',
     typeSub: 'Subdomain',
     typeCustom: 'Custom Domain',
@@ -490,9 +498,9 @@ export default {
     setPrimary: 'Set Primary',
     setPrimaryConfirm: 'Set "{0}" as the primary domain of this tenant?',
     setPrimaryTip: 'Only verified and enabled domains can be set as primary',
-    deleteConfirm:
-      'Delete domain binding "{0}"? It will no longer participate in tenant resolution',
-    statusTip: 'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
+    deleteConfirm: 'Delete domain binding "{0}"? It will no longer participate in tenant resolution',
+    statusTip:
+      'Once disabled, this domain no longer participates in tenant resolution (Host → tenant mapping disabled)',
     empty: 'No domain bound yet',
     myTitle: 'Domain Management',
     selfServiceTip:
@@ -536,11 +544,9 @@ export default {
     perms: 'Permission',
     selected: 'Added',
     empty: 'No tenant navigation configured (the navigation fully follows the platform default)',
-    deleteConfirm:
-      'Delete navigation item "{0}"? The node will fall back to its platform default position',
+    deleteConfirm: 'Delete navigation item "{0}"? The node will fall back to its platform default position',
     duplicate: 'This menu is already in the navigation',
-    readonlyTip:
-      'The capability is in view-only mode (nav.l3 = view_only); navigation settings are read-only.',
+    readonlyTip: 'The capability is in view-only mode (nav.l3 = view_only); navigation settings are read-only.',
     disabledTip:
       'The "tenant-built navigation" capability (nav.l3) is not enabled; please ask a platform administrator to enable it.'
   },
@@ -598,8 +604,10 @@ export default {
         phonenumber: 'Phone Number',
         email: 'Email'
       },
-      tipHidden: 'Once checked as "Hidden", the field will be hidden on the {table} list page for all users of this role',
-      confirmSave: 'Saving will fully overwrite the field hidden config of this role and affect list visibility for all its users. Continue?',
+      tipHidden:
+        'Once checked as "Hidden", the field will be hidden on the {table} list page for all users of this role',
+      confirmSave:
+        'Saving will fully overwrite the field hidden config of this role and affect list visibility for all its users. Continue?',
       saveSuccess: 'Saved successfully'
     },
     dataScope: 'Data Permission',
@@ -710,7 +718,8 @@ export default {
       configValue: 'Config Value',
       configType: 'Built-in',
       governance: 'Governance',
-      governanceTip: 'platform_only = platform-exclusive; values hidden from tenants are not delivered. Edit safety is enforced by backend Locked guard.',
+      governanceTip:
+        'platform_only = platform-exclusive; values hidden from tenants are not delivered. Edit safety is enforced by backend Locked guard.',
       hiddenToTenant: 'Hidden',
       remark: 'Remark',
       createTime: 'Created Time'
@@ -950,7 +959,9 @@ export default {
       phTitle: 'Enter notice title',
       createBy: 'Created By',
       phCreateBy: 'Enter creator',
-      type: 'Notice Type'
+      type: 'Notice Type',
+      status: 'Status',
+      phStatus: 'Notice status'
     },
     column: {
       id: 'Notice ID',
@@ -1130,7 +1141,8 @@ export default {
         confirmDelete: 'Are you sure to delete the send log with ID "{ids}"?',
         confirmClean: 'Are you sure you want to clear all send logs? This action cannot be undone!',
         confirmRetry: 'Are you sure you want to retry send log "{logId}"?',
-        confirmMarkPending: '{count} selected: only terminally failed rows are requeued (successful rows are skipped, so nothing is delivered twice). Continue?'
+        confirmMarkPending:
+          '{count} selected: only terminally failed rows are requeued (successful rows are skipped, so nothing is delivered twice). Continue?'
       },
       cleanSuccess: 'Send logs cleared',
       retrySuccess: 'Retry succeeded',
@@ -1655,7 +1667,8 @@ export default {
     autoRefreshInterval: 'Auto Refresh Interval',
     autoRefreshTip: 'seconds (0 means disabled)',
     mobileTableCards: 'Mobile Table Cards',
-    mobileTableCardsTip: 'Render tables as stacked cards (labels first) on phones; default off keeps horizontal scrolling',
+    mobileTableCardsTip:
+      'Render tables as stacked cards (labels first) on phones; default off keeps horizontal scrolling',
     appearance: 'Appearance',
     followSystemDark: 'Follow System Dark Mode',
     followSystemDarkTip: 'Automatically follow system theme when enabled',
@@ -1922,7 +1935,7 @@ export default {
     hint: 'The AI generates SQL which is security-checked then executed (read-only, tenant-isolated)',
     resultTitle: 'Query result',
     rowCount: '{n} rows',
-      tokenUsage: '{promptTokens}+{completionTokens} tokens (total {totalTokens})',
+    tokenUsage: '{promptTokens}+{completionTokens} tokens (total {totalTokens})',
     exportCsv: 'Export CSV',
     generatedSql: 'Generated SQL (tables referenced):',
     emptyResult: 'Query succeeded but returned no rows',

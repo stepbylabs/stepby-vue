@@ -55,14 +55,18 @@ export const RESIDUE_STEPS = [
   // （属用户态）⇒ 不清就成了指向已删公告的孤儿行，且每轮 +1。按标题前缀连带收口。
   // 批七十九 M1：「批量已读选中态」改为**自建未读夹具**（P3 之后已读态是服务端事实，
   // 靠库里恰好有未读行＝把判据耦合到运行库历史）。夹具用例内已 DELETE，这里兜底同前缀。
+  // 批八十 M25：「横幅按最新公告可见」也建一条真实公告（noticeType='2'，前缀 E2E25）。
   // 两个前缀**合并在同一条语句**里：同表同名的两条条目会让任何按 name 建索引的下游
   // （报告、对账）静默吞掉一条——清理顺序必须保持「先子表已读、后公告本体」，否则子查询按标题
   // 找不到刚被删掉的公告。
   [
     'notice_read',
-    "DELETE FROM sys_notice_read WHERE notice_id IN (SELECT notice_id FROM sys_notice WHERE notice_title LIKE 'E2E87%' OR notice_title LIKE 'E2EM1%')"
+    "DELETE FROM sys_notice_read WHERE notice_id IN (SELECT notice_id FROM sys_notice WHERE notice_title LIKE 'E2E87%' OR notice_title LIKE 'E2EM1%' OR notice_title LIKE 'E2E25%')"
   ],
-  ['notice', "DELETE FROM sys_notice WHERE notice_title LIKE 'E2E87%' OR notice_title LIKE 'E2EM1%'"],
+  [
+    'notice',
+    "DELETE FROM sys_notice WHERE notice_title LIKE 'E2E87%' OR notice_title LIKE 'E2EM1%' OR notice_title LIKE 'E2E25%'"
+  ],
   // 批三十九：F75 请假单链路残留（doc/task/log 三表，每轮 +1 链）——r49 巡检实证 136 链
   // b78 修正：判据原为 'e2e75-%'，而 deep-e2e M75 实际生成的是 **'e2e75b-doc-…'**，
   // 前缀不匹配 ⇒ 每轮残留 1 单 + 3 任务从未被清（回库实测 5 单 / 15 任务）。

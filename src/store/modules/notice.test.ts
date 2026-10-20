@@ -44,6 +44,60 @@ describe('store/modules/notice', () => {
     expect(store.refreshPromise).toBeNull()
   })
 
+  it('totalCount drives readCount; missing totalCount fails safe to 0', async () => {
+    // 卡片三个数必须自洽：全部=listTop.totalCount（可见面），未读=listTop.unreadCount，
+    // 已读=两者之差。列表 total 会随筛选变化（'未读' 档下它就是未读数），拿它当分母会算出"已读 0"
+    mocked.listNoticeTop.mockResolvedValue({
+      code: 200,
+      msg: 'ok',
+      data: [],
+      unreadCount: 3,
+      totalCount: 10
+    } as SysNoticeTopResult)
+    const store = useNoticeStore()
+    await store.refreshTopNotices()
+    expect(store.totalCount).toBe(10)
+    expect(store.unreadCount).toBe(3)
+    expect(store.readCount).toBe(7)
+
+    // 字段缺失 ⇒ 0（宁可不显示，也不显示一个来路不明的分母）
+    mocked.listNoticeTop.mockResolvedValue({ data: [], unreadCount: 2 } as unknown as SysNoticeTopResult)
+    const s2 = useNoticeStore()
+    await s2.refreshTopNotices()
+    expect(s2.totalCount).toBe(0)
+    expect(s2.readCount).toBe(0)
+
+    // 反向分家（未读 > 全部）不得显示负数——钳 0 是最后防线，同源等式由后端集成测试钉
+    mocked.listNoticeTop.mockResolvedValue({
+      code: 200,
+      msg: 'ok',
+      data: [],
+      unreadCount: 9,
+      totalCount: 4
+    } as SysNoticeTopResult)
+    const s3 = useNoticeStore()
+    await s3.refreshTopNotices()
+    expect(s3.readCount).toBe(0)
+  })
+
+  it('markAllUnreadRead zeroes unread but keeps the visible total', async () => {
+    mocked.markAllUnreadNoticeRead.mockResolvedValue({ data: 5 } as unknown as Awaited<
+      ReturnType<typeof markAllUnreadNoticeRead>
+    >)
+    mocked.listNoticeTop
+      .mockResolvedValueOnce({ code: 200, msg: 'ok', data: [], unreadCount: 5, totalCount: 12 } as SysNoticeTopResult)
+      .mockResolvedValueOnce({ code: 200, msg: 'ok', data: [], unreadCount: 0, totalCount: 12 } as SysNoticeTopResult)
+    const store = useNoticeStore()
+    await store.refreshTopNotices()
+    expect(store.readCount).toBe(7)
+    const marked = await store.markAllUnreadRead()
+    expect(marked).toBe(5)
+    // 标记条数必须等于调用前的未读数（后端同源判据的前端镜像）
+    expect(store.unreadCount).toBe(0)
+    expect(store.totalCount).toBe(12)
+    expect(store.readCount).toBe(12)
+  })
+
   it('refreshTopNotices honors explicit unreadCount and empty data fallback', async () => {
     mocked.listNoticeTop.mockResolvedValue({ unreadCount: 7 } as SysNoticeTopResult)
     const store = useNoticeStore()
@@ -157,12 +211,20 @@ describe('store/modules/notice', () => {
   })
 
   it('clearAll resets every slice of state', async () => {
-    mocked.listNoticeTop.mockResolvedValue({ data: [{ noticeId: 1, isRead: false }] } as SysNoticeTopResult)
+    mocked.listNoticeTop.mockResolvedValue({
+      data: [{ noticeId: 1, isRead: false }],
+      unreadCount: 1,
+      totalCount: 8
+    } as SysNoticeTopResult)
     const store = useNoticeStore()
     await store.refreshTopNotices()
+    expect(store.totalCount).toBe(8)
     store.clearAll()
     expect(store.topNotices).toEqual([])
     expect(store.unreadCount).toBe(0)
+    // 登出后"可见总数"必须跟着归零，否则下一个账号的卡片减法会拿到上一任的分母
+    expect(store.totalCount).toBe(0)
+    expect(store.readCount).toBe(0)
     expect(store.readIds.size).toBe(0)
     expect(store.loading).toBe(false)
     expect(store.refreshPromise).toBeNull()
