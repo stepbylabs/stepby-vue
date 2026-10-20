@@ -2635,6 +2635,38 @@ node tests/e2e/deep-verdict-diff.mjs <roundA.log> <roundB.log>
 3. 判据从 1 条变 2 条会改变全量总数 ⇒ 棘轮/基线数字必须用**新一轮复跑实测值**刷新，不得手算
    （本批 M25 由 1 条软断言变 2 条确定态判据，总数随之变化；写进 AGENTS/TESTING 的是复跑结果，不是推算结果）。
 
+### 3.60.8 EP 组件定位的两个静默坑（b80 实测，三次假红才定位）
+
+**坑一：中文双字按钮被 `autoInsertSpace` 渲染成「取 消」。** `button:has-text("取消")` 匹配不到，
+点击默认等待 30s 后超时；`.catch(()=>{})` 把超时吞掉，于是弹窗和 modal 遮罩**留在页面上**，
+后续所有"搜索区"控件点击都会超时或打到遮罩上。判据表现是"下拉不可见/选项为空"，真正原因却是
+上一个弹窗没关。三条纪律：
+
+1. 关对话框优先点 `.el-dialog__headerbtn`（与文案无关），并 `waitFor({state:'hidden'})`——
+   只点不等的下一行仍可能被残留遮罩拦截。
+2. 中文按钮若必须按文案定位，用 `hasText: /取\s*消/` 或 `getByRole('button', { name: /取\s*消/ })`；
+   不要用无空格的 `has-text("取消")`。
+3. 交互失败必须留**截图 + 当前可见弹窗数**。b80 正是靠失败截图看到"新增公告管理"弹窗还开着，
+   否则会一直在下拉定位器上打转。
+
+**坑二：EP 2.x 的 `el-select` 没有 `<input placeholder>`。** placeholder 渲染在
+`.el-select__placeholder` 的 span 上，`getByPlaceholder('请输入公告状态')` 永远 `visible=false`。
+定位改用表单项标签作用域：
+
+```js
+const select = page
+  .locator('.el-form-item')
+  .filter({ has: page.locator('.el-form-item__label:text-is("状态")') })
+  .locator('.el-select')
+await select.locator('.el-select__wrapper').click() // 展开热区在 wrapper，不是根节点
+const option = page.locator('.el-select-dropdown__item:visible').filter({ hasText: /^关闭$/ })
+```
+
+**筛选类判据必须带正反夹具**（b80 F7 模板）：建一条匹配值与一条不匹配值 → 真实下拉选择 →
+`waitForResponse` 断言请求确带服务端参数（如 `status=1`）→ 断言响应集合**只含匹配项**且不匹配项
+不在 → 收尾删除。只断"请求发出了"会把"参数被 serde 丢弃"（假控件）照样判绿；只断"行全匹配"
+在 0 行时是空真。
+
 ### 3.61 棘轮"收紧入口"必须先比后写：只许降的不变式由**写入**守住，不由退出码守住
 
 本批查出三个收紧入口都是**无条件落盘**——比较只写在 `--gate` 那一路，写入那一路不比：
