@@ -525,10 +525,29 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   await loginBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   await loginBtn.click()
 
-  // 等待跳转（最多 15 秒）
+  // 等待跳转：**成功跳转**与**可见错误提示**二者之一先到，谁先到听谁的。
   // 注意：不能使用 '**/index**' glob，因为登录页 URL /login?redirect=/index 也包含 /index，
-  // 会导致 waitForURL 立即返回而误判登录成功。改用函数断言：URL 不包含 /login 才算登录成功
-  await page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 15000 }).catch(() => {})
+  // 会导致 waitForURL 立即返回而误判登录成功。改用函数断言：URL 不包含 /login 才算登录成功。
+  // b81 起不再"固定等 15s 后一锤定音"：deep-e2e 全量实测过同一形状的假失败
+  // （截图里已登录进 /index，只是跳转晚于窗口），环境慢不等于登录坏；
+  // 登录真失败时 error toast 会先出现，也不必白等满窗口。
+  if (page.url().includes('/login')) {
+    const outcome = await Promise.race([
+      page
+        .waitForURL((url) => !url.toString().includes('/login'), { timeout: 30000 })
+        .then(() => 'nav')
+        .catch(() => 'timeout'),
+      page
+        .locator('.el-message--error')
+        .first()
+        .waitFor({ state: 'visible', timeout: 30000 })
+        .then(() => 'error')
+        .catch(() => 'timeout')
+    ])
+    if (outcome === 'timeout' && !page.url().includes('/login')) {
+      log('  ⚠️ 登录跳转晚于等待窗口，但 URL 已离开登录页——按成功处理')
+    }
+  }
   await sleep(2500)
   log(`  当前 URL: ${page.url()}`)
 
@@ -14789,8 +14808,10 @@ async function testFeature66(page) {
       if (r.method() === 'POST' && r.url().includes('/tool/gen/synchDb')) syncPosted++
     }
     page.on('request', reqH)
+    // 行内按钮的 aria-label 与 tooltip 同源（`gen.btn.sync` = 同步）。b81 修正可访问名后，
+    // 旧的 `/刷新|Refresh/` 不再命中——此处按真实可访问名取，不再按"图标长什么样"猜。
     await firstRow
-      .getByRole('button', { name: /刷\s*新|Refresh/i })
+      .getByRole('button', { name: /同\s*步|Sync/i })
       .first()
       .click()
     await sleep(600)
@@ -27672,7 +27693,9 @@ async function testFeature143(page) {
       const res = await fetch(`${CONFIG.backendUrl}/system/user/totp/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...H },
-        body: JSON.stringify({ code: '000000' })
+        // DTO 要求 code 与 secret 同时存在；只送 code 会被 garde 422 拦在业务层之外，
+        // 虽然同样消耗路由桶，但测不到 verify 的真实失败路径（b81 收口实证：20 条 422）。
+        body: JSON.stringify({ code: '000000', secret: 'JBSWY3DPEHPK3PXP' })
       })
       const text = await res.text().catch(() => '')
       seen.push(res.status)
@@ -27687,7 +27710,7 @@ async function testFeature143(page) {
   record(
     143,
     '③ 敏感档打满返回 429',
-    !!hit429,
+    !!hit429 && seen.every((s) => s === 400 || s === 429),
     hit429
       ? `第 ${hit429.at} 次触发，状态序列=${seen.join(',')}`
       : `14 次未触发（桶容量/速率与档位预期不符）序列=${seen.join(',')}`
@@ -27823,9 +27846,18 @@ async function testFeature144(page) {
     // ③ 形状锁：路径里不得出现裸 `#`（片段截断），且 getValue 之后的段数必须恰为 3
     //（`getValue/<cacheName>/<cacheKey>` 去掉 `/monitor/cache/` 前缀后就是 3 段；
     //  取 4 段是把开头那个空段也数进去了——判据自己写错会让合规实现恒红，实测踩过）
+    // 段数以 `/monitor/cache/` **标记之后**的路径为准：请求 URL 带 `/prod-api` 前缀
+    // （axios baseURL），用 `p.replace('/monitor/cache/','')` 会把前缀和后缀拼成
+    // `"/prod-apigetValue"` 而多数一段（b81 实测的假红）。标记定位对前后缀都免疫。
+    const CACHE_MARKER = '/monitor/cache/'
     const shapes = got.map((e) => {
       const p = new URL(e.url).pathname
-      return { p, hashInPath: p.includes('#'), segs: p.replace('/monitor/cache/', '').split('/') }
+      const at = p.indexOf(CACHE_MARKER)
+      return {
+        p,
+        hashInPath: p.includes('#'),
+        segs: at >= 0 ? p.slice(at + CACHE_MARKER.length).split('/') : []
+      }
     })
     const badHash = shapes.filter((s) => s.hashInPath)
     const badSegs = shapes.filter((s) => s.p.includes('/getValue/') && s.segs.length !== 3)
@@ -27836,7 +27868,10 @@ async function testFeature144(page) {
       badHash.length
         ? `含裸 # 的路径 ${badHash.length} 条：${badHash[0].p.slice(0, 90)}`
         : badSegs.length
-          ? `段数异常 ${badSegs.length} 条：${badSegs[0].p.slice(0, 90)}`
+          ? `段数异常 ${badSegs.length} 条：${badSegs
+              .slice(0, 2)
+              .map((s) => `${s.p}（${s.segs.length} 段=${JSON.stringify(s.segs)}）`)
+              .join(' | ')}`
           : `${shapes.length} 条路径形状均合规`
     )
   } catch (err) {

@@ -209,12 +209,20 @@ export const ORPHAN_CHECKS = [
   ['user_post→user', 'sys_user_post', 'NOT EXISTS (SELECT 1 FROM sys_user u WHERE u.user_id = sys_user_post.user_id)'],
   ['user_post→post', 'sys_user_post', 'NOT EXISTS (SELECT 1 FROM sys_post p WHERE p.post_id = sys_user_post.post_id)'],
   ['tenant_domain→tenant', 'sys_tenant_domain', 'tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
+  // b81 实测：tenant 表为空但 sys_tenant_menu 还留着一条活跃行。产品侧删除租户会
+  // **软删**导航行（可恢复），所以这条报出来的不是产品缺陷，而是清理脚本把租户行
+  // 物理删掉却没删子表（同 notice_read→notice 的形态）。清理步骤见 RESIDUE_STEPS
+  // 的 tenant_menu_orphan（必须排在 tenants 之后）。
+  ['tenant_menu→tenant', 'sys_tenant_menu', 'tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
   // 公告删除在产品侧**是**级联的（`sys_notice_service.rs:660` 在同一事务里
   // `read_repo.delete_by_notice_ids_conn(txn, …)`，注释点名 P0-76）⇒ 这条孤儿判据报出来的
   // 不是产品缺陷，而是**绕过产品删除路径的写入方**：`residue-cleanup.mjs` 用直连 SQL
   // `DELETE FROM sys_notice WHERE …` 删公告，不经过那个事务，已读记录就留下孤儿。
   // 所以这条锁真正钉的是清理脚本自己（b79 给它补了同前缀的 notice_read 删除步骤）。
-  ['notice_read→notice', 'sys_notice_read', 'notice_id NOT IN (SELECT notice_id FROM sys_notice)']
+  ['notice_read→notice', 'sys_notice_read', 'notice_id NOT IN (SELECT notice_id FROM sys_notice)'],
+  // b81 M88：代码生成配置删除不会级联列定义。正常路径由产品/用例自清；
+  // 中断轮会留下"列定义指向已删配置"的孤儿行（清理器 gen_table_column_e2e 兜底）。
+  ['gen_column→gen', 'gen_table_column', 'table_id NOT IN (SELECT table_id FROM gen_table)']
 ]
 
 /** 判据②c：状态枚举越界（跑批不该产生域外值） */
@@ -240,17 +248,26 @@ export const FUTURE_CHECKS = [
 ]
 
 /**
- * "现在"必须由 **SQL 侧**给出（`datetime('now','localtime')`），不得在 JS 里格式化后传字符串：
- * 落库文本是服务器本地时间，`toISOString()` 是 UTC，本地 UTC+8 的机器上用 UTC 串做阈值
- * 等于把阈值往前挪 8 小时，"未来时间"会命中大量正常行（假红）。
+ * "现在"必须由 **SQL 侧**给出，不得在 JS 里格式化后传字符串。
+ *
+ * 时区口径（b81 / §10 N-16）：全仓落库时间由 `common::datetime::now_naive()`
+ * = `Utc::now().naive_local()`（名字里的 local 是 chrono 的 "naive local"，**不是**本机时区）
+ * 与 `migration::seed_now_expr()`（UTC 字面量）写入，二者同为 UTC 语义。实测 dev 库
+ * `max(sys_oper_log.oper_time)=2026-10-20 18:14`，同刻本机挂钟为 `2026-10-21 02:19`
+ * （UTC+8）——列值是 UTC。
+ * 因此阈值必须用 `datetime('now')`；带 `localtime` 会把阈值前移 8 小时，使最近 8 小时内
+ * 的"未来时间"行全部漏报（少报而不报错，b74 轮 25 同族形状）。
  * 自检传字面量把"未来/过去"钉成确定值，生产用默认表达式。
  */
-export const NOW_EXPR = "datetime('now','localtime','+1 hour')"
+export const NOW_EXPR = "datetime('now','+1 hour')"
 
 /** 非终态在途（信息项，不判红：这些量随库龄与跑批次数变，任何绝对阈值都会变成环境耦合判据） */
 export const INFO_CHECKS = [
   ['sys_flow_task 未处理', 'sys_flow_task', "status IN ('0','pending')"],
-  ['sys_msg_send_log 待发/失败待重', 'sys_msg_send_log', "status IN ('0','2')"],
+  // 消息状态机：0=成功 / 1=失败（重试耗尽）/ 2=待重试（见 entity/sys_msg_send_log.rs）。
+  // 此前把 '0' 也写进"待发/失败待重"，把 920 条成功发送误报成积压（b81 实测）。
+  ['sys_msg_send_log 待重试', 'sys_msg_send_log', "status='2'"],
+  ['sys_msg_send_log 已失败（重试耗尽）', 'sys_msg_send_log', "status='1'"],
   ['sys_msg_send_log send_time IS NULL（设计上永不清理档）', 'sys_msg_send_log', 'send_time IS NULL'],
   ['sys_web_hook_log 待重试', 'sys_web_hook_log', "status <> '1'"],
   ['sys_pat 有效令牌', 'sys_pat', "status='0'"],
@@ -509,6 +526,7 @@ const SYNTH_DDL = `
   CREATE TABLE sys_user_post (user_id INTEGER, post_id INTEGER);
   CREATE TABLE sys_tenant (tenant_id INTEGER PRIMARY KEY, tenant_name TEXT, del_flag TEXT);
   CREATE TABLE sys_tenant_domain (id INTEGER PRIMARY KEY, tenant_id INTEGER, domain TEXT);
+  CREATE TABLE sys_tenant_menu (l3_id INTEGER PRIMARY KEY, tenant_id INTEGER, ref_menu_id INTEGER, del_flag TEXT);
   CREATE TABLE sys_dict_type (dict_id INTEGER PRIMARY KEY, dict_name TEXT, dict_type TEXT, status TEXT, del_flag TEXT);
   CREATE TABLE sys_config (config_id INTEGER PRIMARY KEY, config_name TEXT, config_key TEXT, config_value TEXT, config_type TEXT);
   CREATE TABLE sys_pat (pat_id INTEGER PRIMARY KEY, name TEXT, status TEXT, expire_time TEXT);
@@ -518,7 +536,9 @@ const SYNTH_DDL = `
   CREATE TABLE sys_logininfor (info_id INTEGER PRIMARY KEY, user_name TEXT, login_time TEXT);
   CREATE TABLE flow_demo_doc (doc_id INTEGER PRIMARY KEY, title TEXT);
   CREATE TABLE sys_flow_task (task_id INTEGER PRIMARY KEY, status TEXT);
-  CREATE TABLE sys_msg_send_log (id INTEGER PRIMARY KEY, status TEXT, send_time TEXT);
+  CREATE TABLE sys_msg_send_log (id INTEGER PRIMARY KEY, status TEXT, send_time TEXT, remark TEXT);
+  CREATE TABLE gen_table (table_id INTEGER PRIMARY KEY, table_name TEXT);
+  CREATE TABLE gen_table_column (column_id INTEGER PRIMARY KEY, table_id INTEGER);
   CREATE TABLE sys_web_hook_log (id INTEGER PRIMARY KEY, status TEXT);
   CREATE TABLE sys_user_credential (id INTEGER PRIMARY KEY, name TEXT);
   CREATE TABLE no_pk_table (name TEXT);
@@ -899,6 +919,13 @@ export function selftest() {
       '生产 RESIDUE_STEPS 的公告清理成对（含顺序）',
       findUnpairedNoticeCleanup(RESIDUE_STEPS).length === 0,
       JSON.stringify(findUnpairedNoticeCleanup(RESIDUE_STEPS))
+    )
+
+    // ---- 时区口径（§10 N-16）：落库时间戳是 UTC，阈值不得带 localtime ----
+    push(
+      '未来时间阈值按 UTC 口径（带 localtime 会把阈值前移 8h，最近 8h 的未来行全漏报）',
+      !NOW_EXPR.includes('localtime') && NOW_EXPR.includes("datetime('now'"),
+      NOW_EXPR
     )
 
     // ---- 时序自证（§10 N-14）：读得到就报数，读不到必须响亮 ----

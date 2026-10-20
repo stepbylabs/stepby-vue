@@ -167,7 +167,7 @@
               link
               type="primary"
               icon="Refresh"
-              :aria-label="t('gen.btn.refresh')"
+              :aria-label="t('gen.btn.sync')"
               @click="handleSynchDb(scope.row)"
               v-hasPermi="['tool:gen:edit']"
             ></el-button>
@@ -177,7 +177,7 @@
               link
               type="primary"
               icon="Download"
-              :aria-label="t('gen.btn.download')"
+              :aria-label="t('gen.btn.generateCode')"
               @click="handleGenTable(scope.row)"
               v-hasPermi="['tool:gen:code']"
             ></el-button>

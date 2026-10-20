@@ -35,12 +35,17 @@ export const RESIDUE_STEPS = [
     'user_post',
     "DELETE FROM sys_user_post WHERE user_id IN (SELECT user_id FROM sys_user WHERE del_flag='2') OR post_id IN (SELECT post_id FROM sys_post WHERE del_flag='2')"
   ],
-  ['tenant_domain', 'DELETE FROM sys_tenant_domain WHERE tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
   ['users', "DELETE FROM sys_user WHERE del_flag='2'"],
   ['depts', "DELETE FROM sys_dept WHERE del_flag='2'"],
   ['roles', "DELETE FROM sys_role WHERE del_flag='2'"],
   ['posts', "DELETE FROM sys_post WHERE del_flag='2' OR post_code LIKE 'test%'"],
   ['tenants', "DELETE FROM sys_tenant WHERE del_flag='2'"],
+  // 租户行被**物理**清掉后，其子表必须一并收口（b81 实测：dev 库 tenant 表为空但
+  // sys_tenant_menu 还留着一条活跃行）。顺序同样是判据：这两步必须排在 `tenants` 之后，
+  // 否则同一轮刚被删掉的租户，其域名/导航行在删除前还"看得到租户"，孤儿清理会漏掉它们
+  // （同 `findUnpairedNoticeCleanup` 对"先删公告再删已读"的顺序不变式）。
+  ['tenant_domain_orphan', 'DELETE FROM sys_tenant_domain WHERE tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
+  ['tenant_menu_orphan', 'DELETE FROM sys_tenant_menu WHERE tenant_id NOT IN (SELECT tenant_id FROM sys_tenant)'],
   // 批三十六：dict/pat/config 残留治理（r43 巡检实证：dict 软删 127 行、PAT 261 行、config 2 行
   // 不在清理范围 → 每轮全量无限增长）。仅删 e2e 前缀 + 已软删/已吊销行，在册数据不受影响。
   [
@@ -212,7 +217,19 @@ export const RESIDUE_STEPS = [
   // （`sys_job_service.rs` 的 `delete_jobs` 置 `del_flag='2'`），列表回查看不见但库里每轮 +1。
   // 判据与 sys_user / sys_role / sys_dept 三族同形：只碰 e2e 命名族 **且** 已软删的行。
   // 在册业务任务（`retention` 那条每日 03:00 的清理任务等）零命中。
-  ['job_softdel_e2e', "DELETE FROM sys_job WHERE lower(job_name) LIKE 'e2e%' AND del_flag = '2'"]
+  ['job_softdel_e2e', "DELETE FROM sys_job WHERE lower(job_name) LIKE 'e2e%' AND del_flag = '2'"],
+  // 批八十一 M88：代码生成全链（结构化建表→导入→同步→改→删配置→DROP 物理表）。
+  // 正常路径自清，但**中断轮**会留下 gen_table 行与 e2egen<ts> 物理表；删除配置不级联列定义
+  // ⇒ 必须先清 gen_table_column，否则留下指向已删配置的孤儿行（test-data-audit 会报跨表孤儿）。
+  [
+    'gen_table_column_e2e',
+    "DELETE FROM gen_table_column WHERE table_id IN (SELECT table_id FROM gen_table WHERE lower(table_name) LIKE 'e2egen%')"
+  ],
+  ['gen_table_e2e', "DELETE FROM gen_table WHERE lower(table_name) LIKE 'e2egen%'"],
+  // 批八十一 M88：消息记录夹具（产品没有"造失败终态"的接口，只能直接落库）。
+  // remark 是夹具唯一标记；正常路径在 finally 物理删除，进程被杀时由这条兜底，
+  // 否则 status='1' 的失败记录会永久留在发送日志里，下一轮数据审计把它当真实业务失败报。
+  ['msg_send_log_fixture', "DELETE FROM sys_msg_send_log WHERE remark = 'b81 e2e fixture'"]
 ]
 
 export async function cleanupE2eResidue({ dbPath, log = () => {}, cleanupRunUploads = null }) {
@@ -235,9 +252,25 @@ export async function cleanupE2eResidue({ dbPath, log = () => {}, cleanupRunUplo
         log(`  残留清理跳过 ${name}: ${String(e).slice(0, 80)}`)
       }
     }
+    // 代码生成的物理表不在 SQL 谓词清单里（RESIDUE_STEPS 只做 DELETE）。M88 正常路径
+    // 自建自 DROP，中断轮会留下 e2egen<ts>；名字先过严格正则再插值，避免清理器自己变成
+    // "按 LIKE 拼 DDL"的注入面（前缀命中但形态不符一律不碰）。
+    const dropped = []
+    try {
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'e2egen%'").all()
+      for (const row of tables) {
+        const name = String(row.name)
+        if (!/^e2egen\d+$/.test(name)) continue
+        db.exec(`DROP TABLE IF EXISTS "${name}"`)
+        dropped.push(name)
+      }
+    } catch (e) {
+      log(`  物理表清理跳过: ${String(e).slice(0, 80)}`)
+    }
     db.close()
     log(`🧹 e2e 残留自清理完成：${total} 行（软删测试数据物理清除）`)
     log(`  清理逐条非零：${nonZero.join(', ') || '(本轮无行被删)'}`)
+    if (dropped.length) log(`  物理表已 DROP：${dropped.join(', ')}`)
   } catch (e) {
     log(`  残留自清理失败（不影响测试结果）: ${String(e).slice(0, 120)}`)
   }

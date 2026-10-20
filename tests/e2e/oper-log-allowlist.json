@@ -1,0 +1,515 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "method": "POST",
+      "url": "^/system/user$",
+      "error": "^权限拒绝",
+      "why": "M9 越权负路径：只读账号创建用户必须被服务端拒绝（403）；权限中间件先于业务响应体拒绝，故 json_result 为空、只能按 error_msg 匹配。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/post$",
+      "error": "^HTTP 400$",
+      "msg": "^岗位编码已存在$",
+      "why": "M26 唯一性负路径：重复岗位编码必须 400；用例在 POST 后按名回查，断言不得多出一行。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/file/upload$",
+      "error": "^HTTP 400$",
+      "msg": "无法识别的图片格式",
+      "why": "M31 上传负路径：伪造 magic bytes 的 64 字节文件必须被拒；用例同时断言磁盘未落该文件。"
+    },
+    {
+      "method": "POST",
+      "url": "^/unlockscreen$",
+      "error": "^HTTP 401$",
+      "msg": "^用户名或密码错误$",
+      "why": "M41 锁屏解锁负路径：错误口令必须 401；用例同时断言页面仍在锁屏态、未泄露会话。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/totp/verify$",
+      "error": "^HTTP 400$",
+      "msg": "^验证码错误或已过期$",
+      "why": "M42 TOTP 两步验证负路径：错误动态码必须 400；用例断言不签发会话。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/msg/channel/test/\\d+$",
+      "error": "^HTTP 400$",
+      "msg": "^短信渠道配置无效$",
+      "why": "M80 渠道连通性负路径：夹具渠道故意不带 config_json，服务端必须返回可读 400 而不是 500。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/flow/definition$",
+      "error": "^HTTP 400$",
+      "msg": "^已发布版本不可修改图定义，请发布新版本$",
+      "why": "M85 流程定义发布不可变链：已发布版本禁止原地改图，必须 400 并提示发布新版本。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/msg/send$",
+      "error": "^HTTP 404$",
+      "msg": "^消息模板不存在$",
+      "why": "M86 组合发送负路径：不存在的模板编码必须 4xx；用例同时断言发送记录数不增加（不得留下半条）。"
+    },
+    {
+      "method": "POST",
+      "url": "^/tool/http-debug/execute$",
+      "error": "^HTTP 400$",
+      "msg": "禁止访问保留域名后缀 localhost",
+      "why": "M87 HTTP 调试器 SSRF 负路径：localhost 保留域名必须被守卫拒绝；用例断言请求不出网。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/online/batchLogout$",
+      "error": "^HTTP 400$",
+      "msg": "^请选择要强退的会话$",
+      "why": "M88 批量强退负路径：空 tokenHashes 必须响亮 400，不得静默成功；另一组合法会话的 200/401 配对单独断言。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/dept/updateSort$",
+      "error": "^HTTP 400$",
+      "msg": "^deptIds 与 orderNums 数量不一致$",
+      "why": "M88 部门排序负路径：两个数组长度不一致必须 400，避免错位写入。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/dept/updateSort$",
+      "error": "^HTTP 400$",
+      "msg": "长度不能少于 1",
+      "why": "M88 部门排序负路径：空数组被 garde 长度下限拒绝；用例同时断言部门顺序未被改动。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/job$",
+      "error": "^HTTP 400$",
+      "msg": "^任务名称已存在$",
+      "why": "M88 定时任务负路径：同名任务必须被唯一性判据拒绝，且不得落库（按名回查 0 行）。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/job$",
+      "error": "^HTTP 400$",
+      "msg": "^cron 表达式非法$",
+      "why": "M88 定时任务负路径：非法 cron 必须 400；用例同时断言被拒的新增不落库。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/monitor/webHook/\\d+/status$",
+      "error": "^HTTP 400$",
+      "msg": "^请求参数无效$",
+      "why": "M88 回调状态负路径：档位 '9' 必须被白名单拒绝；合法启停随后单独断言并复原。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/report/dataset$",
+      "error": "^HTTP 400$",
+      "msg": "^SQL 模板校验失败: 仅允许 SELECT 查询$",
+      "why": "M88 数据集负路径：非 SELECT SQL 必须被守卫拒绝，防止报表引擎成为写入口。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/report/\\d+/status$",
+      "error": "^HTTP 400$",
+      "msg": "^status: 长度不能超过 1$",
+      "why": "M88 报表状态负路径：超长状态值必须被 garde 拒绝，避免枚举列写入脏值。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/report/sub$",
+      "error": "^HTTP 400$",
+      "msg": "至少开启一种推送渠道",
+      "why": "M88 报表订阅负路径：邮件与站内信都关闭时必须 400；用例断言不落半条订阅。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/role/dataScope$",
+      "error": "^HTTP 400$",
+      "msg": "^数据范围取值无效",
+      "why": "M88 角色 dataScope 白名单负路径：档位 '9' 必须 400；用例按 roleKey 回查断言未落库。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/role$",
+      "error": "^HTTP 400$",
+      "msg": "^数据范围取值无效",
+      "why": "M88 角色通用更新侧负路径：三条写入路径共用同一白名单，PUT /system/role 同样必须拒绝。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/rateLimit$",
+      "error": "^HTTP 400$",
+      "msg": "^capacity: 数值不能小于 1$",
+      "why": "M88 限流夹具负路径：capacity=0 会把路由打成全拒，garde 下限必须拦住。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/logininfor/unlock/[^/]+$",
+      "error": "^权限拒绝",
+      "why": "M88 登录日志解锁越权负路径：无 monitor:logininfor:unlock 的账号必须 403；用例同时断言在册行未被改动。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/uploadConfig/test$",
+      "error": "^HTTP 400$",
+      "msg": "连通失败: S3 请求失败",
+      "why": "M88 上传配置连通性负路径：夹具指向不可达的 127.0.0.1:9000，必须返回可读 400（不接受 500 或空 msg）；对应的后端 ERROR 另有 src\\storage\\s3 允许表条目。"
+    },
+    {
+      "method": "POST",
+      "url": "^/register$",
+      "error": "^ServiceError\\(code=403, message=当前系统未开放注册，请联系管理员\\)$",
+      "why": "注册开关关闭态负路径：公开注册必须先判能力位再落库，用例断言 403 且不新增用户。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/ipLocation/config$",
+      "error": "^权限拒绝：缺少所需权限 monitor:iplocation:edit$",
+      "why": "IP 归属地配置越权负路径：无 monitor:iplocation:edit 的账号必须 403；用例同时断言配置值未变。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/ipLocation/(reload|reloadXdb)$",
+      "error": "^权限拒绝：缺少所需权限 monitor:iplocation:edit$",
+      "why": "IP 归属地重载越权负路径：reload 与 reloadXdb 两条入口共用同一权限键，均必须 403。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/ipLocation/reloadXdb$",
+      "error": "^HTTP 400$",
+      "msg": "^ip2region 库文件不存在",
+      "why": "可选离线库缺失负路径：data/ip2region.xdb 未随仓库分发，服务端必须给可读 400 与恢复指引；同情形后端另有热加载 WARN 登记。"
+    },
+    {
+      "method": "DELETE",
+      "url": "^/system/user/1$",
+      "error": "^HTTP 400$",
+      "msg": "^(不允许删除超级管理员|Cannot delete the super administrator)$",
+      "why": "超管保护负路径：admin(user_id=1) 必须拒删；两种文案来自中/英响应，均为同一条服务层守卫。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/profile/avatar$",
+      "error": "^HTTP 400$",
+      "msg": "^无法识别的图片格式，仅支持 jpg/jpeg/png/gif$",
+      "why": "F25 头像 magic bytes 负路径：伪造图片必须被拒，用例同时断言头像指针未变、磁盘未落该文件。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/profile/avatar$",
+      "error": "^HTTP 400$",
+      "msg": "^上传文件为空$",
+      "why": "F25 头像空文件负路径：空载荷必须 400，不得把空文件写成新头像。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/profile/avatar$",
+      "error": "^HTTP 400$",
+      "msg": "^文件大小不能超过 5MB$",
+      "why": "F25 头像体积上限负路径：超 5MB 必须 400，防止无界写入。"
+    },
+    {
+      "method": "POST",
+      "url": "^/common/upload$",
+      "error": "^HTTP 400$",
+      "msg": "^不支持的文件类型: exe$",
+      "why": "危险扩展名负路径：.exe 上传必须被拒；对应后端另有「拒绝上传危险扩展名」WARN 登记。"
+    },
+    {
+      "method": "GET",
+      "url": "^/system/backup/list",
+      "error": "^权限拒绝：缺少所需权限 system:backup:list$",
+      "why": "备份列表越权负路径：受限账号无 system:backup:list 必须 403，用例断言返回不含备份行。"
+    },
+    {
+      "method": "GET",
+      "url": "^/system/backup/\\d+$",
+      "error": "^权限拒绝：缺少所需权限 system:backup:query$",
+      "why": "备份详情越权负路径：无 system:backup:query 必须 403，不得泄露备份元数据。"
+    },
+    {
+      "method": "GET",
+      "url": "^/system/backup/download/\\d+$",
+      "error": "^权限拒绝：缺少所需权限 system:backup:download$",
+      "why": "备份下载越权负路径：无下载权限必须 403，不得产出可下载文件。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup/restore/\\d+$",
+      "error": "^权限拒绝：缺少所需权限 system:backup:edit$",
+      "why": "备份恢复越权负路径：恢复属高危写操作，无 system:backup:edit 必须 403。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup$",
+      "error": "^权限拒绝：缺少所需权限 system:backup:add$",
+      "why": "创建备份越权负路径：无 system:backup:add 必须 403，不得悄悄创建任务。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/notice$",
+      "error": "^HTTP 400$",
+      "msg": "^Failed to parse request parameters$",
+      "why": "畸形 JSON 负路径：请求体解析失败必须 400 且不落库；对应后端 extract WARN 同一用例。"
+    },
+    {
+      "method": "GET",
+      "url": "^/monitor/operlog/list",
+      "error": "^权限拒绝：缺少所需权限 monitor:operlog:list$",
+      "why": "操作日志越权负路径：无 monitor:operlog:list 的账号必须 403，审计面不得被普通用户读取。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/tenant/changeStatus$",
+      "error": "^权限拒绝：缺少所需权限 system:tenant:edit$",
+      "why": "平台专属负路径：租户管理员改租户状态必须 403（platform-only 权限不在租户套餐内）。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user$",
+      "error": "^HTTP 400$",
+      "msg": "^租户账号数已达上限",
+      "why": "租户套餐配额负路径：账号数达上限后新增用户必须 400；用例按用户名回查断言未落库。"
+    },
+    {
+      "method": "DELETE",
+      "url": "^/system/tenant/\\d+$",
+      "error": "^HTTP 400$",
+      "msg": "^租户内仍有 \\d+ 个用户，无法删除$",
+      "why": "租户删除前置守卫：仍有用户时必须拒绝；用例先清空用户再删除，证明两道状态转换都可达。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/tenant/domain/primary$",
+      "error": "^HTTP 400$",
+      "msg": "^域名尚未通过 DNS TXT 验证，不能设为主域名$",
+      "why": "域名归属验证负路径：未完成 TXT 校验的域名不得设为主域名，防止抢占他人域名。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/tenant/domain$",
+      "error": "^HTTP 400$",
+      "msg": "^该域名已被占用（含历史绑定），请更换$",
+      "why": "域名唯一性负路径：含历史绑定的重复域名必须 400；用例断言列表仍只有原行。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/tenant/domain$",
+      "error": "^权限拒绝：缺少所需权限 system:tenant:domain:add$",
+      "why": "域名新增越权负路径：无 system:tenant:domain:add 的租户管理员必须 403。"
+    },
+    {
+      "method": "GET",
+      "url": "^/system/tenant/domain/list",
+      "error": "^权限拒绝：缺少所需权限 system:tenant:domain:list$",
+      "why": "域名列表越权负路径：无 system:tenant:domain:list 必须 403，不得跨租户枚举域名。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/config$",
+      "error": "^HTTP 403$",
+      "msg": "^该参数受平台治理约束，租户不可修改$",
+      "why": "平台治理负路径：受平台约束的参数租户不得覆盖，服务层必须 403 而非静默忽略。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/dict/type$",
+      "error": "^HTTP 403$",
+      "msg": "^字典类型与平台类型同名，租户不可创建$",
+      "why": "字典命名冲突负路径：与平台类型同名必须 403，防止租户遮蔽平台字典。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/role$",
+      "error": "^HTTP 403$",
+      "msg": "^菜单 \\d+ 不在当前租户套餐范围内，无法授权$",
+      "why": "能力位天花板负路径：越出套餐的菜单不得授给角色，服务层必须 403 并点名菜单。"
+    },
+    {
+      "method": "GET",
+      "url": "^/common/download",
+      "error": "^权限拒绝：缺少所需权限 system:file:download$",
+      "why": "文件下载越权负路径：无 system:file:download 必须 403；对应后端文件下载/预览拒绝 WARN 同一用例。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/user/changeStatus$",
+      "error": "^HTTP 403$",
+      "msg": "^无权限访问该资源$",
+      "why": "跨租户隔离负路径：A 租户管理员改 B 租户用户状态必须 403，行级 tenant_scope 生效。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/user/resetPwd$",
+      "error": "^HTTP 403$",
+      "msg": "^无权限访问该资源$",
+      "why": "跨租户隔离负路径：重置他租用户口令必须 403，不得造成跨租户凭据接管。"
+    },
+    {
+      "method": "DELETE",
+      "url": "^/system/user/\\d+$",
+      "error": "^HTTP 403$",
+      "msg": "^无权限访问该资源$",
+      "why": "跨租户隔离负路径：删除他租用户必须 403；用例断言目标行仍在。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/task/\\d+/countersign-add$",
+      "error": "^HTTP 400$",
+      "msg": "^该审批人已在当前审批节点，无需重复加签$",
+      "why": "流程加签负路径：重复加签同一审批人必须 400，避免节点重复派发。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/alert$",
+      "error": "^HTTP 400$",
+      "msg": "^指标标识不合法$",
+      "why": "告警规则负路径：未知指标标识必须 400，不得创建永远不触发的规则。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/monitor/webHook$",
+      "error": "^HTTP 400$",
+      "msg": "^事件键 not\\.exists\\.event 不在事件目录中$",
+      "why": "回调订阅负路径：事件键必须来自事件目录，未知键 400（防止订阅不存在的领域事件）。"
+    },
+    {
+      "method": "POST",
+      "url": "^/monitor/webHook$",
+      "error": "^HTTP 400$",
+      "msg": "^事件键 user\\.created 不在事件目录中$",
+      "why": "回调订阅负路径：未登记的 user.created 事件键必须 400；事件目录是单一事实源。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/webhook/\\d+/test-send$",
+      "error": "^HTTP 400$",
+      "msg": "^事件已停用（目录下架），不可订阅或测试发送$",
+      "why": "下架事件负路径：事件停用后不得测试发送，服务层必须 400 而不是投递失败。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/webhook/event/\\d+/enabled$",
+      "error": "^HTTP 400$",
+      "msg": "^订阅事件类型不合法$",
+      "why": "订阅档位负路径：非白名单的 enabled 取值必须 400，避免脏枚举写入。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/webhook/event/999999999/enabled$",
+      "error": "^HTTP 404$",
+      "msg": "^数据不存在$",
+      "why": "不存在事件负路径：对 999999999 的启停必须 404（与 400 区分，便于调用方纠错）。"
+    },
+    {
+      "method": "POST",
+      "url": "^/ai/chat$",
+      "error": "^HTTP 400$",
+      "msg": "AI api_key 未配置",
+      "why": "AI 依赖缺失负路径：未配置 api_key 时必须可读 400（能力位开启但凭据缺失），不得 500。"
+    },
+    {
+      "method": "POST",
+      "url": "^/ai/chat$",
+      "error": "^HTTP 403$",
+      "msg": "^AI 助手未启用",
+      "why": "AI 能力位关闭态负路径：关闭时必须 403 并提示开启位置，禁止前端隐藏冒充服务端守卫。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/msg/channel$",
+      "error": "^HTTP 400$",
+      "msg": "^消息渠道编码已存在$",
+      "why": "消息渠道唯一性负路径：重复编码必须 400；用例按编码回查断言未落库。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/aiConfig/test$",
+      "error": "^HTTP 400$",
+      "msg": "^请先填写 base_url 与 api_key$",
+      "why": "AI 配置连通性负路径：缺字段必须 400，不得发起无凭据出站请求。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/task/\\d+/action$",
+      "error": "^HTTP 403$",
+      "msg": "^节点未开放动作 delegate，已拒绝$",
+      "why": "流程动作白名单负路径：节点未开放 delegate 必须 403，防止越权代办。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/task/\\d+/action$",
+      "error": "^HTTP 400$",
+      "msg": "^不支持的审批动作$",
+      "why": "流程动作枚举负路径：未知动作必须 400，不得落入默认分支。"
+    },
+    {
+      "method": "POST",
+      "url": "^/common/upload/chunk/part$",
+      "error": "^HTTP 400$",
+      "msg": "^分片会话不存在或已过期，请重新发起上传$",
+      "why": "分片上传负路径：无会话/过期会话必须 400 并提示重发，防止碎片写到他人会话。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/msg/channel/test/566$",
+      "error": "^HTTP 400$",
+      "msg": "^IM 机器人渠道配置无效",
+      "why": "M80 IM 渠道连通性负路径：config_json 缺 webhookUrl 时必须 400；IM 渠道夹具编码固定 566。"
+    },
+    {
+      "method": "POST",
+      "url": "^/tool/http-debug/execute$",
+      "error": "^HTTP 400$",
+      "msg": "^禁止访问内网/保留地址 127\\.0\\.0\\.1$",
+      "why": "M87 HTTP 调试器 SSRF 负路径：回环/内网地址必须被守卫拒绝，用例断言请求不出网。"
+    },
+    {
+      "method": "DELETE",
+      "url": "^/system/report/\\d+$",
+      "error": "^HTTP 404$",
+      "msg": "^报表不存在$",
+      "why": "不存在报表负路径：删除不存在的报表必须 404，与成功删除的 200/行数递减配对断言。"
+    },
+    {
+      "method": "POST",
+      "url": "^/report/dataset$",
+      "error": "^HTTP 400$",
+      "msg": "^SQL 模板校验失败: 仅允许 SELECT 查询$",
+      "why": "数据集创建负路径：POST 与 PUT 共用同一 SQL 守卫，非 SELECT 必须 400。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/msg/channel/test/85$",
+      "error": "^HTTP 400$",
+      "msg": "^邮件服务未启用，无法发送邮件$",
+      "why": "M80 邮件渠道连通性负路径：邮件服务未启用时必须 400 并提示启用，不能假装发送成功。"
+    },
+    {
+      "method": "POST",
+      "url": "^/oauth2/bind$",
+      "error": "^HTTP 400$",
+      "msg": "^关联凭据无效或已过期，请重新发起第三方登录$",
+      "why": "OAuth 绑定负路径：伪造/过期 handoff 必须 400；用例同时断言已登录用户不被踢回登录页。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/totp/verify$",
+      "error": "^HTTP 400$",
+      "msg": "^绑定会话已过期，请重新获取二维码后重试$",
+      "why": "F143 限流压测只打路由桶、不先做 setup，服务端按 pending 不存在正确返回 400；用例断言「非 429 状态必须 400」而不依赖具体文案，成功启用链由 F20/F123 覆盖。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/user/totp/verify$",
+      "error": "^HTTP 422$",
+      "until": "2026-10-20 22:20:00",
+      "why": "历史豁免：F143 敏感档打满用例在 b81 收口前只送 code（DTO 还要求 secret）⇒ garde 422（20 行，止于 22:19:05）。已修请求体并把断言收紧为「非 429 状态必须 400」，此条目只覆盖旧窗口，之后同类信号未登记即红。"
+    }
+  ]
+}

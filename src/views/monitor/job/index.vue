@@ -8,7 +8,9 @@
             :placeholder="t('job.search.phJobName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('job.search.phJobName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('job.search.phJobName')"
+          />
         </el-form-item>
         <el-form-item :label="t('job.search.jobGroup')" prop="jobGroup">
           <el-select
@@ -22,7 +24,13 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('job.search.status')" prop="status">
-          <el-select :aria-label="t('job.search.status')" v-model="queryParams.status" :placeholder="t('job.search.phStatus')" clearable class="w-[200px]">
+          <el-select
+            :aria-label="t('job.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('job.search.phStatus')"
+            clearable
+            class="w-[200px]"
+          >
             <el-option v-for="dict in sys_job_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -142,7 +150,7 @@
               link
               type="primary"
               icon="CaretRight"
-              :aria-label="t('job.runOnce')"
+              :aria-label="t('job.tip.executeOnce')"
               @click="handleRun(scope.row)"
               v-hasPermi="['monitor:job:changeStatus']"
             ></el-button>
@@ -170,17 +178,34 @@
     />
 
     <!-- 添加或修改定时任务对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(80%, 820px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(80%, 820px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="jobRef" :model="form" :rules="rules" label-width="120px">
         <el-row>
           <el-col :span="12">
             <el-form-item :label="t('job.form.jobName')" prop="jobName">
-              <el-input v-model="form.jobName" :placeholder="t('job.form.phJobName')" :maxlength="64" show-word-limit :aria-label="t('job.form.phJobName')" />
+              <el-input
+                v-model="form.jobName"
+                :placeholder="t('job.form.phJobName')"
+                :maxlength="64"
+                show-word-limit
+                :aria-label="t('job.form.phJobName')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('job.form.jobGroup')" prop="jobGroup">
-              <el-select :aria-label="t('job.form.jobGroup')" v-model="form.jobGroup" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('job.form.jobGroup')"
+                v-model="form.jobGroup"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="dict in sys_job_group"
                   :key="dict.value"
@@ -205,12 +230,20 @@
                   </el-tooltip>
                 </span>
               </template>
-              <el-input v-model="form.invokeTarget" :placeholder="t('job.form.phInvokeTarget')" :aria-label="t('job.form.phInvokeTarget')" />
+              <el-input
+                v-model="form.invokeTarget"
+                :placeholder="t('job.form.phInvokeTarget')"
+                :aria-label="t('job.form.phInvokeTarget')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('job.form.cronExpressionLabel')" prop="cronExpression">
-              <el-input v-model="form.cronExpression" :placeholder="t('job.form.phCronExpression')" :aria-label="t('job.form.phCronExpression')">
+              <el-input
+                v-model="form.cronExpression"
+                :placeholder="t('job.form.phCronExpression')"
+                :aria-label="t('job.form.phCronExpression')"
+              >
                 <template #append>
                   <el-button type="primary" @click="handleShowCron">
                     {{ t('job.form.genExpression') }}

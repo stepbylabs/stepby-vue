@@ -46,8 +46,9 @@ function addIframe(): void {
 
 <style lang="scss" scoped>
 .app-main {
-  /* 50= navbar  50  */
-  min-height: calc(100vh - 50px);
+  /* 50= navbar；实际高度由 Layout 的 ResizeObserver 写入 --fixed-header-height
+     （公告/Env 横幅出现时 >50），回落值只用于变量尚未就绪的首帧。 */
+  min-height: calc(100vh - var(--fixed-header-height, 50px));
 }
 
 /* 面包屑容器：内容区顶部，深目录页面的层级定位（UX-1） */
@@ -58,7 +59,7 @@ function addIframe(): void {
 .fixed-header + .app-main {
   overflow-y: auto;
   scrollbar-gutter: auto;
-  height: calc(100vh - 50px);
+  height: calc(100vh - var(--fixed-header-height, 50px));
   min-height: 0px;
 }
 
@@ -67,18 +68,18 @@ function addIframe(): void {
 }
 
 .fixed-header + .app-main {
-  margin-top: 50px;
+  margin-top: var(--fixed-header-height, 50px);
 }
 
 .hasTagsView {
   .app-main {
-    /* 84 = navbar + tags-view = 50 + 34 */
-    min-height: calc(100vh - 84px);
+    /* 84 = navbar + tags-view = 50 + 34（无横幅时的历史口径）；有横幅时以实测变量为准 */
+    min-height: calc(100vh - var(--fixed-header-height, 84px));
   }
 
   .fixed-header + .app-main {
-    margin-top: 84px;
-    height: calc(100vh - 84px);
+    margin-top: var(--fixed-header-height, 84px);
+    height: calc(100vh - var(--fixed-header-height, 84px));
     min-height: 0px;
   }
 }
@@ -111,15 +112,15 @@ function addIframe(): void {
     .fixed-header + .app-main {
       padding-bottom: max(17px, calc(constant(safe-area-inset-bottom) + 10px));
       padding-bottom: max(17px, calc(env(safe-area-inset-bottom) + 10px));
-      height: calc(100svh - 50px);
-      height: calc(100dvh - 50px);
+      height: calc(100svh - var(--fixed-header-height, 50px));
+      height: calc(100dvh - var(--fixed-header-height, 50px));
     }
 
     .hasTagsView .fixed-header + .app-main {
       padding-bottom: max(17px, calc(constant(safe-area-inset-bottom) + 10px));
       padding-bottom: max(17px, calc(env(safe-area-inset-bottom) + 10px));
-      height: calc(100svh - 84px);
-      height: calc(100dvh - 84px);
+      height: calc(100svh - var(--fixed-header-height, 84px));
+      height: calc(100dvh - var(--fixed-header-height, 84px));
     }
   }
 }

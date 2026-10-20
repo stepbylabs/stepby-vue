@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-21T06:40:00+08:00",
+  "source": "b81 全量轮（main 六段 + deep r3）后端日志（STEPBY_BACKEND_LOG）逐条人工定性；新增条目必须带 why，未登记即红",
+  "entries": [
+    {
+      "level": "WARN",
+      "match": "Redis 配置被忽略（cache\\.mode=local）",
+      "why": "本机 e2e 用 local 档（共享态落同库），这是部署选择而非依赖故障；redis 档由 integration_tests 覆盖"
+    },
+    {
+      "level": "WARN",
+      "match": "加载 mmdb 文件 .* 失败，IP 归属地查询将返回空",
+      "why": "GeoLite2-City.mmdb 是可选数据文件，未随仓库分发；缺失时归属地降级为空，不影响任何业务链路"
+    },
+    {
+      "level": "WARN",
+      "match": "权限 fail-closed 模式已启用（permission_deny_by_default=true）",
+      "why": "启动期告知性告警：未登记权限映射的受保护路由会拒绝；这是安全默认姿态，不是错误"
+    },
+    {
+      "level": "WARN",
+      "match": "权限拒绝：用户缺少所需权限或超出令牌 scope",
+      "why": "负路径用例（普通用户越权、令牌 scope 不足）故意触发 403；每条都带 path/required_perm，前端断言同时校对"
+    },
+    {
+      "level": "WARN",
+      "match": "错过 03:00 调度窗口，启动期补跑一轮保留期清理",
+      "why": "b73 设计的启动漏跑补偿：本机每日跑批不在 03:00，启动时按「标记缺失/超阈值」补跑一轮是预期行为，不是调度失败"
+    },
+    {
+      "level": "WARN",
+      "match": "短信渠道 sms 连通性测试：配置无效: 短信渠道未配置 config_json",
+      "why": "M80 渠道连通性负路径：夹具渠道故意不带 config_json，服务层必须返回可读 400 并留下诊断 WARN"
+    },
+    {
+      "level": "WARN",
+      "match": "WebHook 重试投递未成功 retry_of_log=.*http://1\\.1\\.1\\.1:81/",
+      "why": "M88 回调目标指向不可达的 1.1.1.1:81，用来验证重试链路与投递日志失败态；失败投递是期望结局"
+    },
+    {
+      "level": "ERROR",
+      "match": "S3 请求失败: error sending request for url \\(http://127\\.0\\.0\\.1:9000/",
+      "why": "M88 上传配置连通性负路径：夹具指向本机未启动的 S3（127.0.0.1:9000），服务层正确降级为可读 400；URL 前缀限定到该夹具，不放过真实对象存储故障"
+    },
+    {
+      "level": "WARN",
+      "match": "操作日志清理（按时间范围）：begin=",
+      "why": "主套件按时间范围清理用例：该分支对每次破坏性清理刻意打 WARN 留痕（sys_oper_log_handler.rs:138），是审计动作而非失败"
+    },
+    {
+      "level": "WARN",
+      "match": "ip2region xdb 热加载被拒：文件不存在",
+      "why": "data/ip2region.xdb 是可选离线库，未随仓库分发；缺失时归属地降级为空，与 mmdb 同类，不影响业务链路"
+    },
+    {
+      "level": "WARN",
+      "match": "拒绝上传危险扩展名（静态托管 XSS/执行风险） ext=exe",
+      "why": "F141 上传负路径：.exe 必须被拒绝；WARN 是拒绝动作的审计留痕，用例同时断言 HTTP 400"
+    },
+    {
+      "level": "WARN",
+      "match": "JSON 请求体解析失败",
+      "why": "畸形 JSON 负路径（400 契约用例）：extract 返回可读错误并留 WARN，前端断言 body.code/状态码"
+    },
+    {
+      "level": "WARN",
+      "match": "拒绝：访问令牌不得管理令牌本身",
+      "why": "令牌自管理负路径：普通 PAT 访问 /system/user/profile/tokens 必须 403，WARN 带 user/method/path 供对账"
+    },
+    {
+      "level": "WARN",
+      "match": "id_token_hint 验签失败",
+      "why": "SSO end_session 负路径：伪造/损坏的 id_token_hint 必须验签失败并拒绝登出回跳，两处 WARN 同一用例"
+    },
+    {
+      "level": "WARN",
+      "match": "租户已停用：运行时键置停用并吊销该租户全部在线会话",
+      "why": "租户生命周期用例的预期留痕：停用 ⇒ 运行时键置停用 + 会话吊销，随后用例断言登录被闸门拒绝"
+    },
+    {
+      "level": "WARN",
+      "match": "租户已删除（回收站）：唯一键让位",
+      "why": "租户删除（回收站）用例的预期留痕：唯一键让位/组织树/角色/域名/自建菜单软删/会话吊销为单事务设计行为"
+    },
+    {
+      "level": "WARN",
+      "match": "租户闸门拒绝登录（停用/超期/已删除）",
+      "why": "生命周期用例的断言面：停用/删除后登录必须在闸门被拒，WARN 带 tenant_id/user 证明闸门真实生效"
+    },
+    {
+      "level": "WARN",
+      "match": "越权访问被拒绝 operator_tid=",
+      "why": "租户隔离负路径：跨租户资源下载/文件预览必须 403（common_handler 两处），WARN 带双方 tid 供隔离断言对账"
+    },
+    {
+      "level": "WARN",
+      "match": "IM 机器人渠道 .* 连通性测试：配置无效: IM 机器人渠道未配置",
+      "why": "M80 IM 渠道连通性负路径：夹具渠道故意不带 config_json，服务层必须返回可读 400 并留下诊断 WARN"
+    }
+  ]
+}

@@ -12,6 +12,11 @@
  *   - `covered` = 该按钮文案在 main.mjs 或 deep-e2e.mjs 源码里出现过。这是**下界**：
  *     源码里出现文案不代表一定点了这个按钮（可能只是断言了表头文字），
  *     但**没出现**基本可以确定没测过 ⇒ 用来找盲区是可靠的。
+ *   - `clicked`（b81）= 文案出现处 ±3 行内还有真实交互调用（`.click(` / `.fill(` /
+ *     `getByRole(...).click()` 等）。它回答"这个按钮**被操作过**吗"，比 `covered` 更窄：
+ *     `covered=true, clicked=false` 正是"源码里提了但没点"的那一族（注释、只用于断言的
+ *     `getByText`、表格列名），是下一步补测的优先队列。**仅报告与趋势，不升级成硬棘轮**：
+ *     locator 与 click 隔了多行的写法会漏报，用它判红等于把写法差异当退步。
  *   - 行内操作（编辑/删除/详情）按 `aria-label` 或文本取，图标按钮无文案时记为 `<icon-only>`。
  *
  * 用法：
@@ -111,10 +116,24 @@ const log = (m) => console.log(`[inventory] ${m}`)
 
 /** 两套件的源码文本（覆盖判据的分子来源） */
 function loadSuiteSources() {
+  // 第三阶段起用例可迁到 modules/ 下：只读两个入口文件会让"已补测的动作"仍被报成盲区
+  // （文案在模块文件里，入口只剩 import）。目录不存在时不报错，存在则递归收全部 .mjs；
+  // 子目录名与文件名排序保证两次扫描结果稳定，避免覆盖率因文件系统顺序抖动。
   const files = ['main.mjs', 'deep-e2e.mjs']
+  const modulesDir = path.join(__dirname, 'modules')
+  const walk = (dir) => {
+    let out = []
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) out = out.concat(walk(p))
+      else if (e.name.endsWith('.mjs')) out.push(p)
+    }
+    return out
+  }
+  if (fs.existsSync(modulesDir)) files.push(...walk(modulesDir))
   return files
     .map((f) => {
-      const p = path.join(__dirname, f)
+      const p = path.isAbsolute(f) ? f : path.join(__dirname, f)
       return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''
     })
     .join('\n')
@@ -327,6 +346,37 @@ function makeCoveredChecker(sources) {
 }
 
 /**
+ * **点击证据**判据（b81）：`covered` 只要求动作文案在测试源码里出现过，
+ * 一句注释、一个只用于断言的 `getByText('删除')` 都能满足它 ⇒ 100% 覆盖不代表点过。
+ * 这里把"文案附近有真实交互调用"作为**更窄的下界**，只用于报告与基线趋势，
+ * 不直接升级成硬棘轮（辅助函数把 locator 与 click 拆到很远的写法会漏报）。
+ *
+ * 窗口取 ±3 行：常见形态是
+ *   const b = page.locator('button:has-text("新增")')
+ *   await b.click()
+ * 同行 `getByRole(...).click()` 也算。
+ */
+const INTERACTION_RE =
+  /\.(click|check|uncheck|fill|selectOption|press|hover|setChecked|type)\s*\(|getBy(?:Role|Text|Label|Placeholder)\([^\n]*\)\s*\.\s*(click|check|fill|press|hover)|\b(?:clickRowButton|clickDialogBtn|clickMessageBoxBtn|clickButton|clickRow|realClick|safeClick|fillDialogField|fillSearchField|selectDialogOption|checkRow|click|tap)\s*\(/
+/** 函数定义行不是"点过"的证据（`async function clickRowButton(page) {…}` 也会命中上面的助手名）。 */
+const DEFINITION_RE = /\bfunction\s+[A-Za-z_$][\w$]*\s*\(/
+const METHOD_INTERACTION_RE = /\.(click|check|uncheck|fill|selectOption|press|hover|setChecked|type)\s*\(/
+function isInteractionLine(line) {
+  if (!INTERACTION_RE.test(line)) return false
+  if (DEFINITION_RE.test(line) && !METHOD_INTERACTION_RE.test(line)) return false
+  return true
+}
+function makeInteractionChecker(sources) {
+  const lines = String(sources || '').split('\n')
+  return (name) =>
+    coverageKeys(name).some((k) =>
+      lines.some(
+        (line, i) => line.includes(k) && lines.slice(Math.max(0, i - 3), i + 4).some((x) => isInteractionLine(x))
+      )
+    )
+}
+
+/**
  * 判据自检（双向）：既证明归一真的消除了假盲区，也证明它没把没测过的洗成测过。
  * 只跑正向的自检，等于允许"恒真判据"混进门禁——所以反例与正例同等重要。
  */
@@ -360,7 +410,51 @@ function runSelftest() {
     console.error(`❌ 自检失败 ${bad}/${cases.length} 条——覆盖判据不可信，本次跑批不作数`)
     process.exit(1)
   }
-  // 第二族：覆盖率棘轮的比较式。`--gate` 与 `--update-baseline` 共用 ratchetRegressions，
+  // 第二族：点击证据判据。核心是**它必须比 covered 更窄**：
+  // 只提及/只断言 ⇒ covered=true 而 clicked=false，否则新增这一列毫无信息量。
+  const iCases = [
+    [
+      'locator 后紧接 click 必须算点过',
+      'const b = page.locator("button:has-text(\\"新增\\")")\nawait b.click()',
+      '新增',
+      true
+    ],
+    ['同行 getByRole().click() 必须算点过', 'await page.getByRole("button", { name: "导出" }).click()', '导出', true],
+    ['fill 也是真实交互', 'await page.getByLabel("用户名").fill("admin")', '用户名', true],
+    ['只用于断言的 getByText 不算点过', 'await expect(page.getByText("删除")).toBeVisible()', '删除', false],
+    ['注释里提到不算点过', '// 这里本来应该点「批量删除」\nawait sleep(100)', '批量删除', false],
+    ['表格列名不算点过', "columns: ['操作', '删除'],", '删除', false],
+    [
+      '交互离得太远不得误算（窗口 ±3 行）',
+      'const t = "重置"\n' + '\n'.repeat(8) + 'await page.locator("#x").click()',
+      '重置',
+      false
+    ],
+    [
+      '辅助函数包一层仍算点过（locator 传给 click 助手）',
+      'const b = page.locator("button:has-text(\\"展开/收起\\")")\nconst ok = await click(b)',
+      '展开/收起',
+      true
+    ],
+    ['具名助手 clickRowButton 调用算点过', 'await clickRowButton(page, "删除", "page")', '删除', true],
+    ['助手函数定义本身不算点过', 'async function clickRowButton(page) { /* 删除 */ }', '删除', false],
+    ['同名变量未调用不算点过', 'const label = "展开/收起"\nconst click = pendingAction', '展开/收起', false],
+    ['状态成对同样适用于点击证据', 'await page.getByText("展开全部").click()', '收起全部', true]
+  ]
+  let iBad = 0
+  for (const [desc, src, name, want] of iCases) {
+    const got = makeInteractionChecker(src)(name)
+    const ok = got === want
+    if (!ok) iBad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：动作「${name}」期望 clicked=${want}，实际 ${got}`
+    )
+  }
+  if (iBad) {
+    console.error(`❌ 点击证据自检失败 ${iBad}/${iCases.length} 条——clicked 列不可信，本次跑批不作数`)
+    process.exit(1)
+  }
+  // 第三族：覆盖率棘轮的比较式。`--gate` 与 `--update-baseline` 共用 ratchetRegressions，
   // 所以这条自检同时钉住两件事：**放松方向必须报**（否则基线会被越写越松），
   // **容差内/进步方向不得报**（否则会把正常抖动判成红、逼人放宽）。
   const rCases = [
@@ -383,6 +477,7 @@ function runSelftest() {
   }
   console.log(
     `SYNTH_OK 动作名归一自检通过（${cases.length} 条双向判据：6 条必须覆盖 / 6 条必须不覆盖）` +
+      ` + 点击证据 ${iCases.length} 条双向（含"只提及不算点过"反例）` +
       ` + 棘轮比较式 ${rCases.length} 条双向`
   )
   process.exit(0)
@@ -391,6 +486,7 @@ function runSelftest() {
 function main() {
   const sources = loadSuiteSources()
   const mark = makeCoveredChecker(sources)
+  const interacted = makeInteractionChecker(sources)
   const routes = onlyRoute ? ROUTES.filter((r) => r === onlyRoute) : ROUTES
   if (routes.length === 0) {
     console.error(`❌ --route=${onlyRoute} 不在 route-list.mjs 的 ${ROUTES.length} 条清单里`)
@@ -462,8 +558,12 @@ function main() {
       const iframeCount = await page.$$eval('iframe', (els) => els.length).catch(() => 0)
       got = merged
 
-      const toolbar = dedupe(got.toolbar).map((b) => ({ ...b, covered: mark(b.name) }))
-      const rowActions = dedupe(got.rowActions).map((b) => ({ ...b, covered: mark(b.name) }))
+      const toolbar = dedupe(got.toolbar).map((b) => ({ ...b, covered: mark(b.name), clicked: interacted(b.name) }))
+      const rowActions = dedupe(got.rowActions).map((b) => ({
+        ...b,
+        covered: mark(b.name),
+        clicked: interacted(b.name)
+      }))
 
       const rec = {
         path: routePath,
@@ -475,6 +575,7 @@ function main() {
         rowActions,
         actionCount: toolbar.length + rowActions.length,
         coveredCount: [...toolbar, ...rowActions].filter((b) => b.covered).length,
+        clickedCount: [...toolbar, ...rowActions].filter((b) => b.clicked).length,
         tabs: tabCounts,
         iframeCount,
         // "有表头/有 tab 却 0 动作"必须自曝，否则 0 会被当成"这页本来就没按钮"
@@ -483,7 +584,7 @@ function main() {
       pages.push(rec)
       log(
         `${String(i + 1).padStart(2)}/${routes.length} ${routePath.padEnd(34)} ` +
-          `动作 ${rec.actionCount}（覆盖 ${rec.coveredCount}）行 ${rec.rowCount}` +
+          `动作 ${rec.actionCount}（覆盖 ${rec.coveredCount} / 点击 ${rec.clickedCount}）行 ${rec.rowCount}` +
           (rec.tabs && Object.keys(rec.tabs).length > 1 ? ` tab=${Object.keys(rec.tabs).length}` : '') +
           (rec.suspicious ? '  ⚠ 采集可疑（有表头/多 tab 却 0 动作）' : '')
       )
@@ -493,13 +594,16 @@ function main() {
 
     const totalActions = pages.reduce((s, p) => s + p.actionCount, 0)
     const totalCovered = pages.reduce((s, p) => s + p.coveredCount, 0)
+    const totalClicked = pages.reduce((s, p) => s + p.clickedCount, 0)
     const report = {
       generatedAt: new Date().toISOString(),
       base: BASE,
       routes: pages.length,
       totalActions,
       totalCovered,
+      totalClicked,
       coverage: totalActions ? +(totalCovered / totalActions).toFixed(3) : 0,
+      interactionCoverage: totalActions ? +(totalClicked / totalActions).toFixed(3) : 0,
       pages
     }
     const jsonPath = path.join(OUT_DIR, 'action-inventory.json')
@@ -519,11 +623,13 @@ function main() {
     lines.push(`- 生成时间：${report.generatedAt}`)
     lines.push(`- 目标：${BASE}（嵌入档，真后端）`)
     lines.push(
-      `- 路由：${report.routes} 条 / 动作合计：**${totalActions}** / 源码中出现过：**${totalCovered}**（${(report.coverage * 100).toFixed(1)}%）`
+      `- 路由：${report.routes} 条 / 动作合计：**${totalActions}** / 源码中出现过：**${totalCovered}**（${(report.coverage * 100).toFixed(1)}%）/ 有真实交互证据：**${totalClicked}**（${(report.interactionCoverage * 100).toFixed(1)}%）`
     )
     lines.push('')
     lines.push('> 覆盖判据是**下界**：按钮文案在 `main.mjs`/`deep-e2e.mjs` 源码里出现过即算"提及"。')
     lines.push('> 出现不代表一定点过它；但**没出现基本等于没测过** ⇒ 用来找盲区可靠。')
+    lines.push('> `clicked` 是更窄的下界：文案 ±3 行内必须有 `.click(`/`.fill(` 等真实调用；')
+    lines.push('> "提及但未点击"是补测优先队列，**不作为硬棘轮**（跨行 locator 会漏报，用它判红会把写法差异当退步）。')
     lines.push('')
     lines.push('## 盲区清单（未在测试源码中出现过的动作）')
     lines.push('')
@@ -531,6 +637,27 @@ function main() {
     lines.push('|---|---|---|')
     for (const p of gaps.filter((g) => g.uncovered.length > 0)) {
       lines.push(`| \`${p.path}\` | ${p.uncovered.map((b) => b.name).join('、')} | ${p.rowCount} |`)
+    }
+    // 第二优先级：源码里提到了、但附近没有任何交互调用。这一组通常三种来源：
+    // 只在注释/断言里出现、只作为表格列名、或用例把 locator 与 click 拆得太远。
+    const hintOnly = pages
+      .map((p) => ({
+        ...p,
+        notClicked: [...p.toolbar, ...p.rowActions].filter((b) => b.covered && !b.clicked)
+      }))
+      .filter((p) => p.notClicked.length > 0)
+      .sort((a, b) => b.notClicked.length - a.notClicked.length)
+    lines.push('')
+    lines.push('## 提及但无点击证据的动作（补测优先队列）')
+    lines.push('')
+    if (!hintOnly.length) {
+      lines.push('（无：所有提及过的动作附近都有真实交互调用）')
+    } else {
+      lines.push('| 路由 | 动作 | 行数 |')
+      lines.push('|---|---|---|')
+      for (const p of hintOnly) {
+        lines.push(`| \`${p.path}\` | ${p.notClicked.map((b) => b.name).join('、')} | ${p.rowCount} |`)
+      }
     }
     const suspicious = pages.filter((p) => p.suspicious)
     if (suspicious.length) {
@@ -573,7 +700,10 @@ function main() {
     const mdPath = outArg ? path.resolve(outArg) : path.join(OUT_DIR, 'action-inventory.md')
     fs.mkdirSync(path.dirname(mdPath), { recursive: true })
     fs.writeFileSync(mdPath, lines.join('\n'))
-    log(`完成：${totalActions} 个动作 / 覆盖 ${totalCovered}（${(report.coverage * 100).toFixed(1)}%）`)
+    log(
+      `完成：${totalActions} 个动作 / 覆盖 ${totalCovered}（${(report.coverage * 100).toFixed(1)}%）` +
+        ` / 点击证据 ${totalClicked}（${(report.interactionCoverage * 100).toFixed(1)}%）`
+    )
     log(`产物：${jsonPath}`)
     log(`产物：${mdPath}`)
 
@@ -599,12 +729,17 @@ function main() {
             routes: report.routes,
             totalActions,
             totalCovered,
+            totalClicked,
             coverage: report.coverage,
+            interactionCoverage: report.interactionCoverage,
             // **逐页明细**（b79，N-10 的前置）：基线此前只存聚合数，于是"分母从 405 变成 404"
             // 这类事件无法归因到某个页面——聚合相等/不等的两种情况都看不出是谁变的。
             // 明细进基线之后，`--gate` 每轮直接打逐页增减，定位只需一次跑批。
-            perRoute: Object.fromEntries(pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount }])),
-            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少'
+            // i = clicked（b81），随明细一起记，便于看"提及但没点"的存量趋势。
+            perRoute: Object.fromEntries(
+              pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
+            ),
+            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少；clicked 仅记录趋势'
           },
           null,
           2
@@ -630,15 +765,18 @@ function main() {
     // 逐页对账（信息项，不判红）：聚合数相等不代表同一份数据——一页少一个动作、另一页多一个
     // 动作，聚合完全不动。b79 的 N-10（405→404 无法归因）就是因为缺这一段。
     if (base.perRoute) {
-      const curMap = Object.fromEntries(pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount }]))
+      const curMap = Object.fromEntries(
+        pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
+      )
       const paths = [...new Set([...Object.keys(base.perRoute), ...Object.keys(curMap)])].sort()
       const deltas = []
       for (const p of paths) {
         const b = base.perRoute[p]
         const c = curMap[p]
-        if (!b) deltas.push(`新增页面 ${p}：动作 ${c.a} / 覆盖 ${c.c}`)
-        else if (!c) deltas.push(`页面消失 ${p}：基线动作 ${b.a} / 覆盖 ${b.c}`)
-        else if (b.a !== c.a || b.c !== c.c) deltas.push(`${p}：动作 ${b.a}→${c.a}，覆盖 ${b.c}→${c.c}`)
+        if (!b) deltas.push(`新增页面 ${p}：动作 ${c.a} / 覆盖 ${c.c} / 点击 ${c.i ?? '—'}`)
+        else if (!c) deltas.push(`页面消失 ${p}：基线动作 ${b.a} / 覆盖 ${b.c} / 点击 ${b.i ?? '—'}`)
+        else if (b.a !== c.a || b.c !== c.c || (b.i !== undefined && b.i !== c.i))
+          deltas.push(`${p}：动作 ${b.a}→${c.a}，覆盖 ${b.c}→${c.c}，点击 ${b.i ?? '—'}→${c.i}`)
       }
       if (deltas.length) {
         log(`ℹ 逐页明细与基线有 ${deltas.length} 处差异（聚合可能相等，差异在页面之间）：`)

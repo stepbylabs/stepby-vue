@@ -3016,3 +3016,101 @@ node tests/e2e/endpoint-coverage.mjs --gate --operlog      # 未触达 ∖ 已�
    `TypeError: Cannot read properties of undefined (reading 'kind')`——`!e` 被摘掉后
    `else if (!kinds.includes(e.kind))` 直接吃到 `undefined`。崩掉同样非零（fail-closed 没破），
    但**丢失了"红在哪条用例"这条信息**，拿它当变异证据等于没做 ⇒ 变异要挑"只动上报、不动结构"的刀法。
+
+### 3.68 已声明轮询清单（b81 / §10 N-21）
+
+风暴判据（§3.67）此前只有"新键密度下限"一条兜底，后果是：任何**合法**的周期性出网
+（服务器监控 2s、健康页按用户偏好、任务页有 running 时 5s）第一次跑都会被判成风暴；
+而为了消红去放宽全局阈值，又会把真正的"逐行请求"一起放走。b81 把声明做成事实源：
+
+- 清单文件：`tests/e2e/polling-declarations.json`，每条必须带
+  `key`（`METHOD /path`）、`intervalMs`（(0, 24h]）、`source`（**相对路径:行号**）、
+  `why`（≥10 字符，写清为什么它就该周期性出网）。
+- `request-storm.mjs` 的 `loadDeclarations()` 逐条校验；清单缺失 / 版本错 / 空清单 /
+  无行号 / 间隔非法 / 理由过短 / 重复键一律**响亮失败（EXIT=2）**。
+  **不得把坏清单当空集**：那会让所有已声明轮询重新变成风暴。
+- 声明项在 `stormRegressions` 里**只记密度、不设阈**；未声明项照旧走容差 + 新键下限。
+  两者不共享任何"豁免"状态。
+- 自检第 ⑭ 组双向：合法清单读得出；声明项每导航 400 次不报；**把 `declared` 参数摘掉后
+  同一端点必须报**（证明声明通道不是通配）；清单缺失/九类形状缺陷必须拒。
+- 换口径的合法路径：`--reset-baseline` **只能与** `--update-baseline` 同用，且只在
+  磁盘基线 `metric` 与代码 `METRIC` **不同**时放行；同口径下 reset 会抹掉棘轮，必须拒绝，
+  新增出网面仍走 `--accept-new-key=` 逐个点名。重建后的基线写入 `resetFrom` 留痕。
+  b81 把 `density-per-nav` 换成 `density-per-nav-endpoint`（采集键原为
+  `"<动作> | METHOD /path"`，动作前缀让同一端点按动作裂开、声明永远匹配不上），
+  当轮必须重建基线，不得拿旧数字继续比。
+
+### 3.69 通知已读半连接的执行计划锁（b81 / §10 N-9）
+
+`/system/notice/list?isRead=0` 与 `listTop` 每次都要跑一次
+`SELECT notice_id FROM sys_notice_read WHERE user_id = ? [AND tenant_id = ?]`。
+既有索引是 `(notice_id, user_id)` 与 `(tenant_id)`：前者首列不是 `user_id`，后者对平台操作者
+没有区分度 ⇒ SQLite 实测选择 `idx_sys_notice_read_tid (tenant_id=?)`，每次列表扫描该租户全部
+已读行。b81 新增 `idx_sys_notice_read_user_tenant_notice (user_id, tenant_id, notice_id)`
+（迁移 `m20261021_000001` + 存量库 `ensure_perf_indexes` 兜底），并用
+`integration_tests::tenant_index_plan::it_notice_read_user_index_used_for_platform_and_tenant_sqlite`
+钉住计划形状：
+
+- 平台谓词（仅 `user_id`）与租户谓词（`user_id + tenant_id`）都必须命中该索引；
+- 必须出现 `COVERING INDEX`（子查询只取 `notice_id`，不该回表）；
+- **变异控制组**：`DROP INDEX` 后同一判据必须不再命中 —— 证明断言受真实 schema 约束，
+  不是"字符串恒成立"；
+- 不测耗时（机器快慢会把它变成环境耦合判据），测的是计划形状与索引是否真的存在。
+
+存量库启动不跑 `Migrator::up`，因此迁移与 `ensure_perf_indexes` 必须**同时**加，
+否则新装库有索引、升级库永远没有（这类"迁移单独加"的分裂在 b77 的索引纪律里已登记）。
+
+### 3.70 后端日志判据（b81）
+
+起后端时给一份按轮日志（`start-backend.mjs` 已支持）：
+
+```bash
+cd stepby-axum
+STEPBY_BACKEND_LOG=logs/b81_r2.log node start-backend.mjs
+```
+
+全量结束后（或任意时刻看当前进展）：
+
+```bash
+cd stepby-vue
+STEPBY_BACKEND_LOG=D:/Projects/stepby/stepby-axum/logs/b81_r2.log \
+  node tests/e2e/backend-log-audit.mjs --gate
+```
+
+判据口径：
+
+- `ERROR` / `WARN` **逐条登记**在 `backend-log-allowlist.json`（`level + 正则 + why`）；
+  未登记即红。新增一条允许项前，先在日志里找到它的完整上下文，确认是设计内信号。
+- **非 tracing 行**（panic、stderr 裸输出）一律红——它们最容易从 `grep WARN|ERROR` 的缝里漏掉。
+- 空日志 / 文件不存在 ⇒ EXIT=2；不得把"没跑"或"读错轮次"判成通过。
+- `--since/--until`（UTC）用于从按日轮转的大文件里截本轮窗口；按轮日志可省略。
+- 自检：`node tests/e2e/backend-log-audit.mjs --selftest`（13 条双向，含允许表坏形状/空日志/未登记必红）。
+  b81 终值：**3441 条记录 / 76 条 WARN+ERROR / 已登记 76 / 非 tracing 0**，允许表 19 条逐条带理由。
+- `run-gates.py` 的 `backendlog` 已接线；环境变量缺失时显示 UNRUN，而不是 PASS。
+
+### 3.71 失败操作判据（b81，`sys_oper_log.status='1'`）
+
+后端日志判据看的是"服务端说了什么"，这把看的是"审计事实"：窗口内每条失败写操作必须
+对得上一条**期望失败**的负路径；对不上就是真实缺陷（被前端吞掉的 5xx 最危险）。
+
+```bash
+cd stepby-vue
+STEPBY_OPER_SINCE='2026-10-20 19:48:00' node tests/e2e/oper-log-audit.mjs --gate
+```
+
+- 时间口径：`oper_time` 落库是 **UTC** 裸时间（9 位小数秒）。给 `--since/--until` 或
+  `STEPBY_OPER_SINCE/UNTIL` 时用同一口径；不给 since、库缺失、窗口反向、窗口内零操作
+  一律 EXIT=2（"没跑/读错库"与"零失败"必须可区分）。
+- 允许表 `oper-log-allowlist.json` 每条必须带 `method + url 正则 + error 正则 + why`；
+  业务原因写在 `json_result.msg` 里（`error_msg` 往往只有 `HTTP 400`），因此**能带 `msg`
+  就必须带**，否则同一端点的任何 400 都会被吞成"设计内"。
+- `msg` 精确到业务文案，而不是"该端点 400 都算"：b81 收口 75 条登记逐条自足，
+  覆盖权限拒绝、租户生命周期/配额、平台治理、域名校验、上传/流程/报表/回调负路径等。
+- **`until` 日落豁免**（b81 收口新增）：只用于"缺陷已修复，但旧窗口的历史审计行仍需定性"。
+  条目只在 `oper_time < until` 时生效；之后同类信号未登记即红。禁止拿它当永久豁免。
+  自检 17 条双向含三种形状：until 前放行 / until 当秒起转红 / 坏 until 拒绝。
+- 自检：`node tests/e2e/oper-log-audit.mjs --selftest`；`run-gates.py` 的 `operlog`
+  已接线并归入 `LIVE_DB_GATES`（库未静默时提示"结论不可信"，须在套件停止后单独复跑）。
+- b81 终值：窗口 770 条操作 / 失败 140 条 / 已登记 140 / 未登记 0。
+  **这条判据抓到过用例自身的缺陷**：F143 限流压测只送 `code` 不送 `secret`，20 条 422
+  被 garde 拦在业务层之外，而 HTTP/断言全绿；修复见台账 §11.5。

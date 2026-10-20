@@ -7,7 +7,7 @@
       storage-key="dept-sidebar-width"
       :defaultExpandAll="true"
       @node-click="handleNodeClick"
-      @refresh="getDeptTree"
+      @refresh="refreshDeptTree"
       ref="deptTreeRef"
     />
     <div class="tree-sidebar-content">
@@ -20,7 +20,9 @@
                 :placeholder="t('user.search.phUsername')"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery" :aria-label="t('user.search.phUsername')" />
+                @keyup.enter="handleQuery"
+                :aria-label="t('user.search.phUsername')"
+              />
             </el-form-item>
             <el-form-item :label="t('user.search.phone')" prop="phonenumber">
               <el-input
@@ -28,7 +30,9 @@
                 :placeholder="t('user.search.phPhone')"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery" :aria-label="t('user.search.phPhone')" />
+                @keyup.enter="handleQuery"
+                :aria-label="t('user.search.phPhone')"
+              />
             </el-form-item>
             <el-form-item :label="t('user.search.status')" prop="status">
               <el-select
@@ -53,7 +57,9 @@
                 type="daterange"
                 range-separator="-"
                 :start-placeholder="t('common.form.startDate')"
-                :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
+                :end-placeholder="t('common.form.endDate')"
+                :aria-label="t('common.form.startDate')"
+              ></el-date-picker>
             </el-form-item>
             <el-form-item>
               <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
@@ -221,12 +227,7 @@
               </template>
             </el-table-column>
             <!-- v5-E4：账号来源标识（sys_oauth_user 存在绑定 → 第三方） -->
-            <el-table-column
-              :label="t('user.column.oauthBound')"
-              align="center"
-              key="oauthBound"
-              width="90"
-            >
+            <el-table-column :label="t('user.column.oauthBound')" align="center" key="oauthBound" width="90">
               <template #default="scope">
                 <el-tag v-if="scope.row.oauthBound" type="warning" size="small">
                   {{ t('user.column.oauthBoundTag') }}
@@ -422,7 +423,17 @@ import ExcelImportDialog from '@/components/ExcelImportDialog/index.vue'
 import UserViewDrawer from './view.vue'
 import UserFormDialog from './UserFormDialog.vue'
 import { usePasswordRule } from '@/utils/passwordRule'
-import { changeUserStatus, listUser, resetUserPwd, delUser, getUser, deptTreeSelect, anonymizeUserPrecheck, anonymizeUser } from '@/api/system/user'
+import {
+  changeUserStatus,
+  listUser,
+  resetUserPwd,
+  delUser,
+  getUser,
+  deptTreeSelect,
+  refreshDeptTreeSelect,
+  anonymizeUserPrecheck,
+  anonymizeUser
+} from '@/api/system/user'
 import { getFieldHidden } from '@/api/system/fieldPerm'
 import { isColumnVisible } from '@/utils/fieldPerm'
 import type { SysUser, UserQueryParams, UserErasureReport } from '@/types/api/system/user'
@@ -504,7 +515,11 @@ const USER_COLUMN_LABELS = () => ({
   loginDate: t('user.column.loginDate'),
   createTime: t('user.column.createTime')
 })
-const { visibleKeys: userVisibleKeys, toggle: toggleUserColumn, bindLabels: bindUserLabels } = useTableColumns({
+const {
+  visibleKeys: userVisibleKeys,
+  toggle: toggleUserColumn,
+  bindLabels: bindUserLabels
+} = useTableColumns({
   pageKey: USER_TABLE_KEY,
   columns: USER_COLUMN_DEFS,
   labels: USER_COLUMN_LABELS,
@@ -546,9 +561,7 @@ watch(
 // columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
 // label 更新（bindLabels）不再触发 deep 全量遍历。
 const columnsVisibleSig = computed(() =>
-  (Object.values(columns.value) as TableShowColumns[])
-    .map((c) => (c.visible ? 1 : 0))
-    .join('')
+  (Object.values(columns.value) as TableShowColumns[]).map((c) => (c.visible ? 1 : 0)).join('')
 )
 watch(columnsVisibleSig, () => {
   const v = columns.value
@@ -672,6 +685,12 @@ function getDeptTree() {
       enabledDeptOptions.value = filterDisabledDept(JSON.parse(JSON.stringify(response.data)))
     })
     .catch(() => {})
+}
+
+/** 树面板「刷新」是显式刷新：必须先失效 30s 缓存，否则点下去没有请求、数据也不变（b81 M89 实测） */
+function refreshDeptTree() {
+  refreshDeptTreeSelect()
+  getDeptTree()
 }
 
 /** 过滤禁用的部门 */

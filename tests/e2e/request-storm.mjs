@@ -42,8 +42,80 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DATASET = path.join(HERE, 'screenshots', 'deep-e2e-reqstats.json')
 const BASELINE = path.join(HERE, 'request-storm-baseline.json')
 
-/** 基线口径名。换分母/换判据含义必须同时换掉它并重生成基线（见 `assertBaselineShape`）。 */
-export const METRIC = 'density-per-nav'
+/**
+ * 已声明轮询清单（§10 N-21）。
+ *
+ * 事实源必须**可核对**：端点键 + 间隔（毫秒）+ 代码位置 + 为什么它就该周期性出网。
+ * 只在人脑里记着"这个是合法轮询"，第一次跑就会被新键密度下限判成风暴；反过来为了
+ * 消红而放宽全局阈值，会把真正的逐行请求一起放走。声明只对**点名的端点**生效，
+ * 且要求 `source` 指向真实代码位置——这与 `endpoint-coverage-reasons.json` 同一条纪律：
+ * 理由写在文档里不是判据，登记表本身要过闸。
+ */
+const DECLARATIONS = path.join(HERE, 'polling-declarations.json')
+
+export function loadDeclarations(file = DECLARATIONS) {
+  if (!fs.existsSync(file)) {
+    throw new Error(`轮询声明清单不存在：${file}（缺失即"未声明"，不得静默当成空集）`)
+  }
+  let body
+  try {
+    body = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (e) {
+    throw new Error(`轮询声明清单 JSON 解析失败：${e.message}`)
+  }
+  if (!body || body.version !== 1)
+    throw new Error(`轮询声明清单 version 必须为 1（实际 ${JSON.stringify(body?.version)}）`)
+  if (!Array.isArray(body.declarations) || body.declarations.length === 0) {
+    throw new Error('轮询声明清单 declarations 必须是非空数组')
+  }
+  const seen = new Set()
+  const out = new Map()
+  for (const [i, d] of body.declarations.entries()) {
+    const at = `declarations[${i}]`
+    if (!d || typeof d !== 'object') throw new Error(`${at} 不是对象`)
+    const key = typeof d.key === 'string' ? d.key.trim() : ''
+    if (!/^(GET|POST|PUT|DELETE|PATCH) \/\S+/.test(key)) {
+      throw new Error(`${at}.key 必须是 "METHOD /path" 形态（实际 ${JSON.stringify(d.key)}）`)
+    }
+    if (seen.has(key)) throw new Error(`${at}.key 重复登记：${key}`)
+    const interval = Number(d.intervalMs)
+    if (!Number.isFinite(interval) || interval <= 0 || interval > 24 * 3600 * 1000) {
+      throw new Error(`${at}.intervalMs 必须是 (0, 24h] 的数值（实际 ${JSON.stringify(d.intervalMs)}）`)
+    }
+    const source = typeof d.source === 'string' ? d.source.trim() : ''
+    // 代码位置必须带行号锚点：只写文件名等于"某处"，改完代码仍会假装成立
+    if (!/^[A-Za-z0-9_./-]+:\d+$/.test(source)) {
+      throw new Error(`${at}.source 必须是 "相对路径:行号"（实际 ${JSON.stringify(d.source)}）`)
+    }
+    // 行号锚点必须指得到真实文件：只校验格式的话，`a.ts:1` 也能登记，
+    // 声明就退化成"随手写的一句话"。按仓库根解析（脚本在 stepby-vue/tests/e2e 下三层）。
+    const [rel, lineRaw] = source.split(':')
+    const repoRoot = path.resolve(HERE, '../../..')
+    const abs = path.resolve(repoRoot, rel)
+    if (!abs.startsWith(repoRoot + path.sep) || !fs.existsSync(abs)) {
+      throw new Error(`${at}.source 指向的文件不存在：${source}（仓库根 ${repoRoot}）`)
+    }
+    const lineCount = fs.readFileSync(abs, 'utf8').split('\n').length
+    if (Number(lineRaw) < 1 || Number(lineRaw) > lineCount) {
+      throw new Error(`${at}.source 行号越界：${source}（文件仅 ${lineCount} 行）`)
+    }
+    const why = typeof d.why === 'string' ? d.why.trim() : ''
+    if (why.length < 10) throw new Error(`${at}.why 至少 10 个字符，写清为什么它必须周期性出网`)
+    seen.add(key)
+    out.set(key, { key, intervalMs: interval, source, why })
+  }
+  return out
+}
+
+/**
+ * 基线口径名。换分母/换判据含义必须同时换掉它并重生成基线（见 `assertBaselineShape`）。
+ *
+ * b81 从 `density-per-nav` 升为 `density-per-nav-endpoint`：采集键原本是
+ * `"<动作> | GET /path"`，同一端点在不同动作里各成一条，既无法回答"这个端点每页打几次"，
+ * 也让 N-21 的"按端点声明轮询"永远匹配不上。现在聚合时剥掉动作前缀，按端点求和；
+ * 这是**换判据**，必须与重生成基线同批，不能拿旧数字继续比。
+ */
+export const METRIC = 'density-per-nav-endpoint'
 
 /** 单键允许的最大增幅（相对基线密度）。小于它的波动视为噪声，不参与判红。 */
 export const STORM_TOLERANCE = 0.25
@@ -69,7 +141,13 @@ const log = (...a) => console.log(...a)
 export function aggregate(rows) {
   const out = new Map()
   for (const r of rows) {
-    const key = String(r.key || '').trim()
+    const rawKey = String(r.key || '').trim()
+    if (!rawKey) continue
+    // 采集键形如 `"load | GET /system/notice/listTop"`（动作由 capture-kit 的 beginAction 写入）。
+    // 动作前缀只影响"哪次点击发的"，不是端点身份；不剥掉会让同一端点按动作裂成多条，
+    // 并使 N-21 的按端点声明永远匹配不上。没有前缀的合成数据（自检）原样使用。
+    const sep = rawKey.lastIndexOf(' | ')
+    const key = sep > 0 ? rawKey.slice(sep + 3).trim() : rawKey
     if (!key) continue
     const c = Number(r.count)
     if (!Number.isFinite(c) || c <= 0) continue
@@ -133,10 +211,21 @@ export function loadDataset(file = DATASET) {
 /**
  * 唯一比较式（`--gate` 与 `--update-baseline` 共用）。返回退步项，空数组=不退步。
  * 基线形状：`{ perKey: { "GET /x": 2.5 } }`，值 = **每导航均值**。
+ *
+ * `declared` 里的端点**只记密度、不设阈**（§10 N-21）：它们的周期性出网是设计行为，
+ * 但声明必须逐条带间隔与代码位置（`loadDeclarations` 已校验），不是一句通配。
+ * 未声明端点照旧走容差 + 新键下限；两者不共享任何"豁免"状态。
  */
-export function stormRegressions(basePerKey, agg, tol = STORM_TOLERANCE, newFloor = NEW_DENSITY_FLOOR) {
+export function stormRegressions(
+  basePerKey,
+  agg,
+  tol = STORM_TOLERANCE,
+  newFloor = NEW_DENSITY_FLOOR,
+  declared = new Set()
+) {
   const bad = []
   for (const [key, cur] of agg) {
+    if (declared.has(key)) continue
     const base = basePerKey ? basePerKey[key] : undefined
     if (base === undefined) {
       if (cur.density >= newFloor) {
@@ -183,7 +272,7 @@ export function filterAccepted(bad, acceptedKeys = []) {
 }
 
 /** 收紧入口用：先比后写，退步时**一个字都不落盘**（§7.14）。 */
-export function writeBaseline({ window, agg, totalRequests, acceptedNewKeys = [] }) {
+export function writeBaseline({ window, agg, totalRequests, acceptedNewKeys = [], resetFrom = null }) {
   const perKey = {}
   const totals = {}
   for (const [k, v] of agg) {
@@ -201,6 +290,8 @@ export function writeBaseline({ window, agg, totalRequests, acceptedNewKeys = []
     keys: Object.keys(perKey).length,
     perKey,
     totals,
+    // 口径变更留痕：谁都能看到这份基线不是与旧数字比出来的，而是换了判据后重建的
+    ...(resetFrom ? { resetFrom } : {}),
     // 审计留痕：哪些键是"人点名登记进来的新出网面"，谁都能在这份文件里看到它不是自然长出来的
     ...(acceptedNewKeys.length ? { acceptedNewKeys } : {})
   }
@@ -283,7 +374,8 @@ function selftest() {
   }
   // ① 正常读取 + 聚合/密度正确性（同端点跨动作求和；分母=触达它的动作的导航数之和）
   const a = mk([
-    { tag: 'M1 load', key: 'GET /getInfo', count: 3, navs: 3 },
+    // 一条带动作前缀、一条不带：真实采集键是 `"<动作> | METHOD /path"`，两者必须聚成同一端点
+    { tag: 'M1 load', key: 'load | GET /getInfo', count: 3, navs: 3 },
     { tag: 'M2 load', key: 'GET /getInfo', count: 9, navs: 3 },
     { tag: 'M88 api', key: 'POST /system/user', count: 4, navs: 0 }
   ])
@@ -425,6 +517,104 @@ function selftest() {
   if (filterAccepted(newBad, ['  ', '']).length !== 1) fail.push('⑬ 空白键名当成有效登记')
   if (filterAccepted(newBad, ['POST /brand/new', 'POST /brand/new']).length !== 0)
     fail.push('⑬ 重复登记抛错或计数异常（应幂等）')
+  // ⑭ 已声明轮询（§10 N-21）双向：合法声明读得出；声明项高密度不报；未声明同名项照报；
+  //    任何形状缺陷（缺间隔 / 无行号 / 空理由 / 重复 / 版本错）都必须响亮拒绝——
+  //    "声明清单坏了被当成空集"会让所有合法轮询重新变成风暴，反之写成通配则把真回归一起放走。
+  const mkDecl = (body) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storm-decl-'))
+    const f = path.join(dir, 'd.json')
+    fs.writeFileSync(f, JSON.stringify(body))
+    return { f, dir }
+  }
+  const goodDecl = mkDecl({
+    version: 1,
+    declarations: [
+      {
+        key: 'GET /monitor/server',
+        intervalMs: 2000,
+        source: 'stepby-vue/src/views/monitor/server/index.vue:243',
+        why: '服务器监控页面自动刷新'
+      }
+    ]
+  })
+  try {
+    const decl = loadDeclarations(goodDecl.f)
+    if (!decl.has('GET /monitor/server') || decl.get('GET /monitor/server').intervalMs !== 2000) {
+      fail.push('⑭ 合法声明没有读出来')
+    }
+  } catch (e) {
+    fail.push(`⑭ 合法声明被拒：${e.message}`)
+  }
+  const declaredHigh = stormRegressions(
+    {},
+    aggregate([{ tag: 'M99', key: 'GET /monitor/server', count: 400, navs: 1 }]),
+    STORM_TOLERANCE,
+    NEW_DENSITY_FLOOR,
+    new Set(['GET /monitor/server'])
+  )
+  if (declaredHigh.length !== 0) fail.push(`⑭ 已声明端点仍被按风暴报：${JSON.stringify(declaredHigh)}`)
+  const undeclaredSame = stormRegressions(
+    {},
+    aggregate([{ tag: 'M99', key: 'GET /monitor/server', count: 400, navs: 1 }])
+  )
+  if (undeclaredSame.length !== 1) fail.push('⑭ 去掉声明后同一端点没有被报（声明通道成了通配）')
+  const declaredGrowth = stormRegressions(
+    { 'GET /monitor/server': 1 },
+    aggregate([{ tag: 'M99', key: 'GET /monitor/server', count: 400, navs: 1 }]),
+    STORM_TOLERANCE,
+    NEW_DENSITY_FLOOR,
+    new Set(['GET /monitor/server'])
+  )
+  if (declaredGrowth.length !== 0) fail.push('⑭ 已声明端点的基线增幅仍被报')
+  const badDecls = [
+    [
+      '版本错',
+      { version: 2, declarations: [{ key: 'GET /x', intervalMs: 1, source: 'a.ts:1', why: '为什么必须轮询' }] }
+    ],
+    ['空清单', { version: 1, declarations: [] }],
+    ['缺间隔', { version: 1, declarations: [{ key: 'GET /x', source: 'a.ts:1', why: '为什么必须轮询' }] }],
+    [
+      '间隔为 0',
+      { version: 1, declarations: [{ key: 'GET /x', intervalMs: 0, source: 'a.ts:1', why: '为什么必须轮询' }] }
+    ],
+    [
+      '无行号',
+      { version: 1, declarations: [{ key: 'GET /x', intervalMs: 1000, source: 'a.ts', why: '为什么必须轮询' }] }
+    ],
+    ['理由过短', { version: 1, declarations: [{ key: 'GET /x', intervalMs: 1000, source: 'a.ts:1', why: '同上' }] }],
+    [
+      '键形态错',
+      { version: 1, declarations: [{ key: '/x', intervalMs: 1000, source: 'a.ts:1', why: '为什么必须轮询' }] }
+    ],
+    [
+      '重复键',
+      {
+        version: 1,
+        declarations: [
+          { key: 'GET /x', intervalMs: 1000, source: 'a.ts:1', why: '为什么必须轮询' },
+          { key: 'GET /x', intervalMs: 2000, source: 'b.ts:2', why: '为什么也必须轮询' }
+        ]
+      }
+    ]
+  ]
+  for (const [label, body] of badDecls) {
+    const p = mkDecl(body)
+    try {
+      loadDeclarations(p.f)
+      fail.push(`⑭ 坏声明被接受：${label}`)
+    } catch {
+      /* 期望 */
+    } finally {
+      fs.rmSync(p.dir, { recursive: true, force: true })
+    }
+  }
+  try {
+    loadDeclarations(path.join(os.tmpdir(), 'definitely-missing-polling-declarations.json'))
+    fail.push('⑭ 声明清单缺失被当成空集')
+  } catch {
+    /* 期望 */
+  }
+  fs.rmSync(goodDecl.dir, { recursive: true, force: true })
   for (const p of [a, b, c, e0, e5]) fs.rmSync(p.dir, { recursive: true, force: true })
   return fail
 }
@@ -447,9 +637,9 @@ function entry() {
       process.exit(1)
     }
     console.log(
-      `SYNTH_OK 出站请求风暴棘轮 13 组双向（聚合与密度口径 / 五类响亮失败：非 full、缺窗口、空 rows、` +
-        `不带 navs、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向），` +
-        `口径 ${METRIC}`
+      `SYNTH_OK 出站请求风暴棘轮 14 组双向（聚合与密度口径 / 五类响亮失败：非 full、缺窗口、空 rows、` +
+        `不带 navs、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向 / ` +
+        `已声明轮询清单双向），口径 ${METRIC}`
     )
     process.exit(0)
   }
@@ -457,6 +647,13 @@ function entry() {
   let ds
   try {
     ds = loadDataset()
+  } catch (e) {
+    console.log(`[FATAL] ${e.message}`)
+    process.exit(2)
+  }
+  let declared
+  try {
+    declared = loadDeclarations()
   } catch (e) {
     console.log(`[FATAL] ${e.message}`)
     process.exit(2)
@@ -478,7 +675,30 @@ function entry() {
     )
   }
 
-  if (args.includes('--gate') || (args.includes('--update-baseline') && base)) {
+  const declaredHit = [...declared.keys()].filter((k) => ds.agg.has(k))
+  log(
+    `已声明轮询 ${declared.size} 条（只记密度、不设阈）；本轮数据集命中 ${declaredHit.length} 条` +
+      (declaredHit.length
+        ? `：${declaredHit.map((k) => `${k}=${ds.agg.get(k).density.toFixed(2)}/nav`).join('、')}`
+        : '')
+  )
+
+  const resetBaseline = args.includes('--reset-baseline')
+  if (resetBaseline && !args.includes('--update-baseline')) {
+    console.log('[FATAL] --reset-baseline 只能与 --update-baseline 同用（单独用等于无判据地覆盖）')
+    process.exit(2)
+  }
+  if (resetBaseline && base && base.metric === METRIC) {
+    console.log(
+      `[FATAL] 口径未变化（仍为 ${METRIC}）时禁止 reset：这会抹掉既有棘轮；` +
+        `新增出网面请用 --accept-new-key=；换判据才允许重建基线`
+    )
+    process.exit(2)
+  }
+  if (resetBaseline && base) {
+    log(`⚠️ 口径变更：${JSON.stringify(base.metric)} → ${JSON.stringify(METRIC)}；旧 perKey 不参与比对，重建基线`)
+  }
+  if (args.includes('--gate') || (args.includes('--update-baseline') && base && !resetBaseline)) {
     let bw
     try {
       bw = assertBaselineShape(base)
@@ -486,7 +706,7 @@ function entry() {
       console.log(`[FATAL] ${e.message}`)
       process.exit(2)
     }
-    const bad = stormRegressions(base.perKey, ds.agg)
+    const bad = stormRegressions(base.perKey, ds.agg, STORM_TOLERANCE, NEW_DENSITY_FLOOR, new Set(declared.keys()))
     log(`窗口对账：基线 ${bw.since} .. ${bw.until}，本轮 ${ds.window.since} .. ${ds.window.until}`)
     if (bad.length) {
       console.log(`❌ 出网密度退步 ${bad.length} 项（容差 ${STORM_TOLERANCE}，新键密度下限 ${NEW_DENSITY_FLOOR}）：`)
@@ -505,8 +725,8 @@ function entry() {
 
   if (args.includes('--update-baseline')) {
     let acceptedNow = []
-    if (base) {
-      const allBad = stormRegressions(base.perKey, ds.agg)
+    if (base && !resetBaseline) {
+      const allBad = stormRegressions(base.perKey, ds.agg, STORM_TOLERANCE, NEW_DENSITY_FLOOR, new Set(declared.keys()))
       // 登记通道：只有命令行上**点名**的键才算"本轮新增并已审阅"，其余退步照旧拒绝落盘。
       // 没有这条通道，任何合法新增用例都会把棘轮锁死，结局是有人直接关掉门禁。
       const bad = filterAccepted(allBad, acceptNewKeys)
@@ -522,7 +742,12 @@ function entry() {
       if (acceptedNow.length)
         log(`ℹ 登记新增出网面 ${acceptedNow.length} 个：${acceptedNow.join(', ')}（已写进基线的 acceptedNewKeys）`)
     }
-    const body = writeBaseline({ window: ds.window, agg: ds.agg, totalRequests: ds.totalRequests })
+    const body = writeBaseline({
+      window: ds.window,
+      agg: ds.agg,
+      totalRequests: ds.totalRequests,
+      resetFrom: resetBaseline && base ? base.metric : null
+    })
     log(`✅ 基线已写入：${BASELINE}（${body.keys} 个端点键 / 总 ${body.totalRequests} 次 / 口径 ${body.metric}）`)
     process.exit(0)
   }

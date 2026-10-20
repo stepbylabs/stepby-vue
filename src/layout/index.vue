@@ -22,7 +22,7 @@
       <Sidebar v-if="!sidebar.hide" key="sidebar" class="sidebar-container" />
     </Transition>
     <div :class="{ hasTagsView: needTagsView, sidebarHide: sidebar.hide }" class="main-container">
-      <div :class="{ 'fixed-header': fixedHeader }">
+      <div ref="fixedHeaderRef" :class="{ 'fixed-header': fixedHeader }">
         <!-- 环境标识横幅（仅非生产环境渲染） -->
         <EnvBanner />
         <!-- 系统公告横幅 -->
@@ -77,6 +77,29 @@ const device = computed(() => appStore.device)
 const needTagsView = computed(() => settingsStore.tagsView)
 const fixedHeader = computed(() => settingsStore.fixedHeader)
 const route = useRoute()
+
+// 固定头部高度是**动态**的：EnvBanner / 公告横幅 / TagsView 都可能增删。
+// b81 实测：公告横幅出现时 header=121px，而 AppMain 的 margin-top 硬编码 84px ⇒
+// 内容区顶部的 37px 被 #tags-view-container 盖住，代码生成编辑页的「基本信息」页签
+// 正好落在遮挡带里（真实用户点不动）。用 ResizeObserver 把实测高度写进 CSS 变量，
+// AppMain 的 margin/height 全部改读该变量（保留 50/84 作为变量缺失时的回落）。
+const fixedHeaderRef = ref<HTMLElement | null>(null)
+let fixedHeaderObserver: ResizeObserver | null = null
+onMounted(() => {
+  const el = fixedHeaderRef.value
+  if (!el) return
+  const applyHeight = () => {
+    const height = Math.round(el.getBoundingClientRect().height)
+    document.documentElement.style.setProperty('--fixed-header-height', `${height}px`)
+  }
+  applyHeight()
+  fixedHeaderObserver = new ResizeObserver(applyHeight)
+  fixedHeaderObserver.observe(el)
+})
+onBeforeUnmount(() => {
+  fixedHeaderObserver?.disconnect()
+  fixedHeaderObserver = null
+})
 
 // TierA-2: Favicon 红点 - 监听通知未读数，动态在 favicon 上显示红点
 const { updateBadge } = useFaviconBadge()
