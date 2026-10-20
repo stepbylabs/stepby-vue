@@ -54,7 +54,7 @@
     "libphonenumber-js": "^1.13.10",
     "md-editor-v3": "^6.5.4",
     "mitt": "^3.0.1",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.57.0",
     "nprogress": "0.2.0",
     "pinia": "4.0.2",
     "prismjs": "^1.30.0",
