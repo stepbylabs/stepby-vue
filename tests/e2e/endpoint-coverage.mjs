@@ -29,7 +29,7 @@ import os from 'node:os'
 import { DatabaseSync } from 'node:sqlite' // 自检也要用（服务端触达那把的反证必须真跑一次 SQL 窗口）
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assertFullRun, readWindow } from './dataset-window.mjs'
+import { assertFullRun, assertWindowPrecision, readWindow } from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..', '..', '..')
@@ -328,18 +328,30 @@ function runSelftest() {
   }
   if (!threw3) fail.push('⑧ 分段轮数据集被接受了（会把"没跑"读成"没覆盖"）')
   // ⑨ full 但没有任何写端点 ⇒ 采集坏了，也必须拒
+  // （夹具必须带执行完整性字段：否则它会被 assertFullRun 的前一道闸先拦下，
+  //  这条用例就成了"因为别的原因抛错"的空跑——期望抛错的用例必须抛在 It 自己的理由上。）
   fs.writeFileSync(
     path.join(tmp, 'e.json'),
-    JSON.stringify({ full: true, rows: [{ key: 'load | GET /a', count: 1 }] }),
+    JSON.stringify({
+      full: true,
+      modulesPlanned: 90,
+      modulesAttempted: 90,
+      modulesWithZeroVerdicts: [],
+      totalVerdictRows: 1,
+      rows: [{ key: 'load | GET /a', count: 1 }]
+    }),
     'utf8'
   )
   let threw4 = false
+  let why4 = ''
   try {
     loadTouched(path.join(tmp, 'e.json'))
-  } catch {
+  } catch (e) {
     threw4 = true
+    why4 = String(e.message)
   }
   if (!threw4) fail.push('⑨ 零写请求的数据集被当成了合法输入')
+  else if (!/没有任何写请求/.test(why4)) fail.push(`⑨ 拒绝理由没落在"零写请求"上：${why4}`)
 
   // ⑩ **正控**：解析必须存在"成功路径"的断言。⑦ 只期望抛错 ⇒ 一个永远抛错的实现
   //（实测就是这种：`re.entries` 根本不是函数，改成 `text.matchAll` 之前每个文件都抛，
@@ -515,6 +527,94 @@ function runSelftest() {
     // 下一个人就会去改命令行而不是重生成基线（误导的补救文本本身是缺陷）。
     if (wantMsg && !wantMsg.test(String(err))) fail.push(`⑲ ${desc}：补救指引不对 ⇒ ${String(err).slice(0, 90)}`)
   }
+  // ㉒ 基线**新鲜度**闸（b82，实测抓回"旧断面当欠账清单"）：口径相同但窗口不同也必须拒，
+  //     且要证明它不是一律拒——同窗口必须放行，显式历史窗口（没给当前断面）不得介入。
+  const W = { since: '2026-01-01 00:00:00', until: '2026-01-02 00:00:00' }
+  const tryFresh = (b, w) => {
+    try {
+      assertFreshBaseline(b, w)
+      return null
+    } catch (e) {
+      return e.message
+    }
+  }
+  const cases22 = [
+    ['基线窗口与本轮断面一致 ⇒ 放行（正控，防"一律拒"）', okBase, W, true],
+    [
+      '窗口差一秒 ⇒ 必须拒（b81 的真实形态：差 8 小时也照样放行过）',
+      okBase,
+      { since: W.since, until: '2026-01-02 00:00:01' },
+      false
+    ],
+    ['基线没带窗口而本轮有断面 ⇒ 必须拒（不得当成"一致"）', { ...okBase, window: null }, W, false],
+    ['没给当前断面（显式历史 --since/--until）⇒ 本闸不介入（正控）', okBase, { since: '', until: '' }, true]
+  ]
+  for (const [desc, b, w, wantOk] of cases22) {
+    const err = tryFresh(b, w)
+    if ((err === null) !== wantOk)
+      fail.push(`㉒ ${desc}：实际 ${err === null ? '放行' : `拒（${String(err).slice(0, 60)}）`}`)
+  }
+  // 变异证伪：把"断面不同"洗成"只在缺窗口时拒"（`w.since !== since` 那半句摘掉）必须让 ㉒ 第 2 条转红
+  {
+    const lenient = (b, w) => {
+      if (!b.window) throw new Error('缺窗口')
+      if (!w.since) return b
+      return b
+    }
+    let caught = false
+    try {
+      lenient(okBase, { since: '2026-09-09 00:00:00', until: '2026-09-10 00:00:00' })
+    } catch {
+      caught = true
+    }
+    if (caught) fail.push('㉒ 变异控制组失效：宽松实现本应放行不同断面（说明用例判据写反）')
+  }
+  // ㉓ 退役登记（b82）：`stale` 从"只打 ℹ"变成有出口的通道，但出口只能删**打过的**。
+  //     两条反例分别钉住两个相反方向的错误：删掉未触达条目的理由（新洞就此隐形）、
+  //     以及"打过的还留着"（b81 的 17 条假欠账形态）。
+  const cases23 = [
+    [
+      '打过的必须删（b81 那 17 条的形态）',
+      {
+        'POST /gone': { kind: 'todo', why: '假欠账：本轮两源都证明打过' },
+        'POST /still': { kind: 'by-design', why: '清库类' }
+      },
+      ['POST /still'],
+      ['POST /gone']
+    ],
+    [
+      '未触达条目的理由一个都不许删（删了下次就是"没登记"红灯，而不是真缺陷可见）',
+      { 'POST /still': { kind: 'todo', why: '本可自动化' } },
+      ['POST /still'],
+      []
+    ],
+    ['登记表为空 ⇒ 退役 0 条且不得报错（正控）', {}, ['POST /x'], []],
+    [
+      '登记集合与未触达集合完全不交 ⇒ 全部可退役，但剩余集合必须为空（防"顺手清空"）',
+      {
+        'POST /a': { kind: 'other-suite', why: '主套件天天打' },
+        'POST /b': { kind: 'other-suite', why: '主套件天天打' }
+      },
+      [],
+      ['POST /a', 'POST /b']
+    ]
+  ]
+  for (const [desc, input, uncovered, wantRemoved] of cases23) {
+    const r = JSON.parse(JSON.stringify(input))
+    const got = retireStaleKeys(r, uncovered).sort()
+    const ok = got.join('|') === [...wantRemoved].sort().join('|')
+    // 反向也要判：剩下的键必须正好是"未触达 ∩ 已登记"
+    const keepOk =
+      Object.keys(r).sort().join('|') ===
+      uncovered
+        .filter((k) => Object.keys(input).includes(k))
+        .sort()
+        .join('|')
+    if (!ok || !keepOk)
+      fail.push(
+        `㉓ ${desc}：应删 ${JSON.stringify(wantRemoved)} 实删 ${JSON.stringify(got)}，剩余 ${JSON.stringify(Object.keys(r))}`
+      )
+  }
   // ⑳ **集合式**棘轮：总数下降但带新项仍算退步（数值棘轮套在集合判据上是第二条 fail-open）
   const reg = coverageRegressions(
     ['POST /a', 'POST /b', 'POST /c', 'POST /d', 'POST /e'],
@@ -574,6 +674,119 @@ function runSelftest() {
     ]
   ]
   for (const [desc, ok, detail] of cases21) if (!ok) fail.push(`㉑ ${desc}${detail ? `：实际 ${detail}` : ''}`)
+  // ㉔ **执行完整性闸**双向（b82 实测：全量轮跑到 M38 浏览器崩溃，M39–M90 以"✅ 0 / ❌ 0"空跑到底，
+  //    汇总仍打"模块: 90"、`full` 仍写 true、reqstats 仍落主文件）。`full` 只证明"不是分段轮"，
+  //    不证明"跑完了"——拿崩轮重生成基线会把 M39–M90 覆盖的端点全记成未触达（与 ㉓ 的假欠账同族，
+  //    只是这次由崩溃触发）。这里必须同时钉住"崩轮被拒"和"合法轮被放行"，否则前一道闸写坏了
+  //    会让所有数据集都被拒、而判据照样"零未触达"。
+  const mkRun = (name, body) => {
+    const p = path.join(tmp, name)
+    fs.writeFileSync(p, JSON.stringify(body), 'utf8')
+    return p
+  }
+  const loadRun = (p) => {
+    try {
+      return { touched: loadTouched(p), err: '' }
+    } catch (e) {
+      return { touched: null, err: String(e.message) }
+    }
+  }
+  const good = {
+    full: true,
+    modulesPlanned: 90,
+    modulesAttempted: 90,
+    modulesWithZeroVerdicts: [],
+    totalVerdictRows: 1300,
+    windowStart: '2026-01-01 00:00:00',
+    windowEnd: '2026-01-02 00:00:00',
+    rows: [{ key: 'act | POST /system/config', count: 2, navs: 1 }]
+  }
+  const cases24 = [
+    [
+      '崩轮（有模块产出 0 条判定）必须拒，且理由指向崩溃',
+      (() => {
+        const r = loadRun(
+          mkRun('crashed.json', { ...good, modulesWithZeroVerdicts: Array.from({ length: 52 }, (_, i) => i + 39) })
+        )
+        return r.touched === null && /0 条判定/.test(r.err) && /崩溃/.test(r.err)
+      })()
+    ],
+    [
+      '提前终止（计划 90 / 入场 38，后面模块连 moduleStats 都没有）必须拒',
+      (() => {
+        const r = loadRun(mkRun('early.json', { ...good, modulesAttempted: 38 }))
+        return r.touched === null && /提前终止/.test(r.err)
+      })()
+    ],
+    [
+      '缺执行完整性字段的旧格式数据集必须拒（旧格式无法证明"每个模块都跑了"）',
+      (() => {
+        const stripped = { ...good }
+        delete stripped.modulesPlanned
+        delete stripped.modulesWithZeroVerdicts
+        const r = loadRun(mkRun('legacy.json', stripped))
+        return r.touched === null && /完整性字段/.test(r.err)
+      })()
+    ],
+    [
+      '判定行总数为 0 必须拒（采集器已坏，结论不作数）',
+      (() => {
+        const r = loadRun(mkRun('norows.json', { ...good, totalVerdictRows: 0 }))
+        return r.touched === null && /判定行总数为 0/.test(r.err)
+      })()
+    ],
+    [
+      '合法全量轮必须放行并带出写端点（正控：闸不得一律拒）',
+      (() => {
+        const r = loadRun(mkRun('ok-round.json', good))
+        return r.touched !== null && r.touched.length === 1 && r.touched[0].method === 'POST'
+      })()
+    ]
+  ]
+  for (const [desc, ok] of cases24) if (!ok) fail.push(`㉔ ${desc}`)
+  // ㉕ **窗口精度闸**双向（b82 实测）：runner 曾把 `windowEnd` 截到整秒，而 `oper_time` 带小数秒，
+  //    SQL 侧是字符串比较 ⇒ 落在最后一秒内的写入全被排除，本轮最后一个模块（M90）的 5 个写端点
+  //    被同一轮的判据读成"未触达"。消费方必须自己证精度，而不是替生产者把窗口放宽一秒。
+  const cases25 = [
+    [
+      '整秒窗口必须拒，且理由指向字符串比较把最后一秒排除',
+      (() => {
+        try {
+          assertWindowPrecision({ windowStart: '2026-01-01 00:00:00', windowEnd: '2026-01-02 00:00:00' }, '(夹具)')
+          return false
+        } catch (e) {
+          return /只到整秒/.test(e.message) && /字符串比较/.test(e.message)
+        }
+      })()
+    ],
+    [
+      '带毫秒的窗口必须放行（正控：闸不得一律拒）',
+      (() => {
+        try {
+          assertWindowPrecision(
+            { windowStart: '2026-01-01 00:00:00.123', windowEnd: '2026-01-02 00:00:00.987' },
+            '(夹具)'
+          )
+          return true
+        } catch {
+          return false
+        }
+      })()
+    ],
+    [
+      '缺字段/空串不由本闸管（readWindow 已负责），这里必须不抛',
+      (() => {
+        try {
+          assertWindowPrecision({ windowStart: '', windowEnd: undefined }, '(夹具)')
+          return true
+        } catch (e) {
+          fail.push(`㉕ 缺字段被本闸抢着报了（应与 readWindow 分工）：${e.message}`)
+          return false
+        }
+      })()
+    ]
+  ]
+  for (const [desc, ok] of cases25) if (!ok) fail.push(`㉕ ${desc}`)
   fs.rmSync(TMPD, { recursive: true, force: true })
 
   if (fail.length) {
@@ -584,9 +797,9 @@ function runSelftest() {
   // 条数：①–⑱ 是手编号的既有用例（18 条），⑲⑳ 由用例表长度派生——新增用例时只有 18 那一个是常量，
   // 它对应代码里确实存在的 18 个编号，不是一句凭记忆的叙述。
   console.log(
-    `SYNTH_OK 写端点触达判据 ${18 + baseCases.length + 3 + cases21.length} 条双向（既有用例 18 条：4 类响亮失败 + 正控条数 + ` +
-      `服务端触达源 4 条 + 窗口自证 3 条 + 源族标签 1 条；基线可比性 ${baseCases.length} 条；集合式棘轮 3 条；` +
-      `未触达登记表对账 ${cases21.length} 条）`
+    `SYNTH_OK 写端点触达判据 ${18 + baseCases.length + cases22.length + cases23.length + 3 + cases21.length + cases24.length + cases25.length} 条双向（既有用例 18 条：4 类响亮失败 + 正控条数 + ` +
+      `服务端触达源 4 条 + 窗口自证 3 条 + 源族标签 1 条；基线可比性 ${baseCases.length} 条；基线新鲜度 ${cases22.length} 条；` +
+      `集合式棘轮 3 条；未触达登记表对账 ${cases21.length} 条；退役登记 ${cases23.length} 条；执行完整性闸 ${cases24.length} 条；窗口精度闸 ${cases25.length} 条）`
   )
   return 0
 }
@@ -648,6 +861,56 @@ export function assertComparableBaseline(base, { sources, withOperLog, fileLabel
 }
 
 /**
+ * 退役登记（b82，纯函数 + `--retire-stale` 旗标）。
+ *
+ * `stale`（"这轮真被打过、登记表里还挂着理由"）此前**只打 ℹ**。b81 的实测后果就是它的代价：
+ * 18 条 `kind=todo` 里 17 条早已由 M88/M89/main 打过，台账却照单记下"18 条待补"，
+ * 于是下一批会去已覆盖的端点上重复造判据，而真缺口混在里面看不出来。
+ * **采了不判 = 没判**（b79 ⑨ 那条纪律对"提示类输出"同样成立）。
+ *
+ * 规则：只删"当前未触达集合里没有对应条目"的键；未触达但没登记的键**一个都不碰**
+ * （那是要补的理由，不是能退役的条目）。返回被删的键，由调用方打印留痕。
+ */
+export function retireStaleKeys(reasons, uncoveredKeys) {
+  const keep = new Set(uncoveredKeys)
+  const stale = Object.keys(reasons).filter((k) => !keep.has(k))
+  for (const k of stale) delete reasons[k]
+  return stale
+}
+
+/**
+ * 基线**新鲜度**闸（b82 新增，实测抓回一类"记大欠账"的漂移）。
+ *
+ * `assertComparableBaseline` 只确认两次比的是同一**口径**（源集合、有没有窗口字段），
+ * 不确认是同一**断面**。b81 收口时就是这样漏的：基线停在 `2026-10-20 04:59–05:45`，
+ * 而它旁边的数据集自证窗口是 `18:44–19:36`——差 8 小时，`--gate` 照样绿。
+ * 后果不是假绿而是**记大欠账**：那 8 小时里 M88/main 真打过 17 个写端点，
+ * 台账却把 18 条记成 `kind=todo` 欠账（实测 `--operlog` 用当前断面跑，todo 只剩 5 条）。
+ * 方向与 b74 轮 25 的"静默少报"相反，同源成因相同：**判据读的是自己的旧断面，而不是事实**。
+ *
+ * 只在窗口"由数据集自证"时要求新鲜：显式 `--since/--until` 是历史对账的合法用法，
+ * 那种时候断面不同正是目的，所以本闸只在调用方确认窗口来自数据集时才由 main 触发。
+ */
+export function assertFreshBaseline(base, { since, until, fileLabel = BASELINE }) {
+  if (!since || !until) return base // 没给当前断面 = 本闸无从判起（调用方负责只在有断面时进来）
+  const w = base && base.window
+  if (!w || typeof w.since !== 'string' || typeof w.until !== 'string') {
+    throw new Error(
+      `本轮断面是 ${since} .. ${until}，但基线没带可比窗口（实际 ${JSON.stringify(w)}）⇒ ` +
+        `无法确认两边是同一时间断面，拒绝比对。请用产生本轮数据集的那一次全量同批跑 --update-baseline`
+    )
+  }
+  if (w.since !== since || w.until !== until) {
+    throw new Error(
+      `基线窗口 ${w.since} .. ${w.until} ≠ 本轮数据集自证窗口 ${since} .. ${until}（${fileLabel}）⇒ ` +
+        `差集比的是两个时间断面的库，不是同一轮。必须与重生成基线同批：先跑全量，再 --update-baseline；` +
+        `拿旧断面当欠账清单会把已覆盖的端点记成 todo（b81 实测 18 条里 17 条属此类）`
+    )
+  }
+  return base
+}
+
+/**
  * 基线落盘。`window` 只在两源口径下有意义（服务端那一路按窗口取数）；
  * 单源基线留 `window: null` 并写明原因，避免下一个人以为"窗口丢了"。
  * `note` 里钉住一条会随时间失效的事实：`sys_oper_log` 保留 90 天，
@@ -681,6 +944,9 @@ async function main() {
   let until = (args.find((a) => a.startsWith('--until=')) || '').slice('--until='.length)
   let routes, touched
   const sources = sourceTag({ withOperLog })
+  // 窗口是不是"数据集自证"的？显式 --since/--until 是历史对账的合法用法，
+  // 那种场景下断面不同正是目的，新鲜度闸不得拦（拦了就没法回答"三周前那条到底覆盖没有"）。
+  let windowFromDataset = false
   try {
     routes = parseWriteRoutes(ROUTER_DIR)
     touched = loadTouched(DATASET)
@@ -689,9 +955,13 @@ async function main() {
         // 不给人抄窗口的机会：窗口由数据集自证（runner 写入，UTC 口径与 oper_time 一致）。
         // 显式给了 --since/--until 仍然以人给的为准（历史对账需要能指定任意窗口）。
         const w = loadWindow(DATASET)
+        // 窗口精度必须不小于被查询列（b82 实测：runner 曾把窗口截到整秒，而 `oper_time` 带小数秒
+        // ⇒ 字符串比较把"落在最后一秒内"的写入全排除，本轮最后一个模块的 5 个写端点被静默判成未触达）
+        assertWindowPrecision(JSON.parse(fs.readFileSync(DATASET, 'utf8')), DATASET)
         since = w.since
         until = w.until
-        log(`窗口取自数据集自证字段：${since} .. ${until}（UTC，与 oper_time 同口径）`)
+        windowFromDataset = true
+        log(`窗口取自数据集自证字段：${since} .. ${until}（UTC，与 oper_time 同口径同精度）`)
       }
       const { DB_PATH } = await import('./db-path.mjs')
       const db = new DatabaseSync(DB_PATH, { readOnly: true })
@@ -725,7 +995,11 @@ async function main() {
   }
   const migrate = args.includes('--migrate-baseline')
   let comparable = false
-  if (args.includes('--gate') || args.includes('--update-baseline')) {
+  // `--retire-stale` 也在这一支里（b82 接线缺陷）：退役通道自己要求 `comparable`（下面 ③ 那道闸），
+  // 而这个标志**原先只在 `--gate`/`--update-baseline` 时被赋值** ⇒ 拿新鲜断面来退役也永远被拒，
+  // 报的还是一句"先跑全量、同批 --update-baseline"，而基线恰恰是刚用同批数据写过的。
+  // 与 §11 那条 `--accept-new-key` 死代码同族：**旗标要求的前提，必须由旗标所在的那条路径真的算出来**。
+  if (args.includes('--gate') || args.includes('--update-baseline') || args.includes('--retire-stale')) {
     // 首次生成（基线文件不存在）不需要可比性；其余一律先过口径闸（缺 sources / 缺 window 都拒）。
     if (base || args.includes('--gate')) {
       try {
@@ -738,6 +1012,24 @@ async function main() {
         }
         console.log(`[WARN] 口径迁移（--migrate-baseline）：${e.message}`)
       }
+    }
+  }
+  // 口径闸之后、内容闸之前再钉一道**新鲜度闸**（b82）：同一口径不同断面，比出来的
+  // 是"两个时间断面的差"，会把已被真实覆盖的端点记成欠账（实测 18 条 todo 里 17 条如此）。
+  // 退役通道同样必须过这道闸：拿旧断面"退役"等于把"旧断面没打过"这个假象永久签名进登记表，
+  // 比记大欠账更糟——欠账至少还看得见。
+  if (
+    comparable &&
+    (args.includes('--gate') || args.includes('--retire-stale')) &&
+    withOperLog &&
+    windowFromDataset &&
+    base
+  ) {
+    try {
+      assertFreshBaseline(base, { since, until })
+    } catch (e) {
+      console.log(`[FATAL] ${e.message}`)
+      process.exit(2)
     }
   }
   // 每条未触达都必须有签名：登记表缺失/坏形状 ⇒ EXIT=2；有未登记项 ⇒ `--gate` 红、
@@ -768,6 +1060,27 @@ async function main() {
     log(
       `ℹ 欠账 ${reg.todo.length} 条（本可自动化，这一批没做）：${reg.todo.slice(0, 8).join(', ')}${reg.todo.length > 8 ? ' …' : ''}`
     )
+  }
+  // `--retire-stale`：把"本轮已被证明打过、登记表里还挂着理由"的条目真正删掉。
+  // 只在**同口径 + 新鲜断面**下允许——否则退役的是"旧断面没打过"的假象，
+  // 那等于用一次退役把 §5 那个缺陷永久洗进登记表（比记大欠账更糟：欠账至少还看得见）。
+  if (args.includes('--retire-stale')) {
+    if (!withOperLog || !comparable || !windowFromDataset || !base) {
+      console.log(
+        `❌ 拒绝退役登记：需要 --operlog + 可比对且窗口取自数据集自证的基线（实际 withOperLog=${withOperLog} comparable=${comparable} windowFromDataset=${windowFromDataset} 基线=${base ? '有' : '无'}）` +
+          `\n    先跑全量、同批 --update-baseline，再退役；拿旧断面退役会把已覆盖的假欠账永久签名`
+      )
+      process.exit(2)
+    }
+    if (reg.missing.length || reg.badKind.length) {
+      console.log('❌ 拒绝退役登记：当前未触达集合里还有没签名/签名非法的条目，先补理由再退役')
+      process.exit(1)
+    }
+    const removed = retireStaleKeys(reasons, cur)
+    fs.writeFileSync(REASONS, JSON.stringify(reasons, null, 2) + '\n', 'utf8')
+    log(`已退役 ${removed.length} 条登记（本轮两源都证明打过）；剩余 ${Object.keys(reasons).length} 条`)
+    removed.slice(0, 24).forEach((k) => log(`    · 退役：${k}`))
+    if (removed.length > 24) log(`    · …另 ${removed.length - 24} 条`)
   }
   if (args.includes('--gate') || args.includes('--update-baseline')) {
     const prev = base && Array.isArray(base.uncovered) ? base.uncovered : null

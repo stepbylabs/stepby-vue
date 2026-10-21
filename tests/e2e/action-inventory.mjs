@@ -34,6 +34,7 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
 import { ROUTES } from './route-list.mjs'
+import { assertFreshServedApp } from './build-freshness.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -225,7 +226,15 @@ async function collectActions(page) {
       const inRow = !!btn.closest('.el-table__row')
       const name = label(btn)
       if (!name) continue
-      const rec = { name, disabled: btn.disabled || btn.classList.contains('is-disabled') }
+      // `pag`：按钮是否在分页容器内。这不是"分类好看一点"，而是点击证据判据的一条真实边界——
+      // 首页态下「上一页」是**结构性不可点**的（b82 实测 68 条无点击证据里有 20 条是它），
+      // 把它记成盲区等于要求用例去点一个点不动的按钮，那种判据的结局一定是被人放宽。
+      // 只看 DOM 祖先，不看按钮文案（文案黑名单换个组件就漏，同 b74 轮 25 的"少报"一族）。
+      const rec = {
+        name,
+        disabled: btn.disabled || btn.classList.contains('is-disabled'),
+        pag: !!btn.closest('.el-pagination')
+      }
       if (inRow) rowActions.push(rec)
       else toolbar.push(rec)
     }
@@ -264,9 +273,39 @@ function dedupe(list) {
   for (const it of list) {
     const prev = m.get(it.name)
     if (!prev) m.set(it.name, { ...it })
-    else prev.disabled = prev.disabled && it.disabled
+    else {
+      prev.disabled = prev.disabled && it.disabled
+      // 与 disabled 同向：只要有一个实例**不在**分页容器里，这个动作名就不算"结构性不可点"
+      prev.pag = !!prev.pag && !!it.pag
+    }
   }
   return [...m.values()]
+}
+
+/**
+ * 把"无点击证据"拆成两类（b82）。
+ *
+ * 为什么要拆：`clicked` 是"文案 ±3 行内有真实交互"的下界，未命中有两种**完全不同**的原因——
+ * ① 扫描态结构性点不动（首页态的「上一页」）：用例无论怎么写都点不到它，记进补测队列
+ *    只会让队列里堆满无法结清的条目，最后连真缺口也一起被当成噪声；
+ * ② 点了但没被 ±3 行启发式看见、或确实没点（可点的按钮、助手函数把 click 拆远的写法）。
+ * ②才是补测队列，①必须**单独报数并逐条列名**——"从分母里剔除"和"从报告里消失"是两回事，
+ * 后者会让下一次真的少点一个按钮时没人发现（同 b74 轮 25"少报比报错更危险"）。
+ *
+ * 判据用 DOM 事实（`pag && disabled`），不用文案白名单：改名、换组件、加图标都会让文案表失效，
+ * 而"在分页容器内且当前不可点"这个事实跟着控件本身走。
+ * 只点得到一次也算点过：`clicked` 优先于 `stateLocked`，否则"点过的分页按钮"会被再次记成盲区。
+ */
+export function classifyActions(actions) {
+  const clicked = []
+  const backlog = []
+  const stateLocked = []
+  for (const a of actions || []) {
+    if (a.clicked) clicked.push(a)
+    else if (a.disabled && a.pag) stateLocked.push(a)
+    else backlog.push(a)
+  }
+  return { clicked, backlog, stateLocked, total: (actions || []).length }
 }
 
 /**
@@ -475,10 +514,74 @@ function runSelftest() {
     console.error(`❌ 棘轮比较式自检失败 ${rBad}/${rCases.length} 条——收紧入口不可信，禁用 --update-baseline`)
     process.exit(1)
   }
+  // 第四族（b82）：无点击证据的两类拆分。这里必须钉住**两个方向**：
+  // 既不能让"首页态点不动的上一页"混进补测队列（那种条目永远结不清，最后连真缺口一起被当噪声），
+  // 也不能让拆分变成"把不好测的都划出去"——所以禁用但可造出启用态的、以及拆分后总数守恒都要判。
+  const cCases = [
+    [
+      'disabled + 分页容器 + 无点击证据 ⇒ 结构性点不动（不进队列）',
+      [{ name: '上一页', disabled: true, pag: true, clicked: false, covered: true }],
+      ['stateLocked', 1, 'backlog', 0]
+    ],
+    [
+      'disabled + 非分页容器 + 无点击证据 ⇒ 仍是补测队列（可造出启用态）',
+      [{ name: '编辑提供商', disabled: true, pag: false, clicked: false, covered: true }],
+      ['backlog', 1, 'stateLocked', 0]
+    ],
+    [
+      'enabled + 无点击证据 ⇒ 补测队列',
+      [{ name: '下载为图片', disabled: false, pag: false, clicked: false, covered: true }],
+      ['backlog', 1, 'stateLocked', 0]
+    ],
+    [
+      'enabled + 分页容器 + 无点击证据 ⇒ 不得划进点不动（分母只能由"点不动"缩，不能由"在分页里"缩）',
+      [{ name: '下一页', disabled: false, pag: true, clicked: false, covered: true }],
+      ['backlog', 1, 'stateLocked', 0]
+    ],
+    [
+      '点过一次即算点过，即使它在分页里且当前被禁用（clicked 优先）',
+      [{ name: '上一页', disabled: true, pag: true, clicked: true, covered: true }],
+      ['clicked', 1, 'stateLocked', 0]
+    ],
+    [
+      '拆分必须守恒：三类之和 === 输入条数（防"划出去=从报告里消失"）',
+      [
+        { name: '上一页', disabled: true, pag: true, clicked: false, covered: true },
+        { name: '新增', disabled: false, pag: false, clicked: true, covered: true },
+        { name: '编辑提供商', disabled: true, pag: false, clicked: false, covered: true },
+        { name: '导出', disabled: false, pag: false, clicked: false, covered: false }
+      ],
+      ['sum', 4, 'total', 4]
+    ]
+  ]
+  let cBad = 0
+  // `read` 把"数组类字段取长度、计数类字段取数值"这一区分写在一处——
+  // 上一版用 `got[k].length` 读 `total` 得到 undefined，比较恒假，自检当场就红（fail-closed 生效）。
+  const read = (got, k) =>
+    k === 'sum'
+      ? got.clicked.length + got.backlog.length + got.stateLocked.length
+      : k === 'total'
+        ? got.total
+        : got[k].length
+  for (const [desc, list, [k1, v1, k2, v2]] of cCases) {
+    const got = classifyActions(list)
+    const actual = read(got, k1)
+    const actual2 = read(got, k2)
+    const ok = actual === v1 && actual2 === v2 && got.total === list.length
+    if (!ok) cBad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：期望 ${k1}=${v1} ${k2}=${v2}，实际 ${k1}=${actual} ${k2}=${actual2} total=${got.total}`
+    )
+  }
+  if (cBad) {
+    console.error(`❌ 拆分自检失败 ${cBad}/${cCases.length} 条——补测队列口径不可信，本次跑批的 clicked 分母不作数`)
+    process.exit(1)
+  }
   console.log(
     `SYNTH_OK 动作名归一自检通过（${cases.length} 条双向判据：6 条必须覆盖 / 6 条必须不覆盖）` +
       ` + 点击证据 ${iCases.length} 条双向（含"只提及不算点过"反例）` +
-      ` + 棘轮比较式 ${rCases.length} 条双向`
+      ` + 棘轮比较式 ${rCases.length} 条双向` +
+      ` + 无点击证据拆分 ${cCases.length} 条双向（含拆分守恒正控）`
   )
   process.exit(0)
 }
@@ -495,6 +598,14 @@ function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true })
 
   ;(async () => {
+    // 产物预检（批八十二）：扫的是浏览器里的真实控件，产物旧就等于扫的是上一轮的页面
+    try {
+      const fresh = await assertFreshServedApp({ baseUrl: BASE })
+      console.log(`产物预检：${fresh.artifactDir}（入口 ${fresh.chunk} / ${fresh.bytes} 字节）`)
+    } catch (e) {
+      console.error(`❌ 产物预检失败：${String(e.message).slice(0, 400)}`)
+      process.exit(2)
+    }
     const browser = await chromium.launch({ headless: HEADLESS })
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
     const page = await ctx.newPage()
@@ -576,6 +687,17 @@ function main() {
         actionCount: toolbar.length + rowActions.length,
         coveredCount: [...toolbar, ...rowActions].filter((b) => b.covered).length,
         clickedCount: [...toolbar, ...rowActions].filter((b) => b.clicked).length,
+        // 无点击证据的两类拆分（见 classifyActions）：backlog 才是补测队列，
+        // stateLocked 是扫描态点不动的控件（首页态「上一页」），必须单列报数、不参与分母
+        ...(() => {
+          const c = classifyActions([...toolbar, ...rowActions])
+          return {
+            backlogNames: c.backlog.map((b) => b.name),
+            stateLockedNames: c.stateLocked.map((b) => b.name),
+            backlogCount: c.backlog.length,
+            stateLockedCount: c.stateLocked.length
+          }
+        })(),
         tabs: tabCounts,
         iframeCount,
         // "有表头/有 tab 却 0 动作"必须自曝，否则 0 会被当成"这页本来就没按钮"
@@ -595,6 +717,11 @@ function main() {
     const totalActions = pages.reduce((s, p) => s + p.actionCount, 0)
     const totalCovered = pages.reduce((s, p) => s + p.coveredCount, 0)
     const totalClicked = pages.reduce((s, p) => s + p.clickedCount, 0)
+    const totalStateLocked = pages.reduce((s, p) => s + p.stateLockedCount, 0)
+    const totalBacklog = pages.reduce((s, p) => s + p.backlogCount, 0)
+    // 分母只减掉"扫描态点不动"的那部分；其余（含 disabled 但可造出启用态的）仍算补测队列。
+    // 两个口径同时打印：只报调整后数字，等于让分母可以被随手缩小（换判据必须看得见）。
+    const clickableActions = totalActions - totalStateLocked
     const report = {
       generatedAt: new Date().toISOString(),
       base: BASE,
@@ -602,8 +729,13 @@ function main() {
       totalActions,
       totalCovered,
       totalClicked,
+      totalStateLocked,
+      totalBacklog,
+      clickableActions,
       coverage: totalActions ? +(totalCovered / totalActions).toFixed(3) : 0,
+      // 原始口径（分母含点不动的控件）与可点口径并存，旧基线的数字仍然可比
       interactionCoverage: totalActions ? +(totalClicked / totalActions).toFixed(3) : 0,
+      interactionCoverageClickable: clickableActions > 0 ? +(totalClicked / clickableActions).toFixed(3) : 0,
       pages
     }
     const jsonPath = path.join(OUT_DIR, 'action-inventory.json')
@@ -623,7 +755,10 @@ function main() {
     lines.push(`- 生成时间：${report.generatedAt}`)
     lines.push(`- 目标：${BASE}（嵌入档，真后端）`)
     lines.push(
-      `- 路由：${report.routes} 条 / 动作合计：**${totalActions}** / 源码中出现过：**${totalCovered}**（${(report.coverage * 100).toFixed(1)}%）/ 有真实交互证据：**${totalClicked}**（${(report.interactionCoverage * 100).toFixed(1)}%）`
+      `- 路由：${report.routes} 条 / 动作合计：**${totalActions}** / 源码中出现过：**${totalCovered}**（${(report.coverage * 100).toFixed(1)}%）/ 有真实交互证据：**${totalClicked}**（原始 ${(report.interactionCoverage * 100).toFixed(1)}%，剔除扫描态点不动的控件后 ${report.interactionCoverageClickable ? (report.interactionCoverageClickable * 100).toFixed(1) : '0.0'}%）`
+    )
+    lines.push(
+      `- 无点击证据 ${totalActions - totalClicked} 条 = **补测队列 ${totalBacklog}** + 结构性点不动 ${totalStateLocked}（分页控件在首页/单页态被禁用，见末节逐条列名）`
     )
     lines.push('')
     lines.push('> 覆盖判据是**下界**：按钮文案在 `main.mjs`/`deep-e2e.mjs` 源码里出现过即算"提及"。')
@@ -640,11 +775,11 @@ function main() {
     }
     // 第二优先级：源码里提到了、但附近没有任何交互调用。这一组通常三种来源：
     // 只在注释/断言里出现、只作为表格列名、或用例把 locator 与 click 拆得太远。
+    // b82：分母改用 `backlogNames`（= 无点击证据 **且** 扫描态可点），
+    // 点不动的分页控件另起一节列名——剔除是为了不拿无法结清的条目淹没队列，
+    // 单列是为了让"下一次真少点了一个按钮"仍然看得见。
     const hintOnly = pages
-      .map((p) => ({
-        ...p,
-        notClicked: [...p.toolbar, ...p.rowActions].filter((b) => b.covered && !b.clicked)
-      }))
+      .map((p) => ({ ...p, notClicked: p.backlogNames }))
       .filter((p) => p.notClicked.length > 0)
       .sort((a, b) => b.notClicked.length - a.notClicked.length)
     lines.push('')
@@ -657,6 +792,27 @@ function main() {
       lines.push('|---|---|---|')
       for (const p of hintOnly) {
         lines.push(`| \`${p.path}\` | ${p.notClicked.map((b) => b.name).join('、')} | ${p.rowCount} |`)
+      }
+    }
+    const lockedPages = pages
+      .map((p) => ({ ...p, locked: p.stateLockedNames }))
+      .filter((p) => p.locked.length > 0)
+      .sort((a, b) => b.locked.length - a.locked.length)
+    lines.push('')
+    lines.push('## 扫描态点不动的控件（不计入补测队列，但仍逐条列名）')
+    lines.push('')
+    if (!lockedPages.length) {
+      lines.push('（无：没有任何 disabled 且位于 `.el-pagination` 容器内的动作）')
+    } else {
+      lines.push(
+        '> 判据是 DOM 事实（`disabled && closest(".el-pagination")`），不是文案黑名单；' +
+          '`clicked` 优先于本节——点到过一次的控件不会落在这里。'
+      )
+      lines.push('')
+      lines.push('| 路由 | 控件 | 行数 |')
+      lines.push('|---|---|---|')
+      for (const p of lockedPages) {
+        lines.push(`| \`${p.path}\` | ${p.locked.join('、')} | ${p.rowCount} |`)
       }
     }
     const suspicious = pages.filter((p) => p.suspicious)

@@ -17,6 +17,7 @@ import process from 'node:process'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage } from './e2e/run/auth.mjs'
 import { ROUTES } from './route-list.mjs'
+import { assertFreshServedApp } from './build-freshness.mjs'
 
 const require = createRequire(import.meta.url)
 let chromium
@@ -656,6 +657,10 @@ async function main() {
     log(
       `全站 a11y E2E 启动：base=${FRONTEND_URL} routes=${args.routes.length} route=${args.route || '全部'} limit=${args.limit || '无限制'}`
     )
+    // 产物预检（批八十二，判据在 build-freshness.mjs）：a11y 扫的是浏览器里的真实 DOM，
+    // 产物陈旧 = 扫的是上一轮的页面，而报告看着完全正常。
+    const fresh = await assertFreshServedApp({ baseUrl: FRONTEND_URL })
+    log(`产物预检：${fresh.artifactDir}（入口 ${fresh.chunk} / ${fresh.bytes} 字节）— 新鲜且与服务一致`)
     browser = await chromium.launch({ headless: true })
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
     const page = await context.newPage()

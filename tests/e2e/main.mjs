@@ -88,6 +88,7 @@ import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
 import { createCaptureHub, summarizeBackendLogErrors } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
+import { assertFreshServedApp } from './build-freshness.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
@@ -859,8 +860,8 @@ async function testFeature3(page) {
       .locator('button:has-text("下载"), .el-button:has-text("下载")')
       .first()
     if ((await downloadBtn.count()) > 0) {
-      // force: true —— tour 蒙层/浮层可能拦截常规点击（skipTour 时机竞态），穿透执行
-      await downloadBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+      // b81 N-8：不用 force；Tour 晚到遮罩由 skipTour 在点击前处理，失败即后续断言红。
+      await downloadBtn.click({ timeout: 3000 }).catch(() => {})
       // 下载属敏感操作，首启会弹「安全提示」MessageBox（强改密/会话确认链）——
       // 确认后请求才放行；无弹窗时静默跳过（非首次下载无确认）
       const mbConfirm = page.locator('.el-overlay-message-box .el-button--primary').first()
@@ -2933,7 +2934,7 @@ async function testFeature18(page) {
     await page
       .locator('button:has-text("配置")')
       .first()
-      .click({ force: true, timeout: 3000 })
+      .click({ timeout: 3000 })
       .catch(() => {})
     await sleep(1500)
     await screenshot(page, 'feat18_admin_config_dialog')
@@ -2955,9 +2956,9 @@ async function testFeature18(page) {
       // 测试切换到 maxmind 源（应显示凭据输入框）
       if (maxmindRadioCount >= 1) {
         await page
-          .locator('.el-dialog input[type="radio"][value="maxmind"]')
+          .locator('.el-dialog label.el-radio:has(input[type="radio"][value="maxmind"])')
           .first()
-          .check({ force: true, timeout: 3000 })
+          .click({ timeout: 3000 })
           .catch(() => {})
         await sleep(600)
       }
@@ -2967,9 +2968,9 @@ async function testFeature18(page) {
       // 切换回 p3terx 源
       if (p3terxRadioCount >= 1) {
         await page
-          .locator('.el-dialog input[type="radio"][value="p3terx"]')
+          .locator('.el-dialog label.el-radio:has(input[type="radio"][value="p3terx"])')
           .first()
-          .check({ force: true, timeout: 3000 })
+          .click({ timeout: 3000 })
           .catch(() => {})
         await sleep(300)
       }
@@ -2979,7 +2980,7 @@ async function testFeature18(page) {
     await page
       .locator('.el-dialog__footer button:has-text("取消")')
       .first()
-      .click({ force: true, timeout: 3000 })
+      .click({ timeout: 3000 })
       .catch(() => {})
     await sleep(500)
     await page.keyboard.press('Escape', { timeout: 3000 }).catch(() => {})
@@ -4572,7 +4573,7 @@ async function testFeature22(page) {
       const respPromise = page
         .waitForResponse((r) => r.url().includes('/monitor/server') && r.status() === 200, { timeout: 10000 })
         .catch(() => null)
-      await refreshBtn.click({ force: true })
+      await refreshBtn.click()
       const resp = await respPromise
       serverRefreshOk = !!resp
     }
@@ -18355,6 +18356,17 @@ async function main() {
 
   ensureDir(CONFIG.screenshotDir)
 
+  // 启动预检：**产物必须由当前源码构建，且被测服务给的就是这份产物**（批八十二，判据在 build-freshness.mjs）。
+  // 实测踩到 frontend-dist 停在 06:37 而 job/user 视图 07:27 才改——UI 用例全跑在上一轮产物上，
+  // 台账却记成"本批改动已验证"。后端有同族判据（AGENTS《测试门禁全景》①），前端这一侧此前是空的。
+  try {
+    const fresh = await assertFreshServedApp({ baseUrl: CONFIG.frontendUrl })
+    log(`产物预检：${fresh.artifactDir}（入口 ${fresh.chunk} / ${fresh.bytes} 字节）— 新鲜且与服务一致`)
+  } catch (e) {
+    log(`❌ 启动预检失败（产物陈旧或服务的是另一份产物）: ${String(e.message).slice(0, 400)}`)
+    process.exit(2)
+  }
+
   const browser = await chromium.launch({
     headless: CONFIG.headless,
     slowMo: CONFIG.slowMo
@@ -20098,14 +20110,14 @@ async function testFeature87(page) {
           .then(() => true)
           .catch(() => false)
       ) {
-        await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+        await leaveBtn.click({ timeout: 3000 }).catch(() => {})
         await sleep(500)
         continue
       }
       if (await dialog.isVisible().catch(() => false)) {
         await dialog
           .getByRole('button', { name: /取\s*消/ })
-          .click({ force: true, timeout: 3000 })
+          .click({ timeout: 3000 })
           .catch(() => {})
         await sleep(600)
         continue
@@ -20117,7 +20129,7 @@ async function testFeature87(page) {
   }
   const submitDialog = async () => {
     const btn = dialog.getByRole('button', { name: /确\s*定/ })
-    await btn.click({ force: true, timeout: 3000 }).catch(() => {})
+    await btn.click({ timeout: 3000 }).catch(() => {})
     await page
       .waitForResponse(
         (r) => r.url().includes('/system/msg/channel') && ['POST', 'PUT'].includes(r.request().method()),
@@ -20313,10 +20325,10 @@ async function testFeature88(page) {
       )
       .catch(() => null)
     const okBtn = dialog.getByRole('button', { name: /确\s*定/ })
-    await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+    await okBtn.click({ timeout: 3000 }).catch(() => {})
     let resp = await respP
     if (!resp) {
-      await okBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+      await okBtn.click({ timeout: 3000 }).catch(() => {})
       resp = await page
         .waitForResponse(
           (r) => r.url().includes('/system/msg/template') && ['POST', 'PUT'].includes(r.request().method()),
@@ -20333,11 +20345,11 @@ async function testFeature88(page) {
           .then(() => true)
           .catch(() => false)
       ) {
-        await leaveBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+        await leaveBtn.click({ timeout: 3000 }).catch(() => {})
       } else {
         await dialog
           .getByRole('button', { name: /取\s*消/ })
-          .click({ force: true, timeout: 3000 })
+          .click({ timeout: 3000 })
           .catch(() => {})
       }
       await sleep(500)
@@ -20358,12 +20370,12 @@ async function testFeature88(page) {
     await sleep(1000)
     await itemByLabel('模板主题').locator('input').fill(`【e2e改】${uniq}`)
     const eBtn = dialog.getByRole('button', { name: /确\s*定/ })
-    await eBtn.click({ force: true, timeout: 3000 }).catch(() => {})
+    await eBtn.click({ timeout: 3000 }).catch(() => {})
     await sleep(2200)
     if (await dialog.isVisible().catch(() => false)) {
       await dialog
         .getByRole('button', { name: /取\s*消/ })
-        .click({ force: true, timeout: 3000 })
+        .click({ timeout: 3000 })
         .catch(() => {})
       await sleep(500)
     }
@@ -20893,7 +20905,7 @@ async function testFeature94(page) {
   record(94, 'dataset 工具栏渲染（按名称搜索框+新增按钮）', dsToolbarOk)
 
   // 2. 新增数据集（无参 SELECT 模板）
-  await page.getByRole('button', { name: '新增' }).first().click({ force: true })
+  await page.getByRole('button', { name: '新增' }).first().click()
   await page.waitForTimeout(400)
   await page.locator('.el-dialog input').nth(0).fill(code)
   await page.locator('.el-dialog input').nth(1).fill('e2e 数据集')
@@ -20904,7 +20916,7 @@ async function testFeature94(page) {
     await page.locator('.el-dialog .cm-content').first().click()
     await page.keyboard.type('SELECT user_id, user_name FROM sys_user')
   }
-  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click({ force: true })
+  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click()
   await page.waitForTimeout(800)
   const listHit = await fetch(`${CONFIG.backendUrl}/report/dataset/list?pageNum=1&pageSize=50`, {
     headers: authHeaders
@@ -20938,7 +20950,7 @@ async function testFeature94(page) {
       .locator('button:has-text("修改"), button:has-text("编辑")')
       .first()
     const editOpened = await editBtn
-      .click({ timeout: 4000, force: true })
+      .click({ timeout: 4000 })
       .then(() => true)
       .catch(() => false)
     await page.waitForTimeout(1600)
@@ -20954,7 +20966,7 @@ async function testFeature94(page) {
     // 只看不存：关闭对话框，避免把回填内容再写一遍（数据集本身在步骤 5 统一清理）
     const closeBtn2 = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
     if (await closeBtn2.isVisible().catch(() => false)) {
-      await closeBtn2.click({ force: true })
+      await closeBtn2.click()
     } else {
       await page.keyboard.press('Escape')
     }
@@ -20966,7 +20978,7 @@ async function testFeature94(page) {
   // 4. 试跑（UI：rp.preview 按钮 → 预览对话框打开）
   if (row) {
     const previewBtn = page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '试跑' })
-    await previewBtn.click({ force: true })
+    await previewBtn.click()
     await page.waitForTimeout(1500)
     const dialogVisible =
       (await page.locator('.el-dialog:visible').count()) + (await page.locator('.el-drawer:visible').count())
@@ -20974,7 +20986,7 @@ async function testFeature94(page) {
     // 批次十八：Escape 依赖焦点在对话框内（force 点击后不可靠），优先点关闭按钮
     const closeBtn = page.locator('.el-dialog:visible .el-dialog__headerbtn').first()
     if (await closeBtn.isVisible().catch(() => false)) {
-      await closeBtn.click({ force: true })
+      await closeBtn.click()
     } else {
       await page.keyboard.press('Escape')
     }
@@ -20986,12 +20998,12 @@ async function testFeature94(page) {
 
   // 5. 删除 + 列表不再命中（确认框等可见再点；删除落库轮询复查）
   if (row) {
-    await page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '删除' }).click({ force: true })
+    await page.locator('.el-table__row', { hasText: code }).getByRole('button', { name: '删除' }).click()
     // 批次十八：ElMessageBox 未显式传 confirmButtonText 时按钮文案为 EP locale 默认「确定」
     // （无空格），hasText '确 定' 匹配失败（截图实证）——改结构化定位：主按钮即确认键
     const confirmBtn = page.locator('.el-message-box:visible .el-message-box__btns .el-button--primary').first()
     await confirmBtn.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
-    if (await confirmBtn.isVisible().catch(() => false)) await confirmBtn.click({ force: true })
+    if (await confirmBtn.isVisible().catch(() => false)) await confirmBtn.click()
     let gone = false
     for (let i = 0; i < 10; i++) {
       await page.waitForTimeout(600)
@@ -21087,11 +21099,11 @@ async function testFeature95(page) {
   }
   record(95, '「提交测试单据」按钮可见（已发布最新版）', btnVisible)
   if (!btnVisible) return
-  await submitBtn.click({ force: true })
+  await submitBtn.click()
   await page.waitForTimeout(500)
   await page.locator('.el-dialog input').first().fill('e2e 图驱动单据（长链）')
   await page.locator('.el-dialog textarea').fill('{\n  "days": 5\n}')
-  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click({ force: true })
+  await page.locator('.el-dialog').getByRole('button', { name: '确 定' }).click()
   await page.waitForTimeout(1000)
   const toastOk = (await page.locator('.el-message', { hasText: '提交成功，审批人待办已生成' }).count()) > 0
   record(95, '提交成功 Toast', toastOk)
@@ -21296,10 +21308,10 @@ async function testFeature97(page) {
   await gotoDynamicRoute(page, `${CONFIG.frontendUrl}/system/reportDashboard`, 'reportDashboard')
   const not404 = !(await is404Page(page))
   record(97, '页面可达（/reportDashboard）', not404)
-  // 设计模式切换（el-radio-button design）
-  const designBtn = page.getByRole('radio', { name: '设计' })
+  // 设计模式切换（el-radio-button design）：点可见 label，hidden input 会被 span 拦截
+  const designBtn = page.locator('label.el-radio-button:has(input[value="design"])').first()
   if ((await designBtn.count()) > 0) {
-    await designBtn.click({ force: true })
+    await designBtn.click()
     await page.waitForTimeout(600)
     // 加固：原 `.el-dialog, .el-select, button` count>0 为恒真断言（任何页面都命中）。
     // 改为 report/designer/index.vue 特有元素：rp.pickDataset「选择数据集」下拉（aria-label）
@@ -21491,11 +21503,12 @@ async function testFeature99(page) {
   const addVisible = (await addBtn.count()) > 0
   let optionsOk = false
   if (addVisible) {
-    await addBtn.click({ force: true })
+    await addBtn.click()
     await page.waitForTimeout(800)
     // RUN-RECIPE 已知坑：el-select 下拉 option 用 getByRole('option')（popper 的 :visible 不可靠）
-    const typeSelect = page.locator('.el-dialog').getByRole('combobox').first()
-    await typeSelect.click({ force: true })
+    // EP 2.x 的 combobox input 可能是零宽节点，点可见的 __wrapper 才触发展开。
+    const typeSelect = page.locator('.el-dialog .el-select__wrapper').first()
+    await typeSelect.click()
     await page.waitForTimeout(500)
     const optionTexts = await page.getByRole('option').allTextContents()
     const flat = optionTexts.map((s) => s.trim()).join('|')
@@ -21600,7 +21613,7 @@ async function testFeature100(page) {
     // 新增域名对话框：点到底断言对话框真实挂载（「按钮可见 ≠ 交互可用」教训）
     const addBtn = page.getByRole('button', { name: /新增域名|新增/ }).first()
     if ((await addBtn.count()) > 0) {
-      await addBtn.click({ force: true })
+      await addBtn.click()
       await sleep(700)
       const dlg = page.locator('.el-dialog:visible').first()
       domDialogOk = await dlg
@@ -21613,7 +21626,7 @@ async function testFeature100(page) {
         await domainInput.fill('INVALID_DOMAIN')
         const saveBtn = dlg.getByRole('button', { name: /保存/ }).first()
         if ((await saveBtn.count()) > 0) {
-          await saveBtn.click({ force: true })
+          await saveBtn.click()
           await sleep(600)
           const stillOpen = await dlg
             .waitFor({ state: 'visible', timeout: 1000 })
@@ -21742,9 +21755,9 @@ async function testFeature101(page) {
       .catch(() => false)
     // 任务类型下拉含 3 项（操作日志导出/数据备份/其他）
     let typeOptionsOk = false
-    const selects = page.locator('form.el-form--inline .el-select')
+    const selects = page.locator('form.el-form--inline .el-select__wrapper')
     if ((await selects.count()) > 0) {
-      await selects.first().click({ force: true })
+      await selects.first().click()
       await sleep(500)
       const opts = (await page.getByRole('option').allTextContents()).map((s) => s.trim()).join('|')
       typeOptionsOk = opts.includes('操作日志导出') && opts.includes('数据备份')
@@ -21825,7 +21838,7 @@ async function testFeature101(page) {
     let dlgOk = false
     const editBtn = page.getByRole('button', { name: /编辑/ }).first()
     if ((await editBtn.count()) > 0) {
-      await editBtn.click({ force: true })
+      await editBtn.click()
       await sleep(700)
       dlgOk = await page
         .locator('.el-dialog:visible')
@@ -21868,7 +21881,7 @@ async function testFeature101(page) {
     let expandOk = false
     const expandBtn = page.locator('.el-table__expand-icon').first()
     if ((await expandBtn.count()) > 0) {
-      await expandBtn.click({ force: true })
+      await expandBtn.click()
       await sleep(600)
       const diffWrap = page.locator('.diff-wrap').first()
       expandOk = await diffWrap
@@ -21889,7 +21902,7 @@ async function testFeature101(page) {
         if (r.url().includes('/system/audit-change/list')) sortUrl = r.url()
       }
       page.on('request', sortH)
-      await sortable.click({ force: true })
+      await sortable.click()
       await sleep(800)
       page.off('request', sortH)
       let hasSortParams = false
@@ -22011,7 +22024,7 @@ async function testFeature101(page) {
     let dlgOk = false
     const addBtn = page.getByRole('button', { name: /新增/ }).first()
     if ((await addBtn.count()) > 0) {
-      await addBtn.click({ force: true })
+      await addBtn.click()
       await sleep(700)
       dlgOk = await page
         .locator('.el-dialog:visible')
@@ -22049,7 +22062,7 @@ async function testFeature101(page) {
     // 「新增卡片」按钮仅编辑模式可见（el-switch active-text=编辑）——先切编辑模式
     const editSwitch = page.locator('.el-switch').first()
     if ((await editSwitch.count()) > 0) {
-      await editSwitch.click({ force: true })
+      await editSwitch.click()
       await sleep(600)
     }
     const addCardBtn = page.getByRole('button', { name: /添加卡片|新增卡片|新增组件/ }).first()
@@ -22057,7 +22070,7 @@ async function testFeature101(page) {
     // 新增卡片对话框真挂载
     let dlgOk = false
     if (addCardOk) {
-      await addCardBtn.click({ force: true })
+      await addCardBtn.click()
       await sleep(700)
       dlgOk = await page
         .locator('.el-dialog:visible')
@@ -22129,7 +22142,7 @@ async function testFeature102(page) {
     await page
       .getByRole('button', { name: /新增提供商|新增/ })
       .first()
-      .click({ force: true })
+      .click()
     const dialog = page.locator('.el-dialog:visible').last()
     await dialog.waitFor({ state: 'visible', timeout: 4000 })
     await dialog
@@ -22151,7 +22164,7 @@ async function testFeature102(page) {
     await page
       .getByRole('button', { name: /新增提供商|新增/ })
       .first()
-      .click({ force: true })
+      .click()
     const dialog = page.locator('.el-dialog:visible').last()
     await dialog.waitFor({ state: 'visible', timeout: 4000 })
     const item = (label) =>
@@ -22228,7 +22241,7 @@ async function testFeature102(page) {
         (r) => r.url().includes('/status') && r.request().method() === 'PUT' && r.status() === 200,
         { timeout: 8000 }
       )
-      await sw.click({ force: true })
+      await sw.click()
       const offResp = await offPromise.catch(() => null)
       await page.waitForTimeout(600)
       const offOk = !!offResp
@@ -22236,7 +22249,7 @@ async function testFeature102(page) {
         (r) => r.url().includes('/status') && r.request().method() === 'PUT' && r.status() === 200,
         { timeout: 8000 }
       )
-      await sw.click({ force: true })
+      await sw.click()
       const onResp = await onPromise.catch(() => null)
       await page.waitForTimeout(600)
       record(102, '④ 停用/启用开关往返（PUT /status 200）', offOk && !!onResp, `off=${!!offResp}, on=${!!onResp}`)
@@ -22393,7 +22406,7 @@ async function testFeature103(page) {
         await page
           .getByRole('button', { name: /事件目录/ })
           .first()
-          .click({ force: true })
+          .click()
         dlg = page.locator('.el-dialog:visible').last()
         catalogOk = await dlg
           .waitFor({ state: 'visible', timeout: 3000 })
@@ -22639,7 +22652,7 @@ async function testFeature104(page) {
             .innerText()
             .catch(() => '')
           if (new RegExp(`\\b${targetRoleId}\\b`).test(txt)) {
-            await rows.nth(i).locator('.el-checkbox').first().click({ force: true })
+            await rows.nth(i).locator('.el-checkbox').first().click()
             clicked = true
             break
           }
@@ -22680,7 +22693,7 @@ async function testFeature104(page) {
               const cb = rows2.nth(i).locator('.el-checkbox').first()
               // 仅在确实处于勾选态时点击取消（authRole 预检查依赖后端 flag，产品缺陷可能致复选框未勾选）
               const checked = await cb.evaluate((el) => el.classList.contains('is-checked')).catch(() => false)
-              if (checked) await cb.click({ force: true })
+              if (checked) await cb.click()
               break
             }
           }
@@ -23275,7 +23288,7 @@ async function testFeature106(page) {
       }
       // UI 切换（写回 orig——flip 断言）
       const sw2 = presetOk ? page.locator('.el-switch').first() : emailSwitch
-      await sw2.click({ force: true })
+      await sw2.click()
       const savePromise = page.waitForResponse(
         (r) => (r.url().includes('/system/profile/pref') || r.url().includes('pref')) && r.request().method() === 'PUT',
         { timeout: 8000 }
@@ -23503,7 +23516,7 @@ async function testFeature107(page) {
 
   // ② 新增报表（名称随机）→ 保存 → 列表出现
   try {
-    await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+    await page.getByRole('button', { name: /新增/ }).first().click()
     const dlg = page.locator('.el-dialog:visible').last()
     await dlg.waitFor({ state: 'visible', timeout: 4000 })
     await dlg
@@ -23675,7 +23688,7 @@ async function testFeature108(page) {
     let addOk = false
     try {
       const before = await page.locator('.drawing-board > *').count()
-      await page.locator('.left-board .components-item').first().click({ force: true })
+      await page.locator('.left-board .components-item').first().click()
       await page.waitForTimeout(800)
       const after = await page.locator('.drawing-board > *').count()
       addOk = after > before
@@ -23691,7 +23704,7 @@ async function testFeature108(page) {
       await page
         .getByRole('button', { name: /复制代码|生成代码|导出/ })
         .first()
-        .click({ force: true })
+        .click()
       const dlg = page.locator('.el-dialog:visible').last()
       dlgOk = await dlg
         .waitFor({ state: 'visible', timeout: 4000 })
@@ -23733,7 +23746,7 @@ async function testFeature109(page) {
         .first()
         .getByRole('button', { name: /详情|查看/ })
         .first()
-        .click({ force: true })
+        .click()
       const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
       const open = await detail
         .waitFor({ state: 'visible', timeout: 4000 })
@@ -23782,7 +23795,7 @@ async function testFeature109(page) {
         .first()
         .getByRole('button', { name: /详情|详细/ })
         .first()
-        .click({ force: true })
+        .click()
       const detail = page.locator('.el-dialog:visible, .el-drawer:visible').first()
       const open = await detail
         .waitFor({ state: 'visible', timeout: 4000 })
@@ -23827,7 +23840,7 @@ async function testFeature109(page) {
         .first()
         .getByRole('button', { name: /阅读用户|已读/ })
         .first()
-        .click({ force: true })
+        .click()
       const dlg = page.locator('.el-dialog:visible').last()
       const open = await dlg
         .waitFor({ state: 'visible', timeout: 4000 })
@@ -23869,7 +23882,7 @@ async function testFeature109(page) {
         .first()
         .getByRole('button', { name: /详细|详情/ })
         .first()
-        .click({ force: true })
+        .click()
       const navOk = await page
         .waitForURL(/dict-data\/index\/\d+/, { timeout: 8000 })
         .then(() => true)
@@ -23927,7 +23940,7 @@ async function testFeature110(page) {
   // ③ 设计器编辑态：新增 → 画布容器（节点/连线面板 + 添加节点按钮）渲染 → 返回（不保存零落库）
   let designerOk = false
   try {
-    await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+    await page.getByRole('button', { name: /新增/ }).first().click()
     await page.waitForTimeout(800)
     // 表单式设计器（designer/index.vue 编辑分支）：节点/连线标题 + 「添加审批节点」按钮
     const bodyText = await page
@@ -23947,7 +23960,7 @@ async function testFeature110(page) {
     await page
       .getByRole('button', { name: /返回/ })
       .first()
-      .click({ force: true })
+      .click()
       .catch(() => {})
     await page.waitForTimeout(600)
   } catch (err) {
@@ -23983,7 +23996,7 @@ async function testFeature111(page) {
     let dlgOk = false
     let dlgClosed = false
     try {
-      await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+      await page.getByRole('button', { name: /新增/ }).first().click()
       const dlg = page.locator('.el-dialog:visible').last()
       dlgOk = await dlg
         .waitFor({ state: 'visible', timeout: 4000 })
@@ -24243,7 +24256,7 @@ async function testFeature113(page) {
       record(113, '⑤ 行未读标记消失（状态翻转）', false, '前置：行不可勾选')
       return
     }
-    await cb.click({ force: true })
+    await cb.click()
     const markPromise = page.waitForResponse(
       (r) => r.url().includes('/system/notice/markReadAll') && r.request().method() === 'POST' && r.status() === 200,
       { timeout: 10000 }
@@ -24251,7 +24264,7 @@ async function testFeature113(page) {
     await page
       .getByRole('button', { name: /批量已读/ })
       .first()
-      .click({ force: true })
+      .click()
     // ElMessageBox 确认（batchReadConfirm）
     const box = page.locator('.el-message-box:visible').first()
     await box.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
@@ -24287,7 +24300,7 @@ async function testFeature114(page) {
   let resp = null
   try {
     const methodSelect = page.locator('.method-select').first()
-    await methodSelect.click({ force: true })
+    await methodSelect.click()
     await page.waitForTimeout(500)
     await page.getByRole('option', { name: /^GET$/ }).first().click()
     const urlInput = page
@@ -24302,7 +24315,7 @@ async function testFeature114(page) {
     await page
       .getByRole('button', { name: /发送|Send/ })
       .first()
-      .click({ force: true })
+      .click()
     resp = await execPromise.catch(() => null)
   } catch (err) {
     log(`  F114 发送链异常: ${err.message.slice(0, 120)}`)
@@ -24351,13 +24364,13 @@ async function testFeature115(page) {
       await page
         .getByRole('tab', { name: /错误聚合/ })
         .first()
-        .click({ force: true })
+        .click()
       await page.waitForTimeout(800)
       const qPromise = page.waitForResponse((r) => r.url().includes('/monitor/error-log/list') && r.status() === 200, {
         timeout: 10000
       })
       const searchBtn = page.getByRole('button', { name: /搜索|查询/ }).first()
-      await searchBtn.click({ force: true }).catch(() => {})
+      await searchBtn.click().catch(() => {})
       const resp = await qPromise.catch(() => null)
       errReq = !!resp
     } catch (err) {
@@ -24449,7 +24462,7 @@ async function testFeature116(page) {
           timeout: 20000
         })
         .catch(() => null)
-      await exportBtn.click({ force: true })
+      await exportBtn.click()
       const [dl, resp] = await Promise.all([dlPromise, respPromise])
       record(116, '② 导出接口 200（waitForResponse）', !!resp, resp ? `status=${resp.status()}` : '未捕获导出响应')
       record(116, '③ download 事件触发（xlsx 物证）', !!dl, dl ? dl.suggestedFilename() : '未捕获 download')
@@ -24583,7 +24596,7 @@ async function testFeature118(page) {
   await rowEdit
     .getByRole('button', { name: /修\s*改|编\s*辑|Edit/i })
     .first()
-    .click({ force: true, timeout: 10000 })
+    .click({ timeout: 10000 })
     .catch((e) => log(`  F118 ① 编辑按钮 click 异常: ${e.message.slice(0, 80)}`))
   const drawer = page.locator('.el-drawer:visible').first()
   await drawer.waitFor({ state: 'visible', timeout: 6000 }).catch(() => {})
@@ -24981,7 +24994,7 @@ async function testFeature122(page) {
   // 无文本，hasText 定位不到；@click.stop 不触发行点击）
   const clearBtn = nameRows.first().locator('button[aria-label="删除"]').first()
   if ((await clearBtn.count()) > 0) {
-    await clearBtn.click({ force: true })
+    await clearBtn.click()
     const cbox = page.locator('.el-message-box:visible').first()
     await cbox.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {})
     const cboxShown = await cbox.isVisible().catch(() => false)
@@ -25311,12 +25324,12 @@ async function testFeature125(page) {
     // ② 确保选中自建大屏（首屏自动选中列表第一个；非自建则经 el-select 按 dashboardName 切换）
     const firstIsOurs = (dashList.body?.rows || [])[0]?.dashboardId === dashboardId
     if (!firstIsOurs) {
-      await page.locator('.el-select').first().click({ force: true })
+      await page.locator('.el-select__wrapper:visible').first().click()
       await page
         .locator('.el-select-dropdown:visible .el-select-dropdown__item')
         .filter({ hasText: dashName })
         .first()
-        .click({ force: true })
+        .click()
       await page.waitForTimeout(400)
     }
     const boardOk = await page
@@ -25380,7 +25393,7 @@ async function testFeature126(page) {
   const ruleName = `e2e-126-alert-${Date.now().toString(36)}`
 
   // ② 新增对话框表单字段完整（文案=i18n 真值：alert.form.name/metric/comparator/threshold/silentMinutes）
-  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  await page.getByRole('button', { name: /新增/ }).first().click()
   const dlg = page.locator('.el-dialog:visible').last()
   const dlgOk = await dlg
     .waitFor({ state: 'visible', timeout: 5000 })
@@ -25412,12 +25425,12 @@ async function testFeature126(page) {
     .locator('input')
     .first()
     .fill(ruleName)
-  await dlg.locator('.el-select').first().click({ force: true })
+  await dlg.locator('.el-select__wrapper').first().click()
   await page
     .locator('.el-select-dropdown:visible .el-select-dropdown__item')
     .filter({ hasText: '在线用户数' })
     .first()
-    .click({ force: true })
+    .click()
   await page.waitForTimeout(300)
   await dlg.locator('.el-input-number input').first().fill('1')
   const saveP = page
@@ -25523,7 +25536,7 @@ async function testFeature127(page) {
   await page
     .getByRole('button', { name: /事件目录/ })
     .first()
-    .click({ force: true })
+    .click()
   const catDlg = page.locator('.el-dialog:visible').filter({ hasText: 'Webhook 事件目录' }).first()
   const catOk = await catDlg
     .waitFor({ state: 'visible', timeout: 5000 })
@@ -25547,13 +25560,13 @@ async function testFeature127(page) {
     await catDlg
       .getByRole('button', { name: /关\s*闭/ })
       .first()
-      .click({ force: true })
+      .click()
       .catch(() => {})
     await page.waitForTimeout(500)
   }
 
   // ③ UI 新增订阅：名称/URL → 订阅事件多选下拉（选项来自事件目录）勾选 1 项
-  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  await page.getByRole('button', { name: /新增/ }).first().click()
   const dlg = page.locator('.el-dialog:visible').last()
   const dlgOk = await dlg
     .waitFor({ state: 'visible', timeout: 5000 })
@@ -25578,7 +25591,13 @@ async function testFeature127(page) {
     // SSRF 校验拦截内网/localhost（铁律：IP 字面量+封闭端口，禁外网域名）
     .fill('http://1.1.1.1:81/hook')
   // 批三十六：EP 2.x 把 aria-label 透传到内部 input（探针实证 .el-select 根上为 null）
-  await dlg.locator('input[aria-label="订阅事件"]').first().click({ force: true })
+  // b81 N-8：input 可能零宽，改点它所属 Select 的可见 wrapper。
+  await dlg
+    .locator('.el-select')
+    .filter({ has: page.locator('input[aria-label="订阅事件"]') })
+    .locator('.el-select__wrapper')
+    .first()
+    .click()
   const opt = page.locator('.el-select-dropdown:visible .el-select-dropdown__item').first()
   const optOk = await opt
     .waitFor({ state: 'visible', timeout: 8000 })
@@ -25587,7 +25606,7 @@ async function testFeature127(page) {
   let chosen = ''
   if (optOk) {
     chosen = (await opt.innerText().catch(() => '')).trim()
-    await opt.click({ force: true })
+    await opt.click()
     await page.waitForTimeout(300)
     await page.keyboard.press('Escape') // 收起下拉，避免遮挡确定按钮
     await page.waitForTimeout(300)
@@ -25714,7 +25733,7 @@ async function testFeature128(page) {
   }
 
   // ② 新增对话框 + 合法白名单 SQL 保存
-  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  await page.getByRole('button', { name: /新增/ }).first().click()
   const dlg = page.locator('.el-dialog:visible').last()
   const dlgOk = await dlg
     .waitFor({ state: 'visible', timeout: 5000 })
@@ -25785,7 +25804,7 @@ async function testFeature128(page) {
     )
     // 关闭预览对话框（优先 header 关闭钮，Escape 兜底）
     const closeBtn = pdlg.locator('.el-dialog__headerbtn').first()
-    if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click({ force: true })
+    if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click()
     else await page.keyboard.press('Escape')
     await page.waitForTimeout(400)
   } else {
@@ -25793,7 +25812,7 @@ async function testFeature128(page) {
   }
 
   // ⑤ 负例：UPDATE 被 SQL 白名单拒绝（错误提示 + 对话框不关闭 + API 不落库）
-  await page.getByRole('button', { name: /新增/ }).first().click({ force: true })
+  await page.getByRole('button', { name: /新增/ }).first().click()
   const bdlg = page.locator('.el-dialog:visible').last()
   const bOpen = await bdlg
     .waitFor({ state: 'visible', timeout: 5000 })

@@ -97,6 +97,11 @@
       "level": "WARN",
       "match": "IM 机器人渠道 .* 连通性测试：配置无效: IM 机器人渠道未配置",
       "why": "M80 IM 渠道连通性负路径：夹具渠道故意不带 config_json，服务层必须返回可读 400 并留下诊断 WARN"
+    },
+    {
+      "level": "WARN",
+      "match": "链写入乱序（更大 oper_id 已抢先写链），本条降级为 NULL",
+      "why": "F143 敏感档压测在 1.6s 内并发写 12 条 oper_log：oper_id 由序列分配、提交顺序可以颠倒，后落盘的较小 id 找不到前驱 ⇒ 按设计把本条 chain_hash 降级为 NULL 并由 verify 跳过（该行为由 sys_oper_log_service::tests::chain_out_of_order_write_degrades_to_null_and_verify_skips 钉住，b82 全量轮实测 1 条，位于 07:55:13 那批 totp 写）。降级只减损这一行的链可验证性，审计正文仍在；把它报成篡改才是错的。"
     }
   ]
 }

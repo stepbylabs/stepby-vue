@@ -5,6 +5,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 **/*.log
+# run-detached.mjs 的旁证（监管 PID / 子进程 PID / 退出码）：与日志同性质——一轮一份、
+# 只作本轮取证用，进仓就成了下一批的假基线（实测 `*.log` 一条规则盖不住这三个后缀）
+**/*.log.pid
+**/*.log.child.pid
+**/*.log.exit
 
 tests/**/coverage/
 /coverage/

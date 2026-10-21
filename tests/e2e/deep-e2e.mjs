@@ -32,15 +32,22 @@ import { createRequire } from 'module'
 // §10 N-3 的收口：`--plan` 只是**读注册表**（分片口径由 `testFns` 派生），过去却被凭据挡住——
 // `test-config.mjs` 的 fail-fast 在模块导入期就抛，而静态 import 无法"先看 argv 再决定要不要载它"。
 // 凭据纪律本身一个字没松（缺 `STEPBY_TEST_*` 仍然拒绝跑任何用例），变的只是**加载时机**。
+// 免凭据的入口按"是否需要浏览器"划，不按旗标名枚举：`--update-skip-baseline-from=` 同样只读
+// 一份日志 + 一份基线（b82 实测：它当时仍走静态导入，于是脱离启动的收口命令在**没有凭据的 shell**
+// 里必然崩在 import 期，报的还是 `test-config.mjs:24` 那句与本次操作毫无关系的话）。
 const planOnly = process.argv.includes('--plan')
-const { TEST_USER, TEST_PASS, BASE_URL } = planOnly
+const skipBaselineFromArg = process.argv.find((a) => a.startsWith('--update-skip-baseline-from='))
+const noBrowserEntry = planOnly || Boolean(skipBaselineFromArg)
+const { TEST_USER, TEST_PASS, BASE_URL } = noBrowserEntry
   ? { TEST_USER: '', TEST_PASS: '', BASE_URL: '' }
   : await import('./test-config.mjs')
-import { runMain } from './e2e/run/runner.mjs'
+import { runMain, applySkipBaselineFromLog } from './e2e/run/runner.mjs'
+import { assertFreshServedApp } from './build-freshness.mjs'
 import { createCaptureHub } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { readCaptchaCodeFromRedis, capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi } from './e2e/run/auth.mjs'
 import { makeActionBreadthTest } from './modules/actionBreadth.mjs'
+import { makeWriteEndpointBreadthTest } from './modules/writeEndpointBreadth.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -996,7 +1003,10 @@ async function createPage(browser) {
             u.includes('/lock') ||
             u.includes('/unlockscreen') ||
             // 应用新增顶部通知组件：M9 清 token 后前台仍会请求通知列表，401 属权限隔离测试预期副作用
-            u.includes('/system/notice/')
+            u.includes('/system/notice/') ||
+            // 清 token 后路由/用户信息重取同样是前台自愈动作（b82 实测 getRouters 401）
+            u.includes('/getRouters') ||
+            u.includes('/getInfo')
         )
         if (allHarmless) return
       }
@@ -1270,11 +1280,11 @@ async function dismissTour(page) {
 }
 
 /**
- * 点击按钮（绕过 Tour 遮罩和遮挡元素）
+ * 点击按钮（只走 actionability，不用 force）
  * 策略：
  *   1. 普通点击（短超时）
- *   2. force: true 点击（跳过 actionability 检查）
- *   3. evaluate 触发 click 事件（绕过遮挡）
+ *   2. 收掉晚到的 Tour 遮罩后重试普通点击
+ *   3. evaluate 触发 click 事件（DOM 兜底，不按坐标穿透）
  *
  * 支持 Playwright 专有选择器（如 :has-text("文本")），
  * 在 evaluate 回退中通过文本匹配查找按钮
@@ -1288,37 +1298,42 @@ async function clickButton(page, selector, options = {}) {
     await btn.click({ timeout: Math.min(timeout, 3000) })
     return true
   } catch {
-    // 继续尝试其他方式
+    // 继续尝试收遮罩后重试
   }
 
-  // 2. force: true 点击（跳过 actionability 检查）
+  // 2. 引导遮罩是数据加载后才挂出来的：点击那一刻重收一次，再走普通点击。
+  // 这一步替代了原先的 force 回退——force 按坐标点，事件会打在遮罩上而假报成功。
+  await dismissTour(page)
+  await sleep(250)
   try {
-    await btn.click({ force: true, timeout: Math.min(timeout, 3000) })
+    await btn.click({ timeout: Math.min(timeout, 3000) })
     return true
   } catch {
     // 继续尝试 evaluate
   }
 
-  // 3. evaluate 触发 click（绕过所有遮挡）
+  // 3. evaluate 触发 click（DOM 兜底；调用方仍须有独立的状态断言）
   // 从 selector 中提取文本（支持 button:has-text("xxx") 格式）
   const textMatch = selector.match(/:has-text\(["'](.+?)["']\)/)
   try {
     if (textMatch) {
       const text = textMatch[1]
-      await page.evaluate((t) => {
+      return await page.evaluate((t) => {
         const buttons = Array.from(document.querySelectorAll('button'))
         const target = buttons.find((b) => b.offsetParent !== null && b.innerText.includes(t))
-        if (target) target.click()
+        if (!target) return false
+        target.click()
+        return true
       }, text)
-    } else {
-      // 非 :has-text 选择器，直接使用 querySelectorAll
-      await page.evaluate((sel) => {
-        const els = Array.from(document.querySelectorAll(sel))
-        const target = els.find((b) => b.offsetParent !== null)
-        if (target) target.click()
-      }, selector)
     }
-    return true
+    // 非 :has-text 选择器，直接使用 querySelectorAll
+    return await page.evaluate((sel) => {
+      const els = Array.from(document.querySelectorAll(sel))
+      const target = els.find((b) => b.offsetParent !== null)
+      if (!target) return false
+      target.click()
+      return true
+    }, selector)
   } catch {
     return false
   }
@@ -2690,7 +2705,15 @@ async function testModule1(page, consoleErrors, pageErrors) {
           detail: String(e).slice(0, 120)
         }))
         if (restored.status === 'ok') {
-          record(M, '通知中心: 全部已读后按快照复原本账号未读态', true, restored.detail)
+          // b82：原先这里写死 `true`（只要助手自报 ok 就算复原成功），属"字面真 = 等于没检验"
+          // 那一族（断言棘轮基线 0，b81 收尾把它带回来了）。改成判**独立回查**：
+          // 快照 id 集合里残留的已读行必须为 0，且删除数不得超过快照条数（多余删除=删到别人的行）。
+          record(
+            M,
+            '通知中心: 全部已读后按快照复原本账号未读态',
+            restored.remaining === 0 && restored.deleted <= unreadSnapshot.length,
+            `${restored.detail}（快照 ${unreadSnapshot.length} 条）`
+          )
         } else if (restored.status === 'skipped') {
           recordSkip(M, '通知中心: 全部已读后按快照复原本账号未读态', restored.detail)
         } else {
@@ -11072,7 +11095,7 @@ async function testModule36(page, consoleErrors, pageErrors) {
     // 先 hover 使按钮可见，再点击 span 本体（内层 svg 会吞点击坐标）。
     // R-TEST-DEBUG 终版：①关闭钮仅 hover 可见 ②span 中心被内层 svg path 覆盖需 force
     // ③6 标签时 last 可能被滚动容器裁剪（force 落空）——改点第一个带关闭钮的标签
-    // （必在可视区），hover + force click。
+    // （必在可视区）。b81 N-8：不再 force，普通点击失败由下方标签数断言判红。
     const closeBtn = page.locator('.tags-view-item .tags-close-btn').first()
     if (
       await closeBtn
@@ -11082,7 +11105,7 @@ async function testModule36(page, consoleErrors, pageErrors) {
     ) {
       await closeBtn.hover().catch(() => {})
       await page.waitForTimeout(300)
-      await closeBtn.click({ timeout: 3000, force: true }).catch(() => {})
+      await closeBtn.click({ timeout: 3000 }).catch(() => {})
       await sleep(1000)
       const tagCountAfter = await page.locator('.tags-view-item').count()
       record(
@@ -15543,11 +15566,11 @@ async function testModule64(page, consoleErrors, pageErrors) {
         try {
           await page.locator('.user-info-head').first().click({ timeout: 5000 })
         } catch (e) {
-          // 回退到 force click
+          // 回退到 DOM click（不按坐标穿透；后续用头像/对话框状态断言确认）
           await page
             .locator('.user-info-head')
             .first()
-            .click({ force: true, timeout: 3000 })
+            .evaluate((el) => el.click())
             .catch(() => {})
         }
         await sleep(2500)
@@ -21320,6 +21343,17 @@ const testModule89 = makeActionBreadthTest({
   sleep
 })
 
+// 模块 90：五个欠账写端点闭环（b82，独立在 modules/writeEndpointBreadth.mjs）。
+// 注入共享 helpers 而不是 import 本入口（入口 import 即执行），避免复制判据实现。
+const testModule90 = makeWriteEndpointBreadthTest({
+  record,
+  log,
+  getApiToken,
+  CONFIG,
+  sleep,
+  checkConsoleErrors
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -21411,7 +21445,8 @@ const testFns = {
   86: testModule86,
   87: testModule87,
   88: testModule88,
-  89: testModule89
+  89: testModule89,
+  90: testModule90
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
@@ -21450,6 +21485,29 @@ if (process.argv.includes('--plan')) {
   console.log(`模块总数 ${ids.length}（唯一事实源 = deep-e2e.mjs 的 testFns，最大编号 ${maxId}）`)
   console.log(`分片口径：${ranges.map((r) => `--range=${r}`).join(' / ')}`)
   process.exit(0)
+}
+
+// 收紧入口的第二条腿（b82）：全量单轮必须脱离进程树跑（run-detached.mjs），脱离启动拿不到外层 `$?`，
+// 而 `--update-skip-baseline` 只允许在刚跑完的全量单轮上用。没有合法通道，结局一定是有人手写基线 JSON
+// （绕过"只许降 + 必须跑完"两道闸）。这一支不启浏览器、不读产物，所以排在所有预检之前。
+{
+  if (skipBaselineFromArg) {
+    const r = applySkipBaselineFromLog(skipBaselineFromArg.slice('--update-skip-baseline-from='.length))
+    console.log(`${r.code === 0 ? '✅' : '❌'} ${r.message}`)
+    process.exit(r.code)
+  }
+}
+
+// 启动预检 0：**产物必须是当前源码构建出来的，且 :8080 服务的就是它**（批八十二）。
+// 实测踩到：frontend-dist 是 06:37 的构建，job/user 两个视图 07:27 才改——整套 UI 用例
+// 跑在上一轮产物上，而台账把它记成"本批改动已验证"。后端有同族判据（start-backend.mjs
+// 比对 :8080 镜像路径），前端这一侧此前没有任何判据把"src 改了"与"产物重建了"连起来。
+try {
+  const r = await assertFreshServedApp({ baseUrl: CONFIG.frontendUrl })
+  log(`产物预检：${r.artifactDir}（入口 ${r.chunk} / ${r.bytes} 字节）— 新鲜且服务一致`)
+} catch (e) {
+  log(`❌ 启动预检失败: ${e.message}`)
+  process.exit(2)
 }
 
 // 启动预检：验证码启用时先确认可读取真码（fail-fast，不弹浏览器空转）
@@ -21528,20 +21586,33 @@ async function snapshotUnreadNoticeIds() {
  * 调用方记 SKIP 而不是 PASS——"没复原"与"复原成功"必须可区分。
  */
 async function restoreUnreadNoticeIds(ids) {
-  if (!ids.length) return { status: 'ok', deleted: 0, detail: '快照为空，无需复原' }
+  if (!ids.length) return { status: 'ok', deleted: 0, remaining: 0, detail: '快照为空，无需复原' }
   const dbFile = e2eDbPath()
   if (!fs.existsSync(dbFile)) {
-    return { status: 'skipped', deleted: 0, detail: `本地库不存在：${dbFile}` }
+    return { status: 'skipped', deleted: 0, remaining: -1, detail: `本地库不存在：${dbFile}` }
   }
   const { DatabaseSync } = await import('node:sqlite')
   const db = new DatabaseSync(dbFile)
   try {
     const user = db.prepare('SELECT user_id FROM sys_user WHERE user_name = ?').get(CONFIG.username)
-    if (!user) return { status: 'failed', deleted: 0, detail: `库中无用户 ${CONFIG.username}` }
+    if (!user) return { status: 'failed', deleted: 0, remaining: -1, detail: `库中无用户 ${CONFIG.username}` }
     const del = db.prepare('DELETE FROM sys_notice_read WHERE user_id = ? AND notice_id = ?')
     let deleted = 0
     for (const noticeId of ids) deleted += del.run(user.user_id, noticeId).changes
-    return { status: 'ok', deleted, detail: `快照 ${ids.length} 条，删除已读行 ${deleted}` }
+    // **读回**而不是自报：DELETE 的 changes 只说明"这一句动了多少行"，
+    // 不能说明"快照里的那些 id 现在确实没有已读行了"（同一 id 可能被并发写回、
+    // 或 ids 里有重复/类型不匹配的值使 WHERE 没命中预期行）。
+    // 调用方判据因此建立在独立回查上，而不是 `status==='ok'` 这个自我声明。
+    const marks = ids.map(() => '?').join(',')
+    const remaining = db
+      .prepare(`SELECT COUNT(*) AS c FROM sys_notice_read WHERE user_id = ? AND notice_id IN (${marks})`)
+      .get(user.user_id, ...ids).c
+    return {
+      status: 'ok',
+      deleted,
+      remaining,
+      detail: `快照 ${ids.length} 条，删除已读行 ${deleted}，回查残留 ${remaining}`
+    }
   } finally {
     db.close()
   }
@@ -21627,8 +21698,9 @@ async function testModule87(page, consoleErrors, pageErrors) {
    * ——于是"点击=true + 什么都没发生 + 请求数=0"被记成 PASS。
    * **假绿比红更危险**：同 AGENTS《测试门禁全景》"回归锁必须变异证伪 + 对照组真受约束"。
    *
-   * 三段策略与本文件既有 `clickButton()` 同源：普通点击 → force → 元素自身 dispatch。
-   * 返回 `'click' | 'force' | 'evaluate' | false`，调用方据此把"交互确实发生"写进判据。
+   * 策略与既有 `clickButton()` 同源：普通点击（先收引导遮罩再重试）→ 元素自身 dispatch。
+   * **不使用 force**（b81 N-8）：返回 `'click' | 'evaluate' | false`，调用方据此把
+   * "交互确实发生"与状态断言一起写进判据。
    */
   /**
    * 等掉瞬态遮罩再点，并把看到的遮罩名留作凭证（b79 二轮实测的必要性）。
@@ -21680,16 +21752,15 @@ async function testModule87(page, consoleErrors, pageErrors) {
   }
   /**
    * 普通点击被拦时 Playwright 报的**原文尾两行**（`… intercepts pointer events` /
-   * `element is not stable - waiting…`）。留它是因为"落地=force"只说明没点成，
-   * 不说明**被什么挡住**——没有这一串，红只能靠猜（本批 r2/r3 两轮就是这么过来的）。
+   * `element is not stable - waiting…`）。留它是因为"点击没落地"只说明没点成，
+   * 不说明**被什么挡住**——没有这一串，红只能靠猜。
    */
   let lastClickBlock = ''
   const realClick = async (locator) => {
-    // 三段式重试：每次按下前都重新"收引导 + 等遮罩"。
-    // 普通点击失败绝不直接退化到 `force`——`force` 跳过 actionability 按坐标点，
-    // 事件会打在**遮罩自己身上**，于是"点了没反应"被记成一次成功点击（假绿）。
-    // 重试上限 3 次：按钮真坏了（禁用/无处理器）时三次都不生效，照样落到 force/evaluate
-    // 并由调用方的"状态确实变了"判据判红，不会因为重试而放过缺陷。
+    // 每次按下前都重新"收引导 + 等遮罩"，最多 3 次普通点击。
+    // **绝不退化到 force**：force 跳过 actionability 按坐标点，事件会打在遮罩自己身上，
+    // 于是"点了没反应"被记成一次成功点击（假绿）。普通点击都失败时改用 DOM click，
+    // 调用方仍须用"状态确实变了"独立判据确认（M87 的可见行/请求数断言即此）。
     for (let attempt = 0; attempt < 3; attempt++) {
       await dismissTour(page)
       await waitNoOverlay()
@@ -21707,13 +21778,6 @@ async function testModule87(page, consoleErrors, pageErrors) {
         await sleep(300)
       }
     }
-    if (
-      await locator
-        .click({ force: true, timeout: 2000 })
-        .then(() => true)
-        .catch(() => false)
-    )
-      return 'force'
     const ok = await locator
       .evaluate((el) => {
         if (typeof el?.click !== 'function') return false

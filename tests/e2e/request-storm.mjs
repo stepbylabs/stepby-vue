@@ -19,9 +19,10 @@
  * 四条口径纪律（都是本批已付过学费的形状）：
  * ① `--gate` 与 `--update-baseline` 共用同一份纯比较函数 `stormRegressions`，退步时基线**不改动**
  *    （§7.14：退出码不撤回已经写出去的文件）；
- * ② 数据集必须 `full === true`、带窗口、且**每行都带 `navs`**，否则响亮失败
+ * ② 数据集必须 `full === true`、**每个模块都产出判定行**、带窗口、且**每行都带 `navs`**，否则响亮失败
  *    （§7.19 / §3.63：分段轮是子集、旧采集格式没有分母，拿它们判风暴会把"没跑 / 判不了"
- *    读成"没变差"；缺分母尤其不能当 0——那会把密度放大成 total，全线误报）；
+ *    读成"没变差"；b82 追加第三类——浏览器崩溃的全量轮照样写 `full: true`，采样面只有前若干个模块，
+ *    拿它重生成基线会把后面 52 个模块的出网面整体抹掉；缺分母尤其不能当 0——那会把密度放大成 total，全线误报）；
  * ③ 非数值/缺字段一律按"判不了"处理而不是"没退步"（`NaN > tol` 恒 false 那个漏洞）；
  * ④ 基线必须记**口径名**（`metric`）：`perKey` 里数字的含义换了（总次数 → 每导航均值）而不换标记时，
  *    拿新阈值比旧数字会**静默失真**——与 §7.19 的 `sources` 源集合对账是同一条纪律。
@@ -184,8 +185,9 @@ export function aggregate(rows) {
 }
 
 /**
- * 读取并校验数据集。四类输入问题一律硬失败，不做"静默当 0"：
- * 非全量 / 无窗口 / rows 空 / **行里没有 navs 分母**（旧采集格式）。
+ * 读取并校验数据集。五类输入问题一律硬失败，不做"静默当 0"：
+ * 非全量 / 有模块零判定（崩轮）/ 无窗口 / rows 空 / **行里没有 navs 分母**（旧采集格式）。
+ * 前两类由 `dataset-window.mjs::assertFullRun` 统一判（与 endpoint-coverage 共用同一份纯函数）。
  */
 export function loadDataset(file = DATASET) {
   if (!fs.existsSync(file)) throw new Error(`数据集不存在：${file}（需先跑一轮 deep-e2e 全量）`)
@@ -269,6 +271,20 @@ export function filterAccepted(bad, acceptedKeys = []) {
   const accepted = new Set(acceptedKeys.filter((k) => typeof k === 'string' && k.trim()).map((k) => k.trim()))
   if (!accepted.size) return bad
   return bad.filter((x) => !accepted.has(x.key))
+}
+
+/**
+ * 两个入口共用的判定（b82 接线修复后抽出来，好让"登记通道真的接得上"这件事能被自检钉住）。
+ * `gateOnly=true`（单独 `--gate`）时**不认**命令行签字：棘轮比对不许被一句旗标放行；
+ * 只有收紧入口走 `filterAccepted`，并把被签字的键交回调用方落进基线 `acceptedNewKeys` 留痕。
+ */
+export function stormVerdict(basePerKey, agg, declaredKeys, acceptNewKeys = [], opts = {}) {
+  const { gateOnly = false, tol = STORM_TOLERANCE, newFloor = NEW_DENSITY_FLOOR } = opts
+  const set = declaredKeys instanceof Set ? declaredKeys : new Set(declaredKeys || [])
+  const allBad = stormRegressions(basePerKey, agg, tol, newFloor, set)
+  const bad = gateOnly ? allBad : filterAccepted(allBad, acceptNewKeys)
+  const signed = allBad.filter((x) => !bad.includes(x))
+  return { allBad, bad, signed }
 }
 
 /** 收紧入口用：先比后写，退步时**一个字都不落盘**（§7.14）。 */
@@ -364,6 +380,11 @@ function selftest() {
       f,
       JSON.stringify({
         full: true,
+        // 执行完整性默认"跑完了"（正控默认值；⑮ 各条用 extra 覆盖成崩轮/旧格式）
+        modulesPlanned: 90,
+        modulesAttempted: 90,
+        modulesWithZeroVerdicts: [],
+        totalVerdictRows: rows.length,
         windowStart: '2026-01-01 00:00:00',
         windowEnd: '2026-01-02 00:00:00',
         rows,
@@ -614,8 +635,86 @@ function selftest() {
   } catch {
     /* 期望 */
   }
+  // ⑯ **登记通道的接线**双向（b82 实测缺陷：`--gate` 与 `--update-baseline` 共用那一段无条件 `exit(1)`，
+  //    于是 `--accept-new-key=` 永远走不到登记逻辑——旗标留了却接不上，第一条合法新增就把收紧锁死；
+  //    而同一条通道写进基线的 `acceptedNewKeys` 也没真的传下去，输出里"已写进基线留痕"是句假话）。
+  //    这条判据必须钉"签字只在收紧入口生效"与"gate 不被一句旗标放行"两个相反方向。
+  const growthAgg = aggregate([
+    { tag: 'M89', key: 'GET /tool/http-debugger', count: 2, navs: 95 },
+    { tag: 'M90', key: 'POST /system/other', count: 40, navs: 2 }
+  ])
+  const gBase = { 'GET /tool/http-debugger': 0.0149, 'POST /system/other': 0.01 }
+  const vSigned = stormVerdict(gBase, growthAgg, [], ['GET /tool/http-debugger'])
+  if (vSigned.bad.length !== 1 || vSigned.signed.length !== 1 || vSigned.signed[0].key !== 'GET /tool/http-debugger')
+    fail.push(
+      `⑯ 收紧入口没吃到登记旗标：bad=${JSON.stringify(vSigned.bad.map((x) => x.key))} signed=${JSON.stringify(vSigned.signed.map((x) => x.key))}`
+    )
+  const vUnsigned = stormVerdict(gBase, growthAgg, [], [])
+  if (vUnsigned.bad.length !== 2 || vUnsigned.signed.length !== 0)
+    fail.push(`⑯ 没签字时退步数不对：${vUnsigned.bad.length}`)
+  const vGate = stormVerdict(gBase, growthAgg, [], ['GET /tool/http-debugger', 'POST /system/other'], {
+    gateOnly: true
+  })
+  if (vGate.bad.length !== 2) fail.push('⑯ 单独 --gate 竟然认了命令行签字（棘轮可被一句旗标放行）')
+  const vTypo = stormVerdict(gBase, growthAgg, [], ['GET /tool/http-debug'])
+  if (vTypo.bad.length !== 2 || vTypo.signed.length !== 0) fail.push('⑯ 拼错的键名被当成了有效登记')
+  const cleanAgg = aggregate([{ tag: 'M1', key: 'GET /x', count: 1, navs: 1 }])
+  const vClean = stormVerdict({ 'GET /x': 1 }, cleanAgg, [], ['GET /nothing'])
+  if (vClean.bad.length !== 0 || vClean.signed.length !== 0) fail.push('⑯ 干净轮上多余旗标产生了效果（签字不是通配）')
   fs.rmSync(goodDecl.dir, { recursive: true, force: true })
-  for (const p of [a, b, c, e0, e5]) fs.rmSync(p.dir, { recursive: true, force: true })
+  // ⑮ 执行完整性闸双向（b82 实测：全量轮跑到 M38 浏览器崩溃，M39–M90 以"✅ 0 / ❌ 0"空跑到底，
+  //    汇总照打"模块: 90"、`full` 照写 true、reqstats 照落主文件）。崩轮的采样面只有前 38 个模块，
+  //    拿它重生成基线会把后面 52 个模块的出网面**整体抹掉**——密度棘轮从此看不见它们。
+  //    与 endpoint-coverage ㉔ 共用 `assertFullRun`，两侧各自钉一条：闸是共享的，消费方必须各自证明它拦得住。
+  const crashed = mk([{ tag: 'M37', key: 'GET /getInfo', count: 3, navs: 3 }], {
+    modulesWithZeroVerdicts: Array.from({ length: 52 }, (_, i) => i + 39)
+  })
+  try {
+    loadDataset(crashed.f)
+    fail.push('⑮ 崩轮（52 个模块零判定）被接受了')
+  } catch (err) {
+    if (!/0 条判定/.test(err.message) || !/崩溃/.test(err.message)) {
+      fail.push(`⑮ 崩轮的拒绝理由没指向崩溃：${err.message}`)
+    }
+  }
+  const legacy = mk([{ tag: 'M1', key: 'GET /x', count: 1, navs: 1 }])
+  const rawLegacy = JSON.parse(fs.readFileSync(legacy.f, 'utf8'))
+  delete rawLegacy.modulesPlanned
+  delete rawLegacy.modulesWithZeroVerdicts
+  fs.writeFileSync(legacy.f, JSON.stringify(rawLegacy))
+  try {
+    loadDataset(legacy.f)
+    fail.push('⑮ 缺执行完整性字段的旧格式数据集被接受了')
+  } catch (err) {
+    if (!/完整性字段/.test(err.message)) fail.push(`⑮ 旧格式拒绝理由没指向完整性字段：${err.message}`)
+  }
+  const zeroRows = mk([{ tag: 'M1', key: 'GET /x', count: 1, navs: 1 }], { totalVerdictRows: 0 })
+  try {
+    loadDataset(zeroRows.f)
+    fail.push('⑮ 判定行总数为 0 的数据集被接受了')
+  } catch {
+    /* 期望 */
+  }
+  // 计划数 ≠ 入场数：runner 提前 break 时后面的模块连 moduleStats 都没有，
+  // 只判"零判定模块"看不见它们（列表是空的），必须靠两个计数相等这一道。
+  const earlyBreak = mk([{ tag: 'M1', key: 'GET /x', count: 1, navs: 1 }], { modulesAttempted: 38 })
+  try {
+    loadDataset(earlyBreak.f)
+    fail.push('⑮ 提前终止（计划 90 / 入场 38）的数据集被接受了')
+  } catch (err) {
+    if (!/提前终止/.test(err.message)) fail.push(`⑮ 提前终止的拒绝理由没指向计数不等：${err.message}`)
+  }
+  // 正控：默认夹具（planned=attempted=90、零判定模块为空）必须放行——
+  // 否则上面四条可以靠"一律拒"蒙过
+  const goodRun = mk([{ tag: 'M1', key: 'GET /x', count: 1, navs: 1 }])
+  try {
+    const g = loadDataset(goodRun.f)
+    if (g.agg.get('GET /x').total !== 1) fail.push('⑮ 合法全量轮的数据读出来不对')
+  } catch (e) {
+    fail.push(`⑮ 合法全量轮被拒了：${e.message}`)
+  }
+  for (const p of [a, b, c, e0, e5, crashed, legacy, zeroRows, earlyBreak, goodRun])
+    fs.rmSync(p.dir, { recursive: true, force: true })
   return fail
 }
 
@@ -637,9 +736,8 @@ function entry() {
       process.exit(1)
     }
     console.log(
-      `SYNTH_OK 出站请求风暴棘轮 14 组双向（聚合与密度口径 / 五类响亮失败：非 full、缺窗口、空 rows、` +
-        `不带 navs、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向 / ` +
-        `已声明轮询清单双向），口径 ${METRIC}`
+      `SYNTH_OK 出站请求风暴棘轮 16 组双向（聚合与密度口径 / 六类响亮失败：非 full、缺窗口、空 rows、不带 navs、崩轮与旧格式执行完整性、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向 / ` +
+        `已声明轮询清单双向 / 登记通道**接线**双向），口径 ${METRIC}`
     )
     process.exit(0)
   }
@@ -706,8 +804,21 @@ function entry() {
       console.log(`[FATAL] ${e.message}`)
       process.exit(2)
     }
-    const bad = stormRegressions(base.perKey, ds.agg, STORM_TOLERANCE, NEW_DENSITY_FLOOR, new Set(declared.keys()))
+    // **登记通道只在收紧入口生效**（b82 接线修复）：原写法这一支无条件 `exit(1)`，
+    // 于是 `--update-baseline --accept-new-key=…` 永远走不到下面的登记逻辑——"留了登记旗标却接不上"，
+    // 实测第一条合法新增（M89 多访问一次 http-debugger）就该旗标完全失效，唯一出路变成放宽阈值=换判据。
+    // 而 `--gate` 单独用时**不认**命令行签字：否则任何一次比对都能被一句旗标放行，棘轮形同虚设。
+    const gateOnly = args.includes('--gate') && !args.includes('--update-baseline')
+    const { bad, signed } = stormVerdict(base.perKey, ds.agg, new Set(declared.keys()), acceptNewKeys, { gateOnly })
     log(`窗口对账：基线 ${bw.since} .. ${bw.until}，本轮 ${ds.window.since} .. ${ds.window.until}`)
+    if (gateOnly && acceptNewKeys.length) {
+      log(`ℹ --accept-new-key 在单独 --gate 上不生效（签字只作用于 --update-baseline 这一侧，留痕进基线）`)
+    }
+    if (signed.length) {
+      log(
+        `ℹ 本轮签名登记 ${signed.length} 项：${signed.map((x) => `${x.key}（${x.why}）`).join('、')} ⇒ 写进基线 acceptedNewKeys`
+      )
+    }
     if (bad.length) {
       console.log(`❌ 出网密度退步 ${bad.length} 项（容差 ${STORM_TOLERANCE}，新键密度下限 ${NEW_DENSITY_FLOOR}）：`)
       bad
@@ -718,6 +829,7 @@ function entry() {
               `${Number(x.now).toFixed(2)}：${x.why}`
           )
         )
+      if (!gateOnly) console.log('    新增出网面要显式登记：--accept-new-key="METHOD /path"（逐个点名，不给通配）')
       process.exit(1)
     }
     log(`✅ 无出网密度退步（基线 ${base.keys} 键 → 本轮 ${ds.agg.size} 键 / 总 ${ds.totalRequests} 次）`)
@@ -726,16 +838,15 @@ function entry() {
   if (args.includes('--update-baseline')) {
     let acceptedNow = []
     if (base && !resetBaseline) {
-      const allBad = stormRegressions(base.perKey, ds.agg, STORM_TOLERANCE, NEW_DENSITY_FLOOR, new Set(declared.keys()))
       // 登记通道：只有命令行上**点名**的键才算"本轮新增并已审阅"，其余退步照旧拒绝落盘。
       // 没有这条通道，任何合法新增用例都会把棘轮锁死，结局是有人直接关掉门禁。
-      const bad = filterAccepted(allBad, acceptNewKeys)
-      acceptedNow = allBad.filter((x) => !bad.includes(x)).map((x) => x.key)
+      const { bad, signed } = stormVerdict(base.perKey, ds.agg, new Set(declared.keys()), acceptNewKeys)
+      acceptedNow = signed.map((x) => x.key)
       if (bad.length) {
         console.log(`❌ 拒绝放松棘轮：${bad.length} 项出网密度退步，基线**未改动**`)
         bad.slice(0, 10).forEach((x) => console.log(`    · ${x.key}：${x.why}`))
         if (acceptedNow.length)
-          console.log(`    （本轮已登记 ${acceptedNow.length} 个新键：${acceptedNow.join(', ')}）`)
+          console.log(`    （本轮已签名登记 ${acceptedNow.length} 个键：${acceptedNow.join(', ')}）`)
         console.log('    新增出网面要显式登记：--accept-new-key="METHOD /path"（逐个点名，不给通配）')
         process.exit(1)
       }
@@ -746,6 +857,10 @@ function entry() {
       window: ds.window,
       agg: ds.agg,
       totalRequests: ds.totalRequests,
+      // b82 接线修复：上面那句"已写进基线的 acceptedNewKeys"此前是**假话**——旗标根本没传进来，
+      // 签名只在命令行上活了一次，落盘的基线里没有留痕（"谁都能在这份文件里看到它不是自然长出来的"
+      // 那句注释描述的判据因此从未成立）。留痕必须真的落盘，登记才审计得动。
+      acceptedNewKeys: acceptedNow,
       resetFrom: resetBaseline && base ? base.metric : null
     })
     log(`✅ 基线已写入：${BASELINE}（${body.keys} 个端点键 / 总 ${body.totalRequests} 次 / 口径 ${body.metric}）`)

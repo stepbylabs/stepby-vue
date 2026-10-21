@@ -37,6 +37,13 @@
     },
     {
       "method": "POST",
+      "url": "^/system/user/totp/verify$",
+      "error": "^HTTP 400$",
+      "msg": "^TOTP 验证失败次数过多，请 10 分钟后再试$",
+      "why": "F143 敏感档压测把 `totp:verify_fail` 计数打到上限（`totp_handler.rs:28` MAX_TOTP_VERIFY_FAIL=5、TTL 600s），第 210-215 行按锁定态拒绝——同上一条不同：上一条是「码错了」，这一条是「你被临时锁了」。用例侧只断言锁定后仍不签发会话（b81 登记的 F143 判据写的就是「非 429 状态必须 400」，本来就允许锁定态存在）。**状态码本身是契约缺口**（锁定语义是「稍后再试」，按 C.8/C.10 更应 429 + Retry-After），见台账 §15 N-24——登记的是「这条失败会发生」，不是「这个码是对的」。"
+    },
+    {
+      "method": "POST",
       "url": "^/system/msg/channel/test/\\d+$",
       "error": "^HTTP 400$",
       "msg": "^短信渠道配置无效$",
@@ -457,10 +464,10 @@
     },
     {
       "method": "POST",
-      "url": "^/system/msg/channel/test/566$",
+      "url": "^/system/msg/channel/test/\\d+$",
       "error": "^HTTP 400$",
       "msg": "^IM 机器人渠道配置无效",
-      "why": "M80 IM 渠道连通性负路径：config_json 缺 webhookUrl 时必须 400；IM 渠道夹具编码固定 566。"
+      "why": "M80 IM 渠道连通性负路径：config_json 缺 webhookUrl 时必须 400。夹具 id 随轮次漂移（b81 记 566，b82 实测 579），所以 URL 只认端点形状、原因全压在同一句 msg 上—— msg 仍是逐字前缀，不是任意 400。"
     },
     {
       "method": "POST",
@@ -510,6 +517,82 @@
       "error": "^HTTP 422$",
       "until": "2026-10-20 22:20:00",
       "why": "历史豁免：F143 敏感档打满用例在 b81 收口前只送 code（DTO 还要求 secret）⇒ garde 422（20 行，止于 22:19:05）。已修请求体并把断言收紧为「非 429 状态必须 400」，此条目只覆盖旧窗口，之后同类信号未登记即红。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/demo/\\d+/resubmit$",
+      "error": "^HTTP 400$",
+      "msg": "^审批任务已处理或已失效",
+      "why": "M90 反证：pending 态重提交必须被拒，否则「重复提交」成为绕过在途审批的第二个入口；用例同时读回 currentRound 未推进，证明拒绝无副作用。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/demo/\\d+/resubmit$",
+      "error": "^HTTP 403$",
+      "msg": "^仅单据提交人可撤回",
+      "why": "M90 属主反证：用管理员令牌重提交他人（stepby）单据必须 403——自助/代提交同权漏洞的守门判据。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/flow/demo/99999999/resubmit$",
+      "error": "^HTTP 404$",
+      "msg": "^审批单据不存在",
+      "why": "M90 反证：不存在的 docId 不得静默 200（那等于把单据提交给空气），404 是与「闸门生效」可区分的唯一证据。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup/self-export$",
+      "error": "^权限拒绝：缺少所需权限 system:backup:export$",
+      "why": "同上一条同一判据的**另一种审计形状**：由权限中间件在写出响应体之前拒绝时，`error_msg` 存的是拒绝原因原文且没有 json_result（b82 全量轮 M90 实测）；b81 那条 HTTP 403 + msg 的形状来自已生成响应体的路径。两条都指向「common 角色没有 system:backup:export」这一件事，判据本身由 M90 的 403/404 前后配对断言守着。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup/self-export$",
+      "error": "^HTTP 403$",
+      "msg": "^没有权限访问该资源$",
+      "why": "M90 关闭态判据：`backup.tenant_self_export` 默认 off，`system:backup:export` 不下发，common 角色操作者必须被权限层拒绝；对照组是同用例里平台管理员拿到的 404。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup/self-export$",
+      "error": "^HTTP 404$",
+      "msg": "^租户不存在，无法导出数据包",
+      "why": "M90 对照组：平台管理员（tid=0）穿过守卫与权限层，落到业务层的诚实结论「平台没有租户数据包」；用例同时比对 sys_backup 列表 total 前后相等，证明两次拒绝都没生成备份文件。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/ipLocation/update(\\?source=[^&]*)?$",
+      "error": "^HTTP 400$",
+      "msg": "^更新源必须为 maxmind 或 p3terx",
+      "why": "M90 入参闸门：非法 source 必须 400 且在抢锁/下载之前就被拒（b82 实测修前是 500「系统内部错误」，属错误响应契约漂移，已修 handler）。URL 允许带 query 是因为 `oper_url` 存的就是含查询串的原值（实测 `/system/ipLocation/update?source=e2e90bad`），拒绝原因仍由 msg 逐字前缀钉住，不是「该端点任何 400 都算设计内」。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/tenant/menu$",
+      "error": "^HTTP 400$",
+      "msg": "^该菜单已加入本租户导航，不能重复挂载",
+      "why": "M90 反证：重复挂载不得静默幂等——静默成功会让「已挂载」与「刚被覆盖」两种状态在 API 上不可区分。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/tenant/menu$",
+      "error": "^HTTP 400$",
+      "msg": "^引用的菜单不存在、已停用，或不是目录/页面类型",
+      "why": "M90 反证：refMenuId=99999999 必须被引用完整性拒绝（按钮类型 F 也不得成为导航节点），否则租户口挂到不存在的菜单上形成假入口。"
+    },
+    {
+      "method": "PUT",
+      "url": "^/system/tenant/menu$",
+      "error": "^HTTP 404$",
+      "msg": "^导航配置不存在",
+      "why": "M90 反证：未知 l3Id 的 PUT 必须 404，不得「UPDATE 0 行也算成功」——那是把写失败洗成 200 的常见形态。"
+    },
+    {
+      "method": "DELETE",
+      "url": "^/system/tenant/menu/\\d+$",
+      "error": "^HTTP 404$",
+      "msg": "^导航配置不存在",
+      "why": "M90 反证：同一 l3Id 重复卸载必须 404，配合前一条「卸载后 list 读回消失」共同证明卸载是真的状态变化而非幂等噪声。"
     }
   ]
 }

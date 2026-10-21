@@ -27,14 +27,6 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:47:05 .. 06:03:31 UTC，样例 DELETE /monitor/logininfor/16019）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "DELETE /monitor/my-session/{tokenHash}": {
-    "kind": "todo",
-    "why": "撤的是**自己**的会话，会中断同模块后续用例；正确形状是放到模块最后一步并断\"撤销前 200 / 撤销后 401\"（与 M87 batchLogout 同构）"
-  },
-  "DELETE /monitor/online/{tokenHash}": {
-    "kind": "todo",
-    "why": "单条强退；M87 已覆盖批量口径，单条可用同样的\"撤销前后配对 + 幸存不连坐\"形状，缺的只是排期"
-  },
   "DELETE /monitor/operlog/clean": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 11 行留痕（00:40:09 .. 06:18:33 UTC，样例 DELETE /monitor/operlog/clean?params[beginTime]=2026-01-01&params[endTime]=2026-10-13）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
@@ -99,14 +91,6 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:58:13 .. 06:14:51 UTC，样例 DELETE /system/tenant/domain/412）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "DELETE /system/tenant/menu/{l3Id}": {
-    "kind": "todo",
-    "why": "需要\"未挂载候选菜单\"的枚举面才能写成自包含闭环（运行库 nav.l3 处于放开态，重复挂载实测 400）——N-19①，判据不得耦合库内历史"
-  },
-  "DELETE /system/tenant/{tenantId}": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 24 行留痕（00:58:10 .. 06:15:14 UTC，样例 DELETE /system/tenant/2060）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
   "DELETE /system/user/profile/tokens/{patId}": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:59:10 .. 06:15:49 UTC，样例 DELETE /system/user/profile/tokens/5717b979318a43c2956dd33767c96723）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
@@ -114,10 +98,6 @@
   "DELETE /system/user/webauthn/credentials/{credId}": {
     "kind": "needs-fixture",
     "why": "需先注册成功才有 credId；与 start/finish 同一前置"
-  },
-  "DELETE /system/user/{id}": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 44 行留痕（00:47:13 .. 06:20:56 UTC，样例 DELETE /system/user/3906）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /ai/chat": {
     "kind": "other-suite",
@@ -155,10 +135,6 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 5 行留痕（00:58:58 .. 06:15:36 UTC，样例 POST /monitor/alert）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /monitor/alert/export": {
-    "kind": "todo",
-    "why": "导出类可测（collect-warnings 已能点 12 页导出并验物证）；本条属告警页工具栏未接入导出，需先确认按钮存在再补判据"
-  },
   "POST /monitor/alert/{id}/evaluate": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:58:58 .. 06:15:36 UTC，样例 POST /monitor/alert/263/evaluate）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
@@ -166,14 +142,6 @@
   "POST /monitor/job/export": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 1 行留痕（01:21:49 .. 01:21:49 UTC，样例 POST /monitor/job/export）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /monitor/jobLog/export": {
-    "kind": "todo",
-    "why": "导出类本可自动化（collect-warnings 已能点 12 页导出并验物证），欠的是任务日志页工具栏那条\"物证 + 不截断\"判据，可挂在 M88 的 job 族里补"
-  },
-  "POST /monitor/logininfor/unlock/{userName}": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 10 行留痕（03:32:16 .. 05:45:20 UTC，样例 POST /monitor/logininfor/unlock/e2e88_nobody）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /monitor/operlog/export": {
     "kind": "other-suite",
@@ -231,10 +199,6 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:47:48 .. 06:04:21 UTC，样例 POST /system/backup/restore/999999999）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /system/backup/self-export": {
-    "kind": "todo",
-    "why": "租户自助导出可测（断 Content-Disposition + 非空体积）；重资源侧已有 Semaphore 闸门，判据要防 429 混淆"
-  },
   "POST /system/backup/tenant-export/{tenantId}": {
     "kind": "by-design",
     "why": "跨租户整库导出：平台专属且重资源，在共享 dev 库上跑一次即产生大量落盘文件；只应由集成测试用隔离库跑"
@@ -258,18 +222,6 @@
   "POST /system/dict/type": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 8 行留痕（00:46:58 .. 06:14:53 UTC，样例 POST /system/dict/type）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /system/flow/demo/submit": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:58:36 .. 06:15:15 UTC，样例 POST /system/flow/demo/submit）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /system/flow/demo/{docId}/resubmit": {
-    "kind": "todo",
-    "why": "流程演示重提交，需先有一份可提交的 e2e 单据（M85 已有定义/发布面）"
-  },
-  "POST /system/flow/demo/{docId}/withdraw": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:58:56 .. 06:15:34 UTC，样例 POST /system/flow/demo/219/withdraw）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /system/flow/export": {
     "kind": "other-suite",
@@ -299,29 +251,9 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:46:46 .. 06:03:11 UTC，样例 POST /system/ipLocation/reloadXdb）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /system/ipLocation/update": {
-    "kind": "todo",
-    "why": "需可安全提交的 IP 记录夹具（更新的是既有行，改前必须采集原值）"
-  },
   "POST /system/menu": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:47:13 .. 06:03:39 UTC，样例 POST /system/menu）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /system/msg/log/markPending/{logIds}": {
-    "kind": "todo",
-    "why": "状态流转可逆（pending↔其他），M86 已有发送记录页，判据形状现成"
-  },
-  "POST /system/msg/log/retry/{logIds}": {
-    "kind": "todo",
-    "why": "真外呼：必须像 M88 的 webhook 那样指向不可达目标 + timeoutSecs=1 + 模块内清理，且\"两半都判\"（成功数 0 AND 日志 total 增 1）"
-  },
-  "POST /system/msg/log/retryPending/{batch}": {
-    "kind": "todo",
-    "why": "批量重试口径与单条 retry 不同（按 batch 号整批重投），需先造出一个含多条待发记录的消息批次夹具，并与单条 retry 分开登记，避免一条失败连坐另一条"
-  },
-  "POST /system/notice/markRead": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:46:58 .. 06:03:23 UTC，样例 POST /system/notice/markRead?noticeId=342）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /system/oauth/client": {
     "kind": "other-suite",
@@ -339,17 +271,9 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:59:10 .. 06:15:48 UTC，样例 POST /system/pat/5717b979318a43c2956dd33767c96723/rotate-ak）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /system/rateLimit": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 6 行留痕（01:10:25 .. 05:45:20 UTC，样例 POST /system/rateLimit）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
   "POST /system/rateLimit/export": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 1 行留痕（01:22:33 .. 01:22:33 UTC，样例 POST /system/rateLimit/export）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /system/tenant": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 20 行留痕（00:58:08 .. 06:15:12 UTC，样例 POST /system/tenant）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /system/tenant/domain": {
     "kind": "other-suite",
@@ -359,17 +283,9 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:58:12 .. 06:14:51 UTC，样例 POST /system/tenant/domain/verify/412）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /system/tenant/menu": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（03:32:17 .. 03:32:45 UTC，样例 POST /system/tenant/menu）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
   "POST /system/uploadConfig/switchBackend": {
     "kind": "by-design",
     "why": "切换全局存储后端，改错即影响之后所有文件读写（含并行用例），共享 dev 库上不可逆"
-  },
-  "POST /system/uploadConfig/test": {
-    "kind": "todo",
-    "why": "测试上传配置连通性；可指向不存在的 endpoint 走失败分支，判据是\"不得谎报成功\"（与 M88 webhook test 同构）"
   },
   "POST /system/user/importData": {
     "kind": "needs-fixture",
@@ -399,17 +315,9 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:59:08 .. 06:15:49 UTC，样例 POST /system/webhook/733/test-send）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "POST /tool/gen/createTable": {
-    "kind": "todo",
-    "why": "会**真建表**，必须用 e2e 前缀表名并在模块内 DROP；建表 SQL 面板在 gen 页可触达"
-  },
   "POST /tool/gen/importTable": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:57:22 .. 06:14:00 UTC，样例 POST /tool/gen/importTable?tables=sys_notice&tplWebType=element-plus-typescript）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "POST /tool/gen/synchDb/{tableName}": {
-    "kind": "todo",
-    "why": "同步库表结构，需先有一张 e2e 前缀表（与 createTable 同批做，顺序敏感）"
   },
   "POST /tool/report-board": {
     "kind": "other-suite",
@@ -422,10 +330,6 @@
   "PUT /monitor/alert/changeEnabled": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:58:58 .. 06:15:36 UTC，样例 PUT /monitor/alert/changeEnabled）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "PUT /monitor/job/changeStatus": {
-    "kind": "todo",
-    "why": "M88 补了 job 的 POST/PUT/DELETE，漏了这条启停；启停是纯状态位、可逆且能读回，属明确欠账"
   },
   "PUT /monitor/job/run": {
     "kind": "other-suite",
@@ -451,10 +355,6 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:47:13 .. 06:03:39 UTC，样例 PUT /system/menu）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
-  "PUT /system/menu/updateSort": {
-    "kind": "todo",
-    "why": "菜单拖拽排序写接口，M87 已测展开/收起，排序可照部门 updateSort 的\"改前采集→写→读回\"形状补"
-  },
   "PUT /system/msg/channel": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 8 行留痕（00:59:54 .. 06:18:51 UTC，样例 PUT /system/msg/channel）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
@@ -470,10 +370,6 @@
   "PUT /system/oauth/client/{id}/status": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:51:50 .. 06:08:30 UTC，样例 PUT /system/oauth/client/363/status?enabled=1）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "PUT /system/rateLimit": {
-    "kind": "other-suite",
-    "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 10 行留痕（03:32:16 .. 05:45:20 UTC，样例 PUT /system/rateLimit）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "PUT /system/role/authUser/cancel": {
     "kind": "other-suite",
@@ -498,10 +394,6 @@
   "PUT /system/tenant/domain/primary": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:58:12 .. 06:14:50 UTC，样例 PUT /system/tenant/domain/primary）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "PUT /system/tenant/menu": {
-    "kind": "todo",
-    "why": "需要\"未挂载候选菜单\"的枚举面才能写成自包含闭环：运行库 nav.l3 处于放开态，实测重复挂载返回 400（不是关闭态 403），所以判据不得耦合库内历史 ⇒ §10 N-19①"
   },
   "PUT /system/tenant/package/features": {
     "kind": "by-design",
@@ -538,9 +430,5 @@
   "PUT /system/webhook/event/{id}/enabled": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 10 行留痕（00:59:11 .. 06:15:49 UTC，样例 PUT /system/webhook/event/1/enabled）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
-  },
-  "PUT /tool/gen": {
-    "kind": "todo",
-    "why": "代码生成保存编辑；M32/M59 只做了预览/生成，写侧欠账"
   }
 }

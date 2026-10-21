@@ -36,12 +36,71 @@ export function readWindow(dataset, fileLabel = '(内存对象)') {
   return { since: dataset.windowStart, until: dataset.windowEnd }
 }
 
-/** 数据集必须是**全量轮**产物：分段轮是子集，拿它判"没变化"等于把"没跑"读成"没问题"。 */
+/**
+ * 窗口末端必须带**不小于库的精度**（b82 实测的判据自伤）。
+ *
+ * `sys_oper_log.oper_time` 落库带小数秒（实测 `2026-10-21 05:12:01.454591800`），
+ * 而 SQL 里 `oper_time <= ?` 是**字符串比较**：窗口末端若被截到整秒，
+ * `'...05:12:01.4545' <= '...05:12:01'` 恒假 ⇒ 落在最后一秒内的行全被排除。
+ * 结局不是报错而是**静默少判**：本轮最后一个模块（M90）的写入正好落在那一秒，
+ * 同一轮里它 29✅，`endpoint-coverage` 却把它打的 5 个端点判成"未触达"。
+ * 所以凡是"用数据集窗口去查带小数秒的列"的消费方，都必须先证精度够——
+ * 不够就响亮拒绝，而不是替它把窗口放宽 1 秒（放宽会把别的东西一起放进来）。
+ */
+export function assertWindowPrecision(dataset, fileLabel = '(内存对象)') {
+  for (const key of ['windowStart', 'windowEnd']) {
+    const v = dataset[key]
+    if (typeof v !== 'string' || !v) continue // 缺字段由 readWindow 负责，那里已响亮失败
+    if (!/\.\d+/.test(v)) {
+      throw new Error(
+        `数据集的 ${key}=${JSON.stringify(v)} 只到整秒，而被查列（如 sys_oper_log.oper_time）带小数秒——` +
+          `字符串比较会把落在最后一秒内的行全部排除，覆盖面会被静默少判（b82 实测：M90 的写入正好在 ` +
+          `${fileLabel} 那一秒）。请用带毫秒的 runner 重跑一轮全量；` +
+          `不得靠"把窗口放宽一秒"消化，那会把不属于本轮的行一起放进来。`
+      )
+    }
+  }
+}
+/**
+ * 数据集必须是**跑完的全量轮**产物。三道判据，缺一不可：
+ * ① `full === true`——分段轮（`--range=` / `--feature=`）的键集合是子集，拿它判"没变化"
+ *    等于把"没跑"读成"没变差"（RUN-RECIPE §3.63）；
+ * ② **计划数 = 入场数**——b82 实测：全量轮跑到 M38 浏览器崩溃，runner 里的 `break` 一旦生效，
+ *    后面的模块连 `moduleStats` 都不会有；只判 ③ 会漏掉这一支，所以两个计数必须相等。
+ * ③ **每个入场模块都产出了判定行**——同一轮里"进了模块但一条判定都没有"= 空跑。
+ *    `full` 证明的是"不是分段轮"，不证明"跑完了"；后两者必须由执行计数自证。
+ * 旧格式（没有这些字段）一律拒绝：宁要一声"重跑"，不要一个静默偏低的面。
+ */
 export function assertFullRun(dataset, fileLabel) {
   if (dataset.full !== true) {
     throw new Error(
       `数据集未标记 full（实际 ${JSON.stringify(dataset.full)}，${fileLabel}）——分段跑的键集合是子集，` +
         `用它判覆盖/风暴会把"没跑"读成"没变差"（RUN-RECIPE §3.63）`
     )
+  }
+  const planned = dataset.modulesPlanned
+  const attempted = dataset.modulesAttempted
+  const empty = dataset.modulesWithZeroVerdicts
+  if (!Number.isInteger(planned) || planned <= 0 || !Number.isInteger(attempted) || !Array.isArray(empty)) {
+    throw new Error(
+      `数据集没有执行完整性字段（modulesPlanned / modulesAttempted / modulesWithZeroVerdicts，${fileLabel}）——` +
+        `旧格式无法证明"每个模块都真的跑了"，拒绝作为数据源。请用当前 runner 重跑一轮全量。`
+    )
+  }
+  if (attempted !== planned) {
+    throw new Error(
+      `本轮提前终止：计划 ${planned} 个模块、实际入场 ${attempted} 个（${fileLabel}）——` +
+        `剩下的模块从未执行，据此判覆盖等于把"没跑"读成"没变差"。请先修执行环境（内存/并行编译/浏览器失联）再重跑全量。`
+    )
+  }
+  if (empty.length > 0) {
+    throw new Error(
+      `本轮有 ${empty.length}/${planned} 个模块产出 0 条判定（模块号：${empty.slice(0, 12).join(',')}${empty.length > 12 ? ' …' : ''}，${fileLabel}）` +
+        `——这是**崩溃/浏览器失联**的全量轮，覆盖面只是前若干个模块；` +
+        `不得据此判覆盖或重生成基线，请先修执行环境再重跑全量。`
+    )
+  }
+  if (Array.isArray(dataset.rows) && dataset.totalVerdictRows === 0) {
+    throw new Error(`本轮判定行总数为 0（${fileLabel}）——采集器或执行环境已坏，结论不作数`)
   }
 }

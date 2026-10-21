@@ -3114,3 +3114,198 @@ STEPBY_OPER_SINCE='2026-10-20 19:48:00' node tests/e2e/oper-log-audit.mjs --gate
 - b81 终值：窗口 770 条操作 / 失败 140 条 / 已登记 140 / 未登记 0。
   **这条判据抓到过用例自身的缺陷**：F143 限流压测只送 `code` 不送 `secret`，20 条 422
   被 garde 拦在业务层之外，而 HTTP/断言全绿；修复见台账 §11.5。
+
+### 3.72 写端点触达对账：基线必须与数据集**同断面**（b82 新增闸）
+
+b81 把 `endpoint-coverage` 从单源改成两源（`reqstats` ∪ `sys_oper_log`），并加了
+`assertComparableBaseline` 钉"源集合 / 有没有窗口"。它**没钉窗口相等**，于是：
+
+```text
+基线 window = 2026-10-20 04:59:30 .. 05:45:20   ← b80 期生成
+数据集 window = 2026-10-20 18:44:36 .. 19:36:34  ← b81 r2 全量轮
+```
+
+`--gate` 照样绿，而它报出来的"18 条 `kind=todo` 欠账"里有 **17 条在那 8 小时里已被真打过**
+（回库逐条核对 `sys_oper_log`：`PUT /monitor/job/changeStatus`、`PUT /system/menu/updateSort`、
+`DELETE /monitor/online/{h}`、`msg/log/{markPending,retry,retryPending}`、
+`tool/gen/{createTable,synchDb}`、`PUT /tool/gen`、`uploadConfig/test`、两个 export 等）。
+
+跑法（顺序即判据，不能跳）：
+
+```bash
+# 1) 全量单轮 deep-e2e（分段轮只写 .incremental，主数据集不更新 ⇒ 没有新断面）
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 STEPBY_BASE_URL=http://localhost:8080 \
+  node tests/e2e/deep-e2e.mjs > tests/e2e/_deep_full.log 2>&1
+# 2) 同批重生成基线（先比后写；有新增未触达就拒绝落盘）
+node tests/e2e/endpoint-coverage.mjs --operlog --update-baseline
+# 3) 退役"本轮已打过"的登记（只在同断面 + 全部已签名时允许）
+node tests/e2e/endpoint-coverage.mjs --operlog --retire-stale
+# 4) 判据
+node tests/e2e/endpoint-coverage.mjs --gate --operlog
+```
+
+- 新闸的行为：`--gate` 且窗口取自数据集自证字段时，基线窗口必须**逐字符等于**本轮窗口，
+  否则 `[FATAL] … EXIT=2`；显式 `--since/--until` 视为历史对账，本闸不介入。
+- `--retire-stale` 需要 `--operlog` + 可比对基线 + 数据集自证窗口 + 未触达集合全部已签名，
+  四个条件缺一个就 `EXIT=2`/`EXIT=1`，**不改文件**。它只删"未触达集合里已经没有的键"。
+- 自检：`node tests/e2e/endpoint-coverage.mjs --selftest` ⇒ 48 条双向（新增 ㉒ 新鲜度 4 条、
+  ㉓ 退役 4 条，其中"未触达条目的理由一个都不许删"是反向控制组）。
+
+### 3.73 动作清单：无点击证据要分"点不动"与"没点"（b82 口径）
+
+`clicked` 是"文案 ±3 行内有真实交互"的**下界**。未命中的原因有两种，混在一个数字里就会
+出现"68 条待补"这种无法结清的队列——b82 实测其中 **27 条是首页态被禁用的分页按钮**，
+用例怎么写都点不到它。
+
+- 拆分判据用 DOM 事实：`disabled && btn.closest('.el-pagination')` ⇒ `stateLocked`；
+  其余无证据项 ⇒ `backlog`（补测队列）。**不用文案黑名单**（改名/换组件即失效）。
+- `clicked` 优先于 `stateLocked`：点过一次就不回落。
+- `dedupe` 合并同名按钮时 `pag` 取"与"、`disabled` 取"与"——只要有一个实例不在分页容器里，
+  这个动作名就不算结构性点不动。
+- 两个口径同时打印（原始 `interactionCoverage` 与 `…Clickable`），基线键不变，
+  所以分母缩小是**看得见**的，不是随手放宽。
+- `stateLocked` 在报告里单独成节并逐条列名："从分母剔除"不等于"从报告消失"。
+- 自检：`node tests/e2e/action-inventory.mjs --selftest` ⇒ 12 + 12 + 5 + 6 条双向，
+  第 6 条是拆分守恒正控（三类之和 === 输入条数）。
+
+### 3.74 断言质量扫描的目标面（b82 扩面）
+
+`scripts/e2e_assertion_scan.py` 的目标集合改为"5 个入口 + `tests/e2e/modules/*.mjs` 全量"，
+并在开头打印 `扫描面：N 个文件`（文件数由脚本自己给，文档不抄）。模块目录缺失 ⇒ `[FATAL]` 退出，
+不是"扫到 0 处 ✅"。b82 扩面当天抓回的两条都在 `deep-e2e.mjs` / `modules/writeEndpointBreadth.mjs`
+里（字面 `true` 与 `baseCount >= 0 && after === before` 的"两边都读失败也算通过"）。
+
+### 3.75 全量轮"跑完了"必须由执行计数自证，不由 `full` 旗标自证（b82 新增）
+
+**现场**：第一轮全量（窗口 UTC `2026-10-21 02:57:26 .. 03:25:01`）跑到 M38 时 Chromium 整个没了，
+M39–M90 每模块只吃一条 `browser.newContext: Target page, context or browser has been closed`，
+汇总照样打"模块: 90"、`deep-e2e-reqstats.json` 照样写 `full: true`。
+这一轮如果拿去 `--update-baseline`，会把 52 个模块覆盖的端点全记成"未触达"、把风暴基线缩到前 38 个模块。
+
+**四个判据位置与读法**：
+
+1. `runner.mjs` 每模块统计 `verdicts = results.length - before`（PASS+FAIL+SKIP 都算，
+   `results` 是唯一事实源），数据集落 `modulesPlanned` / `modulesAttempted` /
+   `modulesWithZeroVerdicts` / `totalVerdictRows` 四个自证字段；
+   **`break` 掉的那几个模块连 `moduleStats` 都没有**，所以"零判定列表"必须并入"从未入场"的编号——
+   这正是 `modulesAttempted ≠ modulesPlanned` 这道闸存在的理由（只判零判定列表会漏）。
+2. `dataset-window.mjs::assertFullRun`（`endpoint-coverage` 与 `request-storm` 共用）三道闸：
+   缺字段拒 / 计数不等拒 / 有零判定模块拒。旧格式一律拒，宁要一声"重跑"。
+3. 汇总退出码取 `max(record 计数器, 判定行里 passed===false 的条数)`：
+   模块异常是**直接 push 行**的，旧写法只看计数器 ⇒ 52 个模块抛异常也能 EXIT=0。
+4. SKIP 棘轮：提前终止的一轮**既不比对也不许 `--update-skip-baseline`**（崩轮 SKIP 32 < 基线 34，
+   那是"没跑"，`skipRatchet()` 对"比基线小"给 `writeAllowed=true`，而退出码拦不住已经写出去的文件
+   ——所以这一支必须在写入之前 `return 2`）。
+
+**失联自愈**（同一处 `runner.mjs`）：命中 `BROWSER_DEAD_RE` 或 `!browser.isConnected()` ⇒
+重启 Chromium（预算 2 次）并**重试同一个模块**；预算用尽或重启失败 ⇒ 立刻 `🛑` 终止，
+不再把剩下几十个模块空跑一遍。日志行里会带 `os.freemem()`，因为这类失联的常见成因是内存压力
+（并行 `cargo` / 另一套浏览器套件同时在跑）。重试前 `hubs.length = hubMark`——失联那半截采集
+留在 `hubs` 里会给请求密度数据集混入僵尸行。
+
+**上下文的关闭改在 `finally`**：旧写法只在成功路径 `ctx.close()`，模块一抛错就把上下文留在
+同一个 Chromium 里（90 个模块跑下来是实打实的句柄泄漏）。同批还修了重试循环必须给普通模块异常
+`break`——`for (;;)` 没有终止条件时，同一个坏模块会无限重跑。
+
+**跑法不变**：全量单轮（不带 `--range/--feature/--except`）才允许收紧基线；
+判据是 `❌ 0` + `EXIT=0` + 汇总行没有 `🛑 / 🔌 / 提前终止`。看到这三行之一，本轮数字**全部作废**，
+先修执行环境（内存、并行编译、产物）再重跑，不得"取其中一段"。
+
+### 3.76 跑任何浏览器级验证之前：前端产物也必须证"是本仓当前源码构建的"（b82 新增）
+
+本表① 那条（核对 :8080 监听进程的镜像路径）只管到了后端。b82 实测缺的另一条腿：
+`:8080` 内嵌服务的是 `stepby-axum/frontend-dist/`，实测它停在 06:37 的构建，
+而 `src/views/monitor/job/index.vue`、`src/views/system/user/index.vue` 属 **07:27** 的提交
+⇒ 一整套 UI 判据加载的是改动**之前**的包，而脚本毫无提示。
+
+顺序固定（§1/§2 原样）：
+
+```bash
+cd stepby-vue
+NODE_OPTIONS="" npm run build:embedded            # base='' 同源，产物落 dist/
+cp -r dist/. ../stepby-axum/frontend-dist/        # :8080 的 ServeDir 读这里，改完不必重启
+NODE_OPTIONS="" npm run build:prod                # dist/ 恢复成 :4173 preview 用的那份
+node tests/e2e/build-freshness.mjs                # 两道闸：新鲜度 + 服务即产物
+```
+
+`build-freshness.mjs` 的输出形态：
+
+- ✅ `产物新鲜且服务即产物：<目录>（入口 /static/js/index-*.js / N 字节）` ⇒ 可以起浏览器；
+- ❌ `[FATAL] 产物陈旧：… 早于 N 个应用源码文件——首推 <文件>（比产物新 X 分钟）` + EXIT=2 ⇒ 重建；
+- ❌ `[FATAL] … 服务端 M 字节，磁盘 N 字节 …` + EXIT=2 ⇒ 服务的是另一份产物/另一棵树。
+
+同一条预检已经接在 `deep-e2e.mjs` / `main.mjs` / `a11y-full.mjs` / `action-inventory.mjs` 的启动路径上，
+所以**忘了手动跑也会被拦下**。`--plan`、`--selftest` 这类不启浏览器的路径不受影响。
+判据自检：`node tests/e2e/build-freshness.mjs --selftest`（8 组双向，`run-gates.py` 的 `freshsynth`、
+`ci.yml` 的 `doc-gates` 都接了）。排除项与理由：`*.test.ts` 与 `src/types/api/generated/**` 都不进包，
+把它们计入会让每次 `vitest` 都被迫重构建——判据就变成噪声。
+
+### 3.77 不可分段的全量轮：脱离进程树启动，通知的退出码不是结论（b82 新增）
+
+b82 连吃两次同类打断。第一轮是 Chromium 在 M38 没了（node 还活着，跑完了并落了汇总）；
+第二轮是 **node 进程整个消失**在 M24 的登录行之后，取证四条方向一致：
+
+| 观测                                                                               | 排除/指向                                       |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------- |
+| 日志里既无 JS 栈也无 `FATAL ERROR: Reached heap limit`（stdout/stderr 同一份文件） | 不是套件内异常，不是 Node 堆 OOM                |
+| Windows 应用日志近 30 分钟无 node.exe / chrome.exe 的 WER 事件                     | 不是进程自身崩溃                                |
+| 进程表里 node 与 chrome **都不在**                                                 | 整棵进程树没了                                  |
+| 外层 shell 记 `DEEP_FULL2_EXIT=127`                                                | 既不是 0 也不是崩溃码 ⇒ 外部 `TerminateProcess` |
+
+期间后台任务通知**两次提前**报 `completed (exit code 0)`——那是命令末尾 `echo` 的退出码，
+不是套件的。⇒ 结论：**不能假设"通知=进程还活着"，也不能假设"后台任务能活到跑完"**。
+
+跑法（`--log` 目标必须不存在；`--` 必须有）：
+
+```bash
+cd stepby-vue
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 \
+  node tests/e2e/run-detached.mjs --log=tests/e2e/_deep_full3.log -- node tests/e2e/deep-e2e.mjs
+# 立刻返回：DETACHED pid=15256 log=… pidfile=….pid
+node tests/e2e/run-detached.mjs --wait=tests/e2e/_deep_full3.log.pid --timeout=540
+```
+
+`--wait` 每 10s 只探一次 `process.kill(pid, 0)`（**不刷日志**）；退出码 0 = 进程没了（去读日志），
+1 = 等满还在跑（可再来一轮），2 = PID 文件坏了（不得读成"跑完了"）。
+读结论时看三样：汇总行 `✅/❌/SKIP`、`EXIT`，以及有没有 `🛑 / 🔌 / 提前终止` 三行
+（见 §3.75）。看到其中任何一行，本轮数字全部作废。
+
+为什么非要脱离而不是分段：`--update-skip-baseline`、`request-storm --update-baseline`、
+`endpoint-coverage --update-baseline` 都只允许在**全量单轮**上用（分段是子集，写进去等于放松基线），
+而全量单轮实测 45–55 分钟，超过前台调用的 10 分钟硬上限。
+
+### 3.78 脱离启动器的采集面本身要判据；变异必须改在真正被执行的那份文件上（b82 新增）
+
+§3.77 那个启动器自己藏了一个缺陷，代价是一整轮六段套件的退出码无法归因：
+`supervise()` 原先把 `fs.openSync(logPath,'a')` 的**文件句柄**直接当子进程 stdio。MSYS 的 `sh` 写这种
+由非 cygwin 进程创建的句柄**不报错也写不进去**，而 `echo` 是内建命令，写失败直接变成它自己的退出码：
+
+```text
+spawn('sh',['-c','echo A; echo B'], {stdio:['ignore', fd, fd]})        ⇒ 退出码 1、正文 ""
+spawn('sh',['-c','echo A; echo B'], {stdio:['ignore','pipe','pipe']})  ⇒ 退出码 0、正文 "A\nB\n"
+```
+
+node 子进程是原生 Win32 程序，写句柄没问题 ⇒ 症状是**分裂的**：套件输出的 1263 条断言一条不少，
+包装层自己打的 `=== SEG … EXIT=0 ===` 凭证一条不落，`.exit` 还因为载荷最后一条 `echo` 写失败而记成 1。
+`❌ 0` 与 `EXIT=0` 是两条独立证据，第二条当场失效。
+
+跑法上的三条纪律：
+
+1. **包装层必须走 pipe**（已修，由 `run-detached.mjs --selftest` 12 条双向钉住，接在
+   `run-gates.py` 的 `rdsynth` 与 `ci.yml` 的 `doc-gates`）。自检在 `sh` 不在场时**拒绝运行**（EXIT=2），
+   不得跳过那两组再报 SYNTH_OK。
+2. **载荷里不要用 `| tail`**。`node x.mjs | tail -4; echo "EXIT=$?"` 取到的是 `tail` 的码——
+   b82 实测 cargo doc 真的失败（101），而凭证行写的是 `CARGO_DOC EXIT=0`。要看结尾就直接读日志。
+3. **`sh` 的退出码等于最后一条命令**：驱动器把逐段凭证打成 `echo "=== SEG $s EXIT=$? ==="`
+   才有归因依据；`.exit` 本身只说明"这条链跑完了"，不代表每一段都 0。
+
+**变异证伪的方法论**（本批两次自曝）：起初用 `cp run-detached.mjs _rd_mut.mjs` 改副本跑自检，
+结果**四组变异全绿**，差点写下"自检抓不住"。真因是 `start()` 里固定
+`spawn(process.execPath, [path.join(HERE,'run-detached.mjs'), '--supervise', …])`——
+**副本的 `start()` 委托回原件**，变异的那份代码根本没被执行。凡是自带"spawn 自己"入口的脚本
+（本仓的判据脚本多是这种形状），变异必须改在**被真正执行的那份文件**上，改完 `diff -q` 确认还原；
+并且加一条 `MUT_APPLIED` 式的断言证明改动确实落到了那一版里——第二次变异就因 sed 分隔符写错而
+`APPLIED=false`，报出来的三条红其实是另外两组变异的叠加，差点被记成"fd 形态复现成功"。
+
+另：`--update-skip-baseline-from=<日志>` 这类**不启浏览器的入口一律要免凭据**（b82 实测它被
+`test-config.mjs` 的 import 期 fail-fast 挡住）。免凭据的判据是"是否需要浏览器"，不按旗标名枚举。

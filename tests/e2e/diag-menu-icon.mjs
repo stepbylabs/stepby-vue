@@ -21,7 +21,7 @@ await page.waitForTimeout(4500)
 const titles = page.locator('.sidebar-container .el-sub-menu__title')
 const n = await titles.count()
 for (let i = 0; i < n; i++) {
-  await titles.nth(i).click({ force: true }).catch(() => {})
+  await titles.nth(i).click().catch(() => {})
   await page.waitForTimeout(200)
 }
 await page.waitForTimeout(600)

@@ -76,12 +76,12 @@ export const RESIDUE_STEPS = [
   // b78 修正：判据原为 'e2e75-%'，而 deep-e2e M75 实际生成的是 **'e2e75b-doc-…'**，
   // 前缀不匹配 ⇒ 每轮残留 1 单 + 3 任务从未被清（回库实测 5 单 / 15 任务）。
   // 改为 'e2e75%' 同时覆盖 e2e75- 与 e2e75b- 两种命名。
-  ['f75_log', "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75%')"],
-  [
-    'f75_task',
-    "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e75%')"
-  ],
-  ['f75_doc', "DELETE FROM flow_demo_doc WHERE title LIKE 'e2e75%'"],
+  // b82 再放宽到 'e2e%'：同一失效形状第三次出现——M90 的重提交夹具命名 'e2e90-flow-*'，
+  // 按批次号写死前缀的谓词每加一批就得跟一次，漏一次就是"每轮 +1 且无人报"。
+  // 与 flow_graph_doc 的 'e2e%' 同口径（该表从 b74 起就按族清，没再出过问题）。
+  ['f75_log', "DELETE FROM sys_flow_log WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e%')"],
+  ['f75_task', "DELETE FROM sys_flow_task WHERE biz_id IN (SELECT doc_id FROM flow_demo_doc WHERE title LIKE 'e2e%')"],
+  ['f75_doc', "DELETE FROM flow_demo_doc WHERE title LIKE 'e2e%'"],
   // 批三十九：flow_definition 软删行物理清除（F89 it_graph_* / F133 designer 自动码 flow_<ts>
   // ——API 删除为软删 del_flag=1，list 已过滤但 DB 持续累积；r50 巡检 6 行）
   [

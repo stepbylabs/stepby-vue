@@ -60,7 +60,7 @@ try {
 console.log("=== 点击下载按钮（force 穿透蒙层）===");
 const btn = page.locator('.el-table__body-wrapper tbody tr').first().locator('button:has-text("下载")').first();
 console.log("btn_count=", await btn.count());
-await btn.click({ force: true, timeout: 10000 }).catch((e) => console.log("click_err=", String(e).slice(0, 150)));
+await btn.click({ timeout: 10000 }).catch((e) => console.log("click_err=", String(e).slice(0, 150)));
 await page.waitForTimeout(15000);
 // 若出现 MessageBox（安全提示等）则确认后再等 10s
 const mb = page.locator(".el-overlay-message-box .el-button--primary").first();
