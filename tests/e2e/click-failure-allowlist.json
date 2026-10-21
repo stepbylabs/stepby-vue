@@ -1,0 +1,14 @@
+{
+  "_readme": "点击落地失败允许表（判据：tests/e2e/click-failure-audit.mjs）。一行 = 一类形状：source/tag/method 必须精确，selectorRe 为锚定正则（选择器已由 capture-kit 的 normalizeClickSelector 归一：数字→N、e2e* 夹具名→FIXTURE、UUID→UUID，并截到 120 字符，所以长选择器只能锚前缀、不得写 $ 结尾）。kind ∈ by-design|needs-fixture|todo，why 必须逐条自足且 ≥12 字符，不得写“同上”。只有‘未被后续同键成功救回’的失败才要求登记；全部被救回的形状判据只打 ℹ。--retire-stale 会删掉本轮没再出现的条目。",
+  "entries": [
+    {
+      "source": "deep",
+      "tag": "M81",
+      "method": "click",
+      "selectorRe": "^\\.el-dialog:visible button:has-text\\(\"取 消\"\\), .*\\.el-dialog__head",
+      "messageRe": "element is not stable|element was detached from the DOM",
+      "kind": "by-design",
+      "why": "closeDialog 已探到可见对话框，但对话框在点击那一刻**正处于关闭动画**：两种凭证是同一件事的两个时刻——动画未停时 call log 写 `element is not stable`，动画走完节点被移除后写 `element was detached from the DOM`（b83 两轮各出现一种，故取并集而不是只钉一句）。同一函数紧接着轮询 `.el-dialog:visible` 计数并实测归零才返回 true，所以关闭动作的**结果**由判据自己证明，这条失败没有留下副作用。messageRe 是窄匹配：换成 `intercepts pointer events`（遮罩挡住、对话框还在）就**不匹配**，判据照样点名。"
+    }
+  ]
+}

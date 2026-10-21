@@ -36,7 +36,7 @@ for (let attempt = 1; attempt <= 3; attempt++) {
 }
 console.log("now_url=", page.url());
 try {
-  await page.waitForSelector(".el-table__body-wrapper tbody tr", { timeout: 90000 });
+  await page.locator(".el-table__body-wrapper tbody tr").waitFor({ timeout: 90000 });
 } catch {
   console.log("=== TABLE_WAIT_FAILED ===");
   console.log("url=", page.url());

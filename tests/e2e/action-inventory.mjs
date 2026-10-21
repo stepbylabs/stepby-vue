@@ -86,6 +86,27 @@ const COVERAGE_TOLERANCE = 0.01
  *
  * 返回**放松方向**的问题列表；空数组 = 本轮不比基线差（可以写、gate 该过）。
  */
+/**
+ * 两个"数量只许降"的棘轮栏（b83）。
+ *
+ * 为什么这两栏值得判（此前它们只被**打印**，采了不判=没采，同 b79 ⑨ 那条）：
+ * · `totalBacklog` 是**补测队列**——"扫到了、没有点击证据、并且结构上本可点"。它变多就是
+ *   "新增控件没配用例"或"原用例被删"，方向明确，不需要容差之外的解释。
+ * · `totalStateLocked` 是 `interactionCoverageClickable` 的**分母扣减项**。它会涨有两种成因：
+ *   ① 页面数据态变了（表格只剩一页 ⇒「上一页」全禁用），② 有人把"点得到的"改判成"点不动"
+ *   从而白赚一个更高的可点覆盖率。①是本判据的反面教材（与环境耦合），②是真退化。
+ *   两者都表现为"这一栏变大"，所以取**只许降 + 容差**：正常抖动落在容差内，
+ *   成规模的重分类一定出界。容差写在下面，改它必须同时改这里的注释。
+ */
+const COUNT_RATCHETS = [
+  { key: 'totalBacklog', label: '补测队列 backlog', tol: 2 },
+  { key: 'totalStateLocked', label: '扫描态点不动 stateLocked', tol: 2 }
+]
+/** 基线里缺这两栏 ⇒ 判据不可比（旧格式基线），不得默默跳过 */
+function baseMissingCountKeys(base) {
+  return COUNT_RATCHETS.filter((r) => typeof base?.[r.key] !== 'number').map((r) => r.key)
+}
+
 function ratchetRegressions(base, cur) {
   const bad = []
   // **取不到数一律算退步**：`base.coverage - undefined` 得 NaN，而 `NaN > tol` 恒 false ⇒
@@ -108,6 +129,19 @@ function ratchetRegressions(base, cur) {
         `（-${(drop * 100).toFixed(1)}pp，容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp）` +
         `——新增了页面动作却没补用例，或旧用例被删`
     )
+  }
+  for (const r of COUNT_RATCHETS) {
+    if (typeof cur[r.key] !== 'number') {
+      bad.push(`${r.label}（${r.key}）本轮取不到数（${String(cur[r.key])}）——判据断电，不得据此收紧`)
+      continue
+    }
+    if (typeof base[r.key] !== 'number') {
+      bad.push(`基线缺 ${r.key} 栏（旧格式）⇒ ${r.label}无法比对，须与新判据同批 --update-baseline 重生成基线`)
+      continue
+    }
+    if (cur[r.key] > base[r.key] + r.tol) {
+      bad.push(`${r.label} ${base[r.key]} → ${cur[r.key]}（只许降，容差 ${r.tol}）`)
+    }
   }
   return bad
 }
@@ -496,12 +530,72 @@ function runSelftest() {
   // 第三族：覆盖率棘轮的比较式。`--gate` 与 `--update-baseline` 共用 ratchetRegressions，
   // 所以这条自检同时钉住两件事：**放松方向必须报**（否则基线会被越写越松），
   // **容差内/进步方向不得报**（否则会把正常抖动判成红、逼人放宽）。
+  // b83 起这两条数量栏（backlog / stateLocked）也进同一个纯函数——两条收紧入口必须共用判据。
+  const R0 = { totalBacklog: 10, totalStateLocked: 6 }
+  const withR = (o) => ({ ...R0, ...o })
   const rCases = [
-    ['覆盖率下降 2pp 必须报退步', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 0.98 }, true],
-    ['覆盖率下降在 1pp 容差内不得报', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 0.995 }, false],
-    ['路由数减少必须报（哪怕覆盖率没变）', { routes: 56, coverage: 1.0 }, { routes: 55, coverage: 1.0 }, true],
-    ['覆盖率上升不得报', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: 1.0 }, false],
-    ['取不到数不得放行（判据断电＝退步）', { routes: 56, coverage: 1.0 }, { routes: 56, coverage: undefined }, true]
+    ['覆盖率下降 2pp 必须报退步', withR({ routes: 56, coverage: 1.0 }), withR({ routes: 56, coverage: 0.98 }), true],
+    [
+      '覆盖率下降在 1pp 容差内不得报',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: 0.995 }),
+      false
+    ],
+    [
+      '路由数减少必须报（哪怕覆盖率没变）',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 55, coverage: 1.0 }),
+      true
+    ],
+    ['覆盖率上升不得报', withR({ routes: 56, coverage: 1.0 }), withR({ routes: 56, coverage: 1.0 }), false],
+    [
+      '取不到数不得放行（判据断电＝退步）',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: undefined }),
+      true
+    ],
+    [
+      'backlog 增加 5 条必须报（新增控件没配用例）',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: 1.0, totalBacklog: 15 }),
+      true
+    ],
+    [
+      'backlog 增加在容差内不得报',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: 1.0, totalBacklog: 12 }),
+      false
+    ],
+    [
+      'backlog 减少（补测队列结清）不得报',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: 1.0, totalBacklog: 3 }),
+      false
+    ],
+    [
+      'stateLocked 增加 9 条必须报（分母被重分类缩掉）',
+      withR({ routes: 56, coverage: 1.0 }),
+      withR({ routes: 56, coverage: 1.0, totalStateLocked: 15 }),
+      true
+    ],
+    [
+      '本轮两栏取不到数不得放行（采集坏了不得读成没退步）',
+      withR({ routes: 56, coverage: 1.0 }),
+      { routes: 56, coverage: 1.0 },
+      true
+    ],
+    [
+      '旧格式基线缺栏必须报（由调用方映射成 EXIT=2 不可比，而不是默默跳过）',
+      { routes: 56, coverage: 1.0 },
+      withR({ routes: 56, coverage: 1.0 }),
+      true
+    ],
+    [
+      '缺栏消息必须点名是哪一栏（否则人只会去改阈值）',
+      { routes: 56, coverage: 1.0, totalStateLocked: 6 },
+      withR({ routes: 56, coverage: 1.0 }),
+      true
+    ]
   ]
   let rBad = 0
   for (const [desc, base, cur, want] of rCases) {
@@ -509,6 +603,20 @@ function runSelftest() {
     const ok = got === want
     if (!ok) rBad++
     console.log(`  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：期望报退步=${want}，实际 ${got}`)
+  }
+  // 缺栏那两条必须**只**出缺栏文案（口径闸与内容闸不能混报，b82 ⑨）
+  const shapeOnly = ratchetRegressions({ routes: 56, coverage: 1.0 }, withR({ routes: 56, coverage: 1.0 }))
+  if (shapeOnly.length !== 2 || !shapeOnly.every((m) => m.includes('基线缺'))) {
+    rBad++
+    console.log(`  ✘ [MISMATCH] 旧格式基线只应报缺栏两条，实际 ${JSON.stringify(shapeOnly)}`)
+  } else {
+    console.log('  ✅ [OK] 旧格式基线只报缺栏两条（口径与内容不混报）')
+  }
+  if (baseMissingCountKeys(withR({})).length !== 0) {
+    rBad++
+    console.log('  ✘ [MISMATCH] 齐全基线被判成缺栏（辅助函数与判据不同源）')
+  } else {
+    console.log('  ✅ [OK] 齐全基线不缺栏（正控：闸不得一律拒）')
   }
   if (rBad) {
     console.error(`❌ 棘轮比较式自检失败 ${rBad}/${rCases.length} 条——收紧入口不可信，禁用 --update-baseline`)
@@ -866,15 +974,32 @@ function main() {
     // ===== 覆盖率棘轮 =====
     // 单路由扫描不参与棘轮（分母不是全站，比较没有意义）
     if (onlyRoute) return
-    const cur = { routes: report.routes, coverage: report.coverage }
+    const cur = {
+      routes: report.routes,
+      coverage: report.coverage,
+      totalBacklog: report.totalBacklog,
+      totalStateLocked: report.totalStateLocked
+    }
     const base = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) : null
     if (UPDATE_BASELINE) {
       // 先比后写：放松方向一律拒绝，基线文件保持原样
       if (base) {
         const bad = ratchetRegressions(base, cur)
-        if (bad.length) {
+        // 唯一允许"带病落盘"的一种：现存基线是**旧格式**（没有这两栏），此时任何一条
+        // 比都判不了。这种情形下必须让新判据把栏位写进去，否则这个闸永远等不到可比断面
+        // （b82 ⑩：基线必须与产生它的那一轮同批重生成）。判据是"坏消息全部属于缺栏"，
+        // 真退步混杂其中时照样拒绝。
+        const onlyShape =
+          bad.length > 0 && baseMissingCountKeys(base).length > 0 && bad.every((m) => m.includes('基线缺'))
+        if (bad.length && !onlyShape) {
           console.error(`❌ 拒绝放松棘轮：--update-baseline 只收紧不放宽，基线**未改动**\n  · ${bad.join('\n  · ')}`)
           process.exit(1)
+        }
+        if (onlyShape) {
+          console.warn(
+            `⚠️ 旧格式基线（缺 ${baseMissingCountKeys(base).join('/')}）⇒ 本次按**口径迁移**落盘，` +
+              `其余比对结果：${bad.filter((m) => !m.includes('基线缺')).join('；') || '无其他差异'}`
+          )
         }
       }
       fs.writeFileSync(
@@ -886,6 +1011,12 @@ function main() {
             totalActions,
             totalCovered,
             totalClicked,
+            // b83：两栏数量棘轮进基线（此前只打印不比对）。二者都必须"只许降"，
+            // 容差写死在 `COUNT_RATCHETS` 里，改容差必须同时改那条注释的成因说明。
+            totalBacklog,
+            totalStateLocked,
+            clickableActions,
+            interactionCoverageClickable: report.interactionCoverageClickable,
             coverage: report.coverage,
             interactionCoverage: report.interactionCoverage,
             // **逐页明细**（b79，N-10 的前置）：基线此前只存聚合数，于是"分母从 405 变成 404"
@@ -895,7 +1026,7 @@ function main() {
             perRoute: Object.fromEntries(
               pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
             ),
-            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少；clicked 仅记录趋势'
+            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；旧格式基线缺这两栏 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成'
           },
           null,
           2
@@ -909,6 +1040,17 @@ function main() {
       console.error(`❌ 覆盖率棘轮基线缺失：${BASELINE_PATH}（用 --update-baseline 生成）`)
       process.exit(1)
     }
+    // **口径闸排在内容闸之前**（b82 ⑨）：旧格式基线没有这两栏，"比对不了"与"比对后退步"
+    // 是两件事——写反了会把"缺栏"报成一条退步，人就会去改阈值而不是重生成基线。
+    // 缺栏 ⇒ EXIT=2（UNRUN，不作结论），而不是 EXIT=1（那会说成"本轮变差了"）。
+    const missingCols = baseMissingCountKeys(base)
+    if (missingCols.length) {
+      console.error(
+        `EXIT=2 基线缺 ${missingCols.join('/')} 栏 ⇒ 这两条棘轮无法比对（不是退步，是判据不可用）。` +
+          `收口时与新判据同批跑 --update-baseline。`
+      )
+      process.exit(2)
+    }
     const bad = ratchetRegressions(base, cur)
     if (bad.length) {
       console.error(`❌ 覆盖率棘轮回退：\n  · ${bad.join('\n  · ')}`)
@@ -916,7 +1058,9 @@ function main() {
     }
     log(
       `✅ 覆盖率棘轮通过：${(report.coverage * 100).toFixed(1)}% ≥ 基线 ` +
-        `${(base.coverage * 100).toFixed(1)}%（容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp）`
+        `${(base.coverage * 100).toFixed(1)}%（容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp）` +
+        `；backlog ${base.totalBacklog} → ${totalBacklog}、stateLocked ${base.totalStateLocked} → ${totalStateLocked}` +
+        `（各自只许降，容差 ${COUNT_RATCHETS[0].tol}）`
     )
     // 逐页对账（信息项，不判红）：聚合数相等不代表同一份数据——一页少一个动作、另一页多一个
     // 动作，聚合完全不动。b79 的 N-10（405→404 无法归因）就是因为缺这一段。

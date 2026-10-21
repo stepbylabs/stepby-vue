@@ -86,7 +86,12 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
-import { createCaptureHub, summarizeBackendLogErrors } from './capture-kit.mjs'
+import {
+  createCaptureHub,
+  summarizeBackendLogErrors,
+  probeClickChannel,
+  writeClickFailureReport
+} from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
@@ -127,13 +132,20 @@ const CONFIG = {
   // 普通角色测试账号：stepby（种子用户，密码同 admin123）——项目改名后 stepby 已废，
   // 与后端 integration_tests（flow.rs 等以 "stepby" 登录）保持同源
   secondaryPassword: process.env.STEPBY_TEST_PASS_SECONDARY || 'admin123',
-  screenshotDir: path.resolve('screenshots'),
+  // ⚠️ 必须锚定脚本位置，不能用 `path.resolve('screenshots')`（cwd 相对）：
+  //    从 `stepby-vue/` 跑写进 `stepby-vue/screenshots/`，从 `tests/e2e/` 跑写进 `tests/e2e/screenshots/`，
+  //    而所有消费方（click-failure-audit / endpoint-coverage / request-storm）按脚本位置只读后者
+  //    ——同一份套件的两份断面分居两棵树，判据读到的是上一轮甚至没有的文件（AGENTS《测试门禁全景》②
+  //    那条"默认输入必须从脚本位置反推本仓根"的镜像面：产出侧同样必须锚定脚本位置）。
+  screenshotDir: path.resolve(__dirname, 'screenshots'),
   slowMo: 100,
   // headless 默认开启（无人值守安全默认，不弹有头窗口）；人工观察用 --headed
   headless: true,
   featureFilter: null, // null = 全部，Set<number> = 仅测试集合内功能（--feature=N 或 --feature=A-B,C）
-  shard: null, // null = 全量串行；{index,total} = --shard=N/M 分片（结果落盘 shard-N.json）
-  mergeOnly: false // --merge 合并各 shard JSON 输出总汇总（不起浏览器）
+  shard: null // null = 全量串行；{index,total} = --shard=N/M 分片（结果落盘 shard-N.json）
+  // 注：`--merge` 没有对应的 CONFIG 字段——它在 main() 顶部就地处理并 `process.exit`，
+  // 永远走不到下面的参数解析循环。原先这里有个 `mergeOnly: false` 被解析循环写、
+  // 却没有任何读点（旗标纪律扫描 `e2e_flag_discipline.py` 报出来的形状之一），已删。
 }
 
 // P2 修复: 删除顶部位置参数解析死代码（与 main() 内的 --headless/--feature= 解析重复）
@@ -636,8 +648,12 @@ async function skipTour(page) {
   }
   // B4 软提示「安全提示」（初始密码提醒 confirm）可能盖在任何页面上——
   // 点「取消」留在当前页继续测试（确定会跳转改密页破坏用例上下文）
+  // 必须同时给「取 消」：本仓 common.cancel 的字面值带空格（`src/i18n/locales/zh-CN/common.ts`），
+  // 而 :has-text 不吃中间空格 ⇒ 只写无空格形式=这个提醒从来没被点掉过，遮罩一直盖在页面上。
   const mbCancel = page
-    .locator('.el-overlay-message-box button:has-text("取消"), .el-message-box button:has-text("取消")')
+    .locator(
+      '.el-overlay-message-box button:has-text("取 消"), .el-overlay-message-box button:has-text("取消"), .el-message-box button:has-text("取 消"), .el-message-box button:has-text("取消")'
+    )
     .first()
   if (
     await mbCancel
@@ -862,10 +878,45 @@ async function testFeature3(page) {
     if ((await downloadBtn.count()) > 0) {
       // b81 N-8：不用 force；Tour 晚到遮罩由 skipTour 在点击前处理，失败即后续断言红。
       await downloadBtn.click({ timeout: 3000 }).catch(() => {})
-      // 下载属敏感操作，首启会弹「安全提示」MessageBox（强改密/会话确认链）——
-      // 确认后请求才放行；无弹窗时静默跳过（非首次下载无确认）
-      const mbConfirm = page.locator('.el-overlay-message-box .el-button--primary').first()
-      await mbConfirm.click({ timeout: 8000 }).catch(() => {})
+      // 「安全提示」MessageBox 只可能来自登录/刷新期的口令态提示（强改密 / 初始口令 / 口令过期，
+      // store/modules/user.ts:201-225）；下载链路本身没有确认步骤
+      // （views/system/backup/index.vue:334 handleDownload 直接 downloadBackup）。
+      // 旧写法把"首启会弹确认框"当成下载的前置条件，对 .el-button--primary 盲等 8s ⇒ 每轮必然超时，
+      // 并在点击失败台账里留下一条无法归因的 unrecovered（判据前置从未发生）。
+      // 改为按探测结果分支：真出现才点它并判"落地+关闭"，没出现就记下实测的"计数为 0"。
+      const mbShown = await page
+        .locator('.el-overlay-message-box')
+        .first()
+        .waitFor({ state: 'visible', timeout: 2000 })
+        .then(() => true)
+        .catch(() => false)
+      if (mbShown) {
+        const mbBtn = page
+          .locator(
+            '.el-overlay-message-box button:has-text("确 定"), .el-overlay-message-box button:has-text("确定"), .el-overlay-message-box .el-button--primary'
+          )
+          .first()
+        const mbClicked = await mbBtn
+          .click({ timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
+        const mbClosed = await page
+          .evaluate(() => document.querySelectorAll('.el-overlay-message-box').length === 0)
+          .catch(() => false)
+        record(
+          3,
+          '登录期安全提示框：确认点击落地且框已关闭',
+          mbClicked && mbClosed,
+          `点击落地=${mbClicked}, 关闭=${mbClosed}`
+        )
+      } else {
+        record(
+          3,
+          '下载链路无确认框（提示框仅来自登录期口令态）',
+          !mbShown,
+          '点击后 2s 内 .el-overlay-message-box 可见数=0'
+        )
+      }
       const [download, resp] = await Promise.all([downloadPromise, responsePromise])
       if (download) {
         record(3, '下载功能端到端验证', !!download?.suggestedFilename?.(), `文件: ${download.suggestedFilename()}`)
@@ -1007,11 +1058,14 @@ async function testFeature5(page) {
         record(5, '全选/清空按钮', false, '无法切换到自选字段')
       }
 
-      // 验证确认/取消按钮
+      // 验证确认/取消按钮（两种字面都给：本仓不同命名空间里 cancel 分别写成「取消」与「取 消」，
+      // :has-text 不吃中间空格 ⇒ 只写一种就会随命名空间漂移而静默失配）
       const confirmBtn = dialog
-        .locator('button:has-text("确定导出"), button:has-text("确定"), button:has-text("导出")')
+        .locator(
+          'button:has-text("确定导出"), button:has-text("确 定"), button:has-text("确定"), button:has-text("导出")'
+        )
         .first()
-      const cancelBtn = dialog.locator('button:has-text("取消")').first()
+      const cancelBtn = dialog.locator('button:has-text("取 消"), button:has-text("取消")').first()
       const hasConfirm = await confirmBtn
         .waitFor({ state: 'visible', timeout: 1000 })
         .then(() => true)
@@ -1813,7 +1867,10 @@ async function testFeature10(page) {
         .first()
       if ((await detailBtn.count().catch(() => 0)) === 0) continue
       await detailBtn.click({ timeout: 3000 }).catch(() => {})
-      await page.waitForSelector('.el-dialog', { state: 'visible', timeout: 4000 }).catch(() => {})
+      await page
+        .locator('.el-dialog')
+        .waitFor({ state: 'visible', timeout: 4000 })
+        .catch(() => {})
       await sleep(400)
       const dialogText = await page
         .locator('.el-dialog:visible')
@@ -2978,7 +3035,7 @@ async function testFeature18(page) {
 
     // 关闭对话框（尝试取消按钮，失败则按 ESC）
     await page
-      .locator('.el-dialog__footer button:has-text("取消")')
+      .locator('.el-dialog__footer button:has-text("取 消"), .el-dialog__footer button:has-text("取消")')
       .first()
       .click({ timeout: 3000 })
       .catch(() => {})
@@ -12541,6 +12598,47 @@ async function testFeature52(page) {
     await sleep(2200)
     return toastCounts()
   }
+  // 打开某个表单项的下拉、选第一项，并回查"选中值确实落到表单上"。
+  // ⚠️ 展开热区必须是 .el-select__wrapper：EP 2.x 里 .el-select__input 是**只读零宽** input，
+  //    点它卡在 "waiting for element to be visible"（b81 N-8 同族的第 6 处漏改）。
+  //    旧写法 `.locator('input').click().catch(()=>{})` 把失败吞掉 ⇒ 部门/角色从未选中，
+  //    而新增照样成功（这两项非必填），于是"静默无效"被记成通过——必须判回显，
+  //    因为只有回显能区分"点击返回成功但 model 没变"。
+  const pickFirstFromSelect = async (label, optionSelector) => {
+    const wrap = itemByLabel(label).locator('.el-select__wrapper').first()
+    const clicked = await wrap
+      .click({ timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    const dd = page.locator('.el-select-dropdown:visible').last()
+    const opened = await dd
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => true)
+      .catch(() => false)
+    let landed = false
+    let optText = ''
+    if (opened) {
+      const opt = dd.locator(optionSelector).first()
+      optText = (await opt.textContent().catch(() => '')) || ''
+      landed = await opt
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      await sleep(350)
+    }
+    const itemText = await itemByLabel(label)
+      .evaluate((el) => (el.textContent || '').replace(/\s+/g, ''))
+      .catch(() => '')
+    const needle = optText.replace(/\s+/g, '')
+    return {
+      clicked,
+      opened,
+      landed,
+      optText: needle,
+      itemText,
+      echoed: needle.length > 0 && itemText.includes(needle)
+    }
+  }
 
   // ---- (1) UI 新增 ----
   await page.locator('button:has-text("新增")').first().click()
@@ -12559,28 +12657,22 @@ async function testFeature52(page) {
     await itemByLabel('邮箱').locator('input').first().fill('e2e_ui@example.com')
     await itemByLabel('用户密码').locator('input').first().fill('Test@12345')
     // 归属部门：tree-select 选首节点；角色：多选下拉选首项（对齐 API 样板最小可用集）
-    await itemByLabel('归属部门')
-      .locator('input')
-      .first()
-      .click({ timeout: 3000 })
-      .catch(() => {})
-    await page
-      .locator('.el-select-dropdown:visible .el-tree-node__content')
-      .first()
-      .click({ timeout: 3000 })
-      .catch(() => {})
-    await sleep(300)
-    await itemByLabel('角色')
-      .locator('input')
-      .first()
-      .click({ timeout: 3000 })
-      .catch(() => {})
-    await page
-      .locator('.el-select-dropdown:visible .el-select-dropdown__item')
-      .first()
-      .click({ timeout: 3000 })
-      .catch(() => {})
-    await sleep(300)
+    const deptPick = await pickFirstFromSelect('归属部门', '.el-tree-node__content')
+    record(
+      52,
+      '归属部门下拉：点 wrapper 展开并选中首节点',
+      deptPick.clicked && deptPick.opened && deptPick.landed,
+      `展开=${deptPick.opened}, 点击落地=${deptPick.landed}, 选项="${deptPick.optText}"`
+    )
+    record(52, '归属部门选中值回显到表单', deptPick.echoed, `回显=${deptPick.echoed ? '含' : '不含'}首节点文本`)
+    const rolePick = await pickFirstFromSelect('角色', '.el-select-dropdown__item:not(.is-disabled)')
+    record(
+      52,
+      '角色下拉：点 wrapper 展开并选中首项',
+      rolePick.clicked && rolePick.opened && rolePick.landed,
+      `展开=${rolePick.opened}, 点击落地=${rolePick.landed}, 选项="${rolePick.optText}"`
+    )
+    record(52, '角色选中值回显到表单', rolePick.echoed, `回显=${rolePick.echoed ? '含' : '不含'}首项文本`)
     const t1 = await submitDialog()
     added = t1.ok === 1 && t1.err === 0 && t1.formErr === 0
     record(
@@ -18271,9 +18363,64 @@ async function ensureB4Clean() {
   }
 }
 
+/**
+ * 命令行参数解析（批八十三：从 main() 中段提到**第一件事**，并把三种"照常绿"改成 fail-closed）。
+ *
+ * 原本这条链是**并列的 if、没有兜底**，于是：① 未知旗标静默丢弃；② `--feature=abc` 解析出空集合
+ * 后回落 `null`＝"跑全部"；③ `--shard` 非法只打一句 WARN 继续。三者后果不同但同族：分段跑会变成
+ * 全量跑（点击数据集还会被标成 `full: true`，判据据此收下这份"全量"输入），分片跑会变成重复跑，
+ * 而输出与正常跑逐字节看不出差别。解析又排在 `ensureB4Clean()` **之后**，那一步会写库 ⇒
+ * 拼错旗标时代码已经先改过数据了。校验必须先于任何副作用，这是顺序判据不是风格问题。
+ */
+function parseCliArgs() {
+  for (const arg of process.argv.slice(2)) {
+    if (arg === '--headless') CONFIG.headless = true
+    else if (arg === '--headed')
+      CONFIG.headless = false // 显式有头（人工观察浏览器）
+    // --feature=N 单功能；--feature=1-20,51 集合（逗号分段+连字符区间），供前台分批跑长套件
+    else if (arg.startsWith('--feature=')) {
+      const spec = arg.split('=')[1]
+      const ids = new Set()
+      for (const part of String(spec || '').split(',')) {
+        const m = part.trim().match(/^(\d+)(?:-(\d+))?$/)
+        if (!m) continue
+        const a = parseInt(m[1], 10)
+        const b = m[2] ? parseInt(m[2], 10) : a
+        for (let i = a; i <= b; i++) ids.add(i)
+      }
+      if (ids.size === 0) {
+        log(`❌ --feature 参数解析不出任何功能编号：${arg}（支持 N 或 A-B,C 形式；空集合原本会静默回落成"跑全部"）`)
+        process.exit(2)
+      }
+      CONFIG.featureFilter = ids
+    }
+    // 批六十四质量工程：--shard=N/M 分片（N=1..M，按 id 哈希均匀分配）——每个 shard
+    // 独立进程跑并落盘 shard-N.json，--merge 合并各片汇总。⚠️ SQLite 单连接池档
+    // 多 shard 并行会加剧 503 风暴（fail-closed），建议顺序跑各片或 pg/mysql 档并行。
+    else if (arg.startsWith('--shard=')) {
+      const m = String(arg.split('=')[1] || '').match(/^(\d+)\/(\d+)$/)
+      if (!(m && parseInt(m[1], 10) >= 1 && parseInt(m[1], 10) <= parseInt(m[2], 10))) {
+        log(`❌ --shard 参数非法（需 N/M 且 1≤N≤M）：${arg}`)
+        process.exit(2)
+      }
+      CONFIG.shard = { index: parseInt(m[1], 10), total: parseInt(m[2], 10) }
+    } else if (arg === '--merge') {
+      // 合并分支在 main() 顶部就地处理并 `process.exit`（这里只负责"它是已知旗标"，
+      // 否则未知旗标兜底会把它判死——`CONFIG.mergeOnly` 那个死字段就是这条分支留下的）
+    } else {
+      log(
+        `❌ 未识别的旗标：${arg}\n` +
+          '   可用：--headless / --headed / --feature=N 或 A-B,C / --shard=N/M / --merge（合并各片）'
+      )
+      process.exit(2)
+    }
+  }
+}
+
 async function main() {
+  parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
-  // 不跑用例；分片跑法见 RUN-RECIPE §3.7（--shard=N/M 逐片跑 + --merge 合并）
+  // 不跑用例；分片跑法见 RUN-RECIPE §3.80（--shard=N/M 逐片跑 + --merge 合并）
   if (process.argv.includes('--merge')) {
     const dir = CONFIG.screenshotDir
     const shardFiles = fs
@@ -18313,37 +18460,9 @@ async function main() {
   await ensureB4Clean()
   // 批次十九 P1：oper_log 测试库尾部截断（防测试库单调增长拖慢 F4 聚合）
   await ensureOperLogTrim()
-  // 解析命令行参数
-  const args = process.argv.slice(2)
-  for (const arg of args) {
-    if (arg === '--headless') CONFIG.headless = true
-    if (arg === '--headed') CONFIG.headless = false // 显式有头（人工观察浏览器）
-    // --feature=N 单功能；--feature=1-20,51 集合（逗号分段+连字符区间），供前台分批跑长套件
-    if (arg.startsWith('--feature=')) {
-      const spec = arg.split('=')[1]
-      const ids = new Set()
-      for (const part of spec.split(',')) {
-        const m = part.trim().match(/^(\d+)(?:-(\d+))?$/)
-        if (!m) continue
-        const a = parseInt(m[1], 10)
-        const b = m[2] ? parseInt(m[2], 10) : a
-        for (let i = a; i <= b; i++) ids.add(i)
-      }
-      CONFIG.featureFilter = ids.size > 0 ? ids : null
-    }
-    // 批六十四质量工程：--shard=N/M 分片（N=1..M，按 id 哈希均匀分配）——每个 shard
-    // 独立进程跑并落盘 shard-N.json，--merge 合并各片汇总。⚠️ SQLite 单连接池档
-    // 多 shard 并行会加剧 503 风暴（fail-closed），建议顺序跑各片或 pg/mysql 档并行。
-    if (arg.startsWith('--shard=')) {
-      const m = arg.split('=')[1].match(/^(\d+)\/(\d+)$/)
-      if (m && parseInt(m[1], 10) >= 1 && parseInt(m[1], 10) <= parseInt(m[2], 10)) {
-        CONFIG.shard = { index: parseInt(m[1], 10), total: parseInt(m[2], 10) }
-      } else {
-        log(`  ⚠️ --shard 参数非法（需 N/M 且 1≤N≤M）：${arg}`)
-      }
-    }
-    if (arg === '--merge') CONFIG.mergeOnly = true
-  }
+  // 命令行参数已在 main() 的**第一件事**解析完（见 parseCliArgs）：解析原本排在这里，
+  // 而它前面是 `ensureB4Clean()`——那一步会**写库**。拼错一个旗标就会先把 B4 强改密态
+  // 清掉再报错，属"副作用先于输入校验"的顺序缺陷。
 
   log('==========================================')
   // 这里**不写功能总数**：历史上本行长期写 142、而 AGENTS/TESTING 写 143，注册表自检跑出来
@@ -18371,6 +18490,13 @@ async function main() {
     headless: CONFIG.headless,
     slowMo: CONFIG.slowMo
   })
+
+  /**
+   * 批八十三：点击落地采集通道自证（每次跑批自己证明一遍）。
+   * 段跑（`--feature=`）同样要证明——判据读的正是"这一轮到底采没采到"。
+   */
+  const clickChannelProbe = await probeClickChannel(browser)
+  log(`点击落地采集通道自证：${clickChannelProbe.ok ? 'OK' : 'FAILED'} — ${clickChannelProbe.detail}`)
 
   const context = await browser.newContext({
     viewport: { width: 1600, height: 900 },
@@ -18818,6 +18944,28 @@ async function main() {
     const reportFile = path.join(CONFIG.screenshotDir, 'test-report.json')
     fs.writeFileSync(reportFile, JSON.stringify(report, null, 2))
     log(`📄 测试报告已保存: ${reportFile}`)
+
+    /**
+     * 批八十三：点击落地失败数据集（判据脚本 `click-failure-audit.mjs` 的两路输入之一）。
+     * 全量轮与分段轮分文件——分段轮的部分数据不得覆盖全站数据（与 deep-e2e 同口径）。
+     */
+    const clickFile = path.join(
+      CONFIG.screenshotDir,
+      CONFIG.featureFilter ? 'main-clickfails.incremental.json' : 'main-clickfails.json'
+    )
+    const utcNaiveMain = (ms) => new Date(ms).toISOString().slice(0, 23).replace('T', ' ')
+    const clickSummary = writeClickFailureReport(clickFile, {
+      full: !CONFIG.featureFilter,
+      // 主套件的"计划数"在 features 注册表所在的作用域里，此处只落实际入场数；
+      // 完整性自证由 deep-e2e 那一路的 modulesPlanned/Attempted 承担（见 runner）。
+      featuresRun: results.length,
+      windowStart: utcNaiveMain(MAIN_RUN_STARTED_AT_MS),
+      windowEnd: utcNaiveMain(Date.now()),
+      channelProbe: clickChannelProbe
+    })
+    log(
+      `🖱 点击落地失败：共 ${clickSummary.failures} 条（未被后续同键点击救回 ${clickSummary.unrecovered} 条，形状 ${clickSummary.shapes} 类）: ${clickFile}`
+    )
 
     await browser.close()
     await cleanupE2eResidue()
@@ -22194,6 +22342,8 @@ async function testFeature102(page) {
 
   // 搜索定位新建行（等 URL 带查询参数的响应，避免旧快照）
   let row = null
+  let rowVisible = false
+  let settleMs = -1
   if (createdOk) {
     try {
       const searchPromise = page.waitForResponse(
@@ -22207,15 +22357,25 @@ async function testFeature102(page) {
       await page.getByRole('button', { name: /搜索/ }).first().click()
       await searchPromise
       row = page.locator('.el-table__row').filter({ hasText: pname }).first()
-      await row.waitFor({ state: 'visible', timeout: 5000 })
+      // 该页走 `useCrudTable`：搜索会 `syncUrlQuery → router.replace`，表格存在**卸载→重挂的空白窗口**
+      // （b82 的 F52 那条竞态是同一机制）。旧写法"响应到后再看一眼"必然踩在这个窗口上——
+      // 六段全量里它失败、单跑恒绿（b83 实测两种结局都出现过），而且这一眼还是**后续四步的门**，
+      // 于是一次竞态能吞掉 6 条判据。改成轮询到落定，并把落定耗时写进凭证。
+      const t0 = Date.now()
+      for (let i = 0; i < 24; i++) {
+        rowVisible = await row.isVisible().catch(() => false)
+        if (rowVisible) break
+        await sleep(250)
+      }
+      settleMs = Date.now() - t0
     } catch (err) {
       log(`  F102 搜索定位异常: ${err.message.slice(0, 120)}`)
     }
-    record(102, '③b 列表搜索命中新建行', !!row && (await row.isVisible().catch(() => false)))
+    record(102, '③b 列表搜索命中新建行', rowVisible, `轮询到落定 ${settleMs}ms`)
   }
 
   // 4. 编辑对话框：clientSecret 不明文回显（后端脱敏，仅创建时明文一次）
-  if (row && (await row.isVisible().catch(() => false))) {
+  if (rowVisible) {
     try {
       await row.getByRole('button', { name: /编辑/ }).first().click()
       const dialog = page.locator('.el-dialog:visible').last()
@@ -23363,18 +23523,27 @@ async function testFeature106(page) {
         .catch(() => false)
       record(106, '④ totp：解绑表单打开', formShown)
       // 取消 → 回到已启用态
-      const cancelBtn = page.getByRole('button', { name: /取消/ }).first()
-      if (formShown && (await cancelBtn.isVisible().catch(() => false))) {
-        await cancelBtn.click()
-        await page.waitForTimeout(500)
-      }
+      // 可访问名是 `t('common.cancel')`＝字面「取 消」（带空格），`/取消/` 永远匹配不到 ⇒
+      // 旧写法下面这一步"点了取消"其实一次都没发生，而 `④b` 只看"禁用按钮还在"就记 ✅
+      // ——**因为没取消所以状态没变**，正是空判据。正则容空格后把落地与复原分成两条。
+      const cancelBtn = page.getByRole('button', { name: /取\s*消/ }).first()
+      const cancelFound = await cancelBtn.isVisible().catch(() => false)
+      const cancelClicked =
+        formShown && cancelFound
+          ? await cancelBtn
+              .click()
+              .then(() => true)
+              .catch(() => false)
+          : false
+      if (cancelClicked) await page.waitForTimeout(500)
       const backToEnabled = await card
         .getByRole('button', { name: /禁用|解绑|关闭|未启用/ })
         .first()
         .waitFor({ state: 'visible', timeout: 3000 })
         .then(() => true)
         .catch(() => false)
-      record(106, '④b totp：取消后回到已启用态', backToEnabled)
+      record(106, '④b totp：取消按钮确实点到（文案「取 消」容空格）', cancelClicked, `可见=${cancelFound}`)
+      record(106, '④b totp：取消后回到已启用态', cancelClicked && backToEnabled, `回到已启用=${backToEnabled}`)
     } else {
       const setupBtn = card.getByRole('button', { name: /生成密钥|绑定|开启/ }).first()
       const setupRendered = await setupBtn
@@ -23451,7 +23620,8 @@ async function testFeature106(page) {
             `btn=${btnVisible}, form=${formShown2}`
           )
           // 取消 → 回到已启用态（断言后不真正解绑）
-          const cancelBtn2 = page.getByRole('button', { name: /取消/ }).first()
+          // 同上：可访问名是「取 消」，`/取消/` 匹配不到 ⇒ 旧写法这步是空操作
+          const cancelBtn2 = page.getByRole('button', { name: /取\s*消/ }).first()
           if (formShown2 && (await cancelBtn2.isVisible().catch(() => false))) {
             await cancelBtn2.click()
             await page.waitForTimeout(500)

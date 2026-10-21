@@ -22,7 +22,11 @@ import {
   summarizeBackendLogErrors,
   resolveBackendLogDir,
   detectPartialFailure,
-  createCaptureHub
+  createCaptureHub,
+  instrumentClickProto,
+  markClickLanded,
+  clickFailureRows,
+  CLICK_METHOD_NAMES
 } from './capture-kit.mjs'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logwin-'))
@@ -187,7 +191,78 @@ const assertHub = (desc, ok) => {
   assertHub('快照未按次数降序，Top-N 打印会取错', snap[0].count >= snap[snap.length - 1].count)
 }
 
-const allFail = fail.concat(hubFail)
+// ⑩ DOM 兜底的救回必须**成组**（b83 实测）：`clickButton()` 一次调用会留下"真点失败 + 收遮罩后
+//    再点失败"两条行，然后才走 DOM 兜底。旧 markClickLanded 只标最近一条 ⇒ 第一条永远显示
+//    "未救回"，允许表就得为一族**已被证明救回**的形状逐轮签字（登记率被噪声吃掉，正是
+//    endpoint-coverage 实测过的"每轮必红于是没人登记"的入口）。
+//    自检不需要浏览器：造一个六个点击方法都会拒绝的假原型，即可复现真实形状。
+const clickFail = []
+let clickChecks = 0
+const assertClick = (desc, ok) => {
+  clickChecks += 1
+  if (!ok) clickFail.push(desc)
+}
+{
+  const mkHub = (tag) => {
+    const main = { url: () => 'http://127.0.0.1:8080/x' }
+    const page = {
+      on: () => page,
+      context: () => ({ exposeBinding: () => Promise.resolve() }),
+      addInitScript: () => Promise.resolve(),
+      mainFrame: () => main
+    }
+    return createCaptureHub(page, { tag, screenshot: false })
+  }
+  const proto = {}
+  for (const name of CLICK_METHOD_NAMES) {
+    proto[name] = async (sel) => {
+      throw new Error(`Timeout 1000ms exceeded waiting for locator('${sel}')`)
+    }
+  }
+  assertClick('假原型没打上补丁，后面的结论都不作数', instrumentClickProto(proto))
+  const recv = {}
+  const nap = (ms) => new Promise((r) => setTimeout(r, ms))
+  const bad = (sel) =>
+    proto.click
+      .call(recv, sel, { timeout: 1000 })
+      .then(() => false)
+      .catch(() => true)
+  const unrec = (sel) => clickFailureRows().filter((r) => r.selector === sel && !r.recovered).length
+
+  mkHub('SYNCLICK')
+  const SEL = 'button:has-text("取 消")'
+  // bad() 返回"这次点击是否失败"（rejected ⇒ true），补丁必须原样把拒绝传出去且留下一条行
+  assertClick(`失败点击必须留下一条行并把拒绝传出`, (await bad(SEL)) === true)
+  await bad(SEL)
+  assertClick(`兜底前两条都必须未救回，实际未救回=${unrec(SEL)}`, unrec(SEL) === 2)
+  assertClick('DOM 兜底成功却没能标中任何一条', markClickLanded('取 消') === true)
+  await nap(6)
+  assertClick(`同一次调用的两条失败必须一起救回，实际仍剩 ${unrec(SEL)}`, unrec(SEL) === 0)
+  await bad(SEL)
+  await nap(6)
+  assertClick(`兜底之后的新失败属于**下一次调用**，必须未救回，实际=${unrec(SEL)}`, unrec(SEL) === 1)
+
+  // 对照组一：needle 对不上不得洗白（"标了个别的"不能把这条救回来）
+  const SEL2 = '.app-container button:has-text("新增")'
+  await bad(SEL2)
+  assertClick('needle 不匹配却返回了命中', markClickLanded('根本不存在') === false)
+  assertClick(`未被点名的选择器不得被洗白，实际未救回=${unrec(SEL2)}`, unrec(SEL2) === 1)
+
+  // 对照组二：跨标签不得互相救回（M40 的成功兜底不能把 M1 的同文本失败洗绿）
+  const SEL3 = 'button:has-text("保存")'
+  mkHub('SYNCLICK2')
+  await bad(SEL3)
+  mkHub('SYNCLICK')
+  assertClick('跨标签的同文本失败被"救回"了——归因边界失效', markClickLanded('保存') === false)
+  assertClick(`跨标签失败必须仍然未救回，实际=${unrec(SEL3)}`, unrec(SEL3) === 1)
+  mkHub('SYNCLICK2')
+  assertClick('回到同标签后应当标中，却没标中', markClickLanded('保存') === true)
+  assertClick(`同标签兜底后应全部救回，实际未救回=${unrec(SEL3)}`, unrec(SEL3) === 0)
+  // 空白 needle 一律拒绝（否则空串会匹配任意 selector，等于把所有失败洗绿）
+  assertClick('空白 needle 不得标中任何一条', markClickLanded('   ') === false)
+}
+
+const allFail = fail.concat(hubFail, clickFail)
 const partialFirm = partialCases.filter((c) => c[5]).length
 
 console.log(
@@ -195,6 +270,7 @@ console.log(
     ? `SYNTH_FAIL: ${allFail.join(' | ')}`
     : `SYNTH_OK 捕获工具自检：部分失败判据 ${partialCases.length} 条双向（${partialFirm} 必抓 / ` +
         `${partialCases.length - partialFirm} 必不抓）+ hub 采集侧 ${hubChecks} 条` +
-        `（导航只算 main frame 的 http(s)、数字归一、beginAction 换桶、快照条数、降序）`
+        `（导航只算 main frame 的 http(s)、数字归一、beginAction 换桶、快照条数、降序）` +
+        `+ 点击兜底成组救回 ${clickChecks} 条（同调用成组 / 下一次调用不连坐 / needle 不匹配不洗白 / 跨标签不互救）`
 )
 process.exit(allFail.length ? 1 : 0)

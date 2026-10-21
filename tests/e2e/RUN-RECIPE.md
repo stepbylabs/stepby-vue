@@ -1593,6 +1593,10 @@ node a11y-full.mjs
   运行：`STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 STEPBY_BASE_URL=http://localhost:8080
 FRONTEND_URL=http://localhost:8080 PLAYWRIGHT_BROWSERS_PATH="D:/Projects/.pw-browsers"
 node deep-e2e.mjs --headless`（支持 --feature/--range/--domain/--except）。
+  > **批八十三订正**：这四个里 `--domain=` **从来没有实现过**——它把值写进
+  > `CONFIG.domainFilter`，而全树没有任何读点（旗标纪律扫描器 `scripts/e2e_flag_discipline.py`
+  > R2 报出来的）。真实可用的筛法只有 `--feature` / `--range` / `--except` 三个；
+  > `--domain=` 现在会**响亮拒绝并 EXIT=2**，不再默默跑全量骗人。
 - **改写**：networkidle→load ×27（逐处确认有 sleep/waitFor 缓冲）；isVisible({timeout})→waitFor
   等价改写 ×741；跨行冗余 catch 去重 ×382；裸 isVisible() 6 处语义正确保留。
 - **修复 2 处**：M9 console 401 白名单补 `/system/notice/`（listTop 为批三十一新增的顶部通知）；
@@ -1845,7 +1849,7 @@ target/release/stepby-axum.exe`（起来即种子写完，Ctrl-C/停进程）。
 - **推送网络韧性**：github 443 间歇中断（curl 28），逐 ref 补推 + 真实退出码校验
   （管道 tail -1 会吞失败码——`git push | tail -1 &&` 不可靠，须 `if git push ... &&`）。
 
-### 3.50 追记：迁移方言债首次全量暴露与清偿（r6→r11 六轮攻坚）
+### 3.83 追记：迁移方言债首次全量暴露与清偿（r6→r11 六轮攻坚）
 
 - **爆发机制**：`cargo run -p migration` 契约从未存在（ed93647 重组删 main.rs 未补）
   ⇒ CI migration-matrix 三库全挂 `a bin target must be available`——**多数据库支持
@@ -1990,7 +1994,7 @@ clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根�
   > 现行做法是跑 `--plan` 从注册表派生），两类都出自同一个动作——
   > 把别处的计数抄进这里。要查现状就重跑或读 AGENTS，不要读这一段。
 
-## 3.6 SCIM provisioning 环境要求（循环轮 13 激活 F118②/F119②）
+### 3.79 SCIM provisioning 环境要求（循环轮 13 激活 F118②/F119②）
 
 - **后端**：`stepby-axum/.env` 追加 `SCIM_ENABLED=true` + `SCIM_BEARER_TOKEN=<≥32 字符>`
   （本地实值见 .env；重启后端生效——`/scim/v2/Groups` 端点开启，curl 验证 200）。
@@ -2004,7 +2008,7 @@ clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根�
 - **剩余设计内 SKIP 3 项**：F2（scheduler 无运行时 API）、F106①/F129③（passkeys 能力位
   auth.webauthn 关闭——激活需 headless 虚拟认证器（CDP WebAuthn）+ 后端 rp 配置，另立项）。
 
-## 3.7 分片与视觉回归（批六十四质量工程）
+### 3.80 分片与视觉回归（批六十四质量工程）
 
 - **分片**：`node main.mjs --headless --shard=N/M`（N=1..M，按**序号连续区间**切分——保持
   用例前向依赖链，id 取模分片实证破坏依赖产生假失败）→ 每片落盘 shard-N.json →
@@ -2029,7 +2033,7 @@ clean-main:refs/heads/main` 批流程（批六十二下午两轮 push 全败根�
     `OriginMismatch` 补 WARN 日志（含期望/实到来源 + 处置指引）；F106① 断言由"接受
     ≥400 的弱断言"**强化为成功链**（registerFinish 200 + 列表新增）。
 
-## 3.7 测试产生的系统数据治理（批六十六，b66）
+### 3.81 测试产生的系统数据治理（批六十六，b66）
 
 **为什么单列一节**：e2e 会真实改变系统数据（落库行 + 落盘文件）。若不治理，数据会
 **无限累积**并与业务数据混放，最终让"系统数据是否合理/状态是否正常"无法判断。
@@ -2093,7 +2097,7 @@ b66 我在全量 e2e 期间并行跑了 `cargo test --lib`，导致：
 
 ---
 
-## 3.8 前端 dist 构建模式辨析（b66 取证，排除嫌疑）
+### 3.82 前端 dist 构建模式辨析（b66 取证，排除嫌疑）
 
 - `.env.production` = `VITE_APP_BASE_API='/prod-api'`；`.env.embedded` = `''`。
 - 后端 `Router::nest` 同时挂 **`/prod-api`、`/dev-api`、`/stage-api`** 三前缀
@@ -2180,11 +2184,37 @@ axios 1.20 的 `transformRequest` 见「JSON 头 + FormData」直接走 `formDat
 
 **纪律**：新增 `aria-label`/`role` 后必须 `grep -rn "getByRole" tests/e2e | grep "<新名称>"` 全仓对账。
 
-### 3.57.3 分段区间的"假失败"：保留未注册编号必须排除
+### 3.57.3 分段区间的边界**必须由注册表派生**，不得手抄（b83 按实测订正本节原结论）
 
-`--feature=91-120` 会把 **F117**（保留编号、设计内不注册、不产断言条目）当缺失而报失败信号。
-正确写法 `--feature=91-116,118-120`（实测 151/151）。同理 `121-142` 内含 SKIP 项，判据是
-`失败: 0` 而非 `SKIP: 0`。
+原文写的是"F117 是保留编号、设计内不注册、不产断言条目，所以 `--feature=91-120` 会把它当缺失而报失败，
+正确写法 `--feature=91-116,118-120`"。**这条建议现在是错的，而且错的方向正是本仓立过案的那一族：
+静默少跑一个已注册功能。**
+
+实测（b83）：
+
+- `main.mjs:18585` 有 `{ id: 117, fn: testFeature117 }` ⇒ F117 **在册**；
+- 每段开头的注册表自检记的是 `144 项，编号 1..144` ⇒ 117 不在空洞里；
+- b82 权威轮日志里 `[功能117]` 命中 **19 行**，但其中**判定记录只有 9 条**：另外 9 条来自结尾汇总块
+  （与逐条目行同形，聚合前必须剔除，见本表⑧ 同源纪律）、1 条是 `⏱ [功能117] 21.0s` 耗时行。
+  正确取法 `grep -cE '✅ PASS \[功能117\]'` = 9。
+
+后果：照原文把 117 剔出去，第 5 段少跑 9 条判据，而**每段照样报绿**——与 b79 那条
+"手抄 `76-86` 会静默少跑最后一个模块"完全同形，只是这次的坑写在配方里。
+
+**规则**：分段边界一律由注册表派生，不抄文档也不抄上一批的命令。
+
+```bash
+# 取真实编号集合（1..max，含任何曾被视为"保留"的编号）
+node -e "const s=require('fs').readFileSync('tests/e2e/main.mjs','utf8');
+const ids=[...s.matchAll(/\{ id: (\d+), fn: /g)].map(m=>+m[1]).sort((a,b)=>a-b);
+console.log(ids.length, ids[0], ids[ids.length-1], ids.filter((v,i)=>v!==i+1).length)"
+```
+
+末位输出为 `0` 即"编号连续无空洞"，此时 `--feature=97-120` 是正确写法；
+若将来真的出现未注册编号，注册表自检会先把这一段判红（它判的是"数量===最大编号"），
+**不需要任何人手抄排除表**。
+
+同理 `121-142` 内含 SKIP 项，判据是 `失败: 0` 而非 `SKIP: 0`。
 
 ### 3.57.4 构建模式正确性要看入口 chunk，不看 index.html
 
@@ -3017,7 +3047,7 @@ node tests/e2e/endpoint-coverage.mjs --gate --operlog      # 未触达 ∖ 已�
    `else if (!kinds.includes(e.kind))` 直接吃到 `undefined`。崩掉同样非零（fail-closed 没破），
    但**丢失了"红在哪条用例"这条信息**，拿它当变异证据等于没做 ⇒ 变异要挑"只动上报、不动结构"的刀法。
 
-### 3.68 已声明轮询清单（b81 / §10 N-21）
+### 3.84 已声明轮询清单（b81 / §10 N-21）
 
 风暴判据（§3.67）此前只有"新键密度下限"一条兜底，后果是：任何**合法**的周期性出网
 （服务器监控 2s、健康页按用户偏好、任务页有 running 时 5s）第一次跑都会被判成风暴；
@@ -3083,8 +3113,14 @@ STEPBY_BACKEND_LOG=D:/Projects/stepby/stepby-axum/logs/b81_r2.log \
   未登记即红。新增一条允许项前，先在日志里找到它的完整上下文，确认是设计内信号。
 - **非 tracing 行**（panic、stderr 裸输出）一律红——它们最容易从 `grep WARN|ERROR` 的缝里漏掉。
 - 空日志 / 文件不存在 ⇒ EXIT=2；不得把"没跑"或"读错轮次"判成通过。
-- `--since/--until`（UTC）用于从按日轮转的大文件里截本轮窗口；按轮日志可省略。
-- 自检：`node tests/e2e/backend-log-audit.mjs --selftest`（13 条双向，含允许表坏形状/空日志/未登记必红）。
+- **`--gate` 必须显式给**（b83）：此前用法注释承诺了它、代码里却没有任何读点，加与不加输出逐字节
+  相同——属"静默无效旗标"这一族，现未加一律 `EXIT=2 不作结论`（`run-gates.py`/收口命令本来就带）。
+- 窗口（UTC）**必填，三选一**（b83 统一口径，与 `oper-log-audit` 一致）：`--since=`（+可选 `--until=`）
+  > `STEPBY_BACKEND_SINCE` > 本轮 `screenshots/deep-e2e-reqstats.json` 的自证字段（仅 `full: true` 的
+  > 全量轮可自证）。裸串一律按 **UTC** 解析——JS 的 `Date.parse('2026-10-20 00:00:02')` 按挂钟解会
+  > 整体偏移 8 小时（落库/日志都是 UTC），这是 b74 轮 25 "少报"同族缺陷。
+- 自检：`node tests/e2e/backend-log-audit.mjs --selftest`（条数由脚本自打，含允许表坏形状/空日志/
+  未登记必红/裸串与 `Z` 等价两组时区口径）。
   b81 终值：**3441 条记录 / 76 条 WARN+ERROR / 已登记 76 / 非 tracing 0**，允许表 19 条逐条带理由。
 - `run-gates.py` 的 `backendlog` 已接线；环境变量缺失时显示 UNRUN，而不是 PASS。
 
@@ -3108,7 +3144,10 @@ STEPBY_OPER_SINCE='2026-10-20 19:48:00' node tests/e2e/oper-log-audit.mjs --gate
   覆盖权限拒绝、租户生命周期/配额、平台治理、域名校验、上传/流程/报表/回调负路径等。
 - **`until` 日落豁免**（b81 收口新增）：只用于"缺陷已修复，但旧窗口的历史审计行仍需定性"。
   条目只在 `oper_time < until` 时生效；之后同类信号未登记即红。禁止拿它当永久豁免。
-  自检 17 条双向含三种形状：until 前放行 / until 当秒起转红 / 坏 until 拒绝。
+  自检含三种形状：until 前放行 / until 当秒起转红 / 坏 until 拒绝（条数由脚本自打）。
+- **`--gate` 必须显式给**（b83，与 `backend-log-audit` 同一条修法）：用法注释里承诺了它而代码
+  从不读，加与不加逐字节同形 ⇒ 未加一律 `EXIT=2`。同批移除该脚本函数体内第二条永远走不到的
+  `--selftest` 派发（`e2e_flag_discipline.py` R3 现在钉住"每脚本至多一条派发"）。
 - 自检：`node tests/e2e/oper-log-audit.mjs --selftest`；`run-gates.py` 的 `operlog`
   已接线并归入 `LIVE_DB_GATES`（库未静默时提示"结论不可信"，须在套件停止后单独复跑）。
 - b81 终值：窗口 770 条操作 / 失败 140 条 / 已登记 140 / 未登记 0。
@@ -3168,12 +3207,33 @@ node tests/e2e/endpoint-coverage.mjs --gate --operlog
 - 自检：`node tests/e2e/action-inventory.mjs --selftest` ⇒ 12 + 12 + 5 + 6 条双向，
   第 6 条是拆分守恒正控（三类之和 === 输入条数）。
 
-### 3.74 断言质量扫描的目标面（b82 扩面）
+### 3.74 断言质量扫描的目标面（b82 扩面 → b83 改为**由事实派生**）
 
 `scripts/e2e_assertion_scan.py` 的目标集合改为"5 个入口 + `tests/e2e/modules/*.mjs` 全量"，
 并在开头打印 `扫描面：N 个文件`（文件数由脚本自己给，文档不抄）。模块目录缺失 ⇒ `[FATAL]` 退出，
 不是"扫到 0 处 ✅"。b82 扩面当天抓回的两条都在 `deep-e2e.mjs` / `modules/writeEndpointBreadth.mjs`
 里（字面 `true` 与 `baseCount >= 0 && after === before` 的"两边都读失败也算通过"）。
+
+**b83 收口把这一支彻底改干净**：b82 的修法是"再补一个目录"，等于把下一次迁移留给下一个人踩——
+本批实测仍有 5 个含 28 个记录点的文件在面外（`e2e/run/runner.mjs`、`fieldperm-smoke.mjs`、
+`mlevel-verify.mjs`、`page-state.mjs`、`deep-verdict-diff.mjs`；显式 `--targets` 复扫是 0 处违规，
+所以这次没漏缺陷，但"面不完整"本身仍然是红的）。现在**不按名字枚举，按事实派生**：
+递归 `stepby-vue/tests/e2e`（跳过 `_tmp`/`screenshots`/`node_modules`/`playwright-report`/`test-results`
+与 `*.test.mjs`），凡出现记录族调用点（`record`/`recordSoft`/`recordSkip` 后跟 `(`）的 `.mjs` 一律进面。
+三条反脆弱一律 fail-closed：e2e 目录缺失、面 `<6` 个文件、**已知记录点所在文件消失**
+（`main.mjs` / `deep-e2e.mjs` / `modules/actionBreadth.mjs` / `modules/writeEndpointBreadth.mjs`）；
+`--selftest` 另配一条正控："没在任何清单里出现过的目录"（合成树里的 `nested/newHome.mjs`）**必须**进面。
+真树扫描面 7 → 11 个文件 / 合计 0 处。变异证伪：往 `SKIP_DIRS` 加 `"nested"` ⇒ `--selftest EXIT=1`。
+
+```bash
+python scripts/e2e_assertion_scan.py --selftest
+python scripts/e2e_assertion_scan.py --strict --baseline scripts/e2e-assertion-baseline.json
+python scripts/e2e_assertion_scan.py --json > scripts/e2e-assertion-baseline.json   # 刷新快照（横幅走 stderr）
+```
+
+载体（b83 补齐）：`run-gates.py` 的 `assertscan` 现在带 `--strict --baseline`——此前它**不带任何判定旗标**，
+而 plain 模式扫到违规也返回 0；`--baseline` 全仓无载体，可 AGENTS 一直写"棘轮只许降"。
+"只打提示、没有动作通道"= 没判（§测试门禁 ⑨）。
 
 ### 3.75 全量轮"跑完了"必须由执行计数自证，不由 `full` 旗标自证（b82 新增）
 
@@ -3309,3 +3369,132 @@ node 子进程是原生 Win32 程序，写句柄没问题 ⇒ 症状是**分裂�
 
 另：`--update-skip-baseline-from=<日志>` 这类**不启浏览器的入口一律要免凭据**（b82 实测它被
 `test-config.mjs` 的 import 期 fail-fast 挡住）。免凭据的判据是"是否需要浏览器"，不按旗标名枚举。
+
+### 3.85 点击落地判据的**匹配口径**：允许表读全文，报告才截断（b83 收口）
+
+症状是判据自己打出一对矛盾行：
+
+```text
+❌ 未登记: deep|M81|click|.el-dialog:visible button:has-text("取 消"), … ×1
+ℹ 登记了但本轮没出现: deep|M81|click|^\.el-dialog:visible button:has-text\("取 消"\), .*\.el-dialog__head
+```
+
+同一个形状既"未登记"又"没出现"，只可能是**匹配代码与展示代码读的不是同一段文本**。实测这一条
+`selector` 归一后长度恰好 120（截断上限），`message` 恰好 600（`CLICK_MESSAGE_CAP`），而
+`- element is not stable` 位于**第 330 字符**：Playwright 的调用日志先印
+`waiting for locator('<那条 120 字符选择器>')`，原因写在后面。旧写法拿 `messageRe` 去比
+`sample.slice(0,160)` ⇒ 带 `messageRe` 的条目结构上永远匹配不上，判据红在自己的截断上。
+
+跑法与验证：
+
+```bash
+node tests/e2e/click-failure-audit.mjs --selftest     # SYNTH_OK … 24 条双向（含 ⑳/⑳b 这一对）
+node tests/e2e/click-failure-audit.mjs --gate         # 两路输入都要 full:true，否则 UNRUN(EXIT=2)
+node tests/e2e/click-failure-audit.mjs --gate --dataset=deep:tests/e2e/screenshots/deep-e2e-clickfails.json
+```
+
+三条口径：① **显示截断与匹配必须分叉**——`sample` 给人读（160），`msgFull` 给判据比（整段，
+采集侧已限 600）；② 归一化选择器超 120 字符会被截，允许表条目**只能写前缀锚**；
+③ 登记条目匹配不上时，先怀疑判据读的是哪一段文本，**再**怀疑形状变了——按字面提示去放宽正则
+等于把判据改掉。自检 ⑳/⑳b 是一对双向：原因在 160 之后必须命中、原因确实不在正文里必须不命中
+（后者防修法退化成"`messageRe` 一律放行"）。
+
+### 3.86 落盘与采集面一律锚定"脚本位置 / 事实"（b83 收口六处站点 + 一把扫描器）
+
+b82 为 `run-detached.mjs` 立的那条"默认输入必须从脚本位置反推本仓根"只覆盖了**输入**；
+实测**输出**与**扫描面**同样会漂。两条启动目录都合法（RUN-RECIPE §3 教 `cd tests/e2e && node main.mjs`，
+而门禁脚本常从仓根跑），于是主套件的断面分居两棵树：
+
+| 文件                         | `stepby-vue/screenshots/`（cwd=仓根时） | `stepby-vue/tests/e2e/screenshots/`（消费方读这里） |
+| ---------------------------- | --------------------------------------- | --------------------------------------------------- |
+| `main-clickfails.json`       | 有（b83 全量轮）                        | 缺失 ⇒ 判据 `[main] 数据集缺失` UNRUN               |
+| `_metrics_5xx_baseline.json` | 10-22                                   | 10-20 ⇒ 跨轮 delta 对着旧树算                       |
+
+现在六个入口脚本的落盘/取路径全部锚定脚本位置（`main.mjs` 的 `CONFIG.screenshotDir`、
+`capture-kit` 的 `shotDir` 默认值、`deep-e2e` M83 的 `_tmp`、`perf-throttle-check` 的
+`perf-budget.json`、`validate-phone-redirect`、`diag-pages`），并由常驻守卫钉住：
+
+```bash
+npx vitest run src/utils/e2eCwdPath.guard.test.ts   # 4 例；扫描面 = tests/ 下 85 个 .mjs
+```
+
+判据形状：真实树 `process.cwd()` 必须 **0 处** + 逐文件掩码长度不变式 + **差异法活性**
+（每个被扫文件末尾追加一条合成违规，命中数必须 +1，85/85）+ 反证（注释与字符串里的关键字不算，
+且反证文本必须真含该关键字）。边界写进文件头：`src/utils/*.guard.test.ts` 不扩——vitest 只有一种
+启动目录，且拿错根时 `collectMjs` 抛 `ENOENT` 而非返回空集，不存在"静默读旧树"这一支。
+
+同一件事在**扫描器的目标面**上是第二条腿：`scripts/e2e_assertion_scan.py` 在 b82 补过"用例往
+`modules/` 迁"之后仍按名字枚举（5 入口 + 1 目录），本批实测还有 5 个含 28 个记录点的文件在外面。
+现改为**由事实派生**（递归 `tests/e2e`，凡出现 `record|recordSoft|recordSkip` 调用点的 `.mjs` 一律进面），
+三条反脆弱 fail-closed（目录缺失 / 面 `<6` 文件 / 已知记录点文件消失），正控是"没在任何清单里
+出现过的目录必须进面"。真树扫描面 7 → 11 个文件 / 合计 0 处。
+
+载体补齐：`assertscan` 原先在 `run-gates.py` 里**不带判定旗标**（plain 模式扫到违规也返回 0），
+`--baseline` 全仓无载体，而 AGENTS 写着"棘轮只许降"——正是"只打提示、没有动作通道=没判"。
+现在 run-gates 与 `ci.yml` 都跑 `--strict --baseline scripts/e2e-assertion-baseline.json`；
+刷新快照就一行（`--json` 的"扫描面"横幅走 stderr，所以可以直接重定向）：
+
+```bash
+python scripts/e2e_assertion_scan.py --json > scripts/e2e-assertion-baseline.json
+```
+
+### 3.87 表单类点击判据必须判"回显"，不能只判"点击返回成功"（b83 F52）
+
+`click()` 返回成功只证明事件派发了，不证明 `v-model` 变了。EP 里"点了但不落 model"至少三条真实路径：
+多选点回（再点一次是取消）、`is-disabled` 选项（本仓角色选项按 `status==1 || scimRoleIds` 禁用，
+**首项可能就是禁用项**，故选择器要写 `.el-select-dropdown__item:not(.is-disabled)`）、
+tree-select 的懒加载子层。这三种情况下后续"提交成功"照样全绿。
+
+实测形状（`main.mjs` F52 用户新增）：
+
+```js
+// ❌ 旧：EP 2.x 的 .el-select__input 是只读零宽 input，点它卡在 waiting for element to be visible
+await itemByLabel('归属部门')
+  .locator('input')
+  .first()
+  .click({ timeout: 3000 })
+  .catch(() => {})
+// ✅ 新：点 .el-select__wrapper → 等 `.el-select-dropdown:visible` → 点首项 → 回读 form-item 文本判"回显"
+const deptPick = await pickFirstFromSelect('归属部门', '.el-tree-node__content')
+record(52, '归属部门选中值回显到表单', deptPick.echoed, `回显=${deptPick.echoed ? '含' : '不含'}首节点文本`)
+```
+
+改前那两步**从来没有成功过**：部门与角色均未被选中，而用例记 ✅（这两项非必填 ⇒ "提交成功"
+对它们的约束恰好是零）。查同族站点一行即可：
+
+```bash
+grep -n "itemByLabel(.*)\s*$\|\.locator('input')\.first()\.click" tests/e2e/main.mjs | head
+```
+
+规则来自 `main.mjs:1340` 已有的注释（"EP 2.x 的展开热区在 `.el-select__wrapper`；点根节点在部分版本
+不触发 popper"）——同文件另外 6 处都照写了，F52 是漏改的第 6 处。**写法注释挡不住漏改，能挡住的只有回显对账。**
+
+### 3.88 前置条件在这套代码里根本不成立 ⇒ 改判据形状，不是加登记（b83 F3）
+
+`main.mjs` F3 的注释写着"下载属敏感操作，首启会弹「安全提示」MessageBox，确认后请求才放行"，
+于是对 `.el-overlay-message-box .el-button--primary` 盲等 8000ms。两句事实证伪：
+`views/system/backup/index.vue:334-344 handleDownload` 直接 `downloadBackup`（链路里没有确认步骤）；
+本仓 `.el-overlay-message-box` 只由 `store/modules/user.ts:201/213/225`
+（强改密 / 初始口令 / 口令过期）在登录与 getInfo 时弹出。
+⇒ 这 8 秒每轮必然超时，并每轮在点击失败台账留一条归不了因的 unrecovered。
+
+**危险在于下一步**：按"未登记形状必须逐条带理由"的纪律，人会去给一个不可能发生的分支编理由登记掉，
+判据就此与事实脱钩。所以"允许表加一条"之前必须先问：**这个形状在这套代码里可能成立吗？**
+答案是不能时，正确动作是改判据形状——分支探测 + 两支都判测量值：
+
+```js
+const mbShown = await page
+  .locator('.el-overlay-message-box')
+  .first()
+  .waitFor({ state: 'visible', timeout: 2000 })
+  .then(() => true)
+  .catch(() => false)
+if (mbShown) {
+  /* 点击落地 + 框计数归零，两条都判实测值 */
+} else {
+  record(3, '下载链路无确认框（提示框仅来自登录期口令态）', !mbShown, '点击后 2s 内可见数=0')
+}
+```
+
+两支的条件都是变量而非字面量（`e2e_assertion_scan.py` 的字面 true 判据会当场抓），
+且不再有 8 秒死等。若确实需要"出现过确认框"那一支的证据，见台账 §15 N-29（需口令态夹具）。

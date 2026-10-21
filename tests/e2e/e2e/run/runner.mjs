@@ -26,7 +26,7 @@ import os from 'node:os'
 import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath } from 'node:url'
-import { summarizeBackendLogErrors } from '../../capture-kit.mjs'
+import { summarizeBackendLogErrors, probeClickChannel, writeClickFailureReport } from '../../capture-kit.mjs'
 
 let chromium
 try {
@@ -160,7 +160,10 @@ export function applySkipBaselineFromLog(
       r
     }
   }
-  const note = `deep-e2e 全量实测（b82 由日志收紧：${path.basename(logFile)}）`
+  // note 里不得写批次号：这段文本由**工具**写进基线，而代码不知道自己属于哪一批。
+  // 此前硬编码 "b82"，于是 b83 收紧出来的基线被署成 b82——审计线索指错批次，
+  // 且每收紧一次都要有人想起来改这行（改不到就一直说谎）。改成由实参派生的事实。
+  const note = `deep-e2e 全量实测：由日志 ${path.basename(logFile)} 收紧（基线 ${baseline ?? '缺失'} → ${r.skip}）`
   write(r.skip, note)
   return { code: 0, message: `SKIP 棘轮基线已由日志收紧为 ${r.skip}（原 ${baseline}）`, r }
 }
@@ -227,6 +230,15 @@ export async function runMain({ testFns, config, helpers, state }) {
   const launch = () => chromium.launch({ headless: config.headless !== false, slowMo: config.slowMo })
   /** 当前浏览器句柄：失联时被替换（旧句柄在替换前已 close，见 `BROWSER_DEAD_RE` 一支） */
   let browser = await launch()
+
+  /**
+   * 批八十三：**点击落地采集通道自证**。每次跑批自己证明一遍，不等收口时人工核对
+   * （同 AGENTS §测试门禁 ① "判据落地的完整形态是每次跑批自己证明一遍"）。
+   * 结果随数据集落盘，`click-failure-audit.mjs` 读到 `channelProbe.ok !== true` 一律判
+   * **UNRUN**——"一条失败都没有"与"采集面根本没接上"必须可区分。
+   */
+  const clickChannelProbe = await probeClickChannel(browser)
+  log(`点击落地采集通道自证：${clickChannelProbe.ok ? 'OK' : 'FAILED'} — ${clickChannelProbe.detail}`)
 
   let token = null
   try {
@@ -635,12 +647,6 @@ export async function runMain({ testFns, config, helpers, state }) {
       isFullRun ? 'deep-e2e-reqstats.json' : 'deep-e2e-reqstats.incremental.json'
     )
     /**
-     * 本轮请求窗口（UTC 裸文本，与 `sys_oper_log.oper_time` 同口径——实测该列是 UTC：
-     * `max(oper_time)=2026-10-20 02:29` 而本地是 10:29）。写进数据集，`endpoint-coverage`
-     * 因此能**自己取窗口**做服务端触达对账，而不必让人手抄时间串（抄错方向就是把窗口
-     * 前挪 8 小时，b79 实测这类错误在两条判据上都出现过）。
-     */
-    /**
      * 本轮请求窗口（UTC 文本，与 `sys_oper_log.oper_time` **同口径且同精度**）。
      *
      * 为什么要带小数秒（b82 实测的判据自伤）：`oper_time` 落库带小数（实测
@@ -682,6 +688,29 @@ export async function runMain({ testFns, config, helpers, state }) {
       .map((r) => `[${r.tag}] ${r.key} ×${r.count}`)
       .join('\n')
     log(`每动作请求数分布已落盘（共 ${reqStats.length} 类，Top8:\n${top}\n）: ${reqPath}`)
+
+    /**
+     * 批八十三：**点击落地失败数据集**（判据脚本 `click-failure-audit.mjs` 的唯一数据源）。
+     * 与 reqstats 同一轮窗口、同一"全量轮/分段轮分文件"纪律——分段轮的部分数据
+     * 不得覆盖全站数据（b79 实测踩过）。落盘写法由 capture-kit 统一提供，两套件共用，
+     * 避免各自手抄 JSON 形状而漂移。
+     */
+    const clickPath = path.join(
+      config.screenshotDir,
+      isFullRun ? 'deep-e2e-clickfails.json' : 'deep-e2e-clickfails.incremental.json'
+    )
+    const clickSummary = writeClickFailureReport(clickPath, {
+      full: isFullRun,
+      modulesPlanned: ids.length,
+      modulesAttempted: moduleStats.length,
+      windowStart: utcNaive(roundStartMs),
+      windowEnd: utcNaive(Date.now()),
+      channelProbe: clickChannelProbe
+    })
+    log(
+      `点击落地失败：共 ${clickSummary.failures} 条（未被后续同键点击救回 ${clickSummary.unrecovered} 条，` +
+        `形状 ${clickSummary.shapes} 类）: ${clickPath}`
+    )
   } catch (e) {
     log(`⚠ 请求数分布写盘失败（不影响退出码）: ${e.message}`)
   }

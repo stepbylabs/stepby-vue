@@ -26,7 +26,8 @@ export default {
     oauthGoLogin: '前往登录',
     passkeyLogin: '使用通行密钥登录',
     passkeyDivider: '或使用通行密钥登录',
-    passkeyUsernameRequired: '请先输入账号，再使用通行密钥登录'
+    passkeyUsernameRequired: '请先输入账号，再使用通行密钥登录',
+    retryIn: '失败次数过多，请 {seconds} 秒后再试'
   },
   register: {
     title: '注册',
@@ -144,7 +145,8 @@ export default {
     subjectType: 'Subject 类型',
     subjectTypeTip: 'pairwise 切换后已发令牌的 sub 将变化，RP 侧视为新用户',
     sectorIdentifier: 'Sector 聚合标识',
-    sectorIdentifierTip: 'https URL；pairwise 下同 sector 的多个 RP 获得相同 sub（同组织账号关联）；留空以 clientId 为盐',
+    sectorIdentifierTip:
+      'https URL；pairwise 下同 sector 的多个 RP 获得相同 sub（同组织账号关联）；留空以 clientId 为盐',
     consentRequired: '需要同意',
     enabled: '状态',
     remark: '备注',

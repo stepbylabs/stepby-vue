@@ -1568,7 +1568,8 @@ export default {
       keyGenFail: '生成密钥失败',
       enableSuccess: 'TOTP 启用成功',
       disableSuccess: 'TOTP 已关闭',
-      keyCopied: '密钥已复制'
+      keyCopied: '密钥已复制',
+      retryIn: '验证失败次数过多，请 {seconds} 秒后再试'
     },
     passkey: {
       title: '通行密钥 / Passkeys',

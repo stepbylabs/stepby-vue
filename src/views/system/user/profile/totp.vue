@@ -33,10 +33,17 @@
               type="password"
               :placeholder="t('lock.passwordPlaceholder')"
               :maxlength="20"
-              show-password :aria-label="t('lock.passwordPlaceholder')" />
+              show-password
+              :aria-label="t('lock.passwordPlaceholder')"
+            />
           </el-form-item>
           <el-form-item :label="t('login.code')" prop="code">
-            <el-input v-model="disableForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" :aria-label="t('profile.totp.codePlaceholder')" />
+            <el-input
+              v-model="disableForm.code"
+              :placeholder="t('profile.totp.codePlaceholder')"
+              maxlength="6"
+              :aria-label="t('profile.totp.codePlaceholder')"
+            />
           </el-form-item>
           <el-form-item>
             <el-button type="danger" :loading="disableLoading" @click="handleDisable">
@@ -108,11 +115,18 @@
           <div v-else key="step3" class="verify-section">
             <el-form ref="verifyRef" :model="verifyForm" :rules="verifyRules" label-width="120px">
               <el-form-item :label="t('login.code')" prop="code">
-                <el-input v-model="verifyForm.code" :placeholder="t('profile.totp.codePlaceholder')" maxlength="6" :aria-label="t('profile.totp.codePlaceholder')" />
+                <el-input
+                  v-model="verifyForm.code"
+                  :placeholder="t('profile.totp.codePlaceholder')"
+                  maxlength="6"
+                  :aria-label="t('profile.totp.codePlaceholder')"
+                />
               </el-form-item>
               <el-form-item>
-                <el-button type="primary" :loading="verifyLoading" @click="handleVerify">
-                  {{ t('profile.totp.step3') }}
+                <!-- b83：动态码连错 5 次进入 10 分钟锁定窗口（后端 429 + Retry-After）。
+                     没拿到 Retry-After 时 locked 恒 false ⇒ 与改造前逐字段一致。 -->
+                <el-button type="primary" :loading="verifyLoading" :disabled="retryLocked" @click="handleVerify">
+                  {{ retryLocked ? t('profile.totp.retryIn', { seconds: retryRemaining }) : t('profile.totp.step3') }}
                 </el-button>
                 <el-button @click="stepActive = 1">{{ t('common.back') }}</el-button>
               </el-form-item>
@@ -129,9 +143,18 @@ import { Lock, Key } from '@element-plus/icons-vue'
 import { setupTotp, verifyTotp, getTotpStatus, disableTotp } from '@/api/system/totp'
 import type { TotpSetupResponse, TotpStatusResponse } from '@/api/system/totp'
 import modal from '@/plugins/modal'
+import { useRetryAfterLock } from '@/composables/useRetryAfterLock'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const { t } = useI18n()
+
+// b83：锁定窗口倒计时（只有后端在 429 上给了 Retry-After 才会真的锁住按钮）
+const {
+  remaining: retryRemaining,
+  locked: retryLocked,
+  startFrom: startRetryLock,
+  stop: stopRetryLock
+} = useRetryAfterLock()
 
 const status = ref<TotpStatusResponse>({ enabled: false })
 const setupData = ref<TotpSetupResponse>({ secret: '', otpauthUrl: '', qrCode: '' })
@@ -194,12 +217,16 @@ async function handleVerify(): Promise<void> {
     verifyLoading.value = true
     try {
       await verifyTotp(verifyForm.code, verifyForm.secret)
+      // 成功即解锁：万一后端提前放开了窗口（管理员清了计数），不该让按钮继续锁着
+      stopRetryLock()
       modal.msgSuccess(t('profile.totp.enableSuccess'))
       status.value.enabled = true
       stepActive.value = 0
       verifyForm.code = ''
       verifyForm.secret = ''
     } catch (err) {
+      // 锁定态（429 + Retry-After）⇒ 起闸；其它失败（如动态码错）不带提示 ⇒ 不起闸
+      startRetryLock(err)
       if (import.meta.env.DEV) console.error('[TOTP] Verification failed:', err)
     } finally {
       verifyLoading.value = false

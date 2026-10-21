@@ -13,9 +13,11 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 
-const root = process.cwd()
+// 本仓根按脚本位置反推（tests/ 的上一层）：原先用 process.cwd()，
+// 从 tests/ 目录启动时 src/** 全部解析不到 ⇒ 断言逐条失败，看着像"源码坏了"。
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const phoneUrl = pathToFileURL(path.join(root, 'src/utils/phone.ts')).href
 const redirectUrl = pathToFileURL(path.join(root, 'src/utils/redirect.ts')).href
 const safeI18nPath = path.join(root, 'src/utils/safeI18n.ts')

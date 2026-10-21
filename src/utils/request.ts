@@ -18,6 +18,35 @@ import { errorHub } from '@/utils/errorHub'
 
 const t = i18n.global.t
 
+/** `Retry-After` 头名（RFC 9110）；axios 把响应头键统一转小写。 */
+export const RETRY_AFTER_HEADER = 'retry-after'
+
+/** 采信上限：一天的退避提示已属可疑，超过一律不采信——否则一个畸形大数会把按钮锁到刷新为止。 */
+const RETRY_AFTER_MAX_SECONDS = 86400
+
+/**
+ * 解析 `Retry-After`：接受 delta-seconds 与 HTTP-date 两种合法形态，返回**剩余秒数**。
+ *
+ * 返回 `undefined` 的四种情形都不该让界面拿到 `NaN`/`0` 去显示"0 秒后再试"：
+ * 缺失、非字符串、既不是纯数字也不是合法日期、日期已过或超过上限。
+ * 之所以抽成纯函数并导出：本仓判据三次踩过 `Number(null) === 0` 这一族
+ * "把取不到读成 0"的坑（b79 汇总器、b82 棘轮），单测要能直接喂畸形值才证明得了方向。
+ */
+export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now()): number | undefined {
+  if (typeof raw !== 'string') return undefined
+  const text = raw.trim()
+  if (!text) return undefined
+  if (/^\d+$/.test(text)) {
+    const secs = Number(text)
+    return Number.isSafeInteger(secs) && secs > 0 ? Math.min(secs, RETRY_AFTER_MAX_SECONDS) : undefined
+  }
+  const at = Date.parse(text)
+  if (Number.isNaN(at)) return undefined
+  const secs = Math.ceil((at - nowMs) / 1000)
+  if (!Number.isFinite(secs) || secs <= 0) return undefined
+  return Math.min(secs, RETRY_AFTER_MAX_SECONDS)
+}
+
 // 是否显示重新登录
 export const isRelogin = { show: false }
 
@@ -362,7 +391,15 @@ service.interceptors.response.use(
       return Promise.reject(error)
     }
     if (httpStatus === 429) {
-      // 登录频率限制（IP/用户失败次数超限），显示具体提示
+      // 登录频率限制（IP/用户失败次数超限）/ TOTP 与密码锁定，显示具体提示。
+      // b83：`Retry-After` 是契约的一部分（AGENTS C.10 敏感操作独立限流 + 锁定态统一 429）。
+      // 后端给的是键的**真实剩余 TTL**，这里只做解析并挂到 error 上供 UI 消费；
+      // 解析不出来的形态一律当"没有提示"，绝不给界面一个猜出来的秒数
+      // （与后端 `InferenceGate::retry_after_secs()` 冷启动不发头同一条口径）。
+      const retryAfterSeconds = parseRetryAfterSeconds(error.response?.headers?.[RETRY_AFTER_HEADER])
+      if (retryAfterSeconds !== undefined) {
+        ;(error as AxiosError & { retryAfterSeconds?: number }).retryAfterSeconds = retryAfterSeconds
+      }
       errorHub.report('warning', 'api', backendMsg || t('common.tooManyRequests'))
       return Promise.reject(error)
     }

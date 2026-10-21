@@ -2,9 +2,11 @@
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const BASE = 'http://localhost:8080'
-const shots = path.resolve('screenshots')
+// 锚定脚本位置（与 main.mjs 的 CONFIG.screenshotDir 同一条纪律），不得随 cwd 漂移
+const shots = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'screenshots')
 fs.mkdirSync(shots, { recursive: true })
 
 const browser = await chromium.launch({ headless: true })

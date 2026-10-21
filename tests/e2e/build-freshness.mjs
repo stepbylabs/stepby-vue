@@ -1,5 +1,5 @@
 /**
- * 前端产物新鲜度闸（批八十二新增）。
+ * 前端产物新鲜度闸（批八十二新增；批八十三补上**后端那一腿**）。
  *
  * 立项原因是实测踩到的：`:8080` 内嵌服务的是 `stepby-axum/frontend-dist/`，而该目录是
  * 06:37 的构建；`src/views/monitor/job/index.vue` 与 `src/views/system/user/index.vue`
@@ -15,6 +15,10 @@
  *    `content-length` 与磁盘字节数一致 ⇒ 服务端给的就是这份产物（`ServeDir` 直读磁盘，
  *    但"改错目录/拷错模式/服务根不是这里"都会让它服务另一份）。
  * 只比字节数不比哈希：一次 HEAD 就够，不为对账下载 5.8 MB。
+ *
+ * 三道闸里的第三道是 b83 加的（见 `staleBackendSources` 的注释）：三轮全量实测跑在 10:56 的
+ * exe 上，而本批后端源码改到 18:09 ——**路径对上了不等于码是新的**，`start-backend.mjs` 那条
+ * 镜像路径判据看不见这件事，两条腿合起来才是完整判据。
  *
  * 用法：
  *   node tests/e2e/build-freshness.mjs                       # 判当前 :8080 的产物
@@ -103,6 +107,67 @@ export function entryChunkFromHtml(html) {
 }
 
 /**
+ * 后端侧新鲜度（b83 新增的第二腿）：**Rust 源码是否比在跑的 exe 新**。
+ *
+ * 立项原因是实测的：`:8080` 上 `target/debug/stepby-axum.exe` 编译于 10:56，而
+ * `common/error.rs`(17:49)、`handler/totp_handler.rs`(17:55)、`shared_store/mod.rs`(17:55)、
+ * `service/auth_service.rs`(18:09) 都是本批契约族 A 之后改的——**三轮全量 1320 条断言
+ * 跑的是一棵不含本批后端改动的树**，而且当时没有任何判据能发现。
+ * `start-backend.mjs` 早就比对"监听进程的镜像路径属于本仓"，但它比的是**路径**：
+ * 同一路径上的旧 exe 一样放行。前端那一腿有 mtime 对账，后端这一腿缺的正是这一条。
+ *
+ * 判据形状与前端对称：① exe 必须存在（取不到 = 证不了，不得读成"没有陈旧"）；
+ * ② 采集面下限（扫不到 `.rs` 就是遍历坏了）；③ 任何生产源码文件晚于 exe ⇒ 点名并拒绝。
+ *
+ * @param {{axumRoot?:string, exeFile?:string, minFiles?:number}} [opts]
+ * @returns {{stale:Array<{rel:string,agoMs:number}>, exeMs:number, scanned:number}}
+ */
+export function staleBackendSources({
+  axumRoot = path.join(REPO_ROOT, 'stepby-axum'),
+  exeFile = path.join(axumRoot, 'target', 'debug', 'stepby-axum.exe'),
+  minFiles = 200
+} = {}) {
+  if (!fs.existsSync(axumRoot)) throw new Error(`后端仓不存在：${axumRoot}——无从判断产物新鲜度`)
+  if (!fs.existsSync(exeFile)) {
+    throw new Error(`后端 exe 不存在：${exeFile}——没有 exe 就判不了新鲜度（先 cargo build 再跑）`)
+  }
+  const files = []
+  const srcDir = path.join(axumRoot, 'src')
+  if (!fs.existsSync(srcDir)) throw new Error(`后端源码目录不存在：${srcDir}`)
+  const walkRs = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.name === 'target' || ent.name.startsWith('.')) continue
+      const abs = path.join(dir, ent.name)
+      if (ent.isDirectory()) {
+        // `src/integration_tests/` 挂在 `#[cfg(test)] mod`（src/lib.rs:77）——只进测试二进制，
+        // 不进 exe。把它计入只会让"改了个集成测试"也强制重构建并重启服务，那是噪声；
+        // 口径与前端排除 `*.test.ts` 完全一致（见 appSources 的 TEST_FILE_RE）。
+        if (path.basename(dir) === 'src' && ent.name === 'integration_tests') continue
+        walkRs(abs)
+      } else if (ent.name.endsWith('.rs')) files.push(abs)
+    }
+  }
+  walkRs(srcDir)
+  for (const f of ['Cargo.toml', 'build.rs', 'config.toml', 'config.toml.example']) {
+    const abs = path.join(axumRoot, f)
+    if (fs.existsSync(abs)) files.push(abs)
+  }
+  if (files.length < minFiles) {
+    throw new Error(
+      `后端源码只扫到 ${files.length} 个文件（<${minFiles}）——遍历已坏，拒绝判新鲜度（"扫不到"不得读成"没有改动"）`
+    )
+  }
+  const exeMs = fs.statSync(exeFile).mtimeMs
+  const stale = []
+  for (const abs of files) {
+    const ms = fs.statSync(abs).mtimeMs
+    if (ms > exeMs) stale.push({ rel: path.relative(axumRoot, abs), agoMs: ms - exeMs })
+  }
+  stale.sort((a, b) => b.agoMs - a.agoMs)
+  return { stale, exeMs, scanned: files.length }
+}
+
+/**
  * 完整闸：新鲜度 + 服务即产物。`fetchImpl` / `headImpl` 供自检注入，真跑用 node fetch。
  * 返回 `{ artifactDir, chunk, bytes }`；任何一条不过一律抛错（调用方 EXIT=2）。
  */
@@ -112,8 +177,28 @@ export async function assertFreshServedApp({
   artifactDir,
   minFiles = 100,
   fetchImpl = fetch,
-  headImpl
+  headImpl,
+  checkBackend = true,
+  axumRoot,
+  exeFile
 } = {}) {
+  // 后端那一腿排在前面：它不需要网络，而且"exe 是旧的"意味着后面所有 UI 判据测的
+  // 都是上一轮的二进制——先拦住才不必再解释"为什么服务起来了却测的是旧码"。
+  if (checkBackend) {
+    const b = staleBackendSources({ axumRoot, exeFile })
+    if (b.stale.length > 0) {
+      const list = b.stale
+        .slice(0, 6)
+        .map((s) => `${s.rel}（比 exe 新 ${(s.agoMs / 60000).toFixed(1)} 分钟）`)
+        .join('、')
+      throw new Error(
+        `后端产物陈旧：exe 编译于 ${new Date(b.exeMs).toISOString()}，而 ${b.stale.length} 个后端文件比它新——首推 ${list}。` +
+          `:8080 上跑的必然不含这些改动，跑批却会把它们记成"本批后端改动已验证"。` +
+          `先 cargo build（本机 -j 4）再用 stepby-axum/start-backend.mjs 重启，再跑本判据。`
+      )
+    }
+  }
+
   const dir = artifactDir ? path.resolve(VUE_ROOT, artifactDir) : resolveArtifactDir({ baseUrl })
   const indexFile = path.join(dir, 'index.html')
   const { stale, artifactMs } = staleAppSources({ vueRoot, artifactFile: indexFile, minFiles })
@@ -234,6 +319,9 @@ async function selftest() {
       baseUrl: 'http://127.0.0.1:1/',
       artifactDir: path.join(dir, 'stepby-axum', 'frontend-dist'),
       minFiles,
+      // 合成 vueRoot 旁边没有真 axum 树；后端那一腿由 ⑨–⑫ 用**另一棵合成树**单独判，
+      // 这里必须显式关掉——不得靠"目录不存在就跳过"那种默认放行。
+      checkBackend: false,
       fetchImpl
     })
   try {
@@ -257,6 +345,65 @@ async function selftest() {
   } catch (e) {
     if (!/产物陈旧/.test(String(e.message))) fail.push(`⑧ 总闸拒绝理由不对：${e.message}`)
   }
+  // ⑨–⑬ 后端那一腿（b83 新增）：同一棵合成树旁边造一个假 axum 目录
+  const axum = path.join(dir, 'axum-fixture')
+  const mkAxum = (rel, days) => {
+    const abs = path.join(axum, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, 'fn a() {}\n')
+    const t = new Date(Date.now() + days * 86400000)
+    fs.utimesSync(abs, t, t)
+    return abs
+  }
+  const exe = mkAxum('target/debug/stepby-axum.exe', 0)
+  for (let i = 0; i < 200; i++) mkAxum(`src/gen/m${i}.rs`, -8)
+  mkAxum('Cargo.toml', -8)
+  const b0 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (b0.stale.length !== 0) fail.push(`⑨ 干净后端树上报了陈旧：${JSON.stringify(b0.stale.slice(0, 3))}`)
+  if (b0.scanned < 200) fail.push(`⑨ 采集面数不对：${b0.scanned}`)
+  // ⑩ 生产源码晚于 exe ⇒ 必须点名（本批踩到的正是这一形状）
+  mkAxum('src/handler/totp_handler.rs', 2)
+  const b1 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (b1.stale.length !== 1 || !/totp_handler\.rs$/.test(b1.stale[0].rel))
+    fail.push(`⑩ 陈旧的后端源文件没被点名：${JSON.stringify(b1.stale)}`)
+  // ⑪ exe 缺失 ⇒ 响亮失败（"没有陈旧文件"不得读成"产物是新的"）
+  try {
+    staleBackendSources({ axumRoot: axum, exeFile: path.join(axum, 'nope.exe'), minFiles: 100 })
+    fail.push('⑪ exe 缺失被当成了新鲜')
+  } catch (e) {
+    if (!/exe 不存在/.test(String(e.message))) fail.push(`⑪ 拒绝理由没指向 exe：${e.message}`)
+  }
+  // ⑫ 采集面下限：只放 1 个 .rs ⇒ 遍历坏了必须拒绝判据
+  const thinAxum = path.join(dir, 'axum-thin')
+  fs.mkdirSync(path.join(thinAxum, 'src'), { recursive: true })
+  fs.writeFileSync(path.join(thinAxum, 'src', 'only.rs'), 'x')
+  fs.copyFileSync(exe, path.join(thinAxum, 'exe.bin'))
+  try {
+    staleBackendSources({ axumRoot: thinAxum, exeFile: path.join(thinAxum, 'exe.bin') })
+    fail.push('⑫ 后端只扫到 3 个文件却照常判新鲜（采集面坏了）')
+  } catch (e) {
+    if (!/遍历已坏/.test(String(e.message))) fail.push(`⑫ 拒绝理由没指向采集面：${e.message}`)
+  }
+  // ⑬ 接线自证：总闸必须真的走到后端这一腿（写了没接线=没写）
+  try {
+    await assertFreshServedApp({
+      vueRoot,
+      baseUrl: 'http://127.0.0.1:1/',
+      artifactDir: path.join(dir, 'stepby-axum', 'frontend-dist'),
+      minFiles,
+      axumRoot: axum,
+      exeFile: exe,
+      fetchImpl: okFetch
+    })
+    fail.push('⑬ 总闸放行了陈旧的后端 exe（后端判据没接线）')
+  } catch (e) {
+    if (!/后端产物陈旧/.test(String(e.message))) fail.push(`⑬ 总闸拒绝理由没指向后端：${e.message}`)
+  }
+  // ⑭ `#[cfg(test)] mod integration_tests` 不进 exe ⇒ 改它不得要求重构建（与前端不计入单测同口径）
+  mkAxum('src/integration_tests/late.rs', 3)
+  const b2 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (b2.stale.some((s) => /integration_tests/.test(s.rel)))
+    fail.push(`⑭ 只进测试二进制的目录被计入陈旧：${JSON.stringify(b2.stale)}`)
   fs.rmSync(dir, { recursive: true, force: true })
   fs.rmSync(thin, { recursive: true, force: true })
   return fail
@@ -273,7 +420,8 @@ async function entry() {
       process.exit(1)
     }
     log(
-      'SYNTH_OK 前端产物新鲜度 8 组双向（干净树正控 / 陈旧点名 / 单测与生成类型不计入 / 产物缺失 / 采集面下限 / 入口解析 / 服务即产物字节对账 / 总闸拦陈旧）'
+      'SYNTH_OK 产物新鲜度 14 组双向（前端：干净树正控 / 陈旧点名 / 单测与生成类型不计入 / 产物缺失 / 采集面下限 / 入口解析 / 服务即产物字节对账 / 总闸拦陈旧；' +
+        '后端：干净 exe 正控 / 陈旧源文件点名 / exe 缺失 / 采集面下限 / 总闸真走到后端这一腿 / cfg(test) 目录不计入）'
     )
     process.exit(0)
   }

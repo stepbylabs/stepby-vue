@@ -114,6 +114,37 @@ function summarize(records) {
   return byLevel
 }
 
+/**
+ * 窗口字符串 → epoch ms（**按 UTC 解释**）。
+ *
+ * 为什么必须自己写：日志行首是 `...Z`（UTC），而本轮数据集里的 `windowStart/windowEnd`
+ * 是 naive-UTC 文本（与 `sys_oper_log.oper_time` 同口径）。JS 的 `Date.parse('2026-10-20 19:48')`
+ * 把无时区串按**本地时区**解释 ⇒ 在 UTC+8 上窗口前移 8 小时，把上一轮的 WARN/ERROR 也扫进来
+ * （b79 记过同形错误："抄错方向就是把窗口前挪 8 小时"）。带 `Z` 或 `±HH:MM` 的原样交给
+ * `Date.parse`；裸串补 `T…Z` 按 UTC 解析。解析不出来 ⇒ `NaN`，调用方必须拒绝而非当"无窗口"。
+ */
+export function windowToEpoch(value) {
+  const s = String(value ?? '').trim()
+  if (!s) return NaN
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return Date.parse(s)
+  const iso = s.replace(' ', 'T')
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return NaN
+  return Date.parse(`${iso}Z`)
+}
+
+/** 从本轮数据集自证字段取窗口（人不抄时间串；同 endpoint-coverage 的做法）。 */
+function windowFromDataset() {
+  const ds = path.join(HERE, 'screenshots', 'deep-e2e-reqstats.json')
+  let data = null
+  try {
+    data = JSON.parse(fs.readFileSync(ds, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!data || data.full !== true || !data.windowStart || !data.windowEnd) return null
+  return { since: data.windowStart, until: data.windowEnd, source: `${path.basename(ds)} 自证字段` }
+}
+
 function gateState({ file, records, unparsed, unknown }) {
   if (!fs.existsSync(file)) return { code: 2, detail: `日志不存在：${file}` }
   if (records.length === 0) return { code: 2, detail: `日志为空（没有任何 tracing 记录）：${file}` }
@@ -126,7 +157,11 @@ function gateState({ file, records, unparsed, unknown }) {
 
 function selftest() {
   const fails = []
+  // 条数由脚本自己数着打（`ran`）：原先打的是硬编码 13，加一条用例文档就永远对不上，
+  // 少一条也不会报——同"文件数由脚本自己打印，文档不抄数"那条纪律。
+  let ran = 0
   const check = (name, cond, detail) => {
+    ran++
     if (!cond) fails.push(`${name}${detail ? `：${detail}` : ''}`)
   }
   const allow = [
@@ -162,6 +197,25 @@ function selftest() {
   // 窗口过滤：只取 00:00:02 之后的 WARN
   const w = classify(parsed.records, allow, { since: '2026-10-20T00:00:02Z' })
   check('窗口过滤生效', w.scanned === 3, `实际 ${w.scanned}`)
+
+  // 窗口串的**时区口径**（b83）：日志时间戳是 UTC，数据集窗口是 naive-UTC 文本。
+  // `Date.parse('2026-10-20 00:00:02')` 在 UTC+8 上按本地时区解释 ⇒ 窗口前移 8 小时，
+  // 会把上一轮的 WARN/ERROR 扫进本轮判定（b79 实测过同形错误的代价）。四条双向：
+  const epochNaive = windowToEpoch('2026-10-20 00:00:02')
+  const epochZ = windowToEpoch('2026-10-20T00:00:02Z')
+  check('naive 串必须按 UTC 解析（与带 Z 的同刻）', epochNaive === epochZ, `${epochNaive} vs ${epochZ}`)
+  check(
+    '带偏移的串必须按偏移解析',
+    windowToEpoch('2026-10-20T08:00:02+08:00') === epochZ,
+    String(windowToEpoch('2026-10-20T08:00:02+08:00'))
+  )
+  check('垃圾串必须返回 NaN（不得读成"无窗口"）', Number.isNaN(windowToEpoch('昨天下午')))
+  check('空串必须返回 NaN', Number.isNaN(windowToEpoch('')))
+  // 同一份夹具按 naive-UTC 窗口过滤，结果必须与带 Z 的完全一致（判据不受调用方写法影响）
+  const wNaive = classify(parsed.records, allow, {
+    since: new Date(epochNaive).toISOString()
+  })
+  check('naive 窗口与 Z 窗口必须扫到同一条数', wNaive.scanned === w.scanned, `${wNaive.scanned} vs ${w.scanned}`)
 
   // 允许表自身必须拒绝坏形状
   for (const [name, entries] of [
@@ -206,14 +260,21 @@ function selftest() {
     for (const f of fails) console.error(`  · ${f}`)
     process.exit(1)
   }
-  console.log(`SYNTH_OK 后端日志判据 ${13} 条双向（解析/续行/窗口/允许表形状/空日志/未登记必红）`)
+  console.log(`SYNTH_OK 后端日志判据 ${ran} 条双向（解析/续行/窗口过滤/窗口时区口径/允许表形状/空日志/未登记必红）`)
   process.exit(0)
 }
 
 function main() {
   const args = process.argv.slice(2)
-  if (args.includes('--selftest')) return selftest()
+  // `--selftest` 的派发只在文件末尾那一条（旗标纪律扫描器 R3：原先这里还有一条同名派发，
+  // 而 main() 只可能在 else 分支被调用 ⇒ 永远走不到；留着的代价是下一个人改错了地方）。
   const opt = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) || null
+  // `--gate` 必须显式给（原判据文档把它写进用法却无人读 ⇒ 加了不等于没加）。
+  // 不给就当"这次不是来要结论的"，EXIT=2：不得把"没声明"读成"通过"，也不得读成"缺陷"。
+  if (!args.includes('--gate')) {
+    console.error('EXIT=2 必须显式加 --gate（本判据要求调用者声明这次要的是判定；未加 ⇒ 不作结论）')
+    process.exit(2)
+  }
   const envLog = process.env.STEPBY_BACKEND_LOG || ''
   const file = opt('log') || envLog
   if (!file) {
@@ -232,10 +293,32 @@ function main() {
     console.error(`EXIT=2 ${e.message}`)
     process.exit(2)
   }
+  // 窗口必填（与 oper-log-audit 同口径）：不给就不判——读着跨轮轮转的 `logs/app.log`
+  // 判出来的既不是本轮的通过，也不是本轮的失败。缺省时从本轮数据集自证字段取，
+  // 让人不必抄时间串（抄错方向=把上一轮扫进来）。
+  const fromDs = windowFromDataset()
+  const since = opt('since') || process.env.STEPBY_BACKEND_SINCE || fromDs?.since || ''
+  const until = opt('until') || process.env.STEPBY_BACKEND_UNTIL || fromDs?.until || ''
+  const sinceMs = windowToEpoch(since)
+  const untilMs = windowToEpoch(until)
+  if (!Number.isFinite(sinceMs)) {
+    console.error(
+      `EXIT=2 窗口起点缺失或不可解析：--since= / STEPBY_BACKEND_SINCE / screenshots/deep-e2e-reqstats.json 三处都没拿到可用值` +
+        `（给的="${since || '空'}"；naive 串按 UTC 解释）`
+    )
+    process.exit(2)
+  }
+  if (until && !Number.isFinite(untilMs)) {
+    console.error(`EXIT=2 窗口终点不可解析："${until}"`)
+    process.exit(2)
+  }
+  console.log(
+    `  窗口：${since} → ${until || '（到文件末尾）'}（来源：${opt('since') ? '--since' : process.env.STEPBY_BACKEND_SINCE ? 'STEPBY_BACKEND_SINCE' : fromDs ? fromDs.source : '—'}，按 UTC 解释）`
+  )
   const parsed = parseLog(fs.readFileSync(abs, 'utf8'))
   const { unknown, allowed, scanned } = classify(parsed.records, allow, {
-    since: opt('since'),
-    until: opt('until')
+    since: new Date(sinceMs).toISOString(),
+    until: untilMs ? new Date(untilMs).toISOString() : null
   })
   console.log(`后端日志：${abs}`)
   console.log(`  记录 ${parsed.records.length} / 级别 ${JSON.stringify(summarize(parsed.records))}`)

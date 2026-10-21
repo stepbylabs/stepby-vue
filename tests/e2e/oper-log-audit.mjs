@@ -152,7 +152,10 @@ export function gateState({ dbFile, since, until, opsCount, unknown }) {
 
 function selftest() {
   const fails = []
+  // 条数由脚本自己数（同 backend-log-audit）：硬编码的用例数加一条就变成假账
+  let ran = 0
   const check = (name, cond, detail) => {
+    ran++
     if (!cond) fails.push(`${name}${detail ? `：${detail}` : ''}`)
   }
   const dir = fs.mkdtempSync(path.join(REPO, 'stepby-vue', 'tests', 'e2e', '_tmp_oper_'))
@@ -301,15 +304,26 @@ function selftest() {
     process.exit(1)
   }
   console.log(
-    'SYNTH_OK 失败操作日志判据 17 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未登记必红/零操作与反向窗口必拒）'
+    `SYNTH_OK 失败操作日志判据 ${ran} 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未登记必红/零操作与反向窗口必拒）`
   )
   process.exit(0)
 }
 
 function main() {
   const args = process.argv.slice(2)
-  if (args.includes('--selftest')) return selftest()
+  // 注：`--selftest` 的派发**只在文件末尾那一条**（`if (...) selftest() else main()`）。
+  // 原先这里还有一条同名派发，而 main() 只可能在 else 分支被调用 ⇒ 永远走不到，
+  // 改它的人会以为改了派发逻辑而实际什么都没发生（旗标纪律扫描 `e2e_flag_discipline.py`
+  // 的"同一脚本不得有两条 --selftest 派发"就是为此立的）。
   const opt = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) || null
+  // 用法说明里承诺了 `--gate`，而上一版代码**没有任何读点**（旗标纪律扫描器 R1 报的）：
+  // 加了和不加行为一致，等于对调用者撒了个"这次是你要求判定的"的谎。现在要求显式声明：
+  // 不给 ⇒ EXIT=2（不作结论），给了 ⇒ 判定。两处既有调用者（run-gates 的 `operlog`、
+  // RUN-RECIPE 的收口命令）本来就带 `--gate`，所以这一改不会把任何现有闸变松。
+  if (!args.includes('--gate')) {
+    console.error('EXIT=2 必须显式加 --gate（本判据要求调用者声明这次要的是判定；未加 ⇒ 不作结论）')
+    process.exit(2)
+  }
   const dbFile = path.resolve(opt('db') || DEFAULT_DB)
   const since = normalizeWindow(opt('since') || process.env.STEPBY_OPER_SINCE || '')
   const until = normalizeWindow(opt('until') || process.env.STEPBY_OPER_UNTIL || '') || '9999-12-31 23:59:59'

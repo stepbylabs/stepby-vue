@@ -119,6 +119,425 @@ export function detectPartialFailure(method, status, contentType, text) {
   return null
 }
 
+// ==================== ⑧ 点击落地失败自证（批八十三 · N-8 机制级） ====================
+
+/**
+ * 为什么要做成机制级，而不是逐站点改判据：
+ *
+ * 两套件里有 **200 处** `locator.click(...).catch(() => {})`（deep-e2e 158 / main 42）。
+ * 每一次吞掉的都是"这次点击到底落没落地"这个事实本身，而后续断言读的往往是
+ * **请求条数**或**状态未变**——于是"按钮失灵"与"闸门生效阻止了请求"这两种相反状态
+ * 能同时让判据变绿（AGENTS 前端归一规范 §3.③ 立的正是这一族）。批八十二之前只能靠
+ * `e2eClickPolicy.guard.test.ts` 禁 `force: true`，那是**写法**约束，不是**事实**约束。
+ *
+ * 现改为给点击族的**实现原型**打补丁：**记录后原样 rethrow**，返回语义不变、
+ * 现有 200 处一行不动，但每一次落地失败都留下 `{tag, action, method, selector, 错误}`。
+ *
+ * 四条设计取舍（都有实测依据）：
+ * 1. **补 `_Frame.prototype`，不补 `_Locator.prototype`**。探针实测：一次
+ *    `page.locator('#ghost').click()` 失败会**同时**触发打了补丁的 `Frame.click`
+ *    （错误前缀就是 `frame.click:`）和自己 ⇒ `Locator` 的点击族
+ *    （`click/dblclick/tap/hover/check/uncheck`）**全部**经所属 Frame 落地，
+ *    `page.click(sel)` / `frame.click(sel)` 也是同一个原型。两条都补就是**每次失败双计**
+ *    （`check` 这类还会嵌套出 `check`+`click` 更多条），计数与允许表随之失真。
+ *    首轮只补 Locator 时漏掉了 3 处真实存在的 `page.click(...)`；只补一条原型的
+ *    "覆盖是否完整"不能靠注释声明，由 `probeClickChannel` **每轮跑批自证**。
+ * 2. **另补 `_ElementHandle.prototype`**：实测 `handle.click()` **不**经 Frame
+ *    （探针在 `Frame.click` 上装记录器，handle 点击时记录器为空），是第三条独立调用面。
+ *    本批一开始想用静态守卫把这一面禁掉（"套件里不得出现 ElementHandle"），但那条规则的
+ *    刀口会落在 `waitForSelector` 上——实测它在 deep-e2e 一个文件里就有 24 处，绝大多数只是
+ *    等待、与点击无关，为它改 24 处站点属于"为写法约束付真实功能改动的代价"。**补上通道
+ *    比立法更稳**：handle 的 `_page` 字段不存在，但有 `_frame`，归因照旧；它没有选择器，
+ *    于是记 `'<ElementHandle>'`——**归因变粗可以，丢记录不行**。
+ * 3. **失败要配对"后来是否被重试救回"**：`realClick()` 的正常流程就是"普通点击失败 →
+ *    收遮罩 → 再点一次"，那第一次失败是设计内的。配对用"同 `(tag, method, 选择器)` 键的
+ *    **最近一次成功时刻** > 失败时刻"判定（只需记最近一次成功：最新成功天然在所有失败之后，
+ *    取不到更晚的成功就等于没有更晚的成功）。
+ * 4. **采集面坏了必须自称**：未打补丁 / 超出上限 ⇒ 状态标记落盘，审计脚本据此判 **UNRUN**
+ *    而不是"零失败"（同 §测试门禁 ⑥"期望成功为正控"、⑦"取不到数不得读成没有失败"）。
+ */
+
+/**
+ * 被自证的点击方法集 —— **唯一事实源**。
+ * `click-failure-audit.mjs`、自检、runner 落盘都从这里取，不得各自再抄一份：
+ * 抄两份时漏掉的那个方法，就重新变成静默吞掉。
+ */
+export const CLICK_METHOD_NAMES = Object.freeze(['click', 'tap', 'dblclick', 'check', 'uncheck', 'hover'])
+
+/** 单次运行最多留存的点击失败条数；超出即置 overflow，审计脚本据此拒绝下结论 */
+const CLICK_FAIL_CAP = 3000
+/**
+ * 单条凭证的长度上限。b82 取 220 是想压数据集体积，实测却正好砍在证据上：
+ * Playwright 的 call log 形如 `waiting for locator → locator resolved to <div…> →
+ * attempting click action → element is not stable / <div class="el-overlay"> intercepts
+ * pointer events`，**归因全在后半段**，220 字符只够写到 "attem"。
+ * 这条通道存在的唯一理由就是"能自己归因"，所以取证优先于体积（3000×600B ≈ 1.8MB 最坏）。
+ */
+const CLICK_MESSAGE_CAP = 600
+/** "同键最近一次成功时刻"表的键数上限；超出说明键面失控，宁可标记不得静默 */
+const CLICK_OK_KEY_CAP = 20000
+
+/** 本轮全部点击失败事件（按发生顺序，最新在后） */
+const clickFails = []
+/** `${tag}|${method}|${归一选择器}` → 最近一次**成功**的 epoch ms */
+const lastClickOk = new Map()
+/** `${tag}|${needle}` → 最近一次 DOM 兜底成功的 epoch ms（用来把"同一次调用"的多条失败成组救回） */
+const lastFallbackOk = new Map()
+/** 采集面被上限截断过（截断后恢复性配对不可信） */
+let clickCollectOverflow = false
+/** page → hub 归因表（WeakMap：页面关掉即回收，不阻止 GC） */
+const hubByPage = new WeakMap()
+/** 最近一个 hub：归因取不到 page 时的回落 */
+let latestHub = null
+/** 已打过补丁的 Frame 原型（幂等哨兵；同时也是"采集通道确实建起来了"的证据） */
+let patchedLocatorProto = null
+/** 已打过补丁的 ElementHandle 原型（`handle.click()` 不经 Frame，是独立调用面） */
+let patchedHandleProto = null
+/** 真挂上去的包装方法数（期望 `CLICK_METHOD_NAMES.length × 2 条原型` = 12；自检按这个数对账） */
+let clickMethodsPatched = 0
+
+/**
+ * 归一化选择器：让允许表能跨轮稳定对账。
+ * 顺序有讲究——夹具名里的数字必须先整族折叠，否则 `e2e81-a` 与 `e2e93-b`
+ * 会因数字不同裂成两型（同一形状的失败被登记两次，计数失去意义）。
+ */
+export function normalizeClickSelector(sel) {
+  return String(sel ?? '<无选择器>')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'UUID')
+    .replace(/\be2e[A-Za-z0-9_-]*/g, 'FIXTURE')
+    .replace(/\d+/g, 'N')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+}
+
+/** 归一化后的点击事件键（tag + 方法 + 选择器形状）：允许表与恢复性配对都用它 */
+function clickEventKey(tag, method, selector) {
+  return `${tag}|${method}|${selector}`
+}
+
+/**
+ * 取被点击那一侧的选择器。
+ *
+ * - Frame 形态（`page.click(sel)`、以及 `locator(sel).click()` 经所属 Frame 落地）：
+ *   选择器是**第一个实参**。
+ * - ElementHandle 形态（`handle.click()`）：调用时选择器早已在 `page.$()` 那一刻消耗掉，
+ *   实体上也没有 `_selector` ⇒ 记 `'<ElementHandle>'`。**不得**留空串——空串会让不同
+ *   调用裂成同一个允许表键，把"哪一次点击没落地"这条信息整个抹掉；归因变粗可以，丢记录不行。
+ */
+function clickSelectorOf(receiver, args) {
+  if (typeof args[0] === 'string') return args[0]
+  return receiver && !receiver._page && receiver._frame ? '<ElementHandle>' : '<非选择器调用>'
+}
+
+/**
+ * 归因：被调对象 → 所属 hub。
+ * 实测 `Frame._page` 恒为顶层 Page（含子 iframe）；`ElementHandle` **没有** `_page`，
+ * 只有 `_frame` ⇒ 两路都试。取不到就回落"最近一个 hub"。
+ */
+function hubForReceiver(receiver) {
+  const page = receiver?._page || receiver?._frame?._page
+  if (page && hubByPage.has(page)) return hubByPage.get(page)
+  return latestHub
+}
+
+/** 记录一次点击落地失败（**只记录，不改变调用方的任何行为**） */
+function noteClickFailure(receiver, method, args, err) {
+  const hub = hubForReceiver(receiver)
+  const tag = hub?.tag || 'x'
+  const selector = normalizeClickSelector(clickSelectorOf(receiver, args))
+  const at = Date.now()
+  if (clickFails.length >= CLICK_FAIL_CAP) {
+    clickCollectOverflow = true
+    return
+  }
+  clickFails.push({
+    tag,
+    action: hub?.currentAction?.() || '',
+    method,
+    selector,
+    key: clickEventKey(tag, method, selector),
+    name: String(err?.name || ''),
+    message: String(err?.message || err || '')
+      .replace(ANSI_RE, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, CLICK_MESSAGE_CAP),
+    at
+  })
+}
+
+/** 记录一次点击落地**成功**（只保留每个键的最近时刻，用于失败→重试配对） */
+function noteClickSuccess(receiver, method, args) {
+  const hub = hubForReceiver(receiver)
+  const key = clickEventKey(hub?.tag || 'x', method, normalizeClickSelector(clickSelectorOf(receiver, args)))
+  if (!lastClickOk.has(key) && lastClickOk.size >= CLICK_OK_KEY_CAP) {
+    clickCollectOverflow = true
+    return
+  }
+  lastClickOk.set(key, Date.now())
+}
+
+/**
+ * 给一个原型上的点击族打补丁（对每个方法只生效一次；重复调用直接跳过）
+ *
+ * 导出只为自检能拿它当"测试接缝"：真跑时补丁打在 `_Frame.prototype` 上，而自检不需要浏览器
+ * ——造一个六个方法都会拒绝的假原型即可复现"一次调用留两条失败"的真实形状。
+ *
+ * @param {object} proto - `Object.getPrototypeOf(page.mainFrame())`，即 `_Frame.prototype`
+ * @returns {boolean} 是否真的补上了（补不上必须记进采集状态，不得当成"零失败"）
+ */
+export function instrumentClickProto(proto) {
+  if (!proto || typeof proto.click !== 'function') return false
+  for (const name of CLICK_METHOD_NAMES) {
+    const origin = proto[name]
+    if (typeof origin !== 'function') {
+      clickCollectOverflow = true
+      continue
+    }
+    if (origin.__stepbyClickProbe) continue
+    clickMethodsPatched++
+    const wrapped = function patched(...args) {
+      let ret
+      try {
+        ret = origin.apply(this, args)
+      } catch (syncErr) {
+        noteClickFailure(this, name, args, syncErr)
+        throw syncErr
+      }
+      return Promise.resolve(ret).then(
+        (value) => {
+          noteClickSuccess(this, name, args)
+          return value
+        },
+        (err) => {
+          noteClickFailure(this, name, args, err)
+          throw err
+        }
+      )
+    }
+    wrapped.__stepbyClickProbe = true
+    proto[name] = wrapped
+  }
+  return true
+}
+
+/**
+ * 采集点击落地失败：只给 `_Frame.prototype` 打补丁（幂等；`createCaptureHub` 每次都调，
+ * 只有第一次真打）
+ *
+ * @param {object} page - 任意活着的 Page（只为拿到 `_Frame.prototype`）
+ */
+function instrumentLocatorClicks(page) {
+  if (patchedLocatorProto) return
+  let frameProto = null
+  try {
+    frameProto = Object.getPrototypeOf(page.mainFrame())
+  } catch {
+    frameProto = null
+  }
+  if (!instrumentClickProto(frameProto)) {
+    // 拿不到原型 ⇒ 通道建不起来。这里**必须**留标记：否则审计脚本读到"0 条失败"，
+    // 而真因是"一条都没采"——正是 §测试门禁 ⑥ 那一族（自检只期望抛错等于没测）。
+    clickCollectOverflow = true
+    return
+  }
+  patchedLocatorProto = frameProto
+}
+
+/**
+ * 给 `_ElementHandle.prototype` 打点击补丁（异步；`createCaptureHub` 的 initPromise 链与
+ * `probeClickChannel` 都会调，只有第一次真打）。
+ *
+ * 为什么单独一条：实测 `handle.click()` **不**经 Frame（探针在 `Frame.click` 上装记录器，
+ * handle 点击时记录器为空）⇒ 不补这一面，那类点击的落地失败永远不会被记录，
+ * 而数据集看起来"一条都没有"。
+ *
+ * @param {object} page - 任意活着的 Page（`page.$('body')` 只为拿到那个原型）
+ * @returns {Promise<boolean>} 通道是否可用（已打过也算 true）
+ */
+async function instrumentHandleClicks(page) {
+  if (patchedHandleProto) return true
+  try {
+    const handle = await page.$('body')
+    if (!handle) {
+      clickCollectOverflow = true
+      return false
+    }
+    if (!instrumentClickProto(Object.getPrototypeOf(handle))) {
+      clickCollectOverflow = true
+      return false
+    }
+    patchedHandleProto = Object.getPrototypeOf(handle)
+    return true
+  } catch {
+    clickCollectOverflow = true
+    return false
+  }
+}
+
+/**
+ * **通道自证**：每次跑批自己证明一遍采集面真的接得上，不等收口时人工核对。
+ *
+ * 立这条的理由是本轮实测踩到的两个相反形状：
+ * - 首轮只补 `_Locator.prototype` 时，`page.click(sel)` 一条都不记（真实存在 3 处站点）；
+ * - 两条原型都补时，一次 `locator.click()` 失败记了 **2** 行（Locator 经 Frame 落地）。
+ * 两种都"看着绿"，前者是漏采，后者是让允许表与计数失真。判据必须同时钉
+ * **"记到了"** 与 **"只记一条"**。
+ *
+ * 用一个空白页造两次注定失败的点击（不需要被测系统、不起服务、不写业务库），
+ * 按**增量**对账；探针自己产生的行**必须撤回**，否则它们会进数据集变成允许表噪声。
+ *
+ * @param {object} browser - Playwright Browser（`chromium.launch()` 的返回值）
+ * @returns {Promise<object>} `{ ok, detail }`；`ok=false` 时审计脚本必须判 UNRUN 而非"零失败"
+ */
+export async function probeClickChannel(browser) {
+  const mark = clickFails.length
+  let ctx = null
+  try {
+    ctx = await browser.newContext()
+    const probePage = await ctx.newPage()
+    // 探针自带建链动作：这样它证明的是"从补丁到记录"的**整条通道**，
+    // 而不是"某个模块恰好先建过 hub"。已建过也无害（instrument 幂等）。
+    instrumentLocatorClicks(probePage)
+    await instrumentHandleClicks(probePage)
+    if (!patchedLocatorProto) return { ok: false, detail: '采集通道未建立（Frame 原型补丁没挂上）' }
+    if (!patchedHandleProto) return { ok: false, detail: '采集通道未建立（ElementHandle 原型补丁没挂上）' }
+    await probePage.goto('data:text/html,<body>probe<i id="__stepby_probe_el">x</i></body>')
+    const beforeLocator = clickFails.length
+    await probePage
+      .locator('#__stepby_click_probe_a')
+      .click({ timeout: 1500 })
+      .catch(() => {})
+    const locatorDelta = clickFails.length - beforeLocator
+    const beforePage = clickFails.length
+    await probePage.click('#__stepby_click_probe_b', { timeout: 1500 }).catch(() => {})
+    const pageDelta = clickFails.length - beforePage
+    // ElementHandle 形态：先取 handle，再把元素从 DOM 摘掉 ⇒ `handle.click()` 必然失败，
+    // 且实测**不**经 Frame（所以这一条真的只在验证 handle 那条面接没接上）
+    const handle = await probePage.$('#__stepby_probe_el')
+    if (!handle) return { ok: false, detail: '探针取不到 ElementHandle（page.$ 形状变了）' }
+    await handle.evaluate((el) => el.remove())
+    const beforeHandle = clickFails.length
+    await handle.click({ timeout: 1500 }).catch(() => {})
+    const handleDelta = clickFails.length - beforeHandle
+    const detail = `locator 失败增量=${locatorDelta} / page.click 增量=${pageDelta} / handle.click 增量=${handleDelta}（各期望 1）`
+    if (locatorDelta !== 1 || pageDelta !== 1 || handleDelta !== 1) return { ok: false, detail }
+    return { ok: true, detail }
+  } catch (e) {
+    return { ok: false, detail: `探针自身异常：${String(e?.message || e).slice(0, 160)}` }
+  } finally {
+    // 撤回探针自己产生的行（不得污染数据集）——截回 mark 而不是清 0，
+    // 万一有人把探针挪到跑批中途，清 0 会把已采到的失败一起抹掉，那是丢记录。
+    clickFails.length = mark
+    await ctx?.close().catch(() => {})
+  }
+}
+
+/**
+ * 把"这次交互确实落地了"补记到最近一条匹配的失败上。
+ *
+ * 为什么需要这条通道：`clickButton()` 的既定流程是"真点击失败 → 收遮罩再真点 → 仍失败则
+ * DOM 兜底点（在可见元素上 dispatchEvent）"。前两次失败是设计内的，而 DOM 兜底**不产生
+ * Playwright 点击** ⇒ 同键配对看不见它，那两条失败就会被判成"点了没落地"，
+ * 于是允许表要为一族本来就被证明救回了的形状签字（登记率被噪声吃掉，正是 endpoint-coverage
+ * 实测过的"每轮必红于是没人登记"的入口）。
+ *
+ * 判据不放宽：只有 DOM 兜底**真的在一个可见目标上 dispatch 成功**时调用方才该调这里；
+ * 兜底也失败（`clickButton` 返回 false）时不调 ⇒ 那两条失败仍然未救回 ⇒ 仍然要点名。
+ *
+ * @param {string} match - 失败行选择器里的定位片段（如按钮文本 `数据权限`）；空白串不得匹配
+ * @param {string} [method] - 只标这个方法
+ * @returns {boolean} 是否标中了某一条
+ */
+export function markClickLanded(match, method = 'click') {
+  const needle = String(match ?? '').trim()
+  if (!needle) return false
+  // 只在**当前归因标签**内回溯：不限定标签时，M40 的一次成功兜底会把 M1 里同文本的失败
+  // 一起"救回"，而那两个模块根本没有因果关系——那正是把红灯洗成绿灯的口子。
+  const tag = latestHub?.tag || 'x'
+  // 同一次调用内的多条失败要**一起**救回：`clickButton()` 一次调用会留下"真点失败 + 收遮罩
+  // 后再点失败"两条行，然后才走 DOM 兜底。只标最近一条 ⇒ 前一条永远显示"未救回"，
+  // 于是允许表要为一族**已经被证明救回**的形状逐轮签字（b83 实测 M85 每轮白报 3 条）。
+  // 分组的边界是"上一次兜底成功"：那之前的失败属于另一次调用，那次兜底若失败就没有标记得救。
+  const groupKey = `${tag}|${needle}`
+  const since = lastFallbackOk.get(groupKey) || 0
+  let hit = false
+  for (let k = clickFails.length - 1; k >= 0; k--) {
+    const r = clickFails[k]
+    if (r.at <= since) break
+    if (r.tag !== tag) continue
+    if (r.method === method && r.selector.includes(needle)) {
+      r.landedByFallback = true
+      hit = true
+    }
+  }
+  lastFallbackOk.set(groupKey, Date.now())
+  return hit
+}
+
+/**
+ * 采集到的点击失败行（就地补 `recovered`：这次失败之后同键是否有过成功，或被 DOM 兜底救回）
+ *
+ * @returns {Array<object>} 浅拷贝，调用方可安全序列化
+ */
+export function clickFailureRows() {
+  return clickFails.map((r) => ({
+    ...r,
+    recovered: (lastClickOk.get(r.key) || 0) > r.at || !!r.landedByFallback
+  }))
+}
+
+/** 采集通道自身状态（审计脚本据此区分"没有失败"与"采不到失败"） */
+export function clickFailureCollectState() {
+  return {
+    instrumented: !!patchedLocatorProto,
+    handleInstrumented: !!patchedHandleProto,
+    methodsPatched: clickMethodsPatched,
+    // 判据用它对账"补丁条数是否等于方法数 × 两条原型面"：少一面就是有一面在静默漏采，
+    // 而数据集里"0 条失败"与"一条都没采"逐字节同形（同 §测试门禁 ⑦⑧ 那一族）。
+    expectedPatched: CLICK_METHOD_NAMES.length * 2,
+    overflow: clickCollectOverflow,
+    cap: CLICK_FAIL_CAP,
+    recorded: clickFails.length,
+    okKeys: lastClickOk.size
+  }
+}
+
+/**
+ * 落盘点击失败数据集（**两套件共用这一份写法**，避免两套各自手抄 JSON 形状而漂移）
+ *
+ * @param {string} file - 输出路径
+ * @param {object} [meta] - 轮次元信息（full / windowStart / windowEnd / channelProbe 等）
+ * @returns {{path: string, failures: number, unrecovered: number, shapes: number, channel: object}}
+ */
+export function writeClickFailureReport(file, meta = {}) {
+  const rows = clickFailureRows()
+  const state = clickFailureCollectState()
+  const shapes = new Set(rows.map((r) => r.key)).size
+  const totals = {
+    failures: rows.length,
+    unrecovered: rows.filter((r) => !r.recovered).length,
+    shapes
+  }
+  fs.writeFileSync(
+    file,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        ...meta,
+        channel: state,
+        totals,
+        rows
+      },
+      null,
+      2
+    ),
+    'utf-8'
+  )
+  return { path: file, ...totals, channel: state }
+}
+
 /**
  * 在页面上注册全部捕获通道
  *
@@ -134,9 +553,15 @@ export function createCaptureHub(page, options = {}) {
   const {
     tag = 'x',
     screenshot: enableShot = true,
-    shotDir = path.join(process.cwd(), 'tests', 'e2e', 'screenshots'),
+    // 同 DEFAULT_BACKEND_LOG_DIR（b73 轮 10 那条）的镜像面：截图目录也不得随 cwd 漂移，
+    // 否则从仓根启动的轮次把截图与失败现场写进 `stepby-vue/screenshots/`，
+    // 而消费方按脚本位置读 `tests/e2e/screenshots/`。
+    shotDir = path.join(HERE, 'screenshots'),
     slowMs = SLOW_REQUEST_MS
   } = options
+
+  // ⑧ 点击落地自证：在任何一次点击发生之前把原型补丁挂上（幂等，只有第一次真打）
+  instrumentLocatorClicks(page)
 
   /** 最近 Toast 文本（最新在后） */
   const toasts = []
@@ -205,6 +630,10 @@ export function createCaptureHub(page, options = {}) {
       )
     )
     .catch(() => {})
+    // ⑧ ElementHandle 那条面的补丁必须**异步**拿（`page.$()` 是异步的），挂在这条已经
+    // 被所有调用方 await 的 initPromise 链尾——调用方一律 `await hub.initPromise`，
+    // 所以到模块开始点击时两条原型必然都已接上（`probeClickChannel` 每轮还会再证一遍）。
+    .then(() => instrumentHandleClicks(page))
 
   // ---- ② 失败请求（含响应体 msg）+ ③ 慢请求 + ⑦ 每动作请求数分布（批七十四 T5）----
   const startedAt = new Map()
@@ -439,7 +868,7 @@ export function createCaptureHub(page, options = {}) {
     return Array.from(byLabel.entries()).map(([label, v]) => `    · ${label} ×${v.count} — ${v.sample}`)
   }
 
-  return {
+  const api = {
     /** 归属标签（M<id>）：汇总阶段把失败请求归因到模块，负路径对账才能逐条闭合 */
     tag,
     initPromise,
@@ -470,6 +899,10 @@ export function createCaptureHub(page, options = {}) {
     beginAction(name) {
       actionTag = String(name || 'unnamed').slice(0, 60)
     },
+    /** 批八十三：当前动作标签（点击失败行靠它归因到"哪一次工作单元"） */
+    currentAction() {
+      return actionTag
+    },
     /** 批七十四 T5：本轮 `(动作, 方法 端点)` 请求数分布快照（按次数降序） */
     requestStatSnapshot() {
       return Array.from(requestCounts.entries())
@@ -477,6 +910,10 @@ export function createCaptureHub(page, options = {}) {
         .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
     }
   }
+  // ⑧ 归因注册：放在对象构造之后，保证 hubForLocator 拿到的 hub 一定带 tag/action
+  hubByPage.set(page, api)
+  latestHub = api
+  return api
 }
 
 /**

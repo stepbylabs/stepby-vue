@@ -35,6 +35,56 @@ import { createRequire } from 'module'
 // 免凭据的入口按"是否需要浏览器"划，不按旗标名枚举：`--update-skip-baseline-from=` 同样只读
 // 一份日志 + 一份基线（b82 实测：它当时仍走静态导入，于是脱离启动的收口命令在**没有凭据的 shell**
 // 里必然崩在 import 期，报的还是 `test-config.mjs:24` 那句与本次操作毫无关系的话）。
+/**
+ * **旗标白名单闸（排在凭据导入之前）**（批八十三）。
+ * 为什么必须在 import 之前：这条链的下方是 `test-config.mjs` 的 fail-fast，缺凭据时它会先抛——
+ * 于是"拼错旗标"的人看到的是**一句与本次操作无关的凭据错误**（b82 §12② 立的正是"不启浏览器的
+ * 入口一律免凭据"，报错方向也要免凭据：拒绝必须发生在无关的前置之上）。
+ * `--domain=` 单列在 NOT_IMPLEMENTED 里：它原先把值写进 `CONFIG.domainFilter` 而全树无人读，
+ * 用户加了以为按业务域筛过、实际跑了全量。套件没有"模块→业务域"元数据（唯一事实源 `testFns`
+ * 只有 id→函数），凭空造一张 90 行域表属假功能，所以只给一条指路的拒绝。
+ */
+const KNOWN_FLAGS = [
+  '--headless',
+  '--headed',
+  '--module', // 值型旗标：后面那一个 argv 是它的值，不当旗标看
+  '--plan',
+  '--update-skip-baseline'
+]
+const KNOWN_VALUE_FLAGS = ['--feature=', '--range=', '--except=', '--update-skip-baseline-from=']
+const NOT_IMPLEMENTED = ['--domain=']
+
+/** 纯函数：返回拒绝理由，或 null 表示旗标集合可识别（自检与入口共用同一份判据） */
+function unknownFlagError(list) {
+  for (let i = 0; i < list.length; i++) {
+    const arg = list[i]
+    if (arg === '--module') {
+      i++ // 跳过它的值
+      continue
+    }
+    const dead = NOT_IMPLEMENTED.find((f) => arg.startsWith(f))
+    if (dead) {
+      return (
+        `❌ ${dead} 没有实现（注册表只有 id→函数，无模块→业务域元数据）。` +
+        '可用的筛法：--feature=N / --range=A-B / --except=13,29；分片口径见 --plan。'
+      )
+    }
+    if (KNOWN_FLAGS.includes(arg) || KNOWN_VALUE_FLAGS.some((f) => arg.startsWith(f))) continue
+    return (
+      `❌ 未识别的旗标：${arg}\n` +
+      '   可用：--headless / --headed / --feature=N / --module N / --range=A-B / ' +
+      '--except=13,29 / --update-skip-baseline / --update-skip-baseline-from=<日志> / --plan'
+    )
+  }
+  return null
+}
+
+const earlyFlagError = unknownFlagError(process.argv.slice(2))
+if (earlyFlagError) {
+  console.error(earlyFlagError)
+  process.exit(2)
+}
+
 const planOnly = process.argv.includes('--plan')
 const skipBaselineFromArg = process.argv.find((a) => a.startsWith('--update-skip-baseline-from='))
 const noBrowserEntry = planOnly || Boolean(skipBaselineFromArg)
@@ -43,7 +93,7 @@ const { TEST_USER, TEST_PASS, BASE_URL } = noBrowserEntry
   : await import('./test-config.mjs')
 import { runMain, applySkipBaselineFromLog } from './e2e/run/runner.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
-import { createCaptureHub } from './capture-kit.mjs'
+import { createCaptureHub, markClickLanded } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { readCaptchaCodeFromRedis, capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi } from './e2e/run/auth.mjs'
 import { makeActionBreadthTest } from './modules/actionBreadth.mjs'
@@ -79,7 +129,8 @@ const CONFIG = {
   headless: true,
   featureFilter: null,
   featureRange: null,
-  domainFilter: null,
+  // 原先这里还有 `domainFilter: null`：`--domain=` 把值写进来，全树却没有任何读点
+  // （RUN-RECIPE §… 曾把它列为支持的筛法）。批八十三改成响亮拒绝，见下面参数解析。
   except: [],
   /** 批七十四 T2：把本轮实测 SKIP 写回棘轮基线（仅全量跑批有效，见 runner.mjs） */
   updateSkipBaseline: false
@@ -127,26 +178,36 @@ for (let i = 2; i < process.argv.length; i++) {
     i++
   } else if (arg.startsWith('--range=')) {
     // 支持 --range=67-75 过滤模块范围；单数字 --range=84 等价于 --range=84-84
-    const parts = arg
-      .split('=')[1]
-      .split('-')
-      .map((n) => parseInt(n, 10))
-    const start = parts[0]
-    const end = parts[1] ?? start
+    // 批八十三：原先直接 `parseInt`，`--range=67:75` 这类拼错会折成 NaN——而 NaN 与任何编号
+    // 比较都是 false ⇒ **一个模块都不跑**，输出照常被读成"这一片跑过了"。与 b73 轮 14 的
+    // "`--feature=1,21,70` 只静默跑模块 1" 同一族：分母失真比报错危险。
+    const spec = String(arg.split('=')[1] || '').trim()
+    const m = spec.match(/^(\d+)(?:-(\d+))?$/)
+    if (!m) {
+      console.error(`❌ --range 参数必须是 N 或 A-B（收到：${arg}）`)
+      process.exit(2)
+    }
+    const start = parseInt(m[1], 10)
+    const end = m[2] ? parseInt(m[2], 10) : start
+    if (end < start) {
+      console.error(`❌ --range=${spec} 起止倒置（${start} > ${end}）`)
+      process.exit(2)
+    }
     CONFIG.featureRange = { start, end }
-  } else if (arg.startsWith('--domain=')) {
-    // 支持 --domain=system,monitor 按业务域过滤
-    CONFIG.domainFilter = arg.split('=')[1].split(',')
   } else if (arg === '--update-skip-baseline') {
     // 批七十四 T2：全量跑批后收紧 SKIP 棘轮基线（分段跑会被 runner 拒绝）
     CONFIG.updateSkipBaseline = true
   } else if (arg.startsWith('--except=')) {
-    // 支持 --except=13,29 排除指定模块
-    CONFIG.except = arg
-      .split('=')[1]
-      .split(',')
-      .map((n) => parseInt(n, 10))
+    // 支持 --except=13,29 排除指定模块（同一套严格解析，因此也接受 --except=13-15,29）
+    const set = parseModuleSet(arg.split('=')[1])
+    if (set.size === 0) {
+      console.error(`❌ --except 参数无法解析为模块集合：${arg}（支持 N 或 A-B,C 形式）`)
+      process.exit(2)
+    }
+    CONFIG.except = [...set]
   }
+  // 这里**不需要**未知旗标的兜底分支：文件顶部 `unknownFlagError()` 已在凭据导入之前
+  // 把不认识的旗标全部拒掉（判据只有一份，写在两处必漂）。
 }
 
 // ==================== 工具函数 ====================
@@ -1156,7 +1217,10 @@ async function login(page, username = CONFIG.username, password = CONFIG.passwor
   }
   // 生产构建（嵌入式）JS bundle 较大，需要更长时间解析和渲染
   // 等待 Vue 应用挂载（#app 下出现 input 元素）
-  await page.waitForSelector('input', { timeout: 20000 }).catch(() => {})
+  await page
+    .locator('input')
+    .waitFor({ timeout: 20000 })
+    .catch(() => {})
   await sleep(1000)
 
   // 2. 从页面自身的 captchaImage 响应读取真码（开启但读不到 → 抛错终止，不空转）
@@ -1313,27 +1377,33 @@ async function clickButton(page, selector, options = {}) {
   }
 
   // 3. evaluate 触发 click（DOM 兜底；调用方仍须有独立的状态断言）
-  // 从 selector 中提取文本（支持 button:has-text("xxx") 格式）
+  // 从 selector 中提取文本（支持 button:has-text("xxx") 文本匹配）
   const textMatch = selector.match(/:has-text\(["'](.+?)["']\)/)
   try {
     if (textMatch) {
       const text = textMatch[1]
-      return await page.evaluate((t) => {
+      const landed = await page.evaluate((t) => {
         const buttons = Array.from(document.querySelectorAll('button'))
         const target = buttons.find((b) => b.offsetParent !== null && b.innerText.includes(t))
         if (!target) return false
         target.click()
         return true
       }, text)
+      // 兜底真的 dispatch 成功 ⇒ 把上面两次 Playwright 点击的失败标成"已被救回"
+      // （判据不放宽：兜底返回 false 时不标，那两条失败仍然未救回、仍然会被点名）
+      if (landed) markClickLanded(text)
+      return landed
     }
     // 非 :has-text 选择器，直接使用 querySelectorAll
-    return await page.evaluate((sel) => {
+    const landed = await page.evaluate((sel) => {
       const els = Array.from(document.querySelectorAll(sel))
       const target = els.find((b) => b.offsetParent !== null)
       if (!target) return false
       target.click()
       return true
     }, selector)
+    if (landed) markClickLanded(selector)
+    return landed
   } catch {
     return false
   }
@@ -1537,10 +1607,23 @@ async function openDialog(page, triggerText, options = {}) {
 }
 
 /**
- * 关闭对话框
+ * 关闭对话框，并把"关掉了"变成**实测结论**（返回是否真的没有可见对话框残留）。
+ *
+ * 旧写法点完就 `return`：取消按钮被遮罩挡住时，`.catch(() => {})` 把失败洗成"已执行关闭"，
+ * 对话框连同 modal 遮罩留在页面上，后面每一步都在跟残留浮层较劲。b83 的点击落地通道实测到
+ * 这一族失败后追出整条级联：M18「岗位删除: 确认对话框」之所以"出现"，其实是上一步没关掉的
+ * **编辑对话框**（那条选择器写的是 `.el-message-box, .el-dialog:visible`）。
+ *
+ * 兜底用 DOM dispatch 是合理的：这是**清理路径**而不是判据目标，调用方另有自己的状态断言；
+ * 但必须 `markClickLanded`，否则允许表要为一族已被救回的形状签字（登记率被噪声吃掉）。
  */
 async function closeDialog(page) {
-  // 尝试点击取消/关闭按钮（仅限可见对话框，避免误操作隐藏的遗留对话框）
+  const openCount = () =>
+    page
+      .locator('.el-dialog:visible')
+      .count()
+      .catch(() => 0)
+  if ((await openCount()) === 0) return true
   const cancelBtn = page
     .locator(
       '.el-dialog:visible button:has-text("取 消"), .el-dialog:visible button:has-text("取消"), .el-dialog:visible .el-dialog__headerbtn'
@@ -1552,15 +1635,79 @@ async function closeDialog(page) {
       .then(() => true)
       .catch(() => false)
   ) {
-    await cancelBtn.click({ timeout: 2000 }).catch(() => {})
-    await sleep(500)
+    const landed = await cancelBtn
+      .click({ timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!landed) {
+      // 兜底必须打在**同一个节点**上：原先用"找页面上文案含『取 消』的按钮"来 dispatch，
+      // 遇到只有右上角 ×（`.el-dialog__headerbtn`，没有文案）的对话框就找不到目标，
+      // 于是这次调用留下两条"未救回"而对话框照旧没关。`locator.evaluate` 点的正是
+      // Playwright 自己已经解析到的那个元素，对应关系不需要再造一遍。
+      const fb = await cancelBtn
+        .evaluate((el) => {
+          el.click()
+          return true
+        })
+        .catch(() => false)
+      // needle 取该选择器的稳定前缀（normalizeClickSelector 会把数字换成 N、并把整串截到
+      // 120 字符，所以不能整串传；这段前缀只有 closeDialog 这一处在用，不会误救别家）
+      if (fb) markClickLanded('.el-dialog:visible button')
+    }
+    await sleep(400)
     await dismissUnsavedGuard(page)
-    return
+    if (await waitDialogsClosed(page)) return true
   }
-  // 备用：按 Escape
+  // 没找到按钮、或点过/兜底后仍在 ⇒ 退回键盘 Escape（不受遮罩拦截影响），再验一次
   await page.keyboard.press('Escape').catch(() => {})
-  await sleep(500)
+  await sleep(400)
   await dismissUnsavedGuard(page)
+  return await waitDialogsClosed(page)
+}
+
+/** 轮询到"没有可见对话框"（最多 2s）——不是"看一眼"，关闭动画与遮罩移除之间有空窗 */
+async function waitDialogsClosed(page) {
+  for (let i = 0; i < 10; i++) {
+    if (
+      (await page
+        .locator('.el-dialog:visible')
+        .count()
+        .catch(() => 1)) === 0
+    )
+      return true
+    await sleep(200)
+  }
+  return false
+}
+
+/**
+ * 点确认框（ElMessageBox）的「取消」，把两件事分开成为两条判据：
+ * ①点击确实落地；②确认框确实消失。
+ *
+ * 为什么必须有 ①：本仓 zh-CN 文案里 cancel 的字面值就是「取 消」（`src/i18n/locales/zh-CN/common.ts`），
+ * 而 Playwright 的 `:has-text` **不会**吃掉中间那个空格 ⇒ 只写「取消」永远匹配不到。
+ * 旧写法 `.catch(() => {})` 吞掉超时后，"取消后列表不变"这类判据**因为根本没取消**而通过，
+ * 同时确认框连着遮罩留在页面上污染后续步骤（b83 实测 M3/M18 各中招一次）。
+ * 静态面由 `src/utils/e2eLocaleLabelSpacing.guard.test.ts` 按文案表反查钉住。
+ *
+ * @returns {Promise<{landed: boolean, closed: boolean}>}
+ */
+async function cancelMessageBox(page) {
+  const box = page.locator('.el-message-box').first()
+  const landed = await page
+    .locator(
+      '.el-message-box button:has-text("取 消"), .el-message-box button:has-text("取消"), .el-message-box button:has-text("Cancel")'
+    )
+    .first()
+    .click({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!landed) return { landed: false, closed: false }
+  const closed = await box
+    .waitFor({ state: 'hidden', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  return { landed, closed }
 }
 
 /**
@@ -1605,14 +1752,22 @@ async function dismissUnsavedGuard(page) {
 
 /**
  * 关闭抽屉
- * 使用 :visible 伪类定位当前可见的抽屉，避免误操作隐藏的遗留抽屉
+ * 使用 :visible 伪类定位当前可见的抽屉，避免误操作隐藏的遗留抽屉。
+ * 返回"抽屉是否真的收起"——与 `closeDialog` 同一形状：清理动作必须自证生效，
+ * 否则残留浮层会让后续每一步都在跟它较劲（b83 点击落地通道实测的级联根因）。
  */
 async function closeDrawer(page) {
   const closeBtn = page
     .locator(
-      '.el-drawer:visible .el-drawer__headerBtn, .el-drawer:visible .el-drawer__headerbtn, .el-drawer:visible button:has-text("关闭"), .el-drawer:visible button:has-text("取 消")'
+      '.el-drawer:visible .el-drawer__headerBtn, .el-drawer:visible .el-drawer__headerbtn, .el-drawer:visible button:has-text("关 闭"), .el-drawer:visible button:has-text("关闭"), .el-drawer:visible button:has-text("取 消"), .el-drawer:visible button:has-text("取消")'
     )
     .first()
+  const drawerOpen = () =>
+    page
+      .locator('.el-drawer:visible')
+      .count()
+      .catch(() => 1)
+  if ((await drawerOpen()) === 0) return true
   if (
     await closeBtn
       .waitFor({ state: 'visible', timeout: 1000 })
@@ -1621,10 +1776,16 @@ async function closeDrawer(page) {
   ) {
     await closeBtn.click({ timeout: 2000 }).catch(() => {})
     await sleep(500)
-    return
+    if ((await drawerOpen()) === 0) return true
   }
+  // 没找到按钮、或点了仍在 ⇒ 退回键盘 Escape，再验一次
   await page.keyboard.press('Escape').catch(() => {})
   await sleep(500)
+  for (let i = 0; i < 10; i++) {
+    if ((await drawerOpen()) === 0) return true
+    await sleep(200)
+  }
+  return false
 }
 
 /**
@@ -1989,30 +2150,50 @@ async function testModule1(page, consoleErrors, pageErrors) {
       `按钮数量=${roleRowActions.count}, 编辑=${roleRowActions.edit}, 删除=${roleRowActions.delete}, 数据权限=${roleRowActions.dataScope}, 分配用户=${roleRowActions.authUser}`
     )
 
-    // 数据权限对话框：点击"数据权限"按钮打开对话框（行内按钮可能用 tooltip 包裹，先尝试按钮文本，再尝试 tooltip）
-    const dataScopeBtn = page
-      .locator(
-        '.el-table__row button:has-text("数据权限"), .el-table__row a:has-text("数据权限"), .el-table__row .el-tooltip:has-text("数据权限"), .el-table__row .el-button'
-      )
-      .first()
+    // 数据权限对话框：点击"数据权限"按钮打开对话框。
+    // 批八十三实测订正（第一次真跑就被点击落地取证通道抓出两件事）：
+    // ① 行内这一族是 **icon-only + `aria-label`**，按钮里没有文本 ⇒ Playwright 的
+    //    `button:has-text("数据权限")` 结构性匹配不到，"真点击"必然空等 2×3s 再落 DOM 兜底；
+    //    选择器必须带上 `[aria-label*=…]` 那一支，否则"交互确实发生"这一侧永远走的是兜底。
+    // ② 原先 `markClickLanded('数据权限')` 写在 `page.evaluate` **回调里面**——那是浏览器上下文，
+    //    Node 侧函数不存在，`target.click()` 之后立刻抛 ReferenceError，又被同链的
+    //    `.catch(() => {})` 吞掉 ⇒ 救回标记从未落上，两条失败一直挂着"未救回"。
+    //    判据不放宽：兜底必须在 **Node 侧**拿到返回值再标。
+    const DATA_SCOPE_SEL =
+      '.el-table__row [aria-label*="数据权限"], .el-table__row [title*="数据权限"], ' +
+      '.el-table__row button:has-text("数据权限"), .el-table__row a:has-text("数据权限")'
+    const dataScopeBtn = page.locator(DATA_SCOPE_SEL).first()
     if (
       await dataScopeBtn
         .waitFor({ state: 'visible', timeout: 2000 })
         .then(() => true)
         .catch(() => false)
     ) {
-      // 通过 evaluate 触发点击事件，绕过 tooltip 包裹
-      await page
-        .evaluate(() => {
-          const btns = Array.from(
-            document.querySelectorAll('.el-table__row button, .el-table__row a, .el-table__row .el-tooltip')
-          )
-          const target = btns.find((b) => /数据权限|Data/.test(b.textContent || b.getAttribute('aria-label') || ''))
-          if (target) target.click()
-        })
-        .catch(() => {})
-      await clickButton(page, '.el-table__row button:has-text("数据权限"), .el-table__row a:has-text("数据权限")')
-      const dsDialog = await page.waitForSelector('.el-dialog', { state: 'visible', timeout: 10000 }).catch(() => null)
+      // 顺序：先真点击（`clickButton` 内部三级回退，成功时把前面的失败标成"已救回"），
+      // 真点击打不开才用 aria-label 感知的 DOM 兜底。
+      // 旧写法把 DOM 兜底排在**前面**：对话框已经开了，随后的 `clickButton` 必然被模态遮罩
+      // 挡住、空等 6s，并被点击取证通道记成两条"未救回"的失败。真正决定用例结论的是下面的对话框断言。
+      const dataScopeClicked = await clickButton(page, DATA_SCOPE_SEL)
+      if (!dataScopeClicked) {
+        const landedByDom = await page
+          .evaluate(() => {
+            const btns = Array.from(
+              document.querySelectorAll('.el-table__row button, .el-table__row a, .el-table__row .el-tooltip')
+            )
+            const target = btns.find((b) => /数据权限|Data/.test(b.textContent || b.getAttribute('aria-label') || ''))
+            if (!target) return false
+            target.click()
+            return true
+          })
+          .catch(() => false)
+        if (landedByDom) markClickLanded('数据权限')
+      }
+      const dsDialog = await page
+        .locator('.el-dialog')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10000 })
+        .then(() => true)
+        .catch(() => false)
       if (dsDialog) {
         const hasScopeSelect = await page
           .locator('.el-dialog .el-select')
@@ -3891,12 +4072,17 @@ async function testModule3(page, consoleErrors, pageErrors) {
         record(M, '代码生成器: 删除表-确认对话框', confirmVisible)
 
         if (confirmVisible) {
-          await page
-            .locator('.el-message-box__btns button:has-text("取消"), .el-message-box__btns button:has-text("Cancel")')
-            .first()
-            .click({ timeout: 3000 })
-            .catch(() => {})
-          await sleep(500)
+          // 本仓 zh-CN 文案里 cancel 的字面值就是「取 消」，而 :has-text 不吃中间空格 ⇒
+          // 旧写法只写「取消」，点击必然超时、被 `.catch(()=>{})` 吞掉，"取消后列表不变"
+          // **因为根本没取消**而通过，确认框连遮罩留在页面污染后续步骤（b83 实测）。
+          const { landed, closed } = await cancelMessageBox(page)
+          record(
+            M,
+            '代码生成器: 删除表-取消按钮点击落地（判据前置）',
+            landed,
+            landed ? '取消点击确实落地' : '取消按钮未点到 ⇒ 下一条"列表不变"是空判据'
+          )
+          record(M, '代码生成器: 删除表-取消后确认框关闭', closed, `确认框已消失=${closed}`)
           const afterDelCount = await page
             .locator('.el-table__row')
             .count()
@@ -3904,8 +4090,10 @@ async function testModule3(page, consoleErrors, pageErrors) {
           record(
             M,
             '代码生成器: 删除表-取消后列表不变',
-            afterDelCount === genTableRowCount,
-            `before=${genTableRowCount}, after=${afterDelCount}`
+            // 必须 AND 上"确实关掉了"：行数不变这一件事，"取消成功"与"确认框还开着没人应答"
+            // 两种相反状态都能满足（同 b79 ③"请求数=0 必须 AND 点击确实发生"那一族）。
+            closed && afterDelCount === genTableRowCount,
+            `确认框关闭=${closed}, before=${genTableRowCount}, after=${afterDelCount}`
           )
         } else {
           recordSkip(M, '代码生成器: 删除表-取消后列表不变', '跳过（无确认对话框）')
@@ -5553,8 +5741,11 @@ async function testModule13(browser) {
     record(M, '注册按钮', hasRegisterBtn)
 
     // 验证返回登录链接
+    // 注：删掉了原先并列的 `router-link:has-text("登录")` 两支——`<router-link>` 编译后落在 DOM
+    // 是 `<a>`，文档里不存在 `router-link` 这个标签，那两支**永远匹配不到**（静默无效通道，
+    // 与 b83 旗标族同形：看着是"多路径容错"，实际只是把死分支留在选择器里误导后人）。
     const hasLoginLink = await page
-      .locator('a:has-text("登录"), a:has-text("Login"), router-link:has-text("登录"), .el-link:has-text("登录")')
+      .locator('a:has-text("登录"), a:has-text("登 录"), a:has-text("Login"), .el-link:has-text("登录")')
       .first()
       .waitFor({ state: 'visible', timeout: 2000 })
       .then(() => true)
@@ -6257,20 +6448,30 @@ async function testModule18(page, consoleErrors, pageErrors) {
       .then(() => true)
       .catch(() => false)
     if (deleteVisible) {
-      await deleteBtn.click({ timeout: 3000 }).catch(() => {})
+      const delLanded = await deleteBtn
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      record(M, '岗位删除: 删除按钮点击落地', delLanded, `落地=${delLanded}`)
       await sleep(1500)
-      const confirmBox = page.locator('.el-message-box, .el-dialog:visible').first()
+      // 口径收紧：原写 `.el-message-box, .el-dialog:visible`——上一步没关掉的**编辑对话框**
+      // 同样满足它，于是"确认对话框出现"会因为残留浮层而空过（closeDialog 现在自己验证关闭，
+      // 这一条就不再依赖巧合）。确认框只可能是 message-box。
+      const confirmBox = page.locator('.el-message-box').first()
       const confirmVisible = await confirmBox
         .waitFor({ state: 'visible', timeout: 3000 })
         .then(() => true)
         .catch(() => false)
       record(M, '岗位删除: 确认对话框', confirmVisible)
       if (confirmVisible) {
-        const cancelBtn = page
-          .locator('.el-message-box button:has-text("取消"), .el-message-box button:has-text("Cancel")')
-          .first()
-        await cancelBtn.click({ timeout: 3000 }).catch(() => {})
-        await sleep(1000)
+        const { landed, closed } = await cancelMessageBox(page)
+        record(
+          M,
+          '岗位删除: 取消按钮点击落地（判据前置）',
+          landed,
+          `落地=${landed}（点不成就是"确认框没被回答"，不是"删除被取消"）`
+        )
+        record(M, '岗位删除: 取消后确认框关闭', closed, `确认框已消失=${closed}`)
       }
     } else {
       record(M, '岗位删除: 确认对话框', false, '"删除"按钮不可见')
@@ -6318,12 +6519,9 @@ async function testModule18(page, consoleErrors, pageErrors) {
         .catch(() => false)
       record(M, '参数删除: 确认对话框', confirmVisible)
       if (confirmVisible) {
-        await page
-          .locator('.el-message-box button:has-text("取消")')
-          .first()
-          .click({ timeout: 3000 })
-          .catch(() => {})
-        await sleep(1000)
+        const { landed, closed } = await cancelMessageBox(page)
+        record(M, '参数删除: 取消按钮点击落地（判据前置）', landed, `落地=${landed}`)
+        record(M, '参数删除: 取消后确认框关闭', closed, `确认框已消失=${closed}`)
       }
     } else {
       record(M, '参数删除: 确认对话框', false, '"删除"按钮不可见')
@@ -6440,12 +6638,25 @@ async function testModule19(page, consoleErrors, pageErrors) {
         .then(() => true)
         .catch(() => false)
       if (msgBox) {
-        await page
-          .locator('.el-message-box button:has-text("取消"), .el-message-box button:has-text("确定")')
+        // 逗号选择器按 **DOM 序**取第一个 ⇒ 这里点的其实是「确 定」（真的触发导出）。
+        // 旧写法把"到底点了谁"藏进选择器、还把超时 `.catch(()=>{})` 吞掉：确认框没关也照样绿。
+        // 明写确定键（含本仓字面带空格的文案），并把落地与关闭各成一条判据。
+        const okLanded = await page
+          .locator(
+            '.el-message-box button:has-text("确 定"), .el-message-box button:has-text("确定"), .el-message-box button:has-text("OK")'
+          )
           .first()
           .click({ timeout: 3000 })
-          .catch(() => {})
-        await sleep(1000)
+          .then(() => true)
+          .catch(() => false)
+        record(M, '用户管理: 导出确认点击落地', okLanded, `落地=${okLanded}`)
+        const boxClosed = await page
+          .locator('.el-message-box')
+          .first()
+          .waitFor({ state: 'hidden', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false)
+        record(M, '用户管理: 导出确认后 MessageBox 关闭', boxClosed, `关闭=${boxClosed}`)
       }
       record(
         M,
@@ -7560,10 +7771,13 @@ async function testModule24(page, consoleErrors, pageErrors) {
         .then(() => true)
         .catch(() => false)
       if (confirmVisible2) {
-        const cancelBtn = page.locator('.el-message-box:visible button:has-text("取消")').first()
-        await cancelBtn.click({ timeout: 2000 }).catch(() => {})
-        await sleep(500)
-        record(M, '导出: 二次确认对话框', confirmVisible2, '二次确认框可见且已取消')
+        // 旧凭证写"二次确认框可见且已取消"，但取消选择器是无空格「取消」⇒ 一次都没点到，
+        // 而这条判据只看 confirmVisible2 ——**凭证描述的是没发生过的事**（同 b79"点击数=0 必须
+        // AND 点击确实发生"那一族，这里是它的镜像：文案声称发生了、实际没发生）。
+        const { landed, closed } = await cancelMessageBox(page)
+        record(M, '导出: 二次确认取消点击落地（判据前置）', landed, landed ? '取消确实点到' : '没点到 ⇒ "已取消"不成立')
+        record(M, '导出: 二次确认取消后 MessageBox 关闭', closed, `关闭=${closed}`)
+        record(M, '导出: 二次确认对话框', confirmVisible2 && landed && closed, '二次确认框可见、已取消并关闭')
       } else {
         const exportDialog = await waitForVisibleDialog(page, 2000)
         if (exportDialog) {
@@ -10363,7 +10577,14 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     await sleep(1500)
   }
 
-  // 32.6 并发操作：快速连续点击提交按钮
+  // 32.6 并发操作：对话框打开后，遮罩必须挡住对同一个「新增」按钮的再次点击。
+  // 旧写法"连点三次 + 对话框数 <= 1"是**空判据**：b83 的点击落地通道实测到第 2、3 次点击全部
+  // 超时（被遮罩挡住）⇒ 这条同时被"遮罩生效"与"按钮失灵"两种相反状态满足，而 `<= 1` 连
+  // "一个都没打开"也算通过。现在按 AGENTS 前端输入归一 §3③ 补成三侧：
+  // ①第一次点击确实落地并打开**恰好 1 个**对话框；②开着对话框时命中测试判定按钮被遮挡；
+  // ③对照组——关掉后同一按钮重新可命中（证明 ② 不是"这个按钮坏了"）。
+  // 遮挡用 `elementFromPoint` **正面测**，而不是"点一下看它抛不抛"：后者会把设计内的拦截
+  // 记成一条点击失败，逼允许表为一族本来就是判据的形状签字。
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/post`, { moduleName: M, waitMs: 2000 })) {
     const addBtn = page.locator('button:has-text("新增")').first()
     if (
@@ -10372,16 +10593,45 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
         .then(() => true)
         .catch(() => false)
     ) {
-      // 快速连续点击 3 次
-      await addBtn.click({ timeout: 1000 }).catch(() => {})
-      await addBtn.click({ timeout: 1000 }).catch(() => {})
-      await addBtn.click({ timeout: 1000 }).catch(() => {})
-      await sleep(2000)
-      // 验证不会出现多个对话框
-      const dialogCount = await page.locator('.el-dialog:visible').count()
-      record(M, '并发操作: 快速点击不重复打开', dialogCount <= 1, `对话框数量: ${dialogCount}`)
-      // 关闭对话框
+      const hitTest = () =>
+        page.evaluate(() => {
+          const btn = Array.from(document.querySelectorAll('button')).find(
+            (b) => b.offsetParent !== null && (b.innerText || '').indexOf('新增') >= 0
+          )
+          if (!btn) return { found: false, blocked: false, coveredBy: '按钮不存在' }
+          const r = btn.getBoundingClientRect()
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          if (!top) return { found: true, blocked: true, coveredBy: '命中为空' }
+          const cls = typeof top.className === 'string' ? top.className.trim().split(/\s+/)[0] : ''
+          return {
+            found: true,
+            blocked: !(top === btn || btn.contains(top)),
+            coveredBy: top === btn ? 'button 自身' : `${top.tagName.toLowerCase()}.${cls}`
+          }
+        })
+      const firstLanded = await addBtn
+        .click({ timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)
+      record(M, '并发操作: 第一次点击落地（判据前置）', firstLanded, `落地=${firstLanded}`)
+      await sleep(800)
+      const openCount = await page.locator('.el-dialog:visible').count()
+      record(M, '并发操作: 只打开 1 个对话框', openCount === 1, `对话框数量=${openCount}（必须恰为 1）`)
+      const during = await hitTest().catch(() => ({ found: false, blocked: false, coveredBy: 'evaluate 失败' }))
+      record(
+        M,
+        '并发操作: 对话框开着时新增按钮被遮罩挡住（不得二次打开）',
+        !!during.blocked,
+        `命中元素=${during.coveredBy}`
+      )
       await closeDialog(page)
+      const after = await hitTest().catch(() => ({ found: false, blocked: true, coveredBy: 'evaluate 失败' }))
+      record(
+        M,
+        '并发操作: 对照组——关掉对话框后同一按钮重新可命中',
+        !!after.found && after.blocked === false,
+        `命中元素=${after.coveredBy}`
+      )
     } else {
       recordSkip(M, '并发操作: 快速点击不重复打开', '新增按钮不可见（跳过）')
     }
@@ -11275,13 +11525,48 @@ async function testModule37(page, consoleErrors, pageErrors) {
               ? `展开后 left=${openedState.left} right=${openedState.right} openSidebar=${openedState.open}（应进入视口）`
               : '展开后侧栏 DOM 反而消失（导航在移动端不可用）'
         )
-        // 复原：抽屉展开态会污染下一档位的水平滚动条测量，必须收起
+        // 复原：抽屉展开态会污染下一档位的水平滚动条测量，必须真的收起。
+        // 旧写法 Escape + 盲点 `.drawer-bg` 且**从不验证收起**。b83 点击落地通道把两条真相挖出来：
+        // ① 这个移动端抽屉**不认 Escape**（它是自绘的 `.drawer-bg`，不是 el-drawer 组件）；
+        // ② `.drawer-bg` 是整屏 absolute，Playwright 点它的**中心**，而中心在窄视口下正好落在
+        //    抽屉面板里（实测 call log：`<div class="el-sub-menu__title">… subtree intercepts
+        //    pointer events`）⇒ 那一下永远点不到背景。
+        // 所以按"实测收起"判，并分三步：先点**面板右侧那条空白**（用户真会点的地方），
+        // 仍不塌再退 DOM dispatch（点的是同一个节点），每步之后都重新量侧栏位置。
+        const waitCollapsed = async () => {
+          for (let i = 0; i < 10; i++) {
+            const s = await readSidebar()
+            if (!s.exists || s.right <= 1) return true
+            await sleep(150)
+          }
+          return false
+        }
         await page.keyboard.press('Escape').catch(() => {})
-        await page
-          .locator('.drawer-bg, .el-drawer__overlay')
-          .first()
-          .click({ timeout: 1000 })
-          .catch(() => {})
+        let collapsed = await waitCollapsed()
+        let how = 'Escape 后已收起'
+        if (!collapsed) {
+          const bg = page.locator('.drawer-bg, .el-drawer__overlay').first()
+          const vp = page.viewportSize() || { width: 375, height: 800 }
+          const edge = await bg
+            .click({ position: { x: Math.max(6, vp.width - 14), y: Math.round(vp.height / 2) }, timeout: 1500 })
+            .then(() => true)
+            .catch(() => false)
+          if (edge && (await waitCollapsed())) {
+            collapsed = true
+            how = '点背景空白处收起'
+          } else {
+            const fb = await bg
+              .evaluate((el) => {
+                el.click()
+                return true
+              })
+              .catch(() => false)
+            if (fb) markClickLanded('.drawer-bg')
+            collapsed = fb && (await waitCollapsed())
+            how = `空白处点击=${edge}，DOM 兜底=${fb}`
+          }
+        }
+        record(M, '响应式: 抽屉已收起（复原到位，不污染下一档位测量）', collapsed, `${how}；最终收起=${collapsed}`)
         await sleep(400)
       }
     } catch (err) {
@@ -11658,7 +11943,6 @@ async function testModule40(page, consoleErrors, pageErrors) {
   // 因此拦截 window.open 来验证打印是否被触发
   if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 2000 })) {
     // 拦截 window.open 调用
-    let openCalled = false
     await page
       .evaluate(() => {
         window.__originalOpen = window.open
@@ -11682,22 +11966,31 @@ async function testModule40(page, consoleErrors, pageErrors) {
         .catch(() => false)
     ) {
       await printBtn.click({ timeout: 3000 }).catch(() => {})
-      await sleep(1500)
-      openCalled = await page.evaluate(() => window.__openCalled === true).catch(() => false)
-      // 无头模式下 window.open 可能被阻止，printTable 会显示错误提示
-      // 只要按钮点击不崩溃即认为功能正常
-      const hasErrorMsg = await page
-        .locator('.el-message--error:visible, .el-message--warning:visible')
-        .first()
-        .waitFor({ state: 'visible', timeout: 1000 })
-        .then(() => true)
-        .catch(() => false)
-      recordSoft(
+      // **轮询到落定**而不是"睡 1.5s 看一眼"（b79 ④：瞬时元素写成软断言 + 单次采样 ⇒
+      // 结论由网络快慢决定，而这类数字会喂给"只许降"的棘轮）。两个信号都是确定性的：
+      // `window.open` 被上面的桩**同步**置位，错误提示则由 printTable 在拿到 null 时给出；
+      // 采到哪一个、花了多久都写进凭证，不再用 `recordSoft` 把"没采到"写成"可能没数据"。
+      const t0 = Date.now()
+      let openCalled = false
+      let hasErrorMsg = false
+      let settleMs = 0
+      for (let k = 0; k < 20; k++) {
+        openCalled = await page.evaluate(() => window.__openCalled === true).catch(() => false)
+        hasErrorMsg = await page
+          .locator('.el-message--error:visible, .el-message--warning:visible')
+          .first()
+          .isVisible()
+          .catch(() => false)
+        settleMs = Date.now() - t0
+        if (openCalled || hasErrorMsg) break
+        await sleep(200)
+      }
+      record(
         M,
-        '打印: window.open 调用',
+        '打印: 点击后 open 被调用或给出错误提示（轮询到落定）',
         openCalled || hasErrorMsg,
-        openCalled ? 'window.open 已调用' : '弹窗被阻止（预期行为）',
-        '可能已触发或无数据'
+        `open=${openCalled} 提示=${hasErrorMsg}，落定耗时 ${settleMs}ms` +
+          (openCalled || hasErrorMsg ? '' : '（4s 内两个信号都没出现 ⇒ 点击没产生任何后果）')
       )
     } else {
       recordSkip(M, '打印: window.open 调用', '打印按钮不可见（跳过）')
@@ -11784,21 +12077,50 @@ async function testModule41(page, consoleErrors, pageErrors) {
       .catch(() => false)
     record(M, '锁屏: 解锁按钮', hasUnlockBtn)
 
-    const hasClock = await page
-      .locator('.lock-time, .lock-date, .lock-container .time')
+    // 时钟/头像改为**硬判据**（b83）：这两处原先是 `recordSoft`，理由是"选择器是猜的"。
+    // 现在类名取自组件本身（`src/views/lock.vue` 模板里的 `.lock-time` / `.lock-date` /
+    // `.lock-avatar`），并且判的不只是"有个元素"——时钟必须长得像时间、头像必须有非空 src 与
+    // alt。软判据的问题不在"放宽"，在于**它永远成立**：元素没渲染与渲染错了都打同一句"可能未渲染"。
+    // 唯一仍然不判的是图片**解码成功**（`naturalWidth>0`）——那要真去取一次头像资源，属环境耦合
+    // （b66 的桩图教训），头像可加载性由 F25/M31 的下载链与 a11y 的 alt 检查各自负责。
+    const clockText = await page
+      .locator('.lock-time')
+      .first()
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() => page.locator('.lock-time').first().innerText())
+      .catch(() => '')
+    record(
+      M,
+      '锁屏: 时钟显示（.lock-time 可见且文本形如时间）',
+      /\d{1,2}:\d{2}/.test(clockText),
+      `文本="${clockText.slice(0, 24)}"（期望含 HH:MM）`
+    )
+    const dateText = await page
+      .locator('.lock-date')
       .first()
       .waitFor({ state: 'visible', timeout: 2000 })
-      .then(() => true)
-      .catch(() => false)
-    recordSoft(M, '锁屏: 时钟显示', hasClock, '时钟可见', '时钟可能未渲染')
+      .then(() => page.locator('.lock-date').first().innerText())
+      .catch(() => '')
+    record(M, '锁屏: 日期显示（.lock-date 非空）', dateText.trim().length > 0, `文本="${dateText.slice(0, 30)}"`)
 
-    const hasAvatar = await page
-      .locator('.lock-avatar, .lock-container .avatar, .lock-container img')
+    const avatarInfo = await page
+      .locator('.lock-avatar')
       .first()
-      .waitFor({ state: 'visible', timeout: 2000 })
-      .then(() => true)
-      .catch(() => false)
-    recordSoft(M, '锁屏: 用户头像', hasAvatar, '头像可见', '头像可能未渲染')
+      .waitFor({ state: 'visible', timeout: 3000 })
+      .then(() =>
+        page
+          .locator('.lock-avatar')
+          .first()
+          .evaluate((el) => ({ src: el.getAttribute('src') || '', alt: el.getAttribute('alt') || '' }))
+      )
+      .catch(() => ({ src: '', alt: '' }))
+    record(
+      M,
+      '锁屏: 用户头像（.lock-avatar 有 src 且有可访问名）',
+      avatarInfo.src.length > 0 && avatarInfo.alt.length > 0 && !avatarInfo.alt.startsWith('layout.'),
+      `src=${avatarInfo.src.slice(0, 40)} alt="${avatarInfo.alt.slice(0, 30)}"` +
+        '（alt 必须是**已解析的文案**，显示 i18n 键名本身即缺陷）'
+    )
 
     // 41.5 测试错误密码
     // 【b73 轮 22 判据重写：等响应落回，不再固定 sleep（台账 §3.27）】
@@ -16050,9 +16372,7 @@ async function testModule67(browser, consoleErrors, pageErrors) {
 
       // 67.6 注册链接（功能检查：未开放也算 PASS）
       const registerLink = page
-        .locator(
-          'a:has-text("注册"), a:has-text("Register"), a:has-text("Sign Up"), router-link:has-text("注册"), router-link:has-text("Register")'
-        )
+        .locator('a:has-text("注 册"), a:has-text("注册"), a:has-text("Register"), a:has-text("Sign Up")')
         .first()
       const registerVisible = await registerLink
         .waitFor({ state: 'visible', timeout: 1000 })
@@ -19355,7 +19675,9 @@ async function testModule82(page, consoleErrors, pageErrors) {
 async function testModule83(page, consoleErrors, pageErrors) {
   const M = 83
   log(`\n=== 模块 ${M}: 文件管理 上传 / 下载 / 复制链接 / 批量删除 深度测试 ===`)
-  const tmpDir = path.join(process.cwd(), 'tests', 'e2e', '_tmp')
+  // 夹具目录锚定脚本位置（与 CONFIG.screenshotDir 同一条纪律）：cwd 相对写法会让
+  // 从仓根启动与从 tests/e2e 启动的两轮把上传夹具写到不同的树里。
+  const tmpDir = path.join(__dirname, '_tmp')
   const fileName = `e2e83_${Date.now()}.txt`
   const tmpFile = path.join(tmpDir, fileName)
   try {
@@ -19512,7 +19834,10 @@ async function testModule84(page, consoleErrors, pageErrors) {
 
   /** 等待列表首屏数据渲染完成，避免点击排序箭头时表格尚未挂载导致请求未被捕获 */
   const waitRowsReady = async () => {
-    await page.waitForSelector('.app-container .el-table__body .el-table__row', { timeout: 8000 }).catch(() => {})
+    await page
+      .locator('.app-container .el-table__body .el-table__row')
+      .waitFor({ timeout: 8000 })
+      .catch(() => {})
     await sleep(600)
   }
 
@@ -21343,7 +21668,7 @@ const testModule89 = makeActionBreadthTest({
   sleep
 })
 
-// 模块 90：五个欠账写端点闭环（b82，独立在 modules/writeEndpointBreadth.mjs）。
+// 模块 90：六个欠账写端点闭环（b82 起，b83 补用户导入 xlsx 全闭环；实现在 modules/writeEndpointBreadth.mjs）。
 // 注入共享 helpers 而不是 import 本入口（入口 import 即执行），避免复制判据实现。
 const testModule90 = makeWriteEndpointBreadthTest({
   record,

@@ -1,9 +1,13 @@
 {
-  "generatedAt": "2026-10-21T08:11:39.889Z",
+  "generatedAt": "2026-10-21T19:06:11.760Z",
   "routes": 56,
   "totalActions": 406,
   "totalCovered": 406,
   "totalClicked": 338,
+  "totalBacklog": 46,
+  "totalStateLocked": 22,
+  "clickableActions": 384,
+  "interactionCoverageClickable": 0.88,
   "coverage": 1,
   "interactionCoverage": 0.833,
   "perRoute": {
@@ -288,5 +292,5 @@
       "i": 2
     }
   },
-  "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少；clicked 仅记录趋势"
+  "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；旧格式基线缺这两栏 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成"
 }

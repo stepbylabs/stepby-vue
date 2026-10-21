@@ -287,10 +287,6 @@
     "kind": "by-design",
     "why": "切换全局存储后端，改错即影响之后所有文件读写（含并行用例），共享 dev 库上不可逆"
   },
-  "POST /system/user/importData": {
-    "kind": "needs-fixture",
-    "why": "要 xlsx 上传夹具（N-19③）：模板下载→填表→回传→落库校验是一条独立闭环，主套件 F25 只覆盖头像图片上传"
-  },
   "POST /system/user/profile/avatar": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 10 行留痕（00:47:30 .. 06:03:57 UTC，样例 POST /system/user/profile/avatar）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"

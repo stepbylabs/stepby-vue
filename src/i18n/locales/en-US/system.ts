@@ -1597,7 +1597,8 @@ export default {
       keyGenFail: 'Failed to generate secret',
       enableSuccess: 'TOTP enabled successfully',
       disableSuccess: 'TOTP disabled',
-      keyCopied: 'Secret copied'
+      keyCopied: 'Secret copied',
+      retryIn: 'Too many failed attempts, try again in {seconds}s'
     },
     passkey: {
       title: 'Passkeys',

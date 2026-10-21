@@ -28,7 +28,8 @@ export default {
     oauthGoLogin: 'Go to login',
     passkeyLogin: 'Sign in with a passkey',
     passkeyDivider: 'or sign in with a passkey',
-    passkeyUsernameRequired: 'Enter your username first to sign in with a passkey'
+    passkeyUsernameRequired: 'Enter your username first to sign in with a passkey',
+    retryIn: 'Too many failed attempts, try again in {seconds}s'
   },
   register: {
     title: 'Register',
@@ -147,7 +148,8 @@ export default {
     subjectType: 'Subject Type',
     subjectTypeTip: 'Switching to pairwise changes the sub in issued tokens; RPs will see a new user',
     sectorIdentifier: 'Sector Identifier',
-    sectorIdentifierTip: 'https URL; pairwise RPs sharing a sector receive the same sub (org-level account linking); empty = clientId as salt',
+    sectorIdentifierTip:
+      'https URL; pairwise RPs sharing a sector receive the same sub (org-level account linking); empty = clientId as salt',
     consentRequired: 'Consent Required',
     enabled: 'Status',
     remark: 'Remark',
@@ -293,7 +295,8 @@ export default {
     secureNormalTip: '1 other session active',
     secureWarnTip: '{count} other sessions active',
     loadFail: 'Failed to load session list',
-    degradedHint: 'Non-HTTPS environment: session identification uses weak matching (last 8 chars of token) and may be inaccurate; use HTTPS for precise identification'
+    degradedHint:
+      'Non-HTTPS environment: session identification uses weak matching (last 8 chars of token) and may be inaccurate; use HTTPS for precise identification'
   },
   passwordStrength: {
     weak: 'Weak',

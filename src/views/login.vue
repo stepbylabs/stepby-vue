@@ -117,9 +117,19 @@
       </Transition>
       <el-checkbox v-model="loginForm.rememberMe" class="mb-[25px]">{{ t('login.remember') }}</el-checkbox>
       <el-form-item class="w-full">
-        <el-button :loading="loading" size="large" type="primary" class="w-full" @click.prevent="handleLogin">
+        <el-button
+          :loading="loading"
+          :disabled="retryLocked"
+          size="large"
+          type="primary"
+          class="w-full"
+          @click.prevent="handleLogin"
+        >
           <Transition mode="out-in" name="fade">
-            <span v-if="!loading" key="text">{{ t('common.login') }}</span>
+            <!-- b83：密码/TOTP 锁定态由后端 429 + Retry-After 给出真实剩余秒数。
+                 没给提示时 locked 恒 false ⇒ 与其它分支逐字段等价（改造前形态）。 -->
+            <span v-if="retryLocked" key="retry">{{ t('login.retryIn', { seconds: retryRemaining }) }}</span>
+            <span v-else-if="!loading" key="text">{{ t('common.login') }}</span>
             <span v-else key="loading">{{ t('common.logging') }}</span>
           </Transition>
         </el-button>
@@ -185,6 +195,7 @@ import { webauthnLoginStart, webauthnLoginFinish } from '@/api/webauthn'
 import { isWebauthnSupported, isUserCancelled, toRequestOptions, assertionToDto } from '@/utils/webauthn'
 import { takePendingHandoff } from '@/utils/oauth'
 import { resolveLoginTarget } from '@/utils/redirect'
+import { useRetryAfterLock } from '@/composables/useRetryAfterLock'
 import Cookies from 'js-cookie'
 import useUserStore from '@/store/modules/user'
 import defaultSettings from '@/settings'
@@ -198,6 +209,13 @@ const userStore = useUserStore()
 const route = useRoute()
 const router = useRouter()
 const loginRefRef = useTemplateRef('loginRef')
+// b83：`Retry-After` 的消费点——锁定窗口内把"登录"按钮变成真的闸门（附剩余秒数）。
+const {
+  remaining: retryRemaining,
+  locked: retryLocked,
+  startFrom: startRetryLock,
+  stop: stopRetryLock
+} = useRetryAfterLock()
 
 const loginForm = ref<LoginForm>({
   username: import.meta.env.DEV ? import.meta.env.VITE_DEV_USER || '' : '',
@@ -346,9 +364,15 @@ function handleLogin(): void {
       // 调用action的登录方法
       userStore
         .login(loginForm.value)
-        .then(() => afterLoginSuccess())
-        .catch((err: Error & { code?: number }) => {
+        .then(() => {
+          stopRetryLock()
+          afterLoginSuccess()
+        })
+        .catch((err: Error & { code?: number; retryAfterSeconds?: number }) => {
           loading.value = false
+          // b83：后端在锁定/限流的 429 上带 Retry-After（真实剩余秒数）⇒ 起闸。
+          // 放在 1003 早返回之前：TOTP 步骤本身也可能处于锁定态。
+          startRetryLock(err)
           // P0-4：TOTP 多因子登录——进入/停留在 TOTP 输入步骤（密码已通过，仅缺动态码）
           if (err?.code === 1003) {
             totpRequired.value = true

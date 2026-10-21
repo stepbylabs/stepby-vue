@@ -1,5 +1,5 @@
 /**
- * 模块 90：五个"设计上欠着"的写端点闭环（b82）。
+ * 模块 90：六个"设计上欠着"的写端点闭环（b82 起，b83 补用户导入）。
  *
  * `endpoint-coverage` 在 b82 把基线断面与数据集对齐后，`kind=todo` 从 18 条缩到 5 条——
  * 那 13 条是**登记断面比库断面旧了 8 小时**造成的记大欠账（M88/main 早已真打过），
@@ -7,17 +7,23 @@
  *   · `POST /system/flow/demo/{docId}/resubmit`      —— 需要"非超管申请人"会话；
  *   · `POST /system/backup/self-export`              —— 能力位关 + 平台无数据包两分支都可测；
  *   · `POST /system/ipLocation/update`               —— 只测入参闸门（下载链路属外部网络，不做判据）；
- *   · `PUT  /system/tenant/menu` + `DELETE /{l3Id}`  —— 需要"未挂载候选"枚举面（b81 §10 N-19①）。
+ *   · `PUT  /system/tenant/menu` + `DELETE /{l3Id}`  —— 需要"未挂载候选"枚举面（b81 §10 N-19①）；
+ *   · `POST /system/user/importData`                 —— b83 收：需要能**写** xlsx（见 `xlsx-fixture.mjs`）。
  *
- * 四条判据纪律（沿用 M88，全部由实测逼出）：
- * ① 夹具自包含：租户/单据都用 `e2e90<ts>` 命名并在模块内删除，收尾后库里不得留活跃行；
+ * 五条判据纪律（沿用 M88，全部由实测逼出）：
+ * ① 夹具自包含：租户/单据/导入用户都用 `e2e90<ts>` 命名并在模块内删除，收尾后库里不得留活跃行；
  * ② **反证必须配对**：每一次"被拒"都要读回事实（轮次没推进 / 没生成备份行 / 库文件事实没变 /
- *    锁没被占用），否则"拒绝"可以靠"这个入口永远报错"实现，与产品本意相反；
+ *    锁没被占用 / 导入没多出一行），否则"拒绝"可以靠"这个入口永远报错"实现，与产品本意相反；
  * ③ 前置拿不到就**记 FAIL 并自曝**，不降级成 SKIP——把 undefined 拼进 URL 冒充一次真实请求，
  *    b81 之前据此误判过缺陷；
  * ④ 不在浏览器里做真外呼、不下载 IP 库、不建备份文件：本模块全部判据都是"闸门与状态"，
- *    跑在任何环境上都应同数（门禁不得与环境耦合）。
+ *    跑在任何环境上都应同数（门禁不得与环境耦合）；
+ * ⑤ **限流桶也是环境**（b83 实测）：`/system/user/importData` 有独立敏感档
+ *    （`SENSITIVE_LIMIT_TIERS` = 容量 5 / 补充 0.1 s⁻¹）。探针一次性打 8 发时第 6 发起就吃 429，
+ *    所以本模块把导入调用压到 **4 发**并逐发留间隔；真被限流时记 FAIL 并写明是哪一发，
+ *    不得把 429 读成"这一条通过"。
  */
+import { buildXlsx } from '../xlsx-fixture.mjs'
 
 /**
  * @param {object} ctx 共享 helpers（由 deep-e2e 注入）
@@ -27,7 +33,7 @@ export function makeWriteEndpointBreadthTest(ctx) {
 
   return async function testModule90(page, consoleErrors, pageErrors) {
     const M = 90
-    log(`\n=== 模块 ${M}: 五个欠账写端点闭环（夹具自包含 + 反证配对）===`)
+    log(`\n=== 模块 ${M}: 六个欠账写端点闭环（夹具自包含 + 反证配对）===`)
     const B = CONFIG.backendUrl
     const ts = Date.now().toString(36)
 
@@ -407,6 +413,198 @@ export function makeWriteEndpointBreadthTest(ctx) {
         '租户导航: 夹具租户收尾删除（管理员先删，租户进回收站）',
         userCleared && delTenant.code === 200 && leftRows.length === 0,
         `清理管理员=${userCleared} DELETE tenant code=${delTenant.code} msg=${String(delTenant.msg).slice(0, 40)}，列表仍见 ${leftRows.length} 行（必须 0）`
+      )
+    }
+
+    // ================= 五、用户导入 xlsx 全闭环（b83：模板 → 自建 → 落库 → 查重 → 改 → 清）==========
+    // 为什么自己造 xlsx 而不回传模板：模板示例行是固定的 `zhangsan`，导入成功就会在库里留下
+    // **不属于 `e2e%` 命名族**的用户（`residue-cleanup` 覆盖不到 ⇒ 残留每轮 +1 无人报），
+    // 而第二次跑它会变成"用户名不能重复" ⇒ 判据结论由上一轮决定（环境耦合）。
+    // 夹具生成器与它的 ZIP 结构自证在 `xlsx-fixture.mjs`；后端读侧是 calamine，实测接受。
+    const IMP_HEADERS = ['登录名称*', '用户姓名*', '部门名称', '手机号码', '邮箱', '性别', '状态']
+    const impUser = `e2e90imp${ts}`
+    const impOther = `e2e90imx${ts}`
+
+    // ① 模板下载：判"是 zip + 两个头对 + 体量像真表"，内容正确性由后面真导入证
+    let tpl
+    try {
+      const resp = await fetch(`${B}/system/user/importTemplate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminToken}` }
+      })
+      const buf = new Uint8Array(await resp.arrayBuffer())
+      tpl = {
+        http: resp.status,
+        ct: resp.headers.get('content-type') || '',
+        cd: resp.headers.get('content-disposition') || '',
+        len: buf.length,
+        isZip: buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 3 && buf[3] === 4
+      }
+    } catch (e) {
+      tpl = { http: 0, ct: '', cd: '', len: 0, isZip: false, err: String(e.message).slice(0, 60) }
+    }
+    record(
+      M,
+      '用户导入: 模板下载返回可辨识的 xlsx 字节流',
+      tpl.http === 200 &&
+        tpl.isZip &&
+        tpl.len > 1000 &&
+        tpl.ct.includes('spreadsheetml.sheet') &&
+        tpl.cd.includes('user_import_template.xlsx'),
+      `HTTP=${tpl.http} PK=${tpl.isZip} 字节=${tpl.len} ct=${tpl.ct.slice(0, 60)} cd=${tpl.cd.slice(0, 46)}${tpl.err ? ` err=${tpl.err}` : ''}`
+    )
+
+    /**
+     * multipart 导入。限流敏感档 = 容量 5 / 0.1 s⁻¹（探针实测第 6 发起 429），
+     * 本模块总共只发 **4** 发，且每发之间留间隔；429 一律记 FAIL 并写明第几发，
+     * 不得读成"没有失败"。
+     */
+    const importXlsx = async (rows, updateSupport, label) => {
+      const bytes = buildXlsx('用户导入', IMP_HEADERS, rows)
+      const fd = new FormData()
+      fd.append(
+        'file',
+        new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        `e2e90imp-${label}.xlsx`
+      )
+      try {
+        const r = await fetch(`${B}/system/user/importData?updateSupport=${updateSupport}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${adminToken}` },
+          body: fd
+        })
+        const j = await r.json().catch(() => null)
+        const rawSuccess = j?.data?.success
+        return {
+          http: r.status,
+          code: j?.code ?? null,
+          msg: String(j?.msg ?? ''),
+          // 取不到数一律 `null`（不是 0/-1）：`success === 0` 在"根本没这个字段"时也可能被
+          // 后面的判据读成"确实是 0 条"，那等于把响应形状坏了当成判据通过
+          success: rawSuccess == null || !Number.isFinite(Number(rawSuccess)) ? null : Number(rawSuccess),
+          errors: Array.isArray(j?.data?.errorList) ? j.data.errorList : null,
+          bytes: bytes.length
+        }
+      } catch (e) {
+        return {
+          http: 0,
+          code: null,
+          msg: `请求本身失败: ${String(e.message).slice(0, 60)}`,
+          success: null,
+          errors: null,
+          bytes: bytes.length
+        }
+      }
+    }
+    /** 读侧：`sys_user` 的权威面是列表接口，按 userName 精确读回（不靠导入响应的自述） */
+    const readImp = async (name) => {
+      const r = await call(adminToken, 'GET', `/system/user/list?userName=${name}&pageNum=1&pageSize=10`)
+      return (Array.isArray(r.rows) ? r.rows : []).find((u) => u.userName === name) || null
+    }
+
+    // ② 新建：success=1 **且库里真读得到那一行**（响应说成功不等于落库）
+    const mk = await importXlsx([[impUser, '导入甲', '', '13900000000', '', '男', '正常']], 0, 'create')
+    await sleep(300)
+    const row1 = await readImp(impUser)
+    record(
+      M,
+      '用户导入: 新建行 success=1 且写后读回（昵称/手机号落库）',
+      mk.http === 200 &&
+        mk.code === 200 &&
+        mk.success === 1 &&
+        (mk.errors === null || mk.errors.length === 0) &&
+        !!row1 &&
+        row1.nickName === '导入甲' &&
+        String(row1.phonenumber || '') === '13900000000',
+      `HTTP=${mk.http} code=${mk.code} success=${mk.success} errorList=${JSON.stringify(mk.errors || []).slice(0, 60)} 读回=${JSON.stringify(row1 || {}).slice(0, 90)} 发送字节=${mk.bytes}`
+    )
+
+    // ③ 重复登录名（updateSupport=0）：**整体 200 + 逐项结果**这一族（b79 ④）——
+    // HTTP 与 body.code 都是 200，失败只写在 data.errorList 里，只看状态码必然全绿。
+    const dup = await importXlsx([[impUser, '导入甲改名', '', '', '', '男', '正常']], 0, 'dup')
+    await sleep(300)
+    const dupErr = String(dup.errors?.[0]?.error || '')
+    record(
+      M,
+      '用户导入: 重复登录名 ⇒ 整体 200 但 success=0 且逐项回显（判响应体不判状态码）',
+      dup.http === 200 &&
+        dup.code === 200 &&
+        dup.success === 0 &&
+        Array.isArray(dup.errors) &&
+        dup.errors.length === 1 &&
+        dupErr.includes('不能重复') &&
+        Number(dup.errors[0]?.rowNum) === 2,
+      `HTTP=${dup.http} code=${dup.code} success=${dup.success} errorList=${JSON.stringify(dup.errors || []).slice(0, 110)}`
+    )
+    // 反证配对：被拒的那一行**不得改到已有用户**（读回昵称仍是 ②写的值）。
+    // 只看"success=0"分不出"拒绝且无副作用"与"先改了再报重复"。
+    const row2 = await readImp(impUser)
+    record(
+      M,
+      '用户导入: 被拒的重复行未改动既有用户（无副作用）',
+      !!row2 && row2.nickName === '导入甲',
+      `读回 nickName=${row2?.nickName}（期望仍是「导入甲」，若是「导入甲改名」说明先写后拒）`
+    )
+
+    // ④ updateSupport=1 真更新：写后读回新昵称（这才是"更新"分支的闭环，不是只发了请求）
+    const up = await importXlsx([[impUser, '导入乙', '', '', '', '女', '正常']], 1, 'update')
+    await sleep(300)
+    const row3 = await readImp(impUser)
+    record(
+      M,
+      '用户导入: updateSupport=1 覆盖资料字段并读回（写后读闭环）',
+      up.http === 200 && up.success === 1 && !!row3 && row3.nickName === '导入乙',
+      `HTTP=${up.http} success=${up.success} 读回 nickName=${row3?.nickName}（期望「导入乙」）`
+    )
+
+    // ⑤ 两行都在**结构/引用校验阶段**被拒：缺姓名 + 部门不存在 ⇒ 一次调用两条逐项错误，
+    // 且两行都不得落库（读侧与写侧同一谓词；`success=0` 不等于"没写"，必须回查）。
+    const badRows = await importXlsx(
+      [
+        [impOther, ''],
+        [`${impOther}b`, '丙', 'e2e90不存在的部门']
+      ],
+      0,
+      'bad'
+    )
+    const gone1 = await readImp(impOther)
+    const gone2 = await readImp(`${impOther}b`)
+    const errText = (badRows.errors || []).map((e) => String(e.error || '')).join('|')
+    record(
+      M,
+      '用户导入: 缺必填与部门不存在两类校验错误逐行回显',
+      badRows.http === 200 &&
+        badRows.success === 0 &&
+        Array.isArray(badRows.errors) &&
+        badRows.errors.length === 2 &&
+        errText.includes('用户姓名不能为空') &&
+        errText.includes('不存在'),
+      `success=${badRows.success} errorList=${JSON.stringify(badRows.errors || []).slice(0, 130)}`
+    )
+    record(
+      M,
+      '用户导入: 被拒的两行都没有落库（反证配对）',
+      !gone1 && !gone2,
+      `读回 ${impOther}=${JSON.stringify(gone1 || {}).slice(0, 40)} ${impOther}b=${JSON.stringify(gone2 || {}).slice(0, 40)}（都必须是 null）`
+    )
+
+    // ⑥ 收尾：删除 ②建的那一行并读回消失。命名族本身也在 `residue-cleanup` 的 `e2e%` 谓词内，
+    // 两道都要成立——模块内删除证明"能删干净"，命名族登记证明"漏删也有人收"。
+    if (row3?.userId) {
+      const del = await call(adminToken, 'DELETE', `/system/user/${row3.userId}`)
+      const after = await readImp(impUser)
+      record(
+        M,
+        '用户导入: 夹具用户收尾删除并读回消失（不留活跃行）',
+        del.code === 200 && !after,
+        `DELETE code=${del.code} msg=${String(del.msg).slice(0, 40)} 列表仍见=${JSON.stringify(after || {}).slice(0, 60)}`
+      )
+    } else {
+      record(
+        M,
+        '用户导入: 夹具用户收尾删除并读回消失（不留活跃行）',
+        false,
+        '②④ 都没能读回 userId ⇒ 导入其实没落库，收尾无从执行（前置自曝，不是产品缺陷）'
       )
     }
 

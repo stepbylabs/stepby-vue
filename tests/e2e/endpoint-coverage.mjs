@@ -22,7 +22,10 @@
  *   node tests/e2e/endpoint-coverage.mjs                            # 打印本轮对账
  *   node tests/e2e/endpoint-coverage.mjs --gate                     # 与基线做差集，新增未覆盖即红
  *   node tests/e2e/endpoint-coverage.mjs --update-baseline          # 收紧基线（只许降）
- * 退出码：0 正常 / 1 棘轮回退 / 2 输入不可用（数据集缺失或非全量、路由源解析失败）
+ *   node tests/e2e/endpoint-coverage.mjs --update-baseline --migrate-baseline
+ *                                                                  # 口径迁移（换触达源）时承认它并落 migratedFrom；
+ *                                                                  # 该旗标**只在这条组合下有效**，单用或配 --gate 一律 EXIT=2
+ * 退出码：0 正常 / 1 棘轮回退 / 2 输入不可用（数据集缺失或非全量、路由源解析失败、旗标组合无效）
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -787,6 +790,29 @@ function runSelftest() {
     ]
   ]
   for (const [desc, ok] of cases25) if (!ok) fail.push(`㉕ ${desc}`)
+  // ㉖ **旗标必须有生效路径**（b83 C3）：`--migrate-baseline` 只有配 `--update-baseline` 才改变行为；
+  //    单用或配 `--gate` 都是"读了但走不到"。这类缺陷的输出与正常跑逐字节同形，只能由组合闸拦。
+  const cases26 = [
+    ['单用 --migrate-baseline 必须拒（不写基线 ⇒ 无效）', migrateChannelCheck(['--migrate-baseline']) !== null],
+    [
+      '--migrate-baseline + --gate 必须拒（口径闸在 gate 一支恒 FATAL）',
+      migrateChannelCheck(['--gate', '--migrate-baseline']) !== null
+    ],
+    [
+      '--migrate-baseline + --retire-stale 必须拒（退役同样要求同口径可比）',
+      migrateChannelCheck(['--retire-stale', '--migrate-baseline']) !== null
+    ],
+    [
+      '--migrate-baseline + --update-baseline 必须放行（正控：闸不得一律拒）',
+      migrateChannelCheck(['--update-baseline', '--migrate-baseline']) === null
+    ],
+    ['不带该旗标的常规组合必须放行（正控）', migrateChannelCheck(['--gate', '--operlog']) === null],
+    [
+      '拒绝理由必须点名可用的那条通道（否则人只会再试一次别的错组合）',
+      /--update-baseline/.test(migrateChannelCheck(['--migrate-baseline']) || '')
+    ]
+  ]
+  for (const [desc, ok] of cases26) if (!ok) fail.push(`㉖ ${desc}`)
   fs.rmSync(TMPD, { recursive: true, force: true })
 
   if (fail.length) {
@@ -797,9 +823,10 @@ function runSelftest() {
   // 条数：①–⑱ 是手编号的既有用例（18 条），⑲⑳ 由用例表长度派生——新增用例时只有 18 那一个是常量，
   // 它对应代码里确实存在的 18 个编号，不是一句凭记忆的叙述。
   console.log(
-    `SYNTH_OK 写端点触达判据 ${18 + baseCases.length + cases22.length + cases23.length + 3 + cases21.length + cases24.length + cases25.length} 条双向（既有用例 18 条：4 类响亮失败 + 正控条数 + ` +
+    `SYNTH_OK 写端点触达判据 ${18 + baseCases.length + cases22.length + cases23.length + 3 + cases21.length + cases24.length + cases25.length + cases26.length} 条双向（既有用例 18 条：4 类响亮失败 + 正控条数 + ` +
       `服务端触达源 4 条 + 窗口自证 3 条 + 源族标签 1 条；基线可比性 ${baseCases.length} 条；基线新鲜度 ${cases22.length} 条；` +
-      `集合式棘轮 3 条；未触达登记表对账 ${cases21.length} 条；退役登记 ${cases23.length} 条；执行完整性闸 ${cases24.length} 条；窗口精度闸 ${cases25.length} 条）`
+      `集合式棘轮 3 条；未触达登记表对账 ${cases21.length} 条；退役登记 ${cases23.length} 条；执行完整性闸 ${cases24.length} 条；` +
+      `窗口精度闸 ${cases25.length} 条；旗标生效路径 ${cases26.length} 条）`
   )
   return 0
 }
@@ -936,9 +963,39 @@ function writeBaseline({ sources, total, uncovered, since, until, withOperLog, m
   return body
 }
 
+/**
+ * `--migrate-baseline` 的**可用组合**判据（b83 C3）。
+ * 这个旗标只在"写基线"那一条路径上真的改变行为（① 口径闸从 FATAL 降为 WARN，② 落 `migratedFrom`）。
+ * 单独使用、或配 `--gate` 使用时，它被代码读了、但那条路径算不到它 ⇒ **静默无效**：
+ * 使用者以为"我承认了这是口径迁移"，实际什么都没发生（与 b82 §11 的 `--accept-new-key`
+ * 死代码、`--retire-stale` 缺 `comparable` 同族——**旗标的前提必须由旗标所在的那条路径真的成立**）。
+ * 报错误的组合而不是让它空跑，因为"跑了且无效"与"跑了且有效"从输出上看不出来。
+ */
+function migrateChannelCheck(list) {
+  if (!list.includes('--migrate-baseline')) return null
+  if (!list.includes('--update-baseline')) {
+    return (
+      '--migrate-baseline 只在写基线时有效（口径闸降级为 WARN + 落 migratedFrom），' +
+      `没带 --update-baseline 时它不改变任何行为。当前旗标：${list.join(' ') || '(无)'}`
+    )
+  }
+  if (list.includes('--gate')) {
+    return (
+      '--migrate-baseline 与 --gate 互斥：口径闸在 --gate 那一律 FATAL（不承认迁移），' +
+      '两个一起给等于把承诺挂在自己永远走不到的分支上。先用 --update-baseline --migrate-baseline 迁移口径，再单独 --gate'
+    )
+  }
+  return null
+}
+
 async function main() {
   const args = process.argv.slice(2)
   if (args.includes('--selftest')) process.exit(runSelftest())
+  const migrateErr = migrateChannelCheck(args)
+  if (migrateErr) {
+    console.log(`[FATAL] ${migrateErr}`)
+    process.exit(2)
+  }
   const withOperLog = args.includes('--operlog')
   let since = (args.find((a) => a.startsWith('--since=')) || '').slice('--since='.length)
   let until = (args.find((a) => a.startsWith('--until=')) || '').slice('--until='.length)

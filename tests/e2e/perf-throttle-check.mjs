@@ -11,18 +11,26 @@
 // 若引入了新的渲染阻塞资源或首屏巨型依赖，节流档 LCP/FCP 会首先越限报警。
 
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import process from 'node:process'
+
+// 预算文件在 stepby-vue 仓根（本文件在 tests/e2e 下两层）——按脚本位置反推，
+// 不得用 process.cwd()：从 tests/e2e 启动时 cwd 写法会报"缺少 perf-budget.json"，
+// 而这条报错看着像"配置没建"，实际是判据读错了树（AGENTS《测试门禁全景》②）。
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 // playwright 解析：本仓 node_modules 可能未安装（按需 NODE_PATH 指向独立安装目录）
 const require2 = createRequire(import.meta.url)
 const { chromium } = require2('playwright')
 
 const args = process.argv.slice(2)
-const base = args.includes('--base') ? args[args.indexOf('--base') + 1] : process.env.TEST_BASE || 'http://localhost:4173'
+const base = args.includes('--base')
+  ? args[args.indexOf('--base') + 1]
+  : process.env.TEST_BASE || 'http://localhost:4173'
 
-const budgetPath = join(process.cwd(), 'perf-budget.json')
+const budgetPath = join(HERE, '..', '..', 'perf-budget.json')
 if (!existsSync(budgetPath)) {
   console.error('[perf-throttle] 缺少 perf-budget.json')
   process.exit(1)
@@ -86,7 +94,9 @@ try {
     const mark = lcpOk && fcpOk ? '✅' : '❌'
     if (!(lcpOk && fcpOk)) failed++
     console.log(`${mark} [${sc.name}] ${sc.desc}`)
-    console.log(`   FCP ${vitals.fcp ?? 'n/a'}ms (≤${sc.fcpLimit}ms)  LCP ${vitals.lcp ?? 'n/a'}ms (≤${sc.lcpLimit}ms)  [runtime 预算 LCP≤${runtime.lcpMs}ms FCP≤${runtime.fcpMs}ms]`)
+    console.log(
+      `   FCP ${vitals.fcp ?? 'n/a'}ms (≤${sc.fcpLimit}ms)  LCP ${vitals.lcp ?? 'n/a'}ms (≤${sc.lcpLimit}ms)  [runtime 预算 LCP≤${runtime.lcpMs}ms FCP≤${runtime.fcpMs}ms]`
+    )
     await ctx.close()
   }
 } finally {
