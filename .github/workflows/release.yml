@@ -56,11 +56,22 @@ jobs:
           TAG="${{ github.ref_name }}"
           tar -czf "stepby-frontend-$TAG.tar.gz" dist/
 
+      # 校验和算在**归档本身**上（不是 dist/ 里的单个文件），与 stepby-axum 的 checksums 同口径；
+      # 用户拿到的是 tar.gz，`sha256sum -c checksums.txt` 也必须对 tar.gz 成立。
+      # README 的「预编译产物」章节承诺了这份校验和，此前 workflow 并不产出它——
+      # v0.3.0 发布时只能事后人工补挂（见 docs/optimization/release-v0.3.0-2026-10-21.md）。
+      - name: Generate checksums (sha256, supply-chain practice)
+        run: |
+          sha256sum stepby-frontend-*.tar.gz > checksums.txt
+          cat checksums.txt
+
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend
-          path: stepby-frontend-${{ github.ref_name }}.tar.gz
+          path: |
+            stepby-frontend-${{ github.ref_name }}.tar.gz
+            checksums.txt
           if-no-files-found: error
 
   release:
@@ -85,4 +96,5 @@ jobs:
           body_path: CHANGELOG.md
           files: |
             dist-assets/stepby-frontend-*.tar.gz
+            dist-assets/checksums.txt
           draft: false
