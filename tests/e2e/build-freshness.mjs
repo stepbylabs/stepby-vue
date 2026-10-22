@@ -107,6 +107,51 @@ export function entryChunkFromHtml(html) {
 }
 
 /**
+ * 只进测试二进制、不进 exe 的模块面（由**声明本身**派生，不按文件名猜）。
+ *
+ * 为什么不能按名字排除（b84 实测）：上一版只跳过 `src/integration_tests/` 这一个目录名，
+ * 而本仓还有 `src/initialize/tests.rs`（挂在 `#[cfg(test)] mod tests;` 上）——
+ * 于是 `cargo fmt` 收口时把 tests.rs 的空白改了 1 秒，闸就报"后端产物陈旧、必须重构建重启"，
+ * 而那棵树里**没有一行生产码**变化。名字规则永远落后于事实一种写法。
+ *
+ * 口径：`#[cfg(test)] [pub…] mod NAME;` ⇒ 同目录的 `NAME.rs` 与整个 `NAME/` 目录都不进 exe。
+ * 只认属性行**逐字符等于** `#[cfg(test)]` 的声明：`#[cfg(not(test))]`、`#[cfg(all(test, unix))]`
+ * 一律不排除（宁可多要求一次重构建，也不能把真生产文件静默剔出采集面——那是假绿方向）。
+ */
+export function testOnlyModulePaths(rsFiles) {
+  const excludedFiles = new Set()
+  const excludedDirs = new Set()
+  const DECL_RE = /^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?mod[ \t]+([A-Za-z0-9_]+)[ \t]*;/
+  for (const abs of rsFiles) {
+    const lines = fs.readFileSync(abs, 'utf8').split(/\r?\n/)
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i - 1].trim() !== '#[cfg(test)]') continue
+      const m = DECL_RE.exec(lines[i])
+      if (!m) continue
+      const dir = path.dirname(abs)
+      const asFile = path.join(dir, `${m[1]}.rs`)
+      if (fs.existsSync(asFile)) excludedFiles.add(path.resolve(asFile))
+      const asMod = path.join(dir, m[1], 'mod.rs')
+      const asDir = path.join(dir, m[1])
+      if (fs.existsSync(asMod) || (fs.existsSync(asDir) && fs.statSync(asDir).isDirectory())) {
+        excludedDirs.add(path.resolve(asDir))
+      }
+    }
+  }
+  return { excludedFiles, excludedDirs }
+}
+
+/** 是否落在排除面里（文件或其某个祖先目录被排除）。 */
+function isExcluded(abs, { excludedFiles, excludedDirs }) {
+  const full = path.resolve(abs)
+  if (excludedFiles.has(full)) return true
+  for (const d of excludedDirs) {
+    if (full.startsWith(d + path.sep)) return true
+  }
+  return false
+}
+
+/**
  * 后端侧新鲜度（b83 新增的第二腿）：**Rust 源码是否比在跑的 exe 新**。
  *
  * 立项原因是实测的：`:8080` 上 `target/debug/stepby-axum.exe` 编译于 10:56，而
@@ -120,7 +165,7 @@ export function entryChunkFromHtml(html) {
  * ② 采集面下限（扫不到 `.rs` 就是遍历坏了）；③ 任何生产源码文件晚于 exe ⇒ 点名并拒绝。
  *
  * @param {{axumRoot?:string, exeFile?:string, minFiles?:number}} [opts]
- * @returns {{stale:Array<{rel:string,agoMs:number}>, exeMs:number, scanned:number}}
+ * @returns {{stale:Array<{rel:string,agoMs:number}>, exeMs:number, scanned:number, excluded:number}}
  */
 export function staleBackendSources({
   axumRoot = path.join(REPO_ROOT, 'stepby-axum'),
@@ -131,23 +176,22 @@ export function staleBackendSources({
   if (!fs.existsSync(exeFile)) {
     throw new Error(`后端 exe 不存在：${exeFile}——没有 exe 就判不了新鲜度（先 cargo build 再跑）`)
   }
-  const files = []
+  const all = []
   const srcDir = path.join(axumRoot, 'src')
   if (!fs.existsSync(srcDir)) throw new Error(`后端源码目录不存在：${srcDir}`)
   const walkRs = (dir) => {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
       if (ent.name === 'target' || ent.name.startsWith('.')) continue
       const abs = path.join(dir, ent.name)
-      if (ent.isDirectory()) {
-        // `src/integration_tests/` 挂在 `#[cfg(test)] mod`（src/lib.rs:77）——只进测试二进制，
-        // 不进 exe。把它计入只会让"改了个集成测试"也强制重构建并重启服务，那是噪声；
-        // 口径与前端排除 `*.test.ts` 完全一致（见 appSources 的 TEST_FILE_RE）。
-        if (path.basename(dir) === 'src' && ent.name === 'integration_tests') continue
-        walkRs(abs)
-      } else if (ent.name.endsWith('.rs')) files.push(abs)
+      if (ent.isDirectory()) walkRs(abs)
+      else if (ent.name.endsWith('.rs')) all.push(abs)
     }
   }
   walkRs(srcDir)
+  // 排除面由声明派生（见 testOnlyModulePaths 的立项原因）
+  const excl = testOnlyModulePaths(all)
+  const prodRs = all.filter((f) => !isExcluded(f, excl))
+  const files = [...prodRs]
   for (const f of ['Cargo.toml', 'build.rs', 'config.toml', 'config.toml.example']) {
     const abs = path.join(axumRoot, f)
     if (fs.existsSync(abs)) files.push(abs)
@@ -164,7 +208,9 @@ export function staleBackendSources({
     if (ms > exeMs) stale.push({ rel: path.relative(axumRoot, abs), agoMs: ms - exeMs })
   }
   stale.sort((a, b) => b.agoMs - a.agoMs)
-  return { stale, exeMs, scanned: files.length }
+  // `excluded` 只能由 `.rs` 采集面自己减出来：根文件（Cargo.toml 等）是**加进面**的，
+  // 用 `all.length - files.length` 会把它们当成"被排除的测试文件"（b84 实测把 ⑭ 的自检打红）。
+  return { stale, exeMs, scanned: files.length, excluded: all.length - prodRs.length }
 }
 
 /**
@@ -345,12 +391,13 @@ async function selftest() {
   } catch (e) {
     if (!/产物陈旧/.test(String(e.message))) fail.push(`⑧ 总闸拒绝理由不对：${e.message}`)
   }
-  // ⑨–⑬ 后端那一腿（b83 新增）：同一棵合成树旁边造一个假 axum 目录
+  // ⑨–⑯ 后端那一腿（b83 新增，b84 把"排除面"从目录名改为由声明派生）：
+  // 同一棵合成树旁边造一个假 axum 目录
   const axum = path.join(dir, 'axum-fixture')
-  const mkAxum = (rel, days) => {
+  const mkAxum = (rel, days, content = 'fn a() {}\n') => {
     const abs = path.join(axum, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.writeFileSync(abs, 'fn a() {}\n')
+    fs.writeFileSync(abs, content)
     const t = new Date(Date.now() + days * 86400000)
     fs.utimesSync(abs, t, t)
     return abs
@@ -358,6 +405,16 @@ async function selftest() {
   const exe = mkAxum('target/debug/stepby-axum.exe', 0)
   for (let i = 0; i < 200; i++) mkAxum(`src/gen/m${i}.rs`, -8)
   mkAxum('Cargo.toml', -8)
+  // **声明面**：排除面只能从这些声明派生（没有声明就没有排除 ⇒ ⑭–⑯ 判的是派生，不是文件名）
+  mkAxum('src/lib.rs', -8, '#[cfg(test)]\nmod integration_tests;\n\npub mod gen;\n')
+  mkAxum('src/gen/mod.rs', -8, 'pub mod a;\n')
+  mkAxum('src/initialize/mod.rs', -8, '#[cfg(test)]\nmod tests;\n\npub mod schema;\n')
+  mkAxum('src/initialize/tests.rs', -6, '#[cfg(test)]\nfn t() {}\n')
+  mkAxum('src/initialize/schema.rs', -8)
+  // ⑯a 的夹具：属性**不是**逐字符 `#[cfg(test)]` 的声明不得排除任何东西
+  mkAxum('src/probe/mod.rs', -8, '#[cfg(all(test, feature = "gate"))]\nmod gated;\n\nmod tests;\n')
+  mkAxum('src/probe/gated.rs', -8)
+  mkAxum('src/probe/tests.rs', -8)
   const b0 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
   if (b0.stale.length !== 0) fail.push(`⑨ 干净后端树上报了陈旧：${JSON.stringify(b0.stale.slice(0, 3))}`)
   if (b0.scanned < 200) fail.push(`⑨ 采集面数不对：${b0.scanned}`)
@@ -399,11 +456,32 @@ async function selftest() {
   } catch (e) {
     if (!/后端产物陈旧/.test(String(e.message))) fail.push(`⑬ 总闸拒绝理由没指向后端：${e.message}`)
   }
-  // ⑭ `#[cfg(test)] mod integration_tests` 不进 exe ⇒ 改它不得要求重构建（与前端不计入单测同口径）
+  // ⑭ `#[cfg(test)] mod integration_tests;` 不进 exe ⇒ 改它不得要求重构建（与前端不计入单测同口径）。
+  //   排除面为空时这条**必须红**：它测的是"派生出来了"，不是"目录名被跳过"。
   mkAxum('src/integration_tests/late.rs', 3)
   const b2 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (b2.excluded < 2)
+    fail.push(
+      `⑭ 排除面只有 ${b2.excluded} 条（应 ≥2：tests.rs 文件 + integration_tests 目录）——派生没跑起来，这条等于没测`
+    )
   if (b2.stale.some((s) => /integration_tests/.test(s.rel)))
     fail.push(`⑭ 只进测试二进制的目录被计入陈旧：${JSON.stringify(b2.stale)}`)
+  // ⑮ 文件形模块（`src/initialize/tests.rs`，b84 实测被旧"按目录名跳过"漏掉的那一个）同样不得计入
+  mkAxum('src/initialize/tests.rs', 4)
+  const b3 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (b3.stale.some((s) => /[\\/]initialize[\\/]/.test(s.rel)))
+    fail.push(`⑮ 挂在 #[cfg(test)] 上的 tests.rs 被计入陈旧：${JSON.stringify(b3.stale)}`)
+  if (!b3.stale.some((s) => /totp_handler\.rs$/.test(s.rel)))
+    fail.push(`⑮b 反证：生产文件 totp_handler.rs 必须**仍然**在陈旧清单里（⑮不得顺手把判据关掉）`)
+  // ⑯ 对照组真受约束：属性不是逐字符 `#[cfg(test)]` 的声明**不得**排除；
+  //    同名 `tests.rs` 只要没挂在 #[cfg(test)] mod tests; 上就必须照常进采集面。
+  //    （这一条挡住"按文件名排除"那条捷径——那正是 b84 之前的实现所能蒙过的形状）
+  mkAxum('src/probe/tests.rs', 7)
+  mkAxum('src/probe/gated.rs', 7)
+  const b4 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  for (const re of [/probe[\\/]tests\.rs$/, /probe[\\/]gated\.rs$/]) {
+    if (!b4.stale.some((s) => re.test(s.rel))) fail.push(`⑯ 未被 #[cfg(test)] 声明排除的文件没进陈旧清单：${re}`)
+  }
   fs.rmSync(dir, { recursive: true, force: true })
   fs.rmSync(thin, { recursive: true, force: true })
   return fail
@@ -419,9 +497,30 @@ async function entry() {
       fail.forEach((f) => console.log(`  · ${f}`))
       process.exit(1)
     }
+    // 条数由枚举本身派生（b84）：原先那句写死"14 组双向"，加用例时数字不动 ⇒ 标签与实际用例脱钩。
+    const FRONTEND_CASES = [
+      '干净树正控',
+      '陈旧点名',
+      '单测与生成类型不计入',
+      '产物缺失',
+      '采集面下限',
+      '入口解析',
+      '服务即产物字节对账（正反）',
+      '总闸拦陈旧'
+    ]
+    const BACKEND_CASES = [
+      '干净 exe 正控',
+      '陈旧源文件点名',
+      'exe 缺失',
+      '采集面下限',
+      '总闸真走到后端这一腿',
+      'cfg(test) 目录形模块不计入',
+      'cfg(test) 文件形模块不计入（含"生产文件仍要点名"反证）',
+      '对照组：非 #[cfg(test)] 声明的同名文件照常计入'
+    ]
     log(
-      'SYNTH_OK 产物新鲜度 14 组双向（前端：干净树正控 / 陈旧点名 / 单测与生成类型不计入 / 产物缺失 / 采集面下限 / 入口解析 / 服务即产物字节对账 / 总闸拦陈旧；' +
-        '后端：干净 exe 正控 / 陈旧源文件点名 / exe 缺失 / 采集面下限 / 总闸真走到后端这一腿 / cfg(test) 目录不计入）'
+      `SYNTH_OK 产物新鲜度 ${FRONTEND_CASES.length + BACKEND_CASES.length} 组双向（前端：` +
+        `${FRONTEND_CASES.join(' / ')}；后端：${BACKEND_CASES.join(' / ')}）`
     )
     process.exit(0)
   }

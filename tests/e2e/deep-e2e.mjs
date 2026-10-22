@@ -98,6 +98,7 @@ import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { readCaptchaCodeFromRedis, capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi } from './e2e/run/auth.mjs'
 import { makeActionBreadthTest } from './modules/actionBreadth.mjs'
 import { makeWriteEndpointBreadthTest } from './modules/writeEndpointBreadth.mjs'
+import { makePwdPolicyTest } from './modules/pwdPolicy.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21679,6 +21680,17 @@ const testModule90 = makeWriteEndpointBreadthTest({
   checkConsoleErrors
 })
 
+// 模块 91（批八十四 项 A）：口令有效期 / 强改密闸门的默认态契约与可发现性。
+// 行为判据在 Rust 集成测试（隔离库）里，本模块只判"默认态零变化 + 能力可发现"，
+// 因此在任何环境上都应同数（详见该模块头部注释）。
+const testModule91 = makePwdPolicyTest({
+  record,
+  log,
+  getApiToken,
+  CONFIG,
+  checkConsoleErrors
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -21771,7 +21783,8 @@ const testFns = {
   87: testModule87,
   88: testModule88,
   89: testModule89,
-  90: testModule90
+  90: testModule90,
+  91: testModule91
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

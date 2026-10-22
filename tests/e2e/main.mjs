@@ -85,7 +85,17 @@ import zlib from 'node:zlib'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { TEST_USER, TEST_PASS, BASE_URL } from './test-config.mjs'
+import { deriveFeatureIds, planSegments, planText } from './e2e/run/plan.mjs'
+// 免凭据入口的判据是"是否需要浏览器"，不按旗标名枚举（与 deep-e2e 的 `--plan` 同口径，b82 §12②）。
+// 为什么这条必须存在：`test-config.mjs` 的 fail-fast 发生在 **import 期**，静态导入无法"先看 argv
+// 再决定要不要载它"，于是"只想问一句该分几段"也被凭据挡住——而被挡住的那一步正是本仓立过案的
+// 高危位置：b83 六段跑批把第 5 段手抄成 `97-116,118-120`，在册的 F117 整族 9 条判据**一轮没跑**、
+// 每段照样报绿。配方 §3.57.3 给的补救是一段 `node -e` 手工命令，手工命令等于没有判据。
+// 凭据纪律本身一个字没松：任何真跑用例的路径仍然要求 `STEPBY_TEST_*`。
+const PLAN_ONLY = process.argv.slice(2).includes('--plan')
+const { TEST_USER, TEST_PASS, BASE_URL } = PLAN_ONLY
+  ? { TEST_USER: '', TEST_PASS: '', BASE_URL: process.env.STEPBY_BASE_URL || 'http://localhost:8080' }
+  : await import('./test-config.mjs')
 import {
   createCaptureHub,
   summarizeBackendLogErrors,
@@ -105,6 +115,30 @@ const __dirname = path.dirname(__filename)
  * 历史轮次/历史日期的日志行不再混进本轮报告。
  */
 const MAIN_RUN_STARTED_AT_MS = Date.now()
+
+// `--plan` 的唯一职责是"把分片口径从注册表里派生出来"，因此它排在**一切重资源之前**：
+// 不装 playwright、不读产物、不碰库、不要凭据。三支判据一律 fail-closed——
+// 派生不出注册表 / 形状有问题 都给 EXIT=2 并说清"分片会静默少跑哪些编号"，
+// 绝不给一份"看起来能用"的分片（那等于把少跑一族继续往下传）。
+if (PLAN_ONLY) {
+  const selfSrc = fs.readFileSync(__filename, 'utf8')
+  const derived = deriveFeatureIds(selfSrc)
+  if (derived.fatal) {
+    console.error(`❌ --plan 拒绝给出口径：${derived.fatal}`)
+    process.exit(2)
+  }
+  const plan = planSegments(derived.ids)
+  if (!plan.ok) {
+    console.error(
+      `❌ --plan 拒绝给出口径：${plan.shape.problems.join('；')}` +
+        ` ⇒ 按这份注册表分片会静默少跑 ${[...plan.shape.holes, ...new Set(plan.shape.dups)].join(',')} 这类编号`
+    )
+    process.exit(2)
+  }
+  console.log(planText(plan, 'main.mjs'))
+  process.exit(0)
+}
+
 const require = createRequire(import.meta.url)
 let chromium
 try {
@@ -18410,7 +18444,7 @@ function parseCliArgs() {
     } else {
       log(
         `❌ 未识别的旗标：${arg}\n` +
-          '   可用：--headless / --headed / --feature=N 或 A-B,C / --shard=N/M / --merge（合并各片）'
+          '   可用：--headless / --headed / --feature=N 或 A-B,C / --shard=N/M / --merge（合并各片）/ --plan（分片口径，免凭据）'
       )
       process.exit(2)
     }
@@ -18712,11 +18746,25 @@ async function main() {
       if (dup.length > 0) problems.push(`重复编号=${dup.join(',')}`)
       if (holes.length > 0) problems.push(`未注册编号=${holes.join(',')}`)
       if (!shapeOk) problems.push(`features=${ids.length} 与最大编号=${maxId} 不吻合`)
+      // 派生口径对账（b84）：`--plan` 走的是**文本派生**（读本文件源码里的 features 数组区），
+      // 运行时用的是**真实数组**。两者不一致只有两种可能——注册表写法漂出了派生正则，
+      // 或数组区里有非注册的同形状文本。任一发生都意味着 `--plan` 给的分片不可信，
+      // 于是这条判据把"派生器可用"变成每轮自证的事实，而不是一次自检时人工核过就算完。
+      // （反证由 plan.mjs 自检 ⑥ 钉住：注释/数组区外的同形状文本不得进集合。）
+      const derived = deriveFeatureIds(fs.readFileSync(__filename, 'utf8'))
+      if (derived.fatal) problems.push(`派生口径失效：${derived.fatal}`)
+      const derivedIds = derived.ids
+      const dset = new Set(derivedIds)
+      const aset = new Set(ids)
+      const onlyRuntime = ids.filter((i) => !dset.has(i))
+      const onlyDerived = derivedIds.filter((i) => !aset.has(i))
+      if (onlyRuntime.length > 0) problems.push(`运行时在册但文本派生漏掉的编号=${onlyRuntime.join(',')}`)
+      if (onlyDerived.length > 0) problems.push(`文本派生多出的编号=${onlyDerived.join(',')}`)
       record(
         0,
         '注册表自检: 编号 1..N 连续、无重复且数量与最大编号吻合',
         problems.length === 0,
-        problems.length ? problems.join('; ') : `${ids.length} 项，编号 1..${maxId}`
+        problems.length ? problems.join('; ') : `${ids.length} 项，编号 1..${maxId}（与 --plan 派生口径一致）`
       )
     }
 
