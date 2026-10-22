@@ -3633,3 +3633,27 @@ node tests/e2e/oper-log-audit.mjs     --gate --since=2026-10-22T06:05:00Z --unti
 
 自检 46 条双向覆盖上述四条（含"把窗口挪到裸行之后必须计入"的对照组——只判"排除"判不出"一律排除"）；
 变异证伪：摘掉 `filterWindow` ⇒ 自检 4 条同时红，且真日志上的 `--gate` 当场把"窗口内记录"打成全文件数 3152。
+
+### 3.92 `libtest` 只在并发轮红、单线程恒绿 ⇒ 先怀疑进程环境，不要怀疑用例（b85 固化）
+
+症状（b85 提交后复跑实测）：同一份代码，几十分钟前 64 把全绿，复跑 `libtest` `EXIT=101`，
+5 条集成用例失败——3 条是 `login 业务码应为 200 … {"code":401,"msg":"用户名或密码错误"}`，
+2 条是行数对账（`left 2 / right 1`、`left 4 / right 1`）。
+
+四步取证，顺序不能换：
+
+1. **先证"不是用例坏了"**：`cargo test -j 4 --lib -- --test-threads=1 <这几条>` ⇒ 全绿。
+2. **再证"随机"**：换一组同模块用例、`--test-threads=20` 连跑 3-6 轮 ⇒ 每轮红的**不是同一条**。
+   红哪条不确定 = 共享状态，而不是某条用例的断言写错。
+3. **归因只能按 `---- <test> stdout ----` 块**：并发 20 线程时，夹在 `test … ok` 之间的裸 WARN 行
+   **不属于**时间上最近的那条用例。这一步差点把人支使去查"租户闸门为什么拒绝 tenant 9001"
+   （那是别的用例的日志），而失败用例自己块里的第一行才是真正的证据：
+   `panicked at src\integration_tests\mod.rs:305 … SSO_ENABLED=true 时必须显式配置 SSO_ISSUER`。
+4. **查共享可变量**：`grep -rn "set_var\|remove_var\|dotenv" src/` —— 本轮查到四处，
+   根因是 harness 把 `dotenvy::dotenv()` 排在 `Settings::from_file()` 之后，而 dotenv 逐行写环境，
+   `.env` 里 `SSO_ENABLED`(36 行) 比 `SSO_ISSUER`(38 行) 先进 ⇒ 并发中有用例读到半份。
+   修法：`static TEST_ENV: Once` + `call_once`（后到线程阻塞等装载完成），锁在
+   `integration_tests/env_discipline.rs`。
+
+跑批口径也一并记下：**收口用的 `libtest` 必须是全量单轮**（`run-gates.py` 的 `libtest` 就是它），
+"某模块单独复跑全绿"不能替代它——单独复跑只有 1-3 个应用实例在跑，抢不到那个中间态。
