@@ -31,7 +31,11 @@
  *   node tests/e2e/request-storm.mjs                 # 打印 Top 与逐键密度
  *   node tests/e2e/request-storm.mjs --gate          # 与基线比对，退步即红
  *   node tests/e2e/request-storm.mjs --update-baseline
+ *   node tests/e2e/request-storm.mjs --gate --retire-stale   # 撤销本轮没再打过的轮询声明（真删，需全量单轮数据集）
  *   node tests/e2e/request-storm.mjs --selftest
+ *
+ * 轮询声明也是**逐轮对账**（批八十五 项 F）：一条声明等于"这个端点不设阈"，本轮数据集里
+ * 没有它的出网记录 ⇒ 判红并必须撤销；只打 ℹ 就是让豁免沉淀成常白名单。
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -109,14 +113,54 @@ export function loadDeclarations(file = DECLARATIONS) {
 }
 
 /**
+ * 退役的**纯决策**部分（拆出来是为了可测：`process.exit` 那条路径在自检里没法跑）。
+ *
+ * - 逐条按 `key` 精确比对（清单里的身份就是 key），不做前缀/通配匹配——通配会让一次退役
+ *   顺手删掉隔壁还有效的条目（同 endpoint-coverage 的"逐条自足"纪律）。
+ * - `wouldEmpty`：全清会把判据自己打坏（下一轮 `loadDeclarations` 因"必须是非空数组"
+ *   直接 FATAL），所以这里把它单独报出来，由调用方拒绝落盘。
+ */
+export function planRetire(declarations, missedKeys) {
+  const keys = [...new Set(missedKeys || [])]
+  const keep = declarations.filter((d) => !keys.includes(d.key))
+  return {
+    keep,
+    removed: keys.filter((k) => declarations.some((d) => d.key === k)),
+    wouldEmpty: keep.length === 0 && declarations.length > 0
+  }
+}
+
+/** 把本轮未命中的轮询声明从清单里删掉（动作通道；空集不碰文件、删空一律拒绝）。 */
+export function retireDeclarations(missedKeys, file = DECLARATIONS) {
+  const body = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const { keep, removed, wouldEmpty } = planRetire(body.declarations, missedKeys)
+  if (!removed.length) return []
+  if (wouldEmpty) {
+    console.log(
+      `[FATAL] 退役会清空轮询声明清单（${removed.length} 条全未命中）——一条不剩等于把判据自己打坏，` +
+        `请逐条确认后手工处理，本次不改文件`
+    )
+    process.exit(2)
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...body, declarations: keep }, null, 2) + '\n', 'utf8')
+  return removed
+}
+
+/**
  * 基线口径名。换分母/换判据含义必须同时换掉它并重生成基线（见 `assertBaselineShape`）。
  *
  * b81 从 `density-per-nav` 升为 `density-per-nav-endpoint`：采集键原本是
  * `"<动作> | GET /path"`，同一端点在不同动作里各成一条，既无法回答"这个端点每页打几次"，
  * 也让 N-21 的"按端点声明轮询"永远匹配不上。现在聚合时剥掉动作前缀，按端点求和；
  * 这是**换判据**，必须与重生成基线同批，不能拿旧数字继续比。
+ *
+ * b85 升为 `-v2`：退步判定加了第二条腿（`MIN_STORM_REQUESTS` 绝对下限，见该常量注释）。
+ * 只增参数不改名会让"旧基线 + 新判据"看起来只是数字变好——而旧基线里根本没有
+ * `minStormRequests` 这一项，`assertBaselineShape` 会直接拒比。改名 + `--reset-baseline --update-baseline`
+ * 才是这条口径变更的合法路径（`--reset-baseline` 在口径未变时一律拒绝，就是为了防止有人用
+ * "重建基线"这把手柄去抹掉既有棘轮）。
  */
-export const METRIC = 'density-per-nav-endpoint'
+export const METRIC = 'density-per-nav-endpoint-v2'
 
 /** 单键允许的最大增幅（相对基线密度）。小于它的波动视为噪声，不参与判红。 */
 export const STORM_TOLERANCE = 0.25
@@ -128,6 +172,23 @@ export const STORM_TOLERANCE = 0.25
  * 调它必须与重生成基线同批——否则是拿更松的阈值比一份按旧阈值写的基线。
  */
 export const NEW_DENSITY_FLOOR = 5
+
+/**
+ * 退步判定的**绝对下限**，单位是"整轮多发的请求次数"（批八十五 项 H）。
+ *
+ * 立案证据：b85 的 `--gate` 报了 13 项退步，逐条都是
+ * `基线 0.01 → 本轮 0.02：密度增幅 0.00 > 基线 0.01 × 0.25`——
+ * 打印出来的增幅是 0.00，比较用的是未截断的 0.0062。分母是本轮 1624 次导航，
+ * 所以这条说的是"某页多访问了一次"。近零密度由**整数访问次数**主导，
+ * 相对容差在 0.01 这种量级上就是噪声放大器：这些键（`/tool/help`、`/tool/shortcuts`、
+ * swagger 静态资源…）的次数只由"这一轮访问了几次那个页面"决定，与请求风暴无关。
+ *
+ * 所以退步必须**同时**满足两条：相对超容差、且绝对增量够得着一次真风暴。
+ * 次数取 25 的理由与 `NEW_DENSITY_FLOOR` 同源：合法波动是个位数，
+ * "逐行请求/每次渲染重拉"一上来就是几百次（本轮总量 6524，单键 25 次≈0.4%）。
+ * 该参数写进基线（`minStormRequests`），调它必须与重生成基线同批。
+ */
+export const MIN_STORM_REQUESTS = 25
 
 const log = (...a) => console.log(...a)
 
@@ -223,41 +284,94 @@ export function stormRegressions(
   agg,
   tol = STORM_TOLERANCE,
   newFloor = NEW_DENSITY_FLOOR,
-  declared = new Set()
+  declared = new Set(),
+  minRequests = MIN_STORM_REQUESTS
 ) {
   const bad = []
+  for (const hit of stormScan(basePerKey, agg, tol, newFloor, declared, minRequests)) {
+    if (hit.kind === 'regression') bad.push(hit.item)
+  }
+  return bad
+}
+
+/**
+ * 逐键扫一遍，把结论分三类（`kind`）：`regression` / `below-floor`（相对翻倍但绝对增量
+ * 够不着一次真风暴）/ 其余不产出。`stormRegressions` 只取第一类，打印层取第二类做 ℹ 留痕——
+ * **只打提示、没有动作通道=没判**，但"没有需要动作的结论"本来就该只是提示。
+ * 两类共用同一次扫描，比较式因此不可能在两处漂移（AGENTS ⑯"标签与计数同源"）。
+ */
+export function stormScan(
+  basePerKey,
+  agg,
+  tol = STORM_TOLERANCE,
+  newFloor = NEW_DENSITY_FLOOR,
+  declared = new Set(),
+  minRequests = MIN_STORM_REQUESTS
+) {
+  const set = declared instanceof Set ? declared : new Set(declared || [])
+  const out = []
   for (const [key, cur] of agg) {
-    if (declared.has(key)) continue
+    if (set.has(key)) continue
     const base = basePerKey ? basePerKey[key] : undefined
     if (base === undefined) {
       if (cur.density >= newFloor) {
-        bad.push({ key, base: null, now: cur.density, why: `新出网面且每导航 ${cur.density.toFixed(2)} ≥ ${newFloor}` })
+        out.push({
+          kind: 'regression',
+          item: { key, base: null, now: cur.density, why: `新出网面且每导航 ${cur.density.toFixed(2)} ≥ ${newFloor}` }
+        })
       }
       continue
     }
     const b = Number(base)
     if (!Number.isFinite(b) || b < 0) {
-      bad.push({
-        key,
-        base: base ?? null,
-        now: cur.density,
-        why: '基线值不是非负数值 ⇒ 判不了，按退步处理（fail-closed）'
+      out.push({
+        kind: 'regression',
+        item: {
+          key,
+          base: base ?? null,
+          now: cur.density,
+          why: '基线值不是非负数值 ⇒ 判不了，按退步处理（fail-closed）'
+        }
       })
       continue
     }
     // 基线记 0（那一轮该端点一条没发）而现在有：等价于"新出网面"，按同一下限判
     if (b === 0) {
       if (cur.density >= newFloor) {
-        bad.push({ key, base: 0, now: cur.density, why: `从 0 涨到每导航 ${cur.density.toFixed(2)} ≥ ${newFloor}` })
+        out.push({
+          kind: 'regression',
+          item: { key, base: 0, now: cur.density, why: `从 0 涨到每导航 ${cur.density.toFixed(2)} ≥ ${newFloor}` }
+        })
       }
       continue
     }
     const grew = cur.density - b
-    if (grew > b * tol) {
-      bad.push({ key, base: b, now: cur.density, why: `密度增幅 ${grew.toFixed(2)} > 基线 ${b.toFixed(2)} × ${tol}` })
+    if (grew <= b * tol) continue
+    const denom = Math.max(1, cur.navs || 0)
+    const extraReq = grew * denom
+    // 判定读的是**未截断**的量，打印也必须打未截断的量：上一轮那句
+    // "密度增幅 0.00 > 基线 0.01 × 0.25" 是自相矛盾的话术，照它去理解就会以为判据坏了。
+    const item = {
+      key,
+      base: b,
+      now: cur.density,
+      extraReq: Math.round(extraReq),
+      denom,
+      why: `每导航 ${b.toFixed(4)} → ${cur.density.toFixed(4)}（整轮多 ${Math.round(extraReq)} 次 / 分母 ${denom} 导航）`
+    }
+    if (extraReq >= minRequests) {
+      out.push({
+        kind: 'regression',
+        item: { ...item, why: `${item.why}，超相对容差 ×${tol} 与绝对下限 ${minRequests} 次` }
+      })
+    } else {
+      out.push({
+        kind: 'below-floor',
+        item: { ...item, why: `${item.why}，相对超 ×${tol} 但绝对增量不足 ${minRequests} 次/轮` }
+      })
     }
   }
-  return bad
+  return out
 }
 
 /**
@@ -279,12 +393,21 @@ export function filterAccepted(bad, acceptedKeys = []) {
  * 只有收紧入口走 `filterAccepted`，并把被签字的键交回调用方落进基线 `acceptedNewKeys` 留痕。
  */
 export function stormVerdict(basePerKey, agg, declaredKeys, acceptNewKeys = [], opts = {}) {
-  const { gateOnly = false, tol = STORM_TOLERANCE, newFloor = NEW_DENSITY_FLOOR } = opts
+  const {
+    gateOnly = false,
+    tol = STORM_TOLERANCE,
+    newFloor = NEW_DENSITY_FLOOR,
+    minRequests = MIN_STORM_REQUESTS
+  } = opts
   const set = declaredKeys instanceof Set ? declaredKeys : new Set(declaredKeys || [])
-  const allBad = stormRegressions(basePerKey, agg, tol, newFloor, set)
+  const scan = stormScan(basePerKey, agg, tol, newFloor, set, minRequests)
+  const allBad = scan.filter((x) => x.kind === 'regression').map((x) => x.item)
+  // 相对翻倍但绝对增量够不着一次真风暴的键：不判红，但必须**看得见**。
+  // 静默吞掉是另一头的自欺——哪一天它涨成真风暴，前一天的记录就该在这里。
+  const notes = scan.filter((x) => x.kind === 'below-floor').map((x) => x.item)
   const bad = gateOnly ? allBad : filterAccepted(allBad, acceptNewKeys)
   const signed = allBad.filter((x) => !bad.includes(x))
-  return { allBad, bad, signed }
+  return { allBad, bad, signed, notes }
 }
 
 /** 收紧入口用：先比后写，退步时**一个字都不落盘**（§7.14）。 */
@@ -302,6 +425,7 @@ export function writeBaseline({ window, agg, totalRequests, acceptedNewKeys = []
     window,
     tolerance: STORM_TOLERANCE,
     newDensityFloor: NEW_DENSITY_FLOOR,
+    minStormRequests: MIN_STORM_REQUESTS,
     totalRequests,
     keys: Object.keys(perKey).length,
     perKey,
@@ -336,7 +460,12 @@ function readBaseline() {
 export function assertBaselineShape(
   base,
   fileLabel = BASELINE,
-  expect = { metric: METRIC, tolerance: STORM_TOLERANCE, newDensityFloor: NEW_DENSITY_FLOOR }
+  expect = {
+    metric: METRIC,
+    tolerance: STORM_TOLERANCE,
+    newDensityFloor: NEW_DENSITY_FLOOR,
+    minStormRequests: MIN_STORM_REQUESTS
+  }
 ) {
   if (!base) throw new Error(`基线不存在：${fileLabel}（先在一次全量轮之后跑 --update-baseline 生成）`)
   if (base.full !== true) {
@@ -355,7 +484,7 @@ export function assertBaselineShape(
   }
   if (w.since >= w.until) throw new Error(`基线窗口方向可疑：${w.since} .. ${w.until}`)
   if (!base.perKey || typeof base.perKey !== 'object') throw new Error('基线没有 perKey 映射，拒绝比对')
-  for (const k of ['tolerance', 'newDensityFloor']) {
+  for (const k of ['tolerance', 'newDensityFloor', 'minStormRequests']) {
     const recorded = Number(base[k])
     if (!Number.isFinite(recorded))
       throw new Error(`基线没有记录判据参数 ${k}（实际 ${JSON.stringify(base[k])}）——无法确认比对口径，拒绝比对`)
@@ -501,7 +630,8 @@ function selftest() {
     window: { since: '2026-01-01 00:00:00', until: '2026-01-02 00:00:00' },
     perKey: { 'GET /x': 1 },
     tolerance: STORM_TOLERANCE,
-    newDensityFloor: NEW_DENSITY_FLOOR
+    newDensityFloor: NEW_DENSITY_FLOOR,
+    minStormRequests: MIN_STORM_REQUESTS
   }
   try {
     const w = assertBaselineShape(goodBase, '(内存)')
@@ -519,7 +649,9 @@ function selftest() {
     ['缺 tolerance', { ...goodBase, tolerance: undefined }],
     // 换判据必须与重生成基线同批：拿 0.6 的新容差去比记录着 0.25 的旧基线，数字会"变好"
     ['tolerance 被放宽', { ...goodBase, tolerance: STORM_TOLERANCE + 0.35 }],
-    ['newDensityFloor 非数值', { ...goodBase, newDensityFloor: 'lots' }]
+    ['newDensityFloor 非数值', { ...goodBase, newDensityFloor: 'lots' }],
+    // 绝对下限是判据的第三条腿：基线没记它 = 那份基线是"只有相对容差"的旧尺量出来的
+    ['缺 minStormRequests（旧断面的基线）', { ...goodBase, minStormRequests: undefined }]
   ]
   for (const [label, bs] of badBases) {
     try {
@@ -639,8 +771,10 @@ function selftest() {
   //    于是 `--accept-new-key=` 永远走不到登记逻辑——旗标留了却接不上，第一条合法新增就把收紧锁死；
   //    而同一条通道写进基线的 `acceptedNewKeys` 也没真的传下去，输出里"已写进基线留痕"是句假话）。
   //    这条判据必须钉"签字只在收紧入口生效"与"gate 不被一句旗标放行"两个相反方向。
+  //    夹具在 b85 项 H 之后**放大了量**（原来是"多访问一次 http-debugger"，绝对增量 0.6 次，
+  //    新规则下它根本不算退步）——这一组判的是签字通道的接线，不是下限，所以取一条真会退步的形状。
   const growthAgg = aggregate([
-    { tag: 'M89', key: 'GET /tool/http-debugger', count: 2, navs: 95 },
+    { tag: 'M89', key: 'GET /tool/http-debugger', count: 48, navs: 95 },
     { tag: 'M90', key: 'POST /system/other', count: 40, navs: 2 }
   ])
   const gBase = { 'GET /tool/http-debugger': 0.0149, 'POST /system/other': 0.01 }
@@ -713,6 +847,98 @@ function selftest() {
   } catch (e) {
     fail.push(`⑮ 合法全量轮被拒了：${e.message}`)
   }
+  // ⑰ 声明**未命中**对账与退役通道（b85 项 F）：一条声明="这个键不设阈"，
+  // 本轮没打过它就是白拿的豁免；只打提示不判红、也不给删除出口 ⇒ 豁免会沉淀成常白名单。
+  {
+    const raw = {
+      version: 1,
+      declarations: [
+        {
+          key: 'GET /monitor/server',
+          intervalMs: 2000,
+          source: 'stepby-vue/tests/e2e/request-storm.mjs:60',
+          why: '合成：服务器监控页自动刷新'
+        },
+        {
+          key: 'GET /health',
+          intervalMs: 30000,
+          source: 'stepby-vue/tests/e2e/request-storm.mjs:60',
+          why: '合成：健康页按偏好轮询'
+        }
+      ]
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storm-decl-'))
+    const f = path.join(dir, 'd.json')
+    fs.writeFileSync(f, JSON.stringify(raw, null, 2))
+    const dec = loadDeclarations(f)
+    if (dec.size !== 2) fail.push(`⑰ 合成声明读出来 ${dec.size} 条（期望 2）`)
+    const hit = new Set(['GET /health'])
+    const miss = [...dec.keys()].filter((k) => !hit.has(k))
+    if (miss.length !== 1 || miss[0] !== 'GET /monitor/server') {
+      fail.push(`⑰ 未命中集合取错：${JSON.stringify(miss)}`)
+    }
+    const plan = planRetire(raw.declarations, miss)
+    if (plan.removed.length !== 1 || plan.keep.length !== 1) {
+      fail.push(`⑰ 退役计划必须只剔未命中那条：removed=${plan.removed.length} keep=${plan.keep.length}`)
+    }
+    if (plan.wouldEmpty) fail.push('⑰ 还剩一条合法声明却被判成"会清空"')
+    if (planRetire(raw.declarations, [...dec.keys()]).wouldEmpty !== true) {
+      fail.push('⑰ 全清必须被识别（否则退役通道会把判据自己打坏）')
+    }
+    if (planRetire(raw.declarations, []).removed.length !== 0) fail.push('⑰ 空未命中不得产出删除')
+    const removed = retireDeclarations(miss, f)
+    const after = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (removed.length !== 1 || after.declarations.length !== 1) {
+      fail.push(`⑰ 退役必须真落盘并留痕：removed=${removed.length} 剩=${after.declarations.length}`)
+    }
+    if (after.declarations[0]?.key !== 'GET /health') fail.push('⑰ 退役后剩下的必须是命中那条')
+    const snap = fs.readFileSync(f, 'utf8')
+    retireDeclarations([], f)
+    if (fs.readFileSync(f, 'utf8') !== snap) fail.push('⑰ 没有未命中时不得改动文件')
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  // ⑱ 退步判定必须有**绝对下限**（b85 项 H）：近零密度上的相对容差是噪声放大器。
+  //    立案形状就是本轮真报的 `基线 0.01 → 本轮 0.02（分母 1624 导航 ⇒ 整轮多 16 次）`。
+  {
+    const agg18 = aggregate([
+      { tag: 'M70 load', key: 'GET /tool/help', count: 33, navs: 1624 }, // 0.0203
+      { tag: 'M70 load', key: 'GET /tool/shortcuts', count: 65, navs: 1624 } // 0.0400
+    ])
+    const base18 = { 'GET /tool/help': 0.0105, 'GET /tool/shortcuts': 0.0105 }
+    const bad18 = stormRegressions(base18, agg18)
+    const scan18 = stormScan(base18, agg18)
+    if (bad18.length !== 1) fail.push(`⑱ 绝对下限没生效：报了 ${bad18.length} 条（期望只有多 48 次那条）`)
+    if (scan18.filter((x) => x.kind === 'below-floor').length !== 1)
+      fail.push(`⑱ 相对翻倍但增量不足的键必须留痕为 below-floor：${JSON.stringify(scan18)}`)
+    // 反脆弱：摘掉绝对下限 ⇒ 两条都得报（这就是本轮真实红出来的 13 项的形状）
+    const noFloor = stormRegressions(base18, agg18, STORM_TOLERANCE, NEW_DENSITY_FLOOR, new Set(), 0)
+    if (noFloor.length !== 2) fail.push(`⑱ 对照组没受约束：下限归零后只报 ${noFloor.length} 条（期望 2）`)
+  }
+  // ⑲ 打印与判定同源：比较用的是未截断密度，凭证行也必须打未截断的（AGENTS ⑯(a)）。
+  //    旧文案 `密度增幅 0.00 > 基线 0.01 × 0.25` 是自相矛盾的话术——照着它去理解，
+  //    只会以为判据坏了，进而去"放宽阈值"（那是换判据）。
+  {
+    const agg19 = aggregate([{ tag: 'M1', key: 'GET /x', count: 130, navs: 1000 }])
+    const r19 = stormRegressions({ 'GET /x': 0.03 }, agg19)
+    const why19 = r19[0]?.why || ''
+    if (!/0\.0300 → 0\.1300/.test(why19)) fail.push(`⑲ 凭证行没打未截断密度：${why19}`)
+    if (!/多 100 次/.test(why19)) fail.push(`⑲ 凭证行没给"整轮多几次"这个可核对量：${why19}`)
+    if (/增幅 0\.00 >/u.test(why19)) fail.push(`⑲ 退化回旧的自相矛盾话术：${why19}`)
+  }
+  // ⑳ 纯 API 动作（navs=0，分母取 max(1,0)）同样受绝对下限约束，且单位退化成"整轮次数"
+  {
+    const agg20 = aggregate([
+      { tag: 'M88 api', key: 'POST /a', count: 30, navs: 0 }, // 密度 30
+      { tag: 'M88 api', key: 'POST /b', count: 20, navs: 0 } // 密度 20
+    ])
+    const base20 = { 'POST /a': 1, 'POST /b': 1 }
+    const bad20 = stormRegressions(base20, agg20)
+    if (bad20.length !== 1 || bad20[0].key !== 'POST /a') fail.push(`⑳ 纯 API 键的下限判定错：${JSON.stringify(bad20)}`)
+    if (stormScan(base20, agg20).filter((x) => x.kind === 'below-floor').length !== 1)
+      fail.push('⑳ 多 19 次那条必须留痕为 below-floor，不得静默吞掉')
+  }
+
   for (const p of [a, b, c, e0, e5, crashed, legacy, zeroRows, earlyBreak, goodRun])
     fs.rmSync(p.dir, { recursive: true, force: true })
   return fail
@@ -735,9 +961,22 @@ function entry() {
       fail.forEach((f) => console.log(`  · ${f}`))
       process.exit(1)
     }
+    // 组数由**本文件的分组注释**自己数出来（b83 纪律："条数由脚本自打"）。
+    // 原先这里写死 `16 组双向`：加一组用例时那个数字不会跟着动，于是打印与实际跑掉的
+    // 组数悄悄脱钩，文档漂移搬进了工具内部。派生异常（数太少）必须响亮失败，
+    // 不得退化成"打个小数字"——小数字看起来也像通过。
+    const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const groups = new Set((self.match(/^\s*\/\/\s*([①-⑳]+)\s/gm) || []).map((s) => s.match(/[①-⑳]+/)[0]))
+    if (groups.size < 12) {
+      console.log(
+        `SYNTH_FAIL 组数派生异常：只从本文件数到 ${groups.size} 组（地板 12）——` +
+          `分组注释形态变了，这条打印不再有意义，先修判据输入`
+      )
+      process.exit(2)
+    }
     console.log(
-      `SYNTH_OK 出站请求风暴棘轮 16 组双向（聚合与密度口径 / 六类响亮失败：非 full、缺窗口、空 rows、不带 navs、崩轮与旧格式执行完整性、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向 / ` +
-        `已声明轮询清单双向 / 登记通道**接线**双向），口径 ${METRIC}`
+      `SYNTH_OK 出站请求风暴棘轮 ${groups.size} 组双向（聚合与密度口径 / 六类响亮失败：非 full、缺窗口、空 rows、不带 navs、崩轮与旧格式执行完整性、基线形状 / 容差正反 / 页数增加不报 / 新键与 0 基线双向 / fail-closed / 畸形行 / 基线形状闸 / 登记通道双向 / ` +
+        `已声明轮询清单双向 / 登记通道**接线**双向 / 声明未命中对账与退役通道 / 退步的绝对下限双向（近零密度不得判退步但必须留痕）/ 凭证行必须打未截断量 / 纯 API 动作的同一下限），口径 ${METRIC}`
     )
     process.exit(0)
   }
@@ -781,6 +1020,34 @@ function entry() {
         : '')
   )
 
+  // 声明**未命中**对账（批八十五 项 F）：一条声明等于"这个键不设阈"，
+  // 而本轮根本没人打它 ⇒ 白拿的豁免。只打 ℹ 不算判（AGENTS ⑩"只打提示、没有动作通道=没判"），
+  // 所以下面既进 `--gate` 的红，也有 `--retire-stale` 的真删通道。
+  let declaredMiss = [...declared.keys()].filter((k) => !ds.agg.has(k))
+  for (const k of declaredMiss) {
+    log(`  ❌ [声明未命中] ${k} —— ${declared.get(k)?.why ?? ''}（本轮数据集没有它的出网记录）`)
+  }
+  if (args.includes('--retire-stale')) {
+    if (ds.full !== true) {
+      console.log('[FATAL] 非全量单轮数据集不得退役声明（分段跑批"没打过"只代表那段没跑）')
+      process.exit(2)
+    }
+    const removed = retireDeclarations(declaredMiss)
+    log(
+      removed.length
+        ? `  🧹 已退役轮询声明 ${removed.length} 条：${removed.join('、')}`
+        : '  🧹 本轮没有需要退役的声明（每条都还打得住）'
+    )
+    declared = loadDeclarations()
+    declaredMiss = [...declared.keys()].filter((k) => !ds.agg.has(k))
+  } else if (declaredMiss.length && (args.includes('--gate') || args.includes('--update-baseline'))) {
+    console.log(
+      `❌ 轮询声明有 ${declaredMiss.length} 条本轮未命中：删除轮询的用例迁移后必须撤销声明，否则豁免会沉淀成永久白名单`
+    )
+    console.log('   ⇒ 处置：确认该轮询确实没了就加 --retire-stale；还在就查本轮数据集为何没抓到它')
+    process.exit(1)
+  }
+
   const resetBaseline = args.includes('--reset-baseline')
   if (resetBaseline && !args.includes('--update-baseline')) {
     console.log('[FATAL] --reset-baseline 只能与 --update-baseline 同用（单独用等于无判据地覆盖）')
@@ -809,7 +1076,9 @@ function entry() {
     // 实测第一条合法新增（M89 多访问一次 http-debugger）就该旗标完全失效，唯一出路变成放宽阈值=换判据。
     // 而 `--gate` 单独用时**不认**命令行签字：否则任何一次比对都能被一句旗标放行，棘轮形同虚设。
     const gateOnly = args.includes('--gate') && !args.includes('--update-baseline')
-    const { bad, signed } = stormVerdict(base.perKey, ds.agg, new Set(declared.keys()), acceptNewKeys, { gateOnly })
+    const { bad, signed, notes } = stormVerdict(base.perKey, ds.agg, new Set(declared.keys()), acceptNewKeys, {
+      gateOnly
+    })
     log(`窗口对账：基线 ${bw.since} .. ${bw.until}，本轮 ${ds.window.since} .. ${ds.window.until}`)
     if (gateOnly && acceptNewKeys.length) {
       log(`ℹ --accept-new-key 在单独 --gate 上不生效（签字只作用于 --update-baseline 这一侧，留痕进基线）`)
@@ -819,14 +1088,25 @@ function entry() {
         `ℹ 本轮签名登记 ${signed.length} 项：${signed.map((x) => `${x.key}（${x.why}）`).join('、')} ⇒ 写进基线 acceptedNewKeys`
       )
     }
+    if (notes.length) {
+      log(
+        `ℹ 另有 ${notes.length} 项相对翻倍但整轮增量 < ${MIN_STORM_REQUESTS} 次（近零密度由整数访问次数主导，不判退步）：` +
+          notes
+            .slice(0, 8)
+            .map((x) => `${x.key} 多 ${x.extraReq} 次`)
+            .join('、')
+      )
+    }
     if (bad.length) {
-      console.log(`❌ 出网密度退步 ${bad.length} 项（容差 ${STORM_TOLERANCE}，新键密度下限 ${NEW_DENSITY_FLOOR}）：`)
+      console.log(
+        `❌ 出网密度退步 ${bad.length} 项（相对容差 ${STORM_TOLERANCE} + 绝对下限 ${MIN_STORM_REQUESTS} 次/轮，新键密度下限 ${NEW_DENSITY_FLOOR}）：`
+      )
       bad
         .slice(0, 20)
         .forEach((x) =>
           console.log(
-            `    · ${x.key} 基线 ${x.base === null ? '(不在基线)' : Number(x.base).toFixed(2)} → 本轮 ` +
-              `${Number(x.now).toFixed(2)}：${x.why}`
+            `    · ${x.key} 基线 ${x.base === null ? '(不在基线)' : Number(x.base).toFixed(4)} → 本轮 ` +
+              `${Number(x.now).toFixed(4)}：${x.why}`
           )
         )
       if (!gateOnly) console.log('    新增出网面要显式登记：--accept-new-key="METHOD /path"（逐个点名，不给通配）')

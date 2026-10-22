@@ -48,16 +48,16 @@
     "why": "清库类；回调日志是 M88 retry 判据的读数面"
   },
   "DELETE /oauth2/unbind": {
-    "kind": "needs-fixture",
-    "why": "要先有\"已绑定的 OAuth 账号\"；dev 库 admin 未绑，F144 只覆盖回调与绑定失败路径"
+    "kind": "other-suite",
+    "why": "批八十五收口：绑定行是普通表记录，`OAuthUserActiveModel` 直插即可（不需要外部授权服务器，`user_erasure.rs` 早已这么造夹具）。现由 `src/integration_tests/oauth_unbind_http.rs` 覆盖：解绑后 my-bindings 与库里同时收敛、重复解绑 404 error.oauth.no_binding、解他人 provider 必须 404 且他人行幸存（这条挂『仅登录』白名单，隔离全靠 WHERE user_id）、他租同 provider 不连坐、缺 provider / 空 provider 不得退化成全解"
   },
   "DELETE /report/dashboard/{dashboardId}": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 1 行留痕（01:09:09 .. 01:09:09 UTC，样例 DELETE /report/dashboard/71）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "DELETE /system/ai/history/{id}": {
-    "kind": "needs-fixture",
-    "why": "需真实 AI provider 先产生历史；`[ai]` 默认档无凭据时该面为空"
+    "kind": "other-suite",
+    "why": "批八十五收口：夹具只是一行 INSERT（`ai_chat_history` 是普通表，删除谓词是 (id, tenant_id, user_id)，不需要 AI provider）。后端 HTTP 集成用例 `src/integration_tests/ai_history_http.rs` 四条判到落库：本人行删除后 COUNT=0、他人行与他租同 uid 行幸存（deleted=false 且不连坐）、不存在幂等回 deleted=false 而非 404、关闭态（sys.ai.enabled=false）仍可删自己的历史"
   },
   "DELETE /system/config/refreshCache": {
     "kind": "other-suite",
@@ -104,8 +104,8 @@
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 4 行留痕（00:59:28 .. 06:16:06 UTC，样例 POST /ai/chat）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
   "POST /ai/replay": {
-    "kind": "needs-fixture",
-    "why": "需要真实 AI provider 凭据才能产生可重放的历史（`[ai].provider` 默认关，见 deploy/README 能力矩阵）；无凭据时该面恒空，测出来的是 mock"
+    "kind": "other-suite",
+    "why": "批八十五订正：原登记的『需要真实 AI provider 凭据，否则测出来的是 mock』是**错的**——`AiService::replay`（ai/service.rs:308-348）只把库里存的 SQL 重新过一遍 sql_guard 再本地执行，`token_usage: None`、一次网络都不发。现由 `src/integration_tests/ai_history_http.rs` 覆盖：camelCase 键契约（前端 views/ai/panel/index.vue:252 发 {historyId}，而 DTO 原先缺 rename_all ⇒ 重放按钮每次 400，真缺陷已修并由 api_contract_guard::dto_field_wire_names_must_be_declared 常驻钉住）+ 成功重放返回行与异步留痕 + 他人历史/失败留痕行/白名单外表三类必须 400 且不返回任何数据"
   },
   "POST /common/upload": {
     "kind": "other-suite",

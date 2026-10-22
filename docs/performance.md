@@ -7,10 +7,10 @@
 
 预算分两段，全部门禁化：
 
-| 段 | 内容 | 消费方 |
-|---|---|---|
+| 段        | 内容                                                             | 消费方                                                                                            |
+| --------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `runtime` | LCP ≤ 2500ms、FCP ≤ 1800ms、INP ≤ 200ms、CLS ≤ 0.1、TTFB ≤ 800ms | Prometheus 告警（`deploy/prometheus/rules.yml`）、节流回归（`tests/e2e/perf-throttle-check.mjs`） |
-| `build` | JS/CSS/图片/字体 gzip 体积 + 第三方脚本数 | 构建期门禁（`scripts/check-perf-budget.mjs`），CI 超限即失败 |
+| `build`   | JS/CSS/图片/字体 gzip 体积 + 第三方脚本数                        | 构建期门禁（`scripts/check-perf-budget.mjs`），CI 超限即失败                                      |
 
 ### 1.1 构建期门禁
 
@@ -147,15 +147,24 @@ Element Plus 图标保持全局注册（`src/components/SvgIcon/svgicon.ts`）�
 # 或生产环境域名（TEST_BASE=http://prod.example.com）
 
 # 弱网（Slow 3G）+ 弱设备（CPU 4x）节流回归：FCP/LCP 与 perf-budget.json 对齐（节流档放宽倍数见脚本头注释）
+# 默认打 :8080（后端内嵌托管 frontend-dist 的那个入口，与其余 e2e 套件同一个 URL）；预览服自行指 --base
 node tests/e2e/perf-throttle-check.mjs
+# 不启浏览器的双向自检（预算输入闸 + "未测得不得读成达标" + CDP 单位/倍数表）
+node tests/e2e/perf-throttle-check.mjs --selftest
 
 # 首屏截图基线像素回归（差异 >1% 失败；有意变更后 --update 重新生成基线）
 node tests/e2e/visual-regression.mjs
 node tests/e2e/visual-regression.mjs --update
 ```
 
-> 依赖说明：两个脚本需要 `playwright`（+ `pixelmatch`/`pngjs`），属**本地回归工具**
-> （不进 CI、不进 devDeps）。解析顺序：本仓 `node_modules` → `NODE_PATH`（可指向独立
+> 依赖说明：两个脚本需要 `playwright`（+ `pixelmatch`/`pngjs`），**不进 devDeps**（解析顺序见下）。
+> 载体（批八十五订正，原写"不进 CI"已被事实证伪）：`perf-throttle-check.mjs` 的本体常驻在
+> 根仓 `scripts/run-gates.py`（条目 `perfthrottle`，自检 `perfthrottlesynth`），根仓 `ci.yml` 的
+> `doc-gates` 也跑它的 `--selftest`；⚠ 根仓尚无远端 ⇒ 真正每天在跑的是 `run-gates.py` 那一条，
+> 不得以"CI 会管"代替跑。`visual-regression.mjs` 仍只由人工在收口期执行（无门禁条目）。
+> 退出码三态：0 达标 / 1 有场景越限 / **2 判据没跑成**（预算文件不可用、目标不可达、浏览器起不来
+> —— "没跑"与"跑了且干净"必须可区分）。
+> 解析顺序：本仓 `node_modules` → `NODE_PATH`（可指向独立
 > 安装目录，如 `NODE_PATH=<dir>/node_modules node tests/e2e/visual-regression.mjs`）。
 > 浏览器二进制复用 Playwright 默认缓存（`%LOCALAPPDATA%\ms-playwright`）。
 

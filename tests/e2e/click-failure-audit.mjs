@@ -57,6 +57,20 @@ const DEFAULT_DATASETS = [
   { source: 'main', file: path.join(HERE, 'screenshots', 'main-clickfails.json') }
 ]
 
+/**
+ * 两路断面允许的最大跨度（小时）。取 8 的依据：一批收口的跑批顺序是
+ * 六段主套件（~35min）→ 全量单轮主套件（~30min）→ 全量深度套件（~50min）→ a11y（~5min），
+ * 中间夹着人工分析与门禁复跑，实测 b83/b84 两批的收口跨度分别是 3.5h 与 4h。
+ * 8h 给的是"同一批内"的余量；超过它就不再是"批内先后"，而是"拿上一批的断面当本批证据"。
+ * 该阈值必须**可调且有名字**，不得写死在比较式里——写死在式子里就没人知道它是判据参数。
+ */
+const BATCH_SPAN_HOURS = 8
+
+/** 断面打印（ISO 分钟精度，去掉 UTC 标记以免和 naive-UTC 数据集字段两种写法混在一起看不懂）。 */
+function fmtWin(w) {
+  return `${new Date(w.since).toISOString().slice(0, 16)}~${new Date(w.until).toISOString().slice(0, 16)}`
+}
+
 /** 允许的登记理由类别（枚举外一律红，同 endpoint-coverage 的 kind 纪律） */
 export const ALLOWED_KINDS = ['by-design', 'needs-fixture', 'todo']
 
@@ -205,6 +219,34 @@ export function judge(datasets, entries) {
     for (const [k, v] of aggregateShapes(source, data.rows || [])) if (!allShapes.has(k)) allShapes.set(k, v)
   }
   if (datasets.length === 0) fatal.push('没有任何数据集输入')
+  // 两路输入必须来自**同一批跑批**（批八十五 项 I）。
+  // 立案形状就在本轮的打印里：deep 断面是 10-22 04:51~05:39，main 断面是 10-21 18:27~18:57
+  // ——相差 10.9 小时，而判据照打"main 0 条 ⇒ 通过"。分段跑批只写 `*.incremental.json`，
+  // 主文件留在上一次全量单轮，于是"main 这一侧本轮到底跑没跑"从结论里彻底消失：
+  // 拿昨天那轮的零失败当今天的证据，与 b82 ⑩"基线读自己的旧断面"、⑯(b)"跨轮断面算 delta"同族。
+  // 修法不是放宽数字，而是加闸：两路断面跨度超阈值 ⇒ FATAL（"没判成"必须与"判过且干净"可区分）。
+  const wins = datasets
+    .filter((d) => d.data && d.data.windowStart && d.data.windowEnd)
+    .map((d) => ({
+      source: d.source,
+      since: Date.parse(String(d.data.windowStart).replace(' ', 'T') + 'Z'),
+      until: Date.parse(String(d.data.windowEnd).replace(' ', 'T') + 'Z')
+    }))
+    .filter((w) => Number.isFinite(w.since) && Number.isFinite(w.until))
+  if (wins.length >= 2) {
+    const minStart = Math.min(...wins.map((w) => w.since))
+    const maxEnd = Math.max(...wins.map((w) => w.until))
+    const spanHours = (maxEnd - minStart) / 3600000
+    if (!(spanHours <= BATCH_SPAN_HOURS)) {
+      const stale = wins.filter((w) => w.until < maxEnd - BATCH_SPAN_HOURS * 3600000)
+      fatal.push(
+        `两路断面相差 ${spanHours.toFixed(1)} 小时（> ${BATCH_SPAN_HOURS}h）：` +
+          `${wins.map((w) => `${w.source} ${fmtWin(w)}`).join('，')}。` +
+          `判为陈旧的一路：${stale.map((w) => `${w.source}（需重跑一轮**全量单轮** ${w.source} 套件——分段轮只写 *.incremental.json、不刷新主文件）`).join('、') || '无'}` +
+          ` ⇒ 本轮不作数：这一侧到底跑没跑，结论里看不见`
+      )
+    }
+  }
 
   const entryErrs = validateEntries(entries)
   fatal.push(...entryErrs)
@@ -518,6 +560,42 @@ const SYNTH_CASES = [
       }
     ],
     entries: [{ ...ENTRY, messageRe: 'element is not stable' }]
+  },
+  {
+    // 立案形状就是 b85 收口期的实际打印：deep 断面 10-22 04:51~05:39，
+    // main 断面还停在 10-21 18:27~18:57（分段轮只写 *.incremental.json），
+    // 而判据照打"main 0 条 ⇒ 通过"——拿上一批的零失败当本批证据。
+    name: '㉑ 两路断面相差超一个批次跨度必须 UNRUN（陈旧断面不得冒充"这一侧干净"）',
+    expect: 'fatal',
+    datasets: [
+      {
+        source: 'deep',
+        data: dataset([], { windowStart: '2026-10-22 04:51:37.672', windowEnd: '2026-10-22 05:39:58.557' })
+      },
+      {
+        source: 'main',
+        data: dataset([], { windowStart: '2026-10-21 18:27:40.851', windowEnd: '2026-10-21 18:57:53.870' })
+      }
+    ],
+    entries: []
+  },
+  {
+    name: '㉑b 反脆弱：同批内先后两路断面（相差 3h）必须放行，且点名陈旧的那一路',
+    expect: 'ok',
+    datasets: [
+      { source: 'deep', data: dataset([]) },
+      {
+        source: 'main',
+        data: dataset([], { windowStart: '2026-10-21 12:00:00.000', windowEnd: '2026-10-21 13:00:00.000' })
+      }
+    ],
+    entries: []
+  },
+  {
+    name: '㉑c 只有一路输入时不得触发断面对账（"缺一路"另有判据点名，不得指错方向）',
+    expect: 'ok',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([]) }],
+    entries: []
   }
 ]
 

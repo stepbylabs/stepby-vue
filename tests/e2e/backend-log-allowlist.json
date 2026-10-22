@@ -100,8 +100,8 @@
     },
     {
       "level": "WARN",
-      "match": "链写入乱序（更大 oper_id 已抢先写链），本条降级为 NULL",
-      "why": "F143 敏感档压测在 1.6s 内并发写 12 条 oper_log：oper_id 由序列分配、提交顺序可以颠倒，后落盘的较小 id 找不到前驱 ⇒ 按设计把本条 chain_hash 降级为 NULL 并由 verify 跳过（该行为由 sys_oper_log_service::tests::chain_out_of_order_write_degrades_to_null_and_verify_skips 钉住，b82 全量轮实测 1 条，位于 07:55:13 那批 totp 写）。降级只减损这一行的链可验证性，审计正文仍在；把它报成篡改才是错的。"
+      "match": "slow statement.*FROM \\\\\"sys_audit_change\\\\\" ORDER BY \\\\\"sys_audit_change\\\\\"\\.\\\\\"id\\\\\" DESC LIMIT \\?",
+      "why": "变更留痕**导出**（GET /system/audit-change/export ⇒ sys_audit_change_service::export_changes）是按设计的批量读：上限 common::page::EXPORT_MAX_ROWS = 50000、不分页。本批主套件全量单轮 07:23:32 实测 elapsed=1.0916953s / rows_returned=24882 / slow_threshold=1s，恰好越过阈值——运行库是 dev 库（审计行随批次累积），导出 2.5 万行耗时一秒属预期量级。登记的是「这条批量读会慢过阈值」，不是「任何慢语句都算过」：正则锚在 FROM 与 ORDER BY **相邻**这一段（导出是唯一不带 WHERE 的那支形状；列表页那条中间隔着 WHERE，已用合成行验过不得命中；sys_oper_log 的慢语句同样不得命中）。日志里 db.statement 的引号是反斜杠转义形态（\\\"sys_audit_change\\\"），模式必须按该形态写——写成裸引号时对本行永不匹配，那种条目会静默变成\"登记了但永远用不上\"，下一轮直接被当未命中退役掉。"
     }
   ]
 }

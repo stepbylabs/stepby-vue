@@ -16,8 +16,14 @@
  *   node tests/e2e/oper-log-audit.mjs --selftest
  *   node tests/e2e/oper-log-audit.mjs --since='2026-10-20 18:44:00' --gate
  *   node tests/e2e/oper-log-audit.mjs --db=... --since=... --until=... --allow=...
+ *   node tests/e2e/oper-log-audit.mjs --since=... --gate --retire-stale
  *
- * 退出码：0 干净 / 1 有未登记失败 / 2 输入不可用或窗口内无操作记录。
+ * 退出码：0 干净 / 1 有未登记失败或未命中登记 / 2 输入不可用或窗口内无操作记录。
+ *
+ * 允许表**未命中**条目（b85 项 F）：本轮一条也没打中的登记 ⇒ 判红并必须撤销；带 `until`
+ * 的日落豁免过期后结构上再也打不中，同样点名。`--retire-stale` 是真删通道（未命中为空时
+ * 不碰文件），与 backend-log-audit / click-failure-audit 同一条纪律：只打提示、
+ * 没有动作通道的信号等于没判。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -118,9 +124,20 @@ export function countOps(db, since, until) {
     .get(since, until).c
 }
 
+/**
+ * 逐条对账：命中/未登记/**本轮未命中的条目**。
+ *
+ * `unused` 这一支是批八十五 项 F 补的（与 backend-log-audit / click-failure-audit /
+ * endpoint-coverage 同一条纪律）：允许表是**本轮对账**，不是永久白名单。
+ * 只判"未登记的必须红"，条目会随缺陷修复越积越多，最后没人敢删。
+ * 用**条目对象身份**做集合键而不是拼字符串：`urlRe`/`errRe` 是 RegExp，`String(re)` 会把
+ * `/x/g` 与 `/x/` 分得很清，但拼串一旦改动（加字段、改分隔符）两处口径就漂——
+ * 身份比对没有可漂的表示层。
+ */
 export function classify(rows, allow) {
   const unknown = []
   const allowed = []
+  const matched = new Set()
   for (const r of rows) {
     // `error_msg` 在多数写失败里只有 "HTTP 400"（中间件只拿到状态码），业务原因在
     // `json_result.msg`。允许表带 `msg` 时必须同时命中，避免"该端点任何 400 都算设计内"。
@@ -133,21 +150,46 @@ export function classify(rows, allow) {
         (!e.msgRe || e.msgRe.test(msg)) &&
         (!e.until || String(r.oper_time || '').slice(0, 19) < e.until)
     )
-    if (hit) allowed.push({ ...r, why: hit.why, business: msg })
-    else unknown.push({ ...r, business: msg })
+    if (hit) {
+      matched.add(hit)
+      allowed.push({ ...r, why: hit.why, business: msg })
+    } else unknown.push({ ...r, business: msg })
   }
-  return { unknown, allowed }
+  return { unknown, allowed, unused: allow.filter((e) => !matched.has(e)) }
+}
+
+/**
+ * 把本轮未命中的条目从允许表删掉（动作通道；空集不碰文件）。
+ * 写回原始 JSON 形状，绝不把编译出的 RegExp 落进仓库。
+ */
+export function retireStale(file, unused) {
+  if (!unused.length) return []
+  const body = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const drop = new Set(unused.map((e) => JSON.stringify([e.method, e.url, e.error, e.msg ?? null, e.until ?? null])))
+  const kept = []
+  const removed = []
+  for (const e of body.entries) {
+    const k = JSON.stringify([e.method, e.url, e.error, e.msg ?? null, e.until ?? null])
+    if (drop.has(k)) removed.push(e)
+    else kept.push(e)
+  }
+  fs.writeFileSync(file, JSON.stringify({ ...body, entries: kept }, null, 2) + '\n', 'utf8')
+  return removed
 }
 
 /** 输入可用性：窗口方向、库存在、窗口内确有操作记录（否则"零失败"是没证据）。 */
-export function gateState({ dbFile, since, until, opsCount, unknown }) {
+export function gateState({ dbFile, since, until, opsCount, unknown, unused = [] }) {
   if (!fs.existsSync(dbFile)) return { code: 2, detail: `运行库不存在：${dbFile}` }
   if (!WINDOW_RE.test(since || '') || !WINDOW_RE.test(until || '')) {
     return { code: 2, detail: `窗口必须是 YYYY-MM-DD HH:MM:SS（实际 ${since} .. ${until}）` }
   }
   if (since >= until) return { code: 2, detail: `窗口方向可疑：${since} .. ${until}` }
   if (Number(opsCount) === 0) return { code: 2, detail: `窗口内没有任何操作日志（没跑/读错库，不得判成零失败）` }
-  return { code: unknown.length ? 1 : 0, detail: `窗口内操作 ${opsCount} 条 / 失败未登记 ${unknown.length} 条` }
+  const bad = unknown.length + unused.length
+  return {
+    code: bad ? 1 : 0,
+    detail: `窗口内操作 ${opsCount} 条 / 失败未登记 ${unknown.length} 条 / 允许表未命中 ${unused.length} 条`
+  }
 }
 
 function selftest() {
@@ -250,6 +292,65 @@ function selftest() {
   const late = { ...sunsetRow, oper_id: 1003, oper_time: '2026-10-20 19:05:00' }
   check('until 之前的历史行可豁免', classify([early], sunset).allowed.length === 1)
   check('until 当秒起（不含）必须重新变红', classify([late], sunset).unknown.length === 1)
+
+  // 允许表**未命中**对账 + 退役通道（b85 项 F，与 backend-log-audit 同一条纪律）。
+  // 用临时文件跑退役，绝不碰仓库里那份（自检不得改写判据输入）。
+  {
+    const tmp = path.join(HERE, '_tmp_oper_retire.json')
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify(
+        {
+          version: 1,
+          entries: [
+            {
+              method: 'POST',
+              url: '^/system/post$',
+              error: '^HTTP 400$',
+              msg: '岗位编码已存在',
+              until: '2026-10-20 19:05:00',
+              why: '历史豁免（合成夹具）'
+            }
+          ]
+        },
+        null,
+        2
+      )
+    )
+    const a = loadAllowlist(tmp)
+    const cls = classify([late], a)
+    check(
+      '过期日落豁免条目必须同时报"未登记"和"未命中"（结构上再也打不中）',
+      cls.unused.length === 1 && cls.unknown.length === 1
+    )
+    check('命中的条目不得算未命中（否则退役通道会删掉活条目）', classify([early], a).unused.length === 0)
+    check(
+      '未命中必须把判定拉成 EXIT=1（只打提示没有动作=没判）',
+      gateState({
+        dbFile: tmp,
+        since: '2026-10-20 19:00:00',
+        until: '2026-10-20 20:00:00',
+        opsCount: 5,
+        unknown: [],
+        unused: cls.unused
+      }).code === 1
+    )
+    const removed = retireStale(tmp, cls.unused)
+    const after = JSON.parse(fs.readFileSync(tmp, 'utf8'))
+    check(
+      '退役通道必须真删掉未命中条目并留痕',
+      removed.length === 1 && after.entries.length === 0,
+      `removed=${removed.length}`
+    )
+    check(
+      '退役写回必须是原始形状（不得把编译出的 RegExp 落进仓库）',
+      !('urlRe' in (after.entries[0] ?? {})) && Array.isArray(after.entries)
+    )
+    const snap = fs.readFileSync(tmp, 'utf8')
+    retireStale(tmp, [])
+    check('没有未命中时不得改动文件（允许表已被删空也要保住原始字节）', fs.readFileSync(tmp, 'utf8') === snap)
+    fs.unlinkSync(tmp)
+  }
   const unknownRow = {
     oper_id: 999,
     request_method: 'POST',
@@ -304,7 +405,7 @@ function selftest() {
     process.exit(1)
   }
   console.log(
-    `SYNTH_OK 失败操作日志判据 ${ran} 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未登记必红/零操作与反向窗口必拒）`
+    `SYNTH_OK 失败操作日志判据 ${ran} 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未命中对账/退役通道/未登记必红/零操作与反向窗口必拒）`
   )
   process.exit(0)
 }
@@ -351,15 +452,48 @@ function main() {
   } finally {
     db.close()
   }
-  const { unknown, allowed } = classify(rows, allow)
+  const { unknown, allowed, unused } = classify(rows, allow)
   console.log(`失败操作日志：${dbFile}`)
   console.log(
-    `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length}`
+    `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length} / 允许表未命中 ${unused.length}`
   )
   for (const u of unknown) {
     console.log(`  ❌ ${u.request_method} ${u.oper_url} [${u.oper_time}] ${String(u.error_msg || '').slice(0, 160)}`)
   }
-  const st = gateState({ dbFile, since, until, opsCount, unknown })
+  for (const e of unused) {
+    // 日落豁免（带 until）过期后**结构上不可能再命中**：这类条目留着就是"永久白名单"，
+    // 与 b81 立它时的承诺（只覆盖已修复缺陷的历史行）相反。文案分开点是为了让处置动作明确：
+    // 前者"撤销即可"，后者还要确认缺陷是否真的修完了。
+    const expired = e.until && e.until <= since
+    console.log(
+      `  ❌ [允许表未命中${expired ? '·日落已过期' : ''}] ${e.method} ${e.url} /${e.error}/` +
+        `${e.msg ? ` /${e.msg}/` : ''}${e.until ? ` until=${e.until}` : ''} —— ${e.why}`
+    )
+  }
+  const st = gateState({ dbFile, since, until, opsCount, unknown, unused })
+  // 退役通道（只打提示没有动作=没判）：写在判定之后，且数据集无效（code 2）时一律不写。
+  if (args.includes('--retire-stale')) {
+    if (st.code === 2) {
+      console.error('EXIT=2 数据集无效（库/窗口/零操作），退役判定不作数，允许表未改动')
+      process.exit(2)
+    }
+    const allowPath = path.resolve(opt('allow') || DEFAULT_ALLOW)
+    const removed = retireStale(allowPath, unused)
+    console.log(
+      removed.length
+        ? `  🧹 已从允许表退役 ${removed.length} 条（本轮及以后不得再靠它们吞信号）`
+        : '  🧹 本轮没有需要退役的条目（允许表逐条都还打得住）'
+    )
+    const allow2 = loadAllowlist(allowPath)
+    const again = classify(rows, allow2)
+    const st2 = gateState({ dbFile, since, until, opsCount, unknown: again.unknown, unused: again.unused })
+    if (st2.code !== 0) {
+      console.error(`❌ 退役后仍有问题（未登记 ${again.unknown.length} 条）：${st2.detail}`)
+      process.exit(st2.code)
+    }
+    console.log(`✅ 退役后复判通过：允许表 ${allow2.length} 条，全部本轮命中`)
+    return
+  }
   if (st.code !== 0) {
     console.error(`❌ 失败操作判据失败：${st.detail}`)
     process.exit(st.code)
