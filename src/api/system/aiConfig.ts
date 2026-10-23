@@ -37,8 +37,10 @@ export function updateAiConfig(form: AiConfigUpdateForm): Promise<AjaxResult> {
   })
 }
 
-// 连通性测试（独立 10s 超时，返回延迟或错误摘要）
-export function testAiConfig(): Promise<AjaxResult<string>> {
+// 连通性测试（独立 15s 超时）：后端这一支是 `AjaxResult::success_msg(&摘要)` ⇒
+// 摘要在 **msg**、`data` 结构上缺席，所以载荷类型写 `void`（写 `string` 是在教调用点读 `.data`，
+// 而那条路永远 undefined）。台账 b87 §8 取证。
+export function testAiConfig(): Promise<AjaxResult<void>> {
   return request({
     url: '/system/aiConfig/test',
     method: 'post',

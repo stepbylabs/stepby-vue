@@ -12,7 +12,9 @@
                 :maxlength="50"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery" :aria-label="t('logininfor.search.phIpaddr')" />
+                @keyup.enter="handleQuery"
+                :aria-label="t('logininfor.search.phIpaddr')"
+              />
             </el-form-item>
             <el-form-item :label="t('logininfor.search.userName')" prop="userName">
               <el-input
@@ -21,7 +23,9 @@
                 :maxlength="30"
                 clearable
                 class="w-[240px]"
-                @keyup.enter="handleQuery" :aria-label="t('logininfor.search.phUserName')" />
+                @keyup.enter="handleQuery"
+                :aria-label="t('logininfor.search.phUserName')"
+              />
             </el-form-item>
             <el-form-item :label="t('common.column.status')" prop="status">
               <el-select
@@ -47,7 +51,9 @@
                 range-separator="-"
                 :start-placeholder="t('common.form.startDate')"
                 :end-placeholder="t('common.form.endDate')"
-                :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]" :aria-label="t('common.form.startDate')"></el-date-picker>
+                :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+                :aria-label="t('common.form.startDate')"
+              ></el-date-picker>
             </el-form-item>
             <el-form-item>
               <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
@@ -166,7 +172,12 @@
               prop="browser"
               show-overflow-tooltip
             />
-            <el-table-column v-if="columns.status.visible" :label="t('logininfor.column.status')" align="center" prop="status">
+            <el-table-column
+              v-if="columns.status.visible"
+              :label="t('logininfor.column.status')"
+              align="center"
+              prop="status"
+            >
               <template #default="scope">
                 <dict-tag :options="sys_common_status" :value="scope.row.status" />
               </template>
@@ -311,9 +322,7 @@ watch(
 // columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
 // label 更新（bindLabels）不再触发 deep 全量遍历。
 const columnsVisibleSig = computed(() =>
-  (Object.values(columns.value) as TableShowColumns[])
-    .map((c) => (c.visible ? 1 : 0))
-    .join('')
+  (Object.values(columns.value) as TableShowColumns[]).map((c) => (c.visible ? 1 : 0)).join('')
 )
 watch(columnsVisibleSig, () => {
   const v = columns.value
@@ -367,11 +376,7 @@ const {
   handleSelectionChange,
   handleDelete
 } = useCrudTable<SysLogininfor, LogininforQueryParams>({
-  listApi: (params) =>
-    list(addDateRange(params as Record<string, unknown>, dateRange.value) as LogininforQueryParams),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
+  listApi: (params) => list(addDateRange(params as Record<string, unknown>, dateRange.value) as LogininforQueryParams),
   deleteApi: (ids) => delLogininfor(ids as unknown as number | number[]),
   idField: 'infoId',
   defaultForm: () => ({}) as SysLogininfor,

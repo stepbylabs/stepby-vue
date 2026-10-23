@@ -3,17 +3,18 @@ import { useDark, useToggle } from '@vueuse/core'
 import { useDynamicTitle } from '@/utils/dynamicTitle'
 import { handleThemeStyle } from '@/utils/theme'
 import cache from '@/plugins/cache'
+import { DEFAULT_USER_PREFS, sanitizeUserPrefs, type UserPrefs } from '@/utils/userPrefs'
 import {
-  DEFAULT_USER_PREFS,
-  sanitizeUserPrefs,
-  type UserPrefs
-} from '@/utils/userPrefs'
+  DEFAULT_SIDE_THEME,
+  hasUserChosenSideTheme,
+  isSideThemeOption,
+  markUserChoseSideTheme
+} from '@/utils/sideTheme'
 
 const isDark = useDark()
 const toggleDark = useToggle(isDark)
 
 const {
-  sideTheme,
   showSettings,
   navType,
   tagsView,
@@ -139,7 +140,10 @@ const useSettingsStore = defineStore('settings', {
   state: (): SettingsState => ({
     title: '',
     theme: storageSetting.theme || '#409EFF',
-    sideTheme: storageSetting.sideTheme || sideTheme,
+    // 批八十六 N-1：存档值必须过值域。`sideTheme` 最终写进 CSS 类名
+    // （`Sidebar/index.vue` 的 `:class="sideTheme"`），一个被注入的怪串等于往 DOM 里
+    // 塞一个未知类；不在合法集合内一律回落出厂缺省（fail-safe：宁可不换肤）。
+    sideTheme: isSideThemeOption(storageSetting.sideTheme) ? storageSetting.sideTheme : DEFAULT_SIDE_THEME,
     showSettings: showSettings,
     navType: storageSetting.navType === undefined ? navType : storageSetting.navType,
     tagsView: storageSetting.tagsView === undefined ? tagsView : storageSetting.tagsView,
@@ -179,14 +183,22 @@ const useSettingsStore = defineStore('settings', {
       // 白名单校验：仅允许预定义的 setting key 被修改，防止任意 key 注入污染 store
       if (ALLOWED_SETTING_KEYS.has(key as keyof SettingsState)) {
         const k = key as keyof SettingsState
+        // sideTheme 走专用通道：除赋值外还要做值域校验与"用户显式选择"打标记
+        //（真旋钮的优先级判据，见 `setUserSideTheme`），不得在这里另写一份语义
+        if (k === 'sideTheme') {
+          this.setUserSideTheme(value)
+          return
+        }
         // 经 ALLOWED_SETTING_KEYS 白名单收窄后，key 必然是 SettingsState 的已知属性，
         // 用类型化索引赋值去除 `as any`，保留类型安全与响应式更新
         // 经 ALLOWED_SETTING_KEYS 白名单收窄后，key 必然是 SettingsState 的已知属性。
         // 联合 key 的索引赋值在 TS 中目标类型会被推断为 never，故先桥接到
         // Record<keyof SettingsState, unknown> 再赋值（value 为 unknown，类型安全，无需 as any）。
         ;(this as SettingsState as Record<keyof SettingsState, unknown>)[k] = value
-        // P2 修复：主题/侧栏主题变更时实时应用主题样式（修复此前快捷键改主题"换色不全"）
-        if (k === 'theme' || k === 'sideTheme') {
+        // P2 修复：主色变更时实时应用主题样式（修复此前快捷键改主题"换色不全"）。
+        // sideTheme 不在此列——它在上面走专用通道并已 return，`setUserSideTheme`
+        // 自己负责重涂，这里再判一次就是"同一件事两处各写一份"。
+        if (k === 'theme') {
           handleThemeStyle(this.theme)
         }
         // P2 修复：写回 localStorage，保证刷新后不丢失（与 Settings 抽屉 saveSetting 行为一致）
@@ -215,6 +227,43 @@ const useSettingsStore = defineStore('settings', {
     setTitle(title: string) {
       this.title = title
       useDynamicTitle()
+    },
+    /**
+     * 用户显式选择侧边栏主题（设置抽屉卡片 / 主题编辑器单选的唯一入口）。
+     *
+     * 与直接 `changeSetting({ key: 'sideTheme' })` 的区别是它同时做三件事：
+     * 值域校验、落盘、以及**打"用户选过"标记**。标记是真旋钮优先级链的关键：
+     * 平台参数 `sys.index.sideTheme` 只作为"用户没选过时的缺省"，
+     * 用户选过之后必须永久尊重用户，否则平台改一次就把所有人的选择洗掉。
+     */
+    setUserSideTheme(value: unknown): boolean {
+      if (!isSideThemeOption(value)) {
+        if (import.meta.env.DEV) console.warn('[settings] Illegal sideTheme:', value)
+        return false
+      }
+      this.sideTheme = value
+      handleThemeStyle(this.theme)
+      this.persistLayoutSetting()
+      markUserChoseSideTheme()
+      return true
+    },
+    /**
+     * 应用平台/租户下发的侧边栏主题缺省（批八十六 N-1 让 `sys.index.sideTheme` 成真旋钮）。
+     *
+     * 三条判据顺序即语义：① 用户显式选过 ⇒ 不动（尊重个人选择）；② 值不在前端值域 ⇒ 不动
+     * （后端已有值域闸门，这里是**边界防御**：万一存量库里还留着历史脏值，
+     * 也不能把未知串写进类名）；③ 其余照用。
+     *
+     * 刻意**不**写 localStorage：平台缺省不是用户的选择，写进去就等于把它冻成
+     * "用户显式选择"，下次平台再改就再也不生效了。
+     */
+    applyPlatformSideTheme(raw: unknown): boolean {
+      if (hasUserChosenSideTheme()) return false
+      if (!isSideThemeOption(raw)) return false
+      if (this.sideTheme === raw) return true
+      this.sideTheme = raw
+      handleThemeStyle(this.theme)
+      return true
     },
     // 切换暗黑模式
     toggleTheme() {

@@ -146,7 +146,207 @@ function ratchetRegressions(base, cur) {
   return bad
 }
 
+/**
+ * 行内动作面覆盖率（批八十七项 5）——把"分母随数据消失"从提示变成判定。
+ *
+ * 立案事实（b86 §10 实测）：行内按钮（修改/删除/测试…）**只在有数据行时才存在于 DOM**。
+ * `/system/msg/channel` 一轮里动作 12→7，是因为那一页本轮 0 行、空态「暂无数据」，
+ * 5 个行内按钮结构性消失——而 `coverage` 照样是 100%，因为分子分母一起缩。
+ * b86 只做到"打印时给归因"（这条轴原先只能看见数字变小、不能定性），本批把它做成棘轮：
+ * **分母固定取基线记录过的行内动作数**，分子取本轮实测覆盖数并按基线分母封顶。
+ * 于是"页面本轮 0 行"必然让这一栏下降，而"给这一页补上数据/用例"能让它升回去——
+ * `coverage` 看不见的那一半信号在这里可见。
+ *
+ * 为什么不做成"0 行就 UNRUN"：那等于让绿红由数据态决定（本表 ④ 禁止的形态），
+ * 而实测今天 56 页里有 17 页就是 0 行——闸会在装上第一轮变成"每轮必红直到有人造夹具"，
+ * 结局是被人去改阈值。棘轮的方向（只许升）才是让"补数据"有收益的那条路。
+ *
+ * `baseRows` / `curRows` 同形：`{ path: { t, c, r, e } }`
+ * = 行内动作总数 / 其中已覆盖 / 本轮该页行数 / 空态文案。
+ * 返回 `null` = **不可比**（基线没有这一栏、或条目形状坏了），调用方必须走 UNRUN 而不是当成"没退步"。
+ */
+function rowSurface(baseRows, curRows) {
+  if (!baseRows || typeof baseRows !== 'object' || Array.isArray(baseRows)) return null
+  const paths = Object.keys(baseRows)
+  if (!paths.length) return null
+  for (const p of paths) {
+    if (typeof baseRows[p]?.t !== 'number') return null
+  }
+  let total = 0
+  let covered = 0
+  const shrunk = []
+  for (const p of paths) {
+    const b = baseRows[p]
+    const c = curRows?.[p]
+    total += b.t
+    // 本轮多出来的行内动作不得用来抬高历史分母的覆盖率（封顶 = 换尺的那条路）
+    covered += c && typeof c.c === 'number' ? Math.min(c.c, b.t) : 0
+    if (b.t > 0 && (!c || c.t < b.t)) {
+      shrunk.push({ path: p, base: b.t, now: c ? c.t : 0, rowCount: c?.r, emptyText: c?.e || '' })
+    }
+  }
+  if (!total) return null
+  return { ratio: covered / total, total, covered, shrunk }
+}
+
+/**
+ * 行内动作面退步的**绝对下限**（b87，前言 ⑱ 同一条纪律：近零量上的相对容差是噪声放大器）。
+ *
+ * 本轮实测分母只有 59 个行内动作 ⇒ 1pp 容差 ≈ 0.6 个动作，也就是"某页少掉一个按钮"
+ * 就足以判红——那是整数访问次数决定的抖动，不是真回归。所以退步必须**同时**满足两条：
+ * 相对超容差 **且** 绝对少掉的动作数够得着一回真退化。低于下限的缩水**留痕不静默**
+ * （`notices` 与判定共用同一次扫描，两份实现必漂）。
+ */
+const ROW_SURFACE_MIN_LOST_ACTIONS = 3
+
+/**
+ * 采集口径名（b87 项 5 后续）。写进基线、比对时与代码常量逐条核
+ * （同 `endpoint-coverage` 的 `metric`、`request-storm` 的参数栏：换判据必须与重生成基线**同批**）。
+ *
+ * 为什么这一批必须有它：采样从"固定 `sleep(1400)` 看一眼"改成"轮询到落定"之后，
+ * 同一页能多扫出行内按钮——实测 `/system/msg/channel` 由 `0 行 / 7 动作` 变成 `3 行 / 12 动作`，
+ * 于是 `totalBacklog` 从 46 涨到 50。那**不是退步，是旧尺量不出新面**：
+ * 让这种"内容退步"拒绝落盘，等于把一份被瞬时读数污染的旧基线永久钉成天花板。
+ */
+const INVENTORY_SAMPLING = 'settled-poll-v1'
+
+/** 行内动作面棘轮的比较式（`--gate` 与 `--update-baseline` 共用，同 `ratchetRegressions` 的纪律） */
+function rowRatchetRegressions(base, curRows) {
+  const surface = rowSurface(base?.rowPerRoute, curRows)
+  if (!surface) {
+    // 文案必须含"基线缺"三字：`--update-baseline` 的旧格式口径迁移通道（`onlyShape`）按它识别
+    return {
+      comparable: false,
+      surface: null,
+      notices: [],
+      regressions: [
+        '基线缺 rowPerRoute 明细栏（或条目形状不可解析）⇒ 行内动作面覆盖率无法比对（不是退步，是判据不可用），' +
+          '须与新判据同批 --update-baseline 重生成基线'
+      ]
+    }
+  }
+  const bad = []
+  if (typeof base.rowSurfaceCoverage !== 'number') {
+    bad.push(
+      `基线缺 rowSurfaceCoverage 栏（实测 ${String(base.rowSurfaceCoverage)}）⇒ 无法比对，` +
+        '须与新判据同批 --update-baseline 重生成基线'
+    )
+    return { comparable: false, surface, regressions: bad, notices: [] }
+  }
+  // 参数对账（前言 ⑱：换判据必须与重生成基线同批，否则是拿更松的尺去量旧数字）
+  if (base.rowSurfaceMinLostActions !== ROW_SURFACE_MIN_LOST_ACTIONS) {
+    return {
+      comparable: false,
+      surface,
+      regressions: [
+        `基线口径不一致：rowSurfaceMinLostActions 记 ${String(base.rowSurfaceMinLostActions)}、` +
+          `代码取 ${ROW_SURFACE_MIN_LOST_ACTIONS} ⇒ 这一栏无法比对（不是退步）。` +
+          '改判据参数必须与重生成基线同批。'
+      ],
+      notices: []
+    }
+  }
+  const drop = base.rowSurfaceCoverage - surface.ratio
+  // 退步的**绝对量**：比率差 × 基线分母 = 少掉的行内动作个数（近零分母上的 1pp ≈ 0.6 个动作）
+  const lost = drop * surface.total
+  const why = surface.shrunk
+    .map(
+      (s) =>
+        `  · ${s.path}：行内动作 ${s.base} → ${s.now}` +
+        (s.rowCount === 0
+          ? `（本轮该页 0 行${s.emptyText ? `、空态「${s.emptyText}」` : ''}⇒ 行内按钮随数据消失，需要给这一页配数据夹具或用例）`
+          : '（该页仍有数据行，是动作本身少了 ⇒ 控件被删或用例文案变了）')
+    )
+    .join('\n')
+  const notices = []
+  // 两条腿必须同时超界才判红（相对容差 + 绝对下限），但**低于下限的缩水要留痕**，不得静默
+  if (drop > COVERAGE_TOLERANCE && lost >= ROW_SURFACE_MIN_LOST_ACTIONS) {
+    bad.push(
+      `行内动作面覆盖 ${(surface.ratio * 100).toFixed(1)}% < 基线 ${(base.rowSurfaceCoverage * 100).toFixed(1)}%` +
+        `（-${(drop * 100).toFixed(1)}pp，容差 ${(COVERAGE_TOLERANCE * 100).toFixed(0)}pp；` +
+        `分母固定为基线的 ${surface.total} 个行内动作 ⇒ 净少 ${lost.toFixed(1)} 个，` +
+        `绝对下限 ${ROW_SURFACE_MIN_LOST_ACTIONS} 个）\n缩水 ${surface.shrunk.length} 页：\n${why}`
+    )
+  } else if (lost > 0) {
+    notices.push(
+      `ℹ 另有 ${surface.shrunk.length} 页行内动作缩水、净少 ${lost.toFixed(1)} 个（低于绝对下限 ` +
+        `${ROW_SURFACE_MIN_LOST_ACTIONS} 个 ⇒ 不判红，但这就是"那条动作本轮没被测"）：\n${why}`
+    )
+  }
+  return { comparable: true, surface, regressions: bad, notices }
+}
+
+/**
+ * 基线"这一栏没有 / 形状不可解析"的缺栏名单——**口径闸**，不是退步（本表 ⑨：口径闸排在内容闸之前）。
+ * `--update-baseline` 的唯一"带病落盘"通道按这份名单放行（旧格式基线永远等不到可比断面）。
+ */
+function baselineShapeGaps(base, curRows) {
+  const gaps = baseMissingCountKeys(base)
+  if (!rowSurface(base?.rowPerRoute, curRows)) gaps.push('rowPerRoute')
+  else if (typeof base?.rowSurfaceCoverage !== 'number') gaps.push('rowSurfaceCoverage')
+  else if (base.rowSurfaceMinLostActions !== ROW_SURFACE_MIN_LOST_ACTIONS) gaps.push('rowSurfaceMinLostActions')
+  // 采样口径戳：换尺就必须与重生成基线同批（见 INVENTORY_SAMPLING 的成因）
+  if (base?.sampling !== INVENTORY_SAMPLING) gaps.push('sampling')
+  return gaps
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 落定判据（纯函数，b87 项 5 的后续修复）。
+ *
+ * 为什么必须有这一层：原先每页 `goto` 后**固定 `sleep(1400)` 再采样**，读数由网络快慢决定——
+ * 同一份产物、同一份库，实测两把把 `/system/msg/channel` 读成 **0 行**与 **3 行**
+ * （`rowPerRoute.t` 于是取到 0 与 3 两个值 ⇒ 行内动作面的**分母**自己抖）。
+ * 这正是门禁表前言 ④ 明令禁止的形态：判据的数由环境决定，而这个数喂给"只许升"的棘轮。
+ *
+ * 规则：连续两次采样的 `(rows, loading)` 相同 **且** `loading === false` ⇒ 落定。
+ *  - **真空表**（rows=0、无遮罩、两次一致）⇒ 判落定：那是合法的 0 行，不得当成"没读完"；
+ *  - 遮罩始终在 ⇒ 判未落定：调用方必须 UNRUN，不得把"还没读到"写成"这页没有动作"。
+ */
+function settleVerdict(samples) {
+  if (!Array.isArray(samples) || samples.length < 2) return { settled: false, reason: '采样不足' }
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1]
+    const b = samples[i]
+    if (a.rows === b.rows && a.loading === b.loading && b.loading === false) return { settled: true, at: i, reason: '' }
+  }
+  const last = samples[samples.length - 1]
+  return { settled: false, reason: last.loading ? '加载遮罩未消失' : '行数仍在变化' }
+}
+
+/** 页内只读采样：行数按 el-table 的可见 body 计，遮罩按 `.el-loading-mask` 的可见性计 */
+function sampleTableState() {
+  const visible = (el) => {
+    if (!el) return false
+    const r = el.getBoundingClientRect()
+    const st = getComputedStyle(el)
+    return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
+  }
+  const tables = [...document.querySelectorAll('.el-table')].filter(visible)
+  let rows = 0
+  for (const t of tables) rows += [...t.querySelectorAll('.el-table__body tbody tr')].filter(visible).length
+  const loading = [...document.querySelectorAll('.el-loading-mask')].some(visible)
+  return { rows, loading }
+}
+
+/**
+ * 轮询到落定（上限 maxMs）。三个量都进凭证：落定用了多久是人判断"这页到底有多慢"的唯一线索
+ * （同 b79 把 M87 的采样改成"轮询到落定 + 把落定耗时写进凭证"那一条）。
+ */
+async function waitTableSettled(page, maxMs = 8000, stepMs = 250) {
+  const t0 = Date.now()
+  const samples = []
+  while (Date.now() - t0 < maxMs) {
+    const st = await page.evaluate(sampleTableState).catch(() => ({ rows: 0, loading: false }))
+    samples.push(st)
+    const v = settleVerdict(samples)
+    if (v.settled) return { settled: true, ms: Date.now() - t0, reason: '', samples: samples.length }
+    await sleep(stepMs)
+  }
+  const v = settleVerdict(samples)
+  return { settled: false, ms: Date.now() - t0, reason: v.reason || '超时仍未一致', samples: samples.length }
+}
 const log = (m) => console.log(`[inventory] ${m}`)
 
 /** 两套件的源码文本（覆盖判据的分子来源） */
@@ -685,11 +885,285 @@ function runSelftest() {
     console.error(`❌ 拆分自检失败 ${cBad}/${cCases.length} 条——补测队列口径不可信，本次跑批的 clicked 分母不作数`)
     process.exit(1)
   }
+  // 第五族（b87 项 5）：行内动作面覆盖率。核心是**分母必须来自基线**，
+  // 于是"页面本轮 0 行、按钮结构性消失"表现为退步而不是"覆盖率 100%"。
+  const sCases = [
+    {
+      title: '正控：数据没变的同一断面 ⇒ 1.0 且无缩水页（这条必须绿，否则判据是恒红）',
+      base: { '/a': { t: 3, c: 3 }, '/b': { t: 2, c: 2 } },
+      cur: { '/a': { t: 3, c: 3, r: 10, e: '' }, '/b': { t: 2, c: 2, r: 4, e: '' } },
+      want: { ratio: 1, shrunk: 0 }
+    },
+    {
+      title: '一页本轮 0 行 ⇒ 行内动作从 5 掉到 0：必须判退步并点名该页（b86 的立案形状）',
+      base: { '/system/msg/channel': { t: 5, c: 5 }, '/a': { t: 3, c: 3 } },
+      cur: { '/system/msg/channel': { t: 0, c: 0, r: 0, e: '暂无数据' }, '/a': { t: 3, c: 3, r: 2, e: '' } },
+      want: { ratio: (3 + 0) / 8, shrunk: 1, shrunkPath: '/system/msg/channel', rowCount: 0 }
+    },
+    {
+      title: '行内动作消失但覆盖数不动（纯工具栏页）⇒ 不得算缩水（防判据扩大化）',
+      base: { '/a': { t: 0, c: 0 }, '/b': { t: 2, c: 2 } },
+      cur: { '/a': { t: 0, c: 0, r: 0, e: '暂无数据' }, '/b': { t: 2, c: 2, r: 1, e: '' } },
+      want: { ratio: 1, shrunk: 0 }
+    },
+    {
+      title: '本轮新增基线里没有的页 ⇒ 分母不变，不得靠新页抬高历史分母的覆盖率',
+      base: { '/a': { t: 4, c: 2 } },
+      cur: { '/a': { t: 4, c: 2, r: 3, e: '' }, '/new': { t: 9, c: 9, r: 8, e: '' } },
+      want: { ratio: 0.5, shrunk: 0 }
+    },
+    {
+      title: '本轮某页行内动作多于基线 ⇒ 分子按基线分母封顶（换尺的那条路必须堵）',
+      base: { '/a': { t: 2, c: 2 } },
+      cur: { '/a': { t: 6, c: 6, r: 5, e: '' } },
+      want: { ratio: 1, shrunk: 0 }
+    },
+    {
+      title: '基线有该页、本轮整页消失 ⇒ 计为缩水且分子按 0 算（页面消失不得从分母里悄悄摘掉）',
+      base: { '/a': { t: 3, c: 3 }, '/gone': { t: 3, c: 3 } },
+      cur: { '/a': { t: 3, c: 3, r: 2, e: '' } },
+      want: { ratio: 0.5, shrunk: 1, shrunkPath: '/gone' }
+    }
+  ]
+  let sBad = 0
+  for (const c of sCases) {
+    const got = rowSurface(c.base, c.cur)
+    const ok =
+      got &&
+      Math.abs(got.ratio - c.want.ratio) < 1e-9 &&
+      got.shrunk.length === c.want.shrunk &&
+      (c.want.shrunkPath === undefined || got.shrunk[0]?.path === c.want.shrunkPath) &&
+      (c.want.rowCount === undefined || got.shrunk[0]?.rowCount === c.want.rowCount)
+    if (!ok) sBad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${c.title}：` +
+        `期望 ratio=${c.want.ratio.toFixed(3)} 缩水 ${c.want.shrunk} 页，实际 ratio=${got?.ratio.toFixed(3)} 缩水 ${got?.shrunk.length ?? '—'} 页`
+    )
+  }
+  if (sBad) {
+    console.error(`❌ 行内动作面自检失败 ${sBad}/${sCases.length} 条——分母口径不可信，"覆盖率"一词本轮不作数`)
+    process.exit(1)
+  }
+  // 不可比（旧格式基线）必须走 UNRUN 通道而不是"没退步"：文案含"基线缺"是口径迁移的识别键
+  const uncomparable = [
+    ['基线完全没有 rowPerRoute 栏', {}, '/a'],
+    ['rowPerRoute 是空对象（扫描器没产出）', { rowPerRoute: {} }, '/a'],
+    ['条目形状坏了（t 不是数值）', { rowPerRoute: { '/a': { t: '3' } } }, '/a']
+  ]
+  let uBad = 0
+  for (const [desc, base, path] of uncomparable) {
+    const r = rowRatchetRegressions(base, { [path]: { t: 1, c: 1, r: 1, e: '' } })
+    const ok = !r.comparable && r.regressions.length === 1 && r.regressions[0].includes('基线缺')
+    if (!ok) uBad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${desc}：期望不可比 + 文案含"基线缺"，实际 ${JSON.stringify(r.regressions)}`
+    )
+  }
+  if (uBad) {
+    console.error(`❌ 不可比通道自检失败 ${uBad}/${uncomparable.length} 条——缺栏会被读成"没有退步"（假绿）`)
+    process.exit(1)
+  }
+  // 两条腿（前言 ⑱：近零分母上的相对容差是噪声放大器）：相对超界 **且** 绝对够得着一回真退化才判红，
+  // 低于下限的缩水必须留痕（notices），不得静默——比较式与 ℹ 共用同一次扫描，两份实现必漂。
+  const mkRows = (n, lost) => {
+    const baseRows = {}
+    const cur = {}
+    for (let i = 0; i < n; i++) {
+      baseRows[`/p${i}`] = { t: 3, c: 3 }
+      cur[`/p${i}`] = { t: 3, c: 3, r: 5, e: '' }
+    }
+    for (const p of lost) cur[p] = { t: 0, c: 0, r: 0, e: '暂无数据' }
+    return { baseRows, cur }
+  }
+  const wholePage = mkRows(20, ['/p3'])
+  const twoActions = mkRows(20, [])
+  twoActions.cur['/p0'] = { t: 1, c: 1, r: 2, e: '' } // 同页仍有行，动作少 2 个
+  const zeroShrink = mkRows(20, [])
+  const legCases = [
+    { title: '整页 0 行（净少 3 个 = 恰达绝对下限）⇒ 必须判红', f: wholePage, wantRed: true },
+    { title: '净少 2 个（低于下限 3）⇒ 不得判红，但必须留痕一条 ℹ', f: twoActions, wantRed: false },
+    { title: '正控：同一断面零缩水 ⇒ 既不判红也不留痕（防 notices 恒非空）', f: zeroShrink, wantRed: false }
+  ]
+  let legBad = 0
+  for (const c of legCases) {
+    const base = {
+      rowPerRoute: c.f.baseRows,
+      rowSurfaceCoverage: 1,
+      rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS
+    }
+    const r = rowRatchetRegressions(base, c.f.cur)
+    const red = r.regressions.length > 0
+    const noted = r.notices.length > 0
+    const ok = r.comparable && red === c.wantRed && (red || (c.wantRed ? false : noted || c.f === zeroShrink))
+    if (!ok) legBad++
+    console.log(
+      `  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${c.title}：期望判红=${c.wantRed}，实际判红=${red} 留痕=${noted}`
+    )
+  }
+  if (legBad) {
+    console.error(`❌ 两条腿自检失败 ${legBad}/${legCases.length} 条——"噪声放大器"或"静默缩水"至少有一种没堵住`)
+    process.exit(1)
+  }
+  // 参数对账（前言 ⑱）：基线记的参数与代码常量不一致 ⇒ 不可比，文案含"基线口径不一致"
+  const paramCase = rowRatchetRegressions(
+    { rowPerRoute: { '/a': { t: 1, c: 1 } }, rowSurfaceCoverage: 1, rowSurfaceMinLostActions: 99 },
+    { '/a': { t: 1, c: 1, r: 1, e: '' } }
+  )
+  if (paramCase.comparable || !paramCase.regressions[0]?.includes('基线口径不一致')) {
+    console.error('❌ 参数对账通道坏了：换判据参数必须让比对拒绝，而不是照旧判')
+    process.exit(1)
+  }
+  console.log('  ✅ [OK] 基线参数与本常量不一致 ⇒ 拒绝比对并点名两个数')
+  // 真实树正控（不启浏览器，只读已提交基线）：专抓"基线是加参数之前那一轮写的"这类同批漏改
+  if (!fs.existsSync(BASELINE_PATH)) {
+    console.error(`❌ 基线文件缺失：${BASELINE_PATH}——真实树正控没跑，不得读成"通过"`)
+    process.exit(1)
+  }
+  let realCtl = 0 // 真实基线正控条数由计数器给（写死的数字加一条控制就变成假账）
+  const real = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'))
+  const sumT = Object.values(real.rowPerRoute || {}).reduce((n, v) => n + (v.t || 0), 0)
+  const sumC = Object.values(real.rowPerRoute || {}).reduce((n, v) => n + (v.c || 0), 0)
+  console.log(
+    `  ${sumT > 0 ? '✅' : '✘'} [${sumT > 0 ? 'OK' : 'MISMATCH'}] 真实基线自证：rowPerRoute ` +
+      `${Object.keys(real.rowPerRoute || {}).length} 页 / Σt=${sumT} / Σc=${sumC} / ` +
+      `参数=${String(real.rowSurfaceMinLostActions)}`
+  )
+  realCtl++
+  if (sumT <= 0) {
+    console.error('❌ 已提交基线里 rowPerRoute 是空的 ⇒ 这一栏从没真正落过盘')
+    process.exit(1)
+  }
+  if (real.rowSurfaceMinLostActions !== ROW_SURFACE_MIN_LOST_ACTIONS) {
+    console.error(
+      `❌ 已提交基线缺/不匹配 rowSurfaceMinLostActions（实测 ${String(real.rowSurfaceMinLostActions)}）` +
+        '⇒ 判据换形必须与重生成基线同批（跑 --update-baseline 走口径迁移）'
+    )
+    process.exit(1)
+  }
+  // 基线必须与自己算得平：记的覆盖率 === Σc/Σt（手改过数字的基线在这里出声）
+  if (Math.abs((real.rowSurfaceCoverage ?? -1) - sumC / sumT) > 1e-9) {
+    console.error(`❌ 已提交基线自相矛盾：记 rowSurfaceCoverage=${real.rowSurfaceCoverage}，按明细重算=${sumC / sumT}`)
+    process.exit(1)
+  }
+  realCtl++
+  console.log('  ✅ [OK] 已提交基线的覆盖率与自身明细逐字对账相等（非手改）')
+  // baselineShapeGaps 的正控：完整基线必须报 0 个缺栏，否则口径闸会把每一轮都判成不可比
+  const fullGap = baselineShapeGaps(
+    {
+      totalBacklog: 0,
+      totalStateLocked: 0,
+      rowPerRoute: { '/a': { t: 1, c: 1 } },
+      rowSurfaceCoverage: 1,
+      rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS,
+      sampling: INVENTORY_SAMPLING
+    },
+    { '/a': { t: 1, c: 1, r: 1, e: '' } }
+  )
+  if (fullGap.length) {
+    console.error(`❌ 完整基线仍被判缺栏（${fullGap.join('/')}）⇒ 口径闸恒红，这条棘轮永远跑不起来`)
+    process.exit(1)
+  }
+  realCtl++
+  // 反例：没有口径戳的基线必须被点名 sampling（否则换尺会撞内容闸，人就去改阈值）
+  const staleGap = baselineShapeGaps(
+    {
+      totalBacklog: 0,
+      totalStateLocked: 0,
+      rowPerRoute: { '/a': { t: 1, c: 1 } },
+      rowSurfaceCoverage: 1,
+      rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS
+    },
+    { '/a': { t: 1, c: 1, r: 1, e: '' } }
+  )
+  if (!staleGap.includes('sampling')) {
+    console.error(
+      `❌ 没有口径戳的旧基线未被判成 sampling 缺栏（实际 ${staleGap.join('/') || '无缺栏'}）⇒ 换尺会被当成"本轮变差"`
+    )
+    process.exit(1)
+  }
+  // 真实基线：口径戳必须等于代码常量（本批刚换尺 ⇒ 重生成之前这一条就该红）
+  if (real.sampling !== INVENTORY_SAMPLING) {
+    console.error(
+      `❌ 已提交基线的采样口径是 ${String(real.sampling)}、代码取 ${INVENTORY_SAMPLING}` +
+        '⇒ 判据换形必须与重生成基线同批（跑 --update-baseline）'
+    )
+    process.exit(1)
+  }
+  realCtl++
+  console.log(`  ✅ [OK] 已提交基线带当前采样口径戳（${real.sampling}）`)
+  // 第六族（b87 项 5 后续）：表格读数落定判据。钉的是"分母不得由网络快慢决定"。
+  const stCases = [
+    {
+      title: '正控：真空表（rows=0、无遮罩、两次一致）必须判落定（否则合法的 0 行页每轮必红）',
+      samples: [
+        { rows: 0, loading: false },
+        { rows: 0, loading: false }
+      ],
+      want: true
+    },
+    {
+      title: '正控：首屏遮罩 + 3 行到位后两次一致 ⇒ 落定（本批实测那次 0 行/3 行抖动就是这一形）',
+      samples: [
+        { rows: 0, loading: true },
+        { rows: 3, loading: false },
+        { rows: 3, loading: false }
+      ],
+      want: true
+    },
+    { title: '采样只有一条 ⇒ 未落定（不得把"只看了一眼"当落定）', samples: [{ rows: 3, loading: false }], want: false },
+    {
+      title: '行数还在变 ⇒ 未落定，且文案指"行数仍在变化"',
+      samples: [
+        { rows: 1, loading: false },
+        { rows: 3, loading: false }
+      ],
+      want: false,
+      reason: '行数仍在变化'
+    },
+    {
+      title: '遮罩始终不消失 ⇒ 未落定，且文案指遮罩（不得把"没读完"写成"这页没动作"）',
+      samples: [
+        { rows: 0, loading: true },
+        { rows: 0, loading: true }
+      ],
+      want: false,
+      reason: '加载遮罩未消失'
+    },
+    { title: 'samples 不是数组 ⇒ 未落定（形状防御，不得抛）', samples: 'nonsense', want: false }
+  ]
+  let stBad = 0
+  for (const t of stCases) {
+    const v = settleVerdict(t.samples)
+    const okWant = v.settled === t.want
+    const okReason = !t.reason || v.reason === t.reason
+    if (!(okWant && okReason)) {
+      stBad++
+      console.error(`  ❌ 落定判据：${t.title}（实际 settled=${v.settled} reason="${v.reason}"）`)
+    } else console.log(`  ✅ [OK] ${t.title}`)
+  }
+  if (stBad) {
+    console.error(`❌ 落定判据自检失败 ${stBad}/${stCases.length} 条 ⇒ 行内动作面分母仍由网络快慢决定`)
+    process.exit(1)
+  }
+  // 生效路径反查（写了没接线=没写）：跑批正文必须真的调用这条通道并有 UNRUN 那一支
+  const selfSrc = fs.readFileSync(path.join(__dirname, 'action-inventory.mjs'), 'utf8')
+  if (!selfSrc.includes('const settle = await waitTableSettled(page)')) {
+    console.error('❌ 跑批正文没有调用 waitTableSettled ⇒ 落定判据是死码')
+    process.exit(1)
+  }
+  if (!selfSrc.includes('页表格读数未落定 ⇒ 本轮行内动作面不作数')) {
+    console.error('❌ 跑批正文没有"未落定 ⇒ EXIT=2"这一支 ⇒ 未落定会被当成正常读数')
+    process.exit(1)
+  }
+
   console.log(
     `SYNTH_OK 动作名归一自检通过（${cases.length} 条双向判据：6 条必须覆盖 / 6 条必须不覆盖）` +
       ` + 点击证据 ${iCases.length} 条双向（含"只提及不算点过"反例）` +
       ` + 棘轮比较式 ${rCases.length} 条双向` +
-      ` + 无点击证据拆分 ${cCases.length} 条双向（含拆分守恒正控）`
+      ` + 无点击证据拆分 ${cCases.length} 条双向（含拆分守恒正控）` +
+      ` + 行内动作面分母 ${sCases.length} 条双向 + 不可比通道 ${uncomparable.length} 条` +
+      ` + 两条腿（相对容差 × 绝对下限）${legCases.length} 条 + 参数对账 1 条 + 已提交基线真实树正控 ${realCtl} 条（含口径戳对账）` +
+      ` + 表格读数落定 ${stCases.length} 条双向（含两个正控）+ 生效路径反查 2 条`
   )
   process.exit(0)
 }
@@ -728,8 +1202,10 @@ function main() {
     for (const [i, routePath] of routes.entries()) {
       const url = `${BASE}${routePath}`
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-      await sleep(1400)
+      // 600ms 是"SPA 首屏挂载"的下限，不是读数等待；读数一律交给下面的落定轮询。
+      await sleep(600)
       await dismissTour(page)
+      const settle = await waitTableSettled(page)
       await sleep(200)
 
       // 逐 tab 扫描：el-tabs 的非激活 pane 是 display:none，`visible()` 会把里面的按钮全部滤掉——
@@ -808,6 +1284,10 @@ function main() {
         })(),
         tabs: tabCounts,
         iframeCount,
+        // 读数落定凭证（见 settleVerdict）：未落定的页必须让本轮判据不作数
+        settled: settle.settled,
+        settleMs: settle.ms,
+        settleReason: settle.reason,
         // "有表头/有 tab 却 0 动作"必须自曝，否则 0 会被当成"这页本来就没按钮"
         suspicious: toolbar.length + rowActions.length === 0 && (got.columns.length > 0 || tabs.length > 1)
       }
@@ -816,11 +1296,26 @@ function main() {
         `${String(i + 1).padStart(2)}/${routes.length} ${routePath.padEnd(34)} ` +
           `动作 ${rec.actionCount}（覆盖 ${rec.coveredCount} / 点击 ${rec.clickedCount}）行 ${rec.rowCount}` +
           (rec.tabs && Object.keys(rec.tabs).length > 1 ? ` tab=${Object.keys(rec.tabs).length}` : '') +
-          (rec.suspicious ? '  ⚠ 采集可疑（有表头/多 tab 却 0 动作）' : '')
+          (rec.suspicious ? '  ⚠ 采集可疑（有表头/多 tab 却 0 动作）' : '') +
+          (rec.settled ? '' : `  ❌ 未落定（${rec.settleReason} / ${rec.settleMs}ms）`)
       )
     }
 
     await browser.close()
+
+    // 口径闸（必须排在任何内容比对之前，前言 ⑨）：有一页没落定 ⇒ 本轮不作数。
+    // 这不是退步而是"判据不可用"，所以退出码取 2（UNRUN）而不是 1：
+    // 报 1 会把人支使去"补登记 / 调阈值"，而正确的动作是查那页为什么读不完。
+    const unsettled = pages.filter((x) => !x.settled)
+    if (unsettled.length) {
+      console.error(
+        `[FATAL] ${unsettled.length}/${pages.length} 页表格读数未落定 ⇒ 本轮行内动作面不作数：` +
+          unsettled.map((x) => `${x.path}(${x.settleReason}, ${x.settleMs}ms)`).join(' ')
+      )
+      process.exit(2)
+    }
+    const slowest = pages.reduce((a, x) => (x.settleMs > a.settleMs ? x : a), pages[0])
+    log(`落定核对：${pages.length}/${pages.length} 页落定（最慢 ${slowest.path} ${slowest.settleMs}ms）`)
 
     const totalActions = pages.reduce((s, p) => s + p.actionCount, 0)
     const totalCovered = pages.reduce((s, p) => s + p.coveredCount, 0)
@@ -981,24 +1476,48 @@ function main() {
       totalStateLocked: report.totalStateLocked
     }
     const base = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) : null
+    // 本轮的行内动作面：t=行内动作数 / c=其中已覆盖 / r=该页本轮行数 / e=空态文案。
+    // r、e 进快照只为了**失败文案能说出原因**（0 行 ⇒ 按钮在 DOM 里根本不存在），
+    // 不参与判定——判定的分母永远是基线那一栏（见 rowSurface 的立案注释）。
+    const curRows = Object.fromEntries(
+      pages.map((p) => [
+        p.path,
+        { t: p.rowActions.length, c: p.rowActions.filter((b) => b.covered).length, r: p.rowCount, e: p.emptyText || '' }
+      ])
+    )
+    const rowSelfSurface = rowSurface(curRows, curRows)
     if (UPDATE_BASELINE) {
       // 先比后写：放松方向一律拒绝，基线文件保持原样
       if (base) {
-        const bad = ratchetRegressions(base, cur)
-        // 唯一允许"带病落盘"的一种：现存基线是**旧格式**（没有这两栏），此时任何一条
+        // **采样口径变更必须排在内容比对之前**（本表 ⑨：口径闸先于内容闸）：换了尺之后
+        // 旧基线的任何数字都不是本轮的基准，把"多扫出了面"当退步拒绝落盘，
+        // 等于让一份被瞬时读数污染的旧基线永久钉住错误的天花板。
+        const caliberGaps = baselineShapeGaps(base, curRows)
+        const caliberChanged = caliberGaps.includes('sampling')
+        const bad = caliberChanged
+          ? []
+          : [...ratchetRegressions(base, cur), ...rowRatchetRegressions(base, curRows).regressions]
+        // 唯一允许"带病落盘"的一种：现存基线是**旧格式**（没有这几栏），此时任何一条
         // 比都判不了。这种情形下必须让新判据把栏位写进去，否则这个闸永远等不到可比断面
         // （b82 ⑩：基线必须与产生它的那一轮同批重生成）。判据是"坏消息全部属于缺栏"，
         // 真退步混杂其中时照样拒绝。
-        const onlyShape =
-          bad.length > 0 && baseMissingCountKeys(base).length > 0 && bad.every((m) => m.includes('基线缺'))
+        const gaps = caliberGaps
+        // "口径不可比"的两类文案都以 `基线缺` / `基线口径不一致` 开头（内容退步不会是这两种前缀）
+        const isShapeGap = (m) => m.includes('基线缺') || m.includes('基线口径不一致')
+        const onlyShape = bad.length > 0 && gaps.length > 0 && bad.every(isShapeGap)
         if (bad.length && !onlyShape) {
           console.error(`❌ 拒绝放松棘轮：--update-baseline 只收紧不放宽，基线**未改动**\n  · ${bad.join('\n  · ')}`)
           process.exit(1)
         }
-        if (onlyShape) {
+        if (caliberChanged) {
           console.warn(
-            `⚠️ 旧格式基线（缺 ${baseMissingCountKeys(base).join('/')}）⇒ 本次按**口径迁移**落盘，` +
-              `其余比对结果：${bad.filter((m) => !m.includes('基线缺')).join('；') || '无其他差异'}`
+            `⚠️ 采样口径变更（基线记 ${String(base.sampling)} → 代码 ${INVENTORY_SAMPLING}）` +
+              '⇒ 旧基线的数字不作本轮比对基准，本次按**口径迁移**重生成基线'
+          )
+        } else if (onlyShape) {
+          console.warn(
+            `⚠️ 旧格式基线（缺 ${gaps.join('/')}）⇒ 本次按**口径迁移**落盘，` +
+              `其余比对结果：${bad.filter((m) => !isShapeGap(m)).join('；') || '无其他差异'}`
           )
         }
       }
@@ -1007,6 +1526,8 @@ function main() {
         JSON.stringify(
           {
             generatedAt: report.generatedAt,
+            // 采集口径戳（换尺 ⇒ 旧数字不作比对基准）
+            sampling: INVENTORY_SAMPLING,
             routes: report.routes,
             totalActions,
             totalCovered,
@@ -1026,7 +1547,15 @@ function main() {
             perRoute: Object.fromEntries(
               pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
             ),
-            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；旧格式基线缺这两栏 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成'
+            // 行内动作面（b87 项 5）：分母固定取这里记的 `t`，本轮实测只贡献分子。
+            // 与上面的 `perRoute` 分栏是因为两者问的不是同一件事：`perRoute.a` 问"这页现在有几个按钮"
+            // （随数据态漂移），`rowPerRoute.t` 问"这页**曾经被证明存在**的行内动作有几个"（是承诺）。
+            rowPerRoute: curRows,
+            rowSurfaceCoverage: rowSelfSurface ? rowSelfSurface.ratio : 0,
+            // 参数进基线并由代码常量逐条核（前言 ⑱）：换判据必须与重生成基线同批，
+            // 旧基线缺这一项一律拒绝比对（UNRUN），不能拿更松的尺去量旧数字
+            rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS,
+            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；行内动作面覆盖率（rowSurfaceCoverage）以 rowPerRoute 的 t 之和为固定分母，本轮 0 行 ⇒ 该栏下降；退步必须同时超相对容差与绝对下限 rowSurfaceMinLostActions（低于下限只留痕不判红，前言 ⑱）；旧格式基线缺这些栏或参数与本常量不一致 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成'
           },
           null,
           2
@@ -1040,18 +1569,22 @@ function main() {
       console.error(`❌ 覆盖率棘轮基线缺失：${BASELINE_PATH}（用 --update-baseline 生成）`)
       process.exit(1)
     }
-    // **口径闸排在内容闸之前**（b82 ⑨）：旧格式基线没有这两栏，"比对不了"与"比对后退步"
+    // **口径闸排在内容闸之前**（b82 ⑨）：旧格式基线没有这几栏，"比对不了"与"比对后退步"
     // 是两件事——写反了会把"缺栏"报成一条退步，人就会去改阈值而不是重生成基线。
     // 缺栏 ⇒ EXIT=2（UNRUN，不作结论），而不是 EXIT=1（那会说成"本轮变差了"）。
-    const missingCols = baseMissingCountKeys(base)
+    const missingCols = baselineShapeGaps(base, curRows)
     if (missingCols.length) {
       console.error(
-        `EXIT=2 基线缺 ${missingCols.join('/')} 栏 ⇒ 这两条棘轮无法比对（不是退步，是判据不可用）。` +
+        `EXIT=2 基线缺 ${missingCols.join('/')} 栏 ⇒ 对应棘轮无法比对（不是退步，是判据不可用）。` +
           `收口时与新判据同批跑 --update-baseline。`
       )
       process.exit(2)
     }
-    const bad = ratchetRegressions(base, cur)
+    const rowNow = rowRatchetRegressions(base, curRows)
+    const bad = [...ratchetRegressions(base, cur), ...rowNow.regressions]
+    // 留痕必须照打——判红与判绿两条路都要（低于绝对下限的缩水若不打印，就是"静默消化"，
+    // 与 request-storm 的 below-floor 同一族纪律）
+    for (const n of rowNow.notices) console.warn(`[inventory] ${n}`)
     if (bad.length) {
       console.error(`❌ 覆盖率棘轮回退：\n  · ${bad.join('\n  · ')}`)
       process.exit(1)
@@ -1062,11 +1595,30 @@ function main() {
         `；backlog ${base.totalBacklog} → ${totalBacklog}、stateLocked ${base.totalStateLocked} → ${totalStateLocked}` +
         `（各自只许降，容差 ${COUNT_RATCHETS[0].tol}）`
     )
+    // 行内动作面单独打印：本轮看到的行内动作数与基线分母可能不同，只打一个数会被读成"和 coverage 一样"
+    log(
+      `✅ 行内动作面通过：${(rowNow.surface.ratio * 100).toFixed(1)}% ≥ 基线 ` +
+        `${(base.rowSurfaceCoverage * 100).toFixed(1)}%（分母固定 ${rowNow.surface.total} 个行内动作，` +
+        `本轮该面上只剩 ${Object.values(curRows).reduce((n, r) => n + r.t, 0)} 个）`
+    )
     // 逐页对账（信息项，不判红）：聚合数相等不代表同一份数据——一页少一个动作、另一页多一个
     // 动作，聚合完全不动。b79 的 N-10（405→404 无法归因）就是因为缺这一段。
     if (base.perRoute) {
       const curMap = Object.fromEntries(
-        pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
+        pages.map((p) => [
+          p.path,
+          {
+            a: p.actionCount,
+            c: p.coveredCount,
+            i: p.clickedCount,
+            // 行内动作（修改/删除/测试…）只在**有数据行**时才存在于 DOM ⇒ 一页的分母会随数据态漂移。
+            // 把该页当时的行数与空态一起带上，差异才有归因（b86 实测 `/system/msg/channel`
+            // 动作 12→7：那轮该页 0 行、空态「暂无数据」，5 个行内按钮结构性消失——
+            // 聚合覆盖率仍 100%，因为分母一起缩了。这句提示若不写原因，读的人只会去查"页面坏了"）。
+            r: (p.columns || []).length ? p.rowCount : null,
+            e: p.emptyText || ''
+          }
+        ])
       )
       const paths = [...new Set([...Object.keys(base.perRoute), ...Object.keys(curMap)])].sort()
       const deltas = []
@@ -1075,8 +1627,13 @@ function main() {
         const c = curMap[p]
         if (!b) deltas.push(`新增页面 ${p}：动作 ${c.a} / 覆盖 ${c.c} / 点击 ${c.i ?? '—'}`)
         else if (!c) deltas.push(`页面消失 ${p}：基线动作 ${b.a} / 覆盖 ${b.c} / 点击 ${b.i ?? '—'}`)
-        else if (b.a !== c.a || b.c !== c.c || (b.i !== undefined && b.i !== c.i))
-          deltas.push(`${p}：动作 ${b.a}→${c.a}，覆盖 ${b.c}→${c.c}，点击 ${b.i ?? '—'}→${c.i}`)
+        else if (b.a !== c.a || b.c !== c.c || (b.i !== undefined && b.i !== c.i)) {
+          const cause =
+            c.r === 0
+              ? `（本轮该页 ${c.r} 行${c.e ? `、空态「${c.e}」` : ''}⇒ 行内动作随数据消失，分母在缩，不等于覆盖率变好）`
+              : ''
+          deltas.push(`${p}：动作 ${b.a}→${c.a}，覆盖 ${b.c}→${c.c}，点击 ${b.i ?? '—'}→${c.i}${cause}`)
+        }
       }
       if (deltas.length) {
         log(`ℹ 逐页明细与基线有 ${deltas.length} 处差异（聚合可能相等，差异在页面之间）：`)

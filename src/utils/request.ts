@@ -87,6 +87,24 @@ function triggerReloginDialog(): Promise<void> {
   return reloginPromise
 }
 
+/**
+ * 「会话已过期」类拒绝的统一载体（批八十六）。
+ *
+ * 为什么不能直接 `new Error(msg)`：拦截器把 401 重写成 i18n 文案是**必要的**——组件层只读
+ * `err.message`（login/lock 靠它显示"密码错误"而不是 axios 原文 "Request failed with status
+ * code 401"），代价是 `err.response` 整条链断了。而路由守卫 `src/permission.ts` 判"该登出"用的
+ * 恰恰是 `err.response.status`，于是它那条 `if (httpStatus === 401) → logOut()` 从来没有生效路径。
+ * 实测（b86 诊断，令牌失效后冷加载 /index）：落到 /500 服务器错误页、旧 cookie 原样残留、
+ * WS 用死令牌反复重连——用户看到"服务器出错"，而真问题是"你没登录"。
+ * 状态码在这里补回来，守卫按它自己的注释执行；`reloginCanceled`（用户主动取消）**不打标记**，
+ * 那条不是"会话失效"这一族，守卫继续按未知错误处理。
+ */
+function sessionExpiredError(message: string): Error & { httpStatus?: number } {
+  const err = new Error(message) as Error & { httpStatus?: number }
+  err.httpStatus = 401
+  return err
+}
+
 /** U19 优化：将一个 401 请求加入等待队列，返回挂起 Promise */
 function enqueue401Request(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -99,7 +117,7 @@ function enqueue401Request(): Promise<void> {
       const idx = pending401Queue.indexOf(item)
       if (idx >= 0) {
         pending401Queue.splice(idx, 1)
-        reject(new Error(t('common.sessionExpired')))
+        reject(sessionExpiredError(t('common.sessionExpired')))
       }
     }, 60 * 1000)
   })
@@ -263,7 +281,7 @@ service.interceptors.response.use(
         triggerReloginDialog()
           .then(() => {
             // 用户确认重新登录（SPA 不整页跳转：清理队列并 reject 后续请求）
-            flush401Queue(true, new Error(t('common.sessionExpired')))
+            flush401Queue(true, sessionExpiredError(t('common.sessionExpired')))
           })
           .catch(() => {
             // 用户取消，统一 reject 队列中的请求
@@ -279,7 +297,7 @@ service.interceptors.response.use(
         )
       }
       // P1 修复: Promise.reject 用 Error 而非字符串，与同文件其他分支一致
-      return Promise.reject(new Error(t('common.sessionExpired')))
+      return Promise.reject(sessionExpiredError(t('common.sessionExpired')))
     } else if (code === 400) {
       // API-005：请求参数错误，使用 warning 提示用户检查输入
       errorHub.report('warning', 'api', msg)
@@ -349,7 +367,7 @@ service.interceptors.response.use(
       if (!isRelogin.show && !reloginPromise) {
         triggerReloginDialog()
           .then(() => {
-            flush401Queue(true, new Error(t('common.sessionExpired')))
+            flush401Queue(true, sessionExpiredError(t('common.sessionExpired')))
           })
           .catch(() => {
             flush401Queue(true, new Error(t('common.reloginCanceled')))
@@ -364,7 +382,7 @@ service.interceptors.response.use(
         )
       }
       // P1 修复: Promise.reject 用 Error 而非字符串
-      return Promise.reject(new Error(t('common.sessionExpired')))
+      return Promise.reject(sessionExpiredError(t('common.sessionExpired')))
     }
     // P2-33：`restful` 档下业务失败走真实 HTTP 状态码 ⇒ 错误拦截器也必须识别 body.code。
     // 尤其是 1003（TOTP 多因子：需验证码 / 验证码错误 / 尝试过多）——login.vue 依赖该业务码

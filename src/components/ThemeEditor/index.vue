@@ -45,6 +45,7 @@ import useSettingsStore from '@/store/modules/settings'
 import { handleThemeStyle } from '@/utils/theme'
 import modal from '@/plugins/modal'
 import cache from '@/plugins/cache'
+import { DEFAULT_SIDE_THEME } from '@/utils/sideTheme'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -85,6 +86,9 @@ function handleCustomColor(color: string | null) {
 
 function handleSideTheme(val: string) {
   settingsStore.changeSetting({ key: 'sideTheme', value: val })
+  // 本地 ref 取 store 的**回读值**而不是入参：值域外的入参会被 store 拒掉，
+  // 若这里照抄入参，单选框会显示成"选中了一个没生效的值"（假反馈）
+  sideTheme.value = settingsStore.sideTheme
   saveLayoutSetting()
 }
 
@@ -101,8 +105,8 @@ function handleFollowSystem(val: boolean) {
 
 function handleReset() {
   handleThemeChange('#409EFF')
-  sideTheme.value = 'theme-auto'
-  handleSideTheme('theme-auto')
+  // 复位目标取前端唯一事实源的出厂缺省，不再另写一份 'theme-auto' 字面量
+  handleSideTheme(DEFAULT_SIDE_THEME)
   settingsStore.updateUserPrefs({ followSystemDark: false })
   followSystem.value = false
   if (settingsStore.isDark) settingsStore.toggleTheme()

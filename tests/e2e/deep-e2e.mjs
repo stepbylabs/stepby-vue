@@ -95,10 +95,17 @@ import { runMain, applySkipBaselineFromLog } from './e2e/run/runner.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
 import { createCaptureHub, markClickLanded } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
-import { readCaptchaCodeFromRedis, capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi } from './e2e/run/auth.mjs'
+import {
+  readCaptchaCodeFromRedis,
+  capturePageCaptcha,
+  fillCaptchaOnPage,
+  fetchCaptchaForApi,
+  clearSession
+} from './e2e/run/auth.mjs'
 import { makeActionBreadthTest } from './modules/actionBreadth.mjs'
 import { makeWriteEndpointBreadthTest } from './modules/writeEndpointBreadth.mjs'
 import { makePwdPolicyTest } from './modules/pwdPolicy.mjs'
+import { makeSecurityMessageBoxTest } from './modules/securityMessageBox.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -999,6 +1006,101 @@ let avatarImgNoiseCount = 0
 const AVATAR_IMG_NOISE_RE = /\bIMG\s+[^\s]*\/user\/profile\/?(?:\s|$)/i
 
 /**
+ * 「这条 console 错误是不是某个已知无害状态码」的判定（b87 收单事实源）。
+ *
+ * 两件事同时改掉：
+ * ① **同一份豁免清单原先抄了四处**（403 两份、401、400、404 各一份，条目互相重叠），
+ *    加一档要改多处、漏一处的表现是"某模块照常判红"——本仓为这条立过至少四次案。
+ * ② 判定输入从"本页累积的 URL 集合是否**全部**无害"改成"**这条消息自己的** URL 是否无害"。
+ *    取证事实（RUN-RECIPE §3.99）：Chromium 对 `Failed to load resource: … 401` 这类消息，
+ *    `msg.location().url` 给的正是失败请求的 URL，所以逐条判定是可行的，不需要靠集合推断。
+ *    旧形状的问题不是假绿而是**连坐**：集合里出现任何一个不在清单上的 URL，本模块所有 401
+ *    消息一起失去豁免（b86 实测：M9 那三条 401 里只有 `configKey` 一发不在清单上，
+ *    结果 `/getRouters`、`/system/notice/listTop` 这些本来就登记过的也一起判红），
+ *    于是提示读起来像"清单不全"，照着做就是往清单里再加一条——那正是把判据改掉。
+ *    拿不到 location 时仍退回集合口径（不得因为"读不到来源"就直接放行或就直接判红，
+ *    两条路都要留下证据），且**红出来的文案必须点名是哪个 URL 破坏了豁免**。
+ */
+const HARMLESS_STATUS_URLS = {
+  401: [
+    '/system/user',
+    '/system/post',
+    '/system/dict',
+    '/login',
+    '/auth/',
+    '/lock',
+    '/unlockscreen',
+    // 应用新增顶部通知组件：M9 清 token 后前台仍会请求通知列表，401 属权限隔离测试预期副作用
+    '/system/notice/',
+    // 清 token 后路由/用户信息重取同样是前台自愈动作（b82 实测 getRouters 401）
+    '/getRouters',
+    '/getInfo',
+    // b86：守卫读到 401 后按既有设计调用 logOut()——它会先向服务端吊销会话，
+    // 而此刻令牌正是失效的 ⇒ `POST /logout` 回 401 是这条自愈链的设计内负路径
+    // （M32 32.7b 的判据实测：落地 /login 且死 cookie 已清除）。
+    '/logout'
+  ],
+  403: [
+    // /register 探测产生的 403（旧版编译前端遗留，登录页产生一次，不影响功能）
+    '/register',
+    '/captchaImage',
+    // 权限隔离测试有意请求无权限的写操作
+    '/system/user',
+    '/system/post',
+    '/system/dict',
+    '/system/config',
+    '/system/role'
+  ],
+  400: [
+    // CRUD 唯一性校验负路径（M26 故意创建重复岗位等）
+    '/system/post',
+    '/system/user',
+    '/system/role',
+    '/system/dept',
+    '/system/dict',
+    '/system/config',
+    '/system/notice'
+  ],
+  404: [
+    // M32 边界测试：访问不存在的路由/无效 ID 是预期行为
+    '/authRole/',
+    '/authUser/',
+    '/tool/gen/',
+    '/monitor/job/',
+    '/non-existent-route',
+    '/redirect/index'
+  ]
+}
+const harmlessUrl = (status) => (u) => HARMLESS_STATUS_URLS[status].some((p) => String(u).includes(p))
+
+/**
+ * 单条消息的无害判定：有来源 URL 就按它自己判（逐条，无连坐）；
+ * 没有来源才退回"本页累积的 URL 集合是否全部无害"——兜底不得变成主通道，
+ * 所以调用方一律把 `ownUrl` 传进来，空串走兜底分支。
+ */
+function statusFilter(status, ownUrl, accumulated) {
+  const ok = harmlessUrl(status)
+  if (ownUrl) return ok(ownUrl)
+  return accumulated.size > 0 && Array.from(accumulated).every(ok)
+}
+
+/**
+ * 判红时把**破坏豁免的 URL** 写进证据（旧形状只打 "Failed to load resource … 401"，
+ * 不含 URL——于是每条同类失败都要人再去翻网络数据集才知道是谁）。
+ * b86 实测：M9 那三条 401 的归因花了整整一轮（含一次诊断脚本），根因就在判据没带 URL。
+ */
+function statusEvidence(text, ownUrl, sets) {
+  const m = /(400|401|403|404)/.exec(text)
+  if (!m || !sets[m[1]]) return text
+  const set = sets[m[1]]
+  const listed = Array.from(set)
+    .filter((u) => !harmlessUrl(Number(m[1]))(u))
+    .slice(0, 3)
+    .join(' | ')
+  return `${text} — ${m[1]} 来源=${ownUrl || '（location 不可用，按本页累积集合判）'}${listed ? ` / 非无害集合成员=${listed}` : ''}`
+}
+
+/**
  * 创建带控制台错误收集的页面
  */
 async function createPage(browser) {
@@ -1041,66 +1143,18 @@ async function createPage(browser) {
       if (text.includes('favicon') || text.includes('manifest')) return
       if (text.includes('chrome-extension')) return
       if (text.includes('rbicon.woff2')) return
-      // 过滤 /register 探测产生的 403（旧版编译前端遗留，登录页产生一次，不影响功能）
-      // 控制台错误文本为 "Failed to load resource: the server responded with a status of 403 (Forbidden)"
-      // 不含 URL，因此需通过 response 事件追踪 URL
-      if (text.includes('403') && text.includes('Forbidden') && forbiddenUrls.size > 0) {
-        // 检查是否所有 403 都来自已知无害 URL
-        const allHarmless = Array.from(forbiddenUrls).every(
-          (u) => u.includes('/register') || u.includes('/captchaImage')
-        )
-        if (allHarmless) return
-      }
-      // 过滤权限隔离测试产生的 401（M9 测试有意请求无权限的写操作，返回 401 是预期行为）
-      // M41 锁屏测试有意使用错误密码解锁，返回 401 是预期行为
-      if (text.includes('401') && text.includes('Unauthorized') && unauthorizedUrls.size > 0) {
-        // 检查是否所有 401 都来自权限隔离测试的写操作 URL 或锁屏解锁端点
-        const allHarmless = Array.from(unauthorizedUrls).every(
-          (u) =>
-            u.includes('/system/user') ||
-            u.includes('/system/post') ||
-            u.includes('/system/dict') ||
-            u.includes('/login') ||
-            u.includes('/auth/') ||
-            u.includes('/lock') ||
-            u.includes('/unlockscreen') ||
-            // 应用新增顶部通知组件：M9 清 token 后前台仍会请求通知列表，401 属权限隔离测试预期副作用
-            u.includes('/system/notice/') ||
-            // 清 token 后路由/用户信息重取同样是前台自愈动作（b82 实测 getRouters 401）
-            u.includes('/getRouters') ||
-            u.includes('/getInfo')
-        )
-        if (allHarmless) return
-      }
-      // 过滤权限隔离测试产生的 403（M9 测试有意请求无权限的写操作，返回 403 是预期行为）
-      if (text.includes('403') && text.includes('Forbidden') && forbiddenUrls.size > 0) {
-        // 检查是否所有 403 都来自权限隔离测试的写操作 URL（不含 /register 和 /captchaImage）
-        const allHarmless = Array.from(forbiddenUrls).every(
-          (u) =>
-            u.includes('/register') ||
-            u.includes('/captchaImage') ||
-            u.includes('/system/user') ||
-            u.includes('/system/post') ||
-            u.includes('/system/dict')
-        )
-        if (allHarmless) return
-      }
+      // 状态码类噪声一律走 statusEvidence / 下面四个分支：判的是**这条消息自己的** URL
+      // （取证见 RUN-RECIPE §3.99：`Failed to load resource` 这类消息的 location().url
+      // 就是失败请求本身），拿不到来源时才退回"本页累积集合是否全部无害"。
+      // 403 的两份历史清单在此合一（旧的第二次判定少列了 /system/config 与 /system/role，
+      // 同一状态码两处口径不同必然漂——本仓为这条立过至少四次案）。
+      const ownUrl = msg.location()?.url || ''
+      if (text.includes('403') && text.includes('Forbidden') && statusFilter(403, ownUrl, forbiddenUrls)) return
+      if (text.includes('401') && text.includes('Unauthorized') && statusFilter(401, ownUrl, unauthorizedUrls)) return
       // 过滤 CSP 策略阻止的字体加载（chrome 扩展相关，无害）
       if (text.includes('Content Security Policy') && text.includes('font')) return
       // 过滤 CRUD 唯一性校验测试产生的 400（M26 测试有意创建重复岗位，返回 400 是预期行为）
-      if (text.includes('400') && text.includes('Bad Request') && badRequestUrls.size > 0) {
-        const allHarmless = Array.from(badRequestUrls).every(
-          (u) =>
-            u.includes('/system/post') ||
-            u.includes('/system/user') ||
-            u.includes('/system/role') ||
-            u.includes('/system/dept') ||
-            u.includes('/system/dict') ||
-            u.includes('/system/config') ||
-            u.includes('/system/notice')
-        )
-        if (allHarmless) return
-      }
+      if (text.includes('400') && text.includes('Bad Request') && statusFilter(400, ownUrl, badRequestUrls)) return
       // 头像空 src 噪声：只放行「IMG 解析成 <前端地址>/user/profile」这一条（见文件头注释），
       // 其他 IMG 资源错误一律照常判红。计数进汇总，避免"放行即消失"。
       if (text.includes('IMG') && AVATAR_IMG_NOISE_RE.test(text.trim())) {
@@ -1111,22 +1165,9 @@ async function createPage(browser) {
       if (
         text.includes('404') &&
         (text.includes('Not Found') || text.includes('Failed to load resource')) &&
-        notFoundUrls.size > 0
-      ) {
-        const allHarmless = Array.from(notFoundUrls).every(
-          (u) =>
-            u.includes('/authRole/') ||
-            u.includes('/authUser/') ||
-            u.includes('/tool/gen/') ||
-            u.includes('/monitor/job/') ||
-            u.includes('/non-existent-route') ||
-            u.includes('/redirect/index')
-        )
-        if (allHarmless) return
-        // 无法豁免：附加 404 URL 明细，便于快速定位未纳入白名单的资源
-        consoleErrors.push(`${text} — 404 URLs: ${Array.from(notFoundUrls).slice(0, 3).join(' | ')}`)
+        statusFilter(404, ownUrl, notFoundUrls)
+      )
         return
-      }
       // 过滤 M32 边界测试中前端代码主动打印的 404 错误日志（代码生成器加载不存在的表）
       if (text.includes('加载表详细信息失败') && text.includes('404')) return
       if (text.includes('AxiosError') && text.includes('404')) return
@@ -1141,7 +1182,14 @@ async function createPage(browser) {
       if (text.includes('503') && text.includes('Service Unavailable')) return
       // 过滤 429 Too Many Requests 错误（同为限流响应）
       if (text.includes('429') && (text.includes('Too Many Requests') || text.includes('too many'))) return
-      consoleErrors.push(text)
+      consoleErrors.push(
+        statusEvidence(text, ownUrl, {
+          400: badRequestUrls,
+          401: unauthorizedUrls,
+          403: forbiddenUrls,
+          404: notFoundUrls
+        })
+      )
     }
   })
   page.on('pageerror', (err) => {
@@ -5034,23 +5082,25 @@ async function testModule9(page, consoleErrors, pageErrors) {
   const M = 9
   log(`\n=== 模块 ${M}: 权限隔离深度测试（stepby 用户）===`)
 
-  // 先登出当前用户（避免已登录状态导致 /login 重定向）
-  try {
-    await page.goto(`${CONFIG.frontendUrl}/logout`, { waitUntil: 'load', timeout: 10000 }).catch(() => {})
-  } catch {
-    // 忽略错误
-  }
-  // 清除 localStorage 和 cookies 确保干净状态
-  await page.evaluate(() => {
-    try {
-      localStorage.clear()
-      sessionStorage.clear()
-    } catch (e) {}
-  })
-  await page
-    .context()
-    .clearCookies()
-    .catch(() => {})
+  // 需要"未登录起点"（避免已登录状态导致 /login 被守卫弹回首页）。
+  //
+  // b86 订正：旧写法 `goto('${frontendUrl}/logout')` 既**没登出**也**制造竞态**，
+  // 两条都是实测（完整取证见 `e2e/run/auth.mjs::clearSession` 的函数注释）：
+  // ① 前端没有 `/logout` 路由，`curl -i :8080/logout` 回 `text/html`（SPA 兜底）⇒ 服务端会话
+  //    从未吊销，注释里"先登出当前用户"描述的是一个不存在的动作；
+  // ② 它反而把应用冷加载一遍，而 `waitUntil:'load'` 之后认证链还在飞（getInfo 已回、
+  //    configKey → getRouters → listTop 依次待发），紧接着清 cookie ⇒ 排在清除之后的请求以
+  //    `auth=(none)` 出网 → 401 → 本模块末尾「无控制台错误」判红。b84 全量 0 条、b86 全量 3 条
+  //    ⇒ 同一判据的结论由毫秒时机决定，属 AGENTS 前言 ④ 禁止的"与环境耦合"。
+  const cleared = await clearSession(page, CONFIG.frontendUrl)
+  // 前置自证：清除**确实**生效（token 存在 Cookie `Admin-Token`，与 M32 32.7 同一条口径）。
+  // 没有这条，后面所有"stepby 用户只读"的结论都可能建立在"其实还是 admin 在跑"上。
+  record(
+    M,
+    '前置: 浏览器会话已清除（Admin-Token 不残留）',
+    cleared.landedOnWhitelist && !cleared.tokenLeft,
+    `白名单页落地=${cleared.landedOnWhitelist}, cookie 残留=${cleared.tokenLeft}`
+  )
 
   // 9.0 测试前置：把 common(role_id=2) 收敛为**后端策略声明的目标态**（页面 + 只读按钮 + 登记例外）
   // 背景：初始迁移（m20250711_000001_init.rs）把全部菜单关联给普通角色（含全站写权限），
@@ -5511,22 +5561,17 @@ async function testModule12(page, consoleErrors, pageErrors, token) {
   log(`\n=== 模块 ${M}: CRUD 操作深度测试 ===`)
 
   // M9 会登录 stepby 用户，M12 需要重新登录 admin 以获得写权限
-  // 先清除 session 确保登录页可正常加载
-  try {
-    await page.goto(`${CONFIG.frontendUrl}/logout`, { waitUntil: 'load', timeout: 10000 }).catch(() => {})
-  } catch {
-    // 忽略错误
-  }
-  await page.evaluate(() => {
-    try {
-      localStorage.clear()
-      sessionStorage.clear()
-    } catch (e) {}
-  })
-  await page
-    .context()
-    .clearCookies()
-    .catch(() => {})
+  // 先清除 session 确保登录页可正常加载。
+  // b86：这里原本抄了 M9 旧写法的同一枚坑（`goto('/logout')` 冷加载 + 立刻清 cookie ⇒
+  // 认证链后半段以 `auth=(none)` 出网 → 401）。判据与取证见 M9 开头与
+  // `e2e/run/auth.mjs::clearSession`——两处同形，故共用一个实现（两份必漂）。
+  const cleared12 = await clearSession(page, CONFIG.frontendUrl)
+  record(
+    M,
+    '前置: 浏览器会话已清除（Admin-Token 不残留）',
+    cleared12.landedOnWhitelist && !cleared12.tokenLeft,
+    `白名单页落地=${cleared12.landedOnWhitelist}, cookie 残留=${cleared12.tokenLeft}`
+  )
   const loginSuccess = await login(page, CONFIG.username, CONFIG.password)
   if (!loginSuccess) {
     record(M, 'admin 重新登录', false, '登录失败，跳过 CRUD 测试')
@@ -10677,6 +10722,32 @@ async function testModule32(page, consoleErrors, pageErrors, token) {
     } else {
       recordSkip(M, '会话过期: 401 处理', '搜索按钮不可见，无法触发请求')
     }
+
+    // 32.7b 会话过期的**另一种形状**：冷加载（浏览器直接开链接 / 刷新），守卫的 roles 还是空的，
+    // 于是认证链在守卫里跑完——这条与 32.7 完全不同的路径此前**零判据**。b86 实测它是产品缺陷：
+    // 拦截器把 401 重写成裸 `Error`（丢 `response`），守卫 `err.response.status` 恒 undefined，
+    // 那条"401 ⇒ logOut + 回首页"从不执行，用户看到的是 **/500 服务器错误页**，
+    // 且死 cookie 原样残留（诊断脚本场景 A：`落地 URL=/500`、`重新登录弹框=false`、
+    // `残留 cookie=["Admin-Token",…]`）。修复＝拒绝带 `httpStatus=401` 标记 + 守卫读该标记
+    // （`src/utils/request.sessionExpired.test.ts` 与 `permission.test.ts` ④ 锁两头形状）。
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load', timeout: 30000 }).catch(() => {})
+    // 落登录页是"会话没了、请重新输入凭据"的确定态；/500 是本轮修复前的缺陷态。
+    // 两者都靠 URL 判，不靠 toast（toast 会自己消失，属环境耦合的软断言）。
+    const coldLanded = await page
+      .waitForURL((u) => u.pathname !== '/system/user', { timeout: 15000 })
+      .then(() => page.url())
+      .catch(() => page.url())
+    record(
+      M,
+      '会话过期: 冷加载必须落回登录页（不得落 /500 错误页）',
+      coldLanded.includes('/login') && !coldLanded.includes('/500'),
+      `落地=${coldLanded.replace(CONFIG.frontendUrl, '')}`
+    )
+    // 死令牌必须被清掉：残留会让下一次导航继续用坏凭据出网（修复前实测就是残留状态）。
+    const deadTokenLeft = await page
+      .evaluate(() => /(?:^|;\s*)Admin-Token=[^;]*invalid-token-for-testing/.test(document.cookie))
+      .catch(() => null)
+    record(M, '会话过期: 冷加载后死令牌已清除', deadTokenLeft === false, `cookie 残留=${deadTokenLeft}`)
   } catch (err) {
     recordSkip(M, '会话过期: 401 处理', `测试自身异常，本轮无法判定：${err.message.slice(0, 60)}`)
   } finally {
@@ -21691,6 +21762,21 @@ const testModule91 = makePwdPolicyTest({
   checkConsoleErrors
 })
 
+// 模块 92（批八十六，收 b83 N-29）：登录期「安全提示」MessageBox 的真夹具闭环。
+// M91 在 API 层证明了三个口令事实位是"算出来的"；本模块补上浏览器那一半——
+// 新建账号（must_change_pwd='1'）后三次真实登录，把 弹框出现 / 确定落地 / 取消对照组 /
+// 改密后不再弹 四条各判到位。自管页面模块（runner 的 BROWSER_FIRST_MODULES）。
+const testModule92 = makeSecurityMessageBoxTest({
+  record,
+  log,
+  getApiToken,
+  CONFIG,
+  checkConsoleErrors,
+  sleep,
+  login,
+  createPage
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -21784,7 +21870,8 @@ const testFns = {
   88: testModule88,
   89: testModule89,
   90: testModule90,
-  91: testModule91
+  91: testModule91,
+  92: testModule92
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

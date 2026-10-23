@@ -958,8 +958,11 @@ onMounted(() => {
   // M3 字段级权限：与列表/部门树并行加载当前操作者的隐藏字段集
   loadFieldHidden()
   getConfigKey('sys.user.initPassword')
-    .then((response: AjaxResult) => {
-      initPassword.value = response.msg
+    .then((response: AjaxResult<string>) => {
+      // 生效值在 `data`（后端 `AjaxResult::success(value)`），`msg` 是"操作成功"文案。
+      // 此前这里读 `msg`，等于把新增用户表单的初始密码预填成那句提示——
+      // 界面看着有值、实际不是配置的口令（批八十六实测取证的既有缺陷）
+      initPassword.value = response.data || undefined
     })
     // M4: initPassword 获取失败影响新增用户（密码为空），需明确提示用户
     .catch((e) => {

@@ -1,15 +1,16 @@
 {
-  "generatedAt": "2026-10-21T19:06:11.760Z",
+  "generatedAt": "2026-10-22T22:55:49.493Z",
+  "sampling": "settled-poll-v1",
   "routes": 56,
-  "totalActions": 406,
-  "totalCovered": 406,
-  "totalClicked": 338,
-  "totalBacklog": 46,
+  "totalActions": 400,
+  "totalCovered": 400,
+  "totalClicked": 328,
+  "totalBacklog": 50,
   "totalStateLocked": 22,
-  "clickableActions": 384,
-  "interactionCoverageClickable": 0.88,
+  "clickableActions": 378,
+  "interactionCoverageClickable": 0.868,
   "coverage": 1,
-  "interactionCoverage": 0.833,
+  "interactionCoverage": 0.82,
   "perRoute": {
     "/index": {
       "a": 2,
@@ -142,9 +143,9 @@
       "i": 14
     },
     "/monitor/cache": {
-      "a": 4,
-      "c": 4,
-      "i": 4
+      "a": 2,
+      "c": 2,
+      "i": 2
     },
     "/monitor/audit-dashboard": {
       "a": 1,
@@ -207,13 +208,13 @@
       "i": 1
     },
     "/system/flow/todo": {
-      "a": 2,
-      "c": 2,
-      "i": 1
+      "a": 1,
+      "c": 1,
+      "i": 0
     },
     "/tool/build": {
-      "a": 6,
-      "c": 6,
+      "a": 8,
+      "c": 8,
       "i": 3
     },
     "/tool/gen": {
@@ -222,8 +223,8 @@
       "i": 15
     },
     "/tool/swagger": {
-      "a": 1,
-      "c": 1,
+      "a": 3,
+      "c": 3,
       "i": 0
     },
     "/tool/http-debugger": {
@@ -252,29 +253,29 @@
       "i": 0
     },
     "/user/profile/index": {
-      "a": 3,
-      "c": 3,
-      "i": 2
+      "a": 2,
+      "c": 2,
+      "i": 1
     },
     "/user/profile/msgPref": {
-      "a": 3,
-      "c": 3,
-      "i": 2
+      "a": 2,
+      "c": 2,
+      "i": 1
     },
     "/user/profile/oauth": {
-      "a": 3,
-      "c": 3,
-      "i": 2
+      "a": 2,
+      "c": 2,
+      "i": 1
     },
     "/user/profile/pat": {
-      "a": 4,
-      "c": 4,
-      "i": 2
-    },
-    "/user/profile/resetPwd": {
       "a": 3,
       "c": 3,
-      "i": 2
+      "i": 1
+    },
+    "/user/profile/resetPwd": {
+      "a": 2,
+      "c": 2,
+      "i": 1
     },
     "/user/profile/totp": {
       "a": 3,
@@ -282,15 +283,355 @@
       "i": 2
     },
     "/user/profile/userAvatar": {
-      "a": 3,
-      "c": 3,
-      "i": 2
+      "a": 2,
+      "c": 2,
+      "i": 1
     },
     "/user/profile/userInfo": {
-      "a": 3,
-      "c": 3,
-      "i": 2
+      "a": 2,
+      "c": 2,
+      "i": 1
     }
   },
-  "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；旧格式基线缺这两栏 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成"
+  "rowPerRoute": {
+    "/index": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/dashboard": {
+      "t": 0,
+      "c": 0,
+      "r": 5,
+      "e": ""
+    },
+    "/workbench/index": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/system/user": {
+      "t": 4,
+      "c": 4,
+      "r": 2,
+      "e": ""
+    },
+    "/system/role": {
+      "t": 4,
+      "c": 4,
+      "r": 2,
+      "e": ""
+    },
+    "/system/dept": {
+      "t": 4,
+      "c": 4,
+      "r": 10,
+      "e": ""
+    },
+    "/system/menu": {
+      "t": 4,
+      "c": 4,
+      "r": 244,
+      "e": ""
+    },
+    "/system/post": {
+      "t": 2,
+      "c": 2,
+      "r": 4,
+      "e": ""
+    },
+    "/system/dict": {
+      "t": 3,
+      "c": 3,
+      "r": 10,
+      "e": ""
+    },
+    "/system/dict-data/index/1": {
+      "t": 2,
+      "c": 2,
+      "r": 3,
+      "e": ""
+    },
+    "/system/config": {
+      "t": 2,
+      "c": 2,
+      "r": 10,
+      "e": ""
+    },
+    "/system/notice": {
+      "t": 3,
+      "c": 3,
+      "r": 6,
+      "e": ""
+    },
+    "/system/notice-center": {
+      "t": 1,
+      "c": 1,
+      "r": 6,
+      "e": ""
+    },
+    "/system/file": {
+      "t": 3,
+      "c": 3,
+      "r": 20,
+      "e": ""
+    },
+    "/system/log/operlog": {
+      "t": 1,
+      "c": 1,
+      "r": 10,
+      "e": ""
+    },
+    "/system/msg/channel": {
+      "t": 3,
+      "c": 3,
+      "r": 3,
+      "e": ""
+    },
+    "/system/msg/template": {
+      "t": 2,
+      "c": 2,
+      "r": 5,
+      "e": ""
+    },
+    "/system/msg/log": {
+      "t": 1,
+      "c": 1,
+      "r": 10,
+      "e": ""
+    },
+    "/system/oauth/provider": {
+      "t": 2,
+      "c": 2,
+      "r": 4,
+      "e": ""
+    },
+    "/system/oauth/client": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/system/report/index": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/system/report/sub": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/system/webHook/index": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/system/webHook/log": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/monitor/online": {
+      "t": 1,
+      "c": 1,
+      "r": 2,
+      "e": ""
+    },
+    "/monitor/job": {
+      "t": 4,
+      "c": 4,
+      "r": 3,
+      "e": ""
+    },
+    "/monitor/cache": {
+      "t": 1,
+      "c": 1,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/monitor/audit-dashboard": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/monitor/ip-location": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/monitor/health": {
+      "t": 0,
+      "c": 0,
+      "r": 2,
+      "e": ""
+    },
+    "/monitor/logininfor": {
+      "t": 0,
+      "c": 0,
+      "r": 20,
+      "e": ""
+    },
+    "/monitor/logtail": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/monitor/observability": {
+      "t": 0,
+      "c": 0,
+      "r": 30,
+      "e": ""
+    },
+    "/monitor/rateLimit": {
+      "t": 2,
+      "c": 2,
+      "r": 10,
+      "e": ""
+    },
+    "/monitor/backup": {
+      "t": 3,
+      "c": 3,
+      "r": 10,
+      "e": ""
+    },
+    "/monitor/task": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/monitor/frontendError": {
+      "t": 1,
+      "c": 1,
+      "r": 10,
+      "e": ""
+    },
+    "/tool/pat": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/monitor/server": {
+      "t": 0,
+      "c": 0,
+      "r": 2,
+      "e": ""
+    },
+    "/system/flow/todo": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/tool/build": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/tool/gen": {
+      "t": 5,
+      "c": 5,
+      "r": 1,
+      "e": ""
+    },
+    "/tool/swagger": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/tool/http-debugger": {
+      "t": 1,
+      "c": 1,
+      "r": 1,
+      "e": ""
+    },
+    "/tool/shortcuts": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/tool/help": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/tool/changelog": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/tool/about": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": ""
+    },
+    "/user/profile/index": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/msgPref": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/oauth": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/pat": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/resetPwd": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/totp": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/userAvatar": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    },
+    "/user/profile/userInfo": {
+      "t": 0,
+      "c": 0,
+      "r": 0,
+      "e": "暂无数据"
+    }
+  },
+  "rowSurfaceCoverage": 1,
+  "rowSurfaceMinLostActions": 3,
+  "note": "逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；行内动作面覆盖率（rowSurfaceCoverage）以 rowPerRoute 的 t 之和为固定分母，本轮 0 行 ⇒ 该栏下降；退步必须同时超相对容差与绝对下限 rowSurfaceMinLostActions（低于下限只留痕不判红，前言 ⑱）；旧格式基线缺这些栏或参数与本常量不一致 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成"
 }

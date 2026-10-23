@@ -131,6 +131,7 @@ export default {
     passwordError: 'Password is incorrect',
     requestParamError: 'Request parameter error',
     noPermission: 'You do not have permission for this operation',
+    crudCapabilityMissing: 'This page does not offer this operation; ask an administrator to enable the capability',
     tooManyRequests: 'Too many requests, please try again later',
     serviceUnavailable: 'Service is temporarily unavailable, please try again later',
     backendConnectionError: 'Backend API connection failed',

@@ -13,7 +13,8 @@
           :aria-pressed="navType == 1"
           @click="handleNavType(1)"
           @keydown.enter.prevent="handleNavType(1)"
-          :class="{ activeItem: navType == 1 }">
+          :class="{ activeItem: navType == 1 }"
+        >
           <b></b>
           <b></b>
         </div>
@@ -28,7 +29,8 @@
           :aria-pressed="navType == 2"
           @click="handleNavType(2)"
           @keydown.enter.prevent="handleNavType(2)"
-          :class="{ activeItem: navType == 2 }">
+          :class="{ activeItem: navType == 2 }"
+        >
           <b></b>
           <b></b>
         </div>
@@ -42,7 +44,8 @@
           :aria-pressed="navType == 3"
           @click="handleNavType(3)"
           @keydown.enter.prevent="handleNavType(3)"
-          :class="{ activeItem: navType == 3 }">
+          :class="{ activeItem: navType == 3 }"
+        >
           <b></b>
           <b></b>
         </div>
@@ -59,7 +62,8 @@
         :aria-label="t('layout.settings.autoThemeStyle')"
         :aria-pressed="sideTheme === 'theme-auto'"
         @click="handleTheme('theme-auto')"
-        @keydown.enter.prevent="handleTheme('theme-auto')" >
+        @keydown.enter.prevent="handleTheme('theme-auto')"
+      >
         <img src="@/assets/images/auto.svg" :alt="t('layout.settings.autoThemePreview')" loading="lazy" />
         <Transition name="fade">
           <div v-if="sideTheme === 'theme-auto'" class="setting-drawer-block-checbox-selectIcon !block">
@@ -71,7 +75,8 @@
                 height="1em"
                 :fill="theme"
                 aria-hidden="true"
-                focusable="false" >
+                focusable="false"
+              >
                 <path
                   d="M912 190h-69.9c-9.8 0-19.1 4.5-25.1 12.2L404.7 724.5 207 474a32 32 0 0 0-25.1-12.2H112c-6.7 0-10.4 7.7-6.3 12.9l273.9 347c12.8 16.2 37.4 16.2 50.3 0l488.4-618.9c4.1-5.1.4-12.8-6.3-12.8z"
                 />
@@ -87,7 +92,8 @@
         :aria-label="t('layout.settings.darkThemeStyle')"
         :aria-pressed="sideTheme === 'theme-dark'"
         @click="handleTheme('theme-dark')"
-        @keydown.enter.prevent="handleTheme('theme-dark')" >
+        @keydown.enter.prevent="handleTheme('theme-dark')"
+      >
         <img src="@/assets/images/dark.svg" :alt="t('layout.settings.darkThemePreview')" loading="lazy" />
         <Transition name="fade">
           <div v-if="sideTheme === 'theme-dark'" class="setting-drawer-block-checbox-selectIcon !block">
@@ -99,7 +105,8 @@
                 height="1em"
                 :fill="theme"
                 aria-hidden="true"
-                focusable="false" >
+                focusable="false"
+              >
                 <path
                   d="M912 190h-69.9c-9.8 0-19.1 4.5-25.1 12.2L404.7 724.5 207 474a32 32 0 0 0-25.1-12.2H112c-6.7 0-10.4 7.7-6.3 12.9l273.9 347c12.8 16.2 37.4 16.2 50.3 0l488.4-618.9c4.1-5.1.4-12.8-6.3-12.8z"
                 />
@@ -115,12 +122,11 @@
         :aria-label="t('layout.settings.lightThemeStyle')"
         :aria-pressed="sideTheme === 'theme-light'"
         @click="handleTheme('theme-light')"
-        @keydown.enter.prevent="handleTheme('theme-light')" >
+        @keydown.enter.prevent="handleTheme('theme-light')"
+      >
         <img src="@/assets/images/light.svg" :alt="t('layout.settings.lightThemePreview')" loading="lazy" />
         <Transition name="fade">
-          <div
-            v-if="sideTheme === 'theme-light'"
-            class="setting-drawer-block-checbox-selectIcon !block">
+          <div v-if="sideTheme === 'theme-light'" class="setting-drawer-block-checbox-selectIcon !block">
             <i :aria-label="t('layout.settings.iconCheck')" class="anticon anticon-check">
               <svg
                 viewBox="64 64 896 896"
@@ -129,7 +135,8 @@
                 height="1em"
                 :fill="theme"
                 aria-hidden="true"
-                focusable="false" >
+                focusable="false"
+              >
                 <path
                   d="M912 190h-69.9c-9.8 0-19.1 4.5-25.1 12.2L404.7 724.5 207 474a32 32 0 0 0-25.1-12.2H112c-6.7 0-10.4 7.7-6.3 12.9l273.9 347c12.8 16.2 37.4 16.2 50.3 0l488.4-618.9c4.1-5.1.4-12.8-6.3-12.8z"
                 />
@@ -335,8 +342,11 @@ function themeChange(val: string): void {
 }
 
 function handleTheme(val: string): void {
-  settingsStore.sideTheme = val
-  sideTheme.value = val
+  // 走 store 的唯一入口：同时落值、写存档、打「用户显式选择」标记。
+  // 直接赋值会绕过标记 ⇒ 下次进入时平台缺省（sys.index.sideTheme）会把用户刚选的主题洗掉。
+  if (settingsStore.setUserSideTheme(val)) {
+    sideTheme.value = val
+  }
 }
 
 function handleNavType(val: number): void {

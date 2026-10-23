@@ -245,16 +245,10 @@ const {
   resetQuery: baseResetQuery
 } = useCrudTable<SysUserOnline, OnlineQueryParams>({
   // 在线用户列表为全量返回，仅透传过滤字段（不向后端传分页参数，由前端切片分页）
-  listApi: (params) =>
-    initData({ ipaddr: params.ipaddr, userName: params.userName, tenantId: params.tenantId }),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
-  deleteApi: () => Promise.resolve({}),
+  listApi: (params) => initData({ ipaddr: params.ipaddr, userName: params.userName, tenantId: params.tenantId }),
   idField: 'tokenId',
   defaultForm: () => ({}) as SysUserOnline,
   titleKey: 'online.title',
-  deleteTipKey: 'online.tip.confirmForceLogout',
   queryParams,
   form,
   formRef,

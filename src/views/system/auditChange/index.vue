@@ -101,7 +101,13 @@
             <template v-else>
               <div class="diff-header">
                 <span>{{ t('auditChange.diff.changedFields') }}</span>
-                <el-tag v-for="f in parseSnapshot(scope.row.changedFields)" :key="f" size="small" type="warning" class="mr5">
+                <el-tag
+                  v-for="f in parseSnapshot(scope.row.changedFields)"
+                  :key="f"
+                  size="small"
+                  type="warning"
+                  class="mr5"
+                >
                   {{ f }}
                 </el-tag>
               </div>
@@ -253,28 +259,17 @@ const queryParams = ref<AuditChangeQueryParams>({
 const form = ref({}) as Ref<SysAuditChange>
 const formRef = ref<unknown>(null)
 
-const {
-  dataList,
-  loading,
-  showSearch,
-  total,
-  getList,
-  handleQuery,
-  resetQuery,
-  handleSortChange
-} = useCrudTable<SysAuditChange, AuditChangeQueryParams>({
+const { dataList, loading, showSearch, total, getList, handleQuery, resetQuery, handleSortChange } = useCrudTable<
+  SysAuditChange,
+  AuditChangeQueryParams
+>({
   listApi: (params) =>
     listAuditChange(
       addDateRange(params as unknown as Record<string, unknown>, dateRange.value) as unknown as AuditChangeQueryParams
     ),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
-  deleteApi: () => Promise.resolve({}),
   idField: 'id',
   defaultForm: () => ({}) as SysAuditChange,
   titleKey: 'auditChange.column.tableName',
-  deleteTipKey: 'common.delete',
   queryParams,
   form,
   formRef: formRef as never,
@@ -297,7 +292,10 @@ useMobileFilter(showSearch)
 function handleExport(): void {
   exportLoading.value = true
   exportAuditChange(
-    addDateRange(queryParams.value as unknown as Record<string, unknown>, dateRange.value) as unknown as AuditChangeQueryParams
+    addDateRange(
+      queryParams.value as unknown as Record<string, unknown>,
+      dateRange.value
+    ) as unknown as AuditChangeQueryParams
   )
     .catch(() => {})
     .finally(() => {

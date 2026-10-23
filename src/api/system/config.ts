@@ -22,9 +22,14 @@ export function getConfig(configId: number | string): Promise<AjaxResult<SysConf
 // 根据参数键名查询参数值（带 30s TTL 内存缓存 + 并发请求去重，按 configKey 区分）
 // 缓存 key 形如 system:config:configKey:sys.user.initPassword，避免与其它接口冲突
 // configKey 是自由字符串，作为路径段必须编码（含 # / 时未编码会读到另一个键）
+//
+// 返回类型写成 `AjaxResult<string>` 而不是裸 `AjaxResult`：后端这一支是
+// `AjaxResult::success(value)`（生效值在 **data**，msg 恒是"操作成功"文案）。
+// 原先的 `AjaxResult`（data?: unknown）让调用点看不见类型约束，
+// `views/system/user/index.vue` 因此把 `msg` 当成了初始密码用（批八十六实测修）。
 export const getConfigKey = cachedApi(
   (configKey: string) => `system:config:configKey:${configKey}`,
-  (configKey: string): Promise<AjaxResult> =>
+  (configKey: string): Promise<AjaxResult<string>> =>
     request({
       url: '/system/config/configKey/' + encodeURIComponent(configKey),
       method: 'get'

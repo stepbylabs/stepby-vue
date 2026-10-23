@@ -48,6 +48,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { duplicateWhyGroups, selfContainedWhyViolation } from './producer-kit.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ALLOWLIST_PATH = path.join(HERE, 'click-failure-allowlist.json')
@@ -149,9 +150,12 @@ export function validateEntries(entries) {
     }
     if (e.kind && !ALLOWED_KINDS.includes(e.kind))
       errs.push(`${at}: kind="${e.kind}" 不在枚举 ${ALLOWED_KINDS.join('|')}`)
-    // "同上"这类跨条目指代：条目集合一变就指向另一条理由（同 endpoint-coverage 的纪律）
-    if (/^(同上|same|ditto|见上|见下)$/i.test((e.why || '').trim())) errs.push(`${at}: why 是跨条目指代，必须逐条自足`)
-    if ((e.why || '').trim().length < 12) errs.push(`${at}: why 过短（<12 字符），不构成证据`)
+    // 理由自足性判据与两张日志允许表 / 未触达登记表**共用 producer-kit 的同一份**（b87）。
+    // 原先这里自己写了一套"整条 why 恰好等于『同上』才算指代"的窄口径 ⇒
+    // "同上一条同一判据，只是……"这种更常见的写法漏网（同一句纪律被写四遍、四个严格度，
+    // 最松的那一处等于把纪律关掉）。
+    const whyViolation = selfContainedWhyViolation(e.why)
+    if (whyViolation) errs.push(`${at}: ${whyViolation}`)
     for (const f of ['selectorRe', 'messageRe']) {
       if (typeof e[f] === 'string' && e[f]) {
         try {
@@ -164,6 +168,11 @@ export function validateEntries(entries) {
     const key = `${e.source}|${e.tag}|${e.method}|${e.selectorRe}|${e.messageRe || ''}`
     if (seen.has(key)) errs.push(`${at}: 与已有条目完全重复`)
     seen.add(key)
+  }
+  // 集合级判据（与另三处登记表共用 producer-kit）：逐字相同的理由等于只登记了一次。
+  // 条目"键"不重复但理由是复制来的，正是这一族要挡的形状。
+  for (const [text, count] of duplicateWhyGroups(entries || [])) {
+    errs.push(`允许表有 ${count} 条共用同一句 why（登记表必须逐条自足）：「${String(text).slice(0, 40)}」`)
   }
   return errs
 }
@@ -441,6 +450,18 @@ const SYNTH_CASES = [
     expect: 'fatal',
     datasets: [{ source: SYNTH_SOURCE, data: dataset([row()]) }],
     entries: [{ ...ENTRY, why: '同上' }]
+  },
+  {
+    name: '⑫b 两条条目共用逐字相同的 why 必须红（集合级自足性，b87 起四处登记表共用一份判据）',
+    expect: 'fatal',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([row()]) }],
+    entries: [ENTRY, { ...ENTRY, tag: 'M99', method: 'getByText' }]
+  },
+  {
+    name: '⑫c 反证：两条条目各自写清理由（键不同、why 不同）⇒ 不得因集合级判据误伤',
+    expect: 'ok',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([row()]) }],
+    entries: [ENTRY, { ...ENTRY, tag: 'M99', method: 'getByText', why: '合成用例：对话框遮罩在关闭动画里吞掉一次点击' }]
   },
   {
     name: '⑬ kind 不在枚举内必须红',

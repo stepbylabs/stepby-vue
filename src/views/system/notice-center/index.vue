@@ -294,12 +294,9 @@ const {
       noticeStore.readIds = newReadIds
       return res
     }),
-  // 只读页无删除能力：deleteApi 为契约占位（deleteTipKey 必填约束），不会暴露删除流程
-  deleteApi: () => Promise.resolve({}),
   idField: 'noticeId',
   defaultForm: () => ({}) as SysNotice,
   titleKey: 'noticeCenter.title',
-  deleteTipKey: 'common.confirmDelete',
   queryParams,
   form: ref<SysNotice>({} as SysNotice),
   formRef: ref<FormInstance | null>(null),

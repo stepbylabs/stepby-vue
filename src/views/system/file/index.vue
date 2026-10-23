@@ -84,11 +84,7 @@
             :alt="row.fileName"
             :aria-label="t('file.ariaLabel.preview')"
           />
-          <el-tooltip
-            v-else-if="isPdf(row.ext)"
-            :content="t('file.btn.previewPdf')"
-            placement="top"
-          >
+          <el-tooltip v-else-if="isPdf(row.ext)" :content="t('file.btn.previewPdf')" placement="top">
             <el-icon
               size="32"
               class="cursor-pointer text-text-secondary transition-all duration-200 hover:scale-110 hover:text-primary"
@@ -222,14 +218,9 @@ const {
       const r = res as { data?: { rows?: FileInfo[]; total?: number }; rows?: FileInfo[]; total?: number }
       return { rows: r.data?.rows || r.rows || [], total: r.data?.total || r.total || 0 }
     }),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
-  deleteApi: () => Promise.resolve({}),
   idField: 'fileName',
   defaultForm: () => ({}) as FileInfo,
   titleKey: 'file.column.fileName',
-  deleteTipKey: 'file.tip.confirmDelete',
   queryParams,
   form,
   formRef: formRef as never,
@@ -388,9 +379,7 @@ async function handleBatchDelete(): Promise<void> {
   try {
     await modal.confirm(t('file.tip.confirmBatchDelete', { count: ids.value.length }))
     // 使用 allSettled：部分失败时仍能正确统计成功/失败数，避免整体 reject 掩盖部分成功
-    const results = await Promise.allSettled(
-      ids.value.map((fileName: string) => deleteFile(fileName))
-    )
+    const results = await Promise.allSettled(ids.value.map((fileName: string) => deleteFile(fileName)))
     const successCount = results.filter((r: PromiseSettledResult<unknown>) => r.status === 'fulfilled').length
     const failCount = results.length - successCount
     if (failCount === 0) {

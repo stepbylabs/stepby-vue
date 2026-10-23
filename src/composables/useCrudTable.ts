@@ -35,14 +35,14 @@ export function focusFirstError(): void {
 export interface UseCrudTableOptions<T extends object, Q extends object> {
   /** 列表查询 API */
   listApi: (params: Q) => Promise<unknown>
-  /** 详情查询 API（可选：只读列表页可不传，此时不暴露 handleUpdate） */
+  /** 详情查询 API（可选：只读列表页不传 ⇒ 不暴露 handleUpdate，误调用时报错而非静默） */
   getApi?: (id: number | string) => Promise<unknown>
-  /** 新增 API（可选：只读列表页可不传，此时不暴露 handleAdd/handleUpdate/submitForm） */
+  /** 新增 API（可选：只读列表页不传 ⇒ 不暴露 handleAdd/handleUpdate/submitForm） */
   addApi?: (data: T) => Promise<unknown>
-  /** 修改 API（可选：只读列表页可不传，此时不暴露 handleAdd/handleUpdate/submitForm） */
+  /** 修改 API（可选：只读列表页不传 ⇒ 不暴露 handleAdd/handleUpdate/submitForm） */
   updateApi?: (data: T) => Promise<unknown>
-  /** 删除 API */
-  deleteApi: (ids: number | string | Array<number | string>) => Promise<unknown>
+  /** 删除 API（可选：只读页无删除能力时不传 ⇒ handleDelete 报错而非静默无动作） */
+  deleteApi?: (ids: number | string | Array<number | string>) => Promise<unknown>
   /** 主键字段名（如 'postId'） */
   idField: keyof T
   /** 导出 URL（如 '/system/post/export'） */
@@ -51,8 +51,8 @@ export interface UseCrudTableOptions<T extends object, Q extends object> {
   defaultForm: () => T
   /** 标题 i18n key（如 'post.title'） */
   titleKey: string
-  /** 删除提示 i18n key（如 'post.tip.confirmDelete'） */
-  deleteTipKey: string
+  /** 删除提示 i18n key（如 'post.tip.confirmDelete'；与 deleteApi 同时省略 = 该页无删除能力） */
+  deleteTipKey?: string
   /**
    * 删除确认文案插值参数（可选）：缺省 = 既有契约 `{ ids: targetIds }`；
    * 提供时以返回值作为插值契约，支持 {name}/{count} 等非 ids 插值。
@@ -230,8 +230,17 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   } = options
 
   // 只读模式判定：getApi/addApi/updateApi 任一缺失即视为只读接入，
-  // 新增/修改/提交流程不暴露（返回对象条件展开）且运行时兜底短路
+  // 新增/修改/提交流程不暴露（返回对象条件展开）且运行时给出可读错误
   const hasFormApis = !!(getApi && addApi && updateApi)
+
+  /**
+   * 缺能力统一反馈：四个流程入口都可能被"页面有按钮但没注入对应 API"击中。
+   * 静默 return 时用户看到的是"点了没反应"，与按钮失灵同形（不得据此判通过），
+   * 所以一律给出可读错误。
+   */
+  function reportMissingCapability(): void {
+    modal.msgError(t('common.crudCapabilityMissing'))
+  }
 
   // 路由上下文（单测/无路由环境下降级为空，不影响 CRUD 主流程）
   const router: Router | null = (() => {
@@ -439,18 +448,24 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     getList()
   }
 
-  /** 新增按钮操作（只读模式未注入表单 API 时不暴露，运行时兜底短路） */
+  /** 新增按钮操作（只读模式未注入表单 API 时给出可读错误，不静默） */
   function handleAdd(): void {
-    if (!hasFormApis) return
+    if (!hasFormApis) {
+      reportMissingCapability()
+      return
+    }
     reset()
     snapshotForm(form.value)
     open.value = true
     title.value = t('common.add') + t(titleKey)
   }
 
-  /** 修改按钮操作（只读模式未注入 getApi 时运行时兜底短路） */
+  /** 修改按钮操作（只读模式未注入 getApi 时给出可读错误，不静默） */
   function handleUpdate(row?: T): void {
-    if (!getApi) return
+    if (!getApi) {
+      reportMissingCapability()
+      return
+    }
     reset()
     const targetId = row?.[idField] ?? ids.value[0]
     const currentRequestId = ++updateRequestId
@@ -469,9 +484,12 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       })
   }
 
-  /** 提交按钮（只读模式未注入新增/修改 API 时运行时兜底短路） */
+  /** 提交按钮（只读模式未注入新增/修改 API 时给出可读错误，不静默） */
   function submitForm(): void {
-    if (!addApi || !updateApi) return
+    if (!addApi || !updateApi) {
+      reportMissingCapability()
+      return
+    }
     formRef.value?.validate((valid: boolean) => {
       // UX：校验失败时滚动并聚焦第一个错误字段（长表单不必手动找红字）
       if (!valid) {
@@ -501,8 +519,12 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     })
   }
 
-  /** 删除按钮操作 */
+  /** 删除按钮操作（未注入删除能力时给出可读错误：静默无动作与"按钮失灵"同形） */
   function handleDelete(row?: T): void {
+    if (!deleteApi || !deleteTipKey) {
+      reportMissingCapability()
+      return
+    }
     const targetIds = row?.[idField] ?? ids.value
     // 删除确认文案插值契约：缺省 = 既有 `{ ids: targetIds }`；
     // 提供 deleteTipParams 时由调用方决定插值参数（支持 {name}/{count} 等契约），

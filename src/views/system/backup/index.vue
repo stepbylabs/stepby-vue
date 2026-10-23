@@ -223,35 +223,21 @@ const queryParams = ref<BackupLogQueryParams>({
 const form = ref({}) as Ref<SysBackupLog>
 const formRef = ref<unknown>(null)
 
-const {
-  dataList,
-  loading,
-  showSearch,
-  total,
-  ids,
-  multiple,
-  getList,
-  handleQuery,
-  handleSelectionChange
-} = useCrudTable<SysBackupLog, BackupLogQueryParams>({
-  listApi: (params) =>
-    listBackup(
-      addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as BackupLogQueryParams
-    ),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
-  deleteApi: (deleteIds) =>
-    delBackup(String(Array.isArray(deleteIds) ? deleteIds.join(',') : deleteIds) as unknown as number),
-  idField: 'backupId',
-  defaultForm: () => ({}) as SysBackupLog,
-  titleKey: 'backup.column.fileName',
-  deleteTipKey: 'backup.tip.confirmDelete',
-  queryParams,
-  form,
-  formRef: formRef as never,
-  queryRef
-})
+const { dataList, loading, showSearch, total, ids, multiple, getList, handleQuery, handleSelectionChange } =
+  useCrudTable<SysBackupLog, BackupLogQueryParams>({
+    listApi: (params) =>
+      listBackup(addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as BackupLogQueryParams),
+    deleteApi: (deleteIds) =>
+      delBackup(String(Array.isArray(deleteIds) ? deleteIds.join(',') : deleteIds) as unknown as number),
+    idField: 'backupId',
+    defaultForm: () => ({}) as SysBackupLog,
+    titleKey: 'backup.column.fileName',
+    deleteTipKey: 'backup.tip.confirmDelete',
+    queryParams,
+    form,
+    formRef: formRef as never,
+    queryRef
+  })
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)

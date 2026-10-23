@@ -33,6 +33,7 @@ import { DatabaseSync } from 'node:sqlite' // 自检也要用（服务端触达�
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertFullRun, assertWindowPrecision, readWindow } from './dataset-window.mjs'
+import { duplicateWhyGroups, selfContainedWhyViolation } from './producer-kit.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..', '..', '..')
@@ -242,17 +243,26 @@ export function auditReasons(uncovered, reasons, kinds = REASON_KINDS) {
   const set = new Set(list)
   const missing = []
   const badKind = []
+  /** `missing` 保持"裸键"（调用方按键比对与打印），违规说明另立一张表 —— 两处混一份数组会把键比对变成字符串包含 */
+  const missingWhy = {}
   for (const k of list) {
     const e = reasons[k]
-    // "同上"类跨条目指代**等于没登记**：条目集合一变（新增/删除/排序），指代就指向另一条理由。
-    // 登记表要逐条自足，故与"空 why"同罪（自检 ㉑ 双向钉：含同上 ⇒ missing，自足理由 ⇒ 不报）。
-    const why = String(e?.why || '')
-    if (!e || !why.trim() || why.includes('同上')) missing.push(k)
-    else if (!kinds.includes(e.kind)) badKind.push(`${k}（kind=${JSON.stringify(e.kind)}，表外值）`)
+    if (!e) {
+      missing.push(k)
+      continue
+    }
+    // 理由自足性判据与两张日志允许表共用 producer-kit（b87）：
+    // 空 / 短到没有信息量 / `同上` 类跨条目指代 / 以"见上条"开头 ⇒ 都等于没登记。
+    // 条目集合一变（新增/删除/排序），指代就指向另一条理由（自检 ㉑ 双向钉 + 两条正控）。
+    const violation = selfContainedWhyViolation(e.why)
+    if (violation) {
+      missing.push(k)
+      missingWhy[k] = violation
+    } else if (!kinds.includes(e.kind)) badKind.push(`${k}（kind=${JSON.stringify(e.kind)}，表外值）`)
   }
   const stale = Object.keys(reasons).filter((k) => !set.has(k))
   const todo = list.filter((k) => reasons[k]?.kind === 'todo')
-  return { missing, badKind, stale, todo, registered: list.length - missing.length }
+  return { missing, missingWhy, badKind, stale, todo, registered: list.length - missing.length }
 }
 
 /** 读登记表：缺失 / 解析失败 / 形状不对一律响亮失败（"没登记"与"表坏了"必须可区分）。 */
@@ -266,6 +276,18 @@ export function loadReasons(file = REASONS) {
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`登记表形状必须是 { "METHOD /path": { kind, why } }：${file}`)
+  }
+  // 集合级判据（b87）：同表内两条理由逐字相同 ⇒ 装载即抛。
+  // AGENTS 记的"重复文案组数 0"此前只是一次人工测量，没有锁——复制粘贴同一句话不会红。
+  const dups = duplicateWhyGroups(Object.values(raw))
+  if (dups.length) {
+    throw new Error(
+      `${file} 有 ${dups.length} 组逐字相同的 why（登记表必须逐条自足，共用文案等于只登记了一次）：` +
+        dups
+          .slice(0, 3)
+          .map(([t, c]) => `${c} 条 × 「${t.slice(0, 40)}」`)
+          .join(' ｜ ')
+    )
   }
   return raw
 }
@@ -627,24 +649,51 @@ function runSelftest() {
   if (coverageRegressions(['POST /a'], ['POST /a']).length !== 0) fail.push('⑳ 完全一致被判成退步（正控失败）')
   if (coverageRegressions([], ['POST /x']).length !== 1) fail.push('⑳ 空基线下的新增项没报')
   // ㉑ 未触达登记表对账（双向）：这一条把 §7.19 里"逐条带理由登记"那句承诺变成可执行的判据
+  // 理由自足性判据与两张日志允许表**共用 producer-kit 的同一份**（b87）：
+  // 这里的夹具文案因此必须写成"真自足"的样子——短到 10 字符以下本身就是被 ban 的形状。
   const R = {
     'POST /a': { kind: 'by-design', why: '清库类，只能测"确认框取消 ⇒ 请求数 0"' },
-    'POST /b': { kind: 'todo', why: '本可自动化，下一批' },
-    'POST /c': { kind: 'needs-fixture', why: '要 xlsx 夹具' },
-    'POST /d': { kind: 'nonsense', why: '分类写错也要被抓' },
+    'POST /b': { kind: 'todo', why: '本可自动化，需要一条真实的删除链断言' },
+    'POST /c': { kind: 'needs-fixture', why: '要真实可解析的 xlsx 夹具，当前夹具集里没有' },
+    'POST /d': { kind: 'nonsense', why: '分类写错也要被抓，理由本身是自足的' },
     'POST /e': { kind: 'by-design', why: '   ' },
     'POST /x': { kind: 'needs-fixture', why: '同上：另一条已经写过理由' },
+    'POST /y': { kind: 'by-design', why: '短' },
+    'POST /z': { kind: 'by-design', why: '见上条同一判据，只是端点不同' },
+    'POST /w': { kind: 'other-suite', why: '由 main 套件 F135 覆盖，参见其 metrics 断言' },
     'POST /gone': { kind: 'by-design', why: '这轮已经打过了 ⇒ 只该提示退役' }
   }
-  const un21 = ['POST /a', 'POST /b', 'POST /c', 'POST /d', 'POST /e', 'POST /new', 'POST /x']
+  const un21 = [
+    'POST /a',
+    'POST /b',
+    'POST /c',
+    'POST /d',
+    'POST /e',
+    'POST /new',
+    'POST /x',
+    'POST /y',
+    'POST /z',
+    'POST /w'
+  ]
   const r21 = auditReasons(un21, R)
   const cases21 = [
-    ['未登记的新洞必须点名', r21.missing.join(',') === 'POST /e,POST /new,POST /x', r21.missing.join(',')],
+    [
+      '未登记的新洞必须点名',
+      r21.missing.join(',') === 'POST /e,POST /new,POST /x,POST /y,POST /z',
+      r21.missing.join(',')
+    ],
     ['空 why（只有空格）等于没登记', r21.missing.includes('POST /e'), ''],
     ['"同上"类跨条目指代等于没登记（条目集合一变，指代就指向别的理由）', r21.missing.includes('POST /x'), ''],
+    ['短到没有信息量的理由必须被点名（b87 起与两张日志表同口径）', r21.missing.includes('POST /y'), ''],
+    ['以"见上条"开头的指代同样等于没登记', r21.missing.includes('POST /z'), ''],
     [
       '自足的理由不得被"同上"规则误伤（正控）',
       !r21.missing.includes('POST /a') && !r21.missing.includes('POST /c'),
+      JSON.stringify(r21.missing)
+    ],
+    [
+      '"参见某个测试用例"指向的是测试、不是另一条登记条目 ⇒ 必须放行（判据做窄不做宽的正控）',
+      !r21.missing.includes('POST /w'),
       JSON.stringify(r21.missing)
     ],
     [
@@ -662,7 +711,9 @@ function runSelftest() {
     [
       '全干净时必须零发现（正控）',
       (() => {
-        const c = auditReasons(['POST /a'], { 'POST /a': { kind: 'by-design', why: '清库' } })
+        const c = auditReasons(['POST /a'], {
+          'POST /a': { kind: 'by-design', why: '清库类端点，只能测"确认框取消 ⇒ 请求数 0"' }
+        })
         return c.missing.length === 0 && c.badKind.length === 0
       })(),
       ''
@@ -1104,7 +1155,11 @@ async function main() {
   )
   if (reg.missing.length || reg.badKind.length) {
     console.log(`❌ 未触达但没登记理由：${reg.missing.length} 条；登记值非法：${reg.badKind.length} 条`)
-    reg.missing.slice(0, 20).forEach((k) => console.log(`    · 无登记：${k}`))
+    reg.missing
+      .slice(0, 20)
+      .forEach((k) =>
+        console.log(`    · ${reg.missingWhy[k] ? `登记的理由不合格（${reg.missingWhy[k]}）：` : '无登记：'}${k}`)
+      )
     reg.badKind.slice(0, 20).forEach((k) => console.log(`    · 非法分类：${k}`))
     if (args.includes('--gate') || args.includes('--update-baseline')) {
       console.log(`    判据：未触达要逐条定性写进 ${REASONS}（kind ∈ ${REASON_KINDS.join(' / ')}），再谈收紧基线`)

@@ -234,4 +234,71 @@ describe('store/modules/settings', () => {
     store.initSystemDarkWatcher()
     expect(matchMediaMock).not.toHaveBeenCalled()
   })
+
+  // ==================== 批八十六 N-1：sys.index.sideTheme 真旋钮 ====================
+
+  it('setUserSideTheme 收合法值：落值、落盘、并打「用户显式选择」标记', async () => {
+    const store = await loadSettingsStore()
+    cacheMock.local.set.mockClear()
+    expect(store.setUserSideTheme('theme-dark')).toBe(true)
+    expect(store.sideTheme).toBe('theme-dark')
+    expect(localStorage.getItem('stepby_sidetheme_user_set')).toBe('1')
+    expect(cacheMock.local.set).toHaveBeenCalledWith('layout-setting', expect.any(String))
+    expect(handleThemeStyle).toHaveBeenCalled()
+  })
+
+  it('setUserSideTheme 拒非法值：状态、存档、标记三者都不许动（不写未知类名）', async () => {
+    const store = await loadSettingsStore()
+    const before = store.sideTheme
+    cacheMock.local.set.mockClear()
+    for (const bad of ['skin-blue', 'theme-auto ', 'Theme-dark', '', 'javascript:alert(1)']) {
+      expect(store.setUserSideTheme(bad)).toBe(false)
+    }
+    expect(store.sideTheme).toBe(before)
+    expect(localStorage.getItem('stepby_sidetheme_user_set')).toBeNull()
+    expect(cacheMock.local.set).not.toHaveBeenCalled()
+  })
+
+  it('changeSetting(sideTheme) 经同一通道：绕过标记就没有"尊重用户选择"这回事', async () => {
+    const store = await loadSettingsStore()
+    store.changeSetting({ key: 'sideTheme', value: 'theme-light' })
+    expect(store.sideTheme).toBe('theme-light')
+    expect(localStorage.getItem('stepby_sidetheme_user_set')).toBe('1')
+  })
+
+  it('applyPlatformSideTheme 在用户从未选择过时生效，且刻意不写存档', async () => {
+    const store = await loadSettingsStore()
+    cacheMock.local.set.mockClear()
+    expect(store.applyPlatformSideTheme('theme-dark')).toBe(true)
+    expect(store.sideTheme).toBe('theme-dark')
+    // 平台缺省不是用户的选择：写进存档就等于把它冻成"用户显式选择"，
+    // 之后平台再改就永远不生效（这条是"假旋钮复活"的唯一机械判据）
+    expect(cacheMock.local.set).not.toHaveBeenCalled()
+    expect(localStorage.getItem('stepby_sidetheme_user_set')).toBeNull()
+  })
+
+  it('applyPlatformSideTheme 在用户显式选过之后一律无效', async () => {
+    const store = await loadSettingsStore()
+    store.setUserSideTheme('theme-light')
+    expect(store.applyPlatformSideTheme('theme-dark')).toBe(false)
+    expect(store.sideTheme).toBe('theme-light')
+  })
+
+  it('applyPlatformSideTheme 对值域外的下发值不生效（边界防御，含历史脏值）', async () => {
+    const store = await loadSettingsStore()
+    const before = store.sideTheme
+    for (const bad of ['skin-blue', 'Theme-Auto', 'theme-dark ', null, undefined, 42, { x: 1 }]) {
+      expect(store.applyPlatformSideTheme(bad)).toBe(false)
+      expect(store.sideTheme).toBe(before)
+    }
+    // 正控：合法值必须真能落上（否则上面五条可以是"永远返回 false"的实现）
+    expect(store.applyPlatformSideTheme('theme-light')).toBe(true)
+    expect(store.sideTheme).toBe('theme-light')
+  })
+
+  it('存档里被注入未知 sideTheme 时回落出厂缺省（不写进类名）', async () => {
+    localStorage.setItem('layout-setting', JSON.stringify({ sideTheme: 'evil-class' }))
+    const store = await loadSettingsStore()
+    expect(store.sideTheme).toBe(DEFAULT_SETTINGS.sideTheme)
+  })
 })

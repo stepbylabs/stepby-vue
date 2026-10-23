@@ -6,17 +6,29 @@
     {
       "level": "WARN",
       "match": "Redis 配置被忽略（cache\\.mode=local）",
-      "why": "本机 e2e 用 local 档（共享态落同库），这是部署选择而非依赖故障；redis 档由 integration_tests 覆盖"
+      "why": "本机 e2e 用 local 档（共享态落同库），这是部署选择而非依赖故障；redis 档由 integration_tests 覆盖。这一条是**启动期一次性**告警（initialize/helpers.rs 的分级守卫只在进程启动时打），所以\"本批没有重启\"的那一轮它必然不出现——按条件型豁免登记，不得因未命中而撤销（撤销的后果是下一次重启判红、把人支使去补回同一句理由）",
+      "producer": {
+        "file": "stepby-axum/src/initialize/helpers.rs",
+        "contains": "Redis \u914d\u7f6e\u88ab\u5ffd\u7565"
+      }
     },
     {
       "level": "WARN",
       "match": "加载 mmdb 文件 .* 失败，IP 归属地查询将返回空",
-      "why": "GeoLite2-City.mmdb 是可选数据文件，未随仓库分发；缺失时归属地降级为空，不影响任何业务链路"
+      "why": "GeoLite2-City.mmdb 是可选数据文件，未随仓库分发；缺失时归属地降级为空，不影响任何业务链路。这一条由 IpLocator 构造期打出（**启动期一次性**），未重启的批次窗口内必然不出现 ⇒ 按条件型豁免登记，生产者锚点失效时才允许撤销",
+      "producer": {
+        "file": "stepby-axum/src/utils/ip_location.rs",
+        "contains": "\u52a0\u8f7d mmdb \u6587\u4ef6"
+      }
     },
     {
       "level": "WARN",
       "match": "权限 fail-closed 模式已启用（permission_deny_by_default=true）",
-      "why": "启动期告知性告警：未登记权限映射的受保护路由会拒绝；这是安全默认姿态，不是错误"
+      "why": "启动期告知性告警：未登记权限映射的受保护路由会拒绝；这是安全默认姿态，不是错误。它只在路由装配时打一次（**启动期一次性**），未重启的批次窗口内必然不出现 ⇒ 按条件型豁免登记，生产者锚点失效时才允许撤销",
+      "producer": {
+        "file": "stepby-axum/src/router/mod.rs",
+        "contains": "\u6743\u9650 fail-closed \u6a21\u5f0f\u5df2\u542f\u7528"
+      }
     },
     {
       "level": "WARN",
@@ -26,7 +38,11 @@
     {
       "level": "WARN",
       "match": "错过 03:00 调度窗口，启动期补跑一轮保留期清理",
-      "why": "b73 设计的启动漏跑补偿：本机每日跑批不在 03:00，启动时按「标记缺失/超阈值」补跑一轮是预期行为，不是调度失败"
+      "why": "b73 设计的启动漏跑补偿：本机每日跑批不在 03:00，启动时按「标记缺失/超阈值」补跑一轮是预期行为，不是调度失败",
+      "producer": {
+        "file": "stepby-axum/src/scheduler/mod.rs",
+        "contains": "错过 03:00"
+      }
     },
     {
       "level": "WARN",
@@ -101,7 +117,20 @@
     {
       "level": "WARN",
       "match": "slow statement.*FROM \\\\\"sys_audit_change\\\\\" ORDER BY \\\\\"sys_audit_change\\\\\"\\.\\\\\"id\\\\\" DESC LIMIT \\?",
-      "why": "变更留痕**导出**（GET /system/audit-change/export ⇒ sys_audit_change_service::export_changes）是按设计的批量读：上限 common::page::EXPORT_MAX_ROWS = 50000、不分页。本批主套件全量单轮 07:23:32 实测 elapsed=1.0916953s / rows_returned=24882 / slow_threshold=1s，恰好越过阈值——运行库是 dev 库（审计行随批次累积），导出 2.5 万行耗时一秒属预期量级。登记的是「这条批量读会慢过阈值」，不是「任何慢语句都算过」：正则锚在 FROM 与 ORDER BY **相邻**这一段（导出是唯一不带 WHERE 的那支形状；列表页那条中间隔着 WHERE，已用合成行验过不得命中；sys_oper_log 的慢语句同样不得命中）。日志里 db.statement 的引号是反斜杠转义形态（\\\"sys_audit_change\\\"），模式必须按该形态写——写成裸引号时对本行永不匹配，那种条目会静默变成\"登记了但永远用不上\"，下一轮直接被当未命中退役掉。"
+      "why": "变更留痕**导出**（GET /system/audit-change/export ⇒ sys_audit_change_service::export_changes）是按设计的批量读：上限 common::page::EXPORT_MAX_ROWS = 50000、不分页。本批主套件全量单轮 07:23:32 实测 elapsed=1.0916953s / rows_returned=24882 / slow_threshold=1s，恰好越过阈值——运行库是 dev 库（审计行随批次累积），导出 2.5 万行耗时一秒属预期量级。登记的是「这条批量读会慢过阈值」，不是「任何慢语句都算过」：正则锚在 FROM 与 ORDER BY **相邻**这一段（导出是唯一不带 WHERE 的那支形状；列表页那条中间隔着 WHERE，已用合成行验过不得命中；sys_oper_log 的慢语句同样不得命中）。日志里 db.statement 的引号是反斜杠转义形态（\\\"sys_audit_change\\\"），模式必须按该形态写——写成裸引号时对本行永不匹配，那种条目会静默变成\"登记了但永远用不上\"，下一轮直接被当未命中退役掉。",
+      "producer": {
+        "file": "stepby-axum/src/service/sys_audit_change_service.rs",
+        "contains": "pub async fn export_changes"
+      }
+    },
+    {
+      "level": "WARN",
+      "match": "sqlx::pool::acquire: .*acquired connection, but time to acquire exceeded slow threshold",
+      "why": "连接池**慢获取**告知（不是失败）：b86 收口窗口 14:22–18:20Z 实测恰 1 条（17:22:02.820Z，主套件全量单轮 1..144 跑批中段），acquired_after_secs=2.3153 / slow_acquire_threshold_secs=2.0 —— 等待 2.3 秒拿到连接，请求照常完成，没有任何一侧报错。池由 src/db/pool.rs 按 [database] 构造（本机默认 max_connections=20、acquire_timeout_secs=10；settings.rs:3155/3160），sqlx 的慢获取阈是它自己的 2s 常量，本仓未调、也**不调**（调高等于把\"池在排队\"这件事从观测面抹掉）。窄口径：锚定 `sqlx::pool::acquire` + \"time to acquire exceeded slow threshold\" 这一段——真耗尽时 sqlx 发的是 `acquire timeout` 错误路径（ERROR 级、请求失败），形态与本条不同，不会被这条吃掉；把整条 `slow threshold` 换成通配、或放宽成任何 pool 相关 WARN，都是把判据改掉。",
+      "producer": {
+        "file": "stepby-axum/src/db/pool.rs",
+        "contains": ".acquire_timeout("
+      }
     }
   ]
 }

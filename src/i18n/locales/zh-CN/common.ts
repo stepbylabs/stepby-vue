@@ -131,6 +131,7 @@ export default {
     passwordError: '密码错误',
     requestParamError: '请求参数错误',
     noPermission: '当前操作没有权限',
+    crudCapabilityMissing: '当前页面未开放该操作，请联系管理员配置相应能力',
     tooManyRequests: '请求过于频繁，请稍后再试',
     serviceUnavailable: '服务暂时不可用，请稍后重试',
     backendConnectionError: '后端接口连接异常',

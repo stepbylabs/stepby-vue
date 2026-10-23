@@ -26,7 +26,7 @@ type RouteRecord = { path: string }
 type GuardResult = string | (Partial<RouteLike> & { replace?: boolean }) | boolean | void
 type GuardFn = (to: RouteLike, from: Partial<RouteLike>) => Promise<GuardResult>
 /** 冷加载失败时注入的错误形状（对应 AxiosError 的本测所需子集） */
-type ErrLike = { response?: { status?: number }; message?: string; code?: string }
+type ErrLike = { response?: { status?: number }; message?: string; code?: string; httpStatus?: number }
 
 const mocks = vi.hoisted(() => {
   const hooks: GuardFn[] = []
@@ -181,19 +181,34 @@ describe('③ 未登录重定向', () => {
     // 整体编码后整串只剩一层 query，故**不允许出现裸 &**（split 结果必须为 1 段）。
     expect(String(res).split('&').length, 'redirect 内的 & 必须被转义，不能出现裸 &').toBe(1)
     // 正向可逆性：解码后深链参数完整回来（丢参即回归）
-    expect(new URLSearchParams(String(res).slice('/login?'.length)).get('redirect'))
-      .toBe('/system/user?deptId=3&pageSize=50')
+    expect(new URLSearchParams(String(res).slice('/login?'.length)).get('redirect')).toBe(
+      '/system/user?deptId=3&pageSize=50'
+    )
   })
 })
 
 describe('④ 冷加载失败的 5 路分类', () => {
   const cases: Array<[string, ErrLike, Record<string, unknown> | true, boolean]> = [
     ['网络异常', Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }), { path: '/network-error' }, false],
-    ['超时', Object.assign(new Error('timeout of 0ms exceeded'), { code: 'ECONNABORTED' }), { path: '/network-error' }, false],
+    [
+      '超时',
+      Object.assign(new Error('timeout of 0ms exceeded'), { code: 'ECONNABORTED' }),
+      { path: '/network-error' },
+      false
+    ],
     ['403 不登出', { response: { status: 403 }, message: 'forbidden' }, { path: '/403' }, false],
     ['500 不登出', { response: { status: 500 }, message: 'boom' }, { path: '/500' }, false],
     ['502/503/504 同样不登出', { response: { status: 502 }, message: 'gw' }, { path: '/500' }, false],
     ['401 必须登出', { response: { status: 401 }, message: 'expired' }, { path: '/' }, true],
+    // b86：这一行才是**拦截器真实产出的形状**——401 通道把响应重写成 i18n 译文的裸 Error，
+    // `response` 整条丢失，只留 `httpStatus` 标记（见 `request.sessionExpired.test.ts` ①）。
+    // 上一行用的是"生产码从不产出"的形状，所以它绿着、真链路却落 /500（AGENTS 前言 ⑬）。
+    [
+      '401（真实产出形状：只有 httpStatus、无 response）必须登出',
+      { message: '登录状态已过期', httpStatus: 401 },
+      { path: '/' },
+      true
+    ],
     ['未知错误保留登录态跳 500', { message: 'weird' }, { path: '/500' }, false]
   ]
 

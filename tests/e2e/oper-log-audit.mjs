@@ -26,14 +26,24 @@
  * 没有动作通道的信号等于没判。
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  duplicateWhyGroups,
+  makeProducerLive,
+  normalizeProducer,
+  selfContainedWhyViolation,
+  splitUnused
+} from './producer-kit.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '../../..')
 const DEFAULT_DB = path.join(REPO, 'stepby-axum', 'data', 'stepby.db')
 const DEFAULT_ALLOW = path.join(HERE, 'oper-log-allowlist.json')
+// 条件型豁免的验证与 backend-log-audit 共用 producer-kit（两份实现必漂）
+const PRODUCER_LIVE = makeProducerLive(REPO)
 
 const WINDOW_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
@@ -53,27 +63,30 @@ export function loadAllowlist(file = DEFAULT_ALLOW) {
   }
   if (!body || body.version !== 1) throw new Error('oper-log-allowlist.json version 必须为 1')
   if (!Array.isArray(body.entries)) throw new Error('oper-log-allowlist.json entries 必须是数组')
-  return body.entries.map((e, i) => {
+  const list = body.entries.map((e, i) => {
     const at = `entries[${i}]`
     if (!e || typeof e !== 'object') throw new Error(`${at} 不是对象`)
     if (!/^(GET|POST|PUT|DELETE|PATCH)$/.test(e.method || '')) {
       throw new Error(`${at}.method 必须是 HTTP 方法`)
     }
-    const why = typeof e.why === 'string' ? e.why.trim() : ''
-    if (why.length < 10) throw new Error(`${at}.why 至少 10 个字符（写清为什么这次失败是设计内）`)
-    let urlRe
-    let errRe
-    let msgRe = null
-    try {
-      urlRe = new RegExp(e.url)
-      errRe = new RegExp(e.error)
-      if (e.msg !== undefined) msgRe = new RegExp(e.msg)
-    } catch (err) {
-      throw new Error(`${at} 的正则不合法：${err.message}`)
+    const whyViolation = selfContainedWhyViolation(e.why)
+    if (whyViolation) throw new Error(`${at}.why：${whyViolation}`)
+    // 逐个字段编译并**点名是哪个字段**：合在一条 try 里时，url 与 msg 的坏正则抛同一句话，
+    // 用例就只能靠"消息里含不含 .msg"来猜（b87 自检当场红在这一条上）。
+    const compile = (field, pattern) => {
+      try {
+        return new RegExp(pattern)
+      } catch (err) {
+        throw new Error(`${at}.${field} 不是合法正则：${err.message}`)
+      }
     }
+    const urlRe = compile('url', e.url)
+    const errRe = compile('error', e.error)
+    let msgRe = null
     if (e.msg !== undefined && (typeof e.msg !== 'string' || !e.msg)) {
       throw new Error(`${at}.msg 给就必须是非空正则字符串`)
     }
+    if (e.msg !== undefined) msgRe = compile('msg', e.msg)
     // `until` 是**历史豁免的日落时间**（不含）：只用于"缺陷已修复、但旧窗口审计行仍需定性"的场景。
     // 没有它就只能永久豁免一个端点形态，未来同类信号会被静默吞掉；有了它，新信号照常红。
     if (e.until !== undefined && (typeof e.until !== 'string' || !WINDOW_RE.test(e.until))) {
@@ -88,9 +101,25 @@ export function loadAllowlist(file = DEFAULT_ALLOW) {
       msg: e.msg,
       msgRe,
       until: e.until || null,
-      why
+      // 条件型豁免锚点（b87）：这条失败只在某个条件成立时才产生，"本轮没出现"不是它作废的证据。
+      // 挂锚点 ⇒ 未命中时先验证生产者是否还在源码里；不挂 ⇒ 照旧进 unused（判红并可退役）。
+      producer: normalizeProducer(e.producer, at),
+      why: String(e.why).trim()
     }
   })
+  // 集合级判据（b87）：同表内两条理由逐字相同 ⇒ 装载即抛。
+  // "重复文案组数 0"原先只是 AGENTS 里的一次人工测量，没有任何锁——下一批复制粘贴同一句话不会红。
+  const dups = duplicateWhyGroups(list)
+  if (dups.length) {
+    throw new Error(
+      `oper-log-allowlist.json 有 ${dups.length} 组逐字相同的 why（登记表必须逐条自足，共用文案等于只登记了一次）：` +
+        dups
+          .slice(0, 3)
+          .map(([t, c]) => `${c} 条 × 「${t.slice(0, 40)}」`)
+          .join(' ｜ ')
+    )
+  }
+  return list
 }
 
 /** 从审计的 json_result 里取业务 msg（脱敏后的响应体）；非 JSON/缺字段一律返回空串。 */
@@ -134,7 +163,7 @@ export function countOps(db, since, until) {
  * `/x/g` 与 `/x/` 分得很清，但拼串一旦改动（加字段、改分隔符）两处口径就漂——
  * 身份比对没有可漂的表示层。
  */
-export function classify(rows, allow) {
+export function classify(rows, allow, { verify = PRODUCER_LIVE } = {}) {
   const unknown = []
   const allowed = []
   const matched = new Set()
@@ -155,7 +184,9 @@ export function classify(rows, allow) {
       allowed.push({ ...r, why: hit.why, business: msg })
     } else unknown.push({ ...r, business: msg })
   }
-  return { unknown, allowed, unused: allow.filter((e) => !matched.has(e)) }
+  const staleAll = allow.filter((e) => !matched.has(e))
+  const { unused, held } = splitUnused(staleAll, verify)
+  return { unknown, allowed, unused, held }
 }
 
 /**
@@ -200,9 +231,28 @@ function selftest() {
     ran++
     if (!cond) fails.push(`${name}${detail ? `：${detail}` : ''}`)
   }
-  const dir = fs.mkdtempSync(path.join(REPO, 'stepby-vue', 'tests', 'e2e', '_tmp_oper_'))
+  // 临时夹具库落**系统临时目录**（与 build-freshness / endpoint-coverage / capture-kit 同口径）。
+  // 原先写在 tests/e2e 里：自检一旦在中途抛错，第 597 行那句清理就跑不到，于是工作树里留下
+  // 未跟踪的合成 SQLite 库（b87 实测留下 4 个 `_tmp_oper_*` 目录），下一次 `git add -A`
+  // 就把夹具提进仓——判据自己成了噪声源。清理挂 process 'exit' 钩子，异常与 process.exit 两条路都跑。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oper-log-audit-'))
+  let fixtureDb = null
+  process.on('exit', () => {
+    try {
+      fixtureDb?.close()
+    } catch {
+      /* 已关闭 */
+    }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true })
+    } catch {
+      /* Windows 下文件仍被占用时留给系统回收，不得让清理反过来把自检判成失败 */
+    }
+  })
+  check('临时夹具必须落在系统临时目录，不得写进 tests/e2e', !dir.startsWith(HERE), dir)
   const dbFile = path.join(dir, 'ops.db')
   const db = new DatabaseSync(dbFile)
+  fixtureDb = db
   db.exec(`CREATE TABLE sys_oper_log (
     oper_id INTEGER PRIMARY KEY, request_method TEXT, oper_url TEXT, oper_name TEXT,
     error_msg TEXT, json_result TEXT, oper_time TEXT, status TEXT)`)
@@ -309,7 +359,7 @@ function selftest() {
               error: '^HTTP 400$',
               msg: '岗位编码已存在',
               until: '2026-10-20 19:05:00',
-              why: '历史豁免（合成夹具）'
+              why: '合成夹具的历史豁免：这条 400 来自已修复的重复岗位编码缺陷，只在旧窗口里存在'
             }
           ]
         },
@@ -351,6 +401,120 @@ function selftest() {
     check('没有未命中时不得改动文件（允许表已被删空也要保住原始字节）', fs.readFileSync(tmp, 'utf8') === snap)
     fs.unlinkSync(tmp)
   }
+  // 条件型豁免通道（b87，收台账 b86 §17 N-1）：与 backend-log-audit 共用 producer-kit，
+  // 这一组双向用例判的是"未命中"这一条判定本身不再误伤条件型条目，同时**不得反过来把
+  // 真正的废条目洗成 held**——所以"锚点找不到""文件读不到""没挂锚点"三支都必须照旧红。
+  {
+    const mk = (entries) => {
+      const f = path.join(HERE, '_tmp_oper_producer.json')
+      fs.writeFileSync(f, JSON.stringify({ version: 1, entries }, null, 2))
+      return f
+    }
+    const base = { method: 'POST', url: '^/system/quota$', error: '^HTTP 429$', why: '配额超限才会产生（合成夹具）' }
+    const rowNever = {
+      request_method: 'DELETE',
+      oper_url: '/nothing',
+      error_msg: 'HTTP 404',
+      json_result: '',
+      oper_time: '2026-10-20 19:10:00'
+    }
+    const srcDir = path.join(HERE, '_tmp_oper_prod')
+    fs.mkdirSync(srcDir, { recursive: true })
+    const srcFile = path.join(srcDir, 'svc.rs')
+    fs.writeFileSync(srcFile, 'pub async fn fire() {}\n')
+    const verify = makeProducerLive(HERE)
+    const noProducer = classify([rowNever], loadAllowlist(mk([base])), { verify })
+    check(
+      '没挂锚点的未命中条目必须照旧进 unused（新通道不得成为绕过判定的后门）',
+      noProducer.unused.length === 1 && noProducer.held.length === 0,
+      JSON.stringify({ u: noProducer.unused.length, h: noProducer.held.length })
+    )
+    const live = classify(
+      [rowNever],
+      loadAllowlist(mk([{ ...base, producer: { file: '_tmp_oper_prod/svc.rs', contains: 'pub async fn fire' } }])),
+      { verify }
+    )
+    check(
+      '生产者锚点仍在源码里 ⇒ 记 held、不得判红、不得进退役集合',
+      live.held.length === 1 && live.unused.length === 0,
+      JSON.stringify({ u: live.unused.length, h: live.held.length })
+    )
+    check(
+      'held 必须带可核对的验证凭据（打给人看的理由不能是空的）',
+      typeof live.held[0]?.heldNote === 'string' && live.held[0].heldNote.includes('锚点已核'),
+      String(live.held[0]?.heldNote)
+    )
+    check(
+      'held 不得把判定拉成 EXIT=1（本轮没出现的条件型条目不是失败）',
+      gateState({
+        dbFile: srcFile,
+        since: '2026-10-20 19:00:00',
+        until: '2026-10-20 20:00:00',
+        opsCount: 5,
+        unknown: [],
+        unused: live.unused
+      }).code === 0
+    )
+    const deadAnchor = classify(
+      [rowNever],
+      loadAllowlist(mk([{ ...base, producer: { file: '_tmp_oper_prod/svc.rs', contains: 'pub async fn gone' } }])),
+      { verify }
+    )
+    check(
+      '锚点已从源码里消失 ⇒ 条目确实过期，必须回到 unused 并写明理由（生产者被删掉时豁免就该撤销）',
+      deadAnchor.unused.length === 1 && /找不到锚点/.test(String(deadAnchor.unused[0]?.heldNote)),
+      JSON.stringify(deadAnchor.unused.map((e) => e.heldNote))
+    )
+    const missingFile = classify(
+      [rowNever],
+      loadAllowlist(mk([{ ...base, producer: { file: '_tmp_oper_prod/nope.rs', contains: 'x' } }])),
+      { verify }
+    )
+    check(
+      '锚点文件读不到 ⇒ 验证不通过，不得被读成"生产者还在"（fail-closed）',
+      missingFile.unused.length === 1 && missingFile.held.length === 0
+    )
+    const badShapes = [
+      ['空 contains（includes(空串) 恒真 = 判据关掉）', { file: '_tmp_oper_prod/svc.rs', contains: '' }],
+      ['file 不是字符串', { file: 1, contains: 'x' }],
+      ['producer 不是对象', 'svc.rs']
+    ]
+    let shapeThrown = 0
+    for (const [name, producer] of badShapes) {
+      try {
+        loadAllowlist(mk([{ ...base, producer }]))
+      } catch {
+        shapeThrown += 1
+        continue
+      }
+      fails.push(`producer 形状坏了必须抛错却没抛：${name}`)
+    }
+    check('三种坏形状（空锚点/非字符串/非对象）都必须在装载时就抛', shapeThrown === badShapes.length)
+    fs.unlinkSync(path.join(HERE, '_tmp_oper_producer.json'))
+    fs.rmSync(srcDir, { recursive: true, force: true })
+    // 真实树正控（非恒真版）：装载真表 + 逐条核对锚点 + 断条目量级没坏。
+    // ⚠ 本表当前**没有**条件型条目——b86 窗口（覆盖 deep + main + a11y + 两次 action-inventory）
+    // 实测 84 条逐条命中、未命中 0 条，说明它们全部是"用例每轮刻意制造的负路径"。
+    // 所以这里不把某条硬编成 producer（那是给不可能发生的分支编理由，见 AGENTS 前言 ⑯(c)），
+    // 而是把"真表能装载、形状与条目量级没坏、已挂的锚点必须逐条验证得过"钉住：
+    // 将来第一条真条件型信号进来时，直接挂锚点即可，不会再被"本轮没出现 ⇒ 撤销"误删。
+    const realAllow = loadAllowlist()
+    const anchored = realAllow.filter((e) => e.producer)
+    check(
+      `真实允许表装载后条目量级不得塌（当前 ${realAllow.length} 条）`,
+      realAllow.length >= 60,
+      `实际 ${realAllow.length}`
+    )
+    check(
+      `真实允许表的 ${anchored.length} 条 producer 锚点必须逐条在源码里找得到`,
+      anchored.every((e) => verify(e.producer).live),
+      JSON.stringify(anchored.filter((e) => !verify(e.producer).live).map((e) => [e.url, verify(e.producer).note]))
+    )
+    check(
+      '每条允许表条目都必须自带 why（跨条目指代的理由一旦条目集合变了就指向别处）',
+      realAllow.every((e) => (e.why || '').trim().length >= 10)
+    )
+  }
   const unknownRow = {
     oper_id: 999,
     request_method: 'POST',
@@ -376,29 +540,89 @@ function selftest() {
   check('窗口内零操作 EXIT=2（没跑 ≠ 零失败）', empty.code === 2, JSON.stringify(empty))
   const reversed = gateState({ dbFile, since: until, until: since, opsCount: 4, unknown: [] })
   check('窗口方向反了 EXIT=2', reversed.code === 2, JSON.stringify(reversed))
-  for (const [name, entries] of [
-    ['方法表外', [{ method: 'TRACE', url: 'x', error: 'x', why: '理由足够长足够长' }]],
-    ['缺理由', [{ method: 'POST', url: 'x', error: 'x', why: '' }]],
-    ['坏正则', [{ method: 'POST', url: '(', error: 'x', why: '理由足够长足够长' }]],
-    ['坏 msg 正则', [{ method: 'POST', url: 'x', error: 'x', msg: '(', why: '理由足够长足够长' }]],
-    ['坏 until', [{ method: 'POST', url: 'x', error: 'x', until: '2026/10/20', why: '理由足够长足够长' }]]
+  // 坏形状必须**因为自己那一处**被拒：夹具理由一律写成自足的长句，否则"方法坏了"会被
+  // "理由太短"抢先抛出而照样 non-zero ⇒ 用例看着绿、实际没约束到被测那一支
+  // （AGENTS 前言 ⑩ 的"崩掉同样非零，但『红在哪条』这条信息丢了"，同一族）。
+  const OK_WHY = '这是一条自足的理由，写明为什么这次失败是设计内'
+  let badIdx = 0
+  for (const [name, entries, expectInMsg] of [
+    ['方法表外', [{ method: 'TRACE', url: 'x', error: 'x', why: OK_WHY }], '.method'],
+    ['缺理由', [{ method: 'POST', url: 'x', error: 'x', why: '' }], '.why'],
+    ['坏正则', [{ method: 'POST', url: '(', error: 'x', why: OK_WHY }], '正则'],
+    ['坏 msg 正则', [{ method: 'POST', url: 'x', error: 'x', msg: '(', why: OK_WHY }], '.msg'],
+    ['坏 until', [{ method: 'POST', url: 'x', error: 'x', until: '2026-10-20', why: OK_WHY }], '.until'],
+    // b87 起三处登记表共用 producer-kit 的同一条自足性判据
+    ['"同上"类跨条目指代', [{ method: 'POST', url: 'x', error: 'x', why: `${OK_WHY}，同上一条` }], '同上'],
+    ['以"见上条"开头', [{ method: 'POST', url: 'x', error: 'x', why: '见上条同一判据，只是端点不同' }], '指代'],
+    ['短到没有信息量', [{ method: 'POST', url: 'x', error: 'x', why: '本可自动化，短' }], '个字符'],
+    [
+      '同表内两条逐字相同的理由',
+      [
+        { method: 'POST', url: '^/a$', error: 'x', why: OK_WHY },
+        { method: 'DELETE', url: '^/b$', error: 'x', why: OK_WHY }
+      ],
+      '组'
+    ]
   ]) {
-    let threw = false
+    let threw = ''
+    // 文件名只用序号：用例名里有引号与中文，Windows 上直接 ENOENT（b87 实测踩过）
+    const tmp = path.join(dir, `allow_bad_${++badIdx}.json`)
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }))
     try {
-      const tmp = path.join(dir, `allow_${name}.json`)
-      fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }))
-      try {
-        loadAllowlist(tmp)
-      } finally {
-        fs.unlinkSync(tmp)
-      }
-    } catch {
-      threw = true
+      loadAllowlist(tmp)
+    } catch (e) {
+      threw = String(e.message)
+    } finally {
+      fs.unlinkSync(tmp)
     }
-    check(`允许表坏形状必须拒绝：${name}`, threw)
+    check(`允许表坏形状必须拒绝：${name}`, threw.includes(expectInMsg), `抛出的话是「${threw}」`)
+  }
+  // 正控：指向**测试用例**的"参见"不是跨条目指代，必须放行（误伤会逼人把理由写短）
+  {
+    const tmp = path.join(dir, 'allow_ok_xref.json')
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            method: 'POST',
+            url: '^/system/backup/self-export$',
+            error: '^权限拒绝$',
+            why: '由权限中间件在写出响应体之前拒绝，参见 M90 的 403/404 前后配对断言'
+          }
+        ]
+      })
+    )
+    let threw = ''
+    try {
+      loadAllowlist(tmp)
+    } catch (e) {
+      threw = String(e.message)
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+    check('合法"参见某用例"的理由必须放行（正控，防判据扩大化）', threw === '', `抛出的话是「${threw}」`)
+  }
+  // 真实树正控：已提交的允许表必须装载得过（新判据把存量真表洗红就是判据坏了，不是数据坏了）
+  {
+    const loaded = loadAllowlist()
+    check(
+      '真实允许表在新自足性判据下必须装载得过',
+      loaded.length >= 60,
+      `装载 ${loaded.length} 条（b87 修掉了那条以"同上一条"开头的理由）`
+    )
   }
   db.close()
   fs.rmSync(dir, { recursive: true, force: true })
+  check(
+    '自检收尾后 tests/e2e 里不得有任何 _tmp_oper_* 残留（历史遗留也必须被这条抓到）',
+    !fs.readdirSync(HERE).some((n) => n.startsWith('_tmp_oper_')),
+    fs
+      .readdirSync(HERE)
+      .filter((n) => n.startsWith('_tmp_oper_'))
+      .join(', ')
+  )
   if (fails.length) {
     console.error(`SYNTH_FAIL 失败操作判据 ${fails.length} 条：`)
     for (const f of fails) console.error(`  · ${f}`)
@@ -452,13 +676,19 @@ function main() {
   } finally {
     db.close()
   }
-  const { unknown, allowed, unused } = classify(rows, allow)
+  const { unknown, allowed, unused, held } = classify(rows, allow)
   console.log(`失败操作日志：${dbFile}`)
   console.log(
-    `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length} / 允许表未命中 ${unused.length}`
+    `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length} / 允许表未命中 ${unused.length} / 条件型未触发但生产者仍在 ${held.length}`
   )
   for (const u of unknown) {
     console.log(`  ❌ ${u.request_method} ${u.oper_url} [${u.oper_time}] ${String(u.error_msg || '').slice(0, 160)}`)
+  }
+  // 条件型豁免：这条失败只在某个条件成立时才产生（配额超限、依赖抖动、真的慢过一次）。
+  // 本轮没出现**不是**它作废的证据——撤销的后果是条件再次成立时判红，把人支使去补回同一句理由。
+  // 只有生产者锚点经源码核实仍在，才走这一支；验证不过一律回到 unused 照旧判红（见 producer-kit）。
+  for (const e of held) {
+    console.log(`  ℹ [条件型豁免未触发] ${e.method} ${e.url} /${e.error}/ —— ${e.why}；${e.heldNote}`)
   }
   for (const e of unused) {
     // 日落豁免（带 until）过期后**结构上不可能再命中**：这类条目留着就是"永久白名单"，

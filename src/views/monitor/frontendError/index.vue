@@ -386,9 +386,6 @@ const { dataList, loading, showSearch, multiple, total, getList, handleQuery, ha
   useCrudTable<SysFrontendError, FrontendErrorQueryParams>({
     listApi: (params) =>
       listFrontendError(addDateRange(params as Record<string, unknown>, dateRange.value) as FrontendErrorQueryParams),
-    getApi: () => Promise.resolve({}),
-    addApi: () => Promise.resolve({}),
-    updateApi: () => Promise.resolve({}),
     deleteApi: (ids) => delFrontendError(ids as unknown as number | number[]),
     idField: 'id',
     defaultForm: () => ({}) as SysFrontendError,

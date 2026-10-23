@@ -9,7 +9,9 @@
             :maxlength="50"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('operlog.search.phOperIp')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('operlog.search.phOperIp')"
+          />
         </el-form-item>
         <el-form-item :label="t('operlog.search.title')" prop="title">
           <el-input
@@ -18,7 +20,9 @@
             :maxlength="50"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('operlog.search.phTitle')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('operlog.search.phTitle')"
+          />
         </el-form-item>
         <el-form-item :label="t('operlog.search.operName')" prop="operName">
           <el-input
@@ -27,7 +31,9 @@
             :maxlength="30"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('operlog.search.phOperName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('operlog.search.phOperName')"
+          />
         </el-form-item>
         <el-form-item :label="t('common.column.type')" prop="businessType">
           <el-select
@@ -59,7 +65,9 @@
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
             :end-placeholder="t('common.form.endDate')"
-            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]" :aria-label="t('common.form.startDate')"></el-date-picker>
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+            :aria-label="t('common.form.startDate')"
+          ></el-date-picker>
         </el-form-item>
         <el-form-item>
           <TenantFilter v-model="queryParams.tenantId" @search="handleQuery" />
@@ -357,9 +365,19 @@
           <el-table-column prop="operTime" :label="t('operlog.compliance.colTime')" width="170" />
           <el-table-column prop="title" :label="t('operlog.compliance.colModule')" min-width="120" />
           <el-table-column prop="operName" :label="t('operlog.compliance.colOperator')" width="110" />
-          <el-table-column prop="operUrl" :label="t('operlog.compliance.colUrl')" min-width="150" show-overflow-tooltip />
+          <el-table-column
+            prop="operUrl"
+            :label="t('operlog.compliance.colUrl')"
+            min-width="150"
+            show-overflow-tooltip
+          />
           <el-table-column prop="operIp" :label="t('operlog.compliance.colIp')" width="130" show-overflow-tooltip />
-          <el-table-column prop="errorMsg" :label="t('operlog.compliance.colError')" min-width="160" show-overflow-tooltip />
+          <el-table-column
+            prop="errorMsg"
+            :label="t('operlog.compliance.colError')"
+            min-width="160"
+            show-overflow-tooltip
+          />
         </el-table>
       </template>
       <template #footer>
@@ -381,9 +399,7 @@
       <el-table v-loading="archiveLoading" :data="archiveRows" size="small" border>
         <el-table-column prop="deletedAt" :label="t('operlog.archive.colDeletedAt')" width="170" />
         <el-table-column :label="t('operlog.archive.colRange')" min-width="150">
-          <template #default="{ row }">
-            #{{ row.firstOperId }} ~ #{{ row.lastOperId }}
-          </template>
+          <template #default="{ row }">#{{ row.firstOperId }} ~ #{{ row.lastOperId }}</template>
         </el-table-column>
         <el-table-column prop="deletedCount" :label="t('operlog.archive.colCount')" width="100" />
         <el-table-column :label="t('operlog.archive.colMode')" width="90">
@@ -393,13 +409,7 @@
         </el-table-column>
         <el-table-column :label="t('operlog.archive.colAction')" width="110">
           <template #default="{ row }">
-            <el-button
-              v-if="row.archiveObjectKey"
-              type="primary"
-              size="small"
-              link
-              @click="downloadArchive(row)"
-            >
+            <el-button v-if="row.archiveObjectKey" type="primary" size="small" link @click="downloadArchive(row)">
               {{ t('operlog.archive.download') }}
             </el-button>
             <span v-else class="text-[var(--el-text-color-placeholder)]">—</span>
@@ -531,9 +541,7 @@ watch(
 // columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
 // label 更新（bindLabels）不再触发 deep 全量遍历。
 const columnsVisibleSig = computed(() =>
-  (Object.values(columns.value) as TableShowColumns[])
-    .map((c) => (c.visible ? 1 : 0))
-    .join('')
+  (Object.values(columns.value) as TableShowColumns[]).map((c) => (c.visible ? 1 : 0)).join('')
 )
 watch(columnsVisibleSig, () => {
   const v = columns.value
@@ -599,9 +607,6 @@ const {
   handleDelete
 } = useCrudTable<SysOperLog, OperlogQueryParams>({
   listApi: (params) => list(addDateRange(params as Record<string, unknown>, dateRange.value) as OperlogQueryParams),
-  getApi: () => Promise.resolve({}),
-  addApi: () => Promise.resolve({}),
-  updateApi: () => Promise.resolve({}),
   deleteApi: (ids) => delOperlog(ids as unknown as number | number[]),
   idField: 'operId',
   defaultForm: () => ({}) as SysOperLog,

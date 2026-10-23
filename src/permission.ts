@@ -9,6 +9,8 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
+import { getConfigKey } from '@/api/system/config'
+import { SIDE_THEME_CONFIG_KEY } from '@/utils/sideTheme'
 import i18n from '@/i18n'
 import { translateTitle } from '@/composables/useMenuTitle'
 import type { AppRouteRecord } from '@/types'
@@ -62,6 +64,17 @@ router.beforeEach(async (to, _from) => {
       try {
         // 拉取user_info信息
         await useUserStore().getInfo()
+        // 批八十六 N-1：`sys.index.sideTheme` 从"参数页可见可编辑的死键"变成真实旋钮——
+        // 登录后取一次**当前租户的生效值**作为侧边栏主题缺省。
+        // 三条判据都在 store.applyPlatformSideTheme 里（用户选过 / 值域外 / 其余照用），
+        // 这里只负责"取一次"与"取不到不得影响导航"：外观参数不得把一次网络抖动
+        // 变成进不了系统的理由（fail-safe = 保持出厂缺省）。
+        try {
+          const res = await getConfigKey(SIDE_THEME_CONFIG_KEY)
+          useSettingsStore().applyPlatformSideTheme(res?.data)
+        } catch {
+          /* 读不到就按本地缺省进入，不重试也不提示 */
+        }
         // 根据roles权限生成可访问的路由
         const accessRoutes = await usePermissionStore().generateRoutes()
         accessRoutes.forEach((route: AppRouteRecord) => {
@@ -79,8 +92,12 @@ router.beforeEach(async (to, _from) => {
         // P2-34: R18-3.1/3.2/3.3 根据错误类型重定向到对应错误页（保留 401 等鉴权失败的登出逻辑）
         // U6 优化：优先使用 HTTP status 判断，字符串匹配作为兜底（更健壮）
         // U6-IMPACT: 收紧字符串匹配，避免误判包含"网络"的任意错误消息
-        const errorObj = err as AxiosError<{ message?: string }>
-        const httpStatus = errorObj?.response?.status
+        const errorObj = err as AxiosError<{ message?: string }> & { httpStatus?: number }
+        // 批八十六：`status` 之外还要读 `httpStatus` 标记——拦截器把 401 重写成 i18n 文案的
+        // Error（组件层只认 `err.message`），`error.response` 随之丢失；不带标记时这里恒为
+        // undefined，下面那条 401 分支就是死码，令牌失效的冷加载会落到 /500 而不是登录页。
+        // 400/403/404/429/503 走的是"原样 reject axios error"通道，`response.status` 仍在。
+        const httpStatus = errorObj?.response?.status ?? errorObj?.httpStatus
         const errMsg: string = errorObj?.message || (typeof errorObj === 'string' ? errorObj : '')
         const axiosCode: string = errorObj?.code || ''
         // 网络异常（断网 / 超时无法到达服务器）：

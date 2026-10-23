@@ -81,6 +81,8 @@ describe('e2e 路径锚定守卫 · 规则：tests/ 下禁 process.cwd()', () =>
     }
     expect(maskedByteCheck, '每个被扫文件都要做长度对账').toBe(testFiles.length)
     expect(violations, `cwd 反推路径的站点：\n${violations.join('\n')}`).toEqual([])
+    // 面大小由守卫自己打（b86）：文档抄一次就漂一次，而漂了没有任何东西会红
+    console.warn(`[e2eCwdPath] 扫描面 ${testFiles.length} 个 .mjs / 长度对账 ${maskedByteCheck} 个文件 / cwd 站点 0 处`)
   })
 
   it('刀口活性：真实文件末尾追加一条合成违规必须被抓到', () => {

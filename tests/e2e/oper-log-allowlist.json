@@ -529,7 +529,7 @@
       "method": "POST",
       "url": "^/system/backup/self-export$",
       "error": "^权限拒绝：缺少所需权限 system:backup:export$",
-      "why": "同上一条同一判据的**另一种审计形状**：由权限中间件在写出响应体之前拒绝时，`error_msg` 存的是拒绝原因原文且没有 json_result（b82 全量轮 M90 实测）；b81 那条 HTTP 403 + msg 的形状来自已生成响应体的路径。两条都指向「common 角色没有 system:backup:export」这一件事，判据本身由 M90 的 403/404 前后配对断言守着。"
+      "why": "本条覆盖的是**无响应体那一支**：权限中间件在写出响应体之前拒绝时，`error_msg` 存的是拒绝原因原文且没有 json_result（b82 全量轮 M90 实测）。另有逐字相同端点的一条登记走「已生成响应体」的路径（HTTP 403 + msg），两条互不替代。根因都是「common 角色没有 system:backup:export」，判据本身由 M90 的 403/404 前后配对断言守着。"
     },
     {
       "method": "POST",

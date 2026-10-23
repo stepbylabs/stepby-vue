@@ -164,21 +164,32 @@ function isExcluded(abs, { excludedFiles, excludedDirs }) {
  * 判据形状与前端对称：① exe 必须存在（取不到 = 证不了，不得读成"没有陈旧"）；
  * ② 采集面下限（扫不到 `.rs` 就是遍历坏了）；③ 任何生产源码文件晚于 exe ⇒ 点名并拒绝。
  *
- * @param {{axumRoot?:string, exeFile?:string, minFiles?:number}} [opts]
+ * ⚠️ **采集面是"链进同一个 exe 的全部 crate 源码"，不是 `stepby-axum/src`**（批八十六补）：
+ * `governance` 与 `migration` 是两个独立 crate，但都被主 crate 依赖并**编进同一个二进制**——
+ * `governance::CONFIGS` 的登记、`RETIRED_CONFIG_KEYS`、`side_theme_normalize_sql()` 这类
+ * 产出种子 SQL 的纯函数，改变的是 `:8080` 上的真实行为。本批收 N-1 时实测踩到：
+ * `governance/src/lib.rs` 比 exe 新，而闸只扫 `src/` ⇒ 一声不响放行。此前这句"三轮全量跑在
+ * 旧 exe 上"（b83 §10 缺陷 G）修的是 `src/` 内部的盲区，crate 边界这一层从来没进视野。
+ * 缺任一 crate 目录 ⇒ 拒绝判据（采集面缺一块就是遍历坏了，不得静默缩面后照常报新鲜）。
+ *
+ * 与 `#[cfg(test)]` 那条口径的关系：这两个 crate 的测试是**文件内** `mod tests`（不是
+ * 独立的 cfg(test) 模块声明），所以改它们里的测试同样会要求重构建。取向与 b84 一致——
+ * **宁可多要求一次重构建，绝不能把真生产文件静默剔出采集面**（后者是假绿方向）。
+ *
+ * @param {{axumRoot?:string, exeFile?:string, minFiles?:number, crateSrcDirs?:string[]}} [opts]
  * @returns {{stale:Array<{rel:string,agoMs:number}>, exeMs:number, scanned:number, excluded:number}}
  */
 export function staleBackendSources({
   axumRoot = path.join(REPO_ROOT, 'stepby-axum'),
   exeFile = path.join(axumRoot, 'target', 'debug', 'stepby-axum.exe'),
-  minFiles = 200
+  minFiles = 200,
+  crateSrcDirs = ['src', path.join('governance', 'src'), path.join('migration', 'src')]
 } = {}) {
   if (!fs.existsSync(axumRoot)) throw new Error(`后端仓不存在：${axumRoot}——无从判断产物新鲜度`)
   if (!fs.existsSync(exeFile)) {
     throw new Error(`后端 exe 不存在：${exeFile}——没有 exe 就判不了新鲜度（先 cargo build 再跑）`)
   }
   const all = []
-  const srcDir = path.join(axumRoot, 'src')
-  if (!fs.existsSync(srcDir)) throw new Error(`后端源码目录不存在：${srcDir}`)
   const walkRs = (dir) => {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
       if (ent.name === 'target' || ent.name.startsWith('.')) continue
@@ -187,12 +198,23 @@ export function staleBackendSources({
       else if (ent.name.endsWith('.rs')) all.push(abs)
     }
   }
-  walkRs(srcDir)
+  for (const rel of crateSrcDirs) {
+    const dir = path.join(axumRoot, rel)
+    if (!fs.existsSync(dir)) throw new Error(`后端源码目录不存在：${dir}——采集面缺一块，拒绝判新鲜度`)
+    walkRs(dir)
+  }
   // 排除面由声明派生（见 testOnlyModulePaths 的立项原因）
   const excl = testOnlyModulePaths(all)
   const prodRs = all.filter((f) => !isExcluded(f, excl))
   const files = [...prodRs]
-  for (const f of ['Cargo.toml', 'build.rs', 'config.toml', 'config.toml.example']) {
+  for (const f of [
+    'Cargo.toml',
+    'build.rs',
+    'config.toml',
+    'config.toml.example',
+    path.join('governance', 'Cargo.toml'),
+    path.join('migration', 'Cargo.toml')
+  ]) {
     const abs = path.join(axumRoot, f)
     if (fs.existsSync(abs)) files.push(abs)
   }
@@ -403,6 +425,15 @@ async function selftest() {
     return abs
   }
   const exe = mkAxum('target/debug/stepby-axum.exe', 0)
+  /** 同 mkAxum，但可指定另一棵树（⑲ 的第二夹具） */
+  const mkAt = (root, rel, days, content = 'fn a() {}\n') => {
+    const abs = path.join(root, rel)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, content)
+    const t = new Date(Date.now() + days * 86400000)
+    fs.utimesSync(abs, t, t)
+    return abs
+  }
   for (let i = 0; i < 200; i++) mkAxum(`src/gen/m${i}.rs`, -8)
   mkAxum('Cargo.toml', -8)
   // **声明面**：排除面只能从这些声明派生（没有声明就没有排除 ⇒ ⑭–⑯ 判的是派生，不是文件名）
@@ -415,6 +446,9 @@ async function selftest() {
   mkAxum('src/probe/mod.rs', -8, '#[cfg(all(test, feature = "gate"))]\nmod gated;\n\nmod tests;\n')
   mkAxum('src/probe/gated.rs', -8)
   mkAxum('src/probe/tests.rs', -8)
+  // ⑰⑱ 的夹具：两个被主 crate 依赖、**编进同一个 exe** 的独立 crate（批八十六补的采集面）
+  mkAxum('governance/src/lib.rs', -8, 'pub const CONFIGS: &[(&str)] = &[];\n')
+  mkAxum('migration/src/lib.rs', -8, 'pub struct Migration;\n')
   const b0 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
   if (b0.stale.length !== 0) fail.push(`⑨ 干净后端树上报了陈旧：${JSON.stringify(b0.stale.slice(0, 3))}`)
   if (b0.scanned < 200) fail.push(`⑨ 采集面数不对：${b0.scanned}`)
@@ -434,6 +468,9 @@ async function selftest() {
   const thinAxum = path.join(dir, 'axum-thin')
   fs.mkdirSync(path.join(thinAxum, 'src'), { recursive: true })
   fs.writeFileSync(path.join(thinAxum, 'src', 'only.rs'), 'x')
+  // 两个 sibling crate 目录**给齐**：否则这一夹具测的是"缺目录"（⑲），不是"文件数不足"
+  fs.mkdirSync(path.join(thinAxum, 'governance', 'src'), { recursive: true })
+  fs.mkdirSync(path.join(thinAxum, 'migration', 'src'), { recursive: true })
   fs.copyFileSync(exe, path.join(thinAxum, 'exe.bin'))
   try {
     staleBackendSources({ axumRoot: thinAxum, exeFile: path.join(thinAxum, 'exe.bin') })
@@ -482,6 +519,28 @@ async function selftest() {
   for (const re of [/probe[\\/]tests\.rs$/, /probe[\\/]gated\.rs$/]) {
     if (!b4.stale.some((s) => re.test(s.rel))) fail.push(`⑯ 未被 #[cfg(test)] 声明排除的文件没进陈旧清单：${re}`)
   }
+  // ⑰ governance crate 晚于 exe ⇒ 必须点名（批八十六实测踩到的盲区：闸只扫 stepby-axum/src）
+  mkAxum(path.join('governance', 'src', 'lib.rs'), 5)
+  const b5 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (!b5.stale.some((s) => /governance[\\/]src[\\/]lib\.rs$/.test(s.rel)))
+    fail.push(`⑰ governance crate 的陈旧改动没被点名：${JSON.stringify(b5.stale.map((s) => s.rel))}`)
+  // ⑱ migration crate 同理（新迁移 = 改变全新库的种子，跑批测的必须是含它的二进制）
+  mkAxum(path.join('migration', 'src', 'lib.rs'), 6)
+  const b6 = staleBackendSources({ axumRoot: axum, exeFile: exe, minFiles: 100 })
+  if (!b6.stale.some((s) => /migration[\\/]src[\\/]lib\.rs$/.test(s.rel)))
+    fail.push(`⑱ migration crate 的陈旧改动没被点名：${JSON.stringify(b6.stale.map((s) => s.rel))}`)
+  // ⑲ 反证：sibling crate 目录缺失 ⇒ 拒绝判据，不得"少一块面"照常报新鲜
+  const noGov = path.join(dir, 'axum-no-governance')
+  fs.mkdirSync(path.join(noGov, 'src'), { recursive: true })
+  for (let i = 0; i < 120; i++) mkAt(noGov, `src/gen/m${i}.rs`, -8)
+  fs.mkdirSync(path.join(noGov, 'migration', 'src'), { recursive: true })
+  fs.copyFileSync(exe, path.join(noGov, 'exe.bin'))
+  try {
+    staleBackendSources({ axumRoot: noGov, exeFile: path.join(noGov, 'exe.bin'), minFiles: 100 })
+    fail.push('⑲ 缺 governance crate 的树照常判了新鲜（采集面静默缩块）')
+  } catch (e) {
+    if (!/采集面缺一块/.test(String(e.message))) fail.push(`⑲ 拒绝理由没指向采集面缺块：${e.message}`)
+  }
   fs.rmSync(dir, { recursive: true, force: true })
   fs.rmSync(thin, { recursive: true, force: true })
   return fail
@@ -516,7 +575,10 @@ async function entry() {
       '总闸真走到后端这一腿',
       'cfg(test) 目录形模块不计入',
       'cfg(test) 文件形模块不计入（含"生产文件仍要点名"反证）',
-      '对照组：非 #[cfg(test)] 声明的同名文件照常计入'
+      '对照组：非 #[cfg(test)] 声明的同名文件照常计入',
+      'governance crate 陈旧必须点名（同一 exe）',
+      'migration crate 陈旧必须点名（同一 exe）',
+      'sibling crate 目录缺失 ⇒ 拒绝判据（不得静默缩面）'
     ]
     log(
       `SYNTH_OK 产物新鲜度 ${FRONTEND_CASES.length + BACKEND_CASES.length} 组双向（前端：` +

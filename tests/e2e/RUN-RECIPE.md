@@ -3657,3 +3657,322 @@ node tests/e2e/oper-log-audit.mjs     --gate --since=2026-10-22T06:05:00Z --unti
 
 跑批口径也一并记下：**收口用的 `libtest` 必须是全量单轮**（`run-gates.py` 的 `libtest` 就是它），
 "某模块单独复跑全绿"不能替代它——单独复跑只有 1-3 个应用实例在跑，抢不到那个中间态。
+
+### 3.93 平台参数当旋钮用：三条判据缺一条就是假绿（b86 固化，`main.mjs` 功能 45）
+
+`sys.index.sideTheme` 在 §5.23 之后是"参数页可见可编辑、后端零消费者"的死键。把它做成真旋钮之后，
+判据不能只写"默认值是 theme-auto"——那条判据对"改完毫无反应"是**瞎的**（它本来就是靠这一点蒙混过关的）。
+
+本仓落的形状是三条，同一功能里连续判：
+
+1. **平台值改得动界面**：`PUT /system/config` 把平台层写成 `theme-dark` ⇒ 清掉本地存档与
+   「用户选过」标记 ⇒ 重新导航 ⇒ `.sidebar-theme-wrapper` 的 class 必须含 `theme-dark`。
+2. **对照组：用户选择优先于平台缺省**：本地写 `stepby_sidetheme_user_set=1` +
+   `layout-setting.sideTheme=theme-light` ⇒ DOM 必须是 `theme-light`。
+   少了这一支，实现可以是"每次进入都拿平台值覆盖用户"——第 1 条照样全绿，
+   而所有用户自己的主题选择被静默洗掉。
+3. **复原 `theme-auto`**：否则下一批的 45-1（默认 theme-auto）与任何后续功能都被本支污染，
+   而且"复原成功"本身就是"写路径通"的第二次证据。
+
+两条实现细节（都是实测逼出来的）：
+
+- **采样必须轮询到落定**：`page.goto(..., {waitUntil:'load'})` 之后主题类名才由路由守卫里的
+  `getInfo` → `getConfigKey` → store 落上，"看一眼"的写法结论由网络快慢决定（本表前言 ④）。
+  落法是 `readSidebarClassUntil(want)`：轮询到命中或 12s 超时，**并把等待时长写进凭证**
+  （实测 `等0ms` = 一次命中；出现"等 250ms"级别的正常抖动也能从凭证里看出来）。
+- **类名是被点击改变的那个属性**，所以判据读它是对的（本表前言 ③ 的反面情形：
+  要读的属性正是被操作改变的对象时，不得再拿它当选择器）。
+
+配套的服务端判据（不在 e2e 里重复）：`integration_tests/sys_config_dict.rs`
+的 `test_config_retired_keys_and_value_domain` 判值域拒绝、退役键 404、改名拦截与"未登记键照常可写"对照组。
+
+### 3.94 登录期弹框判据：harness 收 Tour 遮罩的 Escape 会把你测的框一起关掉（b86 固化，`deep-e2e` M92）
+
+M92（新建账号 → UI 登录 → 「安全提示」MessageBox）首跑三条弹框判据全红，
+detail 只有 `visible=false text=` ——看着像"产品没弹框"。DOM 取证脚本打出来的事实相反：
+
+```
+t=1s {"url":"…/index","overlay":[{"cls":"el-overlay-message-box","vis":true,
+      "text":"安全提示您的密码还是初始密码，请修改密码！取 消确 定"}], …}
+```
+
+框**确实出现了**，是被 `deep-e2e` 的 `login()` 关掉的：它成功登录后发现
+`.stepby-tour-mask` 可见就按一次 `Escape`，而 Element Plus 的 `confirm` 默认
+`closeOnPressEscape=true` ⇒ 同一个 Escape 同时关掉了被测对象。
+
+修法只有一条，且必须是**导航前**生效：
+
+```js
+await page.addInitScript(() => {
+  try {
+    localStorage.setItem('stepby-layout-tour', 'completed')
+  } catch {}
+})
+```
+
+事后 `localStorage.setItem` 无效——Tour 在首次渲染时就已经决定要不要出现（与 §3.60.4 的
+"遮罩在数据加载后才挂"是同一类时序）。
+
+由此定两条写弹框/遮罩类判据的规则：
+
+1. **凭证必须够归因**：detail 里要同时有 `登录落地=`、`url=`、`框数=`。
+   只写 `visible=false` 分不清"没弹框""登录没成""被 harness 关掉"三种相反状态，
+   而这三条里只有第一条值得改产品码——本轮差点照着"产品没弹框"去改 `user.ts`。
+2. **harness 的便利动作（收遮罩、清存档、按 Escape）都是被测环境的组成部分**，
+   它动了被测对象就必须在判据里显式排除，而不是把判据改成"允许框不在"。
+
+### 3.95 清会话必须落在"没有认证链在飞"的时刻（b86 固化，`e2e/run/auth.mjs::clearSession`）
+
+b86 全量 deep-e2e 唯一一条 ❌ 在 M9「无控制台错误 - 3 个错误」，而同一行代码在 b84 全量是
+`0 个错误`。诊断脚本（复刻 M9 开头 + 逐请求打印 Authorization 头）实测到的时间线：
+
+```
+  5846ms  REQ GET /getInfo   auth=Bearer eyJ0e…     ← goto('/logout') 触发的冷加载
+  5847ms  ## goto(/logout) 已 resolve（waitUntil=load）
+  5895ms  REQ GET /system/config/configKey/…  auth=Bearer eyJ0e…
+  5896ms  ## clearCookies() 完成
+  5899ms  REQ GET /getRouters              auth=(none) → 401 + console error
+  6169ms  REQ GET /system/notice/listTop   auth=(none) → 401 + console error
+```
+
+两笔独立的账：
+
+1. **`goto('${frontendUrl}/logout')` 从来不是登出**。前端路由表里没有 `/logout`
+   （`src/router/index.ts` 只有动态路由 + 错误页），`curl -i :8080/logout` 回
+   `content-type: text/html` ⇒ 命中的是 SPA 兜底，服务端会话原样活着。注释写着
+   "先登出当前用户"，描述的是一个不存在的动作；它真正的副作用是**把应用冷加载一遍**。
+2. **`waitUntil:'load'` 早于守卫的串行认证链**（`getInfo → configKey → getRouters →
+布局挂载后的 listTop`，见 `src/permission.ts`）。清除点落在这条链中间 ⇒ 排在后面的请求
+   以 `auth=(none)` 出网。同一段代码 0 条与 3 条 console error 轮流出现，
+   结论由毫秒时机决定——这正是 AGENTS 测试门禁全景 前言 ④ 禁止的形态。
+
+落法（`clearSession(page, frontendUrl)`，M9 与 M12 共用同一实现，禁两处各写一份）：
+
+```js
+const cleared = await clearSession(page, CONFIG.frontendUrl)
+record(
+  M,
+  '前置: 浏览器会话已清除（Admin-Token 不残留）',
+  cleared.landedOnWhitelist && !cleared.tokenLeft,
+  `白名单页落地=${cleared.landedOnWhitelist}, cookie 残留=${cleared.tokenLeft}`
+)
+```
+
+- 先切 `/privacy`：它在 `src/permission.ts` 的 `whiteList` 里 ⇒ 守卫 `isWhiteList` 直放行、
+  不发认证请求；又不套布局 ⇒ 铃铛/公告那类挂载期拉取随之卸载。清完之后没有任何链在飞。
+- **必须留一条自证**：`tokenLeft` 读的是 `document.cookie`（应用 `getToken()` 读的同一个来源）。
+  没有它，"stepby 用户只读"整组结论都可能建立在"其实还是 admin 在跑"上。
+
+为什么不改成"往 401 豁免表加一条 `configKey`"：那张表判的是 `every(整个页面生命周期累积的 401 URL)`，
+加一条豁免等于承认这个形状合法；而清除时机完全可控。**能消除产生形态的动作时，不要登记形态。**
+（例外见 §3.96：修复后 `POST /logout` 的 401 是设计内自愈链，那条才进表，且逐条带 `why`。）
+
+### 3.96 会话过期有两条通道，判据必须各判一条（b86 固化，M32 32.7 / 32.7b）
+
+同一次"令牌失效"，走两条完全不同的代码路径，修复前只有第一条有判据：
+
+| 形状             | 触发方式                             | 谁在发请求                            | 应有的确定态                | 修复前实测                                   |
+| ---------------- | ------------------------------------ | ------------------------------------- | --------------------------- | -------------------------------------------- |
+| 32.7 中途过期    | 登录后在页面点"搜索"                 | 组件（`roles` 已加载，守卫不再介入）  | 重新登录弹框或跳登录页      | 弹框 ✅ 已判                                 |
+| 32.7b 冷加载过期 | 失效 cookie + `goto('/system/user')` | 守卫（`getInfo` → `logOut` → 回首页） | 落 `/login`，死 cookie 消失 | **落 `/500`、cookie 残留、无弹框** ❌ 零判据 |
+
+根因在两个通道的 reject 形状不一致：`request.ts` 对 401 一律 `Promise.reject(new Error(译文))`
+（丢掉 `response`），而守卫读的是 `err.response.status` ⇒ 那条"401 ⇒ logOut"从不执行；
+400/403/404/429/503 反倒原样透传 axios error。修复＝拒绝带 `httpStatus=401` 标记 + 守卫
+`response?.status ?? httpStatus`，两头各一把锁：
+
+- 产出侧 `src/utils/request.sessionExpired.test.ts`（真实 service + 桩适配器，两条通道 +
+  `/login`、`/lock` 两个**不得**带标记的对照组 + 静态锁"裸写会话过期 Error 必须 0 处"）；
+- 消费侧 `src/permission.test.ts` ④ 追加一行**真实形状**夹具（只有 `httpStatus`、无 `response`）。
+
+32.7b 的两条判据形态（都不靠 toast，toast 会自己消失）：
+
+```js
+record(M, '会话过期: 冷加载必须落回登录页（不得落 /500 错误页）',
+  coldLanded.includes('/login') && !coldLanded.includes('/500'), `落地=${coldLanded…}`)
+record(M, '会话过期: 冷加载后死令牌已清除', deadTokenLeft === false, `cookie 残留=${deadTokenLeft}`)
+```
+
+实测修复后：`落地=/login?redirect=/index`、`cookie 残留=false`、M32 无控制台错误 0 条。
+副作用一条：守卫执行 `logOut()` 会真的向服务端发 `POST /logout`，令牌正是失效的 ⇒ 401 属设计内，
+已按"逐条带理由"进 `deep-e2e.mjs` 的 401 无害清单（`u.includes('/logout')`）。
+
+### 3.97 条件型豁免：本轮没出现 ≠ 废条目（b86 固化，`backend-log-audit` 的 `producer` 锚点）
+
+b86 收口跑 `backend-log-audit --gate` 报 3 条，其中两条是"允许表未命中"：
+
+```
+WARN /错过 03:00 调度窗口，启动期补跑一轮保留期清理/
+WARN /slow statement.*FROM "sys_audit_change" … LIMIT ?/
+```
+
+b85 项 F 给未命中配的语义是"本轮没再出现 ⇒ 必须撤销"，`--retire-stale` 也真会删掉它们。
+**但对这一族那是错的**，两条都有实测的成因：
+
+| 条目            | 触发条件                                    | 本轮为什么没有                                                                       | 下一次什么时候一定出现             |
+| --------------- | ------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------- |
+| 错过 03:00 补跑 | `retention:last_success_at` 缺失或距今 ≥20h | 上一批刚跑过补跑，标记是新的（`grep -c "保留期清理\|retention"` 在本轮窗口 = **0**） | 每天第一个批次启动时               |
+| 审计留痕导出慢  | 导出那条批量读**真的**慢过 sqlx 的 1s 阈    | 本轮没有慢查询（`grep -c "slow statement.*sys_audit_change"` = 0）                   | 运行库审计行再涨上去、且导出被跑到 |
+
+撤销它们的后果不是"少一条豁免"，而是**条件再次成立时判据报红、把人支使去补登记**——
+补回去的还是同一句理由。这就是前言 ⑯(c) 立案的那一型：给一个"本轮不可能出现"的形状临时编豁免，
+或者反过来把合法形状当废条目删掉。
+
+判据因此改问**真正想问的问题**：这条豁免是"产生它的代码已经没了"（废条目），
+还是"代码还在、条件没凑巧"。条目上多一个锚点即可，由判据自己回源码核：
+
+```json
+{
+  "level": "WARN",
+  "match": "错过 03:00 调度窗口…",
+  "why": "…",
+  "producer": { "file": "stepby-axum/src/scheduler/mod.rs", "contains": "错过 03:00" }
+}
+```
+
+语义（`producerLive()` + `classify(..., { verify })`）：
+
+- 条目**被打中** ⇒ 与 producer 无关，照常"已登记"（对照组，防"挂了锚点就永远不算未命中"）。
+- 条目未打中且有合法 producer ⇒ 进 `held`，打 `ℹ [条件型豁免未触发] … 生产者仍在 <file>（锚点已核）`，
+  **不判红也不静默**，`--retire-stale` 不会碰它。
+- 验证不了（`file` 读不到 / `contains` 在源码里找不到 / 没有 producer）⇒ 照旧按未命中红，
+  并把失败原因写进那条打印（"取不到"不得读成"没问题"，前言 ⑧ 同族）。
+- `producer` 形状坏了（非对象 / 缺 file / 锚点空串 / 锚点非字符串）⇒ `loadAllowlist` **抛**。
+  空串锚点尤其致命：`text.includes('')` 恒真，等于给这条豁免永久免疫。
+
+自检从 46 条到 **68 条双向**（注入桩判分叉逻辑、真函数判文件读取、临时允许表判装载形状、
+外加两条**真实树上的正控**：两个锚点必须在真源码里找得到——锚点写错就是废条目）。
+变异证伪实测：把 `contains` 改成一个不存在的串 ⇒ `未命中 1 / held 1 / EXIT=1`，另一条不受影响；
+还原后 `diff -q` 逐字节一致。
+
+同一条锚点也给了本轮新登记的 `sqlx::pool::acquire` 慢获取 WARN（`producer` =
+`stepby-axum/src/db/pool.rs` 的 `.acquire_timeout(`）：池还在构造，这条遥测就还有可能再来。
+
+### 3.98 陈旧判据红了怎么定性：采集面的 crate 边界与两枚 exe 的逐字节对账（b86 固化）
+
+`build-freshness.mjs` 的后端那一腿现在扫的是**链进同一个 exe 的全部 crate 源码**：
+`stepby-axum/src/**` + `governance/src/**` + `migration/src/**`（外加两份 sibling `Cargo.toml`）。
+补面的起因是实测的：本批收 `sideTheme` 时 `governance/src/lib.rs` 比在跑的 exe 新 **219.5 分钟**，
+而判据只扫 `src/` ⇒ 一声不响放行。`:8080` 上那个二进制里的 `governance::CONFIGS`、
+`RETIRED_CONFIG_KEYS`、`side_theme_normalize_sql()` 都是产种子 SQL 的生产码，不是"另一个 crate 的事"。
+
+**红了之后先定性，再决定要不要重跑轮**（重跑一轮 deep + main 是 90 分钟量级，判据本身回答不了"这次改动进没进码段"）：
+
+```bash
+# 1) 留住旧 exe（重启会覆盖 target/debug/stepby-axum.exe，先拷走）
+cp stepby-axum/target/debug/stepby-axum.exe /tmp/exe_old.bin
+# 2) 停 :8080（Windows 不允许覆盖正在运行的 exe，cargo 的 link 步会 access denied）
+powershell -NoProfile -Command "Stop-Process -Id <8080 的 PID> -Force"
+# 3) 重建 + 重启（启动器负责 STEPBY_BACKEND_LOG 留痕）
+cd stepby-axum && cargo build -j 4 --bin stepby-axum
+STEPBY_BACKEND_LOG=logs/<本轮>_r2.log node start-backend.mjs
+# 4) 逐字节对账两枚 exe，看差异落在哪些区间
+python - /tmp/exe_old.bin <<'PY'
+import sys
+old=open(sys.argv[1],'rb'); new=open('stepby-axum/target/debug/stepby-axum.exe','rb')
+groups=[]; i=0
+while True:
+    a=old.read(1<<20); b=new.read(1<<20)
+    if not a: break
+    for j,(x,y) in enumerate(zip(a,b)):
+        if x!=y:
+            off=i+j
+            if groups and off==groups[-1][1]+1: groups[-1][1]=off
+            else: groups.append([off,off])
+    i+=len(a)
+def ctx(f,o):
+    f.seek(max(0,o-45)); return ''.join(chr(c) if 32<=c<127 else '.' for c in f.read(110))
+for g in groups:
+    print(f'@{g[0]}..{g[1]} ({g[1]-g[0]+1}B)'); print(' 旧:',ctx(old,g[0])); print(' 新:',ctx(new,g[0]))
+PY
+```
+
+读法（b86 实测就是这一例）：**7 个区间 / 28 字节 / 109,324,288 = 2.56e-07**，内容分别是
+PE TimeDateStamp、内嵌 `build_ts=…` 的十进制位、RSDS/PDB 的 GUID+age 与几处指向时间戳的指针——
+**`.text` 一字节未变** ⇒ 那次"比 exe 新"的改动是**测试码**，权威轮测的确实是同一份生产码。
+差异若落在码段（区间多、字节数以 KB 计），结论反过来：先前那几轮不含这些改动，必须重建后复跑受影响套件。
+两条证据要**互相印证**，不要只靠字节数：本轮另有一条独立证据是 F45 的"平台旋钮真实生效"判据
+在旧 exe 上就已通过（`_tmp_b86_f4572.log:52`），说明治理行为当时在场。
+
+同一条纪律在**悬挂提交核对**上也用了一次（见 AGENTS 前言 ㉔）：判"stash 里的内容有没有着落"时，
+参考集合用 `git log --branches --tags --full-history -- <path>`，**不要用 `--all`**——
+`git stash` 会把备份挂到 `refs/stash`，`--all` 连它一起收进集合，于是"从未提交"被读成"已着落"。
+配套两条夹具正控（临时仓，别在真仓里造）：A 内容从未提交 ⇒ 必须报"无着落 1"；
+B 同一内容随后提交但被 prettier 重排 ⇒ 必须报"无着落 0"。A 第一次没红，才把 `--all` 换掉。
+
+同一套"先归因再动手"也用在 `action-inventory` 的逐页分母上：某个动作键从 12 个降到 7 个，
+判据只报"变少了"，报不出"为什么"——而降分母最常见的成因是**该页本轮 0 行**（行内动作挂在数据行上，
+数据没了动作就没了），这与"覆盖率变好"在纯计数上同形。现在每页的差分行同时带
+`本轮该页 rowCount` 与空态文案，命中"0 行 + 空态"时打印
+`（本轮该页 0 行、空态「暂无数据」⇒ 行内动作随数据消失，分母在缩，不等于覆盖率变好）`。
+b86 实测：`/system/msg/channel` 的动作数 12 → 7 → 12（第三轮该页回到 3 行），
+三次都是数据态决定，一次也不是代码决定。
+
+### 3.99 变异还原会把 mtime 推到产物之后：两种后果与各自的正确动作（b87 实测）
+
+`cp x.py.orig x.py` 式的"逐字节还原"只还原**内容**，不还原**时间**。产物新鲜度闸
+（`build-freshness.mjs::staleFrontendSources`）判的是 mtime，于是还原后的第一件事往往是
+`[FATAL] 产物陈旧：… 首推 src\views\system\user\index.vue（比产物新 152.9 分钟）`——
+而那句里的文件字节与产物里的对应代码**完全一致**。b87 实测两次踩中（对
+`src/api/system/config.ts`、`src/views/system/user/index.vue` 各做一次盘上变异后还原）。
+
+两种后果要分开处理，别混成一条：
+
+1. **只是被自己的还原动作推晚** ⇒ 正确动作是 `cp` 之前先记下原 mtime，还原时一起复原：
+   ```bash
+   stat -c %y src/api/system/config.ts        # 记下
+   touch -d "<原 mtime>" src/api/system/config.ts   # 还原内容后再执行
+   ```
+   做不到（已经忘了记）就重建产物——重建不是妥协：`__BUILD_TIME__` 被 vite 打进
+   入口 chunk（`vite.config.ts:84/100`），所以**每次重建入口 chunk 的文件名必然变**，
+   这不是"生产码变了"的证据；要判"生产码有没有变"照 §3.98 的逐字节法（前端比 chunk 集合，
+   后端比 exe 差异区间）。b87 的重建实测：23 个产物文件里 15 个逐字节相同、
+   5 个同路径不同（`index.html`/`sw.js*` 这类含时间戳或预缓存清单的）、入口 chunk 换名——
+   形状与"`__BUILD_TIME__` 变了而码没变"一致。
+2. **真陈旧**（确实改了 `src/**` 没重建） ⇒ 按 §1/§2 的顺序重建：
+   `build:embedded` → 立即拷入 `stepby-axum/frontend-dist/` → `build:prod` 留在 `dist/`。
+   顺序搞反会让 :4173 用同源 baseURL 请求 `/getRouters` 命中 SPA fallback，登录后跳 `/500`。
+
+顺带一条**取证用途**（b86 §16 用它反证过）：段首预检打 `新鲜且服务一致` 本身就是证据——
+它证明那一刻所有 `src/**` 的 mtime 都早于产物，于是"某次源码改动早于那次构建"可以被
+后来跑批的预检行坐实，不必靠人回忆改码顺序。
+
+### 3.100 行内动作面覆盖率：分母来自基线，不来自本轮 DOM（b87 项 5）
+
+`action-inventory.mjs` 的 `coverage` 是"本轮扫到的动作里覆盖了几个"，而**行内动作
+（修改/删除/测试…）只在有数据行时才存在于 DOM** ⇒ 一页本轮 0 行时分子分母一起缩，
+`coverage` 仍然 100%。§3.98 之后那条归因提示只解决"看得懂为什么变小"，不解决
+"数据没了被读成质量变好"。现在多一栏判定：
+
+- 基线新增 `rowPerRoute: { 路径: { t, c, r, e } }` 与 `rowSurfaceCoverage`；
+- 判据 `rowSurface(基线 t 之和为分母, 本轮覆盖数为分子、按基线 t 封顶)`，`--gate` 与
+  `--update-baseline` 共用同一个 `rowRatchetRegressions`；
+- 退步文案逐页点名，并把两种成因分开写：该页本轮 0 行 ⇒"需要给这一页配数据夹具或用例"；
+  仍有数据行 ⇒"控件被删或用例文案变了"。照着提示做，动作是补覆盖面，不是改阈值。
+
+**读数必须轮询到落定，不得"固定 sleep 看一眼"**（b87 收口期实测的自曝）：
+同一份产物、同一份库，`/system/msg/channel` 曾被连跑两把分别读成 **0 行/7 动作**与
+**3 行/12 动作** ⇒ 行内动作面的**分母**自己抖（56 与 59）。诊断脚本证明服务端一直返回
+`total=3`（`GET /system/msg/channel/list?pageNum=1&pageSize=10` ⇒ 200 / 3 行），
+坏的是采样时机：原来 `goto(domcontentloaded)` 之后固定 `sleep(1400)` 再采样，
+列表慢于 1.4 秒时读到的是 el-table 的"暂无数据"。
+现在的形状：`settleVerdict`（连续两次 `(rows, loading)` 相同且无遮罩 ⇒ 落定；
+**真空表算落定**，那是合法的 0 行）+ `waitTableSettled(8000ms, 250ms)` 轮询，
+每页把 `{settled, settleMs, settleReason}` 写进凭证，
+**任一页未落定 ⇒ `[FATAL]` + EXIT=2（UNRUN）**，且排在内容比对之前（禁则 ⑨）。
+换这把尺的连带后果：同页多扫出 5 个动作 ⇒ `backlog 46 → 50`，旧尺写的基线会把
+"扫出了更多面"判成退步。因此基线带口径戳 `sampling: 'settled-poll-v1'`，
+缺戳 ⇒ `baselineShapeGaps` 点名 `sampling` ⇒ `--gate` UNRUN、`--update-baseline` 走口径迁移。
+**结论：判据换形必须与重生成基线同批**（与 `metric`/`sources` 同一条纪律）。
+配方同 §3.60.6（"判据不得与环境耦合"的第四例：这一例脏的是**分母**）。
+
+```bash
+node action-inventory.mjs --selftest        # 含"0 行必须判退步"与"纯工具栏页不得算缩水"双向
+node action-inventory.mjs --update-baseline # 旧格式基线走"口径迁移"通道落盘（缺栏≠退步）
+node action-inventory.mjs --gate            # 缺 rowPerRoute 栏 ⇒ EXIT=2（UNRUN），不是 EXIT=1
+```
+
+刻意**不**做成"0 行就 UNRUN"：实测 56 页里 17 页本轮就是 0 行（`/user/profile/*`、
+`/monitor/cache` 等），那样装的闸第一轮就变成每轮必红，结局是被人去改阈值——
+本仓对这一族的定论是"判据不能由环境决定绿红"。棘轮只许升，所以"给空页补数据"是唯一
+能让这一栏变好的动作。

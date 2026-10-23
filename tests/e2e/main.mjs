@@ -5847,8 +5847,9 @@ async function testFeature27(page) {
         operLogIpDetail = '无对应的操作日志'
       }
 
-      // 自清理：恢复原 remark。该行是列表第一条（可能是 platform_default 种子键
-      // sys.index.skinName），不留测试痕迹；治理列本身已由后端"部分更新语义"保证不被重置。
+      // 自清理：恢复原 remark。该行是列表第一条（批八十六起为 platform_default 种子键
+      // sys.index.sideTheme——原先这里是已退役的死键 sys.index.skinName），不留测试痕迹；
+      // 治理列本身已由后端"部分更新语义"保证不被重置。
       await fetch(`${CONFIG.backendUrl}/system/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -11027,8 +11028,94 @@ async function testFeature45(page) {
     record(45, 'ThemeEditor 单选框值一致（theme-auto/dark/light）', false, `异常: ${err.message.slice(0, 80)}`)
   }
 
-  // ---------- 45-14 综合验证 ----------
-  const total45 = 13
+  // ---------- 45-14 平台旋钮真实生效（批八十六 N-1：sys.index.sideTheme 由死键变真旋钮）----------
+  // 三支判据，缺一即假绿：
+  //   ① 平台值改成 theme-dark → 清掉本地存档与「用户选过」标记 → 重新导航 → 侧栏 class 含 theme-dark。
+  //      这一支才是"参数页改了真的生效"的证据；§5.23 之后这个键没有任何消费者，
+  //      旧判据（只看默认值是不是 theme-auto）对"改完毫无反应"是瞎的。
+  //   ② 对照组：本地有「用户显式选过 theme-light」的标记与存档时，DOM 必须是 theme-light。
+  //      少了这一支，实现可以是"每次进入都用平台值覆盖用户"——① 照样全绿，
+  //      而用户的所有主题选择被静默洗掉（与 AGENTS 开关规范⑤"前端只消费不推断"同族缺陷）。
+  //   ③ 复原 theme-auto：下一批的 45-1（默认 theme-auto）与任何后续功能都不被本支污染。
+  // 采样一律"轮询到落定 + 记下等待时长"，不写"导航后看一眼"（本表前言 ④：
+  // 瞬时态软断言的结论由网络快慢决定，而这类判据喂给只许降的棘轮）。
+  let platformKnobOk = false
+  let knobDetail = ''
+  const readSidebarClassUntil = async (want) => {
+    const deadline = Date.now() + 12000
+    let cls = ''
+    let waited = 0
+    while (Date.now() < deadline) {
+      cls = await page.evaluate(() => document.querySelector('.sidebar-theme-wrapper')?.className || '').catch(() => '')
+      if (cls.includes(want)) break
+      await sleep(250)
+      waited += 250
+    }
+    return { cls, waited }
+  }
+  const gotoIndexAndRead = async (want) => {
+    await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load', timeout: 20000 }).catch(() => {})
+    return readSidebarClassUntil(want)
+  }
+  const setPlatformSideTheme = async (val) => {
+    const token = await getAdminToken(page)
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    const list = await fetch(
+      `${CONFIG.backendUrl}/system/config/list?pageNum=1&pageSize=10&configKey=${encodeURIComponent('sys.index.sideTheme')}`,
+      { headers }
+    )
+      .then((r) => r.json())
+      .catch(() => null)
+    const row = (list?.rows || []).find((r) => !r.tenantId && r.configKey === 'sys.index.sideTheme')
+    if (!row) return { ok: false, why: '未取到 sideTheme 平台行' }
+    const put = await fetch(`${CONFIG.backendUrl}/system/config`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        configId: row.configId,
+        configKey: 'sys.index.sideTheme',
+        configValue: val
+      })
+    })
+      .then((r) => r.json())
+      .catch(() => null)
+    return { ok: put?.code === 200, why: `code=${put?.code}` }
+  }
+  const clearLocalThemeChoice = () =>
+    page.evaluate(() => {
+      localStorage.removeItem('layout-setting')
+      localStorage.removeItem('stepby_sidetheme_user_set')
+    })
+  try {
+    const setDark = await setPlatformSideTheme('theme-dark')
+    if (!setDark.ok) throw new Error(`平台值写入失败（${setDark.why}）`)
+    await clearLocalThemeChoice().catch(() => {})
+    const r1 = await gotoIndexAndRead('theme-dark')
+    const userWins = await page
+      .evaluate(() => {
+        localStorage.setItem('stepby_sidetheme_user_set', '1')
+        localStorage.setItem('layout-setting', JSON.stringify({ sideTheme: 'theme-light' }))
+      })
+      .then(() => true)
+      .catch(() => false)
+    const r2 = userWins ? await gotoIndexAndRead('theme-light') : { cls: '(本地标记写入失败)', waited: 0 }
+    const restore = await setPlatformSideTheme('theme-auto')
+    await clearLocalThemeChoice().catch(() => {})
+    const r3 = await gotoIndexAndRead('theme-auto')
+    platformKnobOk =
+      r1.cls.includes('theme-dark') &&
+      r2.cls.includes('theme-light') &&
+      !r2.cls.includes('theme-dark') &&
+      restore.ok &&
+      r3.cls.includes('theme-auto')
+    knobDetail = `平台=${r1.cls.slice(0, 48)}(等${r1.waited}ms) | 用户覆盖=${r2.cls.slice(0, 48)}(等${r2.waited}ms) | 复原=${r3.cls.slice(0, 48)}(等${r3.waited}ms)`
+    record(45, '平台旋钮 sys.index.sideTheme 真实生效（含用户优先与复原）', platformKnobOk, knobDetail)
+  } catch (err) {
+    record(45, '平台旋钮 sys.index.sideTheme 真实生效（含用户优先与复原）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
+  // ---------- 45-15 综合验证 ----------
+  const total45 = 14
   const checks = [
     defaultThemeOk,
     lightVarsOk,
@@ -11042,7 +11129,8 @@ async function testFeature45(page) {
     forceLightOk,
     settingsOptionsOk,
     i18nOk,
-    themeEditorOk
+    themeEditorOk,
+    platformKnobOk
   ]
   const passed45 = checks.filter(Boolean).length
   record(45, '侧边栏/主题优化综合验证', passed45 === total45, `${passed45}/${total45} 项检查通过`)
@@ -16487,8 +16575,14 @@ async function testFeature72(page) {
   }
 
   // ---------- 步骤 6：租户覆盖 platform_default 键成功，且不污染平台默认层 ----------
-  const overrideKey = 'sys.index.skinName'
-  const overrideVal = `skin-e2e-${uniq}`
+  // 载体（批八十六 N-1）：原用 `sys.index.skinName`，该键无任何消费者、已随死键退役被
+  // 窄迁移 + 存量兜底删除，参数页不再有这个假入口。改用注册表里第一个
+  // `Coverage::Free` 参数项 `sys.index.sideTheme`——它同时是真实旋钮，
+  // 覆盖语义与消费链在这里一并被验证（"能覆盖"与"覆盖后被读到"是同一件事的两半）。
+  const overrideKey = 'sys.index.sideTheme'
+  // 覆盖值必须落在该键的值域内：服务层的 value_domain 闸门对**任何层**的写入都生效
+  //（平台行、租户覆盖行同一判据）。theme-light 既合法，又与平台层的 theme-auto 可区分。
+  const overrideVal = 'theme-light'
   try {
     // 可证伪前置：该键必须仍为 platform_default（否则"覆盖"必然 403，会把**治理列被污染**
     // 误判为覆盖功能回归）。2026-09-26 实测：其它功能（功能 27）的 `PUT /system/config`
@@ -16506,7 +16600,8 @@ async function testFeature72(page) {
       govRow?.scope === 'platform_default' && govRow?.tenantEditable === '1',
       `scope=${govRow?.scope}, editable=${govRow?.tenantEditable}`
     )
-    // 覆盖前平台默认层快照（sys.index.skinName 为平台种子键，scope=platform_default）
+    // 覆盖前平台默认层快照（sideTheme 是注册表里第一个 Coverage::Free 参数项，
+    // 平台层 scope=platform_default、缺省 theme-auto）
     const platformBeforeResp = await fetch(
       `${CONFIG.backendUrl}/system/config/configKey/${encodeURIComponent(overrideKey)}`,
       { headers: authHeaders }
@@ -16518,7 +16613,7 @@ async function testFeature72(page) {
     const addResp = await fetch(`${CONFIG.backendUrl}/system/config`, {
       method: 'POST',
       headers: jsonA,
-      body: JSON.stringify({ configName: '租户皮肤覆盖', configKey: overrideKey, configValue: overrideVal })
+      body: JSON.stringify({ configName: '租户侧边栏主题覆盖', configKey: overrideKey, configValue: overrideVal })
     })
       .then((r) => r.json())
       .catch(() => null)
@@ -16560,6 +16655,26 @@ async function testFeature72(page) {
         overrideRow?.visibleToTenant === '1',
       `scope=${overrideRow?.scope}, tenantId=${overrideRow?.tenantId}, editable=${overrideRow?.tenantEditable}`
     )
+
+    // 自清理（批八十六随载体切换新增）：原载体 sys.index.skinName 是**死键**，
+    // 覆盖行留着只多一行没人读的数据；换成 sideTheme（真实旋钮）后，遗留的租户覆盖行
+    // 会让该租户的界面主题永久停在 theme-light——测试痕迹从此有了真实副作用，必须删。
+    if (overrideRow?.configId) {
+      const del = await fetch(`${CONFIG.backendUrl}/system/config/${overrideRow.configId}`, {
+        method: 'DELETE',
+        headers: authA
+      })
+        .then((r) => r.json())
+        .catch(() => null)
+      record(
+        72,
+        '清理：租户覆盖行删除后回落到平台默认层',
+        del?.code === 200 && platformRead?.data === platformBefore,
+        `del=${del?.code}, 平台=${platformRead?.data}`
+      )
+    } else {
+      record(72, '清理：租户覆盖行删除后回落到平台默认层', false, '未取到覆盖行 configId')
+    }
   } catch (err) {
     record(72, '租户覆盖 platform_default 键', false, `异常: ${err.message.slice(0, 60)}`)
   }
