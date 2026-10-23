@@ -9,7 +9,7 @@
       "why": "本机 e2e 用 local 档（共享态落同库），这是部署选择而非依赖故障；redis 档由 integration_tests 覆盖。这一条是**启动期一次性**告警（initialize/helpers.rs 的分级守卫只在进程启动时打），所以\"本批没有重启\"的那一轮它必然不出现——按条件型豁免登记，不得因未命中而撤销（撤销的后果是下一次重启判红、把人支使去补回同一句理由）",
       "producer": {
         "file": "stepby-axum/src/initialize/helpers.rs",
-        "contains": "Redis \u914d\u7f6e\u88ab\u5ffd\u7565"
+        "contains": "Redis 配置被忽略"
       }
     },
     {
@@ -18,7 +18,7 @@
       "why": "GeoLite2-City.mmdb 是可选数据文件，未随仓库分发；缺失时归属地降级为空，不影响任何业务链路。这一条由 IpLocator 构造期打出（**启动期一次性**），未重启的批次窗口内必然不出现 ⇒ 按条件型豁免登记，生产者锚点失效时才允许撤销",
       "producer": {
         "file": "stepby-axum/src/utils/ip_location.rs",
-        "contains": "\u52a0\u8f7d mmdb \u6587\u4ef6"
+        "contains": "加载 mmdb 文件"
       }
     },
     {
@@ -27,7 +27,7 @@
       "why": "启动期告知性告警：未登记权限映射的受保护路由会拒绝；这是安全默认姿态，不是错误。它只在路由装配时打一次（**启动期一次性**），未重启的批次窗口内必然不出现 ⇒ 按条件型豁免登记，生产者锚点失效时才允许撤销",
       "producer": {
         "file": "stepby-axum/src/router/mod.rs",
-        "contains": "\u6743\u9650 fail-closed \u6a21\u5f0f\u5df2\u542f\u7528"
+        "contains": "权限 fail-closed 模式已启用"
       }
     },
     {
@@ -130,6 +130,24 @@
       "producer": {
         "file": "stepby-axum/src/db/pool.rs",
         "contains": ".acquire_timeout("
+      }
+    },
+    {
+      "level": "WARN",
+      "match": "slow statement.*INSERT INTO \\\\\"sys_frontend_error\\\\\"",
+      "why": "前端错误上报的**批量 INSERT 慢获取**（sqlx 自带 1s 阈值）。b88 权威轮 07:44–08:37Z 实测恰 1 条：`elapsed=1.4232667s / rows_affected=2 / slow_threshold=1s`，时刻在 deep-e2e 全量单轮中段（整库写入争抢 SQLite 单写锁的那一段）。这一条只在**写锁排队**时出现（条件型），不是语句本身有问题：同一批同一条 SQL 在轻载轮次恒不出现。刻意**不调高 sqlx 阈值**——调高等于把\"写路径在排队\"从观测面抹掉（与 b87 那条 `sqlx::pool::acquire` 同一条取向），生产者锚点在 `insert_many`（真批量入口），锚点失效时才允许撤销",
+      "producer": {
+        "file": "stepby-axum/src/repository/sys_frontend_error.rs",
+        "contains": "insert_many"
+      }
+    },
+    {
+      "level": "WARN",
+      "match": "slow statement.*INSERT INTO \\\\\"sys_shared_kv\\\\\"",
+      "why": "共享态 local 档的 KV 单行 INSERT 慢获取（sqlx 自带 1s 阈值）。b88 权威轮实测恰 1 条：`elapsed=1.4103174s / rows_affected=1 / slow_threshold=1s`，与上面那条同一时段——`sys_shared_kv` 是 local 档的**业务同库承载**（AGENTS A.1），e2e 全量轮里它和权限缓存、限流桶、验证码写同一个 SQLite 文件，单写锁排队属条件型信号，轻载轮次恒不出现。同样**不调阈值**：这条 WARN 是\"共享态写路径开始排队\"的唯一观测面，生产者锚点在 local_store 的 KV ActiveModel 别名（`KvActive`），锚点失效时才允许撤销",
+      "producer": {
+        "file": "stepby-axum/src/shared_store/local_store.rs",
+        "contains": "KvActive"
       }
     }
   ]

@@ -20,7 +20,12 @@
             :key="entry.path"
             class="quick-entry-item flex items-center gap-3 p-3 px-[14px] rounded-lg cursor-pointer border border-transparent"
             :class="{ disabled: entry.disabled }"
+            role="button"
+            :tabindex="entry.disabled ? -1 : 0"
+            :aria-disabled="entry.disabled"
             @click="handleQuickEntry(entry)"
+            @keydown.enter.prevent="handleQuickEntry(entry)"
+            @keydown.space.prevent="handleQuickEntry(entry)"
           >
             <div
               class="entry-icon w-10 h-10 rounded-lg flex items-center justify-center text-xl text-white shrink-0"

@@ -10,7 +10,9 @@
             :maxlength="100"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('config.search.phConfigName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('config.search.phConfigName')"
+          />
         </el-form-item>
         <el-form-item :label="t('config.search.configKey')" prop="configKey">
           <el-input
@@ -18,7 +20,9 @@
             :placeholder="t('config.search.phConfigKey')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('config.search.phConfigKey')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('config.search.phConfigKey')"
+          />
         </el-form-item>
         <el-form-item :label="t('config.search.configType')" prop="configType">
           <el-select
@@ -38,7 +42,9 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
+            :end-placeholder="t('common.form.endDate')"
+            :aria-label="t('common.form.startDate')"
+          ></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -139,11 +145,7 @@
               <el-tag size="small" :type="scope.row.scope === 'platform_only' ? 'danger' : 'info'">
                 {{ scope.row.scope || 'global' }}
               </el-tag>
-              <el-tag
-                v-if="scope.row.visibleToTenant === '0'"
-                size="small"
-                type="warning"
-              >
+              <el-tag v-if="scope.row.visibleToTenant === '0'" size="small" type="warning">
                 {{ t('config.column.hiddenToTenant') }}
               </el-tag>
             </span>
@@ -190,7 +192,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -203,13 +205,29 @@
     />
 
     <!-- 添加或修改参数配置对话框（before-close：未保存离开确认，UX-5） -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close :before-close="beforeDialogClose" :close-on-click-modal="false">
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 500px)"
+      append-to-body
+      destroy-on-close
+      :before-close="beforeDialogClose"
+      :close-on-click-modal="false"
+    >
       <el-form ref="configRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('config.form.configName')" prop="configName">
-          <el-input v-model.trim="form.configName" :placeholder="t('config.search.phConfigName')" :aria-label="t('config.search.phConfigName')" />
+          <el-input
+            v-model.trim="form.configName"
+            :placeholder="t('config.search.phConfigName')"
+            :aria-label="t('config.search.phConfigName')"
+          />
         </el-form-item>
         <el-form-item :label="t('config.form.configKey')" prop="configKey">
-          <el-input v-model.trim="form.configKey" :placeholder="t('config.search.phConfigKey')" :aria-label="t('config.search.phConfigKey')" />
+          <el-input
+            v-model.trim="form.configKey"
+            :placeholder="t('config.search.phConfigKey')"
+            :aria-label="t('config.search.phConfigKey')"
+          />
         </el-form-item>
         <el-form-item :label="t('config.form.configValue')" prop="configValue">
           <el-input
@@ -217,7 +235,9 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit :aria-label="t('config.form.configValue')" />
+            show-word-limit
+            :aria-label="t('config.form.configValue')"
+          />
         </el-form-item>
         <el-form-item :label="t('config.form.configType')" prop="configType">
           <el-radio-group v-model="form.configType">
@@ -230,7 +250,9 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit :aria-label="t('config.form.remark')" />
+            show-word-limit
+            :aria-label="t('config.form.remark')"
+          />
         </el-form-item>
         <!-- E-04 参数治理（仅平台管理员）：scope/editable/visible 三列编辑；
              Locked 键控件禁用（后端 resolve_governance fail-closed 兜底） -->
@@ -242,7 +264,9 @@
               :disabled="isLockedKey"
               :placeholder="t('config.governance.scopePlaceholder')"
               class="w-full"
-              @change="onScopeChange" :aria-label="t('config.governance.scopePlaceholder')">
+              @change="onScopeChange"
+              :aria-label="t('config.governance.scopePlaceholder')"
+            >
               <el-option value="platform_only" :label="t('config.governance.scopePlatformOnly')" />
               <el-option value="platform_default" :label="t('config.governance.scopePlatformDefault')" />
               <el-option value="tenant_private" :label="t('config.governance.scopeTenantPrivate')" />
@@ -282,7 +306,9 @@
       </el-form>
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" :loading="submitLoading" @click="submitFormGuarded">{{ t('common.confirm') }}</el-button>
+          <el-button type="primary" :loading="submitLoading" @click="submitFormGuarded">
+            {{ t('common.confirm') }}
+          </el-button>
           <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
@@ -365,6 +391,8 @@ const {
   title,
   beforeDialogClose,
   getList,
+  loadError,
+  retryLoad,
   cancel,
   handleQuery,
   handleSelectionChange,
@@ -455,11 +483,7 @@ function applyGovernanceToForm() {
 /** 治理字段相对打开对话框时是否有变化（有变 → 保存前二次确认，防误改） */
 function governanceChanged(): boolean {
   if (!isPlatform.value) return false
-  const cur = JSON.stringify([
-    form.value.scope || 'platform_only',
-    tenantEditableOn.value,
-    visibleToTenantOn.value
-  ])
+  const cur = JSON.stringify([form.value.scope || 'platform_only', tenantEditableOn.value, visibleToTenantOn.value])
   return cur !== governanceSnapshot
 }
 

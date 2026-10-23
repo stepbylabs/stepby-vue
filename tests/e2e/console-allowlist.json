@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "note": "deep-e2e 的 console「状态码类无害噪声」逐条登记表（b88 项 N-4 从 deep-e2e.mjs 的内联字典外置）。\n\n判据形状与另外四张允许表同源（oper-log / backend-log / click-failure / endpoint-coverage）：\n① 每条必须自带 `why`，且由 `producer-kit.selfContainedWhyViolation` 判（下限 12 字符、禁「同上/见上/如上/如前/同前」这类跨条目指代——条目集合一变，指代就指向另一条理由）；\n② 同一份表里不得有两条逐字相同的理由（`duplicateWhyGroups`）；\n③ 匹配语义保持外置前一致：**按这条消息自己的 URL** 判（`msg.location().url`，取证见 RUN-RECIPE §3.99），\n   只有拿不到来源 URL 时才退回「本页累积集合是否全部无害」的兜底口径——兜底不得变成主通道，\n   所以运行侧把两条通道分别计数并落盘（`deep-e2e-console-exemptions.json`），由 `console-allowlist-audit.mjs --gate` 判；\n④ 装载即校验：文件缺失/JSON 坏/状态码不在 400|401|403|404/`url` 为空或含通配/理由不合格 ⇒ 直接抛（EXIT=2），\n   「没登记」与「表坏了」必须可区分。\n\n`url` 是**子串**匹配（沿用外置前的语义），因此条目之间存在包含关系时，靠后的那条永远不会被用到；\n这种「结构性遮蔽」由审计脚本静态判（`shadowedBy`），不需要跑一轮才发现。",
+  "entries": [
+    {
+      "id": "401-system-user",
+      "status": 401,
+      "url": "/system/user",
+      "why": "清 token 的权限隔离用例（M9/M12 一类）在会话失效后仍会触发用户列表重取：此刻令牌本就无效，401 是这条自愈链的设计内结局，用户列表本身由登录态用例负责判定。"
+    },
+    {
+      "id": "401-login",
+      "status": 401,
+      "url": "/login",
+      "why": "登录页自身的凭据校验请求在密码/验证码错误时返回 401（负路径用例故意打错），页面判定看是否落回登录表单，不看这条 console。"
+    },
+    {
+      "id": "401-unlockscreen",
+      "status": 401,
+      "url": "/unlockscreen",
+      "why": "解锁接口在无会话时被调用（锁屏页的解锁按钮负路径），401 是服务端「凭据无效」的正确分级，用例断言的正是解不开。"
+    },
+    {
+      "id": "401-getInfo",
+      "status": 401,
+      "url": "/getInfo",
+      "why": "守卫在无会话时冷加载会先取用户信息，401 是它的正常入口条件；该分支的行为（跳登录页、清死 cookie）由 M32 的会话过期判据负责。"
+    },
+    {
+      "id": "401-logout",
+      "status": 401,
+      "url": "/logout",
+      "why": "守卫读到 401 后按既有设计调用 logOut()，它会先向服务端吊销会话，而此刻令牌正是失效的 ⇒ POST /logout 回 401 是这条自愈链的设计内负路径（M32 32.7b 判据实测：落地 /login 且死 cookie 已清除）。"
+    },
+    {
+      "id": "403-system-user",
+      "status": 403,
+      "url": "/system/user",
+      "why": "权限隔离用例用受限账号有意请求用户管理写操作（新增/改状态等），服务端权限中间件先于业务响应体拒绝 ⇒ 403 且 oper 日志为空，正是该用例断言的结局。"
+    },
+    {
+      "id": "400-system-post",
+      "status": 400,
+      "url": "/system/post",
+      "why": "CRUD 唯一性负路径（M26 故意创建重复岗位）：重复岗位编码必须 400，用例在 POST 后按名回查断言不得多出一行。"
+    },
+    {
+      "id": "400-system-user",
+      "status": 400,
+      "url": "/system/user",
+      "why": "CRUD 唯一性与租户配额负路径：重复账号名、账号数达套餐上限都必须 400 且不落库（oper 表两条同名端点的用例即此），console 噪声由同一请求产生。"
+    },
+    {
+      "id": "404-authRole",
+      "status": 404,
+      "url": "/authRole/",
+      "why": "M32 边界用例用不存在/无效的 ID 深链角色授权页，后端按契约回 404；判据是页面落到确定态而不是请求成功。"
+    },
+    {
+      "id": "404-tool-gen",
+      "status": 404,
+      "url": "/tool/gen/",
+      "why": "代码生成器边界用例加载不存在的表（M32），后端回 404、前端主动打印一条失败日志；两者都是该用例的判定材料而非缺陷。"
+    },
+    {
+      "id": "404-monitor-job",
+      "status": 404,
+      "url": "/monitor/job/",
+      "why": "定时任务边界用例访问不存在的 jobId 详情/日志 ⇒ 404 属预期；任务真实增删改查由 M88 在合法 ID 上另行判定。"
+    }
+  ]
+}

@@ -184,7 +184,10 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="filterType === 'unread' ? t('noticeCenter.noUnreadTip') : t('common.empty')" />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：加载失败显示「重试」，成功无数据保留原文案 -->
+          <list-empty :load-error="loadError" @retry="retryLoad">
+            <el-empty :description="filterType === 'unread' ? t('noticeCenter.noUnreadTip') : t('common.empty')" />
+          </list-empty>
         </template>
       </el-table>
 
@@ -279,6 +282,8 @@ const {
   loading,
   total,
   getList,
+  loadError,
+  retryLoad,
   handleQuery
 } = useCrudTable<SysNotice, NoticeQueryParams>({
   listApi: (params) =>

@@ -3,7 +3,18 @@
     <!-- 概览统计（可折叠） -->
     <el-card class="mb8" shadow="never">
       <template #header>
-        <div class="stats-header" @click="statsExpanded = !statsExpanded">
+        <!-- 折叠头：div 本身不可聚焦，故补 role/tabindex/键盘激活三件；aria-expanded 声明展开态，
+             aria-controls 关联下方 stats-body（v-show 常驻 DOM，关联可用） -->
+        <div
+          class="stats-header"
+          role="button"
+          tabindex="0"
+          :aria-expanded="statsExpanded"
+          aria-controls="frontend-error-stats-body"
+          @click="statsExpanded = !statsExpanded"
+          @keydown.enter.prevent="statsExpanded = !statsExpanded"
+          @keydown.space.prevent="statsExpanded = !statsExpanded"
+        >
           <span class="stats-title">
             <el-icon><DataAnalysis /></el-icon>
             {{ t('frontendError.stats.title') }}
@@ -14,7 +25,7 @@
         </div>
       </template>
       <Transition name="expand-fade">
-        <div v-show="statsExpanded" class="stats-body">
+        <div v-show="statsExpanded" id="frontend-error-stats-body" class="stats-body">
           <el-row :gutter="16">
             <el-col :xs="24" :sm="10">
               <div class="stats-sub">{{ t('frontendError.stats.bySource') }}</div>
@@ -266,7 +277,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <list-empty :load-error="loadError" @retry="retryLoad" />
         </template>
       </el-table>
     </Transition>
@@ -382,20 +393,31 @@ const includeVital = computed({
 })
 const formRef = ref<FormInstance | null>(null)
 
-const { dataList, loading, showSearch, multiple, total, getList, handleQuery, handleSelectionChange, handleDelete } =
-  useCrudTable<SysFrontendError, FrontendErrorQueryParams>({
-    listApi: (params) =>
-      listFrontendError(addDateRange(params as Record<string, unknown>, dateRange.value) as FrontendErrorQueryParams),
-    deleteApi: (ids) => delFrontendError(ids as unknown as number | number[]),
-    idField: 'id',
-    defaultForm: () => ({}) as SysFrontendError,
-    titleKey: 'frontendError.title',
-    deleteTipKey: 'frontendError.tip.confirmDelete',
-    queryParams,
-    form,
-    formRef,
-    queryRef
-  })
+const {
+  dataList,
+  loading,
+  showSearch,
+  multiple,
+  total,
+  getList,
+  loadError,
+  retryLoad,
+  handleQuery,
+  handleSelectionChange,
+  handleDelete
+} = useCrudTable<SysFrontendError, FrontendErrorQueryParams>({
+  listApi: (params) =>
+    listFrontendError(addDateRange(params as Record<string, unknown>, dateRange.value) as FrontendErrorQueryParams),
+  deleteApi: (ids) => delFrontendError(ids as unknown as number | number[]),
+  idField: 'id',
+  defaultForm: () => ({}) as SysFrontendError,
+  titleKey: 'frontendError.title',
+  deleteTipKey: 'frontendError.tip.confirmDelete',
+  queryParams,
+  form,
+  formRef,
+  queryRef
+})
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)

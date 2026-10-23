@@ -41,9 +41,18 @@
         >
           <template #prefix><svg-icon icon-class="password" class="el-input__icon input-icon" /></template>
           <template #suffix>
+            <!-- 明文/掩码切换：el-icon 渲染成 <i>，原本既不可聚焦也没有名字与状态。
+                 补 role/tabindex/键盘激活三件；状态用 aria-pressed 而非 aria-expanded——
+                 这个按钮不展开任何区域（改的是输入框 type），aria-expanded 会播报"已展开"却没有受控区。 -->
             <el-icon
               class="cursor-pointer text-base text-text-secondary hover:text-primary transition-colors"
+              role="button"
+              tabindex="0"
+              :aria-label="passwordVisible ? t('login.hidePassword') : t('login.showPassword')"
+              :aria-pressed="passwordVisible"
               @click="passwordVisible = !passwordVisible"
+              @keydown.enter.prevent="passwordVisible = !passwordVisible"
+              @keydown.space.prevent="passwordVisible = !passwordVisible"
             >
               <View v-if="passwordVisible" />
               <Hide v-else />

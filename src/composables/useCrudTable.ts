@@ -112,7 +112,15 @@ export interface UseCrudTableReturn<T extends object> {
   multiple: Ref<boolean>
   total: Ref<number>
   title: Ref<string>
+  /**
+   * 列表请求失败标记（UX：区分「加载失败」与「暂无数据」）：
+   * getList 失败置 true、成功置 false；空态组件据此渲染「加载失败 + 重试」而非"暂无数据"。
+   * 此前失败被 catch 静默吞成空列表，toast 消失后页面落回空态，两种状态在屏幕上同形。
+   */
+  loadError: Ref<boolean>
   getList: () => void
+  /** 空态「重试」入口：复用 getList（不复制请求逻辑），成功后 loadError 自动清除 */
+  retryLoad: () => void
   cancel: () => Promise<void>
   reset: () => void
   handleQuery: () => void
@@ -270,6 +278,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   const multiple = ref(true)
   const total = ref(0)
   const title = ref('')
+  // 列表请求失败标记：失败置真 / 成功置假（供空态区分「加载失败」与「暂无数据」）
+  const loadError = ref(false)
 
   // 请求版本计数器：防止并发请求时旧响应覆盖新数据
   let listRequestId = 0
@@ -360,13 +370,16 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       .then((response) => {
         if (currentRequestId !== listRequestId) return // discard stale response
         const resp = response as { rows: T[]; total: number }
+        loadError.value = false
         dataList.value = resp.rows
         total.value = resp.total
       })
       .catch((e) => {
         // 全局拦截器已弹 ElMessage.error；此处清空列表避免显示陈旧数据，
-        // 并在 DEV 模式记录详细错误便于排查。
+        // 并置失败标记让空态显示「加载失败 + 重试」（区别于"暂无数据"），
+        // 同时在 DEV 模式记录详细错误便于排查。
         if (currentRequestId === listRequestId) {
+          loadError.value = true
           dataList.value = []
           total.value = 0
         }
@@ -375,6 +388,11 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       .finally(() => {
         loading.value = false
       })
+  }
+
+  /** 空态「重试」入口：复用 getList，请求成功后 loadError 由 then 分支自动清除 */
+  function retryLoad(): void {
+    getList()
   }
 
   /** 取消按钮（UX-5：脏表单关闭前确认） */
@@ -620,8 +638,10 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     multiple,
     total,
     title,
+    loadError,
     // 方法
     getList,
+    retryLoad,
     cancel,
     reset,
     handleQuery,

@@ -35,7 +35,16 @@
             item-key="label"
           >
             <template #item="{ element }">
-              <div :key="element.label" class="components-item" @click="addComponent(element)">
+              <!-- 组件面板项：div + @click 不可键盘到达，补 role/tabindex/键盘激活三件 -->
+              <div
+                :key="element.label"
+                class="components-item"
+                role="button"
+                tabindex="0"
+                @click="addComponent(element)"
+                @keydown.enter.prevent="addComponent(element)"
+                @keydown.space.prevent="addComponent(element)"
+              >
                 <div class="components-body">
                   <svg-icon :icon-class="element.tagIcon" />
                   {{ element.label }}
@@ -58,7 +67,16 @@
             item-key="label"
           >
             <template #item="{ element }">
-              <div :key="element.label" class="components-item" @click="addComponent(element)">
+              <!-- 组件面板项：div + @click 不可键盘到达，补 role/tabindex/键盘激活三件 -->
+              <div
+                :key="element.label"
+                class="components-item"
+                role="button"
+                tabindex="0"
+                @click="addComponent(element)"
+                @keydown.enter.prevent="addComponent(element)"
+                @keydown.space.prevent="addComponent(element)"
+              >
                 <div class="components-body">
                   <svg-icon :icon-class="element.tagIcon" />
                   {{ element.label }}
@@ -81,7 +99,16 @@
             item-key="label"
           >
             <template #item="{ element }">
-              <div :key="element.label" class="components-item" @click="addComponent(element)">
+              <!-- 组件面板项：div + @click 不可键盘到达，补 role/tabindex/键盘激活三件 -->
+              <div
+                :key="element.label"
+                class="components-item"
+                role="button"
+                tabindex="0"
+                @click="addComponent(element)"
+                @keydown.enter.prevent="addComponent(element)"
+                @keydown.space.prevent="addComponent(element)"
+              >
                 <div class="components-body">
                   <svg-icon :icon-class="element.tagIcon" />
                   {{ element.label }}

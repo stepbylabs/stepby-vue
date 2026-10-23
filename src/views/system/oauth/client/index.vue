@@ -178,7 +178,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -191,7 +191,14 @@
     />
 
     <!-- 新增 / 编辑客户端 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(94%, 720px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(94%, 720px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="24">
@@ -199,7 +206,9 @@
               <el-input
                 v-model.trim="form.clientName"
                 :maxlength="64"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.clientName')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('sso.clientName')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -214,12 +223,23 @@
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('sso.logoUri')" prop="logoUri">
-              <el-input v-model.trim="form.logoUri" :maxlength="500" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.logoUri')" />
+              <el-input
+                v-model.trim="form.logoUri"
+                :maxlength="500"
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('sso.logoUri')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('sso.redirectUris')" prop="redirectUris">
-              <el-input v-model="redirectUrisText" type="textarea" :rows="3" :placeholder="t('sso.redirectUrisPh')" :aria-label="t('sso.redirectUrisPh')" />
+              <el-input
+                v-model="redirectUrisText"
+                type="textarea"
+                :rows="3"
+                :placeholder="t('sso.redirectUrisPh')"
+                :aria-label="t('sso.redirectUrisPh')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -272,11 +292,7 @@
           <el-col :span="12">
             <!-- v5-D5：sector 聚合标识（pairwise 下同 sector 的多个 RP 获得相同 sub） -->
             <el-form-item :label="t('sso.sectorIdentifier')" prop="sectorIdentifierUri">
-              <el-input
-                v-model.trim="form.sectorIdentifierUri"
-                :maxlength="255"
-                placeholder="https://"
-              />
+              <el-input v-model.trim="form.sectorIdentifierUri" :maxlength="255" placeholder="https://" />
               <div class="el-form-item__tip">{{ t('sso.sectorIdentifierTip') }}</div>
             </el-form-item>
           </el-col>
@@ -301,7 +317,9 @@
                 type="textarea"
                 :maxlength="500"
                 show-word-limit
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('sso.remark')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('sso.remark')"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -327,7 +345,13 @@
         <el-descriptions-item :label="t('sso.clientId')">
           <div class="reveal-row">
             <code class="mono">{{ revealed.clientId }}</code>
-            <el-button type="primary" link icon="DocumentCopy" :aria-label="t('sso.copyClientId')" @click="copy(revealed.clientId, t('sso.clientId'))" />
+            <el-button
+              type="primary"
+              link
+              icon="DocumentCopy"
+              :aria-label="t('sso.copyClientId')"
+              @click="copy(revealed.clientId, t('sso.clientId'))"
+            />
           </div>
         </el-descriptions-item>
         <el-descriptions-item :label="t('sso.clientSecret')">
@@ -353,7 +377,16 @@
 <script setup lang="ts" name="SsoClient">
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import type { SsoClient, SsoClientForm, SsoClientQueryParams } from '@/types'
-import { listSsoClients, getSsoClient, addSsoClient, updateSsoClient, delSsoClient, toggleSsoClient, rotateSsoClientSecret, clearSsoClientPrevSecret } from '@/api/sso'
+import {
+  listSsoClients,
+  getSsoClient,
+  addSsoClient,
+  updateSsoClient,
+  delSsoClient,
+  toggleSsoClient,
+  rotateSsoClientSecret,
+  clearSsoClientPrevSecret
+} from '@/api/sso'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import modal from '@/plugins/modal'
@@ -407,6 +440,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

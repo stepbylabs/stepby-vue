@@ -8,7 +8,9 @@
             :placeholder="t('webHook.search.phHookName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('webHook.search.phHookName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('webHook.search.phHookName')"
+          />
         </el-form-item>
         <el-form-item :label="t('webHook.search.eventTypes')" prop="eventTypes">
           <el-select
@@ -219,7 +221,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -232,9 +234,11 @@
     />
 
     <!-- 添加或修改回调配置对话框 -->
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       :title="title"
-       :before-close="beforeDialogClose" v-model="open"
+      :before-close="beforeDialogClose"
+      v-model="open"
       width="min(90%, 620px)"
       append-to-body
       destroy-on-close
@@ -242,7 +246,12 @@
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item :label="t('webHook.form.hookName')" prop="hookName">
-          <el-input v-model.trim="form.hookName" :placeholder="t('webHook.form.phHookName')" :maxlength="64" :aria-label="t('webHook.form.phHookName')" />
+          <el-input
+            v-model.trim="form.hookName"
+            :placeholder="t('webHook.form.phHookName')"
+            :maxlength="64"
+            :aria-label="t('webHook.form.phHookName')"
+          />
         </el-form-item>
         <!-- 方案 C：订阅口径收敛为事件目录 subscribed_events（旧 eventTypes 输入已移除，
              存量配置由后端迁移 m20261003_000004 收敛并回显在新列） -->
@@ -263,7 +272,12 @@
           </div>
         </el-form-item>
         <el-form-item :label="t('webHook.form.targetUrl')" prop="targetUrl">
-          <el-input v-model.trim="form.targetUrl" :placeholder="t('webHook.form.phTargetUrl')" :maxlength="2048" :aria-label="t('webHook.form.phTargetUrl')" />
+          <el-input
+            v-model.trim="form.targetUrl"
+            :placeholder="t('webHook.form.phTargetUrl')"
+            :maxlength="2048"
+            :aria-label="t('webHook.form.phTargetUrl')"
+          />
         </el-form-item>
         <el-form-item :label="t('webHook.form.secret')" prop="secret">
           <div class="w-full">
@@ -271,7 +285,9 @@
               v-model="form.secret"
               type="password"
               show-password
-              :placeholder="form.id != null && form.hasSecret ? t('webHook.form.phSecretKeep') : t('webHook.form.phSecret')"
+              :placeholder="
+                form.id != null && form.hasSecret ? t('webHook.form.phSecretKeep') : t('webHook.form.phSecret')
+              "
               :maxlength="256"
             />
             <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.secretTip') }}</div>
@@ -302,7 +318,9 @@
             :rows="2"
             :placeholder="t('webHook.form.phRemark')"
             :maxlength="500"
-            show-word-limit :aria-label="t('webHook.form.phRemark')" />
+            show-word-limit
+            :aria-label="t('webHook.form.phRemark')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -314,7 +332,8 @@
     </el-dialog>
 
     <!-- 测试推送对话框 -->
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       :title="t('webHook.tip.testTitle')"
       v-model="testOpen"
       width="min(90%, 640px)"
@@ -336,7 +355,12 @@
             class="w-full"
           >
             <el-option v-for="opt in eventCatalogOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            <el-option v-for="opt in eventTypeOptions" :key="'legacy-' + opt.value" :label="opt.label" :value="opt.value" />
+            <el-option
+              v-for="opt in eventTypeOptions"
+              :key="'legacy-' + opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('webHook.test.payload')">
@@ -345,7 +369,9 @@
             type="textarea"
             :rows="6"
             :placeholder="t('webHook.test.phPayload')"
-            class="font-mono" :aria-label="t('webHook.test.phPayload')" />
+            class="font-mono"
+            :aria-label="t('webHook.test.phPayload')"
+          />
         </el-form-item>
       </el-form>
       <el-descriptions :column="1" border v-if="testResult" class="mb15">
@@ -478,6 +504,8 @@ const {
   title,
   ids,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery: crudHandleQuery,

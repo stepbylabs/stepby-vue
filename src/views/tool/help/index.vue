@@ -16,7 +16,9 @@
             :placeholder="t('help.searchPlaceholder')"
             :maxlength="50"
             clearable
-            class="w-[280px]" :aria-label="t('help.searchPlaceholder')">
+            class="w-[280px]"
+            :aria-label="t('help.searchPlaceholder')"
+          >
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
@@ -37,12 +39,17 @@
           </template>
           <el-scrollbar height="480px">
             <div v-if="filteredSections.length > 0">
+              <!-- 目录项：div + @click 不可键盘到达，补 role/tabindex/键盘激活三件 -->
               <div
                 v-for="(section, idx) in filteredSections"
                 :key="section.id"
                 class="toc-item flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer text-[13px]"
                 :class="{ active: activeSection === section.id }"
+                role="button"
+                tabindex="0"
                 @click="scrollToSection(section.id)"
+                @keydown.enter.prevent="scrollToSection(section.id)"
+                @keydown.space.prevent="scrollToSection(section.id)"
               >
                 <span
                   class="toc-idx inline-block w-5 h-5 leading-5 text-center rounded text-[12px] text-text-secondary shrink-0"
@@ -193,10 +200,15 @@
                   <p class="m-0 mb-3">{{ t('help.sections.contact.intro') }}</p>
                   <el-row :gutter="16">
                     <el-col :xs="24" :sm="12" :md="8" v-for="channel in contactChannels" :key="channel.name">
+                      <!-- 联系渠道卡片：动作是打开外部地址（window.open），语义取 link 而非 button -->
                       <el-card
                         class="contact-card cursor-pointer mb-3 transition-all duration-300"
                         shadow="hover"
+                        role="link"
+                        tabindex="0"
                         @click="openContact(channel.url)"
+                        @keydown.enter.prevent="openContact(channel.url)"
+                        @keydown.space.prevent="openContact(channel.url)"
                       >
                         <el-icon class="contact-icon text-[32px] text-primary shrink-0">
                           <component :is="channel.icon" />

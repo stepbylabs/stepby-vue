@@ -297,8 +297,7 @@ describe('composables/useCrudTable', () => {
       // 重置后 params 恢复快照态（空容器），无日期键残留——
       // 否则下一次请求会携带旧 params[beginTime]（即使 dateRange 已清空）
       const restored = (queryParams.value as unknown as Record<string, unknown>).params as
-        | Record<string, unknown>
-        | undefined
+        Record<string, unknown> | undefined
       expect(restored?.beginTime).toBeUndefined()
       expect(restored?.endTime).toBeUndefined()
     })
@@ -392,7 +391,8 @@ describe('composables/useCrudTable', () => {
   })
 
   // ===== 修改 =====
-  describe('handleUpdate', () => {    it('携带 row 时按 row[idField] 拉详情并回填', async () => {
+  describe('handleUpdate', () => {
+    it('携带 row 时按 row[idField] 拉详情并回填', async () => {
       const { ctx, getApi, form } = makeCtx()
       ctx.handleUpdate({ postId: 12, postName: 'x' })
       expect(getApi).toHaveBeenCalledWith(12)
@@ -784,5 +784,107 @@ describe('useCrudTable restoreQueryFromUrl 数值注入闸门（b73 轮 16）', 
     expect(oldAccepts(huge)).toBe(true) // 旧写法：注入 1.11e+99
     expect(oldAccepts('1e99')).toBe(true)
     expect(mountWith({ deptId: huge }, { pageNum: 1, deptId: 5 }).value.deptId).toBe(5) // 新判据：拒绝
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 批八十八：空态分形 loadError 状态机。
+// 立的案：列表请求失败被 catch 静默吞成空列表，toast 消失后页面落回"暂无数据"——
+// "加载失败"与"真的没有数据"在屏幕上同形（全仓 41 处空态一律绑 common.empty）。
+// 组合子新增 loadError/retryLoad；以下判据必须**点名是哪个状态**，
+// 并要求"失败但不置真"的实现被当场抓红（反证），成功路径恒假（正控）。
+// ---------------------------------------------------------------------------
+describe('useCrudTable loadError 状态机（空态分形：失败 ≠ 暂无数据）', () => {
+  it('初值为 false（从未请求过的页面不得被读成"失败"）', () => {
+    const { ctx } = makeCtx()
+    expect(ctx.loadError.value, 'loadError 初始值').toBe(false)
+  })
+
+  it('列表请求失败 → loadError 置真（反证：不置真的实现被本条当场抓红）', async () => {
+    const { ctx, listApi } = makeCtx()
+    listApi.mockRejectedValueOnce(new Error('boom'))
+    ctx.getList()
+    await flush()
+    expect(ctx.loadError.value, 'getList 失败后 loadError 应为 true').toBe(true)
+    // 既有失败行为零变化：清空列表、复位 loading
+    expect(ctx.dataList.value, 'dataList 仍应被清空').toEqual([])
+    expect(ctx.loading.value, 'loading 应复位').toBe(false)
+  })
+
+  it('正控：请求成功 → loadError 为 false，且此前的失败被成功清除', async () => {
+    const { ctx, listApi } = makeCtx()
+    listApi.mockRejectedValueOnce(new Error('boom'))
+    ctx.getList()
+    await flush()
+    expect(ctx.loadError.value, '中间态：失败后应为 true').toBe(true)
+    // makeCtx 默认 listApi 成功：第二次 getList 走成功分支
+    ctx.getList()
+    await flush()
+    expect(ctx.loadError.value, '请求成功后 loadError 应回落为 false').toBe(false)
+  })
+
+  it('retryLoad 复用 getList：真实重发请求且成功后清除失败态', async () => {
+    const { ctx, listApi } = makeCtx()
+    listApi.mockRejectedValueOnce(new Error('offline'))
+    ctx.getList()
+    await flush()
+    expect(ctx.loadError.value, '重试前应为 true').toBe(true)
+    const callsBefore = listApi.mock.calls.length
+    ctx.retryLoad()
+    await flush()
+    expect(listApi.mock.calls.length, 'retryLoad 必须真实再发一次列表请求').toBe(callsBefore + 1)
+    expect(ctx.loadError.value, '重试成功后 loadError 应清除').toBe(false)
+  })
+
+  it('重试再次失败 → loadError 保持真（retry 不得被读成成功）', async () => {
+    const { ctx, listApi } = makeCtx()
+    listApi.mockRejectedValueOnce(new Error('a'))
+    ctx.getList()
+    await flush()
+    listApi.mockRejectedValueOnce(new Error('b'))
+    ctx.retryLoad()
+    await flush()
+    expect(ctx.loadError.value, '重试再次失败后 loadError 应仍为 true').toBe(true)
+  })
+
+  it('最新请求失败 + 旧请求迟到成功 ⇒ 失败态保持（版本号守卫同时罩住 loadError）', async () => {
+    const { ctx, listApi } = makeCtx()
+    const d1 = deferred<{ rows: Row[]; total: number }>()
+    const d2 = deferred<{ rows: Row[]; total: number }>()
+    listApi.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise)
+    ctx.getList() // requestId=1
+    ctx.getList() // requestId=2（最新）
+    d2.reject(new Error('latest failed'))
+    await flush()
+    expect(ctx.loadError.value, '最新请求失败 → true').toBe(true)
+    d1.resolve({ rows: [{ postId: 1 }], total: 1 }) // 旧响应迟到且"成功"
+    await flush()
+    expect(ctx.loadError.value, '旧请求成功不得清除最新失败态').toBe(true)
+    expect(ctx.dataList.value, '旧响应不得覆盖列表').toEqual([])
+  })
+
+  it('最新请求成功 + 旧请求迟到失败 ⇒ 成功态不被污染（对照组）', async () => {
+    const { ctx, listApi } = makeCtx()
+    const d1 = deferred<{ rows: Row[]; total: number }>()
+    const d2 = deferred<{ rows: Row[]; total: number }>()
+    listApi.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise)
+    ctx.getList()
+    ctx.getList()
+    d2.resolve({ rows: [{ postId: 9 }], total: 1 })
+    await flush()
+    expect(ctx.loadError.value, '最新请求成功 → false').toBe(false)
+    d1.reject(new Error('stale failed')) // 旧请求迟到失败
+    await flush()
+    expect(ctx.loadError.value, '旧请求失败不得污染最新成功态').toBe(false)
+    expect(ctx.dataList.value, '旧失败不得清空已到达的新数据').toEqual([{ postId: 9 }])
+  })
+
+  it('只读模式同样暴露 loadError/retryLoad（返回值公共面，两侧重载都可用）', async () => {
+    const { ctx, listApi } = makeCtx({ getApi: undefined, addApi: undefined, updateApi: undefined })
+    expect(typeof ctx.retryLoad, '只读模式必须暴露 retryLoad').toBe('function')
+    listApi.mockRejectedValueOnce(new Error('x'))
+    ctx.retryLoad()
+    await flush()
+    expect(ctx.loadError.value, '只读模式失败后 loadError 同样置真').toBe(true)
   })
 })

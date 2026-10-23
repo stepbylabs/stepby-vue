@@ -42,7 +42,9 @@
             class="w-[180px]"
             clearable
             @keyup.enter="loadTail"
-            @clear="loadTail" :aria-label="t('logTail.keyword')" />
+            @clear="loadTail"
+            :aria-label="t('logTail.keyword')"
+          />
         </div>
 
         <div class="toolbar-item">
@@ -59,14 +61,27 @@
 
         <div class="flex-1" />
 
-        <el-switch v-model="autoRefresh" :aria-label="t('logTail.autoRefresh')" :active-text="t('logTail.autoRefresh')" />
+        <el-switch
+          v-model="autoRefresh"
+          :aria-label="t('logTail.autoRefresh')"
+          :active-text="t('logTail.autoRefresh')"
+        />
         <span v-if="total" class="total text-text-secondary text-xs">{{ t('logTail.total', { total }) }}</span>
       </div>
     </el-card>
 
     <!-- 日志正文 -->
     <el-card shadow="never" body-class="log-body">
-      <div v-if="!currentFile" class="no-file flex flex-col items-center justify-center py-16 text-text-secondary">
+      <!-- 显式标注"这一屏数据来源失败"（照 tool/reportBoard 的 failedSources 形态）：
+           文件列表/日志尾部两个数据源各自一条失败态，
+           拉取失败时绝不显示"暂无异常日志"（排障页把失败谎报成"没有问题"是最坏形态） -->
+      <div v-if="filesLoadError && !currentFile" class="h-full flex items-center justify-center">
+        <list-empty :load-error="true" @retry="loadFiles" />
+      </div>
+      <div v-else-if="currentFile && tailLoadError && !rows.length" class="h-full flex items-center justify-center">
+        <list-empty :load-error="true" @retry="loadTail" />
+      </div>
+      <div v-else-if="!currentFile" class="no-file flex flex-col items-center justify-center py-16 text-text-secondary">
         <el-icon :size="56"><Document /></el-icon>
         <p class="mt-3">{{ t('logTail.noFile') }}</p>
       </div>
@@ -77,11 +92,22 @@
         <el-icon :size="56"><Document /></el-icon>
         <p class="mt-3">{{ t('logTail.empty') }}</p>
       </div>
-      <div v-else ref="logArea" class="log-area">
-        <div v-for="row in rows" :key="row.no" class="log-line" :class="'level-' + row.level.toLowerCase()">
-          <span class="line-no">{{ row.no }}</span>
-          <span class="level-badge" :class="'level-' + row.level.toLowerCase()">{{ row.level }}</span>
-          <span class="line-text">{{ row.text }}</span>
+      <div v-else class="h-full flex flex-col overflow-hidden">
+        <!-- 有旧日志但本轮刷新失败：横幅声明"屏上是最近一次成功加载的快照"，不谎报一切正常 -->
+        <el-alert
+          v-if="tailLoadError"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="mb-2"
+          :title="t('common.staleDataHint')"
+        />
+        <div ref="logArea" class="log-area flex-1">
+          <div v-for="row in rows" :key="row.no" class="log-line" :class="'level-' + row.level.toLowerCase()">
+            <span class="line-no">{{ row.no }}</span>
+            <span class="level-badge" :class="'level-' + row.level.toLowerCase()">{{ row.level }}</span>
+            <span class="line-text">{{ row.text }}</span>
+          </div>
         </div>
       </div>
     </el-card>
@@ -104,6 +130,10 @@ const keyword = ref('')
 const lines = ref('500')
 const rows = ref<LogLine[]>([])
 const total = ref(0)
+// 两个数据源各自的失败态（failedSources 形态，与 useCrudTable.loadError 同语义）：
+// 失败必须在屏幕上与"没有日志"区分开，排障页不得把失败谎报成"无异常"
+const filesLoadError = ref(false)
+const tailLoadError = ref(false)
 const autoRefresh = ref(false)
 const logArea = ref<HTMLElement | null>(null)
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -112,6 +142,7 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null
 async function loadFiles(): Promise<void> {
   try {
     const res = (await listLogFiles()) as unknown as AjaxResult<{ rows: LogFileInfo[] }>
+    filesLoadError.value = false
     files.value = res.data?.rows ?? []
     // 若当前选择文件已被新列表覆盖，下拉自动选中第一个（最新日志）
     if (files.value.length && !files.value.some((f: LogFileInfo) => f.fileName === currentFile.value)) {
@@ -123,6 +154,8 @@ async function loadFiles(): Promise<void> {
       await loadTail()
     }
   } catch (err) {
+    // 失败置位：文件列表为空不再谎报"未选择日志文件"，而是显式"加载失败 + 重试"
+    filesLoadError.value = true
     if (import.meta.env.DEV) console.error('[LogTail] loadFiles failed:', err)
   }
 }
@@ -140,7 +173,10 @@ async function loadTail(): Promise<void> {
     })) as unknown as AjaxResult<{ total: number; rows: LogLine[] }>
     rows.value = res.data?.rows ?? []
     total.value = res.data?.total ?? rows.value.length
+    tailLoadError.value = false
   } catch (err) {
+    // 失败置位：正文不再落回"暂无异常日志"，而是显式"加载失败 + 重试"或快照横幅
+    tailLoadError.value = true
     if (import.meta.env.DEV) console.error('[LogTail] loadTail failed:', err)
   } finally {
     loading.value = false

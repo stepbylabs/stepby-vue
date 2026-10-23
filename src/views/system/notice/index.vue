@@ -203,15 +203,18 @@
           </template>
         </el-table-column>
         <template #empty>
-          <EmptyState
-            :description="t('common.noData')"
-            :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
-            :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
-            :show-reset="hasQueryFilter"
-            :reset-text="t('common.emptyActionReset')"
-            @action="hasQueryFilter ? resetQuery() : handleAdd()"
-            @reset="resetQuery"
-          />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：加载失败显示「重试」，成功无数据保留原 CTA 空态 -->
+          <list-empty :load-error="loadError" @retry="retryLoad">
+            <EmptyState
+              :description="t('common.noData')"
+              :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
+              :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
+              :show-reset="hasQueryFilter"
+              :reset-text="t('common.emptyActionReset')"
+              @action="hasQueryFilter ? resetQuery() : handleAdd()"
+              @reset="resetQuery"
+            />
+          </list-empty>
         </template>
       </el-table>
     </Transition>
@@ -358,6 +361,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

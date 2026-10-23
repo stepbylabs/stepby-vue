@@ -11,7 +11,9 @@
             :maxlength="64"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('jobLog.search.phJobName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('jobLog.search.phJobName')"
+          />
         </el-form-item>
         <el-form-item :label="t('job.search.jobGroup')" prop="jobGroup">
           <el-select
@@ -42,7 +44,9 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
+            :end-placeholder="t('common.form.endDate')"
+            :aria-label="t('common.form.startDate')"
+          ></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -167,19 +171,14 @@
         </el-table-column>
         <el-table-column :label="t('common.column.operation')" align="center" class-name="small-padding fixed-width">
           <template #default="scope">
-            <el-button
-              link
-              type="primary"
-              icon="View"
-              @click="handleView(scope.row)"
-              v-hasPermi="['monitor:job:list']"
-            >
+            <el-button link type="primary" icon="View" @click="handleView(scope.row)" v-hasPermi="['monitor:job:list']">
               {{ t('common.detail') }}
             </el-button>
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：本页手写 getList，用本地 loadError 接同一组件 -->
+          <list-empty :load-error="loadError" @retry="getList" />
         </template>
       </el-table>
     </Transition>
@@ -227,6 +226,8 @@ const ids = ref<number[]>([])
 const cleanLoading = ref(false)
 const multiple = ref<boolean>(true)
 const total = ref<number>(0)
+// 列表失败态（与 useCrudTable.loadError 同语义，本页手写取数故为本地 ref）
+const loadError = ref(false)
 const dateRange = ref<string[]>([])
 const route = useRoute()
 const defaultSort = ref({ prop: 'createTime', order: 'descending' })
@@ -251,12 +252,15 @@ function getList() {
   loading.value = true
   listJobLog(addDateRange(queryParams.value, dateRange.value))
     .then((response) => {
+      loadError.value = false
       jobLogList.value = response.rows
       total.value = response.total
     })
     .catch((e) => {
       if (import.meta.env.DEV) console.error(e)
       modal.msgError(t('common.requestFailed'))
+      // 失败不再静默吞成"暂无数据"：置位后空态显示「加载失败 + 重试」
+      loadError.value = true
     })
     .finally(() => {
       loading.value = false

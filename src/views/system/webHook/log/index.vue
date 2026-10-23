@@ -187,7 +187,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <list-empty :load-error="loadError" @retry="retryLoad" />
         </template>
       </el-table>
     </Transition>
@@ -234,20 +234,17 @@
         <el-descriptions-item :label="t('webHook.log.detail.payload')" :span="2">
           <pre
             class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all"
-            >{{ formatPayload(currentLog?.payload) }}</pre
-          >
+            >{{ formatPayload(currentLog?.payload) }}</pre>
         </el-descriptions-item>
         <el-descriptions-item v-if="currentLog?.response" :label="t('webHook.log.detail.response')" :span="2">
           <pre
             class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all"
-            >{{ currentLog.response }}</pre
-          >
+            >{{ currentLog.response }}</pre>
         </el-descriptions-item>
         <el-descriptions-item v-if="currentLog?.errorMsg" :label="t('webHook.log.detail.errorMsg')" :span="2">
           <pre
             class="m-0 max-h-[260px] overflow-auto rounded-md bg-[var(--el-fill-color-light)] p-2.5 text-xs leading-[1.6] whitespace-pre-wrap break-all text-[var(--el-color-danger)]"
-            >{{ currentLog.errorMsg }}</pre
-          >
+            >{{ currentLog.errorMsg }}</pre>
         </el-descriptions-item>
       </el-descriptions>
       <template #footer>
@@ -310,14 +307,14 @@ const {
   multiple,
   total,
   getList,
+  loadError,
+  retryLoad,
   handleQuery,
   handleDelete,
   handleSelectionChange
 } = useCrudTable<SysWebHookLog, WebHookLogQueryParams & { pageNum: number; pageSize: number }>({
   listApi: (params) =>
-    listWebHookLog(
-      addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams
-    ),
+    listWebHookLog(addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as WebHookLogQueryParams),
   deleteApi: delWebHookLog,
   idField: 'id',
   defaultForm: () => ({}) as SysWebHookLog,

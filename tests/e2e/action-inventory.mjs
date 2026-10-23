@@ -158,7 +158,8 @@ function ratchetRegressions(base, cur) {
  * `coverage` 看不见的那一半信号在这里可见。
  *
  * 为什么不做成"0 行就 UNRUN"：那等于让绿红由数据态决定（本表 ④ 禁止的形态），
- * 而实测今天 56 页里有 17 页就是 0 行——闸会在装上第一轮变成"每轮必红直到有人造夹具"，
+ * 而实测 56 页里有 **28 页本轮就是 0 行**（落定尺重测，`_act_b88_v3c.log` 断面；旧秒表尺读出来的是 17 页，
+ * 那个数不能引——见 AGENTS 测试门禁全景 前言 ㉗ 与台账 b88 §11）——闸会在装上第一轮变成"每轮必红直到有人造夹具"，
  * 结局是被人去改阈值。棘轮的方向（只许升）才是让"补数据"有收益的那条路。
  *
  * `baseRows` / `curRows` 同形：`{ path: { t, c, r, e } }`
@@ -182,7 +183,15 @@ function rowSurface(baseRows, curRows) {
     // 本轮多出来的行内动作不得用来抬高历史分母的覆盖率（封顶 = 换尺的那条路）
     covered += c && typeof c.c === 'number' ? Math.min(c.c, b.t) : 0
     if (b.t > 0 && (!c || c.t < b.t)) {
-      shrunk.push({ path: p, base: b.t, now: c ? c.t : 0, rowCount: c?.r, emptyText: c?.e || '' })
+      shrunk.push({
+        path: p,
+        base: b.t,
+        now: c ? c.t : 0,
+        rowCount: c?.r,
+        // 旧基线/旧快照没有 rt ⇒ 取 0（"不知道"不得读成"有行"，也不得因此拒绝比对）
+        tabRows: typeof c?.rt === 'number' ? c.rt : 0,
+        emptyText: c?.e || ''
+      })
     }
   }
   if (!total) return null
@@ -208,7 +217,15 @@ const ROW_SURFACE_MIN_LOST_ACTIONS = 3
  * 于是 `totalBacklog` 从 46 涨到 50。那**不是退步，是旧尺量不出新面**：
  * 让这种"内容退步"拒绝落盘，等于把一份被瞬时读数污染的旧基线永久钉成天花板。
  */
-const INVENTORY_SAMPLING = 'settled-poll-v1'
+const INVENTORY_SAMPLING = 'settled-poll-v3'
+// v1→v2（b88）：落定判据把"可见 el-table 的数量"也变成比较项，并为"整页没采到表"开出
+// tableMissing ⇒ UNRUN 通道。
+// v2→v3（b88 收口）：接受的依据从**秒表**换成**请求静默**（`acceptSettled` 的 net 通道）。
+// 直接证据：`/system/user` 用 v2 采满 8031ms 每拍都是 `{tables:0, tablesAll:0}`，
+// 而紧随其后的 collectActions 在同一页读到 `列 12 / 行 2 / 表 1 张` ⇒ v2 的"预算走完即合法"
+// 会把"还没挂载"洗成"这页本来没表"，正是它自己要防的那一形。
+// 换尺必须与重生成基线同批（前言 ⑩），所以戳一改，`--gate` 立刻拒绝比对旧基线、
+// `--update-baseline` 走口径迁移通道落新盘。
 
 /** 行内动作面棘轮的比较式（`--gate` 与 `--update-baseline` 共用，同 `ratchetRegressions` 的纪律） */
 function rowRatchetRegressions(base, curRows) {
@@ -250,13 +267,19 @@ function rowRatchetRegressions(base, curRows) {
   // 退步的**绝对量**：比率差 × 基线分母 = 少掉的行内动作个数（近零分母上的 1pp ≈ 0.6 个动作）
   const lost = drop * surface.total
   const why = surface.shrunk
-    .map(
-      (s) =>
-        `  · ${s.path}：行内动作 ${s.base} → ${s.now}` +
-        (s.rowCount === 0
-          ? `（本轮该页 0 行${s.emptyText ? `、空态「${s.emptyText}」` : ''}⇒ 行内按钮随数据消失，需要给这一页配数据夹具或用例）`
-          : '（该页仍有数据行，是动作本身少了 ⇒ 控件被删或用例文案变了）')
-    )
+    .map((s) => {
+      const anyRows = Math.max(s.rowCount || 0, s.tabRows || 0)
+      const head = `  · ${s.path}：行内动作 ${s.base} → ${s.now}`
+      if (anyRows > 0 && (s.rowCount || 0) === 0) {
+        // b88 实测的 /monitor/cache 就是这一形：默认视图 0 行，而行内动作所在的 tab 本轮有行。
+        // 报"需要配数据夹具"会把人支使去造一批本来就存在的数据（前言 ⑨/⑯(c)）。
+        return `${head}（默认视图 0 行，但行内动作所在的视图本轮读到 ${s.tabRows} 行 ⇒ 缺的是**覆盖或用例**，不是数据；不得据此配夹具）`
+      }
+      if (anyRows === 0) {
+        return `${head}（本轮该页 0 行${s.emptyText ? `、空态「${s.emptyText}」` : ''}⇒ 行内按钮随数据消失，需要给这一页配数据夹具或用例）`
+      }
+      return `${head}（该页仍有数据行，是动作本身少了 ⇒ 控件被删或用例文案变了）`
+    })
     .join('\n')
   const notices = []
   // 两条腿必须同时超界才判红（相对容差 + 绝对下限），但**低于下限的缩水要留痕**，不得静默
@@ -293,6 +316,25 @@ function baselineShapeGaps(base, curRows) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * 把"生效路径反查"清单自己的行**以及注释行**从源码文本里剔掉，只留可执行码。
+ *
+ * 为什么必须剔：反查读的是**本文件全文**，而每条 needle 的字面量也写在本文件里 ⇒
+ * 一条在跑批正文中根本不存在、只活在清单上的 needle 会匹配到自己那一行，恒绿。
+ * b88 实测就是这么漏的：FATAL 文案已经改成"同一把尺走完 tab 后…"，旧 needle
+ * `同一页随后采到表头/数据行` 在正文里一处都没有，反查却照常放行——文件里剩下的唯一一处
+ * 正是清单自己那一行（前言 ⑬"刀口只能落在代码上，不得被注释文本决定"的第三断面：
+ * 被当成证据的是判据自己的源码）。
+ * 只按**行首**判定：`needle:` 行与 `//` / `*` 注释行剔掉，行中出现的 `{ t, needle }`
+ * 不受影响（否则正文里同名对象键会被误剔，那是把判据关掉）。
+ */
+function maskNeedleLines(src) {
+  return src
+    .split('\n')
+    .filter((line) => !/^\s*(needle:|\/\/|\*)/.test(line))
+    .join('\n')
+}
+
+/**
  * 落定判据（纯函数，b87 项 5 的后续修复）。
  *
  * 为什么必须有这一层：原先每页 `goto` 后**固定 `sleep(1400)` 再采样**，读数由网络快慢决定——
@@ -300,22 +342,187 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * （`rowPerRoute.t` 于是取到 0 与 3 两个值 ⇒ 行内动作面的**分母**自己抖）。
  * 这正是门禁表前言 ④ 明令禁止的形态：判据的数由环境决定，而这个数喂给"只许升"的棘轮。
  *
- * 规则：连续两次采样的 `(rows, loading)` 相同 **且** `loading === false` ⇒ 落定。
- *  - **真空表**（rows=0、无遮罩、两次一致）⇒ 判落定：那是合法的 0 行，不得当成"没读完"；
- *  - 遮罩始终在 ⇒ 判未落定：调用方必须 UNRUN，不得把"还没读到"写成"这页没有动作"。
+ * 规则：**只有最后两拍读数相同才算稳定**（比的是"当前"，不是"历史上出现过一对"）。
+ * b88 收口实测到的形状（`/system/user`，读数序列 `行 0 表 0 ×2 | 行 2 表 1 ×74`）：
+ * 旧实现扫全部样本找**第一对**相等就返回，于是返回的是"开局那两拍都还什么都没有"的那个断面
+ * （`tables=0`），后面 74 拍到 `表 1 行 2` 也救不回来——落定的语义是"此刻已经不动了"，
+ * 不是"曾经有两拍长得一样"。改成只比最后两拍之后，同一段序列的落定断面自动变成 `表 1 行 2`。
+ * 稳定之后还要过 `acceptSettled`（"什么都没看见"或"有表但 0 行"必须由**请求静默 + 稳定窗口**作证，不是由秒表）。
+ *  - **真空表**（rows=0、tables=1、无遮罩、最后两拍一致）⇒ 判稳定：那是合法的 0 行，不得当成"没读完"；
+ *  - 无表但有显式空态（`/user/profile/*`、`/monitor/cache` 这类页本来就没有 el-table）⇒ 判稳定；
+ *  - 遮罩仍在 ⇒ 判未稳定：调用方必须 UNRUN，不得把"还没读到"写成"这页没有动作"；
+ *  - `tables`/`empty` 也进比较（b88 补）：**轮询起点早于表格挂载**时，前两次都是"什么都没有"，
+ *    旧规则把"两次都太早"当成一次合法落定，于是同一份产物两次 `--gate` 能把 `/system/user`
+ *    读成 `行 2` 与 `行 0`（后者 `columns=[]`、`emptyText=""` ⇒ 表根本没被读到），
+ *    行内动作面随即报出 `93.2% < 100.0%` 的**假退步**（b88 实测）。
+ *    "这页没有表"与"我没看到表"必须可区分：后者由 `tableMissing` 交给闸去判 UNRUN（见下面的口径闸）。
+ * 两条正控/反脆弱由自检钉住：中途一致、随后又变 ⇒ 最后两拍不同 ⇒ 未稳定（不得拿旧断面充当终态）；
+ * 最后两拍一致 ⇒ 稳定并取这两拍的值。
  */
 function settleVerdict(samples) {
   if (!Array.isArray(samples) || samples.length < 2) return { settled: false, reason: '采样不足' }
-  for (let i = 1; i < samples.length; i++) {
-    const a = samples[i - 1]
-    const b = samples[i]
-    if (a.rows === b.rows && a.loading === b.loading && b.loading === false) return { settled: true, at: i, reason: '' }
+  // 采样器自身抛错的那几条**不得参与"两次一致"**——否则"每次都抛"会读成"每次都一样"，
+  // 于是坏掉的采集器产出一个看起来合法的 tables=0（b88 实测：/system/user 轮询满 8235ms
+  // 却 `可见表=0`，而同刻 `collectActions` 数到 行 2 ⇒ 两者不可能同时为真，必有一侧在骗人）。
+  // 判据取"相邻"而不是"过滤后相邻"：抛错说明这一刻读不到，两侧的成功读数之间隔着盲区，
+  // 拿它们拼一次"一致"等于把没看见的当成看见了。
+  const samplerBroken = samples.some((s) => s.sampleError)
+  const a = samples[samples.length - 2]
+  const b = samples[samples.length - 1]
+  if (!a.sampleError && !b.sampleError) {
+    const sameRows = a.rows === b.rows
+    const sameLoading = a.loading === b.loading && b.loading === false
+    const sameTables = (a.tables ?? 0) === (b.tables ?? 0)
+    const sameEmpty = (a.empty ?? false) === (b.empty ?? false)
+    if (sameRows && sameLoading && sameTables && sameEmpty) {
+      return {
+        settled: true,
+        at: samples.length - 1,
+        reason: '',
+        tables: b.tables ?? 0,
+        emptySeen: (b.empty ?? false) === true,
+        tableMissing: (b.tables ?? 0) === 0,
+        probe: b
+      }
+    }
   }
+  let tablesMoved = false
+  for (let i = 1; i < samples.length; i++) {
+    const p = samples[i - 1]
+    const q = samples[i]
+    if (p.sampleError || q.sampleError) continue
+    if (p.rows === q.rows && p.loading === q.loading && p.loading === false && (p.tables ?? 0) !== (q.tables ?? 0))
+      tablesMoved = true
+  }
+  const errSample = samples.find((s) => s.sampleError)
   const last = samples[samples.length - 1]
-  return { settled: false, reason: last.loading ? '加载遮罩未消失' : '行数仍在变化' }
+  const lastTables = last.tables ?? 0
+  const lastEmpty = last.empty ?? false
+  return {
+    settled: false,
+    reason: errSample
+      ? `采样器自身抛错（${errSample.sampleError}）`
+      : last.loading
+        ? '加载遮罩未消失'
+        : tablesMoved
+          ? '可见 el-table 数量还在变化（表中途才挂出来）'
+          : lastTables === 0 && !lastEmpty
+            ? '整页没采到可见 el-table，也没有显式空态（页面还没渲染出来）'
+            : '行数仍在变化',
+    tables: lastTables,
+    tableMissing: lastTables === 0,
+    samplerBroken,
+    probe: last
+  }
 }
 
-/** 页内只读采样：行数按 el-table 的可见 body 计，遮罩按 `.el-loading-mask` 的可见性计 */
+/**
+ * 一次"稳定读数"能不能接受。
+ *
+ * b88 收口时实测到的形状（`/system/user`，同一份产物）：轮询满 8031ms 每次都是
+ * `{tables:0, tablesAll:0, rows:0, empty:false}`，而**紧接着** `collectActions` 数到
+ * `列 12 / 行 2 / 表 1 张` ⇒ 那 8 秒里这一页真的还没有 `.el-table`（冷加载 5.8 MB 入口包 +
+ * getInfo + getRouters + list，机器负载高时就是能超过 8 秒），"预算走完"因此把"没读到"
+ * 洗成了"这页本来没表"。所以**秒表不是尺**：它只能证明"我等了这么久"，不能证明"页面已到终态"。
+ *
+ * 真正的终态证据是网络：**这一页的 XHR/fetch 全部飞完，并且连续静默了若干拍**
+ * （静默计数去抖，防"两个请求之间的空档"被当成静默——本项目登录后是串行认证链，
+ *   getInfo 结束与 getRouters 发出之间必然出现短暂 inflight=0）。
+ * 规则（按开放度从严到宽）：
+ *  - 有可见表**且有数据行** ⇒ 数据已落进 DOM，立即接受；
+ *  - "有表但 0 行" / "表和空态都没有" ⇒ 必须 `见过请求活动` **且** `距最后一次数据请求事件
+ *    ≥ QUIET_MS` **且** `同一个读数持续 ≥ STABLE_MS` ⇒ 才配说"这页就是 0 行 / 本来没表"。
+ *    稳定窗口不是秒表止损，它和"两拍相等"是两件事：b88 实测 518ms 那一轮，头两拍读数完全相同、
+ *    24 个数据请求也都发过了，第三拍却变成 `行 2 表 1` ⇒ **"网络静默"不等于"DOM 已到终态"**
+ *    （Vue 的渲染排在响应之后，两拍 250ms 的相等恰好落在渲染空档里）。要让"没读到"和
+ *    "这页本来没数据"可区分，唯一可用的事实是**同一个读数维持了足够久**，而不是它出现过两次。
+ *  - "距最后一次事件"而不是"在飞计数为 0"：b88 同一轮实测 `在飞 1` 卡满 20 秒（76 拍全被判"仍在飞"），
+ *    而那 74 拍读数一直是 `行 2 表 1` —— 计数只增不减的那个请求（导航期被 abort、Playwright 不再补
+ *    finished 事件）把整页永久钉在未落定态。**计数会漏，事件不会漏**：静默量必须取"最后一次事件的
+ *    时刻"，`inflight` 只留作凭证，不参与判定。
+ *  - 网络通道不可用（取不到事件时刻）⇒ 退回旧的时间预算口径（**只能是兜底**，
+ *    `waitTableSettled` 会把用的是哪条通道写进凭证）。
+ * 预算仍然保留，但它的角色从"判据"降为"止损"：走完仍未落定 ⇒ 交回 `settled:false` ⇒ 调用方 UNRUN，
+ * 而不是拿一个未观测到的断面去比棘轮。
+ */
+const QUIET_MS = 1200
+const STABLE_MS = 1500
+
+function acceptSettled(v, ctx) {
+  if (!v.settled) return false
+  const { elapsedMs = 0, budgetMs = 0, sinceActivityMs = null, sawActivity = false, stableMs = 0 } = ctx || {}
+  const observable = (v.tables ?? 0) > 0 || v.emptySeen === true
+  const hasNet = typeof sinceActivityMs === 'number' && Number.isFinite(sinceActivityMs) && sinceActivityMs >= 0
+  if (!hasNet) return observable || elapsedMs >= budgetMs
+  if (observable && (v.rows ?? 0) > 0) return true
+  return sawActivity && sinceActivityMs >= QUIET_MS && stableMs >= STABLE_MS
+}
+
+/**
+ * tab 标签集合的"落定"判据（纯函数，与 `settleVerdict` 同形但**刻意不复用**：
+ * 比的是字符串数组，不是 DOM 读数；硬套 would 让两件事共用一份形状假设，改一个崩另一个）。
+ *
+ * 规则：最后两拍**顺序敏感的逐位相等** ⇒ 稳定。空数组也是合法稳定（这页本来没有 tab）。
+ * `growing` 单独报出来：它说明"上一拍是这一拍的前缀"——EP 的 tab nav 就是这样逐项长出来的，
+ * 这一支存在，失败文案才能说"还在长"而不是"标签变了"（同一句话指向两种修法）。
+ */
+function labelsVerdict(samples) {
+  if (!Array.isArray(samples) || samples.length < 2) return { stable: false, reason: '采样不足', growing: false }
+  const a = samples[samples.length - 2]
+  const b = samples[samples.length - 1]
+  const same = a.length === b.length && a.every((v, i) => v === b[i])
+  if (same) return { stable: true, reason: '', growing: false, labels: b }
+  const growing = b.length > a.length && a.every((v, i) => v === b[i])
+  return { stable: false, reason: growing ? 'tab 标签还在长出来' : 'tab 标签集合仍在变化', growing }
+}
+
+/**
+ * 轮询 tab 标签到稳定。稳定窗口沿用表格那把尺的同一组常量（QUIET_MS / STABLE_MS 的量级），
+ * 但**不要求网络静默**：EP 的 nav 宽度是挂载后用 ResizeObserver 补的，与请求无关，
+ * 要求静默只会让没有请求的页面白等。取不到 DOM（抛错）时按空数组计，不阻断扫描。
+ */
+async function waitTabLabels(page, maxMs = 6000, stepMs = 250) {
+  const t0 = Date.now()
+  const samples = []
+  let runKey = ''
+  let runStart = Date.now()
+  while (Date.now() - t0 < maxMs) {
+    const labels = await page
+      .$$eval('.el-tabs__item', (els) =>
+        els.map((e) => (e.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+      )
+      .catch(() => [])
+    samples.push(labels)
+    const key = labels.join('\u0000')
+    if (key !== runKey) {
+      runKey = key
+      runStart = Date.now()
+    }
+    const v = labelsVerdict(samples)
+    // 有标签且已稳定满一个窗口 ⇒ 收；一个标签都没有（本页无 tab）⇒ 稳定即收，不必等窗口
+    if (v.stable && (labels.length === 0 || Date.now() - runStart >= STABLE_MS))
+      return { labels, ms: Date.now() - t0, samples: samples.length, settled: true }
+    await sleep(stepMs)
+  }
+  const last = samples[samples.length - 1] || []
+  const v = labelsVerdict(samples)
+  return {
+    labels: last,
+    ms: Date.now() - t0,
+    samples: samples.length,
+    settled: v.stable,
+    reason: v.stable ? '' : v.reason
+  }
+}
+
+/**
+ * 页内只读采样：行数按 el-table 的可见 body 计，遮罩按 `.el-loading-mask` 的可见性计。
+ *
+ * `tablesAll` / `emptyAll` 是**不过滤可见性**的同族计数，不是装饰：当 `tables=0` 时，
+ * "这个选择器一个元素都没匹配到"与"匹配到了但都不具备可见性"是两种完全不同的故障
+ * （前者=选择器/页面不对，后者=布局或时序），只看前者的话凭证会写成"可见表=0"却答不出为什么。
+ * `path` 记 `location.pathname`：轮询期间若发生过跳转，采到的就不是这一页了。
+ */
 function sampleTableState() {
   const visible = (el) => {
     if (!el) return false
@@ -323,29 +530,151 @@ function sampleTableState() {
     const st = getComputedStyle(el)
     return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
   }
-  const tables = [...document.querySelectorAll('.el-table')].filter(visible)
+  const allTables = [...document.querySelectorAll('.el-table')]
+  const tables = allTables.filter(visible)
   let rows = 0
   for (const t of tables) rows += [...t.querySelectorAll('.el-table__body tbody tr')].filter(visible).length
   const loading = [...document.querySelectorAll('.el-loading-mask')].some(visible)
-  return { rows, loading }
+  // 显式空态：页面自己说"这里没有数据"（`.el-empty` 可见）——它与"有表"同样证明这一页已经渲染完，
+  // 区别只在于有没有表；两者都没有才是"没读到"。
+  const allEmpty = [...document.querySelectorAll('.el-empty')]
+  const empty = allEmpty.some(visible)
+  return {
+    rows,
+    loading,
+    tables: tables.length,
+    empty,
+    tablesAll: allTables.length,
+    emptyAll: allEmpty.length,
+    path: location.pathname
+  }
 }
 
 /**
- * 轮询到落定（上限 maxMs）。三个量都进凭证：落定用了多久是人判断"这页到底有多慢"的唯一线索
- * （同 b79 把 M87 的采样改成"轮询到落定 + 把落定耗时写进凭证"那一条）。
+ * 轮询到落定（上限 maxMs 只为止损）。凭证里带：用了多久、采了几拍、走的是哪条通道
+ * （网络静默 / 时间兜底）、当时的原始读数——b88 那条"8 秒读 0 而随后读到 2"就是靠这四个量定性的。
  */
-async function waitTableSettled(page, maxMs = 8000, stepMs = 250) {
+async function waitTableSettled(page, maxMs = 20000, stepMs = 250, net = null) {
   const t0 = Date.now()
   const samples = []
+  let sawActivity = false
+  let lastInflight = null
+  let lastSinceActivityMs = null
+  // 当前这份读数从什么时候开始没变过（稳定窗口的原点，见 acceptSettled 的 STABLE_MS）
+  let runKey = ''
+  let runStart = Date.now()
+  const readNet = () => {
+    if (!net || typeof net.inflight !== 'function') return null
+    const n = net.inflight()
+    return typeof n === 'number' && Number.isFinite(n) ? n : null
+  }
+  // 「这一页发过数据请求」「最后一次请求事件距今多久」都必须**由事件得出，不能由采样得出**：
+  // 一次 100ms 的 XHR 落在两拍 250ms 之间就永远采不到（b88 实测把 sawActivity 钉成恒 false，
+  // 合法页一路拖到预算外）；而在飞计数会被一个永不 finished 的请求永久钉住（b88 实测 在飞 1 × 20 秒）。
+  const readActivity = () => {
+    if (!net || typeof net.activity !== 'function') return null
+    const a = net.activity()
+    return typeof a === 'number' && Number.isFinite(a) ? a : null
+  }
+  const readQuietMs = () => {
+    if (!net || typeof net.sinceActivityMs !== 'function') return null
+    const q = net.sinceActivityMs()
+    return typeof q === 'number' && Number.isFinite(q) && q >= 0 ? q : null
+  }
   while (Date.now() - t0 < maxMs) {
-    const st = await page.evaluate(sampleTableState).catch(() => ({ rows: 0, loading: false }))
+    const st = await page.evaluate(sampleTableState).catch((e) => ({
+      rows: -1,
+      loading: false,
+      tables: -1,
+      empty: false,
+      // 抛错原文进凭证：这一页到底是"没有表"还是"我的采样器坏了"，只能靠这句话区分。
+      sampleError: String((e && e.message) || e)
+        .split('\n')[0]
+        .slice(0, 180)
+    }))
     samples.push(st)
+    const key = readingKey(st)
+    if (key !== runKey) {
+      runKey = key
+      runStart = Date.now()
+    }
+    lastInflight = readNet()
+    const act = readActivity()
+    if (typeof act === 'number' && act > 0) sawActivity = true
+    lastSinceActivityMs = readQuietMs()
     const v = settleVerdict(samples)
-    if (v.settled) return { settled: true, ms: Date.now() - t0, reason: '', samples: samples.length }
+    const stableMs = Date.now() - runStart
+    const ctx = {
+      elapsedMs: Date.now() - t0,
+      budgetMs: maxMs,
+      sinceActivityMs: lastSinceActivityMs,
+      sawActivity,
+      stableMs
+    }
+    if (acceptSettled(v, ctx))
+      return {
+        settled: true,
+        ms: Date.now() - t0,
+        reason: '',
+        samples: samples.length,
+        tables: v.tables,
+        tableMissing: v.tableMissing,
+        probe: v.probe,
+        channel: typeof lastSinceActivityMs === 'number' ? 'net-quiet' : 'time-fallback',
+        sawActivity,
+        sinceActivityMs: lastSinceActivityMs,
+        inflight: lastInflight,
+        stableMs,
+        distinct: distinctReadings(samples)
+      }
     await sleep(stepMs)
   }
   const v = settleVerdict(samples)
-  return { settled: false, ms: Date.now() - t0, reason: v.reason || '超时仍未一致', samples: samples.length }
+  // 预算走完仍未接受 ⇒ 交回 settled:false（调用方必须 UNRUN）。
+  // 这一支刻意**不再**用"预算到了"来冒充落定：b88 实测那 8 秒采到的 tables=0 随后就被
+  // collectActions 证伪，用它写基线就是拿"没读到"当事实。
+  // 文案必须分成两种故障，它们的修法相反：读数从未一致=这一页一直在动；
+  // 读数一致但缺终态证据=网络通道/活动计数/稳定窗口没成立（大概率是判据自己的输入坏了）。
+  const reason = v.settled
+    ? `读数已一致但缺终态证据（活动 ${sawActivity ? '已见' : '未见'} / 距最后一次数据请求 ${
+        lastSinceActivityMs ?? '?'
+      }ms / 在飞 ${lastInflight ?? '?'}（只作凭证，不参与判定）/ 同一读数维持 ${Date.now() - runStart}ms）`
+    : v.reason || '超时仍未一致'
+  return {
+    settled: false,
+    ms: Date.now() - t0,
+    reason,
+    samples: samples.length,
+    tables: v.tables,
+    tableMissing: v.tableMissing,
+    samplerBroken: v.samplerBroken === true,
+    probe: v.probe,
+    channel: typeof lastSinceActivityMs === 'number' ? 'net-quiet' : 'time-fallback',
+    sawActivity,
+    sinceActivityMs: lastSinceActivityMs,
+    stableMs: Date.now() - runStart,
+    inflight: lastInflight,
+    distinct: distinctReadings(samples)
+  }
+}
+
+/** 一份读数的"身份"：稳定窗口与读数折叠都用它，两份实现必漂（同 dataset-window.mjs 那条纪律） */
+function readingKey(s) {
+  return s.sampleError ? `抛错(${s.sampleError})` : `行 ${s.rows} 表 ${s.tables} 空态 ${s.empty} 遮罩 ${s.loading}`
+}
+
+/** 把连续相同的读数折叠成"读数 ×次数"，最多留 4 段——未落定时这是唯一能归因的东西 */
+function distinctReadings(samples, keep = 4) {
+  const runs = []
+  for (const s of samples) {
+    const key = readingKey(s)
+    if (runs.length && runs[runs.length - 1].key === key) runs[runs.length - 1].n++
+    else runs.push({ key, n: 1 })
+  }
+  return runs
+    .slice(-keep)
+    .map((r) => `${r.key} ×${r.n}`)
+    .join(' | ')
 }
 const log = (m) => console.log(`[inventory] ${m}`)
 
@@ -1014,12 +1343,81 @@ function runSelftest() {
     process.exit(1)
   }
   console.log('  ✅ [OK] 基线参数与本常量不一致 ⇒ 拒绝比对并点名两个数')
+  /**
+   * 退步**分因**文案（b88 收口新增一族）：分因决定下一批人去动什么，动错方向比不动更贵
+   * （前言 ⑨/⑯(c)）。三形 + 一支反证：
+   *  ① 默认视图 0 行、但行内动作所在的 tab 本轮读到过行（实测的 `/monitor/cache`）⇒ 只能说"缺覆盖"；
+   *  ② 两个视图都 0 行 ⇒ 才是"需要配数据夹具"；
+   *  ③ 本轮仍有行、动作数少了 ⇒ "控件被删或用例文案变了"；
+   *  ④ 旧断面**没有** `rt` 字段：缺证据不得读成"有行"（否则真没数据的页会被这一支洗掉）。
+   */
+  const mkWhy = (cur) => {
+    const baseRows = {}
+    const curRows = {}
+    for (let i = 0; i < 20; i++) {
+      baseRows[`/p${i}`] = { t: 3, c: 3 }
+      curRows[`/p${i}`] = { t: 3, c: 3, r: 5, rt: 5, e: '' }
+    }
+    curRows['/p0'] = cur
+    return (
+      rowRatchetRegressions(
+        { rowPerRoute: baseRows, rowSurfaceCoverage: 1, rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS },
+        curRows
+      ).notices.join('\n') +
+      rowRatchetRegressions(
+        { rowPerRoute: baseRows, rowSurfaceCoverage: 1, rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS },
+        curRows
+      ).regressions.join('\n')
+    )
+  }
+  const whyCases = [
+    {
+      title: '① 默认视图 0 行而所在 tab 有 3 行 ⇒ 文案必须说"缺覆盖"并禁止配夹具',
+      cur: { t: 0, c: 0, r: 0, rt: 3, e: '暂无数据' },
+      must: '不得据此配夹具',
+      mustNot: '需要给这一页配数据夹具'
+    },
+    {
+      title: '② 默认视图与所在视图都 0 行 ⇒ 才可以说"需要给这一页配数据夹具"',
+      cur: { t: 0, c: 0, r: 0, rt: 0, e: '暂无数据' },
+      must: '需要给这一页配数据夹具',
+      mustNot: '不得据此配夹具'
+    },
+    {
+      title: '③ 本轮仍有 4 行而动作少了 ⇒ 文案必须指"控件被删或用例文案变了"',
+      cur: { t: 1, c: 1, r: 4, rt: 4, e: '' },
+      must: '控件被删或用例文案变了',
+      mustNot: '数据夹具'
+    },
+    {
+      title: '④ 反证：断面缺 rt（旧快照）且 r=0 ⇒ 不得读成"tab 里有行"，必须照常要夹具',
+      cur: { t: 0, c: 0, r: 0, e: '暂无数据' },
+      must: '需要给这一页配数据夹具',
+      mustNot: '不得据此配夹具'
+    }
+  ]
+  let whyBad = 0
+  for (const c of whyCases) {
+    const text = mkWhy(c.cur)
+    const ok = text.includes(c.must) && !text.includes(c.mustNot)
+    if (!ok) whyBad++
+    console.log(`  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] ${c.title}`)
+  }
+  if (whyBad) {
+    console.error(`❌ 退步分因自检失败 ${whyBad}/${whyCases.length} 条——分因说错方向就等于把人支使去改错的东西`)
+    process.exit(1)
+  }
   // 真实树正控（不启浏览器，只读已提交基线）：专抓"基线是加参数之前那一轮写的"这类同批漏改
   if (!fs.existsSync(BASELINE_PATH)) {
     console.error(`❌ 基线文件缺失：${BASELINE_PATH}——真实树正控没跑，不得读成"通过"`)
     process.exit(1)
   }
   let realCtl = 0 // 真实基线正控条数由计数器给（写死的数字加一条控制就变成假账）
+  /**
+   * 记下来、跑完全部族再退出的失败（不得就地 exit —— 那会让后面的族整批没执行却
+   * 看起来像"自检已经报过红了"，前言 ⑩ 的"红在哪条丢了"在自检上的第三个断面）。
+   */
+  const deferredFails = []
   const real = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'))
   const sumT = Object.values(real.rowPerRoute || {}).reduce((n, v) => n + (v.t || 0), 0)
   const sumC = Object.values(real.rowPerRoute || {}).reduce((n, v) => n + (v.c || 0), 0)
@@ -1081,41 +1479,76 @@ function runSelftest() {
     )
     process.exit(1)
   }
-  // 真实基线：口径戳必须等于代码常量（本批刚换尺 ⇒ 重生成之前这一条就该红）
+  // 真实基线：口径戳必须等于代码常量（本批刚换尺 ⇒ 重生成之前这一条就该红）。
+  // **不得在这里 process.exit**：这条只是七族自检里的一族，就地退出会把后面的
+  // 落定判据族与生效路径反查整批跳过——报出来的"红"只剩一条，而"其余各族到底跑没跑"
+  // 看不见（前言 ⑩ 的第三个断面在自检自己身上）。改成记一条待失败、跑完全部族再退。
   if (real.sampling !== INVENTORY_SAMPLING) {
-    console.error(
-      `❌ 已提交基线的采样口径是 ${String(real.sampling)}、代码取 ${INVENTORY_SAMPLING}` +
+    deferredFails.push(
+      `已提交基线的采样口径是 ${String(real.sampling)}、代码取 ${INVENTORY_SAMPLING}` +
         '⇒ 判据换形必须与重生成基线同批（跑 --update-baseline）'
     )
-    process.exit(1)
+  } else {
+    realCtl++
+    console.log(`  ✅ [OK] 已提交基线带当前采样口径戳（${real.sampling}）`)
   }
-  realCtl++
-  console.log(`  ✅ [OK] 已提交基线带当前采样口径戳（${real.sampling}）`)
   // 第六族（b87 项 5 后续）：表格读数落定判据。钉的是"分母不得由网络快慢决定"。
   const stCases = [
     {
-      title: '正控：真空表（rows=0、无遮罩、两次一致）必须判落定（否则合法的 0 行页每轮必红）',
+      title: '正控：真空表（rows=0、有一张可见表、无遮罩、两次一致）必须判落定（否则合法的 0 行页每轮必红）',
       samples: [
-        { rows: 0, loading: false },
-        { rows: 0, loading: false }
+        { rows: 0, loading: false, tables: 1 },
+        { rows: 0, loading: false, tables: 1 }
       ],
-      want: true
+      want: true,
+      wantMissing: false
     },
     {
-      title: '正控：首屏遮罩 + 3 行到位后两次一致 ⇒ 落定（本批实测那次 0 行/3 行抖动就是这一形）',
+      title: '正控：首屏遮罩 + 3 行到位后两次一致 ⇒ 落定（b87 实测那次 0 行/3 行抖动就是这一形）',
       samples: [
-        { rows: 0, loading: true },
-        { rows: 3, loading: false },
-        { rows: 3, loading: false }
+        { rows: 0, loading: true, tables: 1 },
+        { rows: 3, loading: false, tables: 1 },
+        { rows: 3, loading: false, tables: 1 }
       ],
-      want: true
+      want: true,
+      wantMissing: false
+    },
+    {
+      // b88 立案：同一份产物两次 --gate 把 /system/user 读成 行 2 与 行 0（后者 columns=[]、
+      // 空态文案也是空 ⇒ 表根本没被采到），旧尺把这两次都判"落定"，内容棘轮于是报出假退步。
+      title: 'b88 反脆弱：无表但有**显式空态** ⇒ 落定且标 tableMissing（profile/cache 这类页本来就没表）',
+      samples: [
+        { rows: 0, loading: false, tables: 0, empty: true },
+        { rows: 0, loading: false, tables: 0, empty: true }
+      ],
+      want: true,
+      wantMissing: true
+    },
+    {
+      title: 'b88 反脆弱：无表也无显式空态 ⇒ settleVerdict 仍判"稳定"，接受与否交给 acceptSettled 用**请求静默**区分',
+      samples: [
+        { rows: 0, loading: false, tables: 0, empty: false },
+        { rows: 0, loading: false, tables: 0, empty: false }
+      ],
+      want: true,
+      wantMissing: true,
+      wantEmptySeen: false
+    },
+    {
+      title: 'b88 反脆弱：表在轮询中途才挂出来（rows 恒 0、tables 0→1）⇒ 未落定且文案点名表数在变',
+      samples: [
+        { rows: 0, loading: false, tables: 0, empty: false },
+        { rows: 0, loading: false, tables: 1, empty: false }
+      ],
+      want: false,
+      reason: '可见 el-table 数量还在变化（表中途才挂出来）'
     },
     { title: '采样只有一条 ⇒ 未落定（不得把"只看了一眼"当落定）', samples: [{ rows: 3, loading: false }], want: false },
     {
       title: '行数还在变 ⇒ 未落定，且文案指"行数仍在变化"',
       samples: [
-        { rows: 1, loading: false },
-        { rows: 3, loading: false }
+        { rows: 1, loading: false, tables: 1 },
+        { rows: 3, loading: false, tables: 1 }
       ],
       want: false,
       reason: '行数仍在变化'
@@ -1123,11 +1556,53 @@ function runSelftest() {
     {
       title: '遮罩始终不消失 ⇒ 未落定，且文案指遮罩（不得把"没读完"写成"这页没动作"）',
       samples: [
-        { rows: 0, loading: true },
-        { rows: 0, loading: true }
+        { rows: 0, loading: true, tables: 1 },
+        { rows: 0, loading: true, tables: 1 }
       ],
       want: false,
       reason: '加载遮罩未消失'
+    },
+    {
+      title: '正控：采样器中途抛过一次，但之后两次一致 ⇒ 仍判落定（一次抛错不得把整页判坏）',
+      samples: [
+        { rows: -1, loading: false, tables: -1, empty: false, sampleError: 'Execution context was destroyed' },
+        { rows: 2, loading: false, tables: 1, empty: false },
+        { rows: 2, loading: false, tables: 1, empty: false }
+      ],
+      want: true,
+      wantMissing: false
+    },
+    {
+      title: 'b88 反脆弱：采样器每次都抛 ⇒ 不得读成"两次一致的 tables=0"，文案必须点名抛错原文',
+      samples: [
+        { rows: -1, loading: false, tables: -1, empty: false, sampleError: 'ReferenceError: visible is not defined' },
+        { rows: -1, loading: false, tables: -1, empty: false, sampleError: 'ReferenceError: visible is not defined' }
+      ],
+      want: false,
+      reasonPrefix: '采样器自身抛错'
+    },
+    {
+      title: 'b88 反脆弱：两次完全相同的读数之间隔着一次抛错 ⇒ 不得判一致（隔着盲区拼"落定"= 把没看见当成看见）',
+      samples: [
+        { rows: 0, loading: false, tables: 0, empty: false },
+        { rows: -1, loading: false, tables: -1, empty: false, sampleError: 'page.evaluate: Timeout' },
+        { rows: 0, loading: false, tables: 0, empty: false }
+      ],
+      want: false
+    },
+    {
+      title: 'b88 收口立案形状：开局两拍都"什么都没有"、随后 74 拍都是 行 2 表 1 ⇒ 落定必须取**最后两拍**的断面',
+      samples: [
+        { rows: 0, loading: false, tables: 0, empty: false },
+        { rows: 0, loading: false, tables: 0, empty: false },
+        { rows: 2, loading: false, tables: 1, empty: false },
+        { rows: 2, loading: false, tables: 1, empty: false },
+        { rows: 2, loading: false, tables: 1, empty: false }
+      ],
+      want: true,
+      wantMissing: false,
+      wantTables: 1,
+      wantRows: 2
     },
     { title: 'samples 不是数组 ⇒ 未落定（形状防御，不得抛）', samples: 'nonsense', want: false }
   ]
@@ -1136,23 +1611,325 @@ function runSelftest() {
     const v = settleVerdict(t.samples)
     const okWant = v.settled === t.want
     const okReason = !t.reason || v.reason === t.reason
-    if (!(okWant && okReason)) {
+    const okPrefix = !t.reasonPrefix || String(v.reason || '').startsWith(t.reasonPrefix)
+    const okMissing = t.wantMissing === undefined || v.tableMissing === t.wantMissing
+    const okEmptySeen = t.wantEmptySeen === undefined || v.emptySeen === t.wantEmptySeen
+    const okTables = t.wantTables === undefined || v.tables === t.wantTables
+    const okRows = t.wantRows === undefined || v.probe?.rows === t.wantRows
+    if (!(okWant && okReason && okPrefix && okMissing && okEmptySeen && okTables && okRows)) {
       stBad++
-      console.error(`  ❌ 落定判据：${t.title}（实际 settled=${v.settled} reason="${v.reason}"）`)
+      console.error(
+        `  ❌ 落定判据：${t.title}（实际 settled=${v.settled} reason="${v.reason}" ` +
+          `tables=${v.tables} rows=${v.probe?.rows} tableMissing=${v.tableMissing} emptySeen=${v.emptySeen}）`
+      )
     } else console.log(`  ✅ [OK] ${t.title}`)
   }
   if (stBad) {
     console.error(`❌ 落定判据自检失败 ${stBad}/${stCases.length} 条 ⇒ 行内动作面分母仍由网络快慢决定`)
     process.exit(1)
   }
-  // 生效路径反查（写了没接线=没写）：跑批正文必须真的调用这条通道并有 UNRUN 那一支
-  const selfSrc = fs.readFileSync(path.join(__dirname, 'action-inventory.mjs'), 'utf8')
-  if (!selfSrc.includes('const settle = await waitTableSettled(page)')) {
-    console.error('❌ 跑批正文没有调用 waitTableSettled ⇒ 落定判据是死码')
+  // 第七族（b88）：稳定 ≠ 可接受。"两次都太早"与"这页已到终态"在 DOM 样本上可能逐字节同形，
+  // 能把它们分开的是**请求事件静默 + 同一读数维持的时长**，不是秒表——所以这条必须是独立可单测的纯函数。
+  const aCases = [
+    {
+      title: '正控：稳定 + 有可见表 + 有数据行 ⇒ 立刻接受（数据已落进 DOM，不必再等）',
+      v: { settled: true, tables: 1, rows: 2, emptySeen: false },
+      ctx: { sinceActivityMs: 0, sawActivity: true, elapsedMs: 300, budgetMs: 20000 },
+      want: true
+    },
+    {
+      title: 'b88 立案形状：有表但 0 行、请求仍在动 ⇒ **不得**接受（"0 行"与"还没回"必须可区分）',
+      v: { settled: true, tables: 1, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: 0, sawActivity: true, elapsedMs: 300, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: '正控：有表但 0 行、请求静默够久 + 同一读数维持够久 ⇒ 接受（合法的 0 行不得当成没读完）',
+      v: { settled: true, tables: 1, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: QUIET_MS, sawActivity: true, stableMs: STABLE_MS, elapsedMs: 2200, budgetMs: 20000 },
+      want: true
+    },
+    {
+      title:
+        'b88 收口实测形状（/system/user 那一轮 518ms）：读数两次相同 + 请求也都发过 + 静默够久，' +
+        '但同一读数只维持了 518ms ⇒ **不得**接受（第三拍就变成 行 2 表 1 ⇒ "网络静默"≠"DOM 到终态"）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: QUIET_MS, sawActivity: true, stableMs: 518, elapsedMs: 518, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: 'b88 实测形状：整页 tables=0 采满 8 秒、但从未见过请求活动 ⇒ 不得接受（无从证明列表请求已经发过）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: 99999, sawActivity: false, stableMs: 99999, elapsedMs: 8031, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: 'b88 收口形状：静默窗口未到（距最后一次请求 100ms）⇒ 读数维持再久也不得接受（Vue 渲染排在响应之后）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: QUIET_MS - 1, sawActivity: true, stableMs: 60000, elapsedMs: 8000, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: '正控：无表但有显式空态 + 静默够久 + 读数维持够久 ⇒ 接受（profile/cache 这类页本来就没表）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: true },
+      ctx: {
+        sinceActivityMs: QUIET_MS + 400,
+        sawActivity: true,
+        stableMs: STABLE_MS + 400,
+        elapsedMs: 1600,
+        budgetMs: 20000
+      },
+      want: true
+    },
+    {
+      title:
+        '反脆弱：读数维持不够久（stableMs < STABLE_MS）⇒ 静默与活动都成立也不得接受（稳定窗口是唯一能区分渲染空档的量）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: true },
+      ctx: {
+        sinceActivityMs: QUIET_MS + 400,
+        sawActivity: true,
+        stableMs: STABLE_MS - 1,
+        elapsedMs: 900,
+        budgetMs: 20000
+      },
+      want: false
+    },
+    {
+      title: '还没稳定 ⇒ 任何时刻都不接受（不得把"再等一轮"写成"落定了"）',
+      v: { settled: false, tables: 1, rows: 2, emptySeen: false },
+      ctx: { sinceActivityMs: 60000, sawActivity: true, stableMs: 60000, elapsedMs: 19000, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: '正控：b88 那一轮的真实断面——在飞计数卡在 1、但距最后一次事件已 20 秒 ⇒ 接受（判定不得用会漏的计数）',
+      v: { settled: true, tables: 1, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: 20000, sawActivity: true, stableMs: 18000, elapsedMs: 20011, budgetMs: 20000 },
+      want: true
+    },
+    {
+      title: '网络通道坏了（取不到事件时刻）⇒ 退回时间兜底，且只有预算走完才接受（旧口径，只能是兜底）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: null, sawActivity: false, elapsedMs: 20000, budgetMs: 20000 },
+      want: true
+    },
+    {
+      title: '网络通道坏了 + 预算未到 ⇒ 不接受（兜底支也不得提前收工）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: null, sawActivity: false, elapsedMs: 4000, budgetMs: 20000 },
+      want: false
+    },
+    {
+      title: '事件时刻为负 / NaN（采集器坏了）⇒ 视为通道不可用，不得读成"已静默"（取不到≠静默够久）',
+      v: { settled: true, tables: 0, rows: 0, emptySeen: false },
+      ctx: { sinceActivityMs: -5, sawActivity: true, stableMs: 9000, elapsedMs: 1000, budgetMs: 20000 },
+      want: false
+    }
+  ]
+  let aBad = 0
+  for (const t of aCases) {
+    const got = acceptSettled(t.v, t.ctx)
+    if (got !== t.want) {
+      aBad++
+      console.error(`  ❌ 接受判据：${t.title}（实际 ${got}，期望 ${t.want}）`)
+    } else console.log(`  ✅ [OK] ${t.title}`)
+  }
+  if (aBad) {
+    console.error(
+      `❌ 接受判据自检失败 ${aCases.length} 条里有 ${aBad} 条不符 ⇒ "太早的读数"仍会被当成合法断面` +
+        `（QUIET_MS=${QUIET_MS}、STABLE_MS=${STABLE_MS}）`
+    )
     process.exit(1)
   }
-  if (!selfSrc.includes('页表格读数未落定 ⇒ 本轮行内动作面不作数')) {
-    console.error('❌ 跑批正文没有"未落定 ⇒ EXIT=2"这一支 ⇒ 未落定会被当成正常读数')
+  // 第八族（b88 收口）：tab 标签集合的落定。`/monitor/cache` 实测 +2.6s 只有 1 项、+4s 才 3 项，
+  // 读一次就决定"要不要点 tab"等于把这一页真正的动作面整块判成不存在。
+  const lCases = [
+    {
+      title: '正控：两拍都是 3 项且逐位相等 ⇒ 稳定，取最后两拍',
+      samples: [
+        ['A', 'B', 'C'],
+        ['A', 'B', 'C']
+      ],
+      want: true,
+      wantLabels: 3
+    },
+    {
+      title: '正控：本页没有 tab（两拍都是空数组）⇒ 稳定且返回空（不得当成"还没读到"）',
+      samples: [[], []],
+      want: true,
+      wantLabels: 0
+    },
+    {
+      title: 'b88 实测形状：1 项 → 3 项（nav 逐项长出来）⇒ 未稳定且文案点名"还在长"',
+      samples: [['缓存监控'], ['缓存监控', '缓存列表', '热 Key 提示']],
+      want: false,
+      reason: 'tab 标签还在长出来'
+    },
+    {
+      title: '反脆弱：长度相同但顺序/文案变了 ⇒ 未稳定，且不得报成"还在长"（growing 必须是前缀关系）',
+      samples: [
+        ['A', 'B'],
+        ['A', 'C']
+      ],
+      want: false,
+      reason: 'tab 标签集合仍在变化'
+    },
+    {
+      title: '反脆弱：b 比 a 长但不是前缀 ⇒ growing 必须为假',
+      samples: [
+        ['B', 'C'],
+        ['A', 'B', 'C']
+      ],
+      want: false,
+      wantGrowing: false
+    },
+    { title: '只有一拍 ⇒ 未稳定（不得把"只看了一眼"当落定）', samples: [['A']], want: false }
+  ]
+  let lBad = 0
+  for (const t of lCases) {
+    const v = labelsVerdict(t.samples)
+    const okWant = v.stable === t.want
+    const okReason = !t.reason || v.reason === t.reason
+    const okLabels = t.wantLabels === undefined || (v.labels || []).length === t.wantLabels
+    const okGrowing = t.wantGrowing === undefined || v.growing === t.wantGrowing
+    if (!(okWant && okReason && okLabels && okGrowing)) {
+      lBad++
+      console.error(
+        `  ❌ tab 标签落定：${t.title}（实际 stable=${v.stable} reason="${v.reason}" labels=${(v.labels || []).length} growing=${v.growing}）`
+      )
+    } else console.log(`  ✅ [OK] ${t.title}`)
+  }
+  if (lBad) {
+    console.error(
+      `❌ tab 标签落定自检失败 ${lBad}/${lCases.length} 条 ⇒ 多 tab 页仍会把"nav 还没渲染完"读成"这页只有一个 tab"`
+    )
+    process.exit(1)
+  }
+  // 生效路径反查（写了没接线=没写）：跑批正文必须真的调用这条通道并有 UNRUN 那一支
+  const selfSrc = fs.readFileSync(path.join(__dirname, 'action-inventory.mjs'), 'utf8')
+  const revChecks = [
+    {
+      needle: 'const tabsRead = await waitTabLabels(page)',
+      fail: '跑批正文没调用 waitTabLabels ⇒ 这条纯函数与轮询都是死码，/monitor/cache 仍会报"动作 0"'
+    },
+    {
+      needle: '有 tab 点了两次仍未落地 ⇒',
+      fail: '跑批正文没有"tab 没落地 ⇒ EXIT=2"这一支 ⇒ 遮挡挡住点击仍会被写成"这个 pane 没有动作"并落进基线'
+    },
+    {
+      needle: 'if (block) block = await tryClick()',
+      fail: '跑批正文的 tab 点击没走"每次按下前重收遮罩 + 失败重试" ⇒ 引导浮层 1.6s 才挂载这条时序仍会吞掉点击'
+    },
+    {
+      needle: 'sinceActivityMs: () => (net.lastActivityAt ? Date.now() - net.lastActivityAt : null)',
+      fail: '跑批正文没把"距最后一次请求事件"传给 waitTableSettled ⇒ 判定会退回那个会被卡死的在飞计数（b88 实测 在飞 1 × 20 秒）'
+    },
+    {
+      needle: 'activity: () => net.events - netBase',
+      fail: '跑批正文没把**事件驱动**的活动计数传给 waitTableSettled ⇒ "这页发过数据请求"只能靠采样撞上，短请求会永远看不见'
+    },
+    {
+      needle: 'const settle = await waitTableSettled(page, 20000, 250, {',
+      fail: '跑批正文没把网络计数通道传给 waitTableSettled ⇒ 落定仍由秒表决定（b88 实测那条 8 秒读 0）'
+    },
+    {
+      needle: 'const stableMs = Date.now() - runStart',
+      fail: '轮询正文没算稳定窗口（runStart）⇒ STABLE_MS 只是判据里的一个装饰，acceptSettled 收到 undefined 恒判不落定'
+    },
+    {
+      needle: 'if (acceptSettled(v, ctx))',
+      fail: '轮询正文没用 acceptSettled ⇒ 这条纯函数是死码（写了没接线=没写）'
+    },
+    {
+      needle: '页表格读数未落定 ⇒ 本轮行内动作面不作数',
+      fail: '跑批正文没有"未落定 ⇒ EXIT=2"这一支 ⇒ 未落定会被当成正常读数'
+    },
+    {
+      needle: '本轮却没采到可见 el-table',
+      fail:
+        '跑批正文没有"基线记有行内动作、本轮没采到表 ⇒ EXIT=2"这一支' +
+        ' ⇒ tableMissing 只是采到了却没人消费，"没读到表"仍会被内容棘轮报成假退步（b88 实测形状）'
+    },
+    {
+      needle: '页"落定时 DOM 里一个 el-table 元素都没有、同一次扫描随后采到可见表与可见行"自相矛盾',
+      fail:
+        '跑批正文没有"同一轮内部自相矛盾 ⇒ EXIT=2"这一支' +
+        ' ⇒ 换尺后第一轮坏在读哪个通道没人能发现（必须不依赖基线就能证伪，b88 实测靠这条定性）'
+    },
+    {
+      needle: '页落定走的是**时间兜底**',
+      fail: '跑批正文没判"兜底通道占多数 ⇒ EXIT=2" ⇒ 网络计数坏了时整轮会静默退回被证伪过的旧尺'
+    },
+    {
+      needle: 'if (!maskedSrc.includes(c.needle)) {',
+      fail: '反查循环读的不是掩码后的文本 ⇒ "清单自己就是证据"那个空洞重新打开（掩码函数写了没接线=没写）'
+    },
+    {
+      needle: "page.on('requestfinished', done)",
+      fail: '跑批正文没挂 requestfinished/requestfailed ⇒ net.inflight 恒 0，"静默"是假的'
+    }
+  ]
+  /**
+   * **反查必须在剔掉"清单自己"的文本之后做**（b88 收口抓到自己的空洞）：
+   * `selfSrc` 读的是本文件全文，而每条 needle 的字面量也写在这个文件里 ⇒
+   * 一条"跑批正文里根本没有、只活在清单里"的 needle 会**匹配到自己那一行**，恒绿。
+   * 实测形状：把 FATAL 文案改成"同一把尺走完 tab 后…"之后，旧 needle
+   * `同一页随后采到表头/数据行` 在正文里已经一处都没有，反查却照常放行——
+   * 文件里剩下的那唯一一处，就是清单自己那一行（前言 ⑬"刀口只能落在代码上，不得被注释文本决定"
+   * 的第三个断面：这一次被读成证据的是**判据自己的源码**）。
+   */
+  const maskedSrc = maskNeedleLines(selfSrc)
+  let revBad = 0
+  for (const c of revChecks) {
+    if (!maskedSrc.includes(c.needle)) {
+      revBad++
+      console.error(`❌ ${c.fail}（needle «${c.needle.slice(0, 40)}…» 在跑批正文里一处都没有）`)
+    }
+  }
+  /**
+   * 掩码函数自己的双向用例（**合成文本**，不是本文件——本文件里"只在清单里"的文本
+   * 没法既当被测数据又当断言字面量，那样写出来的用例必然自指）。
+   */
+  const maskCases = [
+    {
+      title: '正控：needle 只出现在清单行 ⇒ 掩码后必须找不到（这就是旧实现恒绿的那一支）',
+      src: ['const revChecks = [{', "  needle: 'ZXT_只在清单里_ABC',", '  fail: "x"', '}]'].join('\n'),
+      needle: 'ZXT_只在清单里_ABC',
+      want: false
+    },
+    {
+      title: '正控：同一文本在正文里也有 ⇒ 掩码后必须仍找得到（不得把正文一起剔掉）',
+      src: ["console.error('[FATAL] ZXT_正文里有_ABC')", "const c = { needle: 'ZXT_正文里有_ABC' }"].join('\n'),
+      needle: 'ZXT_正文里有_ABC',
+      want: true
+    },
+    {
+      title: '反脆弱：注释里写着 needle: 的行不参与掩码？——必须**参与**（掩码按行首，注释行同样被剔）',
+      src: ['//   needle: 这是注释里的举例', "const k = 'ZXT_注释里的_ABC'"].join('\n'),
+      needle: 'needle: 这是注释里的举例',
+      want: false
+    },
+    {
+      title: '反脆弱：`x = { needle: ... }` 写在行中不得被误剔（只有行首才算清单行）',
+      src: ["const row = { t: 1, needle: 'ZXT_在行中_ABC' }"].join('\n'),
+      needle: 'ZXT_在行中_ABC',
+      want: true
+    }
+  ]
+  for (const c of maskCases) {
+    const got = maskNeedleLines(c.src).includes(c.needle)
+    if (got !== c.want) {
+      revBad++
+      console.error(`❌ 掩码判据：${c.title}（实际 ${got}，期望 ${c.want}）`)
+    } else console.log(`  ✅ [OK] ${c.title}`)
+  }
+  if (revBad) process.exit(1)
+  if (revBad) process.exit(1)
+
+  if (deferredFails.length) {
+    for (const m of deferredFails) console.error(`❌ ${m}`)
+    console.error(
+      `（其余各族——落定判据 ${stCases.length} 条、接受判据 ${aCases.length} 条、tab 标签落定 ${lCases.length} 条、生效路径反查 ${revChecks.length} 条——**已照常执行完毕**才退出 ⇒ 红在这一条，不是"后面没跑"）`
+    )
     process.exit(1)
   }
 
@@ -1162,8 +1939,12 @@ function runSelftest() {
       ` + 棘轮比较式 ${rCases.length} 条双向` +
       ` + 无点击证据拆分 ${cCases.length} 条双向（含拆分守恒正控）` +
       ` + 行内动作面分母 ${sCases.length} 条双向 + 不可比通道 ${uncomparable.length} 条` +
-      ` + 两条腿（相对容差 × 绝对下限）${legCases.length} 条 + 参数对账 1 条 + 已提交基线真实树正控 ${realCtl} 条（含口径戳对账）` +
-      ` + 表格读数落定 ${stCases.length} 条双向（含两个正控）+ 生效路径反查 2 条`
+      ` + 两条腿（相对容差 × 绝对下限）${legCases.length} 条 + 参数对账 1 条 + 退步分因 ${whyCases.length} 条双向（含"缺 rt 不得读成有行"反证）` +
+      ` + 已提交基线真实树正控 ${realCtl} 条（含口径戳对账）` +
+      ` + 表格读数落定 ${stCases.length} 条双向（含两个正控 + b88 三条 tableMissing 反脆弱）` +
+      ` + 稳定≠可接受 ${aCases.length} 条双向（b88 收口把尺从秒表换成请求静默，含"0 行 vs 还没回""静默 1 拍不算终态""计数器下溢"三支反脆弱）` +
+      ` + tab 标签落定 ${lCases.length} 条双向（b88 实测 /monitor/cache 的 nav 在 2.6s 只有 1 项）` +
+      ` + 生效路径反查 ${revChecks.length} 条（读的是掩码后的正文，清单自己不算证据）`
   )
   process.exit(0)
 }
@@ -1191,6 +1972,42 @@ function main() {
     const browser = await chromium.launch({ headless: HEADLESS })
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
     const page = await ctx.newPage()
+    /**
+     * 每页在飞的 XHR/fetch 计数（落定判据的终态通道，见 acceptSettled）。
+     *
+     * 只数 `xhr|fetch`：本仓布局常驻 WebSocket（通知流），`page.on('request')` 对 WS 只在**关闭时**
+     * 才发 finished ⇒ 计入就永远"不静默"；`document`/`script`/`stylesheet` 同理——入口包 5.8 MB，
+     * 静态资源与业务请求混在一起会让"静默"意味着"整页资源下载完"，那不是列表页的终态。
+     * 计数夹到 0 并留 `underflow`：Playwright 的事件对某些重定向/缓存命中不严格成对，
+     * 负数会把"还有请求在飞"读成"静默"——那正是这条通道要防的形状，宁可多等一拍。
+     */
+    const net = { inflight: 0, underflow: 0, events: 0, lastActivityAt: 0 }
+    const isData = (r) => {
+      try {
+        const t = r.resourceType()
+        return t === 'xhr' || t === 'fetch'
+      } catch {
+        return false
+      }
+    }
+    page.on('request', (r) => {
+      if (!isData(r)) return
+      net.events++
+      net.inflight++
+      net.lastActivityAt = Date.now()
+    })
+    const done = (r) => {
+      if (!isData(r)) return
+      net.events++
+      net.lastActivityAt = Date.now()
+      if (net.inflight === 0) {
+        net.underflow++
+        return
+      }
+      net.inflight--
+    }
+    page.on('requestfinished', done)
+    page.on('requestfailed', done)
     if (!(await login(page))) {
       console.error('❌ 登录失败：检查 STEPBY_TEST_USER / STEPBY_TEST_PASS / 服务是否在 8080')
       await browser.close()
@@ -1201,19 +2018,40 @@ function main() {
     const pages = []
     for (const [i, routePath] of routes.entries()) {
       const url = `${BASE}${routePath}`
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+      // 上一跳的在飞请求与本跳的终态无关：整页 reload 后旧请求会 abort（requestfailed 会来），
+      // 但"来不来"不是判据可以依赖的东西 ⇒ 每页开始把计数归零，配下文的 underflow 一起进凭证。
+      net.inflight = 0
+      // 上一跳的最后事件时刻对本跳毫无意义（会让"本跳还没发请求"被读成"已静默 5 分钟"）：
+      // 置 0 ⇒ sinceActivityMs() 返回 null ⇒ 本页在发出第一个数据请求之前不得凭"静默"落定。
+      net.lastActivityAt = 0
+      const netBase = net.events
+      let gotoError = ''
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch((e) => {
+        gotoError = String((e && e.message) || e)
+          .split('\n')[0]
+          .slice(0, 120)
+      })
       // 600ms 是"SPA 首屏挂载"的下限，不是读数等待；读数一律交给下面的落定轮询。
       await sleep(600)
       await dismissTour(page)
-      const settle = await waitTableSettled(page)
+      const settle = await waitTableSettled(page, 20000, 250, {
+        inflight: () => net.inflight,
+        activity: () => net.events - netBase,
+        sinceActivityMs: () => (net.lastActivityAt ? Date.now() - net.lastActivityAt : null)
+      })
       await sleep(200)
 
       // 逐 tab 扫描：el-tabs 的非激活 pane 是 display:none，`visible()` 会把里面的按钮全部滤掉——
       // 实测 /monitor/cache（概览/键管理/热Key）因此报"动作 0"，而键管理页其实有刷新/清理共 6 个按钮。
       // 不点 tab 就等于把多 tab 页面整页判成"没有可测动作"，覆盖率会虚高。
-      const tabLabels = await page
-        .$$eval('.el-tabs__item', (els) => els.map((e) => (e.innerText || '').trim()).filter(Boolean))
-        .catch(() => [])
+      //
+      // **tab 标签本身也要轮询到落定**（b88 收口补）：EP 的 tab nav 是挂载后逐项算宽度的，
+      // 实测 `/monitor/cache` 在 +2.6s（表格已落定）时 `.el-tabs__item` 只有 1 项、+4s 才是 3 项
+      // ⇒ 旧写法在这里读一次就把 `tabs.length>1` 当判据，1 项 ⇒ 不点 tab ⇒ 整页报"动作 0"，
+      // 而这一页真正的动作面（缓存列表 / 热 Key 两个 pane 的按钮）从没被采到过。
+      // 表格落定 ≠ 页面上其他控件落定：尺必须套在"接下来要被读的那个东西"上（前言 ⑬ 的同一条）。
+      const tabsRead = await waitTabLabels(page)
+      const tabLabels = tabsRead.labels
       const tabs = tabLabels.length > 1 ? tabLabels.slice(0, 6) : []
 
       let got = await collectActions(page).catch(() => null)
@@ -1227,16 +2065,47 @@ function main() {
         sortableColumns: got ? got.sortableColumns : 0
       }
       const tabCounts = {}
+      const tabClickFailed = []
+      /**
+       * 每个 tab 自己的行数（b88 收口补）。`rowCount` 刻意**不跨 tab 合并**（页面身份不能被串），
+       * 于是"默认视图 0 行"与"这一页真的没数据"是两件事：`/monitor/cache` 默认视图 0 行，
+       * 而它的行内动作「删除」在 tab「缓存列表」里、那一 tab 本轮读到过数据行。
+       * 退步分因文案要用后者，否则会把"缺覆盖"报成"需要配数据夹具"（前言 ⑨：错误提示把人支使去改错的东西）。
+       */
+      const tabRows = { [tabs[0] || '']: merged.rowCount }
       if (tabs.length) {
         tabCounts[tabs[0]] = merged.toolbar.length + merged.rowActions.length
         for (let ti = 1; ti < tabs.length; ti++) {
-          const clicked = await page
-            .locator('.el-tabs__item')
-            .nth(ti)
-            .click({ timeout: 3000 })
-            .then(() => true)
-            .catch(() => false)
-          if (!clicked) continue
+          /**
+           * **每次按下前重收引导遮罩**（前言 ③ 的同一条纪律，本批在扫描器上复现）：
+           * 跑批在 +0.6s 调过一次 `dismissTour`，而实测引导浮层在 **+1.6s 才挂载**
+           * （`_probe_cache_tabs2`：tour=false→true 就发生在 1.22s→1.64s 之间），
+           * 于是表格落定与 tab 点击都发生在遮罩**已挡住**的时段；
+           * `.click().catch(() => false)` 把这件事洗成"这个 tab 没有动作"，
+           * `/monitor/cache` 因此报 `动作 0`——它另外两个 pane 的按钮从没被采到过。
+           * 失败就重收一次再试一次；仍失败**必须留下名字**，不得静默 continue。
+           */
+          const tryClick = async () => {
+            await dismissTour(page)
+            return page
+              .locator('.el-tabs__item')
+              .nth(ti)
+              .click({ timeout: 3000 })
+              .then(() => '')
+              .catch((e) =>
+                String((e && e.message) || e)
+                  .split('\n')
+                  .filter(Boolean)
+                  .slice(-1)[0]
+                  .slice(0, 120)
+              )
+          }
+          let block = await tryClick()
+          if (block) block = await tryClick()
+          if (block) {
+            tabClickFailed.push({ tab: tabs[ti], block })
+            continue
+          }
           await sleep(900)
           const t = await collectActions(page).catch(() => null)
           if (!t) continue
@@ -1247,11 +2116,26 @@ function main() {
           // /user/profile/userAvatar 显示 PAT 页的 8 列表头（b78 实测踩过），
           // 页面身份就串了。这些字段只代表"默认视图"，tab 内动作靠 `tab` 字段区分。
           tabCounts[tabs[ti]] = t.toolbar.length + t.rowActions.length
+          tabRows[tabs[ti]] = t.rowCount
         }
       }
       // iframe 页（Swagger UI）：动作不在本页 DOM 内，标出来避免被读成"页面没按钮"
       const iframeCount = await page.$$eval('iframe', (els) => els.length).catch(() => 0)
       got = merged
+      /**
+       * **同一把尺的第二次读数**（走完 tab 之后）：`collectActions` 的 `columns`/`rowCount`
+       * 不能用来说明"这页有可见的表"——`querySelectorAll` 不看可见性，而未渲染子树的
+       * `innerText` 按规范回退成 `textContent`，所以**隐藏 tab 里的表头照样进 `columns`**
+       * （b88 实测：`/user/profile/*` 报 `列 8 / 行 0` 而同一页可见表 0/1 张，
+       * 因为那张表挂在未激活的 tab pane 里）。
+       * 因此"落定尺采到 0 张可见表"到底是不是矛盾，只能拿 `sampleTableState`（两侧都过可见性）
+       * 与它自己比，不能拿另一个通道比。
+       */
+      const finalSample = await page.evaluate(sampleTableState).catch((e) => ({
+        sampleError: String((e && e.message) || e)
+          .split('\n')[0]
+          .slice(0, 180)
+      }))
 
       const toolbar = dedupe(got.toolbar).map((b) => ({ ...b, covered: mark(b.name), clicked: interacted(b.name) }))
       const rowActions = dedupe(got.rowActions).map((b) => ({
@@ -1283,11 +2167,51 @@ function main() {
           }
         })(),
         tabs: tabCounts,
+        // 行内动作所在视图里的最大行数（见上面的 tabRows）：`rowCount=0` 只说"默认视图没行"，
+        // 这一个说"那些行内动作被扫到时，所在视图有没有行"。两者的差就是分因文案的分界。
+        rowActionMaxRows: (merged.rowActions || []).reduce(
+          (m, b) => Math.max(m, tabRows[b.tab] === undefined ? merged.rowCount : tabRows[b.tab]),
+          0
+        ),
+        // tab 条自己的落定凭证（见 waitTabLabels）：只读到 1 项时，"这页只有一个 tab"和
+        // "nav 还没长完"必须可区分——后者会让多 tab 页整块动作面消失，而且静默。
+        tabReadMs: tabsRead.ms,
+        tabReadSamples: tabsRead.samples,
+        tabReadSettled: tabsRead.settled,
+        tabReadReason: tabsRead.reason || '',
+        // 点了没落地的 tab 必须点名（前言 ⑭："请求数=0"必须 AND"这次点击真的落地"）：
+        // 静默 continue 会把"遮罩挡住了"洗成"这个 pane 没有动作"。
+        tabClickFailed,
         iframeCount,
         // 读数落定凭证（见 settleVerdict）：未落定的页必须让本轮判据不作数
         settled: settle.settled,
         settleMs: settle.ms,
         settleReason: settle.reason,
+        // 落定走的是哪条通道 + 采了几拍 + 当时在飞几个请求（见 acceptSettled 的 b88 取证）：
+        // "等了 8 秒"与"请求飞完了"是两种完全不同的证据，凭证必须把这一层写出来。
+        settleChannel: settle.channel,
+        settleSamples: settle.samples,
+        settleInflight: settle.inflight ?? null,
+        // 距最后一次数据请求事件的毫秒数——判定用的是它，不是上面那个计数（计数会被
+        // 一个永不 finished 的请求永久钉住，b88 实测 在飞 1 × 20 秒而读数 74 拍不动）。
+        settleSinceActivityMs: settle.sinceActivityMs ?? null,
+        settleStableMs: settle.stableMs ?? null,
+        // 未落定时唯一能归因的东西：最后几段读数各采了几拍（`行 2 表 1 空态 false 遮罩 false ×8`）
+        settleDistinct: settle.distinct || '',
+        gotoError,
+        // "整页采到几张可见 el-table"——0 张不等于"这页没有行内动作"，见 settleVerdict 的 b88 取证。
+        // 取**两次同尺读数的较大值**：落定那一刻（默认 tab）与走完 tab 之后（激活过其它 pane）。
+        // 只用前者会把"表挂在未激活 tab 里"的多 tab 页每轮判成矛盾（b88 实测 8 页误报）。
+        settleTables: settle.tables ?? -1,
+        finalTables: finalSample.tables ?? -1,
+        finalRows: finalSample.rows ?? -1,
+        tableCount: Math.max(settle.tables ?? -1, finalSample.tables ?? -1),
+        // 落定那一刻的原始读数（可见/总数分开 + 当时所在的路径）。
+        // 这一条是 b88 追"`可见表=0` 而同一页 `行 2`"时立的：轮询读到 0 与随后读到 2
+        // 不可能同时为真，而原凭证答不出是哪一侧在骗人——只能靠"选择器匹配到几个元素""当时在哪个 URL"
+        // 这两组不过滤可见性的事实来定性。
+        settleProbe: settle.probe || null,
+        finalProbe: finalSample || null,
         // "有表头/有 tab 却 0 动作"必须自曝，否则 0 会被当成"这页本来就没按钮"
         suspicious: toolbar.length + rowActions.length === 0 && (got.columns.length > 0 || tabs.length > 1)
       }
@@ -1295,7 +2219,15 @@ function main() {
       log(
         `${String(i + 1).padStart(2)}/${routes.length} ${routePath.padEnd(34)} ` +
           `动作 ${rec.actionCount}（覆盖 ${rec.coveredCount} / 点击 ${rec.clickedCount}）行 ${rec.rowCount}` +
+          (rec.tableCount === 0
+            ? ` 可见表=0（落定 ${rec.settleTables} 张 / 走完 tab ${rec.finalTables} 张·DOM 里共 ${
+                rec.finalProbe?.tablesAll ?? '?'
+              } 张·空态 ${rec.finalProbe?.emptyAll ?? '?'} 个·在 ${rec.finalProbe?.path ?? '?'}）`
+            : '') +
           (rec.tabs && Object.keys(rec.tabs).length > 1 ? ` tab=${Object.keys(rec.tabs).length}` : '') +
+          (rec.tabClickFailed && rec.tabClickFailed.length
+            ? `  ❌ tab 未落地 ${rec.tabClickFailed.map((f) => f.tab).join('/')}`
+            : '') +
           (rec.suspicious ? '  ⚠ 采集可疑（有表头/多 tab 却 0 动作）' : '') +
           (rec.settled ? '' : `  ❌ 未落定（${rec.settleReason} / ${rec.settleMs}ms）`)
       )
@@ -1310,13 +2242,123 @@ function main() {
     if (unsettled.length) {
       console.error(
         `[FATAL] ${unsettled.length}/${pages.length} 页表格读数未落定 ⇒ 本轮行内动作面不作数：` +
-          unsettled.map((x) => `${x.path}(${x.settleReason}, ${x.settleMs}ms)`).join(' ')
+          unsettled
+            .map(
+              (x) =>
+                `${x.path}(${x.settleReason}, ${x.settleMs}ms·${x.settleChannel}·${x.settleSamples} 拍；读数序列 ${x.settleDistinct || '无'})`
+            )
+            .join(' ')
       )
       process.exit(2)
     }
     const slowest = pages.reduce((a, x) => (x.settleMs > a.settleMs ? x : a), pages[0])
-    log(`落定核对：${pages.length}/${pages.length} 页落定（最慢 ${slowest.path} ${slowest.settleMs}ms）`)
+    // 通道对账（同 console 豁免那条"兜底不得变成主通道"）：走时间兜底的页必须数得出来。
+    // 兜底支用的是被 b88 证伪过的旧尺，一旦它成为多数就说明网络计数通道坏了（事件没配对、
+    // 或整批页都在 20 秒预算外），那时"落定"这个词已经没有含义。
+    const fallbackPages = pages.filter((x) => x.settleChannel !== 'net-quiet')
+    const netUnderflow = net.underflow
+    log(
+      `落定核对：${pages.length}/${pages.length} 页落定（最慢 ${slowest.path} ${slowest.settleMs}ms）` +
+        ` 通道=请求静默 ${pages.length - fallbackPages.length} / 时间兜底 ${fallbackPages.length}` +
+        `（数据事件 ${net.events} 次、下溢 ${netUnderflow} 次）`
+    )
+    if (fallbackPages.length > pages.length / 2) {
+      console.error(
+        `[FATAL] ${fallbackPages.length}/${pages.length} 页落定走的是**时间兜底**（旧尺，b88 已证伪）` +
+          ` ⇒ 网络计数通道大概率坏了（下溢 ${netUnderflow} 次），本轮行内动作面不作数`
+      )
+      process.exit(2)
+    }
 
+    /**
+     * **同一轮内部的自相矛盾**（b88 收口补，不需要基线，排在写产物之前）：
+     * 落定那一刻**DOM 里连一个 `.el-table` 元素都没有**（`tablesAll===0`），
+     * 而同一次扫描稍后却采到了"可见表 + 可见数据行" ⇒ 两次读数不可能同时为真，
+     * 坏的必然是先那一次（它把"还没挂出来"读成了"没有"）——这正是 b88 的 `/system/user`
+     * （落定时 `tables:0 tablesAll:0`，随后 `列 12 / 行 2 / 表 1 张`）。
+     *
+     * 两个刻意收窄，各自都有实测反例：
+     * ① 必须看 `tablesAll`（不过滤可见性）而不是只看"可见表 0 张"：`/monitor/cache` 落定时
+     *    `表 0/4 张`（四张表都在未激活 pane 里），走完 tab 之后 `表 2 张 / 行 28`——
+     *    那是**本判据自己点开 tab 造成的变化**，是逐 tab 扫描的目的，不是尺读早了。
+     *    第一版没带这一条，把 cache 判成了尺坏（前言 ⑯(c)：前置条件不成立的判据是负资产）。
+     * ② 必须要求随后**有可见数据行**：只有表头不构成"读数被推翻"，
+     *    隐藏 pane 的表头本来就会进 `columns`（那个通道不看可见性）。
+     * 退出码取 2（UNRUN）：报 1 会把人支使去"改基线 / 调阈值"，而正确的动作是修落定判据本身。
+     */
+    const selfContradiction = pages.filter(
+      (p) => p.settleTables === 0 && (p.settleProbe?.tablesAll ?? -1) === 0 && p.finalTables > 0 && p.finalRows > 0
+    )
+    if (selfContradiction.length) {
+      console.error(
+        `[FATAL] ${selfContradiction.length}/${pages.length} 页"落定时 DOM 里一个 el-table 元素都没有、同一次扫描随后采到可见表与可见行"自相矛盾` +
+          ' ⇒ 落定判据本身坏了，本轮行内动作面不作数：' +
+          selfContradiction
+            .map(
+              (p) =>
+                `${p.path}(落定 ${p.settleTables} 张 / 随后 ${p.finalTables} 张·行 ${p.finalRows} / ` +
+                `落定 ${p.settleMs}ms·${p.settleChannel}·采 ${p.settleSamples} 拍·距最后一次数据请求 ${
+                  p.settleSinceActivityMs ?? '?'
+                }ms·在飞 ${p.settleInflight ?? '?'}·落定时 DOM 里共 ${p.settleProbe?.tablesAll ?? '?'} 张·${
+                  p.settleProbe?.path ?? '?'
+                }${p.gotoError ? `·goto 异常 «${p.gotoError}»` : ''})`
+            )
+            .join(' ') +
+          '（正确动作是修 waitTableSettled 的终态判据，不是把 tableCount 当可信数写进基线）'
+      )
+      process.exit(2)
+    }
+    /**
+     * tab 点不动 ⇒ 本轮不作数（b88 收口补）：`/monitor/cache` 在修遮罩时序之前就是这一形——
+     * 两个 pane 的点击被引导遮罩挡住，`.catch(() => false)` 把它洗成"这两个 tab 没有动作"，
+     * 于是整页报 `动作 0` 并**照常落进基线**（分母就此缩掉）。
+     * 判据与 b83 的"点击落地通道"同源：**"动作数为 0"必须 AND"这次点击确实落地"**，
+     * 否则同一判据同时被"这页没按钮"与"按钮没点到"两种相反状态满足。
+     */
+    const tabStuck = pages.filter((p) => (p.tabClickFailed || []).length > 0)
+    if (tabStuck.length) {
+      console.error(
+        `[FATAL] ${tabStuck.length}/${pages.length} 页有 tab 点了两次仍未落地 ⇒ 那些 pane 的动作面没有被采集，本轮不作数：` +
+          tabStuck.map((p) => `${p.path}[${p.tabClickFailed.map((f) => `${f.tab}«${f.block}»`).join(' ')}]`).join(' ') +
+          '（先修遮挡/时序，不得把"没点到"写成"没有动作"，更不得据此 --update-baseline）'
+      )
+      process.exit(2)
+    }
+    // 基线在闸之前读出来：这一句原先排在写产物之后，于是"坏尺"也会先落两份报告（b88 实测）。
+    const base = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) : null
+    /**
+     * 口径闸（b88 补）：基线承诺这页有行内动作（`t>0`）而本轮**两个可见性口径的读数都是 0 张表**
+     * ⇒ 这是"没读到"而不是"动作变少"，交内容棘轮就会报出假退步（b88 的 `/system/user` 93.2% < 100.0%）。
+     * **只在基线与本轮同口径时才判**：换尺之后旧基线的 `t` 是被证伪过的那把尺采的，
+     * 拿它来判本轮"有没有表"就是让坏尺继续管事（前言 ⑩：换判据必须与重生成基线同批）。
+     * 不同口径时打一条 ℹ，把动作写清楚——先 `--update-baseline`，之后这条闸才生效。
+     */
+    const sameCaliber = !!base && base.sampling === INVENTORY_SAMPLING
+    if (!sameCaliber && base) {
+      log(
+        `ℹ 基线口径 ${base.sampling} ≠ 本轮 ${INVENTORY_SAMPLING} ⇒ "基线有行内动作而本轮无可见表"这一闸本轮不判（换尺须先 --update-baseline）`
+      )
+    }
+    const missingTable = sameCaliber
+      ? pages.filter(
+          (p) =>
+            (base.rowPerRoute && base.rowPerRoute[p.path] ? base.rowPerRoute[p.path].t : 0) > 0 && p.tableCount === 0
+        )
+      : []
+    if (missingTable.length) {
+      console.error(
+        `[FATAL] ${missingTable.length}/${pages.length} 页基线记有行内动作、本轮却没采到可见 el-table` +
+          ' ⇒ 本轮行内动作面不作数：' +
+          missingTable
+            .map(
+              (p) =>
+                `${p.path}(基线 t=${base.rowPerRoute[p.path].t} / 本轮 行=${p.rowCount} 可见表=${p.tableCount} 空态=«${p.emptyText || ''}»)`
+            )
+            .join(' ') +
+          '（先查这页为什么没渲染出表；不得据此判"动作变少"，也不得 --update-baseline 把这次读数写进基线）'
+      )
+      process.exit(2)
+    }
     const totalActions = pages.reduce((s, p) => s + p.actionCount, 0)
     const totalCovered = pages.reduce((s, p) => s + p.coveredCount, 0)
     const totalClicked = pages.reduce((s, p) => s + p.clickedCount, 0)
@@ -1475,17 +2517,25 @@ function main() {
       totalBacklog: report.totalBacklog,
       totalStateLocked: report.totalStateLocked
     }
-    const base = fs.existsSync(BASELINE_PATH) ? JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) : null
+    // `base` 已在写产物之前读出（sameCaliber 那两条闸要用），此处不再重复声明
     // 本轮的行内动作面：t=行内动作数 / c=其中已覆盖 / r=该页本轮行数 / e=空态文案。
     // r、e 进快照只为了**失败文案能说出原因**（0 行 ⇒ 按钮在 DOM 里根本不存在），
     // 不参与判定——判定的分母永远是基线那一栏（见 rowSurface 的立案注释）。
     const curRows = Object.fromEntries(
       pages.map((p) => [
         p.path,
-        { t: p.rowActions.length, c: p.rowActions.filter((b) => b.covered).length, r: p.rowCount, e: p.emptyText || '' }
+        {
+          t: p.rowActions.length,
+          c: p.rowActions.filter((b) => b.covered).length,
+          r: p.rowCount,
+          rt: p.rowActionMaxRows || 0,
+          e: p.emptyText || ''
+        }
       ])
     )
     const rowSelfSurface = rowSurface(curRows, curRows)
+    // 两条口径闸（自相矛盾 / 基线记有行内动作而本轮无可见表）**排在写产物之前**，见上面 1900 行附近：
+    // 写完了再判，坏尺的报告会先落盘（b88 实测第一轮就是这样）。
     if (UPDATE_BASELINE) {
       // 先比后写：放松方向一律拒绝，基线文件保持原样
       if (base) {

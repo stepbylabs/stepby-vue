@@ -8,7 +8,9 @@
             :placeholder="t('report.search.phReportName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('report.search.phReportName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('report.search.phReportName')"
+          />
         </el-form-item>
         <el-form-item :label="t('report.column.reportType')" prop="reportType">
           <el-select
@@ -168,7 +170,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -181,16 +183,37 @@
     />
 
     <!-- 添加或修改报表定义对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 600px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(90%, 600px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="reportRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('report.form.reportCode')" prop="reportCode">
-          <el-input v-model.trim="form.reportCode" :placeholder="t('report.form.phReportCode')" :maxlength="64" :aria-label="t('report.form.phReportCode')" />
+          <el-input
+            v-model.trim="form.reportCode"
+            :placeholder="t('report.form.phReportCode')"
+            :maxlength="64"
+            :aria-label="t('report.form.phReportCode')"
+          />
         </el-form-item>
         <el-form-item :label="t('report.form.reportName')" prop="reportName">
-          <el-input v-model.trim="form.reportName" :placeholder="t('report.form.phReportName')" :maxlength="64" :aria-label="t('report.form.phReportName')" />
+          <el-input
+            v-model.trim="form.reportName"
+            :placeholder="t('report.form.phReportName')"
+            :maxlength="64"
+            :aria-label="t('report.form.phReportName')"
+          />
         </el-form-item>
         <el-form-item :label="t('report.form.reportType')" prop="reportType">
-          <el-select :aria-label="t('report.form.reportType')" v-model="form.reportType" :placeholder="t('common.form.selectPlaceholder')">
+          <el-select
+            :aria-label="t('report.form.reportType')"
+            v-model="form.reportType"
+            :placeholder="t('common.form.selectPlaceholder')"
+          >
             <el-option v-for="opt in reportTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
@@ -201,7 +224,9 @@
               type="textarea"
               :rows="5"
               :placeholder="t('report.form.phConfig')"
-              class="font-mono" :aria-label="t('report.form.phConfig')" />
+              class="font-mono"
+              :aria-label="t('report.form.phConfig')"
+            />
             <div class="mt-1 text-xs text-text-secondary">{{ t('report.form.configTip') }}</div>
           </div>
         </el-form-item>
@@ -221,7 +246,9 @@
             :rows="2"
             :placeholder="t('report.form.phRemark')"
             :maxlength="500"
-            show-word-limit :aria-label="t('report.form.phRemark')" />
+            show-word-limit
+            :aria-label="t('report.form.phRemark')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -392,6 +419,8 @@ const {
   title,
   ids,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

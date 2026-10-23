@@ -94,7 +94,8 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：本页手写 getList，用本地 loadError 接同一组件 -->
+          <list-empty :load-error="loadError" @retry="getList" />
         </template>
       </el-table>
     </Transition>
@@ -127,6 +128,8 @@ const showSearch = ref(true)
 useMobileFilter(showSearch)
 const tokenList = ref<SysPat[]>([])
 const total = ref(0)
+// 列表失败态（与 useCrudTable.loadError 同语义，本页手写取数故为本地 ref）
+const loadError = ref(false)
 const userIdInput = ref('')
 const queryParams = reactive({ pageNum: 1, pageSize: 10 })
 
@@ -137,10 +140,14 @@ function getList(): void {
   if (uid && !Number.isNaN(Number(uid))) params.userId = Number(uid)
   listPat(params as never)
     .then((res) => {
+      loadError.value = false
       tokenList.value = res.rows || []
       total.value = res.total || 0
     })
-    .catch(() => {})
+    // 失败不再静默吞成空列表：置 loadError，空态显示「加载失败 + 重试」
+    .catch(() => {
+      loadError.value = true
+    })
     .finally(() => {
       loading.value = false
     })

@@ -3,11 +3,13 @@
     <tree-panel
       :title="t('user.search.dept')"
       :tree-data="deptOptions"
+      :load-error="treeError"
       :search-placeholder="t('user.search.phDept')"
       storage-key="dept-sidebar-width"
       :defaultExpandAll="true"
       @node-click="handleNodeClick"
       @refresh="refreshDeptTree"
+      @retry="refreshDeptTree"
       ref="deptTreeRef"
     />
     <div class="tree-sidebar-content">
@@ -336,15 +338,18 @@
               </template>
             </el-table-column>
             <template #empty>
-              <EmptyState
-                :description="t('common.noData')"
-                :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
-                :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
-                :show-reset="hasQueryFilter"
-                :reset-text="t('common.emptyActionReset')"
-                @action="hasQueryFilter ? resetQuery() : handleAdd()"
-                @reset="resetQuery"
-              />
+              <!-- 失败/空态分形（ListEmpty 单一实现）：加载失败显示「重试」，成功无数据保留原 CTA 空态 -->
+              <list-empty :load-error="loadError" @retry="getList">
+                <EmptyState
+                  :description="t('common.noData')"
+                  :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
+                  :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
+                  :show-reset="hasQueryFilter"
+                  :reset-text="t('common.emptyActionReset')"
+                  @action="hasQueryFilter ? resetQuery() : handleAdd()"
+                  @reset="resetQuery"
+                />
+              </list-empty>
             </template>
           </el-table>
         </Transition>
@@ -476,6 +481,10 @@ const single = ref<boolean>(true)
 const multiple = ref<boolean>(true)
 const total = ref<number>(0)
 const title = ref<string>('')
+// 失败态标记（与 useCrudTable.loadError 同语义，本页手写取数故为本地 ref）：
+// 列表/部门树各自一条，供空态区分「加载失败 + 重试」与「暂无数据/无节点」
+const loadError = ref(false)
+const treeError = ref(false)
 const dateRange = ref<string[]>([])
 const deptOptions = ref<TreeSelect[] | undefined>(undefined)
 const enabledDeptOptions = ref<TreeSelect[] | undefined>(undefined)
@@ -668,10 +677,14 @@ function getList() {
   syncUrlQuery()
   listUser(addDateRange(queryParams.value, dateRange.value))
     .then((res) => {
+      loadError.value = false
       userList.value = res.rows
       total.value = res.total
     })
-    .catch(() => {})
+    // 失败不再静默吞成空列表：置 loadError，空态显示「加载失败 + 重试」（与 useCrudTable 同口径）
+    .catch(() => {
+      loadError.value = true
+    })
     .finally(() => {
       loading.value = false
     })
@@ -681,10 +694,14 @@ function getList() {
 function getDeptTree() {
   deptTreeSelect()
     .then((response) => {
+      treeError.value = false
       deptOptions.value = response.data
       enabledDeptOptions.value = filterDisabledDept(JSON.parse(JSON.stringify(response.data)))
     })
-    .catch(() => {})
+    // 树加载失败置 treeError：侧栏显示「加载失败 + 重试」，不再与"没有部门"同形（静默空树）
+    .catch(() => {
+      treeError.value = true
+    })
 }
 
 /** 树面板「刷新」是显式刷新：必须先失效 30s 缓存，否则点下去没有请求、数据也不变（b81 M89 实测） */

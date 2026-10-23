@@ -711,6 +711,70 @@ export async function runMain({ testFns, config, helpers, state }) {
       `点击落地失败：共 ${clickSummary.failures} 条（未被后续同键点击救回 ${clickSummary.unrecovered} 条，` +
         `形状 ${clickSummary.shapes} 类）: ${clickPath}`
     )
+
+    /**
+     * 批八十八 项 N-4：**console 状态码豁免的命中账**落盘
+     * （判据脚本 `console-allowlist-audit.mjs` 的唯一数据源）。
+     * 与 reqstats / 点击数据集同一轮窗口、同一"全量轮与分段轮分文件"纪律：
+     * 分段轮的局部命中不得覆盖全站账（b79 实测踩过同一个坑）。
+     * 这张账存在的理由不是"多存一份数据"：内联字典时代，一条**永远匹配不到**的豁免与一条
+     * 天天在用的豁免在源码里长得一模一样；而 b87 写的"兜底不得变成主通道"当时没有
+     * 任何数据能证明——`channels` 两个数就是它的证据通道。
+     */
+    const exempt = (() => {
+      if (typeof state.getConsoleExemptions !== 'function') return null
+      try {
+        return state.getConsoleExemptions()
+      } catch (e) {
+        // 单独一条文案：这张账坏掉时**不得**借用外层"请求数分布写盘失败"的话——
+        // 那会把人支使去查 reqstats，而真的坏的是登记表装载（⑯(a)：判定读的是哪一路，
+        // 报错就得点名哪一路）。审计侧据实 UNRUN，不影响 reqstats / 点击数据集。
+        log(
+          `⚠ console 豁免账采集失败（登记表装载或计数通道坏了，不影响其它数据集）: ${String(e.message).slice(0, 200)}`
+        )
+        return null
+      }
+    })()
+    if (exempt) {
+      const exemptPath = path.join(
+        config.screenshotDir,
+        isFullRun ? 'deep-e2e-console-exemptions.json' : 'deep-e2e-console-exemptions.incremental.json'
+      )
+      try {
+        fs.writeFileSync(
+          exemptPath,
+          JSON.stringify(
+            {
+              generatedAt: new Date().toISOString(),
+              full: isFullRun,
+              modulesPlanned: ids.length,
+              modulesAttempted: moduleStats.length,
+              windowStart: utcNaive(roundStartMs),
+              windowEnd: utcNaive(Date.now()),
+              // 登记表快照（id/status/url）：审计据此判"数据集与当前表是不是同一批"（前言 ⑲ 的同族）
+              entries: exempt.entries,
+              hits: exempt.hits,
+              channels: exempt.channels,
+              samples: exempt.samples
+            },
+            null,
+            2
+          ),
+          'utf-8'
+        )
+        const usedIds = Object.keys(exempt.hits).length
+        log(
+          `console 豁免账已落盘：登记表 ${exempt.entries.length} 条 / 本轮命中 ${usedIds} 条 / ` +
+            `逐条主通道 ${exempt.channels.ownUrl} 次、整页兜底 ${exempt.channels.setFallback} 次: ${exemptPath}`
+        )
+      } catch (e) {
+        log(`⚠ console 豁免账写盘失败（不影响退出码，审计侧将据实报 UNRUN）: ${String(e.message).slice(0, 120)}`)
+      }
+    } else {
+      log(
+        '⚠ console 豁免账采集通道缺失（state.getConsoleExemptions 未实现或装载失败）——审计侧不得把缺账读成"本轮没有噪声"'
+      )
+    }
   } catch (e) {
     log(`⚠ 请求数分布写盘失败（不影响退出码）: ${e.message}`)
   }

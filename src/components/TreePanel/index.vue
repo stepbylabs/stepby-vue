@@ -75,7 +75,12 @@
 
     <Transition name="fade">
       <div class="tree-wrap" v-if="!collapsed">
+        <!-- 树数据加载失败的显式标注（UX：区分「加载失败」与「真的没有节点」）：
+             此前失败被页面 catch 静默吞成空树，侧栏与"无部门"观感同形。
+             默认 loadError=false 渲染原树，存量接入页零行为变化 -->
+        <list-empty v-if="loadError" :load-error="true" @retry="emit('retry')" />
         <el-tree
+          v-else
           ref="treeRef"
           :data="treeData"
           :props="treeProps"
@@ -230,6 +235,11 @@ const props = defineProps({
   filterMethod: {
     type: Function,
     default: null
+  },
+  // 树数据加载失败标记（true = 树区域显示「加载失败 + 重试」而非空树；默认 false = 现状零变化）
+  loadError: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -241,7 +251,9 @@ const emit = defineEmits([
   'check',
   'node-expand',
   'node-collapse',
-  'search'
+  'search',
+  // 失败态「重试」按钮点击（调用方接自己的树数据加载函数）
+  'retry'
 ])
 
 const treeRef = useTemplateRef<TreeInstance>('treeRef')

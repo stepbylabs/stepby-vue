@@ -5,7 +5,13 @@
       <template #header>
         <div class="flex items-center justify-between">
           <span class="font-medium">{{ t('aiPanel.title') }}</span>
-          <el-button link type="primary" @click="showTables = !showTables">
+          <el-button
+            link
+            type="primary"
+            :aria-expanded="showTables"
+            aria-controls="ai-panel-tables-card"
+            @click="showTables = !showTables"
+          >
             {{ t('aiPanel.toggleTables') }}
           </el-button>
         </div>
@@ -24,12 +30,17 @@
 
       <!-- 快捷模板（UX v5-D：降低输入门槛） -->
       <div class="mt-2 flex flex-wrap gap-2">
+        <!-- el-tag 渲染成 span：不可聚焦，补 role/tabindex/键盘激活三件（可访问名取标签自身文本） -->
         <el-tag
           v-for="tpl in templates"
           :key="tpl"
           class="cursor-pointer"
           effect="plain"
+          role="button"
+          tabindex="0"
           @click="question = tpl"
+          @keydown.enter.prevent="question = tpl"
+          @keydown.space.prevent="question = tpl"
         >
           {{ tpl }}
         </el-tag>
@@ -50,9 +61,12 @@
       </div>
     </el-card>
 
-    <!-- 白名单表范围（可折叠） -->
-    <el-card v-if="showTables" shadow="never" class="mb-3">
-      <template #header><span class="font-medium">{{ t('aiPanel.tablesTitle') }}</span></template>
+    <!-- 白名单表范围（可折叠）：v-if 收起时整块不在文档里，aria-expanded=false 已表达"无受控区可见"；
+         展开时 id 与表头按钮的 aria-controls 对齐（v-show 常驻的结构才谈得上"关联收起的 DOM"） -->
+    <el-card v-if="showTables" id="ai-panel-tables-card" shadow="never" class="mb-3">
+      <template #header>
+        <span class="font-medium">{{ t('aiPanel.tablesTitle') }}</span>
+      </template>
       <el-skeleton v-if="tablesLoading" :rows="3" animated />
       <template v-else>
         <div v-for="t in tables" :key="t.table" class="mb-2">
@@ -142,12 +156,7 @@
         </el-table-column>
         <el-table-column :label="t('common.column.operation')" width="140" align="center">
           <template #default="scope">
-            <el-button
-              link
-              type="primary"
-              :disabled="!scope.row.success"
-              @click="replay(scope.row)"
-            >
+            <el-button link type="primary" :disabled="!scope.row.success" @click="replay(scope.row)">
               {{ t('aiPanel.history.replay') }}
             </el-button>
             <el-button link type="danger" @click="removeHistory(scope.row.id)">
@@ -265,11 +274,7 @@ async function replay(row: HistoryItem) {
 }
 
 // 快捷模板（引导首次使用；命中实际数据形态）
-const templates = computed(() => [
-  t('aiPanel.tpl1'),
-  t('aiPanel.tpl2'),
-  t('aiPanel.tpl3')
-])
+const templates = computed(() => [t('aiPanel.tpl1'), t('aiPanel.tpl2'), t('aiPanel.tpl3')])
 
 // 白名单表范围（懒加载：展开时才拉）
 watch(showTables, async (v: boolean) => {

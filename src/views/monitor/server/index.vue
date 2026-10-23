@@ -1,7 +1,20 @@
 <template>
   <div class="app-container p-4">
+    <!-- 显式标注"这一屏数据来源失败"（照 tool/reportBoard 的 failedSources 形态）：
+         首载失败时整屏渲染加载失败+重试，绝不渲染"已加载但所有值都是 -"的假仪表盘；
+         已有成功数据、仅本轮刷新失败时，横幅声明屏上是最近一次成功加载的快照 -->
+    <list-empty v-if="loadError && !server" :load-error="true" @retry="loadServer(true)" />
+    <el-alert
+      v-else-if="loadError"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="mb-4"
+      :title="t('common.staleDataHint')"
+    />
+
     <!-- 顶部统计卡片（P3-16）：CPU / 内存 / 运行时长 / 运行时，使用环形进度展示使用率 -->
-    <el-row :gutter="16" class="mb-4">
+    <el-row v-if="!(loadError && !server)" :gutter="16" class="mb-4">
       <template v-if="loading && !server">
         <el-col v-for="n in 4" :key="n" :xs="12" :sm="12" :md="6" :lg="6">
           <div class="stat-card stat-skeleton">
@@ -107,7 +120,7 @@
     </el-row>
 
     <!-- 实时资源使用率曲线（前端 ~2s 轮询采样） -->
-    <el-row :gutter="16" class="mb-4">
+    <el-row v-if="!(loadError && !server)" :gutter="16" class="mb-4">
       <el-col :span="24">
         <el-card shadow="hover">
           <template #header>
@@ -144,7 +157,7 @@
     </el-row>
 
     <!-- 磁盘分区 + 服务器/运行时信息 -->
-    <el-row :gutter="16">
+    <el-row v-if="!(loadError && !server)" :gutter="16">
       <el-col :xs="24" :lg="12">
         <el-card shadow="hover">
           <template #header>
@@ -247,6 +260,9 @@ const loading = ref(false)
 const autoRefresh = ref(true)
 const lastUpdate = ref('')
 const server = ref<ServerInfo | null>(null)
+// 数据源加载失败标记（与 useCrudTable.loadError 同语义，本页手写轮询故为本地 ref）：
+// 失败不再静默——首载失败整屏给「加载失败 + 重试」，刷新失败横幅标注快照态
+const loadError = ref(false)
 
 // 采样曲线数据
 const trendRef = ref<HTMLElement | null>(null)
@@ -296,6 +312,7 @@ async function loadServer(immediate = false): Promise<void> {
   try {
     const res = await getServer()
     server.value = res.data
+    loadError.value = false
     // 采样入曲线，维护最近 MAX_POINTS 个点
     times.value.push(tickLabel())
     cpuSerie.value.push(Number((res.data?.cpu?.used ?? 0).toFixed(1)))
@@ -308,6 +325,8 @@ async function loadServer(immediate = false): Promise<void> {
     lastUpdate.value = tickLabel()
     await renderChart()
   } catch (e) {
+    // 失败置位标记：模板据此渲染「加载失败」整屏/横幅，不再落回 "-" 假仪表盘
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[ServerMonitor] load failed:', e)
   } finally {
     loading.value = false

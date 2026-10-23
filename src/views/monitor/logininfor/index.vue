@@ -203,7 +203,7 @@
               </template>
             </el-table-column>
             <template #empty>
-              <el-empty :description="t('common.empty')" />
+              <list-empty :load-error="loadError" @retry="retryLoad" />
             </template>
           </el-table>
         </Transition>
@@ -372,6 +372,8 @@ const {
   multiple,
   total,
   getList,
+  loadError,
+  retryLoad,
   handleQuery,
   handleSelectionChange,
   handleDelete

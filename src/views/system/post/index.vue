@@ -9,7 +9,9 @@
             :maxlength="64"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('post.search.phPostCode')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('post.search.phPostCode')"
+          />
         </el-form-item>
         <el-form-item :label="t('post.search.postName')" prop="postName">
           <el-input
@@ -17,10 +19,18 @@
             :placeholder="t('post.search.phPostName')"
             clearable
             class="w-[200px]"
-            @keyup.enter="handleQuery" :aria-label="t('post.search.phPostName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('post.search.phPostName')"
+          />
         </el-form-item>
         <el-form-item :label="t('post.search.status')" prop="status">
-          <el-select :aria-label="t('post.search.status')" v-model="queryParams.status" :placeholder="t('post.search.status')" clearable class="w-[200px]">
+          <el-select
+            :aria-label="t('post.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('post.search.status')"
+            clearable
+            class="w-[200px]"
+          >
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -121,7 +131,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <list-empty :load-error="loadError" @retry="retryLoad" />
         </template>
       </el-table>
     </Transition>
@@ -135,13 +145,28 @@
     />
 
     <!-- 添加或修改岗位对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(90%, 500px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="postRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('post.form.postName')" prop="postName">
-          <el-input v-model.trim="form.postName" :placeholder="t('post.search.phPostName')" :aria-label="t('post.search.phPostName')" />
+          <el-input
+            v-model.trim="form.postName"
+            :placeholder="t('post.search.phPostName')"
+            :aria-label="t('post.search.phPostName')"
+          />
         </el-form-item>
         <el-form-item :label="t('post.form.postCode')" prop="postCode">
-          <el-input v-model.trim="form.postCode" :placeholder="t('post.search.phPostCode')" :aria-label="t('post.search.phPostCode')" />
+          <el-input
+            v-model.trim="form.postCode"
+            :placeholder="t('post.search.phPostCode')"
+            :aria-label="t('post.search.phPostCode')"
+          />
         </el-form-item>
         <el-form-item :label="t('post.form.postSort')" prop="postSort">
           <el-input-number v-model="form.postSort" controls-position="right" :min="0" />
@@ -159,7 +184,9 @@
             type="textarea"
             :placeholder="t('common.form.inputPlaceholder')"
             :maxlength="500"
-            show-word-limit :aria-label="t('post.form.remark')" />
+            show-word-limit
+            :aria-label="t('post.form.remark')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -212,6 +239,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

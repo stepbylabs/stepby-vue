@@ -54,6 +54,8 @@ const ImagePreview = defineAsyncComponent(() => import('@/components/ImagePrevie
 import DictTag from '@/components/DictTag/index.vue'
 // TierA-4: 空状态 CTA 组件
 import EmptyState from '@/components/EmptyState/index.vue'
+// 列表空态唯一实现：区分「加载失败 + 重试」与「暂无数据」
+import ListEmpty from '@/components/ListEmpty/index.vue'
 
 const app = createApp(App)
 
@@ -80,6 +82,7 @@ app.config.globalProperties.parseTime = (time: unknown, pattern?: string) =>
 // 全局组件挂载
 app.component('DictTag', DictTag)
 app.component('EmptyState', EmptyState)
+app.component('ListEmpty', ListEmpty)
 app.component('Pagination', Pagination)
 app.component('FileUpload', FileUpload)
 app.component('ImageUpload', ImageUpload)

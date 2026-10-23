@@ -94,6 +94,7 @@ const { TEST_USER, TEST_PASS, BASE_URL } = noBrowserEntry
 import { runMain, applySkipBaselineFromLog } from './e2e/run/runner.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
 import { createCaptureHub, markClickLanded } from './capture-kit.mjs'
+import { loadConsoleAllowlist, matchEntry, matchEveryUrl } from './console-allowlist.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import {
   readCaptchaCodeFromRedis,
@@ -106,6 +107,7 @@ import { makeActionBreadthTest } from './modules/actionBreadth.mjs'
 import { makeWriteEndpointBreadthTest } from './modules/writeEndpointBreadth.mjs'
 import { makePwdPolicyTest } from './modules/pwdPolicy.mjs'
 import { makeSecurityMessageBoxTest } from './modules/securityMessageBox.mjs'
+import { makeListLoadFailureTest } from './modules/listLoadFailure.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1020,68 +1022,69 @@ const AVATAR_IMG_NOISE_RE = /\bIMG\s+[^\s]*\/user\/profile\/?(?:\s|$)/i
  *    于是提示读起来像"清单不全"，照着做就是往清单里再加一条——那正是把判据改掉。
  *    拿不到 location 时仍退回集合口径（不得因为"读不到来源"就直接放行或就直接判红，
  *    两条路都要留下证据），且**红出来的文案必须点名是哪个 URL 破坏了豁免**。
+ *
+ * 批八十八 项 N-4 把它从内联字典变成**登记表**（`console-allowlist.json`），动的是两件事：
+ * ③ 每条豁免必须自带理由，判据与另外四张表**共用** `producer-kit`
+ *    （下限 12 字符、禁跨条目指代、同表不得有逐字相同的理由）；装载即校验，
+ *    形状坏 / 理由不合格 / 同状态下互为子串的**结构性遮蔽**条目一律抛——
+ *    遮蔽不报错，只会让那条条目每轮"未被使用"，而内联字典里这件事完全看不见。
+ * ④ 命中必须可审计：逐条 id 计数 + 「主通道（ownUrl）/ 兜底（整页集合）」分开计数，
+ *    由 runner 落 `deep-e2e-console-exemptions.json`，`console-allowlist-audit.mjs --gate` 判
+ *    "登记了但本轮没出现"与"兜底反过来变成主通道"。
+ *    b87 写下"兜底不得变成主通道"时**没有任何一条数据能证明这件事**——那是承诺，不是判据。
+ *
+ * 匹配语义一个字节没改（`String(url).includes(entry.url)`、取该状态码条目列表的第一条命中）：
+ * 改判据形状必须与重跑权威轮同批（前言 ⑩），本批只换"清单住在哪儿"与"命中留不留痕"。
  */
-const HARMLESS_STATUS_URLS = {
-  401: [
-    '/system/user',
-    '/system/post',
-    '/system/dict',
-    '/login',
-    '/auth/',
-    '/lock',
-    '/unlockscreen',
-    // 应用新增顶部通知组件：M9 清 token 后前台仍会请求通知列表，401 属权限隔离测试预期副作用
-    '/system/notice/',
-    // 清 token 后路由/用户信息重取同样是前台自愈动作（b82 实测 getRouters 401）
-    '/getRouters',
-    '/getInfo',
-    // b86：守卫读到 401 后按既有设计调用 logOut()——它会先向服务端吊销会话，
-    // 而此刻令牌正是失效的 ⇒ `POST /logout` 回 401 是这条自愈链的设计内负路径
-    // （M32 32.7b 的判据实测：落地 /login 且死 cookie 已清除）。
-    '/logout'
-  ],
-  403: [
-    // /register 探测产生的 403（旧版编译前端遗留，登录页产生一次，不影响功能）
-    '/register',
-    '/captchaImage',
-    // 权限隔离测试有意请求无权限的写操作
-    '/system/user',
-    '/system/post',
-    '/system/dict',
-    '/system/config',
-    '/system/role'
-  ],
-  400: [
-    // CRUD 唯一性校验负路径（M26 故意创建重复岗位等）
-    '/system/post',
-    '/system/user',
-    '/system/role',
-    '/system/dept',
-    '/system/dict',
-    '/system/config',
-    '/system/notice'
-  ],
-  404: [
-    // M32 边界测试：访问不存在的路由/无效 ID 是预期行为
-    '/authRole/',
-    '/authUser/',
-    '/tool/gen/',
-    '/monitor/job/',
-    '/non-existent-route',
-    '/redirect/index'
-  ]
+
+/** 懒装载：`--plan` 一类的只读入口不该被登记表的文件状态挡住（免凭据 ≠ 免文件校验） */
+let consoleAllowlistCache = null
+function consoleAllowlist() {
+  if (!consoleAllowlistCache) consoleAllowlistCache = loadConsoleAllowlist()
+  return consoleAllowlistCache
 }
-const harmlessUrl = (status) => (u) => HARMLESS_STATUS_URLS[status].some((p) => String(u).includes(p))
+
+/** 逐条命中计数（键=条目 id）——空条目与天天在用的条目在内联字典里长得一模一样，这就是差别 */
+const consoleExemptHits = new Map()
+/** 两条判定通道各自的**消息**条数：ownUrl=逐条主通道；setFallback=整页集合兜底 */
+const consoleExemptChannels = { ownUrl: 0, setFallback: 0 }
+/** 每条目留一个来源 URL 样本：审计时把"为什么无害"与"到底是谁"打在同一个数上 */
+const consoleExemptSamples = new Map()
+
+/** 消息级计数（一条 console 消息只算一次；一条消息在兜底口径下可能用到多个条目，故条目数只作下界） */
+function noteConsoleChannel(channel) {
+  consoleExemptChannels[channel] += 1
+}
+
+function noteConsoleExemptEntry(entry, url) {
+  consoleExemptHits.set(entry.id, (consoleExemptHits.get(entry.id) || 0) + 1)
+  if (!consoleExemptSamples.has(entry.id)) {
+    consoleExemptSamples.set(entry.id, String(url || '').slice(0, 160))
+  }
+}
 
 /**
  * 单条消息的无害判定：有来源 URL 就按它自己判（逐条，无连坐）；
  * 没有来源才退回"本页累积的 URL 集合是否全部无害"——兜底不得变成主通道，
- * 所以调用方一律把 `ownUrl` 传进来，空串走兜底分支。
+ * 所以调用方一律把 `ownUrl` 传进来，空串走兜底分支，两条通道分别记账。
  */
 function statusFilter(status, ownUrl, accumulated) {
-  const ok = harmlessUrl(status)
-  if (ownUrl) return ok(ownUrl)
-  return accumulated.size > 0 && Array.from(accumulated).every(ok)
+  const { byStatus } = consoleAllowlist()
+  if (ownUrl) {
+    const hit = matchEntry(byStatus, status, ownUrl)
+    if (hit) {
+      noteConsoleChannel('ownUrl')
+      noteConsoleExemptEntry(hit, ownUrl)
+      return true
+    }
+    return false
+  }
+  const hits = matchEveryUrl(byStatus, status, accumulated)
+  if (hits) {
+    noteConsoleChannel('setFallback')
+    for (const e of hits) noteConsoleExemptEntry(e, [...accumulated][0])
+  }
+  return !!hits
 }
 
 /**
@@ -1090,11 +1093,12 @@ function statusFilter(status, ownUrl, accumulated) {
  * b86 实测：M9 那三条 401 的归因花了整整一轮（含一次诊断脚本），根因就在判据没带 URL。
  */
 function statusEvidence(text, ownUrl, sets) {
+  const { byStatus } = consoleAllowlist()
   const m = /(400|401|403|404)/.exec(text)
   if (!m || !sets[m[1]]) return text
   const set = sets[m[1]]
   const listed = Array.from(set)
-    .filter((u) => !harmlessUrl(Number(m[1]))(u))
+    .filter((u) => !matchEntry(byStatus, Number(m[1]), u))
     .slice(0, 3)
     .join(' | ')
   return `${text} — ${m[1]} 来源=${ownUrl || '（location 不可用，按本页累积集合判）'}${listed ? ` / 非无害集合成员=${listed}` : ''}`
@@ -1402,6 +1406,18 @@ async function dismissTour(page) {
  * 支持 Playwright 专有选择器（如 :has-text("文本")），
  * 在 evaluate 回退中通过文本匹配查找按钮
  */
+/**
+ * Playwright 点击超时的**归因分流**（b88）：调用日志里出现 `click action done` 时，
+ * 指针事件已经派发出去了，超时发生在它下一步"waiting for scheduled navigations to finish"
+ * （重渲染把主线程堵过了 timeout）。这种时刻再按一次，对**切换型**控件（展开/收起、开关、
+ * 选中、重试）等于把结果翻回原样——b88 权威轮 M87/M89 的菜单「展开/收起」`可见行 8→8`
+ * 与 M93 的 `93.5 增量 0` 三处红，全是这么被自己的重试洗出来的。
+ * 判据侧必须认账（"点了，且已派发"），不得重按。
+ */
+function clickAlreadyDispatched(e) {
+  return /click action done/.test(String((e && e.message) || e))
+}
+
 async function clickButton(page, selector, options = {}) {
   const { timeout = 5000 } = options
   const btn = page.locator(selector).first()
@@ -1410,7 +1426,9 @@ async function clickButton(page, selector, options = {}) {
   try {
     await btn.click({ timeout: Math.min(timeout, 3000) })
     return true
-  } catch {
+  } catch (e) {
+    // 已派发 ⇒ 认账，不重按（见 clickAlreadyDispatched 的 b88 取证）
+    if (clickAlreadyDispatched(e)) return true
     // 继续尝试收遮罩后重试
   }
 
@@ -1421,7 +1439,8 @@ async function clickButton(page, selector, options = {}) {
   try {
     await btn.click({ timeout: Math.min(timeout, 3000) })
     return true
-  } catch {
+  } catch (e) {
+    if (clickAlreadyDispatched(e)) return true
     // 继续尝试 evaluate
   }
 
@@ -21777,6 +21796,20 @@ const testModule92 = makeSecurityMessageBoxTest({
   createPage
 })
 
+// 模块 93（批八十八 项 D）：列表「加载失败」与「暂无数据」的分形判据。
+// 静态接线由 `src/utils/listEmptyLoadError.guard.test.ts` 钉，本模块钉的是浏览器里的**行为**：
+// 注入业务失败 ⇒ 显示"加载失败"且不显示"暂无数据" ⇒ 重试真的重发请求 ⇒ 撤故障后重试即恢复
+// ⇒ 合法空结果仍显示"暂无数据"（四条各自独立，缺任一条实现都能另一半全绿）。
+const testModule93 = makeListLoadFailureTest({
+  record,
+  log,
+  CONFIG,
+  checkConsoleErrors,
+  sleep,
+  dismissTour,
+  clickButton
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -21871,7 +21904,8 @@ const testFns = {
   89: testModule89,
   90: testModule90,
   91: testModule91,
-  92: testModule92
+  92: testModule92,
+  93: testModule93
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
@@ -21880,7 +21914,23 @@ const state = {
   getPassCount: () => passCount,
   getFailCount: () => failCount,
   // 收窄豁免后仍被放行的头像空 src 噪声条数（runner 汇总里报数，不再静默）
-  getAvatarImgNoise: () => avatarImgNoiseCount
+  getAvatarImgNoise: () => avatarImgNoiseCount,
+  /**
+   * console 状态码豁免的**命中账**（批八十八 项 N-4）。
+   * runner 把它落进 `deep-e2e-console-exemptions.json`，判据是 `console-allowlist-audit.mjs`：
+   * `entries` 一并导出是为了让审计能做"数据集里的 id 集合 === 登记表里的 id 集合"的双向对账
+   * （只给命中的那部分，就等于让"表里有条目但运行侧从不问它"重新变成看不见的事）。
+   */
+  getConsoleExemptions: () => ({
+    entries: consoleAllowlist().entries.map((e) => ({
+      id: e.id,
+      status: e.status,
+      url: e.url
+    })),
+    hits: Object.fromEntries([...consoleExemptHits.entries()].sort()),
+    channels: { ...consoleExemptChannels },
+    samples: Object.fromEntries([...consoleExemptSamples.entries()].sort())
+  })
 }
 
 const helpers = { log, ensureDir, login, createPage, getApiToken, record, setHub, createCaptureHub }
@@ -21932,6 +21982,19 @@ try {
   log(`产物预检：${r.artifactDir}（入口 ${r.chunk} / ${r.bytes} 字节）— 新鲜且服务一致`)
 } catch (e) {
   log(`❌ 启动预检失败: ${e.message}`)
+  process.exit(2)
+}
+
+// 启动预检 0b：**console 豁免表必须能装载**（批八十八 项 N-4，口径闸排在内容闸之前——前言 ⑨）。
+// 表坏在装载阶段就 EXIT=2，而不是等到某个模块的 console 消息进来时才在 `page.on('console')`
+// 回调里抛：那一路的异常会被 Playwright 的事件循环吞掉（本仓"被吞掉的异常种类"计数就是为此而存在），
+// 结局是"该模块所有状态码噪声一律判红"，报出来的方向变成"清单不全"——正是 b87 前言 ㉘ 立过案的
+// "照着提示加一条"陷阱。
+try {
+  const t = consoleAllowlist()
+  log(`console 豁免表预检：${t.entries.length} 条逐条带理由 / 覆盖 ${[...t.byStatus.keys()].sort().join(' ')}`)
+} catch (e) {
+  log(`❌ 启动预检失败（console 豁免表）: ${e.message}`)
   process.exit(2)
 }
 
@@ -22193,13 +22256,16 @@ async function testModule87(page, consoleErrors, pageErrors) {
         await locator.click({ timeout: 2500 })
         return 'click'
       } catch (e) {
-        lastClickBlock = String((e && e.message) || e)
+        const msg = String((e && e.message) || e)
+        lastClickBlock = msg
           .split('\n')
           .map((s) => s.trim())
           .filter(Boolean)
           .slice(-2)
           .join(' / ')
           .slice(0, 150)
+        // 已派发 ⇒ 认账不重按（判据与取证见 clickAlreadyDispatched，两处共用同一条规则）
+        if (clickAlreadyDispatched(msg)) return 'click(派发后等待超时)'
         await sleep(300)
       }
     }

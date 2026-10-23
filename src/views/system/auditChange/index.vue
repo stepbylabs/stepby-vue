@@ -210,7 +210,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -259,10 +259,18 @@ const queryParams = ref<AuditChangeQueryParams>({
 const form = ref({}) as Ref<SysAuditChange>
 const formRef = ref<unknown>(null)
 
-const { dataList, loading, showSearch, total, getList, handleQuery, resetQuery, handleSortChange } = useCrudTable<
-  SysAuditChange,
-  AuditChangeQueryParams
->({
+const {
+  dataList,
+  loading,
+  showSearch,
+  total,
+  getList,
+  loadError,
+  retryLoad,
+  handleQuery,
+  resetQuery,
+  handleSortChange
+} = useCrudTable<SysAuditChange, AuditChangeQueryParams>({
   listApi: (params) =>
     listAuditChange(
       addDateRange(params as unknown as Record<string, unknown>, dateRange.value) as unknown as AuditChangeQueryParams

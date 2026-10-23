@@ -109,12 +109,7 @@
       />
       <!-- 「归属」列消费 showTenantColumn 布场（与 TenantColumn 组件同口径）：
            单机模式（management=false ⇒ false）下隐藏——归属语义绑定租户体系 -->
-      <el-table-column
-        v-if="userStore.showTenantColumn"
-        :label="t('oauth.ownership')"
-        align="center"
-        width="90"
-      >
+      <el-table-column v-if="userStore.showTenantColumn" :label="t('oauth.ownership')" align="center" width="90">
         <template #default="scope">
           <el-tag :type="scope.row.tenantId === 0 ? 'warning' : 'primary'" disable-transitions>
             {{ scope.row.tenantId === 0 ? t('oauth.ownershipPlatform') : t('oauth.ownershipTenant') }}
@@ -175,7 +170,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -188,7 +183,14 @@
     />
 
     <!-- 新增 / 编辑提供商 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(94%, 720px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(94%, 720px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
         <el-row :gutter="20">
           <el-col :span="12">
@@ -196,7 +198,9 @@
               <el-input
                 v-model.trim="form.providerName"
                 :maxlength="64"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.providerName')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.providerName')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -211,7 +215,11 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('oauth.providerType')" prop="providerType">
-              <el-select :aria-label="t('oauth.providerType')" v-model="form.providerType" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('oauth.providerType')"
+                v-model="form.providerType"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option v-for="(label, key) in typeOptions" :key="key" :label="label" :value="key" />
               </el-select>
             </el-form-item>
@@ -221,7 +229,9 @@
               <el-input
                 v-model.trim="form.clientId"
                 :maxlength="200"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.clientId')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.clientId')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -251,7 +261,9 @@
               <el-input
                 v-model.trim="form.authorizeUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.authorizeUrl')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.authorizeUrl')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -259,7 +271,9 @@
               <el-input
                 v-model.trim="form.tokenUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.tokenUrl')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.tokenUrl')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -267,7 +281,9 @@
               <el-input
                 v-model.trim="form.userInfoUrl"
                 :maxlength="500"
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.userInfoUrl')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.userInfoUrl')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -275,12 +291,19 @@
               <el-input
                 v-model.trim="form.redirectUri"
                 :maxlength="500"
-                :placeholder="t('oauth.redirectUriPlaceholder')" :aria-label="t('oauth.redirectUriPlaceholder')" />
+                :placeholder="t('oauth.redirectUriPlaceholder')"
+                :aria-label="t('oauth.redirectUriPlaceholder')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item :label="t('oauth.scope')" prop="scope">
-              <el-input v-model.trim="form.scope" :maxlength="200" :placeholder="t('oauth.scopePlaceholder')" :aria-label="t('oauth.scopePlaceholder')" />
+              <el-input
+                v-model.trim="form.scope"
+                :maxlength="200"
+                :placeholder="t('oauth.scopePlaceholder')"
+                :aria-label="t('oauth.scopePlaceholder')"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -305,7 +328,9 @@
                 type="textarea"
                 :maxlength="500"
                 show-word-limit
-                :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('oauth.remark')" />
+                :placeholder="t('common.form.inputPlaceholder')"
+                :aria-label="t('oauth.remark')"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -395,6 +420,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

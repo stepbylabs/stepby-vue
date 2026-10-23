@@ -140,6 +140,10 @@ export default {
     retryHint: '{message}，点击此处重试',
     // 通用加载/刷新失败提示（用于 catch 块向用户反馈）
     loadFailed: '数据加载失败，请刷新重试',
+    // 列表空态「加载失败」分支的重试按钮
+    retry: '重试',
+    // 刷新失败但屏上仍是最近一次成功加载的数据时的显式标注
+    staleDataHint: '数据刷新失败，当前展示为最近一次成功加载的数据',
     loadDetailFailed: '详情加载失败，请稍后重试',
     submitFailed: '提交失败，请稍后重试',
     cacheRefreshFailed: '缓存刷新失败，前端可能显示脏数据',

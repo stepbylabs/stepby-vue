@@ -53,7 +53,15 @@ export const RESIDUE_STEPS = [
     "DELETE FROM sys_dict_data WHERE dict_type IN (SELECT dict_type FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2')"
   ],
   ['dict_type', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'e2e%' AND del_flag='2'"],
-  ['pat', "DELETE FROM sys_pat WHERE name LIKE 'e2e%' AND status='1'"],
+  // 批八十八：`status='1'` 只删**已吊销**的 e2e 令牌（`sys_pat.status`：'0' 有效 / '1' 已吊销，
+  // 见 `stepby-axum/src/entity/sys_pat.rs` 头部注释）。主套件 F140 那一路是"建 → 断 → API 删"，
+  // 删完落成 '1' 因而被上面那条收走；但**中途崩掉的轮次**留下的活跃 e2e PAT 谁都不清
+  // （`pat_expired` 只按 `expires_at` 清，而夹具多带 `expireDays`，未到期的活跃行就长期堆着）。
+  // 前缀 `e2e%` 已经是命名族判据（不是业务数据），所以按前缀全清，不再附加状态条件。
+  // 注：`test-data-audit.mjs` 的 `SYNTH_STEPS` 里那条同名 `pat` 谓词是**自检夹具**，
+  // 形状与真表刻意不同（它要靠"三条已吊销 + 一条活跃"来验"族内分裂不得取样漏报"），
+  // 改本条不需要、也不应该改它。
+  ['pat', "DELETE FROM sys_pat WHERE name LIKE 'e2e%'"],
   ['config', "DELETE FROM sys_config WHERE config_key LIKE 'e2e%'"],
   // 批七十九 M87：「批量已读落库证明」会给当前账号写 sys_notice_read 行。
   // 公告本体用例自己经 API 删（软删/物理删两态都可能留行），但**已读记录没有对外的删除接口**

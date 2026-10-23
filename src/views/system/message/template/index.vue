@@ -140,7 +140,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -153,7 +153,14 @@
     />
 
     <!-- 添加或修改消息模板对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(92%, 720px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(92%, 720px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="templateRef" :model="form" :rules="rules" label-width="80px" class="template-form">
         <el-row :gutter="16">
           <el-col :span="12">
@@ -176,7 +183,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item :label="t('msg.template.form.channelCode')" prop="channelCode">
-              <el-select :aria-label="t('msg.template.form.channelCode')" v-model="form.channelCode" :placeholder="t('common.form.selectPlaceholder')" clearable>
+              <el-select
+                :aria-label="t('msg.template.form.channelCode')"
+                v-model="form.channelCode"
+                :placeholder="t('common.form.selectPlaceholder')"
+                clearable
+              >
                 <el-option
                   v-for="dict in channelTypeOptions"
                   :key="dict.value"
@@ -220,7 +232,18 @@
           <div class="w-full">
             <div class="mb-2 flex flex-wrap items-center gap-2">
               <span class="text-text-secondary">{{ t('msg.template.var.hint') }}</span>
-              <el-tag v-for="v in varList" :key="v" class="cursor-pointer" effect="plain" @click="insertVar(v)">
+              <!-- 变量插入 chips：el-tag 渲染成 span，补 role/tabindex/键盘激活三件（可访问名取标签文本） -->
+              <el-tag
+                v-for="v in varList"
+                :key="v"
+                class="cursor-pointer"
+                effect="plain"
+                role="button"
+                tabindex="0"
+                @click="insertVar(v)"
+                @keydown.enter.prevent="insertVar(v)"
+                @keydown.space.prevent="insertVar(v)"
+              >
                 {{ '{' }}{{ '{' }}{{ v }}{{ '}' }}{{ '}' }}
               </el-tag>
             </div>
@@ -328,6 +351,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

@@ -13,7 +13,13 @@
           />
         </el-form-item>
         <el-form-item :label="t('dept.search.status')" prop="status">
-          <el-select :aria-label="t('dept.search.status')" v-model="queryParams.status" :placeholder="t('dept.search.status')" clearable class="w-[200px]">
+          <el-select
+            :aria-label="t('dept.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('dept.search.status')"
+            clearable
+            class="w-[200px]"
+          >
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -101,7 +107,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -236,6 +242,8 @@ const {
   showSearch,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleAdd: crudHandleAdd,
@@ -276,13 +284,13 @@ const {
 
 const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLoading, handleSaveSort } =
   useTreeTableSort<SysDept>({
-  listRef: dataList,
-  idField: 'deptId',
-  sortApi: (p) => updateDeptSort({ deptIds: p.ids, orderNums: p.orderNums }),
-  noSortChangeKey: 'dept.tip.noSortChange',
-  sortSavedKey: 'dept.tip.sortSaved',
-  defaultExpand: true
-})
+    listRef: dataList,
+    idField: 'deptId',
+    sortApi: (p) => updateDeptSort({ deptIds: p.ids, orderNums: p.orderNums }),
+    noSortChangeKey: 'dept.tip.noSortChange',
+    sortSavedKey: 'dept.tip.sortSaved',
+    defaultExpand: true
+  })
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)

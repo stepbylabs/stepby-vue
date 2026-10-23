@@ -74,13 +74,7 @@
         </el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button
-          type="warning"
-          plain
-          icon="Download"
-          @click="handleExport"
-          v-hasPermi="['monitor:alert:list']"
-        >
+        <el-button type="warning" plain icon="Download" @click="handleExport" v-hasPermi="['monitor:alert:list']">
           {{ t('common.export') }}
         </el-button>
       </el-col>
@@ -183,16 +177,28 @@
           >
             {{ t('alert.btn.evaluate') }}
           </el-button>
-          <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['monitor:alert:edit']">
+          <el-button
+            link
+            type="primary"
+            icon="Edit"
+            @click="handleUpdate(scope.row)"
+            v-hasPermi="['monitor:alert:edit']"
+          >
             {{ t('common.edit') }}
           </el-button>
-          <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['monitor:alert:remove']">
+          <el-button
+            link
+            type="primary"
+            icon="Delete"
+            @click="handleDelete(scope.row)"
+            v-hasPermi="['monitor:alert:remove']"
+          >
             {{ t('common.delete') }}
           </el-button>
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="retryLoad" />
       </template>
     </el-table>
 
@@ -219,7 +225,12 @@
           <el-input v-model.trim="form.name" :placeholder="t('alert.form.phName')" :maxlength="64" />
         </el-form-item>
         <el-form-item :label="t('alert.form.metric')" prop="metric">
-          <el-select :aria-label="t('alert.form.metric')" v-model="form.metric" :placeholder="t('alert.form.phMetric')" class="w-full">
+          <el-select
+            :aria-label="t('alert.form.metric')"
+            v-model="form.metric"
+            :placeholder="t('alert.form.phMetric')"
+            class="w-full"
+          >
             <el-option v-for="opt in metricOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
@@ -244,12 +255,7 @@
             clearable
             class="w-full"
           >
-            <el-option
-              v-for="ch in channelList"
-              :key="ch.channelId"
-              :label="ch.channelName"
-              :value="ch.channelId!"
-            />
+            <el-option v-for="ch in channelList" :key="ch.channelId" :label="ch.channelName" :value="ch.channelId!" />
           </el-select>
           <div class="form-tip-block">{{ t('alert.form.notifyChannelTip') }}</div>
         </el-form-item>
@@ -311,9 +317,22 @@
 
 <script setup lang="ts" name="MonitorAlert">
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { listAlert, getAlert, addAlert, updateAlert, delAlert, changeAlertEnabled, evaluateAlert } from '@/api/monitor/alert'
+import {
+  listAlert,
+  getAlert,
+  addAlert,
+  updateAlert,
+  delAlert,
+  changeAlertEnabled,
+  evaluateAlert
+} from '@/api/monitor/alert'
 import { listChannel, listTemplate } from '@/api/system/msg'
-import type { SysAlertRule, AlertRuleQueryParams, AlertRuleSaveDto, AlertEvaluateResult } from '@/types/api/monitor/alert'
+import type {
+  SysAlertRule,
+  AlertRuleQueryParams,
+  AlertRuleSaveDto,
+  AlertEvaluateResult
+} from '@/types/api/monitor/alert'
 import type { SysMsgChannel, SysMsgTemplate } from '@/types/api/system/msg'
 import type { FormInstance, FormRules } from 'element-plus'
 import modal from '@/plugins/modal'
@@ -403,6 +422,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   cancel,
   handleQuery,

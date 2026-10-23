@@ -8,7 +8,9 @@
             :placeholder="t('role.search.phRoleName')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('role.search.phRoleName')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('role.search.phRoleName')"
+          />
         </el-form-item>
         <el-form-item :label="t('role.search.roleKey')" prop="roleKey">
           <el-input
@@ -16,10 +18,18 @@
             :placeholder="t('role.search.phRoleKey')"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('role.search.phRoleKey')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('role.search.phRoleKey')"
+          />
         </el-form-item>
         <el-form-item :label="t('role.search.status')" prop="status">
-          <el-select :aria-label="t('role.search.status')" v-model="queryParams.status" :placeholder="t('role.search.phStatus')" clearable class="w-[240px]">
+          <el-select
+            :aria-label="t('role.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('role.search.phStatus')"
+            clearable
+            class="w-[240px]"
+          >
             <el-option v-for="dict in sys_normal_disable" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -30,7 +40,9 @@
             type="daterange"
             range-separator="-"
             :start-placeholder="t('common.form.startDate')"
-            :end-placeholder="t('common.form.endDate')" :aria-label="t('common.form.startDate')"></el-date-picker>
+            :end-placeholder="t('common.form.endDate')"
+            :aria-label="t('common.form.startDate')"
+          ></el-date-picker>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -227,15 +239,18 @@
           </template>
         </el-table-column>
         <template #empty>
-          <EmptyState
-            :description="t('common.noData')"
-            :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
-            :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
-            :show-reset="hasQueryFilter"
-            :reset-text="t('common.emptyActionReset')"
-            @action="hasQueryFilter ? resetQuery() : handleAdd()"
-            @reset="resetQuery"
-          />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：加载失败显示「重试」，成功无数据保留原 CTA 空态 -->
+          <list-empty :load-error="loadError" @retry="retryLoad">
+            <EmptyState
+              :description="t('common.noData')"
+              :action-text="hasQueryFilter ? t('common.emptyActionReset') : t('common.emptyActionCreate')"
+              :action-icon="hasQueryFilter ? 'RefreshLeft' : 'Plus'"
+              :show-reset="hasQueryFilter"
+              :reset-text="t('common.emptyActionReset')"
+              @action="hasQueryFilter ? resetQuery() : handleAdd()"
+              @reset="resetQuery"
+            />
+          </list-empty>
         </template>
       </el-table>
     </Transition>
@@ -248,10 +263,21 @@
     />
 
     <!-- 添加或修改角色配置对话框 -->
-    <el-dialog :title="title"  :before-close="beforeDialogClose" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      :before-close="beforeDialogClose"
+      v-model="open"
+      width="min(90%, 500px)"
+      append-to-body
+      destroy-on-close
+    >
       <el-form ref="roleRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item :label="t('role.form.roleName')" prop="roleName">
-          <el-input v-model.trim="form.roleName" :placeholder="t('role.search.phRoleName')" :aria-label="t('role.search.phRoleName')" />
+          <el-input
+            v-model.trim="form.roleName"
+            :placeholder="t('role.search.phRoleName')"
+            :aria-label="t('role.search.phRoleName')"
+          />
         </el-form-item>
         <el-form-item prop="roleKey">
           <template #label>
@@ -262,7 +288,13 @@
               {{ t('role.form.roleKey') }}
             </span>
           </template>
-          <el-input v-model="form.roleKey" :placeholder="t('role.search.phRoleKey')" :maxlength="100" show-word-limit :aria-label="t('role.search.phRoleKey')" />
+          <el-input
+            v-model="form.roleKey"
+            :placeholder="t('role.search.phRoleKey')"
+            :maxlength="100"
+            show-word-limit
+            :aria-label="t('role.search.phRoleKey')"
+          />
         </el-form-item>
         <el-form-item :label="t('role.form.roleSort')" prop="roleSort">
           <el-input-number v-model="form.roleSort" controls-position="right" :min="0" />
@@ -296,7 +328,12 @@
           ></el-tree>
         </el-form-item>
         <el-form-item :label="t('role.form.remark')">
-          <el-input v-model="form.remark" type="textarea" :placeholder="t('common.form.inputPlaceholder')" :aria-label="t('role.form.remark')"></el-input>
+          <el-input
+            v-model="form.remark"
+            type="textarea"
+            :placeholder="t('common.form.inputPlaceholder')"
+            :aria-label="t('role.form.remark')"
+          ></el-input>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -332,7 +369,12 @@
             <span>{{ t(scope.row.labelKey) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('role.fieldPerm.colFieldKey')" prop="fieldKey" min-width="130" show-overflow-tooltip />
+        <el-table-column
+          :label="t('role.fieldPerm.colFieldKey')"
+          prop="fieldKey"
+          min-width="130"
+          show-overflow-tooltip
+        />
         <el-table-column :label="t('role.fieldPerm.colHidden')" align="center" width="90">
           <template #default="scope">
             <!-- 勾选 = 对该角色隐藏该字段 -->
@@ -344,10 +386,14 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="mt-2 text-xs text-text-secondary">{{ t('role.fieldPerm.tipHidden', { table: fieldPermTableKey }) }}</div>
+      <div class="mt-2 text-xs text-text-secondary">
+        {{ t('role.fieldPerm.tipHidden', { table: fieldPermTableKey }) }}
+      </div>
       <template #footer>
         <div class="dialog-footer">
-          <el-button type="primary" :loading="fieldPermSaving" @click="submitFieldPerm">{{ t('common.confirm') }}</el-button>
+          <el-button type="primary" :loading="fieldPermSaving" @click="submitFieldPerm">
+            {{ t('common.confirm') }}
+          </el-button>
           <el-button @click="openFieldPerm = false">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
@@ -358,15 +404,7 @@
 <script setup lang="ts" name="Role">
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import DataScopeDialog from './DataScopeDialog.vue'
-import {
-  addRole,
-  changeRoleStatus,
-  delRole,
-  getRole,
-  listRole,
-  updateRole,
-  deptTreeSelect
-} from '@/api/system/role'
+import { addRole, changeRoleStatus, delRole, getRole, listRole, updateRole, deptTreeSelect } from '@/api/system/role'
 import { roleMenuTreeselect, treeselect as menuTreeselect } from '@/api/system/menu'
 import { getFieldPerm, saveFieldPerm } from '@/api/system/fieldPerm'
 import { FIELD_PERM_TABLES, toCheckedMap, buildHiddenFields } from '@/utils/fieldPerm'
@@ -454,6 +492,8 @@ const {
   total,
   title,
   getList,
+  loadError,
+  retryLoad,
   beforeDialogClose,
   handleQuery,
   handleSelectionChange,

@@ -9,8 +9,23 @@
             <el-option :label="t('jobLog.stats.days14')" :value="14" />
             <el-option :label="t('jobLog.stats.days30')" :value="30" />
           </el-select>
-          <el-button size="small" icon="Refresh" circle :loading="loading" :aria-label="t('common.refresh')" @click="load" />
-          <el-button size="small" icon="ArrowUp" circle :aria-label="collapsed ? t('common.expand') : t('common.collapse')" @click="collapsed = !collapsed" />
+          <el-button
+            size="small"
+            icon="Refresh"
+            circle
+            :loading="loading"
+            :aria-label="t('common.refresh')"
+            @click="load"
+          />
+          <el-button
+            size="small"
+            icon="ArrowUp"
+            circle
+            :aria-label="collapsed ? t('common.expand') : t('common.collapse')"
+            :aria-expanded="!collapsed"
+            aria-controls="job-stats-trend"
+            @click="collapsed = !collapsed"
+          />
         </div>
       </div>
     </template>
@@ -57,7 +72,8 @@
         class="mb-3"
       />
 
-      <div v-show="!collapsed" class="flex flex-wrap gap-3">
+      <!-- 折叠区：v-show 常驻 DOM，故 id 与表头按钮的 aria-controls 关联可用 -->
+      <div v-show="!collapsed" id="job-stats-trend" class="flex flex-wrap gap-3">
         <!-- 成功率趋势 -->
         <div class="flex-1 min-w-[280px] h-[260px]">
           <div class="text-xs text-text-secondary mb-1">{{ t('jobLog.stats.trend') }}</div>
@@ -142,7 +158,7 @@ function renderTrend() {
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
-        data: daily.map((d) => (d.total > 0 ? Math.round(((d.failed / d.total) * 100) * 10) / 10 : 0)),
+        data: daily.map((d) => (d.total > 0 ? Math.round((d.failed / d.total) * 100 * 10) / 10 : 0)),
         itemStyle: { color: '#F56C6C' }
       }
     ]

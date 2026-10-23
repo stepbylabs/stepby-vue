@@ -16,7 +16,9 @@
             :placeholder="t('shortcuts.searchPlaceholder')"
             :maxlength="50"
             clearable
-            class="w-[240px]" :aria-label="t('shortcuts.searchPlaceholder')">
+            class="w-[240px]"
+            :aria-label="t('shortcuts.searchPlaceholder')"
+          >
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
@@ -38,11 +40,16 @@
               </div>
             </template>
             <TransitionGroup name="list" tag="div" class="shortcut-list flex flex-col gap-2">
+              <!-- 快捷键行：点击复制组合键，div 不可聚焦 ⇒ 补 role/tabindex/键盘激活三件 -->
               <div
                 v-for="item in group.items"
                 :key="item.action"
                 class="shortcut-row flex justify-between items-center py-2 px-3 rounded-md cursor-pointer"
+                role="button"
+                tabindex="0"
                 @click="copyShortcut(item.displayKeys.join('+'))"
+                @keydown.enter.prevent="copyShortcut(item.displayKeys.join('+'))"
+                @keydown.space.prevent="copyShortcut(item.displayKeys.join('+'))"
               >
                 <div class="shortcut-info flex-1 min-w-0">
                   <span class="shortcut-action block text-sm font-medium text-text-primary">

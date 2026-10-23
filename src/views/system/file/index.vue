@@ -85,12 +85,16 @@
             :aria-label="t('file.ariaLabel.preview')"
           />
           <el-tooltip v-else-if="isPdf(row.ext)" :content="t('file.btn.previewPdf')" placement="top">
+            <!-- 已有 role="button" + 可访问名，但 el-icon 渲染成 <i> 仍不可聚焦：补 tabindex 与键盘激活 -->
             <el-icon
               size="32"
               class="cursor-pointer text-text-secondary transition-all duration-200 hover:scale-110 hover:text-primary"
               role="button"
+              tabindex="0"
               :aria-label="t('file.btn.previewPdf')"
               @click="handlePdfPreview(row)"
+              @keydown.enter.prevent="handlePdfPreview(row)"
+              @keydown.space.prevent="handlePdfPreview(row)"
             >
               <Document />
             </el-icon>

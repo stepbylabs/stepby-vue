@@ -371,9 +371,63 @@ function windowFromDataset() {
   return { since: data.windowStart, until: data.windowEnd, source: `${path.basename(ds)} 自证字段` }
 }
 
-function gateState({ file, records, unparsed, unknown, unused = [], stalls = [], fileTotal = null }) {
+/**
+ * 判定窗口与"最近一次 deep-e2e 全量轮的自证窗口"是否**有交集**（b88 收口新立的口径闸）。
+ *
+ * 立案事实（本轮实测，不是推演）：收口期重建并重启了 :8080（项 H 改了 `src/**`，
+ * `build-freshness` 的后端新鲜度腿要求重构建），新进程只写了 96 条启动与 actgate 流量，
+ * 而判据照打 **允许表未命中 15 条 ⇒ 必须撤销**——那 15 条 witness 的全是 deep/main 的负路径
+ * （租户闸门拒绝登录、`id_token_hint` 验签失败、畸形 JSON body…）。这一把里**根本没有浏览器轮次**，
+ * 于是"没出现"是窗口选错，不是豁免作废。照着提示做就是把 15 条真在用的登记撤销，
+ * 下一轮浏览器套件当场判成"未登记 15 条"（前言 ⑨"错误提示把人支使去把事实签反"的第四个断面，
+ * 也与 ⑯(c) 同源：前置条件在这把里不成立的判定，不是弱判定而是负资产）。
+ *
+ * 取向是**加闸而不是放宽**：不相交 ⇒ UNRUN（EXIT=2，本轮不作数），并把需要的动作写清楚
+ * （要么把窗口给成覆盖那轮的范围，要么先跑一轮浏览器套件）。数据集本身取不到（`dsWin` 为 null）
+ * **不得**触发这一支——否则"缺数据集"被报成"窗口不对"，指错方向（同 ⑲ 那条"只有一路输入时不得触发"）。
+ */
+export function windowsOverlap(win, dsWin) {
+  if (!dsWin) return true
+  const a1 = Number.isFinite(win?.untilMs) ? win.untilMs : Infinity
+  const b1 = Number.isFinite(dsWin?.untilMs) ? dsWin.untilMs : Infinity
+  if (!Number.isFinite(win?.sinceMs) || !Number.isFinite(dsWin?.sinceMs)) return true
+  return win.sinceMs <= b1 && a1 >= dsWin.sinceMs
+}
+
+function fmtWin(w) {
+  const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 19) + 'Z' : '（到末尾）')
+  return `${iso(w.sinceMs)} → ${iso(w.untilMs)}`
+}
+
+/** 不相交时那条"本轮不作数"的话（gateState 与 main 共用一份，两份文案必漂）。 */
+function overlapGapDetail(win, dsWin) {
+  return (
+    `判定窗口 ${fmtWin(win)} 与最近一次 deep-e2e 全量轮的自证窗口 ${fmtWin(dsWin)} **不相交**` +
+    ` ⇒ 这一把里没有浏览器轮次流量，允许表里 witness 那些负路径的条目结构上不可能出现` +
+    `（"未命中 N 条"是**窗口选错**，不是豁免该撤销）⇒ 本轮不作数；` +
+    `需要的动作：把 --since/--until 给成覆盖那轮的范围，或先跑一轮浏览器套件`
+  )
+}
+
+function gateState({
+  file,
+  records,
+  unparsed,
+  unknown,
+  unused = [],
+  stalls = [],
+  fileTotal = null,
+  win = null,
+  dsWin = null
+}) {
   if (!fs.existsSync(file)) return { code: 2, detail: `日志不存在：${file}` }
   if (fileTotal === 0) return { code: 2, detail: `日志为空（没有任何 tracing 记录）：${file}` }
+  // 口径闸（b88 收口）：窗口里没有那轮浏览器套件的流量时，"未命中/未登记"两张清单都不作数——
+  // 详见 windowsOverlap 上方那段立案事实。排在"窗口内零记录"之前：两者同时成立时，
+  // 报"窗口里什么都没有"会把人支使去查文件，而正确答案是"窗口选错了轮次"。
+  if (win && !windowsOverlap(win, dsWin)) {
+    return { code: 2, detail: overlapGapDetail(win, dsWin) }
+  }
   if (records.length === 0) {
     // 「日志为空」与「日志非空但这一轮的窗口里什么都没有」是两个不同的动作：前者查产物，
     // 后者查窗口串（多半是把上一轮的时间抄错了方向）。合成一个文案会把人支使错地方。
@@ -749,6 +803,66 @@ function selftest() {
   })
   check('存在未登记/裸行必须 EXIT=1', badState.code === 1, JSON.stringify(badState))
 
+  // ==================== 口径闸：判定窗口必须真的盖住那轮浏览器套件（b88 收口）====================
+  // 立案形状（本轮实测）：收口期重建并重启 :8080 之后跑非浏览器门禁，日志里只有 96 条启动流量，
+  // 判据照打"允许表未命中 15 条 ⇒ 必须撤销"。照着提示做就是把 15 条真在用的登记撤销，
+  // 下一轮浏览器套件当场判成"未登记 15 条"（前言 ⑨ 的"把人支使去把事实签反"第四个断面）。
+  {
+    const ds = {
+      sinceMs: Date.parse('2026-10-20T00:00:00Z'),
+      untilMs: Date.parse('2026-10-20T02:00:00Z')
+    }
+    const miss = [{ level: 'WARN', match: '租户闸门拒绝登录', why: '负路径用例每次都产生一条' }]
+    const before = {
+      sinceMs: Date.parse('2026-10-19T23:00:00Z'),
+      untilMs: Date.parse('2026-10-19T23:30:00Z')
+    }
+    const stGap = gateState({
+      file: DEFAULT_ALLOW,
+      records: parsed.records,
+      unparsed: [],
+      unknown: [],
+      unused: miss,
+      win: before,
+      dsWin: ds
+    })
+    check(
+      '窗口整段早于那轮浏览器套件 ⇒ 必须 UNRUN 且文案点名"不相交"（不得判成"未命中该撤销"）',
+      stGap.code === 2 && /不相交/.test(stGap.detail) && !/必须撤销/.test(stGap.detail),
+      JSON.stringify(stGap)
+    )
+    const stHit = gateState({
+      file: DEFAULT_ALLOW,
+      records: parsed.records,
+      unparsed: [],
+      unknown: [],
+      unused: miss,
+      win: { sinceMs: Date.parse('2026-10-20T01:00:00Z'), untilMs: Date.parse('2026-10-20T01:30:00Z') },
+      dsWin: ds
+    })
+    check(
+      '窗口盖住那轮时同样的未命中必须照常判红（口径闸不得反过来把真信号洗绿）',
+      stHit.code === 1,
+      JSON.stringify(stHit)
+    )
+    check(
+      '窗口终点缺失（到文件末尾）时按"覆盖到最新"算，必须判相交',
+      windowsOverlap({ sinceMs: Date.parse('2026-10-20T01:00:00Z'), untilMs: null }, ds)
+    )
+    check(
+      '窗口起点恰好等于那轮的终点 ⇒ 边界不得因抖动误判 UNRUN',
+      windowsOverlap({ sinceMs: ds.untilMs, untilMs: ds.untilMs + 1000 }, ds)
+    )
+    check(
+      '数据集取不到（dsWin=null）时**不得**触发这一支——"缺数据集"不能被报成"窗口不对"',
+      windowsOverlap(before, null) === true
+    )
+    check(
+      '窗口串不可解析时不得读成"不相交"（NaN 参与比较恒 false 那一族，前言 ⑧）',
+      windowsOverlap({ sinceMs: NaN, untilMs: NaN }, ds) === true
+    )
+  }
+
   // ==================== 统计量的窗口对账（b85 收口）====================
   // 事故形状：同一窗口两次跑出 2852 → 3137 条——后端在收口之后继续写同一个文件，
   // 而"记录 N / 级别直方图 / 非 tracing 行"三个量全在**整份文件**上统计。
@@ -950,6 +1064,9 @@ function main() {
   // 判出来的既不是本轮的通过，也不是本轮的失败。缺省时从本轮数据集自证字段取，
   // 让人不必抄时间串（抄错方向=把上一轮扫进来）。
   const fromDs = windowFromDataset()
+  // 口径闸的输入：数据集自证窗口。取不到 ⇒ `dsWin = null` ⇒ 这一支**不得**触发
+  // （"缺数据集"不得被报成"窗口不对"，那会把人支使去补数据集而不是改窗口）。
+  const dsWin = fromDs ? { sinceMs: windowToEpoch(fromDs.since), untilMs: windowToEpoch(fromDs.until) } : null
   const since = opt('since') || process.env.STEPBY_BACKEND_SINCE || fromDs?.since || ''
   const until = opt('until') || process.env.STEPBY_BACKEND_UNTIL || fromDs?.until || ''
   const sinceMs = windowToEpoch(since)
@@ -993,6 +1110,12 @@ function main() {
       `${parsed.unparsed.length === bare.length ? '' : `（全文件 ${parsed.unparsed.length}）`} / 允许表未命中 ${unused.length}` +
       `${held.length ? ` / 条件型豁免未触发但生产者仍在 ${held.length}` : ''} / 整机停顿 ${stalls.length} 次`
   )
+  if (!windowsOverlap(winMs, dsWin)) {
+    // 口径闸先于内容闸（AGENTS ⑨）：这一把里没有那轮浏览器流量，"未命中 15 条"报出来
+    // 只会把人支使去撤销真在用的登记（b88 收口实测正是这个形状：重启 :8080 之后跑非浏览器门禁）。
+    console.error(`❌ [FATAL] ${overlapGapDetail(winMs, dsWin)}（未登记/未命中两张清单已按口径闸跳过）`)
+    process.exit(2)
+  }
   for (const s of stalls) {
     console.log(`  ⏸ [整机停顿] ${s.from} → ${s.to} 静默 ${s.gapSecs}s，恢复瞬间 ${s.artifacts.length} 条：`)
     for (const a of s.artifacts.slice(0, 4)) {
@@ -1034,7 +1157,9 @@ function main() {
     unknown,
     unused,
     stalls,
-    fileTotal: parsed.records.length
+    fileTotal: parsed.records.length,
+    win: winMs,
+    dsWin
   })
   // 退役通道（批八十五 项 F）：只打提示没有动作 = 没判（AGENTS 门禁全景 ⑩）。
   // 写在判定**之后**、且只在数据集有效（code ≠ 2）时写——日志读不到时"未命中"根本无从谈起。
@@ -1059,7 +1184,9 @@ function main() {
       unknown: again.unknown,
       unused: again.unused,
       stalls,
-      fileTotal: parsed.records.length
+      fileTotal: parsed.records.length,
+      win: winMs,
+      dsWin
     })
     if (st2.code !== 0) {
       console.error(`❌ 退役后仍有问题（未登记 ${again.unknown.length} 条）：${st2.detail}`)

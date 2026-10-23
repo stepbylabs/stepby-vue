@@ -16,7 +16,13 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('task.search.status')" prop="status">
-          <el-select :aria-label="t('task.search.status')" v-model="queryParams.status" :placeholder="t('task.search.phStatus')" clearable class="w-[140px]">
+          <el-select
+            :aria-label="t('task.search.status')"
+            v-model="queryParams.status"
+            :placeholder="t('task.search.phStatus')"
+            clearable
+            class="w-[140px]"
+          >
             <el-option :label="t('task.form.statusWaiting')" value="pending" />
             <el-option :label="t('task.form.statusRunning')" value="running" />
             <el-option :label="t('task.form.statusCompleted')" value="success" />
@@ -211,15 +217,18 @@
           </template>
         </el-table-column>
         <template #empty>
-          <EmptyState
-            :description="t('common.noData')"
-            :action-text="hasQueryFilter ? t('common.emptyActionReset') : undefined"
-            :action-icon="hasQueryFilter ? 'RefreshLeft' : undefined"
-            :show-reset="hasQueryFilter"
-            :reset-text="hasQueryFilter ? t('common.emptyActionReset') : undefined"
-            @action="resetQuery"
-            @reset="resetQuery"
-          />
+          <!-- 失败/空态分形（ListEmpty 单一实现）：加载失败显示「重试」，成功无数据保留原 CTA 空态 -->
+          <list-empty :load-error="loadError" @retry="retryLoad">
+            <EmptyState
+              :description="t('common.noData')"
+              :action-text="hasQueryFilter ? t('common.emptyActionReset') : undefined"
+              :action-icon="hasQueryFilter ? 'RefreshLeft' : undefined"
+              :show-reset="hasQueryFilter"
+              :reset-text="hasQueryFilter ? t('common.emptyActionReset') : undefined"
+              @action="resetQuery"
+              @reset="resetQuery"
+            />
+          </list-empty>
         </template>
       </el-table>
     </Transition>
@@ -281,7 +290,11 @@ const TASK_COLUMN_LABELS = () => ({
   resultMsg: t('task.column.resultMsg'),
   createTime: t('task.column.createTime')
 })
-const { visibleKeys: taskVisibleKeys, toggle: toggleTaskColumn, bindLabels: bindTaskLabels } = useTableColumns({
+const {
+  visibleKeys: taskVisibleKeys,
+  toggle: toggleTaskColumn,
+  bindLabels: bindTaskLabels
+} = useTableColumns({
   pageKey: TASK_TABLE_KEY,
   columns: TASK_COLUMN_DEFS,
   labels: TASK_COLUMN_LABELS,
@@ -322,9 +335,7 @@ watch(
 // columns 为原地逐键修改（非整体替换），浅监听不触发；改用 computed 签名仅跟踪 visible 位，
 // label 更新（bindLabels）不再触发 deep 全量遍历。
 const columnsVisibleSig = computed(() =>
-  (Object.values(columns.value) as TableShowColumns[])
-    .map((c) => (c.visible ? 1 : 0))
-    .join('')
+  (Object.values(columns.value) as TableShowColumns[]).map((c) => (c.visible ? 1 : 0)).join('')
 )
 watch(columnsVisibleSig, () => {
   const v = columns.value
@@ -357,14 +368,15 @@ const {
   multiple,
   total,
   getList,
+  loadError,
+  retryLoad,
   handleQuery,
   handleDelete,
   handleSelectionChange
 } = useCrudTable<SysTask, TaskQueryParams>({
   listApi: (params) =>
     listTask(addDateRange({ ...params } as Record<string, unknown>, dateRange.value) as TaskQueryParams),
-  deleteApi: (targetIds) =>
-    delTask(Array.isArray(targetIds) ? (targetIds.map(Number) as number[]) : Number(targetIds)),
+  deleteApi: (targetIds) => delTask(Array.isArray(targetIds) ? (targetIds.map(Number) as number[]) : Number(targetIds)),
   deleteTipParams: (targetIds) => ({ count: targetIds.length }),
   idField: 'taskId',
   defaultForm: () => ({}) as SysTask,

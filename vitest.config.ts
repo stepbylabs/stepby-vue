@@ -21,6 +21,13 @@ export default defineConfig({
     globals: true,
     setupFiles: ['src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{js,ts}'],
+    // 默认 5000ms 与"走全树的守卫"实测耗时只差 1.17 倍，于是绿红由机器负载决定（b88 实测：
+    // 门禁电池整跑到 vitest 时，`e2eLocaleLabelSpacing` 的"刀口自证"隔离跑 **4281ms**、
+    // 同轮超时判红，另有 `e2eCwdPath`/`e2eClickPolicy`/`permission` 共 5 条同时红；
+    // 整跑单独复跑这四文件 34 条全绿、7.81s）。取 30s = 隔离最重的 ~7 倍余量。
+    // 这条改的是**预算**不是**判据**：没有任何断言依赖耗时；真挂死的用例照样在 30s 失败，
+    // 而"每批都要重新祈祷机器不忙"的门禁等于没有门禁（AGENTS 测试门禁全景 前言 ④）。
+    testTimeout: 30_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

@@ -4,12 +4,7 @@
     <el-card class="welcome-card mb-4" shadow="hover">
       <div class="welcome-content flex justify-between items-center flex-wrap gap-4">
         <div class="welcome-left flex items-center gap-4">
-          <el-avatar
-            :size="64"
-            :src="userStore.avatar || defaultAvatar"
-            :alt="avatarAlt"
-            @error="onAvatarError"
-          >
+          <el-avatar :size="64" :src="userStore.avatar || defaultAvatar" :alt="avatarAlt" @error="onAvatarError">
             <img :src="defaultAvatar" loading="lazy" :alt="avatarAlt" />
           </el-avatar>
           <div class="welcome-text">
@@ -47,10 +42,15 @@
     <!-- 我的统计卡片 -->
     <el-row :gutter="16" class="stats-row mb-4">
       <el-col :xs="12" :sm="12" :md="6" :lg="6">
+        <!-- 统计卡片整块可点跳转：el-card 渲染成 div，不可聚焦 ⇒ 补 role/tabindex/键盘激活三件 -->
         <el-card
           class="stat-card stat-login cursor-pointer transition-all duration-300"
           shadow="hover"
+          role="button"
+          tabindex="0"
           @click="goTo('/monitor/logininfor')"
+          @keydown.enter.prevent="goTo('/monitor/logininfor')"
+          @keydown.space.prevent="goTo('/monitor/logininfor')"
         >
           <div class="stat-content flex items-center gap-4">
             <div class="stat-icon w-12 h-12 rounded-lg flex items-center justify-center text-2xl text-white">
@@ -64,10 +64,15 @@
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="6" :lg="6">
+        <!-- 同上：未读通知统计卡片补齐键盘可达三件 -->
         <el-card
           class="stat-card stat-notice cursor-pointer transition-all duration-300"
           shadow="hover"
+          role="button"
+          tabindex="0"
           @click="goTo('/system/notice-center')"
+          @keydown.enter.prevent="goTo('/system/notice-center')"
+          @keydown.space.prevent="goTo('/system/notice-center')"
         >
           <div class="stat-content flex items-center gap-4">
             <div class="stat-icon w-12 h-12 rounded-lg flex items-center justify-center text-2xl text-white">
@@ -135,11 +140,17 @@
               <el-empty :description="t('workbench.recentEmpty')" :image-size="80" />
             </div>
             <div v-else key="list" class="recent-grid grid grid-cols-2 gap-2">
+              <!-- 以下四组列表项（最近访问/收藏/未读通知/快捷入口）都是整行可跳转的 div：
+                   统一补 role="button" + tabindex="0" + Enter/Space 激活三件，可访问名取行内文本 -->
               <div
                 v-for="(item, idx) in recent.recentViews.value.slice(0, 8)"
                 :key="item.path"
                 class="recent-item flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer text-[13px]"
+                role="button"
+                tabindex="0"
                 @click="goTo(item.fullPath)"
+                @keydown.enter.prevent="goTo(item.fullPath)"
+                @keydown.space.prevent="goTo(item.fullPath)"
               >
                 <span
                   class="recent-idx inline-block w-5 h-5 leading-5 text-center rounded text-[12px] text-text-secondary shrink-0"
@@ -184,7 +195,11 @@
                 v-for="item in fav.favorites.value.slice(0, 8)"
                 :key="item.path"
                 class="fav-item flex flex-col items-center gap-1.5 py-3 px-2 rounded-md cursor-pointer text-center"
+                role="button"
+                tabindex="0"
                 @click="goTo(item.path)"
+                @keydown.enter.prevent="goTo(item.path)"
+                @keydown.space.prevent="goTo(item.path)"
               >
                 <svg-icon v-if="item.icon" :icon-class="item.icon" class="fav-icon text-2xl text-warning" />
                 <span
@@ -223,7 +238,11 @@
                 v-for="notice in unreadNotices.slice(0, 5)"
                 :key="notice.noticeId"
                 class="notice-item flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer"
+                role="button"
+                tabindex="0"
                 @click="goToNotice(notice.noticeId)"
+                @keydown.enter.prevent="goToNotice(notice.noticeId)"
+                @keydown.space.prevent="goToNotice(notice.noticeId)"
               >
                 <el-tag :type="notice.noticeType === '1' ? 'warning' : 'success'" size="small" effect="plain">
                   {{ notice.noticeType === '1' ? t('workbench.typeAnnouncement') : t('workbench.typeNotice') }}
@@ -257,7 +276,11 @@
               v-for="shortcut in shortcuts"
               :key="shortcut.path"
               class="shortcut-item flex flex-col items-center gap-1.5 py-3 px-2 rounded-md cursor-pointer text-center transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
+              role="button"
+              tabindex="0"
               @click="goTo(shortcut.path)"
+              @keydown.enter.prevent="goTo(shortcut.path)"
+              @keydown.space.prevent="goTo(shortcut.path)"
             >
               <el-icon class="shortcut-icon text-2xl text-primary"><component :is="shortcut.icon" /></el-icon>
               <span class="shortcut-label text-xs text-text-regular">{{ shortcut.label }}</span>
@@ -347,9 +370,7 @@ const roleText = computed(() => {
 })
 
 // 头像可访问名称（a11y：el-avatar 的 img 无 alt 会被 axe image-alt 判失败）
-const avatarAlt = computed(() =>
-  t('layout.navbar.avatarAlt', { name: userStore.nickName || userStore.name })
-)
+const avatarAlt = computed(() => t('layout.navbar.avatarAlt', { name: userStore.nickName || userStore.name }))
 
 // 快捷入口（基于权限过滤）
 const shortcuts = computed(() => {

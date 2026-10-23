@@ -1,6 +1,21 @@
 <template>
   <!-- eslint-disable vue/no-mutating-props -->
-  <el-col :span="element.span" :class="className" @click.stop="activeItem(element)">
+  <!--
+    画布项"点选即激活"（activeItem）原本只有鼠标通道，键盘用户完全无法选中组件。
+    这里补 role/tabindex/键盘激活三件。已知取舍：colFormItem 的画布项内部确实渲染了一个
+    真实表单控件（预览用），构成"控件套控件"——彻底解法要把画布改成 listbox/option 编排
+    （方向键在组件间移动），属表单设计器的独立立项；本批先把激活动作做成键盘可达。
+  -->
+  <el-col
+    :span="element.span"
+    :class="className"
+    role="button"
+    tabindex="0"
+    :aria-label="element.label || element.componentName"
+    @click.stop="activeItem(element)"
+    @keydown.enter.stop.prevent="activeItem(element)"
+    @keydown.space.stop.prevent="activeItem(element)"
+  >
     <Transition mode="out-in" name="fade">
       <el-form-item
         :label="element.label"
@@ -11,7 +26,19 @@
       >
         <render :key="element.tag" :conf="element" v-model="element.defaultValue" />
       </el-form-item>
-      <el-row :gutter="element.gutter" :class="element.class" @click.stop="activeItem(element)" v-else key="row">
+      <!-- 行容器同样是"点选即激活"的画布项，与上面的 el-col 同批补齐三件 -->
+      <el-row
+        :gutter="element.gutter"
+        :class="element.class"
+        role="button"
+        tabindex="0"
+        :aria-label="element.componentName"
+        @click.stop="activeItem(element)"
+        @keydown.enter.stop.prevent="activeItem(element)"
+        @keydown.space.stop.prevent="activeItem(element)"
+        v-else
+        key="row"
+      >
         <span class="component-name">{{ element.componentName }}</span>
         <draggable
           group="componentsGroup"

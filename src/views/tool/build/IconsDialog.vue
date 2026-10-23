@@ -10,10 +10,22 @@
           :placeholder="t('build.iconsDialog.phIconName')"
           :maxlength="100"
           prefix-icon="Search"
-          clearable :aria-label="t('build.iconsDialog.phIconName')" />
+          clearable
+          :aria-label="t('build.iconsDialog.phIconName')"
+        />
       </template>
       <TransitionGroup name="icon-grid" tag="ul" class="icon-ul">
-        <li v-for="icon in iconList" :key="icon" :class="active === icon ? 'active-item' : ''" @click="onSelect(icon)">
+        <!-- 图标候选项：li + @click 不可键盘到达，补 role/tabindex/键盘激活三件（可访问名取图标名字文本） -->
+        <li
+          v-for="icon in iconList"
+          :key="icon"
+          :class="active === icon ? 'active-item' : ''"
+          role="button"
+          tabindex="0"
+          @click="onSelect(icon)"
+          @keydown.enter.prevent="onSelect(icon)"
+          @keydown.space.prevent="onSelect(icon)"
+        >
           <div>
             <el-icon :size="30">
               <component :is="icon" />

@@ -140,6 +140,10 @@ export default {
     retryHint: '{message}, click here to retry',
     // Generic load/refresh failure messages (for catch blocks to feedback users)
     loadFailed: 'Failed to load data, please refresh and retry',
+    // Retry button on the list empty state's "load failed" branch
+    retry: 'Retry',
+    // Explicit annotation when refresh failed but the screen still shows the last successful load
+    staleDataHint: 'Refresh failed; showing the last successfully loaded data',
     loadDetailFailed: 'Failed to load detail, please retry later',
     submitFailed: 'Submit failed, please retry later',
     cacheRefreshFailed: 'Cache refresh failed, frontend may show stale data',

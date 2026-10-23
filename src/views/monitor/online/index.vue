@@ -164,7 +164,7 @@
             </template>
           </el-table-column>
           <template #empty>
-            <el-empty :description="t('common.empty')" />
+            <list-empty :load-error="loadError" @retry="retryLoad" />
           </template>
         </el-table>
 
@@ -241,6 +241,8 @@ const {
   total,
   showSearch,
   getList,
+  loadError,
+  retryLoad,
   handleQuery: baseHandleQuery,
   resetQuery: baseResetQuery
 } = useCrudTable<SysUserOnline, OnlineQueryParams>({
