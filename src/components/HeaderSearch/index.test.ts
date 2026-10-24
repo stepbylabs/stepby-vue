@@ -46,7 +46,11 @@ vi.mock('fuse.js', () => ({
 }))
 
 vi.mock('@/store/modules/settings', () => ({
-  default: () => ({ get theme() { return hoisted.theme } })
+  default: () => ({
+    get theme() {
+      return hoisted.theme
+    }
+  })
 }))
 
 // defaultRoutes 必须是**真 Vue ref**：否则组件里 `computed(() => store.defaultRoutes)`
@@ -66,7 +70,15 @@ vi.mock('@/store/modules/permission', async () => {
   }
 })
 
-vi.mock('@/router', () => ({ useRouter: () => ({ push: hoisted.push }) }))
+// ⚠ 原先这里 mock 的是 `@/router`，而组件用的是 **auto-import 的 `useRouter`**
+// （实测 `auto-imports.d.ts:80`：`const useRouter: typeof import('vue-router').useRouter`）
+// ⇒ 那条 mock **从未生效**，文件里所有 `hoisted.push` 断言都跑在一条不存在的通道上
+// （b89 项 17 取证时撞见：新增"内部路径必须走 router.push"这条正控，立刻发现 push 一个都没收到）。
+// 改 mock 'vue-router' 之后，负控（不得出网）与正控（必须出 router.push）两侧才第一次真的受约束。
+vi.mock('vue-router', async (orig) => {
+  const actual = await orig<typeof import('vue-router')>()
+  return { ...actual, useRouter: () => ({ push: hoisted.push }) }
+})
 
 vi.mock('vue-i18n', async (orig) => {
   const actual = await orig<typeof import('vue-i18n')>()
@@ -168,6 +180,11 @@ describe('components/HeaderSearch', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    // 每条用例里的 `vi.spyOn(window, 'open')` 由这里统一收尾：断言失败时用例尾句
+    // `mockRestore()` **跑不到**，下一个 `vi.spyOn` 会拿回**同一枚带着历史调用的 spy**
+    // ⇒ 一条真失败级联成三条红，"红在哪条"就丢了（变异证伪实测：把 `-1` 兜底摘掉，
+    // 本该只红 `//host` 那一条，实际三条同红——后两条是级联，不是它们自己的判据坏了）。
+    vi.restoreAllMocks()
   })
 
   it('generateRoutes：hidden 被过滤；http 外链保留原始路径（可跳转）', async () => {
@@ -213,7 +230,9 @@ describe('components/HeaderSearch', () => {
   it('generateRoutes：叶子无 children 时不再递归', async () => {
     const vm = factory()
     await nextTick()
-    const out: GeneratedItem[] = api(vm).generateRoutes([R({ path: '/a', children: [{ path: '/b', meta: { title: 'B' } }] })])
+    const out: GeneratedItem[] = api(vm).generateRoutes([
+      R({ path: '/a', children: [{ path: '/b', meta: { title: 'B' } }] })
+    ])
     expect(out.length).toBe(2)
     expect(out[0].path).toBe('/a')
     expect(out[1].path).toBe('/a/b')
@@ -298,16 +317,18 @@ describe('components/HeaderSearch', () => {
     hoisted.listUser.mockImplementation(() =>
       Promise.resolve({ rows: [{ userName: 'admin', nickName: '管理员', phonenumber: '138' }] })
     )
-    hoisted.listRole.mockImplementation(() =>
-      Promise.resolve({ rows: [{ roleName: '超管', roleKey: 'admin' }] })
-    )
+    hoisted.listRole.mockImplementation(() => Promise.resolve({ rows: [{ roleName: '超管', roleKey: 'admin' }] }))
     hoisted.listType.mockImplementation(() =>
       Promise.resolve({ rows: [{ dictName: '性别', dictType: 'sys_user_sex' }] })
     )
     const vm = factory()
     await nextTick()
     const res = (await api(vm).searchData('a')) as Array<{
-      path: string; group?: string; subtitle?: string; query?: string; title: string[]
+      path: string
+      group?: string
+      subtitle?: string
+      query?: string
+      title: string[]
     }>
     expect(res.length).toBe(3)
     const byPath = Object.fromEntries(res.map((r) => [r.group, r]))
@@ -428,10 +449,7 @@ describe('components/HeaderSearch', () => {
     const before = api(vm).searchPool.length
     expect(before).toBeGreaterThanOrEqual(1)
     // 追加一条路由 ⇒ watch(routes) 应重建 searchPool（真 Vue ref 驱动 computed）
-    hoisted.setDefaultRoutes?.([
-      R({ path: '/system' }),
-      R({ path: '/monitor', meta: { title: '监控' } })
-    ])
+    hoisted.setDefaultRoutes?.([R({ path: '/system' }), R({ path: '/monitor', meta: { title: '监控' } })])
     await nextTick()
     await flushPromises()
     expect(api(vm).searchPool.length).toBeGreaterThan(before)
@@ -447,5 +465,51 @@ describe('components/HeaderSearch', () => {
     await Promise.resolve()
     expect(hoisted.listUser).not.toHaveBeenCalled()
     expect(api(vm).options.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ---- b89 项 17：外链两支的**真实点击通道**（走模板 @click，不直接调内部函数）----
+  // 立案：`change` 旧写法无条件 `p.slice(p.indexOf('http'))`，用意是剥掉"http 在串中间"时的
+  // 前缀；但 isHttp 认三支，其中协议相对 `//host` 一支里根本没有 "http" ⇒ indexOf 返回 -1
+  // ⇒ slice(-1) 取到**最后一个字符**，window.open 打开的是一个单字符串（用户看到"点了没反应/
+  // 开了个错页"）。两支各一条：坏的必须被抓，好的不得被顺手改坏。
+  it('change：协议相对 //host 整串交给新标签页（旧写法只送出最后一个字符）', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    hoisted.setDefaultRoutes?.([R({ path: '//example.com/docs' })])
+    const vm = factory()
+    await nextTick()
+    api(vm).options = [{ path: '//example.com/docs', title: ['外部文档'], icon: 'search' }]
+    await nextTick()
+    await vm.find('.search-item').trigger('click')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(open.mock.calls[0][0]).toBe('//example.com/docs')
+    // rel=noopener 是安全属性，必须与外链同标签存在（b89 前端浏览器面规范第 2 条）
+    expect(String(open.mock.calls[0][2])).toContain('noopener')
+    open.mockRestore()
+  })
+
+  it('change：http 出现在串中间时仍剥掉前缀（对照组，证明修复没把另一支改掉）', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    hoisted.setDefaultRoutes?.([R({ path: '/system' })])
+    const vm = factory()
+    await nextTick()
+    api(vm).options = [{ path: '/proxy/http://internal.example/x', title: ['代理外链'], icon: 'search' }]
+    await nextTick()
+    await vm.find('.search-item').trigger('click')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(open.mock.calls[0][0]).toBe('http://internal.example/x')
+    open.mockRestore()
+  })
+
+  it('change：内部路径不得出网（走 router.push，不碰 window.open）', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    hoisted.setDefaultRoutes?.([R({ path: '/system' })])
+    const vm = factory()
+    await nextTick()
+    api(vm).options = [{ path: '/system/user', title: ['用户'], icon: 'user' }]
+    await nextTick()
+    await vm.find('.search-item').trigger('click')
+    expect(open).not.toHaveBeenCalled()
+    expect(hoisted.push).toHaveBeenCalled()
+    open.mockRestore()
   })
 })

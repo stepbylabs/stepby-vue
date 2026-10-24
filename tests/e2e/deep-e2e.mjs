@@ -22629,7 +22629,13 @@ async function testModule87(page, consoleErrors, pageErrors) {
       // 现在两端闭合对账：内联提示必须包含后端 body.msg 的原文，且不得是裸 axios 串。
       const alertText = await page
         .evaluate(() => {
-          const box = document.querySelector('.app-container') || document.querySelector('.el-card')
+          // 原先这里还取了 `const box = document.querySelector('.app-container') || …`，
+          // 但 `box` **取出后从未被消费**（返回对象里没有它，b89 盘查 N-F 时抓出）——
+          // 它是"这条判据其实读的是整份文档"的化石，不是作用域。删掉死码，
+          // 同时把"读整份文档"这一事实写在原地（而不是留一个假装在收窄的变量）：
+          // `.el-alert` 现在**全局**取第一个，把这条收窄到 `.app-main` 属于 b89 N-F
+          // ——那一项要连 130 余处锚点一起改，且改了必须重跑 deep 全量（54min 权威轮），
+          // 故登记在案、不在本批顺手做（台账 b89 §17 N-F）。
           const alert = document.querySelector('.el-alert')
           return {
             alert: alert ? (alert.innerText || '').replace(/\s+/g, ' ').trim() : '',

@@ -239,9 +239,12 @@ function change(val: SearchItem): void {
   const p = val.path
   const query = val.query
   if (isHttp(p)) {
-    // http(s):// 路径新窗口打开
+    // http(s):// 路径新窗口打开。
+    // 旧写法无条件 `p.slice(p.indexOf('http'))`：它的用意是剥掉"http 出现在串中间"时的前缀，
+    // 但 isHttp 认三支，其中**协议相对 `//host` 那一支里根本没有 "http"** ⇒ indexOf 返回 -1
+    // ⇒ `slice(-1)` 取到**最后一个字符**，新标签页打开的是一个单字符串（b89 取证，N-D 盘查时抓出）。
     const pindex = p.indexOf('http')
-    window.open(p.slice(pindex), '_blank', 'noopener,noreferrer')
+    window.open(pindex === -1 ? p : p.slice(pindex), '_blank', 'noopener,noreferrer')
   } else {
     if (query) {
       try {

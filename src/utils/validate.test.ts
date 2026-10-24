@@ -165,6 +165,18 @@ describe('isHttp', () => {
   it('空字符串', () => {
     expect(isHttp('')).toBe(false)
   })
+
+  // 协议相对 URL：函数注释明写"同时处理以 // 开头的"，而这一支此前**没有任何断言钉住**
+  // （b89 取证：`HeaderSearch` 的 `p.slice(p.indexOf('http'))` 正是只在这一支上炸——
+  // 串里没有 "http" ⇒ indexOf 回 -1 ⇒ slice(-1) 取到最后一个字符）。
+  it('协议相对 //host 是 http（注释声称的那一支）', () => {
+    expect(isHttp('//example.com/path')).toBe(true)
+  })
+
+  it('裸 // 不得算 http 之外的含义（与上一条同一支，形状边界）', () => {
+    expect(isHttp('//')).toBe(true)
+    expect(isHttp('///')).toBe(true)
+  })
 })
 
 // ============================================================================
