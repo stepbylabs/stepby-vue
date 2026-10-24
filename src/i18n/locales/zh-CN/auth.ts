@@ -22,6 +22,8 @@ export default {
     oauthDivider: '或使用第三方账号登录',
     oauthTitle: '第三方登录',
     oauthBindRequired: '该第三方账号尚未绑定本系统账号，请先使用账号密码登录后绑定。',
+    oauthBindHandoffLost:
+      '当前浏览器不允许保存待绑定凭据（隐私模式或已禁用站点数据），本次绑定无法自动完成。请先使用账号密码登录，登录后到「个人中心 → 第三方账号」重新发起绑定。',
     oauthBindFailed: '第三方身份绑定失败（凭据已过期或已被其他账号绑定），请重新发起第三方登录。',
     oauthGoLogin: '前往登录',
     passkeyLogin: '使用通行密钥登录',
@@ -212,6 +214,8 @@ export default {
     unlock: '点击解锁',
     unlocking: '正在解锁',
     logout: '退出重新登录',
+    // 存储不可用时的诚实提示（b89 项 8：内存锁仍在，但刷新即解屏，不得让它看起来像持久锁）
+    notPersisted: '浏览器存储不可用：刷新页面后锁屏将失效',
     // 日期单位
     year: '年',
     month: '月',

@@ -50,7 +50,9 @@ import {
 } from './e2eSuiteScanKit'
 
 const VUE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const VIEWS_DIR = resolve(VUE_ROOT, 'src/views')
+// b89 项 9：面从 src/views 扩到整个 src，与 a11yClickTarget 守卫同一口径
+// （两处各写一份目录规则必漂：布局与组件里的切换型控件此前从未进过任何判据的视野）
+const SCAN_DIR = resolve(VUE_ROOT, 'src')
 
 /** 自取反形状：`a = !a` / `a.value = !a.value` / `ui.open = !ui.open` */
 const SELF_NEGATION_RE = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*=\s*!\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)/
@@ -73,7 +75,9 @@ interface StateAttrExemption {
 
 const STATE_ATTR_EXEMPTIONS: StateAttrExemption[] = [
   {
-    file: 'login.vue',
+    // 路径按**采集面的基准**登记（b89 项 9 起基准是 `src`），豁免自证那条会逐条核对它真在面里——
+    // 基准换了而键没换，豁免会静默失效并把站点报成真缺陷（本轮就是这么发现的）。
+    file: 'views/login.vue',
     state: 'passwordVisible',
     requiresAttr: ':aria-pressed',
     why: '登录页眼睛图标切换的是输入框 type（明文/掩码），不展开任何区域；aria-expanded 会播报"已展开"而屏幕上没有受控区可读，切换型按钮的正确属性是 aria-pressed，故该站点按 :aria-pressed 声明状态。'
@@ -179,13 +183,13 @@ function dedupeExemptions(list: StateAttrExemption[]): StateAttrExemption[] {
   return out
 }
 
-const viewFiles = collectByExt(VIEWS_DIR, '', '.vue', EXCLUDED_DIRS)
+const viewFiles = collectByExt(SCAN_DIR, '', '.vue', EXCLUDED_DIRS)
 
 describe('a11y 静态守卫 · 规则：布尔取反型点击控件必须绑定 :aria-expanded（并引用被切换的状态）', () => {
-  const entries = viewFiles.map((rel) => ({ rel, src: readFileSync(resolve(VIEWS_DIR, rel), 'utf8') }))
+  const entries = viewFiles.map((rel) => ({ rel, src: readFileSync(resolve(SCAN_DIR, rel), 'utf8') }))
 
-  it('采集面自证：面由事实派生（递归 src/views 的 .vue），切换型站点确实扫得出来', () => {
-    expect(viewFiles.length, 'src/views 下 .vue 数量（体量下限，腰斩即红）').toBeGreaterThanOrEqual(100)
+  it('采集面自证：面由事实派生（递归 src 的 .vue），切换型站点确实扫得出来', () => {
+    expect(viewFiles.length, 'src 下 .vue 数量（体量下限，腰斩即红）').toBeGreaterThanOrEqual(190)
     expect(
       viewFiles.every((f) => f.endsWith('.vue')),
       '面内只允许 .vue'
@@ -195,10 +199,13 @@ describe('a11y 静态守卫 · 规则：布尔取反型点击控件必须绑定 
       '视图单测不得被当成视图文件扫进面'
     ).toBe(false)
     for (const must of [
-      'login.vue',
-      'ai/panel/index.vue',
-      'monitor/frontendError/index.vue',
-      'monitor/job/JobStatsPanel.vue'
+      'views/login.vue',
+      'views/ai/panel/index.vue',
+      'views/monitor/frontendError/index.vue',
+      'views/monitor/job/JobStatsPanel.vue',
+      // b89 项 9 扩面新增的载体（布局与组件目录里的切换型控件）
+      'layout/components/Navbar.vue',
+      'components/HeaderSearch/index.vue'
     ]) {
       expect(viewFiles, `扫描面必须包含 ${must}`).toContain(must)
     }
@@ -357,7 +364,9 @@ describe('a11y 静态守卫 · 规则：布尔取反型点击控件必须绑定 
       [
         '条件型豁免：明文/掩码切换按 aria-pressed 声明',
         '<template>\n  <el-icon role="button" tabindex="0" :aria-pressed="passwordVisible" @click="passwordVisible = !passwordVisible">x</el-icon>\n</template>\n',
-        'login.vue'
+        // 直接取表里的键，不手抄：采集面基准一换（b89 项 9 从 src/views 扩到 src），
+        // 手抄的 rel 就会与豁免键错开，这条"合规写法"变成常驻误报（本轮实测抓到的正是这一族）。
+        STATE_ATTR_EXEMPTIONS[0].file
       ]
     ]
     const falsePositives: string[] = []
@@ -370,7 +379,7 @@ describe('a11y 静态守卫 · 规则：布尔取反型点击控件必须绑定 
     const toggles = good.filter(([, src, rel]) => scanDisclosureStates(rel, src).toggleSites > 0).length
     expect(toggles, '好形状夹具里必须多数真的是切换型站点').toBeGreaterThanOrEqual(5)
     // 豁免那条必须"计入站点 + 计入声明 + 计入命中"三处同数（只算声明不算命中=判据空转）
-    const exempt = scanDisclosureStates('login.vue', good[8][1])
+    const exempt = scanDisclosureStates(STATE_ATTR_EXEMPTIONS[0].file, good[8][1])
     expect([exempt.toggleSites, exempt.declared, exempt.usedExemptions.length, exempt.violations.length]).toEqual([
       1, 1, 1, 0
     ])

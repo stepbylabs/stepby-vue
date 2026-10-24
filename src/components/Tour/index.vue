@@ -3,7 +3,13 @@
     <div v-if="visible" class="tour-wrapper">
       <!-- H1: mask 仅用于事件捕获（点击关闭），遮罩效果由 highlight 的 box-shadow 实现，
            避免与 box-shadow 叠加导致 0.75 透明度（过暗） -->
-      <div class="stepby-tour-mask fixed inset-0 bg-transparent z-[9998] pointer-events-auto" @click="onMaskClick"></div>
+      <!-- `.self` 与这里的行为等价（这个 div 没有子节点，点在它上面必然是它自己），
+           但写成 `.self` 才让"背板点击关闭"这件事对静态判据可识别：背板不是需要瞄准的控件，
+           引导本身有 Esc 与「跳过/下一步」按钮两条键盘出口（b89 项 9）。 -->
+      <div
+        class="stepby-tour-mask fixed inset-0 bg-transparent z-[9998] pointer-events-auto"
+        @click.self="onMaskClick"
+      ></div>
       <div class="stepby-tour-highlight" :style="highlightStyle"></div>
       <div
         ref="popoverRef"

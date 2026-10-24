@@ -268,9 +268,12 @@ router.onError((error) => {
   if (import.meta.env.DEV) console.error('[Router Error]', error)
   // 懒加载 chunk 加载失败时（部署后旧资源失效），整页重新加载当前页以拉取最新 index.html + chunk。
   // 抽离到 routerError 模块统一判定与兜底刷新：保留“部署更新自动刷新”能力（避免直接删除导致白屏），
-  // 并用 sessionStorage 标记防止资源持续不可用时陷入无限刷新循环。
-  if (isChunkLoadError(error)) {
-    reloadOnChunkError()
+  // 并用带时间戳的去重标记（60 秒窗口）防止资源持续不可用时陷入无限刷新循环。
+  if (isChunkLoadError(error) && !reloadOnChunkError()) {
+    // 没刷出去只有两种原因：窗口内已经自动刷过（设计内），或跨刷新的记忆通道全被禁
+    // （隐私模式 / 站点数据被禁）。后者必须留一条线索——否则用户看到的是"点了没反应"，
+    // 而我们明明知道原因。刻意不跳错误页：错误页也是懒加载 chunk，在同一场景里可能同样失败。
+    console.warn('[Router Error] chunk 加载失败且无法自动刷新，请手动刷新页面（F5）')
   }
 })
 

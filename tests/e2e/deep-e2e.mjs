@@ -95,6 +95,7 @@ import { runMain, applySkipBaselineFromLog } from './e2e/run/runner.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
 import { createCaptureHub, markClickLanded } from './capture-kit.mjs'
 import { loadConsoleAllowlist, matchEntry, matchEveryUrl } from './console-allowlist.mjs'
+import { noteEnvironmentAbort } from './e2e-env-abort.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import {
   readCaptchaCodeFromRedis,
@@ -1222,7 +1223,18 @@ function checkConsoleErrors(consoleErrors, pageErrors, moduleName, ignorePattern
   const hasErrors = consoleFiltered.length > 0 || pageFiltered.length > 0
   if (hasErrors) {
     const allErrors = [...consoleFiltered, ...pageFiltered]
-    record(moduleName, '无控制台错误', false, `${allErrors.length} 个错误: ${allErrors[0]?.slice(0, 400) || ''}`)
+    // b89 项 15：环境性网络中断（`net::ERR_NETWORK_IO_SUSPENDED` 等）**照旧判 ❌**——
+    // 摘掉它就是"整站断网 ⇒ 这轮干净"，两种相反状态同时判绿（前言 ⑭）。这里只多记一笔轮级账，
+    // 由 `runner.mjs` 在轮末把整轮判成"不作数 + EXIT=2"（前言 ⑳ 的第三种结局才是诚实的）。
+    const envHits = noteEnvironmentAbort(allErrors)
+    record(
+      moduleName,
+      '无控制台错误',
+      false,
+      `${allErrors.length} 个错误${
+        envHits > 0 ? `（其中 ${envHits} 条属环境性网络中断 ⇒ 本轮轮末判「不作数」，不是产品缺陷）` : ''
+      }: ${allErrors[0]?.slice(0, 400) || ''}`
+    )
   } else {
     record(
       moduleName,

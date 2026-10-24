@@ -553,12 +553,14 @@ export default {
     layoutComponents: 'Layout Components',
     exportVue: 'Export Vue File',
     copyCode: 'Copy Code',
-    mobileTip: 'The form builder is a three-pane desktop tool and cannot be operated in phone portrait mode. Use a tablet in landscape or the desktop for the full experience.',
+    mobileTip:
+      'The form builder is a three-pane desktop tool and cannot be operated in phone portrait mode. Use a tablet in landscape or the desktop for the full experience.',
     emptyTip: 'Drag or click components from the left to design the form',
     confirmClear: 'Are you sure to clear all components?',
     copyCodeSuccess: 'Code has been copied to the clipboard, ready to paste.',
     copyCodeFail: 'Code copy failed',
-    addNodeTargetMissing: 'No container can receive the new field: select a target node in the structure tree first. Your input was not written; you can retry directly',
+    addNodeTargetMissing:
+      'No container can receive the new field: select a target node in the structure tree first. Your input was not written; you can retry directly',
     uploadTip: 'Only {type} files up to {size}{unit} can be uploaded',
     rightPanel: {
       tabField: 'Field Properties',
@@ -842,7 +844,8 @@ export default {
     expand: 'Expand',
     collapse: 'Collapse',
     title: 'Tree Structure',
-    searchPlaceholder: 'Enter name'
+    searchPlaceholder: 'Enter name',
+    resizeAriaLabel: 'Resize panel (left/right arrow keys, 16 pixels per step)'
   },
   imageUpload: {
     preview: 'Preview',

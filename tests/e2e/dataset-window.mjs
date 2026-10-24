@@ -103,4 +103,23 @@ export function assertFullRun(dataset, fileLabel) {
   if (Array.isArray(dataset.rows) && dataset.totalVerdictRows === 0) {
     throw new Error(`本轮判定行总数为 0（${fileLabel}）——采集器或执行环境已坏，结论不作数`)
   }
+  /**
+   * ④ **本轮没有环境性网络中断**（b89 项 15）。实测断面：b89 全量轮跑到 M85 时 Windows 挂起网卡 I/O，
+   * 一条判据收 15720 条 `net::ERR_NETWORK_IO_SUSPENDED`，而 M85 隔离复跑 13✅/❌0 —— 那一轮的
+   * 覆盖面、请求密度、触达集合全部**被断网期间的失败污染**（"请求没打到"与"端点没被覆盖"在数据里同形）。
+   * 取不到该字段同样拒绝（与上面 `modulesPlanned` 那条同一口径：旧格式无法证明的事，不作数）。
+   */
+  const envAbort = dataset.envNetworkAbort
+  if (!Number.isInteger(envAbort) || envAbort < 0) {
+    throw new Error(
+      `数据集没有环境性网络中断计数字段（envNetworkAbort，${fileLabel}）——` +
+        `无法证明本轮没被"网卡挂起 ⇒ 全量请求失败"污染，拒绝作为数据源。请用当前 runner 重跑一轮全量。`
+    )
+  }
+  if (envAbort > 0) {
+    throw new Error(
+      `本轮有 ${envAbort} 条环境性网络中断（${fileLabel}）——断网期间的请求失败会把"没打到"读成"未覆盖"，` +
+        `覆盖面与密度都不可用。这是复跑一轮的活，不是改产品或放松阈值的活（runner 侧同一轮会打 🛑 并 EXIT=2）。`
+    )
+  }
 }

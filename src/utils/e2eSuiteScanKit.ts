@@ -358,6 +358,55 @@ export function plantInVueTemplate(src: string, snippet: string): string {
   return src.replace(/^(<template[\s>][^\n]*\r?\n)/, `$1${snippet}\n`)
 }
 
+/**
+ * 只保留 `.vue` 里 `<script …>` … `</script>` 区间的原文，其余部分**等长置空**。
+ *
+ * 为什么模板与样式必须剔出采集面（而不是"多扫一点总没错"）：模板区间的属性值在 JS 状态机里
+ * 是字符串，`muteNonCode` 会把它们整段抹掉，于是"模板里真的写了 `localStorage.x`"这一形状
+ * 结构上永远看不见。但 Vue 3 的实例代理（`PublicInstanceProxyHandlers`）**不回落全局对象**，
+ * 模板表达式取到的是 `undefined` —— 模板里写存储调用不是漏检，是不可能发生。
+ * ⚠️ 这一前提由 `webStorage.guard.test.ts` 的"globalProperties 不得再挂存储"那条锁钉住：
+ * 若有人往 `app.config.globalProperties` 里塞回 `$cache`/`localStorage` 这一族（M-12 刚清掉），
+ * 本函数的取向就必须翻成"模板也进面"。
+ *
+ * 置空而非删除 ⇒ 行号仍然对得上原文（与掩码器同一条长度不变式）。
+ */
+export function blankOutsideVueScripts(src: string): string {
+  const spans: Array<[number, number]> = []
+  const re = /<script\b[^>]*>[\s\S]*?<\/script>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) spans.push([m.index, m.index + m[0].length])
+  if (spans.length === 0) {
+    // 没有脚本块（纯展示 SFC）：整个文件都不在面上，等长置空后掩码器仍返回等长结果
+    return src.replace(/[^\n]/g, ' ')
+  }
+  let out = ''
+  let cursor = 0
+  for (const [start, end] of spans) {
+    out += src.slice(cursor, start).replace(/[^\n]/g, ' ')
+    out += src.slice(start, end)
+    cursor = end
+  }
+  out += src.slice(cursor).replace(/[^\n]/g, ' ')
+  return out
+}
+
+/**
+ * 把合成站点插进 `.vue` 的**最后一个** `<script>` 块开头（紧跟开始标签那一行）。
+ *
+ * 与 `plantInVueTemplate` 同理但方向相反：插错区间（比如插进模板）会让活性自证恒不成立，
+ * 而"恒不成立"的差异法活性正是最容易写错的形状。文件没有 script 块时原样返回 ⇒
+ * 调用方必须自己断"确实插进去了"（`webStorage.guard.test.ts` 逐文件那条就是这么写的）。
+ */
+export function plantInVueScript(src: string, snippet: string): string {
+  const re = /<script\b[^>]*>[^\n]*\r?\n/g
+  let last: { index: number; lineEnd: number } | null = null
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) last = { index: m.index, lineEnd: m.index + m[0].length }
+  if (!last) return src
+  return `${src.slice(0, last.lineEnd)}${snippet}\n${src.slice(last.lineEnd)}`
+}
+
 /** 一个 HTML 属性：`name` 含前导 `:`/`v-bind:`/`@`/`v-on:` 原样，`value` 为去掉外层引号的值 */
 export interface TagAttr {
   name: string

@@ -21,6 +21,18 @@
  *   判的是接线而不是文本（写了没接线 = 没写）。
  */
 import defaultSettings from '@/settings'
+import { getItem, setItem } from '@/utils/webStorage'
+
+/**
+ * 治理判据读取的**前端镜像常量区**。
+ *
+ * 服务端 `governance::tests::side_theme_domain_matches_frontend_mirror` 按**标记**取数
+ * （`quoted_items(text, "SIDE_THEME_OPTIONS = [")` + 逐字匹配
+ * `export const SIDE_THEME_CONFIG_KEY = 'sys.index.sideTheme'`），所以本区里必须保持
+ * 逐字不变的是这两处标记本身，而不是它们的行号或周围有没有 import。
+ * 改档位只改数组内容；改键名或改名会让镜像锁红在"读不到"而不是"值不对"——
+ * 那是判据源缺失的响亮失败，不是漂移。
+ */
 
 /** 合法取值（顺序 = 设置抽屉里的展示顺序） */
 export const SIDE_THEME_OPTIONS = ['theme-auto', 'theme-dark', 'theme-light'] as const
@@ -51,18 +63,13 @@ export function isSideThemeOption(value: unknown): value is SideThemeOption {
 
 /** 用户是否显式选择过（读取失败一律按"没选过"= 让平台缺省继续管用，fail-safe） */
 export function hasUserChosenSideTheme(): boolean {
-  try {
-    return localStorage.getItem(SIDE_THEME_USER_SET_KEY) === '1'
-  } catch {
-    return false
-  }
+  // 走 `webStorage` 单一通道（b89 项 8）：原先这里是自写 try/catch。它挡得住
+  // "读属性就抛"，但同一件事在六个文件里有六种写法，漏一种就崩——收敛成一处才是修法。
+  return getItem(SIDE_THEME_USER_SET_KEY) === '1'
 }
 
 /** 打上"用户显式选择过"的标记（写失败不阻断主题切换——只是下次仍会被平台缺省覆盖） */
 export function markUserChoseSideTheme(): void {
-  try {
-    localStorage.setItem(SIDE_THEME_USER_SET_KEY, '1')
-  } catch {
-    /* 隐私模式/配额满：外观偏好不得阻断交互 */
-  }
+  // 隐私模式/配额满：外观偏好不得阻断交互（`setItem` 不抛，返回 false 即"没记住"）
+  setItem(SIDE_THEME_USER_SET_KEY, '1')
 }

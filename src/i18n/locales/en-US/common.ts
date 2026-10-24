@@ -302,6 +302,7 @@ export default {
     selectShortcut: 'Select',
     closeShortcut: 'Close',
     menuAriaLabel: 'Menu: {title}',
+    openAriaLabel: 'Open menu search',
     placeholderWithData: 'Search menus, users, roles, dictionaries (2+ chars triggers data search)',
     group: {
       menu: 'Menu',
@@ -322,6 +323,7 @@ export default {
   },
   themeEditor: {
     themeColor: 'Theme Color',
+    pickColor: 'Select theme color {color}',
     custom: 'Custom',
     customTip: 'Click to select any color',
     sideTheme: 'Sidebar Theme',

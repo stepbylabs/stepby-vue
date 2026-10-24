@@ -9,12 +9,12 @@
       :aria-label="t('cookieConsent.ariaLabel')"
       aria-live="polite"
     >
-      <!-- 超时进度条 -->
-      <div
-        v-if="autoDismissEnabled"
-        class="cookie-consent__progress"
-        :style="{ animationDuration: autoDismissMs + 'ms' }"
-      />
+      <!-- 超时进度条（b89 摘掉了这里的 `v-if="autoDismissEnabled"`：那个 ref 初始化成
+           字面量 true 且全文件无人再赋值，而定时器也无条件挂——于是这个"开关"结构上
+           只有"开"这一档，属于本仓 `placeholder_flag_scan.py` 在 Rust 侧锁的同一族假开关。
+           要么做成真 prop（当前没有运维/用户诉求，且关掉进度条并不会取消超时静默关闭，
+           只会让人以为不会超时），要么删掉——这里选删。 -->
+      <div class="cookie-consent__progress" :style="{ animationDuration: autoDismissMs + 'ms' }" />
       <div class="cookie-consent__body">
         <div class="cookie-consent__content">
           <el-icon class="cookie-consent__icon"><InfoFilled /></el-icon>
@@ -22,7 +22,7 @@
             <span class="cookie-consent__title">{{ t('cookieConsent.title') }}</span>
             <span class="cookie-consent__desc">
               {{ t('cookieConsent.text') }}
-              <router-link class="cookie-consent__link" to="/privacy" target="_blank">
+              <router-link class="cookie-consent__link" to="/privacy" target="_blank" rel="noopener noreferrer">
                 {{ t('cookieConsent.learnMore') }}
               </router-link>
             </span>
@@ -42,22 +42,25 @@
 </template>
 
 <script setup lang="ts">
+import { getItem, setItem } from '@/utils/webStorage'
+
 const { t } = useI18n()
 // Cookie 同意状态存储键
 const CONSENT_KEY = 'stepby_cookie_consent'
+// 测试模式开关键（e2e / ?test=1 之外的第三条注入通道，见 onMounted）
+const TEST_MODE_KEY = 'stepby_test_mode'
 // 真机修复（UX 真机核查）：部分国产浏览器（实测 vivo）会隔离/清理 localStorage，
 // 导致"同意一次"失效、每页重复弹窗——改为 localStorage + cookie 双写双读互备。
+// 因此这里**允许**存储侧写不进去（setItem 返回 false 也不报错）：cookie 那一腿还在。
+// 存储不可用时原先的 `try { localStorage.x } catch {}` 只是把抛吞掉；现在走统一通道，
+// 两种失败模式（读属性抛 / 写入抛）都在 webStorage 里收敛成"取不到 / 没写进"。
 const CONSENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 年
 // 超时自动采用默认值（30 秒，业界标准 20-60 秒）
 const autoDismissMs = 30000
 
 function readConsent(): string | null {
-  try {
-    const ls = localStorage.getItem(CONSENT_KEY)
-    if (ls === 'accepted' || ls === 'rejected') return ls
-  } catch {
-    /* ignore */
-  }
+  const ls = getItem(CONSENT_KEY)
+  if (ls === 'accepted' || ls === 'rejected') return ls
   try {
     const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + CONSENT_KEY + '=([^;]*)'))
     const v = m ? decodeURIComponent(m[1]) : null
@@ -69,11 +72,9 @@ function readConsent(): string | null {
 }
 
 function writeConsent(value: 'accepted' | 'rejected'): void {
-  try {
-    localStorage.setItem(CONSENT_KEY, value)
-  } catch {
-    /* ignore */
-  }
+  // 存储写不进去不阻断：cookie 是这条决策的**权威**副本（跨清理更持久），
+  // 反过来只写存储会在 vivo 那一类浏览器上每页重弹。
+  setItem(CONSENT_KEY, value)
   try {
     document.cookie = `${CONSENT_KEY}=${value}; path=/; max-age=${CONSENT_COOKIE_MAX_AGE}; SameSite=Lax`
   } catch {
@@ -83,8 +84,6 @@ function writeConsent(value: 'accepted' | 'rejected'): void {
 
 // 是否显示 Banner
 const visible = ref<boolean>(false)
-// 是否启用超时自动关闭
-const autoDismissEnabled = ref<boolean>(true)
 // 超时定时器
 let dismissTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -93,23 +92,21 @@ onMounted(() => {
   const isTestMode =
     window.navigator.webdriver ||
     new URLSearchParams(window.location.search).has('test') ||
-    localStorage.getItem('stepby_test_mode') === '1'
+    getItem(TEST_MODE_KEY) === '1'
   if (isTestMode) {
     autoAcceptSilently()
     return
   }
 
-  try {
-    const consent = readConsent()
-    if (consent !== 'accepted' && consent !== 'rejected') {
-      visible.value = true
-      // 超时后静默关闭弹窗（不写入 accepted），等待用户主动选择
-      dismissTimer = setTimeout(() => {
-        handleAutoDismiss()
-      }, autoDismissMs)
-    }
-  } catch {
-    visible.value = false
+  // readConsent 已不抛（存储与 cookie 两条通道各自内部降级），因此这里不再包 try/catch：
+  // 吞掉这里的异常只会把"定时器没挂上"这类真缺陷藏起来。
+  const consent = readConsent()
+  if (consent !== 'accepted' && consent !== 'rejected') {
+    visible.value = true
+    // 超时后静默关闭弹窗（不写入 accepted），等待用户主动选择
+    dismissTimer = setTimeout(() => {
+      handleAutoDismiss()
+    }, autoDismissMs)
   }
 })
 

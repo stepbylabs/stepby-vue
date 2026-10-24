@@ -217,15 +217,29 @@ const ROW_SURFACE_MIN_LOST_ACTIONS = 3
  * 于是 `totalBacklog` 从 46 涨到 50。那**不是退步，是旧尺量不出新面**：
  * 让这种"内容退步"拒绝落盘，等于把一份被瞬时读数污染的旧基线永久钉成天花板。
  */
-const INVENTORY_SAMPLING = 'settled-poll-v3'
+const INVENTORY_SAMPLING = 'page-scope-v4'
 // v1→v2（b88）：落定判据把"可见 el-table 的数量"也变成比较项，并为"整页没采到表"开出
 // tableMissing ⇒ UNRUN 通道。
 // v2→v3（b88 收口）：接受的依据从**秒表**换成**请求静默**（`acceptSettled` 的 net 通道）。
-// 直接证据：`/system/user` 用 v2 采满 8031ms 每拍都是 `{tables:0, tablesAll:0}`，
-// 而紧随其后的 collectActions 在同一页读到 `列 12 / 行 2 / 表 1 张` ⇒ v2 的"预算走完即合法"
-// 会把"还没挂载"洗成"这页本来没表"，正是它自己要防的那一形。
-// 换尺必须与重生成基线同批（前言 ⑩），所以戳一改，`--gate` 立刻拒绝比对旧基线、
-// `--update-baseline` 走口径迁移通道落新盘。
+// v3→**v4（b89 收口）**：采集作用域从"整份文档"改成**路由页面容器 `.app-main`**。
+// 起因是 b89 权威轮的 `ℹ 逐页明细与基线有 2 处差异`——`/tool/build` 6→7、`/tool/swagger` 1→2，
+// 两条都是同一个 `关闭该公告提示`：旧代码 `querySelector('.app-container') || document.body`
+// 的**前半句在那两页取不到**，于是 `||` 生效、量的是整份文档——
+// 全站壳层（`layout/index.vue:25-29` 的 `.fixed-header`：环境横幅 + 公告横幅 + navbar + tags-view）
+// 被算成"这一页的动作"。⚠ **不是"`.app-container` 本仓不存在"**：该类由
+// `src/assets/styles/index.scss:139` 定义，`src/` 实测 64 个文件 / 68 处命中；本批第一版把成因
+// 写成"不存在"，是拿 `grep -rn app-container stepby-vue/src/` 的**空 stdout** 当结论，而那次 cwd
+// 是 `stepby-vue` ⇒ grep 的退出码是 **2**（No such file or directory），不是 1（没有命中）——
+// 两种"没输出"在退出码上本来就分得开，丢掉了退出码就等于把"我没扫到"读成"它不存在"（前言 ②/⑥ 同一族）。
+// 正确的量法是一次性浏览器探针（b89 收口实测）：56/56 页都取到 `.app-main`；
+// `.app-main` 内没有 `.app-container` 的恰好是 `/tool/build` 与 `/tool/swagger` 两页，且这两页
+// 连整份文档都没有该类（doc=0）⇒ 兜底只在这两页生效，与"净 −2 动作 / backlog −2、两条都是
+// `关闭该公告提示`"逐页一一对上。分母于是随**公告发布状态**漂移，而 `/tool/swagger` 的整条 backlog
+// 就是这一族噪声——把它签进基线，等于要求 56 个页面各自补一条"点横幅关闭"的用例。
+// 换尺必须与重生成基线同批：本常量不一致时 `baselineShapeGaps` 直接判 sampling 缺栏 ⇒ UNRUN。
+// 另一条同源证据（为什么"预算走完"不能当终态）：`/system/user` 用 v2 采满 8031ms 每拍都是
+// `{tables:0, tablesAll:0}`，而紧随其后的 collectActions 在同一页读到 `列 12 / 行 2 / 表 1 张`
+// ⇒ v2 的"预算走完即合法"会把"还没挂载"洗成"这页本来没表"，正是它自己要防的那一形。
 
 /** 行内动作面棘轮的比较式（`--gate` 与 `--update-baseline` 共用，同 `ratchetRegressions` 的纪律） */
 function rowRatchetRegressions(base, curRows) {
@@ -746,6 +760,22 @@ async function login(page) {
 }
 
 /**
+ * 「作用域没取到」的判定（纯函数，`--selftest` 直接驱动——浏览器回调里不能引用 Node 绑定，
+ * 所以判据只能住在 Node 侧，浏览器侧只负责把事实交回来）。
+ *
+ * 三种输入都必须算成"坏"，因为它们共同指向同一件事：**这一页的动作面没有被度量**：
+ * ① `{scopeMissing:true}`（页面容器不在）；② `null`（`evaluate` 抛错后被 `.catch(() => null)` 收成 null）；
+ * ③ 形状完全对不上（将来改返回值忘了一个字段）。
+ * 反过来"这一页 0 个按钮"**必须不算坏**（`{toolbar:[],rowActions:[]}`），否则判据会把
+ * 合法的空页面读成采集器故障，那种"每轮必红"的结局就是被人放宽阈值（前言 ⑯(c)）。
+ */
+function pageScopeFailure(got) {
+  if (!got) return true
+  if (got.scopeMissing === true) return true
+  return !Array.isArray(got.toolbar) || !Array.isArray(got.rowActions)
+}
+
+/**
  * 取一页上的全部可测动作。
  * 用 aria-label 兜底图标按钮（行内操作多为图标-only，纯文本取不到）。
  */
@@ -772,7 +802,19 @@ async function collectActions(page) {
       return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
     }
 
-    const root = document.querySelector('.app-container') || document.body
+    // 采集作用域 = **路由页面容器本身**（b89 收口修的一条判据自身缺陷）。
+    // 旧写法是 `document.querySelector('.app-container') || document.body`，而 `.app-container`
+    // **只有部分视图在用**（`src/assets/styles/index.scss:139` 定义，src/ 实测 64 文件 / 68 处）
+    // ⇒ 56 个被测路由里 `.app-main` 内取不到它的那两页（b89 一次性探针实测：`/tool/build`、
+    // `/tool/swagger`，且这两页整份文档都没有该类）就静默落到 `||` 那支，作用域被放大成整份文档。后果不是"多算两条"而是**度量对象错了**：
+    // 公告横幅与环境横幅都渲染在 `layout/index.vue:25-29` 的 `.fixed-header` 里（navbar 之上），
+    // 于是 `关闭该公告提示` / `查看详情` 这类**全站壳层**按钮被逐页算进"这一页的动作"，
+    // 本轮实测 `/tool/swagger` 的两条 backlog 全是横幅按钮、`/tool/build` 多出的那条也是它；
+    // 更糟的是分母从此随**公告数据态**漂移（横幅出现与否由发布状态决定，前言 ㉗ 的"分母随数据消失"
+    // 的镜像形态）。缺 `.app-main` 时**不得回落整份文档**：取不到作用域只能交回 Node 判 UNRUN
+    // （前言 ⑥"没跑"与"跑了且干净"必须可区分）。
+    const root = document.querySelector('.app-main')
+    if (!root) return { scopeMissing: true }
 
     // 工具栏：表格上方、不在表格行内的按钮
     // 注意排除 **表头里的排序按钮**：element-plus 的可排序列会把 `按 X 排序` 渲染成 <button>，
@@ -1866,6 +1908,12 @@ function runSelftest() {
     {
       needle: "page.on('requestfinished', done)",
       fail: '跑批正文没挂 requestfinished/requestfailed ⇒ net.inflight 恒 0，"静默"是假的'
+    },
+    {
+      needle: '页取不到路由页面容器（.app-main）⇒ 动作面未被度量，本轮不作数',
+      fail:
+        '跑批正文没有"作用域取不到 ⇒ EXIT=2"这一支 ⇒ `.catch(() => null)` 会把"采集器坏了"洗成"这页 0 个动作"，' +
+        '而 0 会照常落进基线（b89 实测旧作用域把全站壳层算进分母，三批没人看出来）'
     }
   ]
   /**
@@ -1923,7 +1971,104 @@ function runSelftest() {
     } else console.log(`  ✅ [OK] ${c.title}`)
   }
   if (revBad) process.exit(1)
-  if (revBad) process.exit(1)
+
+  /**
+   * 采集作用域判据（b89 收口新增，前言 ⑥/⑬ 的同一条：判据的输入坏了必须比"结论是 0"响亮）。
+   *
+   * 立的案：旧实现的根选择器是 `.app-container`，而**只有部分视图**用它（src/ 实测 64 文件 / 68 处，
+   * 定义在 `src/assets/styles/index.scss:139`）⇒ b89 一次性探针实测 56/56 页都取到 `.app-main`，
+   * 但 `/tool/build`、`/tool/swagger` 这两页的 `.app-main` 内没有 `.app-container`（且整份文档也没有），
+   * 于是 `|| document.body` 恰好在这两页恒生效——
+   * 于是"这一页的动作"其实是"整份文档的动作"，全站横幅/navbar/tags-view 被逐页计入。
+   * 症状是本轮 `/tool/build` 与 `/tool/swagger` 各多出一个 `关闭该公告提示`（同一控件、两处出现），
+   * 而覆盖率从 100% 掉到 99.5%：差被容差放过了，但**度量对象一直是错的**。
+   * 这一族用例证明三件事：作用域取不到 ⇒ 判坏；合法的空页面 ⇒ **不得**判坏；
+   * 旧的"`|| document.body`"形状不得回到正文里。
+   */
+  const scopeCases = [
+    { title: '作用域缺失（{scopeMissing:true}）必须判坏', got: { scopeMissing: true }, want: true },
+    { title: 'evaluate 抛错被收成 null 必须判坏（不得读成"这页 0 个动作"）', got: null, want: true },
+    { title: 'undefined 必须判坏（同 NaN > 容差恒 false 一族）', got: undefined, want: true },
+    { title: '形状对不上（缺数组字段）必须判坏', got: { toolbar: [] }, want: true },
+    {
+      title: 'toolbar 为 null 必须判坏（Array.isArray 不认 null）',
+      got: { toolbar: null, rowActions: [] },
+      want: true
+    },
+    {
+      title: '正控：合法的空动作页**不得**判坏（否则每轮必红，结局是被放宽）',
+      got: { toolbar: [], rowActions: [] },
+      want: false
+    },
+    { title: '正控：正常读数不得判坏', got: { toolbar: [{ name: '新增' }], rowActions: [] }, want: false }
+  ]
+  let scopeBad = 0
+  for (const c of scopeCases) {
+    const got = pageScopeFailure(c.got)
+    if (got !== c.want) {
+      scopeBad++
+      console.error(`❌ 作用域判据：${c.title}（实际 ${got}，期望 ${c.want}）`)
+    } else console.log(`  ✅ [OK] ${c.title}`)
+  }
+  /**
+   * **旧的整文档兜底不得回到正文里**。
+   * ⚠ 这里必须**拼接**出被禁文本：直接把完整字面量写成一行的常量，那一行本身就含该文本 ⇒
+   * 负向断言恒真（前言 ㉘"清单自己不能当证据"、⑬"刀口只能落在代码上"在**反证型**判据上的断面：
+   * 正向 needle 会被掩码规则剔掉，而反向 needle 恰恰是"谁出现谁红"，判据自己出现就先红）。
+   * 因此配套加一条**合成正控**：把旧形状放进一段合成文本，它必须被抓到——否则"没抓到"
+   * 可能只是"匹配不上任何东西"。
+   */
+  const forbiddenScope = ['.app-container', "') || document", '.body'].join('')
+  if (maskedSrc.includes(forbiddenScope)) {
+    scopeBad++
+    console.error('❌ 作用域反证失败：正文里又出现了整份文档兜底那支 ⇒ 壳层动作会重新混进分母')
+  } else {
+    console.log('  ✅ [OK] 作用域反证：正文（掩码后）不含整份文档兜底那支')
+  }
+  // 正控：同一把尺必须真的抓得住旧形状（否则上面的"没抓到"毫无信息量）。
+  // 夹具文本同样**只能用拼接得到**——把它写成一行字面量，这一行就成了它自己要找的东西，
+  // 负向断言会在判据自己的源码上恒真（本轮第一次就是这样红的）。
+  const forbiddenProbe = 'const root = document.querySelector(' + "'" + forbiddenScope
+  if (!forbiddenProbe.includes(forbiddenScope)) {
+    scopeBad++
+    console.error(`❌ 作用域反证自证失败：合成旧形状都没被抓到（needle «${forbiddenScope.slice(0, 24)}…» 拼错了）`)
+  } else {
+    console.log('  ✅ [OK] 作用域反证的活性正控：合成旧形状确实落在匹配范围内')
+  }
+  /**
+   * 反查必须落在**采集器函数体**上，而不是"整份文件里提过这个选择器"。
+   *
+   * 本批盘上变异抓到的正是这一支：把根改回 `.app-container` 后 `--selftest` 照常绿（EXIT=0），
+   * 因为锚点常量 `pageScopeAnchor = "document.querySelector('.app-main')"` **自己就是一处命中**——
+   * "清单里写的字符串"被读成了"代码里的证据"（前言 ㉘/⑫ 的同一条，第三次长在判据自己身上）。
+   * 两条修法同时用：① 锚点用**拼接**得到，字面量不再出现在源码里；
+   * ② 检查范围从整份文件收窄到 `collectActions` 的函数体——作用域只对"采集动作的那段码"有意义，
+   *   别处出现 `.app-main`（FATAL 文案、注释）都不算证据。
+   */
+  const pageScopeAnchor = ['document.querySelector(', "'.app-main')"].join('')
+  const scopeSentinelAnchor = ['return { scopeM', 'issing: true }'].join('')
+  const bodyFallback = ['document.', 'body'].join('')
+  const fnStart = maskedSrc.indexOf('async function collectActions')
+  // 函数体边界取"下一个顶格的 `}`"：采集器内部的闭合都带缩进，因此顶格闭合就是函数尾。
+  // 刻意**不用哨兵位置定位尾部**——哨兵正是被测对象之一，它一旦缺失（变异体）就得让边界失效而不是把范围算歪。
+  const fnEnd = fnStart < 0 ? -1 : maskedSrc.indexOf('\n}', fnStart)
+  const fnBody = fnStart < 0 || fnEnd < 0 ? '' : maskedSrc.slice(fnStart, fnEnd)
+  if (fnStart < 0 || !fnBody.includes(pageScopeAnchor) || !fnBody.includes(scopeSentinelAnchor)) {
+    scopeBad++
+    console.error(
+      `❌ 作用域反查失败：collectActions 函数体里找不到 .app-main 这个根 / scopeMissing 哨兵` +
+        `（函数体取到 ${fnBody.length} 字符 ⇒ ${fnStart < 0 ? '采集器本体没定位到' : '锚点不在采集器里'}）`
+    )
+  } else {
+    console.log(`  ✅ [OK] 作用域反查：采集器函数体（${fnBody.length} 字符）确实以 .app-main 为根并交回哨兵`)
+  }
+  if (fnBody.includes(bodyFallback)) {
+    scopeBad++
+    console.error('❌ 作用域反证失败：采集器函数体里出现了整份文档兜底 ⇒ 壳层动作会重新混进分母')
+  } else {
+    console.log('  ✅ [OK] 作用域反证：采集器函数体不含整份文档兜底那支')
+  }
+  if (scopeBad) process.exit(1)
 
   if (deferredFails.length) {
     for (const m of deferredFails) console.error(`❌ ${m}`)
@@ -1944,7 +2089,8 @@ function runSelftest() {
       ` + 表格读数落定 ${stCases.length} 条双向（含两个正控 + b88 三条 tableMissing 反脆弱）` +
       ` + 稳定≠可接受 ${aCases.length} 条双向（b88 收口把尺从秒表换成请求静默，含"0 行 vs 还没回""静默 1 拍不算终态""计数器下溢"三支反脆弱）` +
       ` + tab 标签落定 ${lCases.length} 条双向（b88 实测 /monitor/cache 的 nav 在 2.6s 只有 1 项）` +
-      ` + 生效路径反查 ${revChecks.length} 条（读的是掩码后的正文，清单自己不算证据）`
+      ` + 生效路径反查 ${revChecks.length} 条（读的是掩码后的正文，清单自己不算证据）` +
+      ` + 采集作用域 ${scopeCases.length} 条双向（b89：作用域取不到≠这页没动作）+ 作用域反查/反证 2 条（正文必须以 .app-main 为根、不得回到 || document.body）`
   )
   process.exit(0)
 }
@@ -2055,6 +2201,10 @@ function main() {
       const tabs = tabLabels.length > 1 ? tabLabels.slice(0, 6) : []
 
       let got = await collectActions(page).catch(() => null)
+      // 作用域取不到（缺 `.app-main`）与"这一页没有按钮"是两件相反的事：前者只能交回 UNRUN，
+      // 后者是内容结论。`collectActions` 的两条失败出口都必须进同一个累加器，
+      // 否则 `.catch(() => null)` 会把"采集器坏了"洗成"这页动作数为 0"（前言 ⑥/⑯(c)）。
+      const scopeMissing = pageScopeFailure(got)
       const merged = {
         toolbar: got ? got.toolbar : [],
         rowActions: got ? got.rowActions : [],
@@ -2109,6 +2259,8 @@ function main() {
           await sleep(900)
           const t = await collectActions(page).catch(() => null)
           if (!t) continue
+          // tab 内也走同一条作用域判据：某条 tab 的页面容器读不出来 ⇒ 整轮作用域不可信
+          if (t.scopeMissing === true) continue
           // 同名按钮只保留一份（不同 tab 可能有同名的"刷新"）
           merged.toolbar.push(...t.toolbar.map((b) => ({ ...b, tab: tabs[ti] })))
           merged.rowActions.push(...t.rowActions.map((b) => ({ ...b, tab: tabs[ti] })))
@@ -2213,7 +2365,9 @@ function main() {
         settleProbe: settle.probe || null,
         finalProbe: finalSample || null,
         // "有表头/有 tab 却 0 动作"必须自曝，否则 0 会被当成"这页本来就没按钮"
-        suspicious: toolbar.length + rowActions.length === 0 && (got.columns.length > 0 || tabs.length > 1)
+        suspicious: toolbar.length + rowActions.length === 0 && (got.columns.length > 0 || tabs.length > 1),
+        // 作用域判据（b89）：这一页的动作面**到底有没有被度量过**。
+        scopeMissing
       }
       pages.push(rec)
       log(
@@ -2234,6 +2388,21 @@ function main() {
     }
 
     await browser.close()
+
+    // 口径闸 0（排在落定闸之前——它比"没落定"更底层：落定尺坏至少还读了 DOM，作用域坏是**整页没度量**）：
+    // 任一页取不到路由页面容器 `.app-main`（或 evaluate 抛错被收成 null）⇒ 本轮不作数，EXIT=2。
+    // 为什么不能只打 ⚠：旧实现的作用域正是"`document.querySelector('.app-container') || document.body`"，
+    // 那个类不存在 ⇒ 每一轮都在整份文档上采集，把全站横幅/navar 按钮算进"这一页的动作"，
+    // 而判据照常绿——**"坏掉的采集面"与"干净的结论"在旧形状下逐字节同形**（前言 ⑥/⑬ 的同一条）。
+    const unscoped = pages.filter((x) => x.scopeMissing)
+    if (unscoped.length) {
+      console.error(
+        `[FATAL] ${unscoped.length}/${pages.length} 页取不到路由页面容器（.app-main）⇒ 动作面未被度量，本轮不作数：` +
+          unscoped.map((x) => x.path).join(' ') +
+          `｜需要的动作：查该页是否渲染在布局壳层之外（新壳层/独立窗口页），不得放宽作用域选择器`
+      )
+      process.exit(2)
+    }
 
     // 口径闸（必须排在任何内容比对之前，前言 ⑨）：有一页没落定 ⇒ 本轮不作数。
     // 这不是退步而是"判据不可用"，所以退出码取 2（UNRUN）而不是 1：

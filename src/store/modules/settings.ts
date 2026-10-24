@@ -3,6 +3,7 @@ import { useDark, useToggle } from '@vueuse/core'
 import { useDynamicTitle } from '@/utils/dynamicTitle'
 import { handleThemeStyle } from '@/utils/theme'
 import cache from '@/plugins/cache'
+import { getItem, getJSON, setItem } from '@/utils/webStorage'
 import { DEFAULT_USER_PREFS, sanitizeUserPrefs, type UserPrefs } from '@/utils/userPrefs'
 import {
   DEFAULT_SIDE_THEME,
@@ -43,24 +44,18 @@ interface SettingsStorage {
   footerVisible: boolean
 }
 
-let storageSetting: Partial<SettingsStorage> = {}
-try {
-  storageSetting = JSON.parse(localStorage.getItem('layout-setting') || '{}') || {}
-} catch {
-  storageSetting = {}
-}
+// 存储读取一律走 `@/utils/webStorage`（b89 项 8）：`localStorage` 这个属性**本身**
+// 在隐私模式/站点数据被禁时会抛 SecurityError，而原先外层那句 `try` 只包住了
+// `JSON.parse`——读句柄那一步在 try 之内只是因为整段在模块顶层被 try 覆盖，
+// 一旦有人把 `!localStorage` 当守卫（cache.ts 的原形状）就会漏。
+// `getJSON` 自带"脏数据 → null 并清行"，`getItem` 自带"句柄坏了 → null"，都不抛。
+const storageSetting: Partial<SettingsStorage> = getJSON<Partial<SettingsStorage>>('layout-setting') ?? {}
 
 // 用户偏好设置（独立存储 key，便于扩展）
 // sanitizeUserPrefs / USER_PREFS_KEYS / UserPrefs / DEFAULT_USER_PREFS 已抽离至 @/utils/userPrefs
 // （P2 修复：JSON.parse 后做字段白名单过滤，只保留 UserPrefs 已知字段，
 //  防止 localStorage 被注入未知键污染 store 状态）。
-
-let userPrefs: Partial<UserPrefs> = {}
-try {
-  userPrefs = sanitizeUserPrefs(JSON.parse(localStorage.getItem('user-prefs') || '{}'))
-} catch {
-  userPrefs = {}
-}
+const userPrefs: Partial<UserPrefs> = sanitizeUserPrefs(getJSON<Record<string, unknown>>('user-prefs') ?? {})
 
 interface SettingsState {
   title: string
@@ -160,14 +155,11 @@ const useSettingsStore = defineStore('settings', {
       // 真机核查存量迁移：followSystemDark 旧默认为 false，系统暗色下亮色页面会被
       // 国产浏览器夜间模式强制反色（vivo 实锤大片异常蓝背景）。存档中 followSystemDark
       // 为 false 且用户从未显式设置过（无标记）→ 升级为新默认 true；显式设置过的尊重选择。
-      try {
-        const hasArchive = !!localStorage.getItem('user-prefs')
-        const userExplicit = localStorage.getItem('stepby_fsd_user_set') === '1'
-        if (hasArchive && !userExplicit && merged.followSystemDark === false) {
-          merged.followSystemDark = true
-        }
-      } catch {
-        /* ignore */
+      // 取不到存储时 `getItem` 回 null ⇒ hasArchive=false ⇒ 什么都不改（fail-safe，不抛）。
+      const hasArchive = !!getItem('user-prefs')
+      const userExplicit = getItem('stepby_fsd_user_set') === '1'
+      if (hasArchive && !userExplicit && merged.followSystemDark === false) {
+        merged.followSystemDark = true
       }
       return merged
     })()
@@ -286,11 +278,8 @@ const useSettingsStore = defineStore('settings', {
       cache.local.setJSON('user-prefs', this.userPrefs)
       // 存量迁移配套：用户显式设置过 followSystemDark 后写标记，此后升级迁移不再触碰该值
       if (prefs.followSystemDark !== undefined) {
-        try {
-          localStorage.setItem('stepby_fsd_user_set', '1')
-        } catch {
-          /* ignore */
-        }
+        // 写不进（配额满/隐私模式）不阻断本次切换——只是下次升级仍会被默认值碰一次
+        setItem('stepby_fsd_user_set', '1')
         // 如果切换了 followSystemDark，重新注册监听
         if (prefs.followSystemDark) {
           setupSystemDarkWatcher(this)

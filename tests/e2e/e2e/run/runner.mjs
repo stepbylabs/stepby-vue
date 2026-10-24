@@ -18,7 +18,7 @@
  *   browser：async function testModuleN(browser, consoleErrors, pageErrors)      → 13,29,39,67（自管页面）
  *   第四参 browser：testModule23(page, consoleErrors, pageErrors, browser)
  *
- * 退出码：0 = 全部通过；1 = 存在失败检查。
+ * 退出码：0 = 全部通过；1 = 存在失败检查；2 = **本轮不作数**（含 b89 项 15 的环境性网络中断）。
  */
 
 import fs from 'fs'
@@ -27,6 +27,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { fileURLToPath } from 'node:url'
 import { summarizeBackendLogErrors, probeClickChannel, writeClickFailureReport } from '../../capture-kit.mjs'
+import { environmentAbortReport, resetEnvironmentAbortNotes } from '../../e2e-env-abort.mjs'
 
 let chromium
 try {
@@ -248,6 +249,9 @@ export async function runMain({ testFns, config, helpers, state }) {
   }
 
   const startedAt = Date.now()
+  // b89 项 15：轮级"环境性网络中断"账必须只属于本轮——同一进程里连跑多段时，
+  // 把上一轮的中断记到本轮头上就是前言 ⑲"把上一批的结论当本批证据"的轮内形状。
+  resetEnvironmentAbortNotes()
   const moduleStats = [] // { id, pass, fail, verdicts, error }
   let loginFailStreak = 0 // 连续登录失败计数：≥2 视为环境不可用，提前终止避免全量刷屏
   /**
@@ -436,6 +440,13 @@ export async function runMain({ testFns, config, helpers, state }) {
   const neverRunIds = ids.filter((id) => !attemptedIds.has(id))
   /** 跑完与否由执行计数自证（不是"没带分段旗标"）：提前终止的一轮不得参与任何"相对上一轮"的判据 */
   const roundComplete = neverRunIds.length === 0
+  /**
+   * b89 项 15：轮级环境性网络中断（`net::ERR_NETWORK_IO_SUSPENDED` 一类）。
+   * 实测断面：b89 全量轮 93 模块里唯一一条 ❌ 就是它（M85 收 15720 条），而 M85 隔离复跑
+   * 13✅ / ❌0 ⇒ 红的不是产品，是主机把网卡挂起了。**但它照旧进 ❌ 计数**——
+   * 摘掉它等于"整站断网 ⇒ 这轮干净"。本变量的用途只有一件：把整轮判成"不作数"。
+   */
+  const envAbort = environmentAbortReport()
 
   log('\n==========================================')
   log('深度端到端测试汇总')
@@ -455,6 +466,13 @@ export async function runMain({ testFns, config, helpers, state }) {
   }
   if (relaunches > 0) {
     log(`🔌 本轮浏览器重启 ${relaunches} 次（失联后自动重试该模块）——请核对失联原因：并行编译/内存不足是常见成因`)
+  }
+  if (envAbort.count > 0) {
+    log(
+      `🛑 本轮**不作数**：检测到 ${envAbort.count} 条环境性网络中断（${[...envAbort.kinds.keys()].join(' / ')}）——` +
+        `这是主机把网络 I/O 挂起期间的**全量请求失败**，不是任何页面的缺陷（b89 实测：同一模块隔离复跑 13✅/❌0）。` +
+        `正确动作是**复跑本轮**；不得登记成豁免（那等于给"整站断网"配永久豁免），也不得据此改产品代码`
+    )
   }
 
   // 按模块分组统计 SKIP，输出最多的前 5 个模块：SKIP 集中处往往是「页面打不开/功能未启用」的真实缺口
@@ -673,6 +691,7 @@ export async function runMain({ testFns, config, helpers, state }) {
           modulesPlanned: ids.length,
           modulesAttempted: moduleStats.length,
           modulesWithZeroVerdicts: zeroVerdictModules,
+          envNetworkAbort: envAbort.count,
           totalVerdictRows: results.length,
           windowStart: utcNaive(roundStartMs),
           windowEnd: utcNaive(Date.now()),
@@ -816,6 +835,12 @@ export async function runMain({ testFns, config, helpers, state }) {
       )
       return 2
     }
+    // b89 项 15：断网的一轮 SKIP 也可能偏少（失败得早），同 `!roundComplete` 那一支——
+    // 退出码撤不回已经写出去的文件，所以拦在写入之前。
+    if (envAbort.count > 0) {
+      log(`❌ 拒绝收紧棘轮：本轮有 ${envAbort.count} 条环境性网络中断，整轮不作数，基线文件**未改动**——请复跑全量`)
+      return 2
+    }
     // **只许降**必须由写入这一步自己守住：上面 `skipRows.length > baseline` 已经置了
     // skipRatchetBroken（退出码会非 0），但原写法仍会先无条件回写文件 ⇒ 一次"红着的收紧跑批"
     // 就把基线抬高了一格，而退出码 1 只活在这次终端里，下一次跑批读到的是被放松后的新基线。
@@ -832,5 +857,8 @@ export async function runMain({ testFns, config, helpers, state }) {
     log(`✅ SKIP 棘轮基线已更新为 ${skipRows.length}`)
   }
 
+  // b89 项 15：环境性网络中断的那一轮**不作数**（EXIT=2，而不是 1）——"本轮结论不可用"与
+  // "本轮发现了产品缺陷"必须是两种可区分的结局，否则下一轮读到的还是同一句"M85 红"（前言 ⑳/⑨）。
+  if (envAbort.count > 0) return 2
   return failForExit > 0 || toolBroken.length > 0 || skipRatchetBroken || !roundComplete ? 1 : 0
 }

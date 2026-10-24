@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-10-23T11:12:30.176Z",
-  "sampling": "settled-poll-v3",
+  "generatedAt": "2026-10-24T13:03:48.268Z",
+  "sampling": "page-scope-v4",
   "routes": 56,
-  "totalActions": 406,
-  "totalCovered": 406,
+  "totalActions": 404,
+  "totalCovered": 404,
   "totalClicked": 338,
-  "totalBacklog": 46,
+  "totalBacklog": 44,
   "totalStateLocked": 22,
-  "clickableActions": 384,
-  "interactionCoverageClickable": 0.88,
+  "clickableActions": 382,
+  "interactionCoverageClickable": 0.885,
   "coverage": 1,
-  "interactionCoverage": 0.833,
+  "interactionCoverage": 0.837,
   "perRoute": {
     "/index": {
       "a": 2,
@@ -213,8 +213,8 @@
       "i": 1
     },
     "/tool/build": {
-      "a": 6,
-      "c": 6,
+      "a": 5,
+      "c": 5,
       "i": 3
     },
     "/tool/gen": {
@@ -223,8 +223,8 @@
       "i": 15
     },
     "/tool/swagger": {
-      "a": 1,
-      "c": 1,
+      "a": 0,
+      "c": 0,
       "i": 0
     },
     "/tool/http-debugger": {

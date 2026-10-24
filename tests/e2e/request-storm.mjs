@@ -513,6 +513,8 @@ function selftest() {
         modulesPlanned: 90,
         modulesAttempted: 90,
         modulesWithZeroVerdicts: [],
+        // b89 项 15：默认"本轮没有环境性网络中断"，中断的那一轮不得作为密度数据源
+        envNetworkAbort: 0,
         totalVerdictRows: rows.length,
         windowStart: '2026-01-01 00:00:00',
         windowEnd: '2026-01-02 00:00:00',
@@ -828,6 +830,31 @@ function selftest() {
     fail.push('⑮ 判定行总数为 0 的数据集被接受了')
   } catch {
     /* 期望 */
+  }
+  // b89 项 15：断网的一轮（`net::ERR_NETWORK_IO_SUSPENDED`）覆盖面与密度都不可用；
+  // 缺字段同样拒（旧格式无法证明"没被污染"），0 必须放行（否则每轮必红就变成噪声源）。
+  const envRow = { tag: 'M1', key: 'GET /x', count: 1, navs: 1 }
+  const envAborted = mk([envRow], { envNetworkAbort: 15720 })
+  try {
+    loadDataset(envAborted.f)
+    fail.push('⑯ 环境性网络中断的那一轮被接受了')
+  } catch (err) {
+    if (!/环境性网络中断/.test(err.message)) fail.push(`⑯ 中断轮的拒绝理由没指向中断：${err.message}`)
+  }
+  const noEnvField = mk([envRow])
+  const rawNoEnv = JSON.parse(fs.readFileSync(noEnvField.f, 'utf8'))
+  delete rawNoEnv.envNetworkAbort
+  fs.writeFileSync(noEnvField.f, JSON.stringify(rawNoEnv))
+  try {
+    loadDataset(noEnvField.f)
+    fail.push('⑯ 缺 envNetworkAbort 字段的数据集被接受了')
+  } catch (err) {
+    if (!/环境性网络中断计数字段/.test(err.message)) fail.push(`⑯ 缺字段拒绝理由没指向该字段：${err.message}`)
+  }
+  try {
+    loadDataset(mk([envRow], { envNetworkAbort: 0 }).f)
+  } catch (err) {
+    fail.push(`⑯ 干净轮（envNetworkAbort=0）不得被拒：${err.message}`)
   }
   // 计划数 ≠ 入场数：runner 提前 break 时后面的模块连 moduleStats 都没有，
   // 只判"零判定模块"看不见它们（列表是空的），必须靠两个计数相等这一道。

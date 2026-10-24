@@ -4131,3 +4131,87 @@ cargo run --bin export_ts
 
 与前言 ⑰ 同族而方向相反：⑰ 是"把工具链的排版决定当事实"，这里是"把自己缺失的启动环境当事实"；
 共同修法都是**先让判据证明输入形状对**（⑬）。
+
+### 3.105 环境性网络中断 ⇒ 本轮**不作数**（第三种结局，b89 项 15）
+
+跑批时最常见的"假缺陷"是主机自己把网络栈抽走了：`net::ERR_NETWORK_CHANGED`、
+`ERR_INTERNET_DISCONNECTED`、`ERR_CONNECTION_RESET`（Wi-Fi 漫游、VPN 切换、适配器休眠）。
+这三类**既不是产品红、也不是"跑干净"**，唯一诚实的结论是 UNRUN（EXIT=2）：
+登记进允许表 = 给用户真实遭遇的一次失败配永久豁免；判 EXIT=1 = 把人支使去补登记。
+
+```bash
+# 分类器自身的双向自检（条数由脚本自打，文档不抄）
+node tests/e2e/e2e-env-abort.mjs --selftest
+```
+
+接线点六个文件（缺一处就有一路中断被洗成"0 失败"）：`e2e-env-abort.mjs`（分类器本体，`ENV_ABORT_KINDS`）→
+`deep-e2e.mjs::checkConsoleErrors`（❌ **保留**，只在凭证行补"其中 N 条属环境性网络中断"）→
+`e2e/run/runner.mjs`（轮末打 `🛑 本轮不作数`、把 `envNetworkAbort` 写进 `deep-e2e-reqstats.json`、
+**不得改动 SKIP 棘轮基线**、`return 2`）→ `dataset-window.mjs::assertFullRun` 第四道判据（缺该字段 = 旧格式 ⇒ 拒；
+`> 0` ⇒ 拒，"这是复跑一轮的活"）→ 下游 `request-storm.mjs` / `endpoint-coverage.mjs` 的夹具与用例同步。
+载体：`run-gates.py` 的 `envabortsynth` + `ci.yml` 的 `doc-gates`。
+**拒连（`ERR_CONNECTION_REFUSED`）刻意不在这三族里**——它归"登录失败连击"那条通道，
+两条通道不得互顶（谁都能认领 = 谁都不认领）；把拒连洗成 UNRUN 等于把"后端没起来"藏起来
+（前言 ⑥ 的"取不到不得读成没有失败"同族）。
+
+### 3.106 门禁清单的结构对账：自检**不能替换**本体（b89 项 12 + 前言 ㊳）
+
+给判据补 `--selftest` 载体时，正确动作是**在下面加一行**，而不是把本体那一行**改写**成自检行。
+本批实测踩过：五把本体被替换后整轮不跑，而五条新自检条条绿，汇总照打 `PASS 75 / FAIL 0`——
+"少跑了"这件事**不产生红**，只能由清单对账抓。
+
+```bash
+python scripts/run-gates.py --selftest   # 28 条双向，含"真实清单当前成立"这条正控
+python scripts/run-gates.py --count      # 条数只能由 GATES 给，文档那一行由 docnum 对账
+```
+
+`manifest_gaps()` 三查（真跑路径把它排在一切执行之前，⑨：口径闸先于内容闸）：
+① 每个脚本要么有**不含 `--selftest` 的本体条目**，要么进 `SELFTEST_ONLY` 表带**自足理由**登记"这条判据没有结论可跑"；
+② 登记过之后又出现本体条目 ⇒ 豁免该撤（与 b85 那张"未命中的豁免必须报撤销"同一取向）；
+③ `LIVE_DB_GATES` / `BROWSER_GATES` 的每个名字必须是真实条目。
+有缺口 ⇒ `[FATAL] 门禁清单有结构缺口 ⇒ 本轮不作数` + 非零（清单坏了是**有缺陷要修**，不是"没跑"的 UNRUN）。
+
+附带两条本批实测：合成夹具的脚本名**不要带目录前缀**（拼成 `scripts/` + 假名会被 `recovery_gap`
+的引用悬挂判据当成真实路径报"未定性"）；取退出码一律 `cmd > log 2>&1; rc=$?`，
+**不在管道右侧取码**（`… | tail -4; echo $?` 拿的是 `tail` 的码，本批自己踩了两次）。
+
+### 3.107 动作面采集作用域必须是路由页面容器（b89 收口，口径 `page-scope-v4`）
+
+`action-inventory` 的"这一页有几个动作"要由 DOM 作用域定义，而旧写法
+`document.querySelector('.app-container') || document.body` 里那个类**只有部分视图在用**
+（定义在 `src/assets/styles/index.scss:139`，`src/` 实测 64 个文件 / 68 处命中）
+⇒ 兜底**恰好在没有它的那几页生效**，那几页等于在整份文档上采集。
+全站壳层（`layout/index.vue:25-29` 的 `.fixed-header`：环境横幅 + 公告横幅 + navbar + tags-view）
+于是被逐页计入——实测 `/tool/swagger` 的两条 backlog 全是横幅按钮 `关闭该公告提示`，
+而分母随**公告发布状态**漂移（不是数据行没了，是全局控件冒出来了）。
+
+⚠ **配方第一版把成因写成"那个类在本仓布局不存在"，那是错的，错法值得单独记**：
+证据是一条 `grep -rn "app-container" stepby-vue/src/` 的**空 stdout**，而那次 cwd 是 `stepby-vue`
+⇒ 路径不存在，grep 退出码 **2（No such file or directory）**而不是 1（没有命中）。空 stdout 有两种成因，
+只看输出流就把"我没扫到"读成"它不存在"（§3.55/§3.64 那一族，新增一面：**取证命令的退出码也是证据**）。
+正确的量法是在跑批断面里探一次——一次性 Playwright 探针（登录 → 逐条路由 → 读 `.app-main` 内是否有
+`.app-container`，跑完即删、不进任何门禁清单）实测：**56/56 页取到 `.app-main`**，
+`.app-main` 内没有 `.app-container` 的恰好两页 `/tool/build`、`/tool/swagger`（整份文档也没有，`doc=0`）
+⇒ 缺陷范围与"净 −2 动作、两条都是横幅按钮"逐页对上。要复现这个数，把探针脚本放在 `tests/e2e/` 内
+（`import` 才能按 `./route-list.mjs` 解析；放仓根就会造出代码级悬挂引用，`recover` 会当场点名——本批踩过）。
+
+```bash
+# 换尺后的两把，必须同数（写基线 → --gate）
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node tests/e2e/action-inventory.mjs --update-baseline
+STEPBY_TEST_USER=admin STEPBY_TEST_PASS=admin123 node tests/e2e/action-inventory.mjs --gate
+```
+
+三条纪律：
+① **口径戳必须与重生成基线同批**——`INVENTORY_SAMPLING` 不同则 `baselineShapeGaps` 判 `sampling` 缺栏 ⇒ UNRUN，
+不得由内容棘轮去吸收换尺（b87 立的通道，本批走的就是它）。
+② **换尺的合法性由"承诺面不变"作证**：本批 `totalActions 406 → 404`（减的是两条横幅噪声）、
+`backlog 46 → 44`、覆盖率回 100%，而 `rowPerRoute` 的 `Σt=Σc=59` **逐页 0 处变化**——
+"分母来自承诺"那一栏一动没动，才敢说这不是顺手放宽。
+③ **作用域取不到只能 UNRUN**：`collectActions` 缺 `.app-main` 时交回 `{scopeMissing:true}`，
+Node 侧 `pageScopeFailure` 把"缺容器 / evaluate 抛错被收成 `null` / 形状对不上"三类都判坏，
+而**合法的空动作页不得判坏**；口径闸排在落定闸之前（比"没落定"更底层——那至少还读了 DOM）。
+
+⚠ 反查型判据的锚点**不能由判据自己的字面量供给**：本批第一版把
+`pageScopeAnchor = "document.querySelector('.app-main')"` 写成常量，于是"文件里提到过"恒真，
+变异（改回旧形状）**跑绿**。修法是锚点用拼接得到 + 检查范围收窄到 `collectActions` 函数体
+（边界取"下一个顶格 `}`"，且不用哨兵定位尾部，因为哨兵本身就是被测对象）。

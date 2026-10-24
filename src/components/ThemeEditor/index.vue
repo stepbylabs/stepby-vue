@@ -2,14 +2,22 @@
   <div class="theme-editor">
     <el-form label-width="100px" size="small">
       <el-form-item :label="t('themeEditor.themeColor')">
-        <div class="theme-colors flex gap-2 flex-wrap">
+        <div class="theme-colors flex gap-2 flex-wrap" role="group" :aria-label="t('themeEditor.themeColor')">
+          <!-- 预置色是一个单选集合：色点本身没有文字内容，可访问名必须显式给（否则读屏只念"按钮"），
+               选中态用 aria-pressed 表达；键盘侧补回车/空格（b89 项 9，原先只有 @click）。 -->
           <div
             v-for="color in presetColors"
             :key="color"
             class="color-dot w-6 h-6 rounded-full cursor-pointer border-2 border-transparent"
             :class="{ active: theme === color }"
             :style="{ background: color }"
+            role="button"
+            tabindex="0"
+            :aria-pressed="theme === color"
+            :aria-label="t('themeEditor.pickColor', { color })"
             @click="handleThemeChange(color)"
+            @keydown.enter.prevent="handleThemeChange(color)"
+            @keydown.space.prevent="handleThemeChange(color)"
           />
         </div>
       </el-form-item>

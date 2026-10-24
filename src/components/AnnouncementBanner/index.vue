@@ -14,12 +14,17 @@
           {{ t('announcementBanner.viewDetails') }}
         </el-button>
       </div>
-      <el-icon
-        class="banner-close cursor-pointer text-sm p-1 rounded transition-colors duration-200 hover:bg-black/5"
+      <!-- 关闭按钮：原先是挂 @click 的 el-icon（渲染成 <i>）——只有指针通道，键盘 Tab 不到、
+           回车也没反应（b89 项 9 扩面后才被静态守卫看见）。改成原生 button + el-icon，
+           语义、焦点环与读屏可访问名一并到位；视觉沿用同一组工具类。 -->
+      <button
+        type="button"
+        class="banner-close inline-flex items-center justify-center cursor-pointer text-sm p-1 rounded border-0 bg-transparent text-inherit transition-colors duration-200 hover:bg-black/5"
+        :aria-label="t('announcementBanner.dismissAriaLabel')"
         @click="dismiss"
       >
-        <Close />
-      </el-icon>
+        <el-icon><Close /></el-icon>
+      </button>
     </div>
   </transition>
 </template>

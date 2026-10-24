@@ -97,4 +97,64 @@ describe('store/modules/lock', () => {
     const store = useLockStore()
     expect(store.isLock).toBe(false)
   })
+
+  // ==========================================================================
+  // storageOk —— "锁上了"与"锁得住"是两件事（b89 项 8）
+  // 改造前本文件七处裸调 localStorage：存储被禁时 store **初始化**就抛 = 整个应用白屏，
+  // 而配额满时锁屏按钮点了没反应。下面两条分别对着这两个形状。
+  // ==========================================================================
+  const localDesc = Object.getOwnPropertyDescriptor(window, 'localStorage')
+
+  it('存储可用：lockScreen 返回 true，storageOk 为真（锁屏刷新后仍在）', () => {
+    const store = useLockStore()
+    expect(store.storageOk).toBe(true)
+    expect(store.lockScreen('/dashboard')).toBe(true)
+    expect(store.storageOk).toBe(true)
+  })
+
+  it('存储属性读取就抛：store 初始化不得崩，锁屏退化为"仅当前页面"', () => {
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError')
+      },
+      configurable: true
+    })
+    try {
+      // 这一句在原实现里当场抛（state() 直接读 localStorage.getItem）⇒ 应用白屏
+      const store = useLockStore()
+      expect(store.isLock).toBe(false)
+      expect(store.storageOk).toBe(false)
+      // 屏幕仍然要锁上（内存态挡住旁观者是对旁观者的第一道防线），但必须承认记不住
+      expect(store.lockScreen('/secret')).toBe(false)
+      expect(store.isLock).toBe(true)
+      expect(store.lockPath).toBe('/secret')
+      expect(store.storageOk).toBe(false)
+    } finally {
+      if (localDesc) Object.defineProperty(window, 'localStorage', localDesc)
+    }
+  })
+
+  it('配额满（对象在、写不进）：同样必须报 storageOk=false 而不是假装已持久化', () => {
+    const real = window.localStorage
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: (k: string) => real.getItem(k),
+        removeItem: (k: string) => real.removeItem(k),
+        setItem: () => {
+          throw new DOMException('quota exceeded', 'QuotaExceededError')
+        }
+      },
+      configurable: true,
+      writable: true
+    })
+    try {
+      const store = useLockStore()
+      // state() 里的探测真的写了一次 ⇒ 不可用
+      expect(store.storageOk).toBe(false)
+      expect(store.lockScreen('/a')).toBe(false)
+      expect(store.isLock).toBe(true)
+    } finally {
+      Object.defineProperty(window, 'localStorage', localDesc as PropertyDescriptor)
+    }
+  })
 })

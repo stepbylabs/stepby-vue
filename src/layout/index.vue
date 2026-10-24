@@ -15,7 +15,7 @@
       <div
         v-if="(device === 'mobile' || device === 'tablet') && sidebar.opened"
         class="drawer-bg w-full h-full absolute top-0"
-        @click="handleClickOutside"
+        @click.self="handleClickOutside"
       />
     </Transition>
     <Transition name="expand-fade">

@@ -23,6 +23,8 @@ export default {
     oauthTitle: 'Third-party login',
     oauthBindRequired:
       'This third-party account has not been linked to a system account. Please log in with username/password first.',
+    oauthBindHandoffLost:
+      'This browser does not allow storing the pending link credential (private mode or site data is blocked), so the link cannot be completed automatically. Please log in with username/password first, then restart the linking from "Profile → Third-party accounts".',
     oauthBindFailed:
       'Third-party linking failed (the credential expired or is already linked to another account). Please restart the third-party login.',
     oauthGoLogin: 'Go to login',
@@ -216,6 +218,8 @@ export default {
     unlock: 'Click to unlock',
     unlocking: 'Unlocking',
     logout: 'Logout and re-login',
+    // Honest hint when browser storage is unavailable (memory lock survives, refresh does not)
+    notPersisted: 'Browser storage unavailable: locking will not survive a page refresh',
     // Date units
     year: '-',
     month: '-',

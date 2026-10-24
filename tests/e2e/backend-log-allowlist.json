@@ -149,6 +149,15 @@
         "file": "stepby-axum/src/shared_store/local_store.rs",
         "contains": "KvActive"
       }
+    },
+    {
+      "level": "WARN",
+      "match": "slow statement.*FROM \\\\\"sys_frontend_error\\\\\" WHERE \\\\\"sys_frontend_error\\\\\".\\\\\"name\\\\\" LIKE \\?",
+      "why": "前端错误列表**按名称筛选**时的分页计数越过 sqlx 自带 1s 阈值。b89 权威轮 12:26:25.145Z 实测恰 1 条：elapsed=1.1421332s / rows_returned=1 / slow_threshold=1s，语句形状是 `SELECT COUNT(*) AS num_items FROM (SELECT … FROM \"sys_frontend_error\" WHERE \"sys_frontend_error\".\"name\" LIKE ?) AS \"sub_query\"`。慢的成因在谓词形状而不在代码写错：仓储侧构造的是**中缀** LIKE（`Column::Name.like(format!(\"%{}%\", like_escape(n)))`，src/repository/sys_frontend_error.rs:96），中缀 LIKE 结构上用不了 B-tree 索引；运行库实测该表 153135 行（机器遥测通道、保留期 7 天），扫十五万行带 stack/message 大文本列，一秒量级是这台机器的实测值。登记的是「这一支筛选计数会越过阈值」，不是「任何慢语句都算过」：正则同时锚住 FROM 后的表名与 WHERE 里的 `\"name\" LIKE ?` 两段相邻形状，四条合成反证实测互不命中——sys_frontend_error 的 INSERT 那条、sys_audit_change 的 ORDER BY LIMIT 那条、sys_oper_log 的 name LIKE 那条、以及同表按 level 等值过滤的计数那条（正控则在真日志上恰命中 1 行）。刻意**不调高 sqlx 阈值**（与上面 sys_shared_kv / sys_frontend_error INSERT 两条同一取向）：调高等于把「管理端搜索开始排队」从观测面抹掉。若这一族从「只在搜索时」扩到「默认列表也报」，正确动作是给 name 过滤换前缀匹配或 FTS（PG 侧 pg_trgm），而不是放宽这条。生产者锚点取 `like_escape(n)`（中缀 LIKE 的唯一构造点），锚点失效才允许撤销",
+      "producer": {
+        "file": "stepby-axum/src/repository/sys_frontend_error.rs",
+        "contains": "like_escape(n)"
+      }
     }
   ]
 }

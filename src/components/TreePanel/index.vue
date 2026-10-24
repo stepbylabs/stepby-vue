@@ -4,12 +4,24 @@
     :class="{ collapsed: collapsed, resizing: isResizing, 'no-initial-transition': isLoadingFromStorage }"
     :style="{ width: sidebarWidth + 'px' }"
   >
-    <!-- 右侧拖动条 -->
+    <!-- 右侧拖动条。b89 项 9：原先只有 mousedown/touchstart ⇒ 键盘完全调不了宽度，
+         而且静态守卫把 `@mousedown` 也算"只有指针通道的交互"。补 WAI-ARIA Split View
+         那一档：role=separator + tabindex + 方向键步进 + 当前值/上下限读屏播报。 -->
     <div
       v-if="!collapsed"
       class="resize-handle"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      :aria-label="t('treePanel.resizeAriaLabel')"
+      :aria-valuenow="sidebarWidth"
+      :aria-valuemin="minWidth"
+      :aria-valuemax="maxWidth"
+      :aria-valuetext="`${sidebarWidth}px`"
       @mousedown="startResize"
       @touchstart="startResize"
+      @keydown.left.prevent="stepResize(-KEYBOARD_RESIZE_STEP)"
+      @keydown.right.prevent="stepResize(KEYBOARD_RESIZE_STEP)"
       :class="{ active: isResizing }"
     />
     <div class="tree-header">
@@ -544,6 +556,25 @@ const stopResize = (): void => {
   document.removeEventListener('touchmove', handleResizeMove)
   document.removeEventListener('touchend', stopResize)
   enableUserSelect()
+  saveWidthToStorage()
+}
+
+/** 键盘调宽的步长（px）：与把手的可视宽度同一量级——一次按键看得见变化，又不至于一步跨过想要的尺寸 */
+const KEYBOARD_RESIZE_STEP = 16
+
+/**
+ * 方向键调整面板宽度（鼠标拖动的键盘等价物，b89 项 9）。
+ *
+ * 钳制口径与拖动路径完全一致（同一个 minWidth/maxWidth），差别只在**立即落盘**：
+ * 拖动有 mouseup 可以等"松手再存"，键盘没有"结束"这个事件——延后保存的结果是
+ * 用户切走页面后宽度静默丢失。
+ */
+const stepResize = (delta: number): void => {
+  const next = Math.max(props.minWidth, Math.min(props.maxWidth, sidebarWidth.value + delta))
+  if (next === sidebarWidth.value) {
+    return
+  }
+  sidebarWidth.value = next
   saveWidthToStorage()
 }
 

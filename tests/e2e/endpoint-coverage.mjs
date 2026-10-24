@@ -362,6 +362,7 @@ function runSelftest() {
       modulesPlanned: 90,
       modulesAttempted: 90,
       modulesWithZeroVerdicts: [],
+      envNetworkAbort: 0,
       totalVerdictRows: 1,
       rows: [{ key: 'load | GET /a', count: 1 }]
     }),
@@ -750,6 +751,8 @@ function runSelftest() {
     modulesPlanned: 90,
     modulesAttempted: 90,
     modulesWithZeroVerdicts: [],
+    // b89 项 15：断网的一轮不得作为触达数据源（"请求没打到"与"端点未触达"在数据里同形）
+    envNetworkAbort: 0,
     totalVerdictRows: 1300,
     windowStart: '2026-01-01 00:00:00',
     windowEnd: '2026-01-02 00:00:00',
@@ -780,6 +783,24 @@ function runSelftest() {
         delete stripped.modulesWithZeroVerdicts
         const r = loadRun(mkRun('legacy.json', stripped))
         return r.touched === null && /完整性字段/.test(r.err)
+      })()
+    ],
+    [
+      '环境性网络中断的那一轮必须拒（b89 实测：断网 15720 条 ERR_NETWORK_IO_SUSPENDED，而隔离复跑该模块 13✅/❌0）',
+      (() => {
+        const r = loadRun(mkRun('envabort.json', { ...good, envNetworkAbort: 15720 }))
+        return r.touched === null && /环境性网络中断/.test(r.err) && !/环境性网络中断计数字段/.test(r.err)
+      })()
+    ],
+    [
+      '缺 envNetworkAbort 字段必须拒（旧格式无法证明本轮没被污染），而 0 必须放行',
+      (() => {
+        const stripped = { ...good }
+        delete stripped.envNetworkAbort
+        const r = loadRun(mkRun('noenv.json', stripped))
+        const okRefuse = r.touched === null && /环境性网络中断计数字段/.test(r.err)
+        const okPass = loadRun(mkRun('envzero.json', { ...good, envNetworkAbort: 0 })).touched !== null
+        return okRefuse && okPass
       })()
     ],
     [

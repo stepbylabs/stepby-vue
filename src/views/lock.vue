@@ -30,6 +30,15 @@
       </div>
       <div class="text-white text-lg font-semibold mb-1.5 tracking-[1px]">{{ userStore.nickName }}</div>
       <div class="lock-hint text-[13px] mb-7">{{ t('lock.tip') }}</div>
+      <!-- b89 项 8：存储写不进（配额满/隐私模式）时锁屏只剩内存态，刷新即解屏。
+           不说出来就等于"看起来锁住了、其实没有"——这是安全提示的诚实性问题，不是美观问题。 -->
+      <div
+        v-if="!lockStore.storageOk"
+        class="lock-warn text-[12px] mb-5 text-[#ffd66b] max-w-[300px] text-center"
+        role="status"
+      >
+        {{ t('lock.notPersisted') }}
+      </div>
 
       <div class="input-wrap w-full flex items-center rounded-full pt-1 pb-1 pr-1 pl-5" :class="{ shake: isShaking }">
         <input

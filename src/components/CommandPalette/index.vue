@@ -43,6 +43,7 @@
               :aria-selected="idx === activeIndex"
               @mouseenter="activeIndex = idx"
               @click="executeCommand(cmd)"
+              @keydown.enter.prevent="executeCommand(cmd)"
             >
               <div class="palette-item-icon">
                 <el-icon v-if="cmd.icon"><component :is="cmd.icon" /></el-icon>
@@ -90,7 +91,19 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import type { Component } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Search, Moon, Sunny, FullScreen, Lock, Fold, Expand, RefreshRight, User, Link, Loading } from '@element-plus/icons-vue'
+import {
+  Search,
+  Moon,
+  Sunny,
+  FullScreen,
+  Lock,
+  Fold,
+  Expand,
+  RefreshRight,
+  User,
+  Link,
+  Loading
+} from '@element-plus/icons-vue'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
 import useAppStore from '@/store/modules/app'

@@ -14,7 +14,8 @@
       :headers="headers"
       class="upload-file-uploader mb-[5px]"
       ref="fileUpload"
-      v-if="!disable" >
+      v-if="!disable"
+    >
       <!-- 上传按钮 -->
       <el-button type="primary">{{ t('fileUpload.selectFile') }}</el-button>
     </el-upload>
@@ -36,9 +37,10 @@
       ref="uploadFileList"
       class="upload-file-list el-upload-list el-upload-list--text"
       name="el-fade-in-linear"
-      tag="u" >
+      tag="u"
+    >
       <li :key="file.uid" class="el-upload-list__item ele-upload-list__item-content" v-for="(file, index) in fileList">
-        <el-link :href="`${baseUrl}${file.url}`" underline="never" target="_blank">
+        <el-link :href="`${baseUrl}${file.url}`" underline="never" target="_blank" rel="noopener noreferrer">
           <span class="el-icon-document">{{ getFileName(file.name) }}</span>
         </el-link>
         <div class="ele-upload-list__item-content-action">

@@ -63,7 +63,16 @@ import {
 
 /** 仓根按**本文件位置**反推（src/utils 的上两层）——守卫自己不得用 process.cwd() */
 const VUE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const VIEWS_DIR = resolve(VUE_ROOT, 'src/views')
+/**
+ * 采集面：整个 `src`，不止 `src/views`（b89 项 9 扩面）。
+ *
+ * 原口径只扫视图目录，于是**布局、组件与 composable 里的同类站点全部在视野外**——
+ * 实测 16 处（`ThemeEditor` 的主题卡片、`EditableCell` 的可编辑单元格、
+ * `TagsView` 的右键菜单项……）都是"只有指针、键盘到不了"的交互控件。
+ * 这一族缺陷的分布与目录无关：它跟着"作者想做一个能点的容器"这个意图走。
+ * 与前言 ⑯(b)"扫描器的目标面必须跟着用例的迁移面走"是同一条纪律。
+ */
+const SCAN_DIR = resolve(VUE_ROOT, 'src')
 
 /** 原生可键盘聚焦的标签；`a` 另需 `href`（无 href 的 `<a>` 不进 Tab 序列） */
 const NATIVE_FOCUSABLE = new Set(['button', 'input', 'select', 'textarea', 'details', 'summary'])
@@ -105,13 +114,54 @@ const EP_FOCUSABLE = new Set([
 /** 激活型 / 可选择型 ARIA 角色：这些角色自带"回车/空格可激活"的语义承诺 */
 const ACTIVATION_ROLES = new Set(['button', 'link', 'checkbox', 'switch', 'tab', 'menuitem', 'treeitem', 'option'])
 
+/**
+ * 分隔条走**方向键**而不是回车/空格（b89 项 9 扩面后才出现的形状：`TreePanel` 的 `.resize-handle`）。
+ *
+ * WAI-ARIA 的 Split View 模式里，可聚焦的 `role="separator"` 用方向键调整尺寸——
+ * 回车/空格对它没有语义（用户要的不是"激活"而是"调整"）。这一档**不放宽**任何东西：
+ * 仍然要求 tabindex（写死 `-1` 一样红）+ 真的带方向键修饰符的键盘处理器，
+ * 所以"补了 role=separator 但按方向键没反应"照样被抓。
+ */
+const SEPARATOR_ROLES = new Set(['separator'])
+
+/** 方向键修饰符（分隔条的激活通道） */
+const ARROW_MODS = new Set(['left', 'right', 'up', 'down'])
+
 /** 键盘激活处理器 */
 const KEY_HANDLER_RE = /^(@|v-on:)key(up|down|press)(\.|$)/
 
-const viewFiles = collectByExt(VIEWS_DIR, '', '.vue', EXCLUDED_DIRS)
+/** 带方向键修饰符的键盘处理器（`@keydown.left` / `v-on:keydown.down.prevent`…） */
+function hasArrowKeyHandler(attrs: ReturnType<typeof splitTagAttrs>): boolean {
+  return attrs.some((a) => {
+    if (!KEY_HANDLER_RE.test(a.name)) return false
+    return a.name.split('.').some((mod) => ARROW_MODS.has(mod))
+  })
+}
+
+/**
+ * `.self` 修饰符 = "只有点在它自己身上才算"，也就是**遮罩/背板**（点空白处关闭）。
+ *
+ * 为什么背板不算激活控件：对话框自己带 Esc 与关闭按钮，把背板做成可聚焦元素反而会
+ * 多出一个没有任何语义的 Tab 停靠点（对读屏用户是噪声）。判据因此按**修饰符**分叉，
+ * 而不是按标签名/类名猜"这大概是遮罩"——按类名豁免是换个类名就绕过去的写法。
+ * 判定取"修饰符列表里有没有 self"，不取位置：`@click.self` 与 `@click.stop.self` 同义，
+ * 按位置写正则的第一版就是因此漏掉了全部背板（真树四条红报的是判据自己）。
+ * ⚠️ 混挂（同时有 `@click` 与 `@click.self`）仍算控件：只要存在一个非 `.self` 的点击语义，
+ * 用户就必须能瞄准它点，那条承诺跑不掉。
+ */
+function hasSelfModifier(name: string): boolean {
+  return name.split('.').includes('self')
+}
+
+function isSelfOnlyClick(attrs: ReturnType<typeof splitTagAttrs>): boolean {
+  const clicks = attrs.filter((a) => isClickSemanticAttr(a.name))
+  return clicks.length > 0 && clicks.every((a) => hasSelfModifier(a.name))
+}
+
+const viewFiles = collectByExt(SCAN_DIR, '', '.vue', EXCLUDED_DIRS)
 
 export interface ClickTargetViolation {
-  /** 相对 `src/views` 的路径 */
+  /** 相对 `src` 的路径 */
   rel: string
   /** 1-based 绝对行号（掩码等长 ⇒ 可信） */
   line: number
@@ -126,6 +176,8 @@ export interface ClickTargetScan {
   clickSites: number
   /** 其中标签名不在可聚焦集合里的站点数 */
   containerSites: number
+  /** 只挂 `.self` 的背板站点数（按新口径**不参与**判定，但必须数得到，否则"全被豁免"看不见） */
+  backdropSites: number
   /** 没有可识别模板块的文件（必须为空，否则采集面有洞） */
   withoutTemplate: string[]
 }
@@ -148,56 +200,79 @@ function hasActivationKeyHandler(attrs: ReturnType<typeof splitTagAttrs>): boole
 export function scanClickTargets(
   rel: string,
   src: string
-): Pick<ClickTargetScan, 'violations' | 'clickSites' | 'containerSites'> {
+): Pick<ClickTargetScan, 'violations' | 'clickSites' | 'containerSites' | 'backdropSites'> {
   const region = vueTemplateRegion(src)
-  if (!region) return { violations: [], clickSites: 0, containerSites: 0 }
+  if (!region) return { violations: [], clickSites: 0, containerSites: 0, backdropSites: 0 }
   const violations: ClickTargetViolation[] = []
   let clickSites = 0
   let containerSites = 0
+  let backdropSites = 0
+  const line = (index: number) => lineNumberAt(region.code, index) + region.lineOffset
   forEachStartTag(region.code, (name, attrsText, index) => {
     const attrs = splitTagAttrs(attrsText)
     if (!attrs.some((a) => isClickSemanticAttr(a.name))) return
     clickSites++
+    if (isSelfOnlyClick(attrs)) {
+      backdropSites++
+      return
+    }
     const lower = name.toLowerCase()
-    const isLinkWithoutHref = lower === 'a' && !hasAttr(attrs, ['href', ':href', 'v-bind:href'])
-    const nativeFocusable = NATIVE_FOCUSABLE.has(lower) || (!isLinkWithoutHref && lower === 'a')
-    if (nativeFocusable || EP_FOCUSABLE.has(lower)) return
-    containerSites++
-    const missing: string[] = []
     const roleAttr = hasAttr(attrs, ['role', ':role', 'v-bind:role'])
     // 绑定型 role（`:role="'button'"`）剥掉字符串引号后同样参与判定；
     // 取不到字面量角色（`:role="r"`）一律按不满足处理——宁可多要求，不放过"看着补了其实没角色"。
     const roleValue = roleAttr ? roleAttr.value.trim().replace(/^['"]+|['"]+$/g, '') : ''
-    if (!roleAttr || !ACTIVATION_ROLES.has(roleValue)) missing.push('role=button/link（激活型角色）')
     const tabindexAttr = hasAttr(attrs, ['tabindex', ':tabindex', 'v-bind:tabindex'])
-    if (!tabindexAttr) missing.push('tabindex="0"（可 Tab 到达）')
-    else if (tabindexAttr.name === 'tabindex' && tabindexAttr.value.trim() === '-1')
-      missing.push('tabindex 不得写死 -1（仍不可 Tab 到达）')
-    if (!hasActivationKeyHandler(attrs)) missing.push('@keydown.enter / @keyup.space（键盘激活）')
-    if (missing.length)
-      violations.push({ rel, line: lineNumberAt(region.code, index) + region.lineOffset, tag: name, missing })
+    const tabindexMissing = !tabindexAttr || (tabindexAttr.name === 'tabindex' && tabindexAttr.value.trim() === '-1')
+    // `router-link` 带 `to` 时渲染成 `<a href>` ⇒ 天然进 Tab 序列（与 `a[href]` 同一判据方向）。
+    // 不带 `to` 的 router-link 渲染成 `<a>` 无 href，不进序列，照旧按容器处理。
+    const isLinkWithoutHref = lower === 'a' && !hasAttr(attrs, ['href', ':href', 'v-bind:href'])
+    const hasRouterLinkTarget = lower === 'router-link' && !!hasAttr(attrs, ['to', ':to', 'v-bind:to'])
+    const nativeFocusable =
+      NATIVE_FOCUSABLE.has(lower) || (!isLinkWithoutHref && (lower === 'a' || hasRouterLinkTarget))
+    if (nativeFocusable || EP_FOCUSABLE.has(lower)) return
+    containerSites++
+    const missing: string[] = []
+    if (SEPARATOR_ROLES.has(roleValue)) {
+      // 分隔条那一档：方向键是它唯一的键盘通道（见 SEPARATOR_ROLES 注释）
+      if (tabindexMissing) missing.push('tabindex="0"（可 Tab 到达）')
+      if (!hasArrowKeyHandler(attrs)) missing.push('@keydown.left / .right / .up / .down（方向键调整尺寸）')
+    } else {
+      if (!roleAttr || !ACTIVATION_ROLES.has(roleValue)) missing.push('role=button/link（激活型角色）')
+      if (tabindexMissing)
+        missing.push(tabindexAttr ? 'tabindex 不得写死 -1（仍不可 Tab 到达）' : 'tabindex="0"（可 Tab 到达）')
+      if (!hasActivationKeyHandler(attrs)) missing.push('@keydown.enter / @keyup.space（键盘激活）')
+    }
+    if (missing.length) violations.push({ rel, line: line(index), tag: name, missing })
   })
-  return { violations, clickSites, containerSites }
+  return { violations, clickSites, containerSites, backdropSites }
 }
 
 /** 扫一批源码（真实树与合成夹具共用） */
 export function scanAll(entries: Array<{ rel: string; src: string }>): ClickTargetScan {
-  const acc: ClickTargetScan = { violations: [], clickSites: 0, containerSites: 0, withoutTemplate: [] }
+  const acc: ClickTargetScan = {
+    violations: [],
+    clickSites: 0,
+    containerSites: 0,
+    backdropSites: 0,
+    withoutTemplate: []
+  }
   for (const e of entries) {
     if (!vueTemplateRegion(e.src)) acc.withoutTemplate.push(e.rel)
     const r = scanClickTargets(e.rel, e.src)
     acc.violations.push(...r.violations)
     acc.clickSites += r.clickSites
     acc.containerSites += r.containerSites
+    acc.backdropSites += r.backdropSites
   }
   return acc
 }
 
 describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可达（可聚焦控件或 role+tabindex+键盘三件齐备）', () => {
-  const entries = viewFiles.map((rel) => ({ rel, src: readFileSync(resolve(VIEWS_DIR, rel), 'utf8') }))
+  const entries = viewFiles.map((rel) => ({ rel, src: readFileSync(resolve(SCAN_DIR, rel), 'utf8') }))
 
-  it('采集面自证：面由事实派生（递归 src/views 的 .vue），单测文件不进来', () => {
-    expect(viewFiles.length, 'src/views 下 .vue 数量（体量下限，腰斩即红）').toBeGreaterThanOrEqual(100)
+  it('采集面自证：面由事实派生（递归 src 的 .vue），单测文件不进来', () => {
+    // 实测 199 个 .vue（b89 项 9 把面从 src/views 扩到整个 src 之后），腰斩即红
+    expect(viewFiles.length, 'src 下 .vue 数量（体量下限，腰斩即红）').toBeGreaterThanOrEqual(190)
     expect(
       viewFiles.every((f) => f.endsWith('.vue')),
       '面内只允许 .vue'
@@ -206,15 +281,21 @@ describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可�
       viewFiles.some((f) => f.includes('.test.')),
       '视图单测不得被当成视图文件扫进面'
     ).toBe(false)
-    // 已知入口必须在面里（防止目录名规则落后于事实那种"扫不到却报绿"）
+    // 已知入口必须在面里（防止目录名规则落后于事实那种"扫不到却报绿"）。
+    // 后四条是 b89 项 9 扩面**新增**的载体：只扫 views 时它们从未进过任何判据的视野。
     for (const must of [
-      'login.vue',
-      'workbench/index.vue',
-      'tool/build/index.vue',
-      'tool/build/IconsDialog.vue',
-      'monitor/frontendError/index.vue',
-      'ai/panel/index.vue',
-      'monitor/job/JobStatsPanel.vue'
+      'views/login.vue',
+      'views/workbench/index.vue',
+      'views/tool/build/index.vue',
+      'views/tool/build/IconsDialog.vue',
+      'views/monitor/frontendError/index.vue',
+      'views/ai/panel/index.vue',
+      'views/monitor/job/JobStatsPanel.vue',
+      'components/ThemeEditor/index.vue',
+      'components/EditableCell/index.vue',
+      'layout/components/TagsView/ContextMenu.vue',
+      'components/TreePanel/index.vue',
+      'layout/index.vue'
     ]) {
       expect(viewFiles, `扫描面必须包含 ${must}`).toContain(must)
     }
@@ -223,10 +304,15 @@ describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可�
       scan.withoutTemplate,
       `以下 .vue 没有可识别的模板块（采集面有洞，必须处理而非放行）：\n${scan.withoutTemplate.join('\n')}`
     ).toEqual([])
-    // 点击语义站点数量级对账：实测 ~700，腰斩即红
-    expect(scan.clickSites, '挂点击语义的开始标签总数（采集面体量探针）').toBeGreaterThanOrEqual(300)
+    // 点击语义站点数量级对账：扩面到整个 src 后实测 ~1000，腰斩即红
+    expect(scan.clickSites, '挂点击语义的开始标签总数（采集面体量探针）').toBeGreaterThanOrEqual(700)
+    // 背板豁免也必须数得到：这条是"豁免通道没有把真站点全洗掉"的正控
+    expect(scan.backdropSites, '只挂 .self 的背板站点数（新豁免档的采集面自证）').toBeGreaterThanOrEqual(3)
+    expect(scan.backdropSites, '背板不得多于容器型站点的一半（多了就是有人在用 .self 逃避判定）').toBeLessThan(
+      scan.containerSites
+    )
     console.warn(
-      `[a11yClickTarget] 扫描面 ${viewFiles.length} 个 .vue / 点击语义标签 ${scan.clickSites} 处 / 其中容器型标签 ${scan.containerSites} 处 / 违规 0 处`
+      `[a11yClickTarget] 扫描面 ${viewFiles.length} 个 .vue / 点击语义标签 ${scan.clickSites} 处 / 其中容器型标签 ${scan.containerSites} 处 / 背板豁免 ${scan.backdropSites} 处 / 违规 ${scan.violations.length} 处`
     )
   })
 
@@ -238,11 +324,11 @@ describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可�
 
   it('行号锚事实：真实站点报出的行号必须指向那一行', () => {
     // 掩码等长 + lineOffset 换算是"文案点名到行"的全部可信度；这里用磁盘上的原文反查对账。
-    const rel = 'tool/build/index.vue'
-    const src = readFileSync(resolve(VIEWS_DIR, rel), 'utf8')
+    const rel = 'views/tool/build/index.vue'
+    const src = readFileSync(resolve(SCAN_DIR, rel), 'utf8')
     const scan = scanClickTargets(rel, src)
     expect(scan.violations, '该视图此刻必须合规').toEqual([])
-    // 把合规形状拆回缺陷形状（只去 tabindex），行号必须落在 el-col… 不，落在被改的那个标签上
+    // 插入一个"只有 role 与 click、缺 tabindex"的探针：命中数 +1 且行号落在探针那一行
     const broken = plantInVueTemplate(src, '<div class="probe" role="button" @click="noop()"></div>')
     const found = scanClickTargets(rel, broken).violations
     expect(found.length, '插入的探针必须被抓到').toBe(scan.violations.length + 1)
@@ -277,7 +363,32 @@ describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可�
       ['无 href 的 a（不进 Tab 序列）', '<template>\n  <a @click="go()">x</a>\n</template>\n', 2],
       ['容器上的 @change 同样只有指针通道', '<template>\n  <div @change="go()">x</div>\n</template>\n', 2],
       ['自定义组件按不可聚焦处理', '<template>\n  <FooCard @click="go()">x</FooCard>\n</template>\n', 2],
-      ['v-on: 写法等价', '<template>\n  <div v-on:click="go()">x</div>\n</template>\n', 2]
+      ['v-on: 写法等价', '<template>\n  <div v-on:click="go()">x</div>\n</template>\n', 2],
+      [
+        '背板上同时挂了非 .self 的 click ⇒ 仍是必须瞄准的控件',
+        '<template>\n  <div @click.self="close" @click="other()">x</div>\n</template>\n',
+        2
+      ],
+      [
+        'role=separator 但按方向键没反应（补了角色是假的）',
+        '<template>\n  <div role="separator" tabindex="0" @mousedown="start()"></div>\n</template>\n',
+        2
+      ],
+      [
+        'role=separator 缺 tabindex（方向键再好也到不了）',
+        '<template>\n  <div role="separator" @mousedown="start()" @keydown.left="a()"></div>\n</template>\n',
+        2
+      ],
+      [
+        'router-link 不带 to ⇒ 渲染成无 href 的 a，不进 Tab 序列',
+        '<template>\n  <router-link @click="pick()">x</router-link>\n</template>\n',
+        2
+      ],
+      [
+        '分隔条 tabindex 写死 -1 同样不算可达',
+        '<template>\n  <div role="separator" tabindex="-1" @mousedown="start()" @keydown.left="a()"></div>\n</template>\n',
+        2
+      ]
     ]
     const caught: string[] = []
     for (const [label, src, line] of bad) {
@@ -319,7 +430,19 @@ describe('a11y 静态守卫 · 规则：挂点击语义的标签必须键盘可�
         'v-bind:role / v-on:keydown 等价写法',
         '<template>\n  <div v-bind:role="\'button\'" tabindex="0" v-on:click="go()" v-on:keydown.enter="go()">x</div>\n</template>\n'
       ],
-      ['没挂点击语义的容器不参与', '<template>\n  <div class="box" :style="s">x</div>\n</template>\n']
+      ['没挂点击语义的容器不参与', '<template>\n  <div class="box" :style="s">x</div>\n</template>\n'],
+      [
+        '背板只挂 @click.self（点空白关闭，对话框自带 Esc 与关闭按钮）',
+        '<template>\n  <div class="mask" @click.self="close()"><div role="dialog">x</div></div>\n</template>\n'
+      ],
+      [
+        '分隔条 + 方向键（WAI-ARIA Split View 那一档）',
+        '<template>\n  <div role="separator" tabindex="0" aria-orientation="vertical" @mousedown="start()" @keydown.left="shrink()" @keydown.right="grow()"></div>\n</template>\n'
+      ],
+      [
+        'router-link 带 to（渲染成 <a href>，天然可 Tab）',
+        '<template>\n  <router-link :to="tag.path" @click="pick()">x</router-link>\n</template>\n'
+      ]
     ]
     const falsePositives: string[] = []
     for (const [label, src] of good) {

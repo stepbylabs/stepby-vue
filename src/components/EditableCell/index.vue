@@ -1,7 +1,15 @@
 <template>
+  <!-- 可编辑单元格：原先只有 @dblclick（键盘完全进不去编辑态）。
+       补 role=button + tabindex + 回车/空格进入编辑（b89 项 9）；双击照旧可用。
+       刻意不写 aria-label：`role="button"` 的可访问名由内容计算，单元格里的值本身就是名字，
+       再叠一个 label 反而会把读屏念到的内容换成固定文案。 -->
   <div
     class="editable-cell inline-flex items-center gap-1 cursor-pointer min-h-[24px] py-0.5 px-1 rounded-[3px] w-full"
+    role="button"
+    tabindex="0"
     @dblclick="startEdit"
+    @keydown.enter.prevent="startEdit"
+    @keydown.space.prevent="startEdit"
   >
     <Transition name="fade" mode="out-in">
       <!-- 编辑状态 -->

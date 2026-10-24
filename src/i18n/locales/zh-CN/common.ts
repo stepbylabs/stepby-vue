@@ -301,6 +301,7 @@ export default {
     selectShortcut: '选择',
     closeShortcut: '关闭',
     menuAriaLabel: '菜单：{title}',
+    openAriaLabel: '打开菜单搜索',
     placeholderWithData: '搜索菜单、用户、角色、字典（2 个字以上自动搜索数据）',
     group: {
       menu: '菜单',
@@ -321,6 +322,7 @@ export default {
   },
   themeEditor: {
     themeColor: '主题色',
+    pickColor: '选择主题色 {color}',
     custom: '自定义',
     customTip: '点击选择任意颜色',
     sideTheme: '侧边栏主题',

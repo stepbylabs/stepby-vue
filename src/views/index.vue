@@ -98,7 +98,9 @@
             <p>
               <el-icon><Promotion /></el-icon>
               {{ t('dashboard.officialSite') }}
-              <el-link href="https://stepby.tzkj.net" target="_blank">https://stepby.tzkj.net</el-link>
+              <el-link href="https://stepby.tzkj.net" target="_blank" rel="noopener noreferrer">
+                https://stepby.tzkj.net
+              </el-link>
             </p>
             <p>
               <el-icon><ChatDotRound /></el-icon>

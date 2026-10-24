@@ -204,6 +204,7 @@ export default {
     }
   },
   announcementBanner: {
-    viewDetails: 'View Details'
+    viewDetails: 'View Details',
+    dismissAriaLabel: 'Dismiss this announcement'
   }
 }

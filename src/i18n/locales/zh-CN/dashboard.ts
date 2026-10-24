@@ -204,6 +204,7 @@ export default {
     }
   },
   announcementBanner: {
-    viewDetails: '查看详情'
+    viewDetails: '查看详情',
+    dismissAriaLabel: '关闭该公告提示'
   }
 }

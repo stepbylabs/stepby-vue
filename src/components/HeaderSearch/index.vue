@@ -1,6 +1,18 @@
 <template>
   <div class="header-search">
-    <svg-icon class-name="search-icon" icon-class="search" @click.stop="click" />
+    <!-- 搜索入口：原先是挂 @click 的 svg-icon（渲染成 <svg>），键盘完全到不了。
+         补 role=button + tabindex + 回车/空格（b89 项 9）。`@click.stop` 保留：
+         它在 Navbar 的 flex 容器里，去掉会让冒泡语义发生变化。 -->
+    <svg-icon
+      class-name="search-icon"
+      icon-class="search"
+      role="button"
+      tabindex="0"
+      :aria-label="t('headerSearch.openAriaLabel')"
+      @click.stop="click"
+      @keydown.enter.prevent="click"
+      @keydown.space.prevent="click"
+    />
     <el-dialog
       v-model="show"
       width="600"
@@ -36,6 +48,7 @@
               <div
                 class="search-item"
                 tabindex="0"
+                role="button"
                 v-for="(item, index) in options"
                 :key="item.path"
                 :class="{ 'is-active': index === activeIndex }"
@@ -43,12 +56,16 @@
                 :aria-label="t('headerSearch.menuAriaLabel', { title: item.title.join(' / ') })"
                 @mouseenter="activeIndex = index"
                 @mouseleave="activeIndex = -1"
+                @click="change(item)"
                 @keydown.enter.prevent="change(item)"
+                @keydown.space.prevent="change(item)"
               >
                 <div class="left">
                   <svg-icon class="menu-icon" :icon-class="item.icon" />
                 </div>
-                <div class="search-info" @click="change(item)">
+                <!-- 原 @click 挂在这一层（只有文字区域可点，左侧图标与右侧回车提示点了没反应）。
+                     上移到整行 ⇒ 鼠标命中区与"看上去是一个可点的行"这一视觉承诺一致（b89 项 9）。 -->
+                <div class="search-info">
                   <div class="menu-title" v-html="highlightText(item.title.join(' / '))"></div>
                   <div class="menu-path">
                     <!-- UX-9：数据项展示来源分组 + 副标题；菜单项仍展示路由路径 -->

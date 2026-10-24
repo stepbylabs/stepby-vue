@@ -557,7 +557,8 @@ export default {
     confirmClear: '确定要清空所有组件吗？',
     copyCodeSuccess: '代码已复制到剪切板，可粘贴。',
     copyCodeFail: '代码复制失败',
-    addNodeTargetMissing: '没有可承接新字段的容器：请先在结构树中选中目标节点后再添加。本次填写的内容未被写入，可直接重试',
+    addNodeTargetMissing:
+      '没有可承接新字段的容器：请先在结构树中选中目标节点后再添加。本次填写的内容未被写入，可直接重试',
     uploadTip: '只能上传不超过 {size}{unit} 的{type}文件',
     rightPanel: {
       tabField: '组件属性',
@@ -790,7 +791,8 @@ export default {
     expand: '展开',
     collapse: '收起',
     title: '树形结构',
-    searchPlaceholder: '请输入名称'
+    searchPlaceholder: '请输入名称',
+    resizeAriaLabel: '调整面板宽度（方向键左右各 16 像素）'
   },
   imageUpload: {
     preview: '预览',

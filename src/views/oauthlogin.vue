@@ -1,9 +1,9 @@
 <template>
-<div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
-  <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
-  <div class="aurora-blob aurora-1" aria-hidden="true"></div>
-  <div class="aurora-blob aurora-2" aria-hidden="true"></div>
-  <div class="aurora-grid" aria-hidden="true"></div>
+  <div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
+    <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
+    <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+    <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+    <div class="aurora-grid" aria-hidden="true"></div>
     <div class="panel rounded-md w-[400px] max-w-[calc(100vw-20px)] pt-[25px] px-[25px] pb-[25px] z-[1] text-center">
       <el-icon v-if="!showLoginLink" class="is-loading spin-icon"><Loading /></el-icon>
       <h3 class="title mt20 text-text-regular">{{ t('login.oauthTitle') }}</h3>
@@ -34,7 +34,7 @@ import useUserStore from '@/store/modules/user'
 import useNotificationStore from '@/store/modules/notification'
 import useLockStore from '@/store/modules/lock'
 import defaultSettings from '@/settings'
-import { PENDING_HANDOFF_KEY } from '@/utils/oauth'
+import { stashPendingHandoff } from '@/utils/oauth'
 import { isSafeRedirect } from '@/utils/redirect'
 
 const { t } = useI18n()
@@ -91,12 +91,13 @@ async function resolveLanding() {
       }
     }
     // 未登录 → 归档 handoff，等用户密码登录成功后由 login.vue 自动完成绑定
-    try {
-      sessionStorage.setItem(PENDING_HANDOFF_KEY, handoff)
-    } catch {
-      // sessionStorage 不可用时忽略（如严格隐私模式）
+    if (!stashPendingHandoff(handoff)) {
+      // 存不下来（隐私模式 / 站点数据被禁）时必须换一句文案：
+      // 原先照旧显示"请先登录后绑定"，用户照做之后绑定无声丢失（b89 项 8）。
+      status.value = t('login.oauthBindHandoffLost')
+    } else {
+      status.value = t('login.oauthBindRequired')
     }
-    status.value = t('login.oauthBindRequired')
     showLoginLink.value = true
     return
   }
@@ -129,8 +130,8 @@ onMounted(land)
 }
 .panel {
   background: rgba(255, 255, 255, 0.78);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .spin-icon {
   font-size: 42px;
@@ -143,7 +144,6 @@ onMounted(land)
   font-family: Arial;
 }
 html.dark .oauth-login {
-  
   .panel {
     background: rgba(15, 23, 42, 0.72);
   }
