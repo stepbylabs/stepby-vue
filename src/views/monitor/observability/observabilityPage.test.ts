@@ -22,6 +22,7 @@ const hoisted = vi.hoisted(() => ({
   errorLogStats: vi.fn(),
   clearErrorLog: vi.fn(),
   redisStats: vi.fn(),
+  confirm: vi.fn(),
   msgSuccess: vi.fn()
 }))
 
@@ -37,7 +38,7 @@ vi.mock('@/api/monitor/observability', () => ({
 
 vi.mock('@/plugins/modal', () => ({
   default: {
-    confirm: vi.fn(() => Promise.resolve()),
+    confirm: (...a: unknown[]) => hoisted.confirm(...a),
     msgSuccess: (...a: unknown[]) => hoisted.msgSuccess(...a)
   }
 }))
@@ -109,6 +110,8 @@ interface ObsVm {
   errorStatsError: boolean
   redis: Record<string, unknown> | null
   redisError: boolean
+  slowClearing: boolean
+  errorClearing: boolean
   slowListErrorBar: boolean
   slowStatsErrorBar: boolean
   errorListErrorBar: boolean
@@ -120,6 +123,8 @@ interface ObsVm {
   getErrorStats: () => Promise<boolean>
   getRedisStats: () => Promise<boolean>
   handleRefresh: () => Promise<void>
+  handleClearSlow: () => Promise<void>
+  handleClearError: () => Promise<void>
 }
 
 const slowRow = { method: 'GET', path: '/a', status: 200, durationMs: 1200, at: 't' }
@@ -152,6 +157,8 @@ function resolveAll(): void {
   hoisted.listErrorLog.mockResolvedValue({ rows: [errorRow], total: 1 })
   hoisted.errorLogStats.mockResolvedValue({ data: errorStatsData })
   hoisted.redisStats.mockResolvedValue({ data: redisData })
+  hoisted.clearSlowSql.mockResolvedValue({ data: { cleared: 1 } })
+  hoisted.clearErrorLog.mockResolvedValue({ data: { cleared: 1 } })
 }
 
 function rejectAll(): void {
@@ -170,6 +177,7 @@ async function mountPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  hoisted.confirm.mockResolvedValue(undefined)
 })
 
 describe('运行监控页：失败态不骗人', () => {
@@ -290,6 +298,85 @@ describe('运行监控页：失败态不骗人', () => {
     expect(vm.slowListError).toBe(false)
     expect(vm.slowTotal).toBe(2)
     expect(w.findAll('.observability-error-bar')).toHaveLength(0)
+  })
+
+  it('清空：提示必须等清空与取数都有结局，清空进行中按钮 loading', async () => {
+    resolveAll()
+    const w = await mountPage()
+    const vm = w.vm as unknown as ObsVm
+    hoisted.msgSuccess.mockClear()
+
+    // 1) 清空进行中：loading 置位、提示未弹
+    let releaseClear!: (v: unknown) => void
+    hoisted.clearSlowSql.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseClear = resolve
+        })
+    )
+    const pending = vm.handleClearSlow()
+    await flushPromises()
+    expect(vm.slowClearing).toBe(true)
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    releaseClear({ data: { cleared: 1 } })
+    await pending
+    await flushPromises()
+    expect(vm.slowClearing).toBe(false)
+    expect(hoisted.msgSuccess).toHaveBeenCalledTimes(1)
+    expect(hoisted.msgSuccess).toHaveBeenCalledWith('observability.clearSuccess')
+
+    // 2) 清空失败：不刷新、不弹成功
+    hoisted.msgSuccess.mockClear()
+    hoisted.clearSlowSql.mockRejectedValueOnce(new Error('net down'))
+    const listCalls = hoisted.listSlowSql.mock.calls.length
+    await vm.handleClearSlow()
+    await flushPromises()
+    expect(hoisted.listSlowSql.mock.calls.length).toBe(listCalls)
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    expect(vm.slowClearing).toBe(false)
+
+    // 3) 清空成功但刷新失败：保留旧数据 + 错误条，同样不弹成功
+    resolveAll()
+    hoisted.listSlowSql.mockRejectedValueOnce(new Error('net down'))
+    await vm.handleClearSlow()
+    await flushPromises()
+    expect(vm.slowList).toHaveLength(1)
+    expect(vm.slowListErrorBar).toBe(true)
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+  })
+
+  it('取消确认不发清空请求；错误聚合清空同样等结局', async () => {
+    resolveAll()
+    const w = await mountPage()
+    const vm = w.vm as unknown as ObsVm
+
+    hoisted.confirm.mockRejectedValueOnce(new Error('cancel'))
+    await vm.handleClearSlow()
+    await flushPromises()
+    expect(hoisted.clearSlowSql).not.toHaveBeenCalled()
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+
+    hoisted.msgSuccess.mockClear()
+    hoisted.clearErrorLog.mockRejectedValueOnce(new Error('net down'))
+    await vm.handleClearError()
+    await flushPromises()
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    expect(vm.errorClearing).toBe(false)
+
+    await vm.handleClearError()
+    await flushPromises()
+    expect(hoisted.msgSuccess).toHaveBeenCalledTimes(1)
+    expect(hoisted.msgSuccess).toHaveBeenCalledWith('observability.clearSuccess')
+  })
+
+  it('清空按钮绑定写权限 monitor:slowSql:remove（与后端 DELETE clear 同键）', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'index.vue'), 'utf8')
+    const perms = [...src.matchAll(/v-hasPermi="\['([^']+)'\]"/g)].map((m) => m[1])
+    expect(perms.filter((p) => p === 'monitor:slowSql:remove')).toHaveLength(2)
+    expect(perms.filter((p) => p === 'monitor:slowSql:list')).toHaveLength(0)
   })
 
   it('Redis 失败单独可见且不覆盖旧值；重试后恢复', async () => {

@@ -22836,7 +22836,7 @@ async function testModule87(page, consoleErrors, pageErrors) {
       .then(() => true)
       .catch(() => false)
     if (!present) {
-      record(M, '观测: 「清空慢请求」按钮受权限控制', false, '按钮不可见（monitor:slowSql:list 未发放）')
+      record(M, '观测: 「清空慢请求」按钮受权限控制', false, '按钮不可见（monitor:slowSql:remove 未发放）')
     } else {
       const spy = netSpy()
       const how = await realClick(clearBtn)

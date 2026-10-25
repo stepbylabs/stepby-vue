@@ -38,7 +38,14 @@
             <el-button type="primary" plain icon="Refresh" @click="handleRefresh">
               {{ t('observability.refresh') }}
             </el-button>
-            <el-button type="danger" plain icon="Delete" v-hasPermi="['monitor:slowSql:list']" @click="handleClearSlow">
+            <el-button
+              type="danger"
+              plain
+              icon="Delete"
+              v-hasPermi="['monitor:slowSql:remove']"
+              :loading="slowClearing"
+              @click="handleClearSlow"
+            >
               {{ t('observability.slow.clear') }}
             </el-button>
           </el-col>
@@ -159,7 +166,8 @@
               type="danger"
               plain
               icon="Delete"
-              v-hasPermi="['monitor:slowSql:list']"
+              v-hasPermi="['monitor:slowSql:remove']"
+              :loading="errorClearing"
               @click="handleClearError"
             >
               {{ t('observability.error.clear') }}
@@ -295,6 +303,7 @@ const activeTab = ref<'slow' | 'error'>('slow')
 const slowList = ref<SlowRequestRecord[]>([])
 const slowTotal = ref(0)
 const slowLoading = ref(false)
+const slowClearing = ref(false)
 const slowListError = ref(false)
 const slowStats = ref<SlowStats | null>(null)
 const slowStatsLoading = ref(false)
@@ -353,24 +362,32 @@ function methodTagType(method: string): 'success' | 'primary' | 'warning' | 'dan
   }
 }
 
-function handleClearSlow(): void {
-  modal
-    .confirm(t('observability.slow.confirmClear'))
-    .then(() => {
-      return clearSlowSql()
-    })
-    .then(() => {
-      getSlowList()
-      getSlowStats()
+async function handleClearSlow(): Promise<void> {
+  try {
+    await modal.confirm(t('observability.slow.confirmClear'))
+  } catch {
+    return // 用户取消
+  }
+  slowClearing.value = true
+  try {
+    await clearSlowSql()
+    // 清空成功必须等取数也有结局：刷新失败时页面留旧数据 + 错误条，不得再弹“清空成功”
+    const results = await Promise.all([getSlowList(), getSlowStats()])
+    if (results.every(Boolean)) {
       modal.msgSuccess(t('observability.clearSuccess'))
-    })
-    .catch(() => {})
+    }
+  } catch {
+    // 清空失败：错误提示由请求拦截器统一负责；这里不弹“清空成功”
+  } finally {
+    slowClearing.value = false
+  }
 }
 
 // ====== 错误聚合 ======
 const errorList = ref<ErrorEntry[]>([])
 const errorTotal = ref(0)
 const errorLoading = ref(false)
+const errorClearing = ref(false)
 const errorListError = ref(false)
 const errorStats = ref<ErrorStats | null>(null)
 const errorStatsLoading = ref(false)
@@ -424,18 +441,24 @@ function handleErrorReset(): void {
   getErrorList()
 }
 
-function handleClearError(): void {
-  modal
-    .confirm(t('observability.error.confirmClear'))
-    .then(() => {
-      return clearErrorLog()
-    })
-    .then(() => {
-      getErrorList()
-      getErrorStats()
+async function handleClearError(): Promise<void> {
+  try {
+    await modal.confirm(t('observability.error.confirmClear'))
+  } catch {
+    return // 用户取消
+  }
+  errorClearing.value = true
+  try {
+    await clearErrorLog()
+    const results = await Promise.all([getErrorList(), getErrorStats()])
+    if (results.every(Boolean)) {
       modal.msgSuccess(t('observability.clearSuccess'))
-    })
-    .catch(() => {})
+    }
+  } catch {
+    // 清空失败：错误提示由请求拦截器统一负责；这里不弹“清空成功”
+  } finally {
+    errorClearing.value = false
+  }
 }
 
 /** 聚合桶百分比（相对该列表最大值），最小值给 2 以便空桶可见 */
