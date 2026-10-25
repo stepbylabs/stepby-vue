@@ -114,6 +114,7 @@ import modal from '@/plugins/modal'
 import { translateTitle } from '@/composables/useMenuTitle'
 import { globalSearch } from '@/api/common'
 import type { GlobalSearchItem } from '@/api/common'
+import { isExternal, isHttp } from '@/utils/validate'
 import type { AppRouteRecord } from '@/types'
 
 interface Command {
@@ -184,7 +185,7 @@ const commands = computed<Command[]>(() => {
       const cleanPath = fullPath.replace(/\/+/g, '/')
       if (r.children && r.children.length > 0) {
         collectMenuCommands(r.children, cleanPath)
-      } else if (r.path && !r.path.startsWith('http')) {
+      } else if (r.path && !isExternal(r.path)) {
         list.push({
           id: `menu-${cleanPath}`,
           title: translateTitle(r.meta) || String(r.name ?? r.path),
@@ -352,10 +353,13 @@ function toSearchCommand(item: GlobalSearchItem): Command {
     description: item.subtitle,
     category: searchTypeLabel(item.type),
     action: () => {
-      if (/^https?:\/\//i.test(item.url)) {
+      if (isHttp(item.url)) {
         window.open(item.url, '_blank', 'noopener,noreferrer')
+      } else if (isExternal(item.url)) {
+        // mailto:/tel: 交给系统处理；用 router.push 会落到 404 页（菜单配置可能用它）
+        window.location.assign(item.url)
       } else {
-        router.push(item.url)
+        router.push(item.url).catch(() => {})
       }
     }
   }

@@ -204,6 +204,7 @@ import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { getJob } from '@/api/monitor/job'
 import { listJobLog, delJobLog, cleanJobLog } from '@/api/monitor/jobLog'
 import modal from '@/plugins/modal'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import tab from '@/plugins/tab'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/stepby'
@@ -253,6 +254,12 @@ function getList() {
   listJobLog(addDateRange(queryParams.value, dateRange.value))
     .then((response) => {
       loadError.value = false
+      const nextPage = pageAfterEmptyResult(queryParams.value.pageNum, response.rows.length, response.total)
+      if (nextPage !== queryParams.value.pageNum) {
+        queryParams.value.pageNum = nextPage
+        getList()
+        return
+      }
       jobLogList.value = response.rows
       total.value = response.total
     })
@@ -331,6 +338,8 @@ function handleClean() {
       return cleanJobLog()
     })
     .then(() => {
+      // 清空后页码回到第一页：停在旧页会看到"暂无数据"而实际还有日志
+      queryParams.value.pageNum = 1
       getList()
       modal.msgSuccess(t('common.clearSuccess'))
     })

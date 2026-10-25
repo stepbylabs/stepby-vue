@@ -52,12 +52,7 @@
           </el-col>
           <right-toolbar v-model:show-search="showSearch" @query-table="getList" />
         </el-row>
-        <el-alert
-          :title="t('scimGroup.sourceTip')"
-          type="info"
-          :closable="false"
-          class="mb-2"
-        />
+        <el-alert :title="t('scimGroup.sourceTip')" type="info" :closable="false" class="mb-2" />
       </template>
 
       <el-table v-loading="loading" :data="groupList" @selection-change="handleSelectionChange">
@@ -84,13 +79,7 @@
         </el-table-column>
         <el-table-column :label="t('common.column.operation')" width="150" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button
-              v-hasPermi="['system:scimgroup:edit']"
-              link
-              type="primary"
-              icon="Edit"
-              @click="openEdit(row)"
-            >
+            <el-button v-hasPermi="['system:scimgroup:edit']" link type="primary" icon="Edit" @click="openEdit(row)">
               {{ t('common.edit') }}
             </el-button>
             <el-button
@@ -115,12 +104,7 @@
     </el-card>
 
     <!-- 编辑抽屉：映射类型 + 绑定目标（成员只读） -->
-    <el-drawer
-      v-model="editVisible"
-      :title="t('scimGroup.editTitle')"
-      size="560px"
-      destroy-on-close
-    >
+    <el-drawer v-model="editVisible" :title="t('scimGroup.editTitle')" size="560px" destroy-on-close>
       <el-form label-width="110px" @submit.prevent>
         <el-form-item :label="t('scimGroup.displayName')">
           <el-input :model-value="editRow?.displayName" disabled />
@@ -138,24 +122,26 @@
           </div>
         </el-form-item>
         <el-form-item v-if="editForm.mappingType === 'role'" :label="t('scimGroup.bindRoles')">
-          <el-select :aria-label="t('scimGroup.bindRoles')" v-model="editForm.bindingTargetIds" multiple filterable class="w-full">
-            <el-option
-              v-for="r in roleOptions"
-              :key="r.roleId"
-              :label="r.roleName"
-              :value="r.roleId"
-            />
+          <el-select
+            :aria-label="t('scimGroup.bindRoles')"
+            v-model="editForm.bindingTargetIds"
+            multiple
+            filterable
+            class="w-full"
+          >
+            <el-option v-for="r in roleOptions" :key="r.roleId" :label="r.roleName" :value="r.roleId" />
           </el-select>
           <div class="el-form-item__tip">{{ t('scimGroup.bindRoleTip') }}</div>
         </el-form-item>
         <el-form-item v-else :label="t('scimGroup.bindDept')">
-          <el-select :aria-label="t('scimGroup.bindDept')" v-model="editForm.bindingTargetIds" multiple filterable class="w-full">
-            <el-option
-              v-for="d in deptOptions"
-              :key="d.deptId"
-              :label="d.deptName"
-              :value="d.deptId"
-            />
+          <el-select
+            :aria-label="t('scimGroup.bindDept')"
+            v-model="editForm.bindingTargetIds"
+            multiple
+            filterable
+            class="w-full"
+          >
+            <el-option v-for="d in deptOptions" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
           </el-select>
           <div class="el-form-item__tip">{{ t('scimGroup.bindDeptTip') }}</div>
         </el-form-item>
@@ -167,12 +153,7 @@
           <div class="el-form-item__tip">{{ t('scimGroup.memberReadonly') }}</div>
         </el-form-item>
         <el-form-item>
-          <el-button
-            v-hasPermi="['system:scimgroup:edit']"
-            type="primary"
-            :loading="saving"
-            @click="saveEdit"
-          >
+          <el-button v-hasPermi="['system:scimgroup:edit']" type="primary" :loading="saving" @click="saveEdit">
             {{ t('common.save') }}
           </el-button>
           <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
@@ -189,6 +170,7 @@ import { listDept } from '@/api/system/dept'
 import type { ComponentInternalInstance } from 'vue'
 import type { ScimGroupAdminRow, ScimGroupAdminDetail, SysRole, SysDept } from '@/types'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const { proxy } = getCurrentInstance() as ComponentInternalInstance
@@ -225,6 +207,11 @@ async function getList() {
   loading.value = true
   try {
     const res = await listScimGroup(queryForm)
+    const nextPage = pageAfterEmptyResult(queryForm.pageNum, res.rows.length, res.total)
+    if (nextPage !== queryForm.pageNum) {
+      queryForm.pageNum = nextPage
+      return getList()
+    }
     groupList.value = res.rows
     total.value = res.total
   } finally {

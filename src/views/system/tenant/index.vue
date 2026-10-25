@@ -684,24 +684,39 @@ async function handleStatusChange(row: TenantVo) {
     row.status = row.status === '0' ? '1' : '0'
     return
   }
-  await changeTenantStatus(row.tenantId, next)
-  proxy?.$modal.msgSuccess(t('common.success'))
+  try {
+    await changeTenantStatus(row.tenantId, next)
+    proxy?.$modal.msgSuccess(t('common.success'))
+  } catch (e) {
+    // 接口失败时开关必须回到服务端真实状态，否则页面在骗人
+    row.status = row.status === '0' ? '1' : '0'
+    if (import.meta.env.DEV) console.error('[tenant] changeStatus:', e)
+  }
 }
 
 async function handleDelete(row: TenantVo) {
   const ok = await proxy?.$modal.confirm(t('tenant.deleteConfirm', [row.tenantName]))
   if (!ok) return
-  await delTenant(row.tenantId)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  getList()
+  try {
+    await delTenant(row.tenantId)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    getList()
+  } catch (e) {
+    // 全局拦截器已提示；这里只阻止拒绝逸出（async 事件处理器的拒绝会被全局 errorHandler 接管并卸载页面）
+    if (import.meta.env.DEV) console.error('[tenant] delete:', e)
+  }
 }
 
 async function handleRestore(row: TenantVo) {
   const ok = await proxy?.$modal.confirm(t('tenant.restoreConfirm', [row.tenantName]))
   if (!ok) return
-  await restoreTenant(row.tenantId)
-  proxy?.$modal.msgSuccess(t('common.restoreSuccess'))
-  getList()
+  try {
+    await restoreTenant(row.tenantId)
+    proxy?.$modal.msgSuccess(t('common.restoreSuccess'))
+    getList()
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[tenant] restore:', e)
+  }
 }
 
 /**

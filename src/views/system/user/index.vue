@@ -420,6 +420,7 @@
 <script setup lang="ts" name="User">
 import TreePanel from '@/components/TreePanel/index.vue'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
@@ -678,6 +679,12 @@ function getList() {
   listUser(addDateRange(queryParams.value, dateRange.value))
     .then((res) => {
       loadError.value = false
+      const nextPage = pageAfterEmptyResult(queryParams.value.pageNum, res.rows.length, res.total)
+      if (nextPage !== queryParams.value.pageNum) {
+        queryParams.value.pageNum = nextPage
+        getList()
+        return
+      }
       userList.value = res.rows
       total.value = res.total
     })

@@ -358,6 +358,9 @@ function afterLoginSuccess(): void {
 }
 
 function handleLogin(): void {
+  // 回车键在用户名/密码/验证码三处都能触发；成功后跳转前按钮仍可点 ⇒ 必须防重入，
+  // 否则一次登录会打出多条 /login（并累加后端失败/限流计数）。
+  if (loading.value) return
   loginRefRef.value?.validate((valid: boolean) => {
     if (valid) {
       loading.value = true

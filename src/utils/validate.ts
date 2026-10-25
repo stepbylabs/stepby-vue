@@ -61,11 +61,30 @@ export function isHttp(url: string): boolean {
 
 /**
  * 判断path是否为外链
+ *
+ * 认四支：`http(s):`、`mailto:`、`tel:` 与协议相对 `//host`。最后一支不是新增语义——
+ * 它同样是"离开本应用"的地址，漏掉它会让 `//cdn/x.png` 被当成站内资源拼上 baseAPI
+ * （ImagePreview/ImageUpload/user.ts 三处都受此影响），菜单外链也会被折叠成站内路由。
  * @param path
  * @returns {Boolean}
  */
 export function isExternal(path: string): boolean {
-  return /^(https?:|mailto:|tel:)/.test(path)
+  if (!path || typeof path !== 'string') return false
+  return /^(https?:|mailto:|tel:|\/\/)/.test(path)
+}
+
+/**
+ * 判断 url 是否为**绝对地址**（含协议相对 `//host`）。
+ *
+ * 与 `isHttp` 的区别是锚定在串首：`/iframe?u=https://x` 是站内路径，不是绝对地址。
+ * `isExternal` 回答"是否离开本应用"，本函数回答"这个地址是否自带 host"——IframeToggle
+ * 只需要后者（决定返回完整 URL 还是 pathname），拿前者会把 `tel:` 判成可嵌入的绝对地址。
+ * @param url
+ * @returns {Boolean}
+ */
+export function isAbsoluteUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false
+  return /^(https?:)?\/\//i.test(url)
 }
 
 // ==================== 图片 magic bytes 校验（FE-002）====================

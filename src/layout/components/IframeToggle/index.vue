@@ -11,6 +11,7 @@
 <script setup lang="ts">
 import InnerLink from '../InnerLink/index.vue'
 import useTagsViewStore from '@/store/modules/tagsView'
+import { isAbsoluteUrl } from '@/utils/validate'
 
 const route = useRoute()
 const tagsViewStore = useTagsViewStore()
@@ -18,7 +19,7 @@ const tagsViewStore = useTagsViewStore()
 function iframeUrl(url: string, query: Record<string, unknown>): string {
   // F5：用 URL + URLSearchParams 合并 query，避免 url 已含 ?/# 时拼坏（保留 hash）
   try {
-    const isAbs = /^(https?:)?\/\//i.test(url)
+    const isAbs = isAbsoluteUrl(url)
     const u = new URL(url, window.location.origin)
     const sp = new URLSearchParams(u.search)
     for (const [k, v] of Object.entries(query)) {

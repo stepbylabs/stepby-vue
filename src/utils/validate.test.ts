@@ -1,4 +1,12 @@
-import { isExternal, isPathMatch, isEmpty, isHttp, toPositiveInt, verifyImageMagicBytes } from '@/utils/validate'
+import {
+  isAbsoluteUrl,
+  isExternal,
+  isPathMatch,
+  isEmpty,
+  isHttp,
+  toPositiveInt,
+  verifyImageMagicBytes
+} from '@/utils/validate'
 import { afterEach, vi } from 'vitest'
 
 /** 构造内存 File：bytes 为文件内容，name 用于扩展名白名单判断 */
@@ -62,12 +70,42 @@ describe('isExternal', () => {
     expect(isExternal('/system/user')).toBe(false)
   })
 
+  it('协议相对地址是外链（//host 自带 host，不得被拼上 baseAPI）', () => {
+    expect(isExternal('//cdn.example.com/a.png')).toBe(true)
+    expect(isExternal('//')).toBe(true)
+  })
+
   it('路由 name 不是外链', () => {
     expect(isExternal('system')).toBe(false)
   })
 
   it('空字符串不是外链', () => {
     expect(isExternal('')).toBe(false)
+  })
+
+  it('非字符串输入不抛错', () => {
+    expect(isExternal(undefined as unknown as string)).toBe(false)
+  })
+})
+
+// ============================================================================
+// isAbsoluteUrl 绝对地址判断（IframeToggle 语义）
+// ============================================================================
+describe('isAbsoluteUrl', () => {
+  it('http(s) 与协议相对地址是绝对地址', () => {
+    expect(isAbsoluteUrl('https://x.test/a')).toBe(true)
+    expect(isAbsoluteUrl('http://x.test/a')).toBe(true)
+    expect(isAbsoluteUrl('//x.test/a')).toBe(true)
+  })
+
+  it('站内路径不是绝对地址（即使查询串里含 https）', () => {
+    expect(isAbsoluteUrl('/iframe?u=https://x.test')).toBe(false)
+    expect(isAbsoluteUrl('/system/user')).toBe(false)
+  })
+
+  it('mailto/tel 不是可嵌入的绝对地址', () => {
+    expect(isAbsoluteUrl('mailto:a@x.test')).toBe(false)
+    expect(isAbsoluteUrl('tel:13800138000')).toBe(false)
   })
 })
 

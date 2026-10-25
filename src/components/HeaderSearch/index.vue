@@ -113,7 +113,7 @@ import type { InputInstance } from 'element-plus'
 import { getNormalPath } from '@/utils/stepby'
 // HTML 转义统一走 @/utils 的规范实现（避免多处私有 escapeHtml 各自漂移导致注入回归）
 import { escapeHtml } from '@/utils'
-import { isHttp } from '@/utils/validate'
+import { isExternal, isHttp } from '@/utils/validate'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
 import i18n from '@/i18n'
@@ -245,6 +245,9 @@ function change(val: SearchItem): void {
     // ⇒ `slice(-1)` 取到**最后一个字符**，新标签页打开的是一个单字符串（b89 取证，N-D 盘查时抓出）。
     const pindex = p.indexOf('http')
     window.open(pindex === -1 ? p : p.slice(pindex), '_blank', 'noopener,noreferrer')
+  } else if (isExternal(p)) {
+    // mailto:/tel: 菜单项：交给系统处理，不能 router.push（会落到 404 页）
+    window.location.assign(p)
   } else {
     if (query) {
       try {

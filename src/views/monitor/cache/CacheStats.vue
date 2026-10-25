@@ -3,7 +3,7 @@
     <el-col :xs="24" :sm="24" :md="12" class="card-box">
       <el-card>
         <template #header>
-          <Histogram class="align-middle w-[1em] h-[1em]"/>
+          <Histogram class="align-middle w-[1em] h-[1em]" />
           <span class="align-middle">{{ t('cache.prefix.title') }}</span>
           <el-button
             v-hasPermi="['monitor:cache:list']"
@@ -12,7 +12,8 @@
             type="primary"
             icon="Refresh"
             :aria-label="t('cache.prefix.refresh')"
-            @click="loadStats()" ></el-button>
+            @click="loadStats()"
+          ></el-button>
         </template>
         <el-table v-loading="prefixLoading" :data="prefixStats" :height="statsTableHeight" class="w-full">
           <el-table-column
@@ -21,12 +22,7 @@
             prop="cacheName"
             show-overflow-tooltip
           />
-          <el-table-column
-            :label="t('cache.prefix.column.keyCount')"
-            align="center"
-            prop="keyCount"
-            width="110"
-          />
+          <el-table-column :label="t('cache.prefix.column.keyCount')" align="center" prop="keyCount" width="110" />
           <el-table-column :label="t('cache.prefix.column.memory')" align="center" width="140">
             <template #default="scope">
               <span :class="{ 'memory-large': isLargeMemory(scope.row.memoryBytes) }">
@@ -36,7 +32,9 @@
             </template>
           </el-table-column>
           <template #empty>
-            <el-empty :description="t('cache.prefix.empty')" />
+            <list-empty :load-error="prefixError" @retry="loadStats">
+              <el-empty :description="t('cache.prefix.empty')" />
+            </list-empty>
           </template>
         </el-table>
       </el-card>
@@ -45,7 +43,7 @@
     <el-col :xs="24" :sm="24" :md="12" class="card-box">
       <el-card>
         <template #header>
-          <Warning class="align-middle w-[1em] h-[1em]"/>
+          <Warning class="align-middle w-[1em] h-[1em]" />
           <span class="align-middle">{{ t('cache.hot.title') }}</span>
           <el-button
             v-hasPermi="['monitor:cache:list']"
@@ -54,7 +52,8 @@
             type="primary"
             icon="Refresh"
             :aria-label="t('cache.hot.refresh')"
-            @click="loadStats()" ></el-button>
+            @click="loadStats()"
+          ></el-button>
         </template>
         <el-table v-loading="hotLoading" :data="hotKeys" :height="statsTableHeight" class="w-full">
           <el-table-column :label="t('cache.hot.column.key')" align="center" prop="key" show-overflow-tooltip />
@@ -74,7 +73,8 @@
             :label="t('cache.list.column.operation')"
             width="60"
             align="center"
-            class-name="small-padding fixed-width" >
+            class-name="small-padding fixed-width"
+          >
             <template #default="scope">
               <el-button
                 v-hasPermi="['monitor:cache:clearKey']"
@@ -82,11 +82,12 @@
                 type="primary"
                 icon="Delete"
                 :aria-label="t('common.delete')"
-                @click="handleClearHotKey(scope.row)" ></el-button>
+                @click="handleClearHotKey(scope.row)"
+              ></el-button>
             </template>
           </el-table-column>
           <template #empty>
-            <el-empty :description="t('common.empty')" />
+            <list-empty :load-error="hotError" @retry="loadStats" />
           </template>
         </el-table>
       </el-card>
@@ -114,6 +115,9 @@ const prefixStats = shallowRef<CachePrefixStat[]>([])
 const hotKeys = shallowRef<HotKey[]>([])
 const prefixLoading = ref(false)
 const hotLoading = ref(false)
+// 失败态与"暂无数据"分形：缓存统计是运维排障入口，网络故障时显示"没有缓存"会把人支使去查错方向
+const prefixError = ref(false)
+const hotError = ref(false)
 let initStats = false
 
 function handleListResize(): void {
@@ -142,17 +146,25 @@ function loadStats(): void {
   hotLoading.value = true
   getPrefixStats()
     .then((response) => {
+      prefixError.value = false
       prefixStats.value = response.data!
     })
-    .catch(() => {})
+    .catch(() => {
+      prefixError.value = true
+      prefixStats.value = []
+    })
     .finally(() => {
       prefixLoading.value = false
     })
   getHotKeys()
     .then((response) => {
+      hotError.value = false
       hotKeys.value = response.data!
     })
-    .catch(() => {})
+    .catch(() => {
+      hotError.value = true
+      hotKeys.value = []
+    })
     .finally(() => {
       hotLoading.value = false
     })
@@ -167,17 +179,23 @@ function handleClearHotKey(row: HotKey): void {
     })
     .then(() => {
       modal.msgSuccess(t('cache.hot.tip.clearKeySuccess', { key: row.key }))
-      // 清理后同步刷新热 Key 列表与统计
+      // 清理后同步刷新热 Key 列表与统计（失败也要落到失败态，不得留着旧数据冒充新结果）
       getHotKeys()
         .then((response) => {
+          hotError.value = false
           hotKeys.value = response.data!
         })
-        .catch(() => {})
+        .catch(() => {
+          hotError.value = true
+        })
       getPrefixStats()
         .then((response) => {
+          prefixError.value = false
           prefixStats.value = response.data!
         })
-        .catch(() => {})
+        .catch(() => {
+          prefixError.value = true
+        })
     })
     .catch(() => {})
 }

@@ -231,6 +231,7 @@ describe('components/CommandPalette', () => {
     hoisted.globalSearch.mockResolvedValue({
       data: [
         { type: 'doc', id: 9, title: 'Ext', subtitle: 's', url: 'https://ext.test/a' },
+        { type: 'doc', id: 11, title: 'Proto', subtitle: 'p', url: '//cdn.test/b' },
         { type: 'doc', id: 10, title: 'Inner', subtitle: 'i', url: '/system/user' }
       ]
     })
@@ -244,15 +245,33 @@ describe('components/CommandPalette', () => {
     // 外链 → window.open
     await w.findAll('.palette-item')[0].trigger('click')
     expect(openSpy).toHaveBeenCalledWith('https://ext.test/a', '_blank', 'noopener,noreferrer')
-    // 应用内路由 → router.push
-    await w.find('input').setValue('ex')
-    await nextTick()
-    vi.advanceTimersByTime(300)
-    await vi.waitFor(() => expect(w.text()).toContain('Inner'))
-    await nextTick()
+    // 协议相对地址同样是外链（旧写法只认 ^https?:// ⇒ 会落进 router.push）
     await w.findAll('.palette-item')[1].trigger('click')
+    expect(openSpy).toHaveBeenCalledWith('//cdn.test/b', '_blank', 'noopener,noreferrer')
+    // 应用内路由 → router.push
+    await w.findAll('.palette-item')[2].trigger('click')
     expect(hoisted.push).toHaveBeenCalledWith('/system/user')
     Object.defineProperty(window, 'open', { value: origOpen, writable: true, configurable: true })
+  })
+
+  it('搜索结果：mailto/tel 交给系统处理，不得 router.push（会落 404 页）', async () => {
+    vi.useFakeTimers()
+    const assignSpy = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign: assignSpy })
+    hoisted.globalSearch.mockResolvedValue({
+      data: [{ type: 'doc', id: 12, title: 'Mail', subtitle: 'm', url: 'mailto:a@x.test' }]
+    })
+    const w = factory()
+    await nextTick()
+    await w.find('input').setValue('mail')
+    await nextTick()
+    vi.advanceTimersByTime(300)
+    await vi.waitFor(() => expect(w.text()).toContain('Mail'))
+    await nextTick()
+    await w.findAll('.palette-item')[0].trigger('click')
+    expect(assignSpy).toHaveBeenCalledWith('mailto:a@x.test')
+    expect(hoisted.push).not.toHaveBeenCalledWith('mailto:a@x.test')
+    vi.unstubAllGlobals()
   })
 
   it('搜索接口失败 → 结果清空（不抛）', async () => {

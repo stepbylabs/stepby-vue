@@ -173,6 +173,28 @@ describe('composables/useCrudTable', () => {
       // 旧响应被丢弃，数据保持最新
       expect(ctx.dataList.value).toEqual([{ postId: 2, postName: 'new' }])
     })
+
+    it('末页删空后自动回退一页（不再显示"暂无数据"）', async () => {
+      const { ctx, listApi, queryParams } = makeCtx()
+      expect(queryParams.value.pageNum).toBe(2)
+      listApi.mockResolvedValueOnce({ rows: [], total: 9 }).mockResolvedValueOnce({ rows: [{ postId: 1 }], total: 9 })
+      ctx.getList()
+      await flush()
+      await flush()
+      expect(queryParams.value.pageNum).toBe(1)
+      expect(listApi).toHaveBeenCalledTimes(2)
+      expect(ctx.dataList.value).toHaveLength(1)
+    })
+
+    it('第一页本来就为空时不重复请求（筛选无结果不得白跑）', async () => {
+      const { ctx, listApi, queryParams } = makeCtx()
+      queryParams.value.pageNum = 1
+      listApi.mockResolvedValueOnce({ rows: [], total: 0 })
+      ctx.getList()
+      await flush()
+      expect(listApi).toHaveBeenCalledTimes(1)
+      expect(queryParams.value.pageNum).toBe(1)
+    })
   })
 
   // ===== cancel / reset =====

@@ -96,6 +96,17 @@ describe('composables/useSessionTimeout', () => {
     expect(mocks.userStore.logOut).not.toHaveBeenCalled()
   })
 
+  it('warning dialog cannot be dismissed by overlay/ESC/close (那些路径会直接登出)', async () => {
+    mountComposable()
+    await vi.advanceTimersByTimeAsync(WARNING_MS)
+    expect(mocks.confirm).toHaveBeenCalledTimes(1)
+    const opts = mocks.confirm.mock.calls[0][2] as Record<string, unknown>
+    expect(opts.closeOnClickModal).toBe(false)
+    expect(opts.closeOnPressEscape).toBe(false)
+    expect(opts.showClose).toBe(false)
+    expect(opts.duration).toBe(0)
+  })
+
   it('logs out and redirects to login after full inactivity', async () => {
     mountComposable()
     await vi.advanceTimersByTimeAsync(DEFAULT_MS + 1000)

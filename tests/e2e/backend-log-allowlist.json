@@ -14,7 +14,7 @@
     },
     {
       "level": "WARN",
-      "match": "加载 mmdb 文件 .* 失败，IP 归属地查询将返回空",
+      "match": "加载 mmdb 文件.*失败，IP 归属地查询将返回空",
       "why": "GeoLite2-City.mmdb 是可选数据文件，未随仓库分发；缺失时归属地降级为空，不影响任何业务链路。这一条由 IpLocator 构造期打出（**启动期一次性**），未重启的批次窗口内必然不出现 ⇒ 按条件型豁免登记，生产者锚点失效时才允许撤销",
       "producer": {
         "file": "stepby-axum/src/utils/ip_location.rs",

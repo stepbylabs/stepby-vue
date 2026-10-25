@@ -3,7 +3,7 @@
     <el-col :xs="24" :sm="24" :md="8">
       <el-card class="h-[calc(100vh-180px)]">
         <template #header>
-          <Collection class="align-middle w-[1em] h-[1em]"/>
+          <Collection class="align-middle w-[1em] h-[1em]" />
           <span class="align-middle">{{ t('cache.list.title') }}</span>
           <el-button
             v-hasPermi="['monitor:cache:list']"
@@ -12,7 +12,8 @@
             type="primary"
             icon="Refresh"
             :aria-label="t('common.refresh')"
-            @click="refreshCacheNames()" ></el-button>
+            @click="refreshCacheNames()"
+          ></el-button>
         </template>
         <el-table
           v-loading="listLoading"
@@ -20,25 +21,23 @@
           :height="listTableHeight"
           highlight-current-row
           @row-click="getCacheKeys"
-          class="w-full" >
+          class="w-full"
+        >
           <el-table-column :label="t('cache.list.column.id')" width="60" type="index"></el-table-column>
           <el-table-column
             :label="t('cache.list.column.name')"
             align="center"
             prop="cacheName"
             show-overflow-tooltip
-            :formatter="nameFormatte" ></el-table-column>
-          <el-table-column
-            :label="t('cache.list.column.remark')"
-            align="center"
-            prop="remark"
-            show-overflow-tooltip
-          />
+            :formatter="nameFormatte"
+          ></el-table-column>
+          <el-table-column :label="t('cache.list.column.remark')" align="center" prop="remark" show-overflow-tooltip />
           <el-table-column
             :label="t('cache.list.column.operation')"
             width="60"
             align="center"
-            class-name="small-padding fixed-width" >
+            class-name="small-padding fixed-width"
+          >
             <template #default="scope">
               <el-button
                 v-hasPermi="['monitor:cache:clearName']"
@@ -46,11 +45,12 @@
                 type="primary"
                 icon="Delete"
                 :aria-label="t('common.delete')"
-                @click.stop="handleClearCacheName(scope.row)" ></el-button>
+                @click.stop="handleClearCacheName(scope.row)"
+              ></el-button>
             </template>
           </el-table-column>
           <template #empty>
-            <el-empty :description="t('common.empty')" />
+            <list-empty :load-error="listError" @retry="getCacheNames" />
           </template>
         </el-table>
       </el-card>
@@ -59,7 +59,7 @@
     <el-col :xs="24" :sm="24" :md="8">
       <el-card class="h-[calc(100vh-180px)]">
         <template #header>
-          <Key class="align-middle w-[1em] h-[1em]"/>
+          <Key class="align-middle w-[1em] h-[1em]" />
           <span class="align-middle">{{ t('cache.list.keyListTitle') }}</span>
           <Transition name="fade">
             <el-button
@@ -70,7 +70,8 @@
               type="primary"
               icon="Refresh"
               :aria-label="t('common.refresh')"
-              @click="refreshCacheKeys()" ></el-button>
+              @click="refreshCacheKeys()"
+            ></el-button>
           </Transition>
         </template>
         <el-table
@@ -79,18 +80,21 @@
           :height="listTableHeight"
           highlight-current-row
           @row-click="handleCacheValue"
-          class="w-full" >
+          class="w-full"
+        >
           <el-table-column :label="t('cache.list.keyColumn.id')" width="60" type="index"></el-table-column>
           <el-table-column
             :label="t('cache.list.keyColumn.key')"
             align="center"
             show-overflow-tooltip
-            :formatter="keyFormatte" ></el-table-column>
+            :formatter="keyFormatte"
+          ></el-table-column>
           <el-table-column
             :label="t('cache.list.keyColumn.operation')"
             width="60"
             align="center"
-            class-name="small-padding fixed-width" >
+            class-name="small-padding fixed-width"
+          >
             <template #default="scope">
               <el-button
                 v-hasPermi="['monitor:cache:clearKey']"
@@ -98,11 +102,14 @@
                 type="primary"
                 icon="Delete"
                 :aria-label="t('common.delete')"
-                @click.stop="handleClearCacheKey(scope.row)" ></el-button>
+                @click.stop="handleClearCacheKey(scope.row)"
+              ></el-button>
             </template>
           </el-table-column>
           <template #empty>
-            <el-empty :description="nowCacheName ? t('common.empty') : t('cache.list.tip.selectCacheFirst')" />
+            <list-empty :load-error="keysError" @retry="getCacheKeys()">
+              <el-empty :description="nowCacheName ? t('common.empty') : t('cache.list.tip.selectCacheFirst')" />
+            </list-empty>
           </template>
         </el-table>
       </el-card>
@@ -111,7 +118,7 @@
     <el-col :xs="24" :sm="24" :md="8">
       <el-card :bordered="false" class="h-[calc(100vh-180px)]">
         <template #header>
-          <Document class="align-middle w-[1em] h-[1em]"/>
+          <Document class="align-middle w-[1em] h-[1em]" />
           <span class="align-middle">{{ t('cache.list.contentTitle') }}</span>
         </template>
         <Transition mode="out-in" name="fade">
@@ -172,6 +179,9 @@ interface CacheForm {
 
 const cacheNames = shallowRef<CacheName[]>([])
 const cacheKeys = shallowRef<string[]>([])
+// 失败态与"暂无数据"分形（网络故障时不能显示"没有缓存"）
+const listError = ref(false)
+const keysError = ref(false)
 // 历史遗留修复：模板曾绑定不存在的 nameFormatte/keyFormatte（undefined，el-table 静默回退
 // 默认渲染，行为=原样显示 prop/行值）。补上等价显式实现，消除悬空引用。
 function nameFormatte(row: SysCache): string {
@@ -190,21 +200,29 @@ function handleListResize(): void {
   listTableHeight.value = window.innerHeight - 260
 }
 
-function getCacheNames(): void {
+function getCacheNames(): Promise<boolean> {
   listLoading.value = true
-  listCacheName()
+  return listCacheName()
     .then((response) => {
+      listError.value = false
       cacheNames.value = response.data!
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      listError.value = true
+      cacheNames.value = []
+      return false
+    })
     .finally(() => {
       listLoading.value = false
     })
 }
 
-function refreshCacheNames(): void {
-  getCacheNames()
-  modal.msgSuccess(t('cache.list.tip.refreshSuccess'))
+async function refreshCacheNames(): Promise<void> {
+  // 提示必须跟着请求结果：先弹"刷新成功"再发请求，失败时用户会以为数据已更新
+  if (await getCacheNames()) {
+    modal.msgSuccess(t('cache.list.tip.refreshSuccess'))
+  }
 }
 
 function handleClearCacheName(row: SysCache): void {
@@ -220,26 +238,34 @@ function handleClearCacheName(row: SysCache): void {
     .catch(() => {})
 }
 
-function getCacheKeys(row?: SysCache): void {
+function getCacheKeys(row?: SysCache): Promise<boolean> {
   const cacheName = row !== undefined ? row.cacheName : nowCacheName.value
   if (cacheName === '') {
-    return
+    return Promise.resolve(false)
   }
   subLoading.value = true
-  listCacheKey(cacheName)
+  // 选中即记住目标：失败后「重试」要能重发同一个缓存名（等成功再记会让重试按钮空转）
+  nowCacheName.value = cacheName
+  return listCacheKey(cacheName)
     .then((response) => {
+      keysError.value = false
       cacheKeys.value = response.data!
-      nowCacheName.value = cacheName
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      keysError.value = true
+      cacheKeys.value = []
+      return false
+    })
     .finally(() => {
       subLoading.value = false
     })
 }
 
-function refreshCacheKeys(): void {
-  getCacheKeys()
-  modal.msgSuccess(t('cache.list.tip.refreshKeySuccess'))
+async function refreshCacheKeys(): Promise<void> {
+  if (await getCacheKeys()) {
+    modal.msgSuccess(t('cache.list.tip.refreshKeySuccess'))
+  }
 }
 
 function handleClearCacheKey(cacheKey: string): void {

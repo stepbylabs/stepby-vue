@@ -93,3 +93,6 @@ coverage/
 /tests/e2e/_tmp/
 /tests/e2e/diag-*.mjs
 /tests/e2e/probe-*.mjs
+
+# 知识图谱生成物（与根仓同口径：graphify update 每轮重扫）
+graphify-out/

@@ -104,7 +104,11 @@ export function useSessionTimeout(): void {
           confirmButtonText: i18n.global.t('session.continueOperation'),
           cancelButtonText: i18n.global.t('session.logoutNow'),
           type: 'warning',
-          duration: 0 // 不自动关闭
+          duration: 0, // 不自动关闭
+          // 误触遮罩/ESC 会走 catch 分支直接登出并丢掉未保存表单 —— 必须显式做选择
+          closeOnClickModal: false,
+          closeOnPressEscape: false,
+          showClose: false
         }
       )
       // 用户选择继续，重置活动时间

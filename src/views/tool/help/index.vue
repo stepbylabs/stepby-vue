@@ -240,6 +240,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { isExternal, isHttp } from '@/utils/validate'
 import {
   QuestionFilled,
   Search,
@@ -315,8 +316,11 @@ function goTo(path: string): void {
 }
 
 function openContact(url: string): void {
-  if (url.startsWith('http') || url.startsWith('mailto')) {
+  if (isHttp(url)) {
     window.open(url, '_blank', 'noopener,noreferrer')
+  } else if (isExternal(url)) {
+    // mailto:/tel: 不能新开标签页（会留下空白页且不唤起客户端）
+    window.location.assign(url)
   }
 }
 </script>

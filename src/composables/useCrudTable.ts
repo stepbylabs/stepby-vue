@@ -22,6 +22,14 @@ export function focusFirstError(): void {
 }
 
 /**
+ * 空页回退：删掉末页最后一条后页码越界，列表会显示"暂无数据"而前面还有数据。
+ * 返回应当请求的页码（只在"有数据但当前页为空"时回退一页，避免筛选无结果时白跑）。
+ */
+export function pageAfterEmptyResult(pageNum: number, rowCount: number, total: number): number {
+  return rowCount === 0 && total > 0 && pageNum > 1 ? pageNum - 1 : pageNum
+}
+
+/**
  * 通用 CRUD 表格 composable
  * 抽取岗位/角色/字典/通知/参数/定时任务/备份等页面的共性逻辑
  *
@@ -371,6 +379,13 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         if (currentRequestId !== listRequestId) return // discard stale response
         const resp = response as { rows: T[]; total: number }
         loadError.value = false
+        const pageNum = Number((queryParams.value as { pageNum?: number }).pageNum ?? 1)
+        const nextPage = pageAfterEmptyResult(pageNum, resp.rows.length, resp.total)
+        if (nextPage !== pageNum) {
+          ;(queryParams.value as unknown as { pageNum: number }).pageNum = nextPage
+          getList()
+          return
+        }
         dataList.value = resp.rows
         total.value = resp.total
       })
@@ -386,7 +401,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         if (import.meta.env.DEV) console.error('[useCrudTable] getList:', e)
       })
       .finally(() => {
-        loading.value = false
+        // 空页回退会立刻发起新请求：旧请求的 finally 不得把新请求的 loading 关掉
+        if (currentRequestId === listRequestId) loading.value = false
       })
   }
 
