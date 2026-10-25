@@ -15,6 +15,16 @@
             @click="refreshCacheNames()"
           ></el-button>
         </template>
+        <el-alert
+          v-if="listErrorBar"
+          class="mb-2 cache-error-bar"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="getCacheNames()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table
           v-loading="listLoading"
           :data="cacheNames"
@@ -74,6 +84,16 @@
             ></el-button>
           </Transition>
         </template>
+        <el-alert
+          v-if="keysErrorBar"
+          class="mb-2 cache-error-bar"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="getCacheKeys()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table
           v-loading="subLoading"
           :data="cacheKeys"
@@ -122,7 +142,12 @@
           <span class="align-middle">{{ t('cache.list.contentTitle') }}</span>
         </template>
         <Transition mode="out-in" name="fade">
-          <el-form v-if="cacheForm.cacheKey" key="form" :model="cacheForm">
+          <div v-if="valueError" key="valueError" class="cache-value-error">
+            <el-alert type="error" :closable="false" show-icon :title="t('common.loadFailed')">
+              <el-button link type="primary" @click="retryCacheValue()">{{ t('common.retry') }}</el-button>
+            </el-alert>
+          </div>
+          <el-form v-else-if="cacheForm.cacheKey" key="form" :model="cacheForm">
             <el-row :gutter="32">
               <el-col :offset="1" :span="22">
                 <el-form-item :label="t('cache.list.form.name')" prop="cacheName">
@@ -148,6 +173,14 @@
               </el-col>
             </el-row>
           </el-form>
+          <div
+            v-else-if="valueLoading"
+            key="loading"
+            v-loading="valueLoading"
+            :element-loading-text="t('common.loading')"
+            aria-busy="true"
+            class="min-h-[160px]"
+          ></div>
           <el-empty v-else key="empty" :description="t('cache.list.tip.selectKeyFirst')" :image-size="80" />
         </Transition>
       </el-card>
@@ -182,6 +215,13 @@ const cacheKeys = shallowRef<string[]>([])
 // 失败态与"暂无数据"分形（网络故障时不能显示"没有缓存"）
 const listError = ref(false)
 const keysError = ref(false)
+// 非空列表刷新失败：保留旧数据，用顶部错误条说明"这是旧数据"（N-90-4）
+const listErrorBar = computed(() => listError.value && cacheNames.value.length > 0)
+const keysErrorBar = computed(() => keysError.value && cacheKeys.value.length > 0)
+// 右侧详情：失败时必须清掉上一个键的内容，否则页面会把 A 的值挂在 B 名下
+const valueError = ref(false)
+const valueLoading = ref(false)
+const lastValueKey = ref('')
 // 历史遗留修复：模板曾绑定不存在的 nameFormatte/keyFormatte（undefined，el-table 静默回退
 // 默认渲染，行为=原样显示 prop/行值）。补上等价显式实现，消除悬空引用。
 function nameFormatte(row: SysCache): string {
@@ -210,7 +250,6 @@ function getCacheNames(): Promise<boolean> {
     })
     .catch(() => {
       listError.value = true
-      cacheNames.value = []
       return false
     })
     .finally(() => {
@@ -243,6 +282,12 @@ function getCacheKeys(row?: SysCache): Promise<boolean> {
   if (cacheName === '') {
     return Promise.resolve(false)
   }
+  // 换目标时旧键不属于新目标，必须先清；同目标刷新失败则保留旧键并用顶部错误条说明
+  const targetChanged = cacheName !== nowCacheName.value
+  if (targetChanged) {
+    cacheKeys.value = []
+    keysError.value = false
+  }
   subLoading.value = true
   // 选中即记住目标：失败后「重试」要能重发同一个缓存名（等成功再记会让重试按钮空转）
   nowCacheName.value = cacheName
@@ -254,7 +299,7 @@ function getCacheKeys(row?: SysCache): Promise<boolean> {
     })
     .catch(() => {
       keysError.value = true
-      cacheKeys.value = []
+      if (targetChanged) cacheKeys.value = []
       return false
     })
     .finally(() => {
@@ -282,11 +327,27 @@ function handleClearCacheKey(cacheKey: string): void {
 }
 
 function handleCacheValue(cacheKey: string): void {
+  lastValueKey.value = cacheKey
+  valueError.value = false
+  // 清掉旧值再发请求：失败时右侧不得继续显示上一个键的内容（页面在骗人）
+  cacheForm.value = {}
+  valueLoading.value = true
   getCacheValue(nowCacheName.value, cacheKey)
     .then((response) => {
       cacheForm.value = response.data!
     })
-    .catch(() => {})
+    .catch(() => {
+      valueError.value = true
+    })
+    .finally(() => {
+      valueLoading.value = false
+    })
+}
+
+function retryCacheValue(): void {
+  if (lastValueKey.value !== '') {
+    handleCacheValue(lastValueKey.value)
+  }
 }
 
 // 切换到键管理 Tab 时首次加载

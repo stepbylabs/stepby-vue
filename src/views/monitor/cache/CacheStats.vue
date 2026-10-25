@@ -15,6 +15,16 @@
             @click="loadStats()"
           ></el-button>
         </template>
+        <el-alert
+          v-if="prefixErrorBar"
+          class="mb-2 cache-error-bar"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="loadStats()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table v-loading="prefixLoading" :data="prefixStats" :height="statsTableHeight" class="w-full">
           <el-table-column
             :label="t('cache.prefix.column.cacheName')"
@@ -55,6 +65,16 @@
             @click="loadStats()"
           ></el-button>
         </template>
+        <el-alert
+          v-if="hotErrorBar"
+          class="mb-2 cache-error-bar"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="loadStats()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table v-loading="hotLoading" :data="hotKeys" :height="statsTableHeight" class="w-full">
           <el-table-column :label="t('cache.hot.column.key')" align="center" prop="key" show-overflow-tooltip />
           <el-table-column :label="t('cache.hot.column.type')" align="center" prop="keyType" width="90" />
@@ -118,6 +138,9 @@ const hotLoading = ref(false)
 // 失败态与"暂无数据"分形：缓存统计是运维排障入口，网络故障时显示"没有缓存"会把人支使去查错方向
 const prefixError = ref(false)
 const hotError = ref(false)
+// 非空列表刷新失败：保留旧数据，用顶部错误条说明"这是旧数据"（N-90-4）
+const prefixErrorBar = computed(() => prefixError.value && prefixStats.value.length > 0)
+const hotErrorBar = computed(() => hotError.value && hotKeys.value.length > 0)
 let initStats = false
 
 function handleListResize(): void {
@@ -151,7 +174,6 @@ function loadStats(): void {
     })
     .catch(() => {
       prefixError.value = true
-      prefixStats.value = []
     })
     .finally(() => {
       prefixLoading.value = false
@@ -163,7 +185,6 @@ function loadStats(): void {
     })
     .catch(() => {
       hotError.value = true
-      hotKeys.value = []
     })
     .finally(() => {
       hotLoading.value = false
