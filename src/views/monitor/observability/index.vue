@@ -1,7 +1,17 @@
 <template>
-  <div class="app-container" v-loading="pageLoading" :element-loading-text="t('observability.loading')">
+  <div class="app-container">
     <!-- 顶部统计卡片：慢请求 + 错误 + Redis -->
-    <el-row :gutter="10" class="mb8">
+    <el-alert
+      v-if="statsErrorBar"
+      class="observability-error-bar mb-2"
+      type="error"
+      :closable="false"
+      show-icon
+      :title="t('common.loadFailed')"
+    >
+      <el-button link type="primary" @click="loadStats()">{{ t('common.retry') }}</el-button>
+    </el-alert>
+    <el-row :gutter="10" class="mb8" v-loading="statsLoading" :element-loading-text="t('observability.loading')">
       <el-col :xs="12" :sm="8" :md="4" v-for="card in statCards" :key="card.label" class="stat-col">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-label">{{ card.label }}</div>
@@ -34,6 +44,16 @@
           </el-col>
         </el-row>
 
+        <el-alert
+          v-if="slowListErrorBar"
+          class="observability-error-bar mb-2"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="getSlowList()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table v-loading="slowLoading" :data="slowList" class="mb8">
           <el-table-column :label="t('observability.slow.column.method')" align="center" prop="method" width="100">
             <template #default="scope">
@@ -56,7 +76,7 @@
           </el-table-column>
           <el-table-column :label="t('observability.slow.column.at')" align="center" prop="at" width="210" />
           <template #empty>
-            <el-empty :description="t('observability.empty')" />
+            <list-empty :load-error="slowListError" @retry="getSlowList" />
           </template>
         </el-table>
 
@@ -73,7 +93,17 @@
           <template #header>
             {{ t('observability.slow.topTitle') }}
           </template>
-          <el-table v-loading="slowLoading" :data="slowStats?.topPaths ?? []">
+          <el-alert
+            v-if="slowStatsErrorBar"
+            class="observability-error-bar mb-2"
+            type="error"
+            :closable="false"
+            show-icon
+            :title="t('common.loadFailed')"
+          >
+            <el-button link type="primary" @click="getSlowStats()">{{ t('common.retry') }}</el-button>
+          </el-alert>
+          <el-table v-loading="slowStatsLoading" :data="slowStats?.topPaths ?? []">
             <el-table-column
               :label="t('observability.slow.column.path')"
               align="center"
@@ -88,7 +118,7 @@
               <template #default="scope">{{ scope.row.maxMs }}{{ t('observability.slow.ms') }}</template>
             </el-table-column>
             <template #empty>
-              <el-empty :description="t('observability.empty')" />
+              <list-empty :load-error="slowStatsError" @retry="getSlowStats" />
             </template>
           </el-table>
         </el-card>
@@ -103,7 +133,9 @@
               :placeholder="t('observability.error.phModule')"
               clearable
               class="w-[220px]"
-              @keyup.enter="handleErrorQuery" :aria-label="t('observability.error.phModule')" />
+              @keyup.enter="handleErrorQuery"
+              :aria-label="t('observability.error.phModule')"
+            />
           </el-form-item>
           <el-form-item :label="t('observability.error.level')">
             <el-select
@@ -135,6 +167,16 @@
           </el-form-item>
         </el-form>
 
+        <el-alert
+          v-if="errorListErrorBar"
+          class="observability-error-bar mb-2"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="getErrorList()">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-table v-loading="errorLoading" :data="errorList" class="mb8">
           <el-table-column :label="t('observability.error.column.at')" align="center" prop="at" width="210" />
           <el-table-column :label="t('observability.error.column.level')" align="center" prop="level" width="100">
@@ -170,7 +212,7 @@
             show-overflow-tooltip
           />
           <template #empty>
-            <el-empty :description="t('observability.empty')" />
+            <list-empty :load-error="errorListError" @retry="getErrorList" />
           </template>
         </el-table>
 
@@ -183,7 +225,17 @@
         />
 
         <!-- 聚合汇总 -->
-        <el-row :gutter="10" class="mt8">
+        <el-alert
+          v-if="errorStatsErrorBar"
+          class="observability-error-bar mb-2"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="t('common.loadFailed')"
+        >
+          <el-button link type="primary" @click="getErrorStats()">{{ t('common.retry') }}</el-button>
+        </el-alert>
+        <el-row :gutter="10" class="mt8" v-loading="errorStatsLoading">
           <el-col :xs="24" :md="12">
             <el-card shadow="never" class="summary-card">
               <template #header>{{ t('observability.error.byModuleTitle') }}</template>
@@ -193,7 +245,7 @@
                   <span class="progress-count">{{ bucket.count }}</span>
                 </el-progress>
               </div>
-              <el-empty v-if="!errorStats?.byModule?.length" :description="t('observability.empty')" :image-size="60" />
+              <list-empty v-if="!errorStats?.byModule?.length" :load-error="errorStatsError" @retry="getErrorStats" />
             </el-card>
           </el-col>
           <el-col :xs="24" :md="12">
@@ -205,7 +257,7 @@
                   <span class="progress-count">{{ bucket.count }}</span>
                 </el-progress>
               </div>
-              <el-empty v-if="!errorStats?.byLevel?.length" :description="t('observability.empty')" :image-size="60" />
+              <list-empty v-if="!errorStats?.byLevel?.length" :load-error="errorStatsError" @retry="getErrorStats" />
             </el-card>
           </el-col>
         </el-row>
@@ -238,34 +290,51 @@ const { t } = useI18n()
 
 // ====== Tab 切换 ======
 const activeTab = ref<'slow' | 'error'>('slow')
-const pageLoading = ref(false)
 
 // ====== 慢请求 ======
 const slowList = ref<SlowRequestRecord[]>([])
 const slowTotal = ref(0)
 const slowLoading = ref(false)
+const slowListError = ref(false)
 const slowStats = ref<SlowStats | null>(null)
+const slowStatsLoading = ref(false)
+const slowStatsError = ref(false)
 const slowQuery = reactive<SlowQueryParams>({ pageNum: 1, pageSize: 10 })
 
-function getSlowList(): void {
+function getSlowList(): Promise<boolean> {
   slowLoading.value = true
-  listSlowSql({ ...slowQuery })
+  return listSlowSql({ ...slowQuery })
     .then((response) => {
       slowList.value = response.rows
       slowTotal.value = response.total
+      slowListError.value = false
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      // 保留旧数据；空列表由 ListEmpty 显示「加载失败 + 重试」，非空由顶部错误条说明
+      slowListError.value = true
+      return false
+    })
     .finally(() => {
       slowLoading.value = false
     })
 }
 
-function getSlowStats(): void {
-  slowSqlStats()
+function getSlowStats(): Promise<boolean> {
+  slowStatsLoading.value = true
+  return slowSqlStats()
     .then((response) => {
       slowStats.value = response.data
+      slowStatsError.value = false
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      slowStatsError.value = true
+      return false
+    })
+    .finally(() => {
+      slowStatsLoading.value = false
+    })
 }
 
 function methodTagType(method: string): 'success' | 'primary' | 'warning' | 'danger' | 'info' {
@@ -302,28 +371,45 @@ function handleClearSlow(): void {
 const errorList = ref<ErrorEntry[]>([])
 const errorTotal = ref(0)
 const errorLoading = ref(false)
+const errorListError = ref(false)
 const errorStats = ref<ErrorStats | null>(null)
+const errorStatsLoading = ref(false)
+const errorStatsError = ref(false)
 const errorQuery = reactive<ErrorLogQueryParams>({ module: undefined, level: undefined, pageNum: 1, pageSize: 10 })
 
-function getErrorList(): void {
+function getErrorList(): Promise<boolean> {
   errorLoading.value = true
-  listErrorLog({ ...errorQuery })
+  return listErrorLog({ ...errorQuery })
     .then((response) => {
       errorList.value = response.rows
       errorTotal.value = response.total
+      errorListError.value = false
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      errorListError.value = true
+      return false
+    })
     .finally(() => {
       errorLoading.value = false
     })
 }
 
-function getErrorStats(): void {
-  errorLogStats()
+function getErrorStats(): Promise<boolean> {
+  errorStatsLoading.value = true
+  return errorLogStats()
     .then((response) => {
       errorStats.value = response.data
+      errorStatsError.value = false
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      errorStatsError.value = true
+      return false
+    })
+    .finally(() => {
+      errorStatsLoading.value = false
+    })
 }
 
 function handleErrorQuery(): void {
@@ -362,13 +448,24 @@ function bucketPercent(count: number): number {
 
 // ====== Redis 指标 ======
 const redis = ref<RedisStats | null>(null)
+const redisLoading = ref(false)
+const redisError = ref(false)
 
-function getRedisStats(): void {
-  redisStats()
+function getRedisStats(): Promise<boolean> {
+  redisLoading.value = true
+  return redisStats()
     .then((response) => {
       redis.value = response.data
+      redisError.value = false
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      redisError.value = true
+      return false
+    })
+    .finally(() => {
+      redisLoading.value = false
+    })
 }
 
 /** 格式化字节数为可读容量 */
@@ -447,18 +544,33 @@ const statCards = computed(() => [
   { label: t('observability.stat.hitRate'), value: isRedisStore.value ? hitRate.value : '—', tone: '' }
 ])
 
+// ====== 失败态（保留旧数据 + 持续可见的错误条；空列表走 ListEmpty 的重试） ======
+const statsErrorBar = computed(() => slowStatsError.value || errorStatsError.value || redisError.value)
+const statsLoading = computed(() => slowStatsLoading.value || errorStatsLoading.value || redisLoading.value)
+const slowStatsErrorBar = computed(() => slowStatsError.value && (slowStats.value?.topPaths?.length ?? 0) > 0)
+const errorStatsErrorBar = computed(
+  () =>
+    errorStatsError.value &&
+    ((errorStats.value?.byModule?.length ?? 0) > 0 || (errorStats.value?.byLevel?.length ?? 0) > 0)
+)
+const slowListErrorBar = computed(() => slowListError.value && slowList.value.length > 0)
+const errorListErrorBar = computed(() => errorListError.value && errorList.value.length > 0)
+
 // ====== 刷新 ======
-function loadAll(): void {
-  getSlowList()
-  getSlowStats()
-  getErrorList()
-  getErrorStats()
-  getRedisStats()
+function loadAll(): Promise<boolean[]> {
+  return Promise.all([getSlowList(), getSlowStats(), getErrorList(), getErrorStats(), getRedisStats()])
 }
 
-function handleRefresh(): void {
-  loadAll()
-  modal.msgSuccess(t('observability.refreshSuccess'))
+function loadStats(): Promise<boolean[]> {
+  return Promise.all([getSlowStats(), getErrorStats(), getRedisStats()])
+}
+
+async function handleRefresh(): Promise<void> {
+  // 提示必须跟着请求结局：先弹"刷新成功"再发请求，失败时用户会以为数据已更新
+  const results = await loadAll()
+  if (results.every(Boolean)) {
+    modal.msgSuccess(t('observability.refreshSuccess'))
+  }
 }
 
 onMounted(() => {

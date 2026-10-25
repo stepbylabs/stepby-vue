@@ -143,7 +143,17 @@ export function loadAllowlist(file = DEFAULT_ALLOW) {
     // 条件型豁免的生产者锚点（批八十六）：形状不对必须抛，不能静默退化成
     // "永远算未命中"或"永远算活着"——两种退化都把撤销通道变成噪声或变成摆设。
     const producer = normalizeProducer(e.producer, at)
-    return { level: e.level, match: String(e.match), re, why, producer }
+    // 日落豁免（b92，与 oper-log-audit 的 `until` 同口径）：只定性"缺陷已修复、但旧窗口里
+    // 仍留着的历史行"。到点之后同类记录必须重新判红，条目本身也会因未命中进入退役通道——
+    // 它不是永久白名单。形状坏必须抛，避免静默变成"永不生效"或"永远生效"。
+    let until = null
+    if (e.until !== undefined) {
+      if (typeof e.until !== 'string' || !Number.isFinite(windowToEpoch(e.until))) {
+        throw new Error(`${at}.until 必须是 YYYY-MM-DD HH:MM:SS（UTC），实际 ${JSON.stringify(e.until)}`)
+      }
+      until = e.until
+    }
+    return { level: e.level, match: String(e.match), re, why, producer, until }
   })
   // 集合级判据（b87）：同表内两条理由逐字相同 ⇒ 装载即抛（原先只有人工测量，没有锁）
   const dups = duplicateWhyGroups(list)
@@ -161,7 +171,7 @@ export function loadAllowlist(file = DEFAULT_ALLOW) {
 
 /** 允许表条目的身份键（"未命中"判据与退役通道必须认同一个键，否则两处口径会漂）。 */
 export function allowKey(e) {
-  return `${e.level}|${e.match}`
+  return `${e.level}|${e.match}|${e.until ?? ''}`
 }
 
 /**
@@ -174,11 +184,11 @@ export function allowKey(e) {
 export function retireStale(file, unused) {
   if (!unused.length) return []
   const body = JSON.parse(fs.readFileSync(file, 'utf8'))
-  const drop = new Set(unused.map((e) => allowKey({ level: e.level, match: String(e.match) })))
+  const drop = new Set(unused.map((e) => allowKey({ level: e.level, match: String(e.match), until: e.until })))
   const kept = []
   const removed = []
   for (const e of body.entries) {
-    if (drop.has(allowKey({ level: e.level, match: String(e.match) }))) removed.push(e)
+    if (drop.has(allowKey({ level: e.level, match: String(e.match), until: e.until }))) removed.push(e)
     else kept.push(e)
   }
   fs.writeFileSync(file, JSON.stringify({ ...body, entries: kept }, null, 2) + '\n', 'utf8')
@@ -231,10 +241,16 @@ export function classify(records, allow, { since = null, until = null, verify = 
     if (r.level !== 'WARN' && r.level !== 'ERROR') continue
     if (!withinWindowTs(r.ts, win)) continue
     scanned += 1
-    const hit = allow.find((e) => e.level === r.level && e.re.test(r.msg))
+    const hit = allow.find(
+      (e) =>
+        e.level === r.level &&
+        e.re.test(r.msg) &&
+        // 日落豁免只覆盖 until 之前的记录；记录时刻取不到 ⇒ 不得借用日落豁免（fail-closed）
+        (!e.until || windowToEpoch(r.ts) < windowToEpoch(e.until))
+    )
     if (hit) {
       matched.add(allowKey(hit))
-      allowed.push({ ...r, why: hit.why })
+      allowed.push({ ...r, why: hit.why, until: hit.until ?? null })
     } else unknown.push(r)
   }
   const staleAll = allow.filter((e) => !matched.has(allowKey(e)))
@@ -615,6 +631,64 @@ function selftest() {
       } finally {
         fs.rmSync(tmpAllow, { force: true })
       }
+    }
+  }
+  // 日落豁免（b92，与 oper-log-audit 的 `until` 同口径）：只覆盖 until 之前的历史记录；
+  // 到点之后同类记录必须重新判红，且窗口完全越过 until 后条目必须进未命中（退役通道仍有效）。
+  {
+    const sunsetWhy = 'b92 收口前的夹具域名触发的历史告警，夹具已改确定性负路径，本条目只覆盖旧窗口'
+    const sunset = [
+      { level: 'WARN', match: 'DNS 故障历史行', re: /DNS 故障历史行/, why: sunsetWhy, until: '2026-10-20 00:00:03' }
+    ]
+    const rows = [
+      { ts: '2026-10-20T00:00:02.500000Z', level: 'WARN', msg: 'DNS 故障历史行（旧夹具）' },
+      { ts: '2026-10-20T00:00:03.500000Z', level: 'WARN', msg: 'DNS 故障历史行（日落之后）' }
+    ]
+    const cs = classify(rows, sunset)
+    check('until 之前的记录必须被日落豁免覆盖', cs.allowed.length === 1, JSON.stringify(cs.allowed.map((x) => x.ts)))
+    check(
+      'until 之后同类记录必须重新判红（日落不是永久白名单）',
+      cs.unknown.length === 1 && String(cs.unknown[0].ts).includes('03.500000'),
+      JSON.stringify(cs.unknown.map((x) => x.ts))
+    )
+    const csLate = classify(rows, sunset, { since: '2026-10-20T00:00:03Z' })
+    check(
+      '窗口完全越过 until 后条目必须进未命中（退役通道仍有效）',
+      csLate.unused.length === 1 && csLate.unknown.length === 1,
+      `unused=${csLate.unused.length} unknown=${csLate.unknown.length}`
+    )
+    const noTs = [{ ts: '无法解析', level: 'WARN', msg: 'DNS 故障历史行（时刻取不到）' }]
+    const csNoTs = classify(noTs, sunset)
+    check(
+      '记录时刻取不到时不得借用日落豁免（fail-closed）',
+      csNoTs.unknown.length === 1 && csNoTs.allowed.length === 0,
+      JSON.stringify(csNoTs)
+    )
+    // 装载侧：until 形状坏必须抛；合法值必须原样带出。
+    const tmp = path.join(HERE, '_tmp_backend_until.json')
+    const write = (until) =>
+      fs.writeFileSync(
+        tmp,
+        JSON.stringify({
+          version: 1,
+          entries: [{ level: 'WARN', match: 'a', why: '为什么是设计内信号（够长）', until }]
+        })
+      )
+    try {
+      write('2026-10-20 00:00:03')
+      check('合法 until 必须原样带出（classify 依赖它）', loadAllowlist(tmp)[0].until === '2026-10-20 00:00:03')
+      for (const bad of ['2026/10/20', '昨天', 123, '']) {
+        write(bad)
+        let threw = ''
+        try {
+          loadAllowlist(tmp)
+        } catch (e) {
+          threw = String(e.message)
+        }
+        check(`until 形状坏（${JSON.stringify(bad)}）必须抛并点名字段`, threw.includes('.until'), threw)
+      }
+    } finally {
+      fs.rmSync(tmp, { force: true })
     }
   }
   // 真函数（不注入桩）：临时文件正反两判 + 三条 fail-closed 形状 + 真实树上的锚点正控。
@@ -1138,6 +1212,13 @@ function main() {
   }
   for (const u of bare.slice(0, 20)) {
     console.log(`  ❌ [非 tracing] ${u.ts ?? '（文件开头，无法定时）'} ${u.line.slice(0, 200)}`)
+  }
+  const sunsetHits = allowed.filter((a) => a.until)
+  if (sunsetHits.length) {
+    console.log(
+      `  ℹ [日落豁免] ${sunsetHits.length} 条历史行被 until 覆盖（到点后同类记录重新判红）：` +
+        sunsetHits.map((a) => `${a.ts}→${a.until}`).join('；')
+    )
   }
   for (const e of unused) {
     console.log(

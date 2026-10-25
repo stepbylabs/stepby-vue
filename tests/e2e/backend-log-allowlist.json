@@ -158,6 +158,12 @@
         "file": "stepby-axum/src/repository/sys_frontend_error.rs",
         "contains": "like_escape(n)"
       }
+    },
+    {
+      "level": "WARN",
+      "match": "DNS TXT 查询失败，域名验证未通过 domain=custom\\d+\\.e2e\\.local error=DNS 查询超时",
+      "why": "b92 收口前的 F71 夹具把自定义域名写成 `custom<ts>.e2e.local`，而 `.local` 是 mDNS 保留后缀、解析器可能超时 ⇒ 服务端按 DNS 故障打 WARN 并 400（15:42:30.838988Z 实测一条）。夹具已改为 `.invalid`（RFC 6761 必 NXDOMAIN，走 200 + verified=false，改后 17:07 复跑无任何此类 WARN）。本条目只对那一条历史行做日落定性，`until` 之后同类失败未登记即红——它不是「DNS 超时算设计内」的白名单。",
+      "until": "2026-10-26 00:00:00"
     }
   ]
 }

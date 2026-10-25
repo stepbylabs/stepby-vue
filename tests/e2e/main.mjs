@@ -16116,7 +16116,9 @@ async function testFeature71(page) {
   const tName = `域名租户${uniq}`
   const tCode = `td${uniq}`
   const subDomain = `sub${uniq}.e2e.local`
-  const customDomain = `custom${uniq}.e2e.local`
+  // 自定义域名走真实 DNS 查询：`.local` 是 mDNS 保留后缀，解析器可能超时（实测 400 + WARN），
+  // 而 `.invalid` 由 RFC 6761 保证 NXDOMAIN ⇒ 负路径落在"未配置 TXT → 200 + verified=false"这一支，结果确定
+  const customDomain = `custom${uniq}.e2e.invalid`
 
   // ---------- 步骤 2：建租户（拿 tenantId + 租户管理员凭据） ----------
   let tenantId = null
@@ -16277,7 +16279,7 @@ async function testFeature71(page) {
       record(71, '子域名 verify 幂等成功', false, `异常: ${err.message.slice(0, 60)}`)
     }
 
-    // ---------- 步骤 9：自定义域名 verify 未通过（真实 DNS 查询，无 TXT 记录 → 非通过） ----------
+    // ---------- 步骤 9：自定义域名 verify 未通过（真实 DNS 查询：`.invalid` 必 NXDOMAIN → 200 + verified=false） ----------
     try {
       const resp = await fetch(`${CONFIG.backendUrl}/system/tenant/domain/verify/${customDomainId}`, {
         method: 'POST',
@@ -16285,10 +16287,10 @@ async function testFeature71(page) {
       })
         .then((r) => r.json())
         .catch(() => null)
-      const notVerified = resp?.code !== 200 || resp?.data?.verified === false
+      const notVerified = resp?.code === 200 && resp?.data?.verified === false
       record(
         71,
-        '自定义域名未配置 TXT → 验证不通过（真实 DNS 查询）',
+        '自定义域名未配置 TXT → 验证不通过（NXDOMAIN 确定性负路径，非 DNS 故障）',
         notVerified,
         `code=${resp?.code}, verified=${resp?.data?.verified}`
       )
