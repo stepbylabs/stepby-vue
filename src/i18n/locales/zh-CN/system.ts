@@ -199,6 +199,7 @@ export default {
     error: '错误信息',
     exportBtn: '导出',
     exportFailed: '导出失败，请稍后重试',
+    tenantInvalid: '租户 ID 必须是不小于 0 的整数',
     ph: { tenantFilter: '租户 ID 筛选（平台）' }
   },
   aiConfig: {

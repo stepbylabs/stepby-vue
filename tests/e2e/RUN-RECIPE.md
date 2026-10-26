@@ -4285,3 +4285,28 @@ node tests/e2e/action-inventory.mjs --gate
 
 **已知边界**：这一面只覆盖主文档里的工具栏按钮；iframe 内部（如 `/tool/swagger` 的 swagger
 UI）不在采集面，属于另一条尺的问题（承 b88 N-H 的剩余部分）。
+
+### 3.110 操作者 `sub` 的采集面是全 `src` 生产码；失败计数的异常值按"已锁定"读（b97）
+
+**形状锁** `production_code_never_parses_operator_sub_directly`（`middleware/auth.rs`）：
+
+- 采集面由 `crate::common::prod_scan::prod_files(&Scan::default())` 派生——`#[cfg(test)]`
+  刀口、`#[cfg(test)] mod …;` 声明的测试专用模块、`src/integration_tests/**` 都不在面里；
+  体量下限 **350 文件 / 50 000 行**（扫空 ⇒ 失败，不是"零违规"）。
+- 立的案：b96 的同一把锁只扫 `src/handler/**`，而 `src/ai/handler.rs` 在 `src/ai/` ⇒
+  四处 `operator.user_id().parse().unwrap_or(0)` 从未进视野。**新增 handler 目录不会再漏**。
+- 盘上变异：把任一处改回裸解析 ⇒ 测试 FAILED 并点名 `文件:行`；还原后 `diff -q` 一致 + `touch`。
+
+**失败计数读取**（`auth_service.rs::fail_count_from_store`）：
+
+- 键缺失 ⇒ 0；合法非负值 ⇒ 原值（不夹取，比较式负责判上限）；
+- **非数字 / 空串 / 负数 ⇒ 上限（按已锁定处理）+ WARN**：这几种值本服务从不写入，
+  而读成 0 恰好是"把 5 次失败锁定清零"的最短路径；
+- 读错误仍是 503（fail-closed），不要把这一支与"解析失败"混成一个分支。
+
+```bash
+# 两条锁/用例一起复跑（都不需要浏览器与凭据）
+cd stepby-axum && cargo test -j 4 --lib production_code_never_parses_operator_sub_directly
+cargo test -j 4 --lib fail_counter_parse_is_fail_closed_on_garbage
+cargo test -j 4 --lib admin_history_maps_tenant_and_user_from_snake_case_columns
+```

@@ -42,16 +42,13 @@
           </template>
         </el-table-column>
         <el-table-column prop="errorMsg" :label="t('aiHistory.error')" min-width="160" show-overflow-tooltip />
+        <template #empty>
+          <list-empty :load-error="loadError" @retry="load()" />
+        </template>
       </el-table>
 
       <div class="mt-3 flex justify-end">
-        <pagination
-          v-model:page="page"
-          v-model:limit="size"
-          :total="total"
-          :auto-scroll="false"
-          @pagination="load()"
-        />
+        <pagination v-model:page="page" v-model:limit="size" :total="total" :auto-scroll="false" @pagination="load()" />
       </div>
     </el-card>
   </div>
@@ -80,6 +77,7 @@ interface AiHistoryAdminRow {
 const { t } = useI18n()
 const rows = ref<AiHistoryAdminRow[]>([])
 const loading = ref(false)
+const loadError = ref(false)
 const page = ref(1)
 const size = ref(20)
 const total = ref(0)
@@ -87,13 +85,32 @@ const tenantFilter = ref('')
 // 导出按钮 loading：防连点并发两次 fetch 下载
 const exportLoading = ref(false)
 
+/**
+ * 租户筛选输入归一：空 ⇒ null（不筛选）；非法 ⇒ 'invalid'（调用方提示并中止）。
+ *
+ * 原实现直接 `Number(tid)`：`abc` 会变成 NaN 拼进查询串、超长数字串折成 `1e+21`
+ * ——两者都只在后端 400 时才可见，用户看不出是自己输入的问题（b97）。
+ */
+function parseTenantFilter(): number | null | 'invalid' {
+  const raw = tenantFilter.value.trim()
+  if (!raw) return null
+  const n = Number(raw)
+  if (!Number.isSafeInteger(n) || n < 0) return 'invalid'
+  return n
+}
+
 async function load(p?: number) {
+  const tid = parseTenantFilter()
+  if (tid === 'invalid') {
+    ElMessage.warning(t('aiHistory.tenantInvalid'))
+    return
+  }
   if (p) page.value = p
   loading.value = true
+  loadError.value = false
   try {
     const params: Record<string, unknown> = { page: page.value, size: size.value }
-    const tid = tenantFilter.value.trim()
-    if (tid) params.tenantFilter = Number(tid)
+    if (tid !== null) params.tenantFilter = tid
     const res = (await request({
       url: '/system/ai/history/admin',
       method: 'get',
@@ -103,7 +120,8 @@ async function load(p?: number) {
     rows.value = d?.items ?? []
     total.value = d?.total ?? 0
   } catch (e) {
-    // 列表加载走 request 封装，错误提示由响应拦截器（errorHub）统一弹出，此处不重复提示
+    // 错误提示由响应拦截器统一弹出；页面侧负责把"加载失败"与"暂无数据"分开（ListEmpty）
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[aiHistory] load failed:', e)
   } finally {
     loading.value = false
@@ -114,11 +132,15 @@ onMounted(() => load(1))
 
 // §5.55 AI-02 结果导出：下载管理视图 Excel（服务端生成，带租户过滤口径）
 async function exportHistory() {
+  const tid = parseTenantFilter()
+  if (tid === 'invalid') {
+    ElMessage.warning(t('aiHistory.tenantInvalid'))
+    return
+  }
   exportLoading.value = true
   try {
     const params: Record<string, string> = {}
-    const tid = tenantFilter.value.trim()
-    if (tid) params.tenantFilter = tid
+    if (tid !== null) params.tenantFilter = String(tid)
     const query = new URLSearchParams(params).toString()
     // 与 operlog 导出同款直链下载（token 从统一 auth 存储取）。
     // 基址必须取 VITE_APP_BASE_API（dev=/dev-api、prod=/prod-api、stage=/stage-api、
