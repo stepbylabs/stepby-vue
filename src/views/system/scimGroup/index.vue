@@ -170,6 +170,7 @@ import { listDept } from '@/api/system/dept'
 import type { ComponentInternalInstance } from 'vue'
 import type { ScimGroupAdminRow, ScimGroupAdminDetail, SysRole, SysDept } from '@/types'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { confirmAction } from '@/utils/confirm'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
@@ -289,7 +290,7 @@ async function saveEdit() {
 }
 
 async function handleDelete(row: ScimGroupAdminRow) {
-  const ok = await proxy?.$modal.confirm(t('scimGroup.deleteConfirm', [row.displayName]))
+  const ok = await confirmAction(t('scimGroup.deleteConfirm', [row.displayName]))
   if (!ok) return
   await delScimGroup(row.groupId)
   proxy?.$modal.msgSuccess(t('common.success'))
@@ -303,7 +304,7 @@ function handleSelectionChange(rows: ScimGroupAdminRow[]) {
 
 /** 批量删除：后端 DELETE /system/scimGroup/{id} 支持逗号分隔多 id */
 async function handleBatchDelete() {
-  const ok = await proxy?.$modal.confirm(t('scimGroup.batchDeleteConfirm', [selectedIds.value.length]))
+  const ok = await confirmAction(t('scimGroup.batchDeleteConfirm', [selectedIds.value.length]))
   if (!ok) return
   await delScimGroup(selectedIds.value.join(','))
   proxy?.$modal.msgSuccess(t('common.batchDeleteSuccess'))

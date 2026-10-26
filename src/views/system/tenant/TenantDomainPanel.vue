@@ -170,6 +170,7 @@ import {
 import type { TenantDomainVo, TenantDomainAddDto, TenantDomainVerifyVo } from '@/api/system/tenantDomain'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { confirmAction } from '@/utils/confirm'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -320,7 +321,7 @@ async function copyTxtValue() {
 }
 
 async function handleSetPrimary(row: TenantDomainVo) {
-  const ok = await proxy?.$modal.confirm(t('tenantDomain.setPrimaryConfirm', [row.domain]))
+  const ok = await confirmAction(t('tenantDomain.setPrimaryConfirm', [row.domain]))
   if (!ok) return
   await setPrimaryTenantDomain(row.domainId)
   proxy?.$modal.msgSuccess(t('common.success'))
@@ -330,7 +331,7 @@ async function handleSetPrimary(row: TenantDomainVo) {
 
 async function handleStatusChange(row: TenantDomainVo) {
   const next = row.status === '0' ? '0' : '1'
-  const ok = await proxy?.$modal.confirm(t('tenantDomain.statusTip'))
+  const ok = await confirmAction(t('tenantDomain.statusTip'))
   if (!ok) {
     row.status = row.status === '0' ? '1' : '0'
     return
@@ -341,7 +342,7 @@ async function handleStatusChange(row: TenantDomainVo) {
 }
 
 async function handleDelete(row: TenantDomainVo) {
-  const ok = await proxy?.$modal.confirm(t('tenantDomain.deleteConfirm', [row.domain]))
+  const ok = await confirmAction(t('tenantDomain.deleteConfirm', [row.domain]))
   if (!ok) return
   await delTenantDomain(row.domainId)
   proxy?.$modal.msgSuccess(t('common.success'))

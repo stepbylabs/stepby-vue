@@ -181,6 +181,7 @@ import type { SysTenantMenuVo, TenantNavMenuOptionVo } from '@/api/system/tenant
 import type { TenantVo } from '@/api/system/tenant'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { confirmAction } from '@/utils/confirm'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -344,7 +345,7 @@ async function submitForm() {
 }
 
 async function handleDelete(row: SysTenantMenuVo) {
-  const ok = await proxy?.$modal.confirm(t('tenantNav.deleteConfirm', [row.refMenuName]))
+  const ok = await confirmAction(t('tenantNav.deleteConfirm', [row.refMenuName]))
   if (!ok) return
   await delTenantNav(row.l3Id)
   proxy?.$modal.msgSuccess(t('common.success'))

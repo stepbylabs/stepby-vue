@@ -376,6 +376,7 @@ import TenantDomainDrawer from './TenantDomainDrawer.vue'
 import { downloadBackup } from '@/api/system/backup'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
+import { confirmAction } from '@/utils/confirm'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -676,7 +677,7 @@ async function saveForm() {
 
 async function handleStatusChange(row: TenantVo) {
   const next = row.status === '0' ? '0' : '1'
-  const ok = await proxy?.$modal.confirm(
+  const ok = await confirmAction(
     row.status === '1' ? t('tenant.enableConfirm', [row.tenantName]) : t('tenant.disableConfirm', [row.tenantName])
   )
   if (!ok) {
@@ -695,7 +696,7 @@ async function handleStatusChange(row: TenantVo) {
 }
 
 async function handleDelete(row: TenantVo) {
-  const ok = await proxy?.$modal.confirm(t('tenant.deleteConfirm', [row.tenantName]))
+  const ok = await confirmAction(t('tenant.deleteConfirm', [row.tenantName]))
   if (!ok) return
   try {
     await delTenant(row.tenantId)
@@ -708,7 +709,7 @@ async function handleDelete(row: TenantVo) {
 }
 
 async function handleRestore(row: TenantVo) {
-  const ok = await proxy?.$modal.confirm(t('tenant.restoreConfirm', [row.tenantName]))
+  const ok = await confirmAction(t('tenant.restoreConfirm', [row.tenantName]))
   if (!ok) return
   try {
     await restoreTenant(row.tenantId)
@@ -727,7 +728,7 @@ async function handleRestore(row: TenantVo) {
  * 只导出不导入（租户级恢复不支持）；平台租户（tid=0）同样可导出。
  */
 async function handleExport(row: TenantVo) {
-  const ok = await proxy?.$modal.confirm(t('tenant.exportConfirm', [row.tenantName]))
+  const ok = await confirmAction(t('tenant.exportConfirm', [row.tenantName]))
   if (!ok) return
   exportingId.value = row.tenantId
   try {

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-10-25T21:09:18.809Z",
+  "generatedAt": "2026-10-26T00:16:05.082Z",
   "full": true,
   "sources": "oper_log+reqstats",
   "total": 197,
   "window": {
-    "since": "2026-10-25 19:59:13.719",
-    "until": "2026-10-25 20:49:29.087"
+    "since": "2026-10-25 23:20:42.944",
+    "until": "2026-10-26 00:11:10.866"
   },
   "note": "两源并集：reqstats（客户端出网）∪ sys_oper_log DISTINCT(方法,路径)（服务端权威留痕）。oper_log 保留 90 天 ⇒ 窗口过期后必须用新一轮全量重生成基线，不得拿旧窗口的差集判新状态。",
   "uncovered": [
