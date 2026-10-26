@@ -20,6 +20,7 @@ const hoisted = vi.hoisted(() => ({
   topNotices: [] as unknown[],
   unreadCount: 0,
   loading: false,
+  loadFailed: false,
   refreshTopNotices: vi.fn(() => Promise.resolve()),
   markRead: vi.fn(() => Promise.resolve()),
   markAllUnreadRead: vi.fn(() => Promise.resolve()),
@@ -31,9 +32,18 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('@/store/modules/notice', () => ({
   default: () => ({
-    get topNotices() { return hoisted.topNotices },
-    get unreadCount() { return hoisted.unreadCount },
-    get loading() { return hoisted.loading },
+    get topNotices() {
+      return hoisted.topNotices
+    },
+    get unreadCount() {
+      return hoisted.unreadCount
+    },
+    get loading() {
+      return hoisted.loading
+    },
+    get loadFailed() {
+      return hoisted.loadFailed
+    },
     refreshTopNotices: hoisted.refreshTopNotices,
     markRead: hoisted.markRead,
     markAllUnreadRead: hoisted.markAllUnreadRead
@@ -128,6 +138,7 @@ describe('layout/components/HeaderNotice', () => {
     hoisted.topNotices = []
     hoisted.unreadCount = 0
     hoisted.loading = false
+    hoisted.loadFailed = false
     for (const fn of [
       hoisted.refreshTopNotices,
       hoisted.markRead,
@@ -136,7 +147,8 @@ describe('layout/components/HeaderNotice', () => {
       hoisted.msgError,
       hoisted.msgSuccess,
       hoisted.open
-    ]) fn.mockClear()
+    ])
+      fn.mockClear()
   })
 
   afterEach(() => {
@@ -298,11 +310,35 @@ describe('layout/components/HeaderNotice', () => {
     expect(vm.find('.notice-badge').exists()).toBe(false)
   })
 
+  it('加载失败且无数据 → 显示失败文案与重试，不伪装成"暂无公告"', async () => {
+    hoisted.loadFailed = true
+    hoisted.topNotices = []
+    const vm = factory()
+    await nextTick()
+    const text = vm.text()
+    // el-empty 在测试环境未注册为组件（自动导入只在构建期生效）⇒ description 以属性形式
+    // 出现在 html 里而不是文本节点；两种形态都算"文案可见"，故对 html 断言。
+    expect(vm.html()).toContain('layout.headerNotice.loadFailed')
+    expect(text).not.toContain('layout.headerNotice.empty')
+    const retry = vm.findAll('el-button').find((b) => b.text().includes('common.retry'))
+    expect(retry, '失败态必须给出重试入口').toBeTruthy()
+    // 挂载时拉取一次 + 点击重试再拉一次
+    await retry!.trigger('click')
+    expect(hoisted.refreshTopNotices).toHaveBeenCalledTimes(2)
+  })
+
+  it('刷新失败但有旧数据 → 列表保留且提示"可能不是最新"', async () => {
+    hoisted.loadFailed = true
+    hoisted.topNotices = [mkNotice({ noticeId: 9, noticeTitle: '旧公告' })]
+    const vm = factory()
+    await nextTick()
+    const text = vm.text()
+    expect(text).toContain('layout.headerNotice.loadFailed')
+    expect(text).toContain('旧公告')
+  })
+
   it('标签渲染：按 noticeType 映射 tag type', async () => {
-    hoisted.topNotices = [
-      mkNotice({ noticeId: 1, noticeType: '1' }),
-      mkNotice({ noticeId: 2, noticeType: '2' })
-    ]
+    hoisted.topNotices = [mkNotice({ noticeId: 1, noticeType: '1' }), mkNotice({ noticeId: 2, noticeType: '2' })]
     const vm = factory()
     await nextTick()
     const types = vm.findAll('.tag').map((t) => t.attributes('data-type'))

@@ -26,30 +26,52 @@
           {{ t('common.loading') }}
         </div>
         <el-empty
+          v-else-if="noticeLoadFailed && noticeList.length === 0"
+          key="failed"
+          :description="t('layout.headerNotice.loadFailed')"
+          :image-size="48"
+        >
+          <el-button size="small" @click="refreshNoticeQuietly">{{ t('common.retry') }}</el-button>
+        </el-empty>
+        <el-empty
           v-else-if="noticeList.length === 0"
           key="empty"
           :description="t('layout.headerNotice.empty')"
           :image-size="48"
         />
-        <transition-group v-else name="list" tag="div" key="list">
+        <div v-else key="list">
+          <!-- 旧列表仍在但刷新失败：数据可以继续看（比空白有用），但必须标明"不是最新"，
+               否则用户会把陈旧公告当现状（b90 §2：失败之后谁能看见什么）。 -->
           <div
-            v-for="item in noticeList"
-            :key="item.noticeId"
-            class="notice-item"
-            :class="{ 'is-read': item.isRead }"
-            role="button"
-            tabindex="0"
-            :aria-label="item.noticeTitle"
-            @click="previewNotice(item)"
-            @keydown.enter.prevent="previewNotice(item)"
+            v-if="noticeLoadFailed"
+            class="mb-2 flex items-center justify-between gap-2 text-[12px] text-[var(--el-color-warning)]"
+            role="alert"
           >
-            <el-tag size="small" :type="noticeTagType(item.noticeType)" class="notice-tag">
-              {{ noticeTagLabel(item.noticeType) }}
-            </el-tag>
-            <span class="notice-item-title">{{ item.noticeTitle }}</span>
-            <span class="notice-item-date">{{ item.createTime }}</span>
+            <span>{{ t('layout.headerNotice.loadFailed') }}</span>
+            <el-button link type="warning" size="small" @click="refreshNoticeQuietly">
+              {{ t('common.retry') }}
+            </el-button>
           </div>
-        </transition-group>
+          <transition-group name="list" tag="div">
+            <div
+              v-for="item in noticeList"
+              :key="item.noticeId"
+              class="notice-item"
+              :class="{ 'is-read': item.isRead }"
+              role="button"
+              tabindex="0"
+              :aria-label="item.noticeTitle"
+              @click="previewNotice(item)"
+              @keydown.enter.prevent="previewNotice(item)"
+            >
+              <el-tag size="small" :type="noticeTagType(item.noticeType)" class="notice-tag">
+                {{ noticeTagLabel(item.noticeType) }}
+              </el-tag>
+              <span class="notice-item-title">{{ item.noticeTitle }}</span>
+              <span class="notice-item-date">{{ item.createTime }}</span>
+            </div>
+          </transition-group>
+        </div>
       </Transition>
 
       <!-- 触发器 -->
@@ -104,6 +126,7 @@ const noticeStore = useNoticeStore()
 const noticeList = computed(() => noticeStore.topNotices)
 const unreadCount = computed(() => noticeStore.unreadCount)
 const noticeLoading = computed(() => noticeStore.loading)
+const noticeLoadFailed = computed(() => noticeStore.loadFailed)
 const noticeVisible = ref<boolean>(false)
 const noticeLeaveTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 // FE-004：保存 popper 元素引用，用于卸载时移除事件监听器
@@ -122,10 +145,18 @@ function noticeTagLabel(noticeType: string | undefined): string {
   return t('noticeCenter.typeMessage')
 }
 
+// 刷新公告但不让拒绝逸出：失败态由 store 的 `loadFailed` 驱动（空列表显示错误 + 重试，
+// 有旧数据则在列表上方显示"非最新 + 重试"），这里只负责吞掉 Promise 拒绝。
+function refreshNoticeQuietly(): void {
+  noticeStore.refreshTopNotices().catch(() => {
+    // done state: noticeStore.loadFailed
+  })
+}
+
 onMounted(() => {
   // P1 修复: 仅在 store 未加载过时拉取，避免重复请求
   if (noticeStore.topNotices.length === 0 && !noticeStore.loading) {
-    noticeStore.refreshTopNotices().catch(() => {})
+    refreshNoticeQuietly()
   }
 })
 
@@ -140,7 +171,7 @@ watch(noticeVisible, (visible: boolean) => {
   if (visible) {
     document.addEventListener('keydown', onNoticeKeydown)
     // P1 修复: 弹出时拉取最新状态，确保用户看到的是最新公告
-    noticeStore.refreshTopNotices().catch(() => {})
+    refreshNoticeQuietly()
   } else {
     document.removeEventListener('keydown', onNoticeKeydown)
   }

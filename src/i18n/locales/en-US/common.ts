@@ -272,6 +272,7 @@ export default {
     headerNotice: {
       detailTitle: 'Notice Details',
       empty: 'No notices',
+      loadFailed: 'Failed to load notices; content may be out of date',
       statusClosed: 'Closed',
       ariaWithUnread: 'Notifications, {count} unread',
       ariaNoUnread: 'Notifications, no unread messages'

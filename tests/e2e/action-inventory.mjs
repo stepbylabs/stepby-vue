@@ -314,6 +314,59 @@ function rowRatchetRegressions(base, curRows) {
 }
 
 /**
+ * 非行内控件面守恒（b96，收 b88 N-H）。
+ *
+ * 立的案：`coverage` 是"扫到的动作里覆盖了几个"，分子分母一起缩；`rowPerRoute` 只守住
+ * **行内**动作（随数据行存在）。**非行内的控件面**（工具栏按钮，跨 tab 合并去重）此前
+ * 只有聚合数 `perRoute.a`，而聚合相等不代表同一份数据：一页少一个按钮、另一页多一个，
+ * 总数完全不动（与 b79 N-10 同一族，只是那一层已由 perRoute 明细解决、按钮身份没有）。
+ * b88 实测 `/tool/swagger` 3→1 就属于这一面，当时只能写进台账、判据看不见。
+ *
+ * 口径（"这一面按什么尺守恒"的答案）：**按钮身份 = (路由, 归一后的按钮名)**。
+ * 基线里出现过的身份，本轮必须在场（基线记 `perRoute[path].k`，去重升序）。
+ * 增长允许（新功能加按钮）；减少必须解释：页面消失、或该页本轮 0 行导致数据驱动按钮
+ * 不渲染（文案点明"需要配数据夹具或用例"——棘轮只许升，补数据能让它回来）。
+ * 与 `rowSurface` 不同，这里**不设绝对下限**：一个按钮消失就是一次权限/入口变更，
+ * 没有"少 2 个以内不算"的道理（b88 N-H 原文："动之前先答这一面按什么尺守恒"）。
+ *
+ * 返回 `null` = 不可比（基线缺 `perRoute` 或任一条目缺 `k`），调用方必须走 UNRUN。
+ */
+function controlSurfaceRegressions(base, cur) {
+  const baseMap = base?.perRoute
+  const shapeGap = () =>
+    '基线缺 perRoute 控件面明细栏（或条目缺 k）⇒ 非行内控件面无法比对（不是退步，是判据不可用），' +
+    '须与新判据同批 --update-baseline 重生成基线'
+  if (!baseMap || typeof baseMap !== 'object' || Array.isArray(baseMap) || !Object.keys(baseMap).length) {
+    return { comparable: false, regressions: [shapeGap()] }
+  }
+  for (const p of Object.keys(baseMap)) {
+    if (!Array.isArray(baseMap[p]?.k)) return { comparable: false, regressions: [shapeGap()] }
+  }
+  const bad = []
+  for (const p of Object.keys(baseMap).sort()) {
+    const b = baseMap[p]
+    const c = cur?.[p]
+    if (!c) {
+      bad.push(
+        `页面消失 ${p}：基线控件面 ${b.k.length} 个（${b.k.join('、') || '—'}）——` +
+          '路由清单被替换或页面被删？增删页面必须同批重生成基线'
+      )
+      continue
+    }
+    const curKeys = new Set(Array.isArray(c.k) ? c.k : [])
+    const missing = b.k.filter((n) => !curKeys.has(n))
+    if (missing.length) {
+      const dataHint =
+        c.r === 0
+          ? `（本轮该页 0 行${c.e ? `、空态「${c.e}」` : ''}⇒ 若是数据驱动按钮，需要给这一页配数据夹具或用例）`
+          : ''
+      bad.push(`控件消失 ${p}：${missing.join('、')}${dataHint}`)
+    }
+  }
+  return { comparable: true, regressions: bad }
+}
+
+/**
  * 基线"这一栏没有 / 形状不可解析"的缺栏名单——**口径闸**，不是退步（本表 ⑨：口径闸排在内容闸之前）。
  * `--update-baseline` 的唯一"带病落盘"通道按这份名单放行（旧格式基线永远等不到可比断面）。
  */
@@ -322,6 +375,13 @@ function baselineShapeGaps(base, curRows) {
   if (!rowSurface(base?.rowPerRoute, curRows)) gaps.push('rowPerRoute')
   else if (typeof base?.rowSurfaceCoverage !== 'number') gaps.push('rowSurfaceCoverage')
   else if (base.rowSurfaceMinLostActions !== ROW_SURFACE_MIN_LOST_ACTIONS) gaps.push('rowSurfaceMinLostActions')
+  // 控件面明细（b96）：缺 k 栏的基线无法判"按钮身份是否守恒"
+  const per = base?.perRoute
+  if (!per || typeof per !== 'object' || Array.isArray(per) || !Object.keys(per).length) {
+    gaps.push('perRoute')
+  } else if (Object.keys(per).some((p) => !Array.isArray(per[p]?.k))) {
+    gaps.push('perRoute.k')
+  }
   // 采样口径戳：换尺就必须与重生成基线同批（见 INVENTORY_SAMPLING 的成因）
   if (base?.sampling !== INVENTORY_SAMPLING) gaps.push('sampling')
   return gaps
@@ -1492,6 +1552,7 @@ function runSelftest() {
     {
       totalBacklog: 0,
       totalStateLocked: 0,
+      perRoute: { '/a': { a: 1, c: 1, i: 0, k: ['新增'] } },
       rowPerRoute: { '/a': { t: 1, c: 1 } },
       rowSurfaceCoverage: 1,
       rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS,
@@ -1509,6 +1570,7 @@ function runSelftest() {
     {
       totalBacklog: 0,
       totalStateLocked: 0,
+      perRoute: { '/a': { a: 1, c: 1, i: 0, k: ['新增'] } },
       rowPerRoute: { '/a': { t: 1, c: 1 } },
       rowSurfaceCoverage: 1,
       rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS
@@ -2070,6 +2132,72 @@ function runSelftest() {
   }
   if (scopeBad) process.exit(1)
 
+  // 第六族（b96，收 b88 N-H）：非行内控件面守恒。判的是"按钮身份"而不是总数——
+  // 一页少一个、另一页多一个在聚合上完全同形（b88 /tool/swagger 3→1 就是这么漏的）。
+  const ctlCases = [
+    ['基线有的控件本轮消失 ⇒ 必须报', { '/a': { k: ['新增', '导出'] } }, { '/a': { k: ['新增'], r: 3, e: '' } }, true],
+    [
+      '控件名顺序不同不得误报（集合比较，不是序列比较）',
+      { '/a': { k: ['新增', '导出'] } },
+      { '/a': { k: ['导出', '新增'], r: 3, e: '' } },
+      false
+    ],
+    [
+      '本轮新增控件不得报（棘轮拦减少，不拦增长）',
+      { '/a': { k: ['新增'] } },
+      { '/a': { k: ['新增', '批量删除'], r: 1, e: '' } },
+      false
+    ],
+    ['合法无按钮页面（两侧 k 都空）不得报', { '/a': { k: [] } }, { '/a': { k: [], r: 0, e: '' } }, false],
+    [
+      '页面消失必须点名（路由数不变的一换一也要抓）',
+      { '/a': { k: ['新增'] }, '/b': { k: [] } },
+      { '/b': { k: [], r: 0, e: '' } },
+      true
+    ],
+    [
+      '0 行页面上数据驱动按钮消失仍须报（不得静默当"没有这按钮"）',
+      { '/a': { k: ['查看全部'] } },
+      { '/a': { k: [], r: 0, e: '暂无数据' } },
+      true
+    ]
+  ]
+  let ctlBad = 0
+  for (const [desc, baseRoutes, curRoutes, want] of ctlCases) {
+    const r = controlSurfaceRegressions({ perRoute: baseRoutes }, curRoutes)
+    // want=true 时还要求（a）不是"缺栏不可比"糊弄过去的，（b）真有内容级退步
+    const got = r.comparable && r.regressions.length > 0
+    const ok = got === want
+    if (!ok) ctlBad++
+    console.log(`  ${ok ? '✅' : '✘'} [${ok ? 'OK' : 'MISMATCH'}] 控件面：${desc}：期望报退步=${want}，实际 ${got}`)
+  }
+  // 缺 k 栏必须走"不可比 + 基线缺"文案（`--update-baseline` 的迁移通道按这三个字识别）
+  const ctlShape = controlSurfaceRegressions(
+    { perRoute: { '/a': { a: 1, c: 1, i: 0 } } },
+    { '/a': { k: [], r: 0, e: '' } }
+  )
+  if (ctlShape.comparable || !ctlShape.regressions[0]?.includes('基线缺')) {
+    ctlBad++
+    console.error(`❌ 控件面缺 k 栏未被判成"不可比 + 基线缺"（实际 ${JSON.stringify(ctlShape)}）`)
+  } else {
+    console.log('  ✅ [OK] 控件面缺 k 栏走不可比通道（前缀"基线缺"供 --update-baseline 识别）')
+  }
+  // 分因必须可执行：0 行 + 按钮消失的文案要指向夹具/用例，否则人只会去改基线
+  const ctlWhy = controlSurfaceRegressions(
+    { perRoute: { '/a': { k: ['查看全部'] } } },
+    { '/a': { k: [], r: 0, e: '暂无数据' } }
+  ).regressions[0]
+  if (!ctlWhy.includes('夹具') && !ctlWhy.includes('用例')) {
+    ctlBad++
+    console.error(`❌ 控件面退步文案没有可执行动作（应提示配数据夹具或用例）：${ctlWhy}`)
+  } else {
+    console.log('  ✅ [OK] 控件面退步分因指向夹具/用例（数据态原因可执行）')
+  }
+  if (ctlBad) {
+    console.error(`❌ 控件面守恒自检失败 ${ctlBad} 条`)
+    process.exit(1)
+  }
+
   if (deferredFails.length) {
     for (const m of deferredFails) console.error(`❌ ${m}`)
     console.error(
@@ -2089,6 +2217,7 @@ function runSelftest() {
       ` + 表格读数落定 ${stCases.length} 条双向（含两个正控 + b88 三条 tableMissing 反脆弱）` +
       ` + 稳定≠可接受 ${aCases.length} 条双向（b88 收口把尺从秒表换成请求静默，含"0 行 vs 还没回""静默 1 拍不算终态""计数器下溢"三支反脆弱）` +
       ` + tab 标签落定 ${lCases.length} 条双向（b88 实测 /monitor/cache 的 nav 在 2.6s 只有 1 项）` +
+      ` + 非行内控件面守恒 ${ctlCases.length} 条双向 + 缺栏通道 1 条 + 分因可执行 1 条（b96 / b88 N-H）` +
       ` + 生效路径反查 ${revChecks.length} 条（读的是掩码后的正文，清单自己不算证据）` +
       ` + 采集作用域 ${scopeCases.length} 条双向（b89：作用域取不到≠这页没动作）+ 作用域反查/反证 2 条（正文必须以 .app-main 为根、不得回到 || document.body）`
   )
@@ -2702,6 +2831,18 @@ function main() {
         }
       ])
     )
+    // 非行内控件面的本轮身份集合（b96）：与行内动作面分开存——`toolbar` 已跨 tab
+    // 去重合并，所以同一按钮在多个 tab 出现只算一次（b88 /tool/build 8→6 的成因）。
+    const curControls = Object.fromEntries(
+      pages.map((p) => [
+        p.path,
+        {
+          k: [...new Set(p.toolbar.map((b) => b.name))].sort(),
+          r: p.rowCount,
+          e: p.emptyText || ''
+        }
+      ])
+    )
     const rowSelfSurface = rowSurface(curRows, curRows)
     // 两条口径闸（自相矛盾 / 基线记有行内动作而本轮无可见表）**排在写产物之前**，见上面 1900 行附近：
     // 写完了再判，坏尺的报告会先落盘（b88 实测第一轮就是这样）。
@@ -2715,7 +2856,11 @@ function main() {
         const caliberChanged = caliberGaps.includes('sampling')
         const bad = caliberChanged
           ? []
-          : [...ratchetRegressions(base, cur), ...rowRatchetRegressions(base, curRows).regressions]
+          : [
+              ...ratchetRegressions(base, cur),
+              ...rowRatchetRegressions(base, curRows).regressions,
+              ...controlSurfaceRegressions(base, curControls).regressions
+            ]
         // 唯一允许"带病落盘"的一种：现存基线是**旧格式**（没有这几栏），此时任何一条
         // 比都判不了。这种情形下必须让新判据把栏位写进去，否则这个闸永远等不到可比断面
         // （b82 ⑩：基线必须与产生它的那一轮同批重生成）。判据是"坏消息全部属于缺栏"，
@@ -2764,7 +2909,17 @@ function main() {
             // 明细进基线之后，`--gate` 每轮直接打逐页增减，定位只需一次跑批。
             // i = clicked（b81），随明细一起记，便于看"提及但没点"的存量趋势。
             perRoute: Object.fromEntries(
-              pages.map((p) => [p.path, { a: p.actionCount, c: p.coveredCount, i: p.clickedCount }])
+              pages.map((p) => [
+                p.path,
+                {
+                  a: p.actionCount,
+                  c: p.coveredCount,
+                  i: p.clickedCount,
+                  // b96：非行内控件面的**身份**（去重升序的按钮名）。只记数会让
+                  // "一页少一个、另一页多一个"在聚合上完全同形（b88 N-H）。
+                  k: [...new Set(p.toolbar.map((b) => b.name))].sort()
+                }
+              ])
             ),
             // 行内动作面（b87 项 5）：分母固定取这里记的 `t`，本轮实测只贡献分子。
             // 与上面的 `perRoute` 分栏是因为两者问的不是同一件事：`perRoute.a` 问"这页现在有几个按钮"
@@ -2774,7 +2929,7 @@ function main() {
             // 参数进基线并由代码常量逐条核（前言 ⑱）：换判据必须与重生成基线同批，
             // 旧基线缺这一项一律拒绝比对（UNRUN），不能拿更松的尺去量旧数字
             rowSurfaceMinLostActions: ROW_SURFACE_MIN_LOST_ACTIONS,
-            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；行内动作面覆盖率（rowSurfaceCoverage）以 rowPerRoute 的 t 之和为固定分母，本轮 0 行 ⇒ 该栏下降；退步必须同时超相对容差与绝对下限 rowSurfaceMinLostActions（低于下限只留痕不判红，前言 ⑱）；旧格式基线缺这些栏或参数与本常量不一致 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成'
+            note: '逐页动作清单基线：--gate 时覆盖率不得低于本值（容差 1pp），路由数不得减少，totalBacklog / totalStateLocked 只许降（各自容差 2）；clicked 仅记录趋势；行内动作面覆盖率（rowSurfaceCoverage）以 rowPerRoute 的 t 之和为固定分母，本轮 0 行 ⇒ 该栏下降；退步必须同时超相对容差与绝对下限 rowSurfaceMinLostActions（低于下限只留痕不判红，前言 ⑱）；perRoute.k 是非行内控件面的按钮名集合（b96）：基线里出现过的按钮本轮必须在场，少了即判红（数据驱动的按行数分因）；旧格式基线缺这些栏或参数与本常量不一致 ⇒ --gate 判 UNRUN（不可比），须同批 --update-baseline 重生成'
           },
           null,
           2
@@ -2800,7 +2955,8 @@ function main() {
       process.exit(2)
     }
     const rowNow = rowRatchetRegressions(base, curRows)
-    const bad = [...ratchetRegressions(base, cur), ...rowNow.regressions]
+    const ctlNow = controlSurfaceRegressions(base, curControls)
+    const bad = [...ratchetRegressions(base, cur), ...rowNow.regressions, ...ctlNow.regressions]
     // 留痕必须照打——判红与判绿两条路都要（低于绝对下限的缩水若不打印，就是"静默消化"，
     // 与 request-storm 的 below-floor 同一族纪律）
     for (const n of rowNow.notices) console.warn(`[inventory] ${n}`)
@@ -2835,7 +2991,10 @@ function main() {
             // 动作 12→7：那轮该页 0 行、空态「暂无数据」，5 个行内按钮结构性消失——
             // 聚合覆盖率仍 100%，因为分母一起缩了。这句提示若不写原因，读的人只会去查"页面坏了"）。
             r: (p.columns || []).length ? p.rowCount : null,
-            e: p.emptyText || ''
+            e: p.emptyText || '',
+            // b96：控件身份也参与"逐页完全一致"的对账（否则一个按钮被换掉时
+            // 聚合数与 a/c/i 都可能不变，而这一行还会打印"完全一致"）。
+            k: [...new Set(p.toolbar.map((b) => b.name))].sort()
           }
         ])
       )
@@ -2846,7 +3005,12 @@ function main() {
         const c = curMap[p]
         if (!b) deltas.push(`新增页面 ${p}：动作 ${c.a} / 覆盖 ${c.c} / 点击 ${c.i ?? '—'}`)
         else if (!c) deltas.push(`页面消失 ${p}：基线动作 ${b.a} / 覆盖 ${b.c} / 点击 ${b.i ?? '—'}`)
-        else if (b.a !== c.a || b.c !== c.c || (b.i !== undefined && b.i !== c.i)) {
+        else if (
+          b.a !== c.a ||
+          b.c !== c.c ||
+          (b.i !== undefined && b.i !== c.i) ||
+          (Array.isArray(b.k) && b.k.join('\u0001') !== c.k.join('\u0001'))
+        ) {
           const cause =
             c.r === 0
               ? `（本轮该页 ${c.r} 行${c.e ? `、空态「${c.e}」` : ''}⇒ 行内动作随数据消失，分母在缩，不等于覆盖率变好）`

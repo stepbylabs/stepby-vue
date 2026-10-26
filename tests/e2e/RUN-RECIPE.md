@@ -4252,3 +4252,36 @@ node tests/e2e/console-allowlist-audit.mjs --gate
 
 ⚠ 换这条判据后，**旧的 click/console 数据集一律 UNRUN**（缺四个字段）——这不是回归，
 是"旧断面证不了跑完"。必须重跑一轮 main 全量单轮 + deep 全量单轮再判；分段轮不得用来重生成基线。
+
+### 3.109 非行内控件面守恒：按钮身份进基线，总数不再当尺（b96 / b88 N-H）
+
+**立案**：`action-inventory` 的 `coverage` 是"扫到的动作里覆盖了几个"（分子分母一起缩），
+`rowPerRoute` 只守**行内**动作。**非行内控件面**（工具栏按钮、跨 tab 去重合并）此前只有
+聚合数 `perRoute.a`：一页少一个按钮、另一页多一个，聚合完全不动。b88 实测
+`/tool/swagger` 3→1 就属于这一面，当时只能写进台账、判据看不见。
+
+**尺**：按钮身份 = `(路由, 归一后的按钮名)`。基线 `perRoute[path].k` 记去重升序的名字集合；
+`--gate` 判"基线里出现过的身份本轮必须在场"，并分因：
+
+- 页面消失（路由数不变的一换一也会抓）⇒ 点名页面与它基线里的按钮；
+- 按钮消失且该页本轮 0 行 ⇒ 文案提示"需要配数据夹具或用例"（棘轮只许升，补数据能回来）；
+- 按钮消失且该页仍有数据行 ⇒ 控件被删或用例文案变了（同 `rowSurface` 的分因口径）。
+
+增长允许（新功能加按钮）；**不设绝对下限**：一个按钮消失就是一次入口/权限变更，
+没有"少 2 个以内不算"的道理。**缺 `k` 的旧基线 ⇒ EXIT=2（UNRUN）**，由
+`--update-baseline` 的口径迁移通道落盘（与本批基线重生成必须同批）。
+
+**自检**（`node tests/e2e/action-inventory.mjs --selftest`）：新增 6 条双向 + 缺栏通道 1 条
+
+- 分因可执行 1 条（顺序不同不误报、空按钮页合法、增长不拦、页面消失点名、0 行仍报、
+  缺栏走"基线缺"前缀）。盘上变异：把 `b.k.filter(...)` 改成 `[]` ⇒ 自检恰红"控件消失必须报"
+  与"0 行仍须报"两条（EXIT=1），还原后 `diff -q` 逐字节一致。
+
+```bash
+node tests/e2e/action-inventory.mjs --selftest
+node tests/e2e/action-inventory.mjs --update-baseline   # 仅换尺/新增页面时，且与本判据同批
+node tests/e2e/action-inventory.mjs --gate
+```
+
+**已知边界**：这一面只覆盖主文档里的工具栏按钮；iframe 内部（如 `/tool/swagger` 的 swagger
+UI）不在采集面，属于另一条尺的问题（承 b88 N-H 的剩余部分）。

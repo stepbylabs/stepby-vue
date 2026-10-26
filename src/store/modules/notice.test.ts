@@ -107,6 +107,37 @@ describe('store/modules/notice', () => {
     expect(store.readIds.size).toBe(0)
   })
 
+  it('刷新失败必须留痕 loadFailed 且保留旧数据；成功一次即清除', async () => {
+    mocked.listNoticeTop.mockResolvedValueOnce({
+      data: [{ noticeId: 1, isRead: false }]
+    } as SysNoticeTopResult)
+    const store = useNoticeStore()
+    await store.refreshTopNotices()
+    expect(store.loadFailed).toBe(false)
+    expect(store.topNotices).toHaveLength(1)
+
+    mocked.listNoticeTop.mockRejectedValueOnce(new Error('network down'))
+    await expect(store.refreshTopNotices()).rejects.toThrow('network down')
+    expect(store.loadFailed).toBe(true)
+    // 结算字段必须归位，否则重试入口会一直转圈
+    expect(store.loading).toBe(false)
+    expect(store.refreshPromise).toBeNull()
+    // 旧数据不得被清空："有旧数据 + 非最新提示"优于空白
+    expect(store.topNotices).toHaveLength(1)
+
+    mocked.listNoticeTop.mockResolvedValueOnce({
+      code: 200,
+      msg: 'ok',
+      data: [],
+      unreadCount: 0,
+      totalCount: 0
+    } as SysNoticeTopResult)
+    await store.refreshTopNotices()
+    expect(store.loadFailed).toBe(false)
+    store.clearAll()
+    expect(store.loadFailed).toBe(false)
+  })
+
   it('refreshTopNotices reuses the in-flight promise (dedupe)', async () => {
     let resolveFn: (v: SysNoticeTopResult) => void
     mocked.listNoticeTop.mockImplementation(() => new Promise<SysNoticeTopResult>((r) => (resolveFn = r)))

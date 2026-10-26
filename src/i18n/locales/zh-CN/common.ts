@@ -271,6 +271,7 @@ export default {
     headerNotice: {
       detailTitle: '公告详情',
       empty: '暂无公告',
+      loadFailed: '公告加载失败，显示的可能不是最新内容',
       statusClosed: '已关闭',
       ariaWithUnread: '消息通知，{count} 条未读',
       ariaNoUnread: '消息通知，无未读消息'

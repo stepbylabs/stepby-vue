@@ -36,6 +36,14 @@ interface NoticeState {
   readIds: Set<number>
   /** 是否正在加载顶部公告 */
   loading: boolean
+  /**
+   * 最近一次刷新是否失败（b96）。
+   *
+   * 与 `topNotices.length === 0` 分开存：接口失败时列表同样是空的，但"加载失败"与
+   * "真的没有公告"对用户是两件事（b90 §2：失败态不得伪装成空态）。失败时**不清空**
+   * 已有列表（旧数据比空白更有用），但页面必须显示"刷新失败 + 重试"。
+   */
+  loadFailed: boolean
   /** P1 修复: 进行中的刷新 Promise，用于消除竞态条件 */
   refreshPromise: Promise<void> | null
 }
@@ -47,6 +55,7 @@ const useNoticeStore = defineStore('notice', {
     totalCount: 0,
     readIds: new Set<number>(),
     loading: false,
+    loadFailed: false,
     refreshPromise: null
   }),
   getters: {
@@ -94,6 +103,12 @@ const useNoticeStore = defineStore('notice', {
           this.readIds = new Set(
             this.topNotices.filter((n: SysNotice) => n.isRead).map((n: SysNotice) => n.noticeId as number)
           )
+          this.loadFailed = false
+        } catch (e) {
+          // 失败留痕并保留旧列表：调用方（HeaderNotice）据此渲染失败态与重试入口。
+          // 拒绝继续上抛——调用方仍要能感知失败（不允许把错误吞成"刷新完成"）。
+          this.loadFailed = true
+          throw e
         } finally {
           this.loading = false
           this.refreshPromise = null
@@ -185,6 +200,7 @@ const useNoticeStore = defineStore('notice', {
       this.totalCount = 0
       this.readIds = new Set<number>()
       this.loading = false
+      this.loadFailed = false
       this.refreshPromise = null
     }
   }
