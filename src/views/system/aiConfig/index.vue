@@ -15,6 +15,7 @@
               type="primary"
               icon="Check"
               :loading="saving"
+              :disabled="!loaded"
               v-hasPermi="['system:aiConfig:edit']"
               @click="onSave"
             >
@@ -24,14 +25,17 @@
         </div>
       </template>
 
-      <el-alert
-        :title="t('aiConfig.tip.dualSource')"
-        type="info"
-        :closable="false"
-        class="mb-4"
-      />
+      <el-alert :title="t('aiConfig.tip.dualSource')" type="info" :closable="false" class="mb-4" />
+      <el-alert v-if="loadError" type="error" :closable="false" class="mb-4" data-test="ai-config-load-error">
+        <template #title>
+          <div class="flex items-center justify-between">
+            <span>{{ t('aiConfig.loadFailed') }}</span>
+            <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
+          </div>
+        </template>
+      </el-alert>
 
-      <el-form label-width="180px" class="max-w-[720px]">
+      <el-form label-width="180px" class="max-w-[720px]" :disabled="!loaded">
         <el-form-item :label="t('aiConfig.field.enabled')">
           <el-switch v-model="form.enabled" />
         </el-form-item>
@@ -45,7 +49,9 @@
           <el-input
             v-model="form.baseUrl"
             :placeholder="t('aiConfig.ph.baseUrl')"
-            class="w-[420px]" :aria-label="t('aiConfig.ph.baseUrl')" />
+            class="w-[420px]"
+            :aria-label="t('aiConfig.ph.baseUrl')"
+          />
         </el-form-item>
         <el-form-item :label="t('aiConfig.field.apiKey')">
           <el-input
@@ -70,13 +76,10 @@
             allow-create
             default-first-option
             :placeholder="t('aiConfig.ph.allowedTables')"
-            class="w-[520px]" :aria-label="t('aiConfig.ph.allowedTables')">
-            <el-option
-              v-for="tb in tableOptions"
-              :key="tb"
-              :label="tb"
-              :value="tb"
-            />
+            class="w-[520px]"
+            :aria-label="t('aiConfig.ph.allowedTables')"
+          >
+            <el-option v-for="tb in tableOptions" :key="tb" :label="tb" :value="tb" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -97,6 +100,11 @@ const saving = ref(false)
 const testing = ref(false)
 const hasKey = ref(false)
 const maskedKey = ref('')
+/** 服务端配置是否已成功读到：未读到就不允许保存——否则表单里的默认值
+ * （enabled=false、空 baseUrl/model）会被当成用户输入写回 `sys.ai.*`，
+ * 一次加载失败就能把整段 AI 配置清空并关闭。 */
+const loaded = ref(false)
+const loadError = ref(false)
 const tableOptions = ref<string[]>([
   'sys_user',
   'sys_dept',
@@ -118,6 +126,8 @@ const apiKeyInput = ref('')
 
 async function load() {
   loading.value = true
+  loaded.value = false
+  loadError.value = false
   try {
     const res = await getAiConfig()
     const vo = res.data
@@ -133,8 +143,12 @@ async function load() {
       for (const tb of vo.allowedTables) {
         if (!tableOptions.value.includes(tb)) tableOptions.value.push(tb)
       }
+      loaded.value = true
+    } else {
+      loadError.value = true
     }
   } catch (e) {
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[aiConfig] load failed:', e)
   } finally {
     loading.value = false
@@ -142,6 +156,7 @@ async function load() {
 }
 
 async function onSave() {
+  if (!loaded.value) return
   saving.value = true
   try {
     await updateAiConfig({

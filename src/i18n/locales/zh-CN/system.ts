@@ -203,6 +203,7 @@ export default {
   },
   aiConfig: {
     title: 'AI 助手配置',
+    loadFailed: '配置加载失败，表单已锁定以免用默认值覆盖服务端配置',
     provider: {
       openai: 'OpenAI 兼容',
       custom: '自定义'
@@ -232,6 +233,7 @@ export default {
   },
   uploadConfig: {
     title: 'OSS 存储配置',
+    loadFailed: '配置加载失败，表单已锁定以免用空默认值覆盖服务端配置',
     btn: {
       test: '测试连通'
     },

@@ -67,8 +67,8 @@
       "method": "POST",
       "url": "^/tool/http-debug/execute$",
       "error": "^HTTP 400$",
-      "msg": "禁止访问保留域名后缀 localhost",
-      "why": "M87 HTTP 调试器 SSRF 负路径：localhost 保留域名必须被守卫拒绝；用例断言请求不出网。"
+      "msg": "^禁止访问(内网/保留地址 127\\.0\\.0\\.1|保留域名后缀 localhost)$",
+      "why": "M87 HTTP 调试器 SSRF 负路径：目标为回环地址时必须被守卫拒绝。baseURL=localhost 时业务文案是「禁止访问保留域名后缀 localhost」，baseURL=127.0.0.1 时是「禁止访问内网/保留地址 127.0.0.1」——同一条守卫的两种回显，按启动配置取值；合并为一条正则，避免某一轮因 baseURL 不同而整条豁免零命中。用例同时断言请求不出网。"
     },
     {
       "method": "POST",
@@ -468,13 +468,6 @@
       "error": "^HTTP 400$",
       "msg": "^IM 机器人渠道配置无效",
       "why": "M80 IM 渠道连通性负路径：config_json 缺 webhookUrl 时必须 400。夹具 id 随轮次漂移（b81 记 566，b82 实测 579），所以 URL 只认端点形状、原因全压在同一句 msg 上—— msg 仍是逐字前缀，不是任意 400。"
-    },
-    {
-      "method": "POST",
-      "url": "^/tool/http-debug/execute$",
-      "error": "^HTTP 400$",
-      "msg": "^禁止访问内网/保留地址 127\\.0\\.0\\.1$",
-      "why": "M87 HTTP 调试器 SSRF 负路径：回环/内网地址必须被守卫拒绝，用例断言请求不出网。"
     },
     {
       "method": "DELETE",

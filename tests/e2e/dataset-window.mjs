@@ -62,18 +62,27 @@ export function assertWindowPrecision(dataset, fileLabel = '(内存对象)') {
   }
 }
 /**
- * 数据集必须是**跑完的全量轮**产物。三道判据，缺一不可：
+ * 数据集必须是**跑完的全量轮**产物。以下判据缺一不可：
  * ① `full === true`——分段轮（`--range=` / `--feature=`）的键集合是子集，拿它判"没变化"
  *    等于把"没跑"读成"没变差"（RUN-RECIPE §3.63）；
  * ② **计划数 = 入场数**——b82 实测：全量轮跑到 M38 浏览器崩溃，runner 里的 `break` 一旦生效，
  *    后面的模块连 `moduleStats` 都不会有；只判 ③ 会漏掉这一支，所以两个计数必须相等。
  * ③ **每个入场模块都产出了判定行**——同一轮里"进了模块但一条判定都没有"= 空跑。
  *    `full` 证明的是"不是分段轮"，不证明"跑完了"；后两者必须由执行计数自证。
+ * ④ **本轮没有环境性网络中断**（b89 项 15）。
  * 旧格式（没有这些字段）一律拒绝：宁要一声"重跑"，不要一个静默偏低的面。
+ *
+ * b95：判据**收集全部缺口**而不是抛第一条（两个消费方——`assertFullRun` 与
+ * `console-allowlist-audit` / `click-failure-audit` 的输入闸——共用这一份实现）。
+ * 原先 console/click 两个脚本各自只判 `modulesPlanned === modulesAttempted`，
+ * 把"0 判定空跑"与"整轮环境性断网"两条通道漏在门外：它们与"没跑"在数据集里同形。
+ *
+ * @returns {string[]} 缺口列表；空数组 = 通过
  */
-export function assertFullRun(dataset, fileLabel) {
+export function executionCompletenessGaps(dataset, fileLabel = '(内存对象)') {
+  const gaps = []
   if (dataset.full !== true) {
-    throw new Error(
+    gaps.push(
       `数据集未标记 full（实际 ${JSON.stringify(dataset.full)}，${fileLabel}）——分段跑的键集合是子集，` +
         `用它判覆盖/风暴会把"没跑"读成"没变差"（RUN-RECIPE §3.63）`
     )
@@ -82,26 +91,27 @@ export function assertFullRun(dataset, fileLabel) {
   const attempted = dataset.modulesAttempted
   const empty = dataset.modulesWithZeroVerdicts
   if (!Number.isInteger(planned) || planned <= 0 || !Number.isInteger(attempted) || !Array.isArray(empty)) {
-    throw new Error(
+    gaps.push(
       `数据集没有执行完整性字段（modulesPlanned / modulesAttempted / modulesWithZeroVerdicts，${fileLabel}）——` +
         `旧格式无法证明"每个模块都真的跑了"，拒绝作为数据源。请用当前 runner 重跑一轮全量。`
     )
-  }
-  if (attempted !== planned) {
-    throw new Error(
-      `本轮提前终止：计划 ${planned} 个模块、实际入场 ${attempted} 个（${fileLabel}）——` +
-        `剩下的模块从未执行，据此判覆盖等于把"没跑"读成"没变差"。请先修执行环境（内存/并行编译/浏览器失联）再重跑全量。`
-    )
-  }
-  if (empty.length > 0) {
-    throw new Error(
-      `本轮有 ${empty.length}/${planned} 个模块产出 0 条判定（模块号：${empty.slice(0, 12).join(',')}${empty.length > 12 ? ' …' : ''}，${fileLabel}）` +
-        `——这是**崩溃/浏览器失联**的全量轮，覆盖面只是前若干个模块；` +
-        `不得据此判覆盖或重生成基线，请先修执行环境再重跑全量。`
-    )
+  } else {
+    if (attempted !== planned) {
+      gaps.push(
+        `本轮提前终止：计划 ${planned} 个模块、实际入场 ${attempted} 个（${fileLabel}）——` +
+          `剩下的模块从未执行，据此判覆盖等于把"没跑"读成"没变差"。请先修执行环境（内存/并行编译/浏览器失联）再重跑全量。`
+      )
+    }
+    if (empty.length > 0) {
+      gaps.push(
+        `本轮有 ${empty.length}/${planned} 个模块产出 0 条判定（模块号：${empty.slice(0, 12).join(',')}${empty.length > 12 ? ' …' : ''}，${fileLabel}）` +
+          `——这是**崩溃/浏览器失联**的全量轮，覆盖面只是前若干个模块；` +
+          `不得据此判覆盖或重生成基线，请先修执行环境再重跑全量。`
+      )
+    }
   }
   if (Array.isArray(dataset.rows) && dataset.totalVerdictRows === 0) {
-    throw new Error(`本轮判定行总数为 0（${fileLabel}）——采集器或执行环境已坏，结论不作数`)
+    gaps.push(`本轮判定行总数为 0（${fileLabel}）——采集器或执行环境已坏，结论不作数`)
   }
   /**
    * ④ **本轮没有环境性网络中断**（b89 项 15）。实测断面：b89 全量轮跑到 M85 时 Windows 挂起网卡 I/O，
@@ -111,15 +121,21 @@ export function assertFullRun(dataset, fileLabel) {
    */
   const envAbort = dataset.envNetworkAbort
   if (!Number.isInteger(envAbort) || envAbort < 0) {
-    throw new Error(
+    gaps.push(
       `数据集没有环境性网络中断计数字段（envNetworkAbort，${fileLabel}）——` +
         `无法证明本轮没被"网卡挂起 ⇒ 全量请求失败"污染，拒绝作为数据源。请用当前 runner 重跑一轮全量。`
     )
-  }
-  if (envAbort > 0) {
-    throw new Error(
+  } else if (envAbort > 0) {
+    gaps.push(
       `本轮有 ${envAbort} 条环境性网络中断（${fileLabel}）——断网期间的请求失败会把"没打到"读成"未覆盖"，` +
         `覆盖面与密度都不可用。这是复跑一轮的活，不是改产品或放松阈值的活（runner 侧同一轮会打 🛑 并 EXIT=2）。`
     )
   }
+  return gaps
+}
+
+/** 抛出版（保持既有调用方签名不变）。 */
+export function assertFullRun(dataset, fileLabel) {
+  const gaps = executionCompletenessGaps(dataset, fileLabel)
+  if (gaps.length > 0) throw new Error(gaps.join('\n'))
 }

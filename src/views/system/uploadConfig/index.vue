@@ -15,6 +15,7 @@
               type="primary"
               icon="Check"
               :loading="saving"
+              :disabled="!loaded"
               v-hasPermi="['system:uploadConfig:edit']"
               @click="onSave"
             >
@@ -24,12 +25,7 @@
         </div>
       </template>
 
-      <el-alert
-        :title="t('uploadConfig.tip.dualSource')"
-        type="info"
-        :closable="false"
-        class="mb-4"
-      />
+      <el-alert :title="t('uploadConfig.tip.dualSource')" type="info" :closable="false" class="mb-4" />
       <el-alert
         :title="t('uploadConfig.tip.mode', { mode: vo?.backendMode ?? 'local' })"
         :type="vo?.backendMode === 's3' ? 'success' : 'warning'"
@@ -37,8 +33,17 @@
         class="mb-4"
       />
 
-      <el-empty v-if="!loading && !vo" :description="t('common.noData')" class="mt-2" />
-      <el-form v-loading="loading" label-width="180px" class="max-w-[720px]">
+      <el-alert v-if="loadError" type="error" :closable="false" class="mb-4" data-test="upload-config-load-error">
+        <template #title>
+          <div class="flex items-center justify-between">
+            <span>{{ t('uploadConfig.loadFailed') }}</span>
+            <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
+          </div>
+        </template>
+      </el-alert>
+
+      <el-empty v-if="!loading && !loadError && !vo" :description="t('common.noData')" class="mt-2" />
+      <el-form v-loading="loading" label-width="180px" class="max-w-[720px]" :disabled="!loaded">
         <el-form-item :label="t('uploadConfig.field.accessKey')">
           <el-input
             v-model="accessKeyInput"
@@ -65,7 +70,9 @@
           <el-input
             v-model="form.endpoint"
             :placeholder="t('uploadConfig.ph.endpoint')"
-            class="w-[420px]" :aria-label="t('uploadConfig.ph.endpoint')" />
+            class="w-[420px]"
+            :aria-label="t('uploadConfig.ph.endpoint')"
+          />
         </el-form-item>
         <el-form-item :label="t('uploadConfig.field.region')">
           <el-input v-model="form.region" class="w-[280px]" />
@@ -81,7 +88,9 @@
           <el-input
             v-model="form.publicEndpoint"
             :placeholder="t('uploadConfig.ph.publicEndpoint')"
-            class="w-[420px]" :aria-label="t('uploadConfig.ph.publicEndpoint')" />
+            class="w-[420px]"
+            :aria-label="t('uploadConfig.ph.publicEndpoint')"
+          />
         </el-form-item>
       </el-form>
     </el-card>
@@ -105,6 +114,11 @@ const saving = ref(false)
 const testing = ref(false)
 const loading = ref(false)
 const vo = ref<UploadConfigMaskedVo | null>(null)
+/** 服务端配置是否已成功读到：未读到就不允许保存——否则表单里的空默认值
+ * （endpoint/region/bucket 全空）会被写回 `sys.upload.s3.*`，把上传链路打瘫；
+ * 同时 `el-empty` 只在"读成功但没有数据"时出现，失败不得伪装成"暂无数据"。 */
+const loaded = ref(false)
+const loadError = ref(false)
 const accessKeyInput = ref('')
 const secretKeyInput = ref('')
 
@@ -118,6 +132,8 @@ const form = ref({
 
 async function load() {
   loading.value = true
+  loaded.value = false
+  loadError.value = false
   try {
     const res = await getUploadConfig()
     if (res.data) {
@@ -127,8 +143,10 @@ async function load() {
       form.value.bucket = res.data.bucket
       form.value.pathStyle = res.data.pathStyle
       form.value.publicEndpoint = res.data.publicEndpoint
+      loaded.value = true
     }
   } catch (e) {
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[uploadConfig] load failed:', e)
   } finally {
     loading.value = false
@@ -136,6 +154,7 @@ async function load() {
 }
 
 async function onSave() {
+  if (!loaded.value) return
   saving.value = true
   try {
     await updateUploadConfig({

@@ -713,6 +713,7 @@ export default {
       maxmindCredentialsRequired: 'Switching to MaxMind source requires Account ID and License Key'
     },
     tip: {
+      loadFailed: 'Status and configuration were not fully loaded; the page is not showing the latest values',
       confirmReload: 'Confirm to reload mmdb file? Useful after manually replacing the file.',
       reloadSuccess: 'Hot reload successful',
       confirmReloadXdb: 'Confirm to reload ip2region xdb file? Useful after manually replacing the file.',

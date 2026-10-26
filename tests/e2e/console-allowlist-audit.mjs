@@ -27,8 +27,11 @@
  *
  * ## fail-closed 的输入（任一情形一律 EXIT=2 = UNRUN，不是"通过"也不是"有缺陷"）
  *
- * 数据集缺失 / JSON 坏 / `full !== true`（分段轮的局部命中不得当全站账）/
- * 窗口字段缺失或反向 / `modulesPlanned !== modulesAttempted`（崩在半路的全量轮）/
+ * 数据集缺失 / JSON 坏 / 窗口字段缺失或反向 / **执行完整性**（b95 起与
+ * `endpoint-coverage` / `request-storm` / `click-failure-audit` 共用
+ * `dataset-window.mjs::executionCompletenessGaps`：`full`、计划=入场、零判定模块、
+ * 整轮环境性断网四条缺一即拒——只判 planned==attempted 会漏掉"进了模块却空跑"
+ * 与"整轮断网"两种轮次，它们与本轮"没有噪声"在数据集里同形）/
  * 数据集没有 `entries` 快照（旧格式，无法证明"表与轮同批"）/
  * 数据集条目 id 集合与当前表不一致（口径漂移必须与重跑同批——前言 ⑩）/
  * 通道计数字段取不到数（`NaN` 参与比较恒 false，"取不到"不得读成"没有退步"）。
@@ -60,6 +63,7 @@ import {
   matchEveryUrl,
   shadowedEntries
 } from './console-allowlist.mjs'
+import { executionCompletenessGaps } from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DATASET_PATH = path.join(HERE, 'screenshots', 'deep-e2e-console-exemptions.json')
@@ -79,25 +83,16 @@ export function judge(dataset, table) {
     fatal.push('读不到 console 豁免数据集（`deep-e2e-console-exemptions.json`）——本轮跑批没落账 ≠ 本轮没有噪声')
     return { fatal, red, stale, info, stats }
   }
-  if (dataset.full !== true) {
-    fatal.push(
-      `数据集 full=${JSON.stringify(dataset.full)} ⇒ 分段/单模块复跑的局部命中不得当全站账（b79 实测踩过：单跑 M25 会把全站文件覆盖成 27 行）`
-    )
-  }
+  // 执行完整性（b95）：`full` / 计划=入场 / 零判定模块 / 整轮环境性断网四条共用
+  // `dataset-window.mjs::executionCompletenessGaps`（与 endpoint-coverage、request-storm、
+  // click-failure-audit 同一份纯函数）。此前这里只判 planned==attempted，于是
+  // "0 判定空跑"与"整轮断网"两个通道落在门外——它们与本轮"没有噪声"在数据集里同形。
+  fatal.push(...executionCompletenessGaps(dataset, 'console 豁免数据集'))
   const win = [dataset.windowStart, dataset.windowEnd]
   if (win.some((w) => typeof w !== 'string' || !w.trim())) {
     fatal.push(`数据集窗口字段缺失或非字符串：${JSON.stringify(win)}`)
   } else if (!(Date.parse(win[0]) < Date.parse(win[1]))) {
     fatal.push(`数据集窗口反向或同刻：${win[0]} ~ ${win[1]} ⇒ 时间串抄反了方向`)
-  }
-  if (
-    !Number.isInteger(dataset.modulesPlanned) ||
-    !Number.isInteger(dataset.modulesAttempted) ||
-    dataset.modulesPlanned !== dataset.modulesAttempted
-  ) {
-    fatal.push(
-      `执行完整性对账不过：计划 ${dataset.modulesPlanned} 个模块、实际入场 ${dataset.modulesAttempted} 个 ⇒ 崩在半路的全量轮不能证明"条目未命中"`
-    )
   }
   const snap = Array.isArray(dataset.entries) ? dataset.entries : null
   if (!snap) {
@@ -174,6 +169,9 @@ const T = (entries, hits, channels, extra = {}) => ({
   windowEnd: '2026-10-23 02:00:00.000',
   modulesPlanned: 92,
   modulesAttempted: 92,
+  // 执行完整性字段（b95 起本判据与另三处共用 `executionCompletenessGaps`）
+  modulesWithZeroVerdicts: [],
+  envNetworkAbort: 0,
   entries: entries.map((e) => ({ id: e.id, status: e.status, url: e.url })),
   hits,
   channels,
@@ -294,6 +292,32 @@ const GATE_CASES = [
     name: '模块没跑全（planned≠attempted）⇒ UNRUN',
     table: [OK_A],
     dataset: { ...T([OK_A], {}, { ownUrl: 0, setFallback: 0 }), modulesAttempted: 91 },
+    expect: 'unrun'
+  },
+  {
+    name: '有模块产出 0 条判定 ⇒ UNRUN（进了模块却空跑，与"没有噪声"同形）',
+    table: [OK_A],
+    dataset: {
+      ...T([OK_A], {}, { ownUrl: 0, setFallback: 0 }),
+      modulesWithZeroVerdicts: [39, 40, 41]
+    },
+    expect: 'unrun'
+  },
+  {
+    name: '整轮环境性网络中断 ⇒ UNRUN（断网期间的"无噪声"是没跑到）',
+    table: [OK_A],
+    dataset: { ...T([OK_A], {}, { ownUrl: 0, setFallback: 0 }), envNetworkAbort: 15720 },
+    expect: 'unrun'
+  },
+  {
+    name: '旧格式缺执行完整性字段 ⇒ UNRUN（证不了跑完，不得当零噪声）',
+    table: [OK_A],
+    dataset: (() => {
+      const d = T([OK_A], { 'a-401-user': 1 }, { ownUrl: 1, setFallback: 0 })
+      delete d.modulesWithZeroVerdicts
+      delete d.envNetworkAbort
+      return d
+    })(),
     expect: 'unrun'
   },
   {

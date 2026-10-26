@@ -4215,3 +4215,40 @@ Node 侧 `pageScopeFailure` 把"缺容器 / evaluate 抛错被收成 `null` / �
 `pageScopeAnchor = "document.querySelector('.app-main')"` 写成常量，于是"文件里提到过"恒真，
 变异（改回旧形状）**跑绿**。修法是锚点用拼接得到 + 检查范围收窄到 `collectActions` 函数体
 （边界取"下一个顶格 `}`"，且不用哨兵定位尾部，因为哨兵本身就是被测对象）。
+
+### 3.108 执行完整性只有一份实现：click / console 也必须走 `executionCompletenessGaps`（b95）
+
+**立的案**：`endpoint-coverage` / `request-storm` 早已用 `assertFullRun` 判四件事（`full`、
+计划=入场、零判定模块、整轮环境性断网），但 `click-failure-audit` 与
+`console-allowlist-audit` 各自只判了 `modulesPlanned === modulesAttempted`。这不是"少判一条"，
+而是把两个判据的**结论面**交给了一条会假绿的数据集：
+
+- "进了模块却一条判定都没有"的空跑轮，在数据集里与干净轮同形；
+- 整轮环境性断网（b89 实测 15720 条 `ERR_NETWORK_IO_SUSPENDED`）期间的"没有失败"是"没跑到"，
+  同样与干净轮同形；
+- 而这两个判据的结论恰恰是"0 条未登记点击失败"/"0 条未豁免噪声"。
+
+**落法**（单一实现 + 各消费方自证）：
+
+1. `dataset-window.mjs::executionCompletenessGaps(dataset, label)` 返回**全部缺口**（不是抛第一条）；
+   `assertFullRun` 只负责把缺口拼成 Error，签名不变。
+2. deep 的 click / console 数据集由 `runner.mjs` 补齐 `modulesWithZeroVerdicts` / `envNetworkAbort`；
+   main 的 click 数据集由 `main.mjs` 补齐四个字段。main 的两条语义要点：
+   - `full` 必须排除 `--shard`（分片是子集，且分片轮只写 `main-clickfails.incremental.json`，
+     不得顶替全量主文件）；
+   - `modulesAttempted` 必须由事实算（`选中功能数 - 零判定功能数`）；写成"等于计划数"会让
+     `planned===attempted` 这道闸恒真。
+3. 两个审计脚本改为 `fatal.push(...executionCompletenessGaps(...))`，删除各自的单条判据。
+4. 自检双向：`click-failure-audit --selftest` **34 条**（新增提前终止 / 零判定 / 环境断网 /
+   旧格式缺字段 + 全零放行对照）；`console-allowlist-audit --selftest` **30 条**（新增零判定 /
+   环境断网 / 旧格式缺字段）。缺字段必须 UNRUN，不得读成"本轮干净"。
+
+```bash
+node tests/e2e/click-failure-audit.mjs --selftest
+node tests/e2e/console-allowlist-audit.mjs --selftest
+node tests/e2e/click-failure-audit.mjs --gate
+node tests/e2e/console-allowlist-audit.mjs --gate
+```
+
+⚠ 换这条判据后，**旧的 click/console 数据集一律 UNRUN**（缺四个字段）——这不是回归，
+是"旧断面证不了跑完"。必须重跑一轮 main 全量单轮 + deep 全量单轮再判；分段轮不得用来重生成基线。

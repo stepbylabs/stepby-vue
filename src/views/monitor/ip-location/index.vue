@@ -52,6 +52,19 @@
       </el-col>
     </el-row>
 
+    <el-alert
+      v-if="refreshError"
+      type="error"
+      :title="t('ipLocation.tip.loadFailed')"
+      :closable="false"
+      class="mb-4"
+      data-test="ip-location-load-error"
+    >
+      <template #default>
+        <el-button link type="primary" @click="handleRefresh">{{ t('common.retry') }}</el-button>
+      </template>
+    </el-alert>
+
     <!-- 状态卡片 -->
     <el-row :gutter="16" v-loading="loading">
       <el-col :xs="24" :sm="12" :md="8" :lg="6">
@@ -150,7 +163,8 @@
     </el-card>
 
     <!-- 配置对话框 -->
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       :title="t('ipLocation.title.config')"
       v-model="configOpen"
       width="min(90%, 600px)"
@@ -234,7 +248,8 @@
     </el-dialog>
 
     <!-- 更新源选择对话框（点击"立即更新"时弹出） -->
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       :title="t('ipLocation.title.updateNow')"
       v-model="updateOpen"
       width="min(90%, 480px)"
@@ -293,6 +308,8 @@ const reloading = ref(false)
 const reloadingXdb = ref(false)
 const updating = ref(false)
 const saving = ref(false)
+/** 任一取数失败即置位：页面不得在"状态/配置有一路没读到"时提示刷新成功。 */
+const refreshError = ref(false)
 
 // 对话框
 const configOpen = ref(false)
@@ -314,34 +331,46 @@ const configRules = {
 
 // ==================== 数据加载 ====================
 
-async function loadStatus() {
+async function loadStatus(): Promise<boolean> {
   loading.value = true
   try {
     const res = await getIpLocationStatus()
     status.value = res.data || null
+    return true
   } catch {
-    // 错误已由 request 拦截器统一提示
+    // 错误已由 request 拦截器统一提示；结局交回调用方（不在这里吞掉）
+    refreshError.value = true
+    return false
   } finally {
     loading.value = false
   }
 }
 
-async function loadConfig() {
+async function loadConfig(): Promise<boolean> {
   try {
     const res = await getIpLocationConfig()
     if (res.data) {
       config.value = res.data
     }
+    return true
   } catch {
-    // 忽略
+    refreshError.value = true
+    return false
   }
 }
 
 async function handleRefresh() {
   refreshing.value = true
+  refreshError.value = false
   try {
-    await Promise.all([loadStatus(), loadConfig()])
-    modal.msgSuccess(t('common.success'))
+    // 两路都必须真的成功才叫"刷新成功"；旧实现里两个 loader 各自吞错，
+    // Promise.all 永远 resolve ⇒ 网络故障也弹成功，页面保留旧值。
+    const [okStatus, okConfig] = await Promise.all([loadStatus(), loadConfig()])
+    if (okStatus && okConfig) {
+      modal.msgSuccess(t('common.success'))
+    } else {
+      refreshError.value = true
+    }
   } finally {
     refreshing.value = false
   }

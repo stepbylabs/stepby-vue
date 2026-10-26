@@ -708,6 +708,7 @@ export default {
       maxmindCredentialsRequired: '切换到 MaxMind 源需配置 Account ID 和 License Key'
     },
     tip: {
+      loadFailed: '状态与配置未能全部加载，页面显示的不是最新值',
       confirmReload: '确认重新加载 mmdb 文件？适用于手动替换文件后触发。',
       reloadSuccess: '热加载成功',
       confirmReloadXdb: '确认重新加载 ip2region xdb 文件？适用于手动替换文件后触发。',

@@ -22,13 +22,17 @@
  * （同 b79 对软删残留那条的定性）。反过来，**没有任何后续成功配对**的失败，就是
  * "点了但没落地、而断言照样绿"的那一族 ⇒ 零容忍，每条形状必须进允许表并带理由。
  *
- * ## fail-closed 的四条输入
+ * ## fail-closed 的输入
  *
  * 采集通道自己坏掉时数据集会是"0 条失败"，与"真的没有失败"**逐字节同形**——
  * 所以以下任一情形一律 EXIT=2（UNRUN），不得读成通过：
  * ① 数据集缺失 / JSON 坏；② `channelProbe.ok !== true`（本轮没证明通道接得上）；
  * ③ `channel.instrumented !== true`；④ `channel.overflow === true`（采到一半被上限截断，
- * 计数与允许表都不再可信）。另加两条断面自证：`full !== true`、窗口反向。
+ * 计数与允许表都不再可信）。另加断面自证：窗口反向；以及**执行完整性**——b95 起与
+ * `endpoint-coverage` / `request-storm` / console 豁免共用
+ * `dataset-window.mjs::executionCompletenessGaps`：`full`、计划=入场、零判定模块、
+ * 整轮环境性断网四条通道缺一即 UNRUN。此前这里只判 `full`，于是"0 判定空跑"与
+ * "整轮断网"两种轮次落进这一判据时，与"干净轮"逐字节同形。
  *
  * ## 自检
  *
@@ -49,6 +53,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { duplicateWhyGroups, selfContainedWhyViolation } from './producer-kit.mjs'
+import { executionCompletenessGaps } from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ALLOWLIST_PATH = path.join(HERE, 'click-failure-allowlist.json')
@@ -215,7 +220,10 @@ export function judge(datasets, entries) {
       fatal.push(`[${source}] channelProbe.ok !== true（${probe.detail || '无探针记录'}）：本轮未自证采集通道接得上`)
     }
     if (ch.overflow !== false) fatal.push(`[${source}] channel.overflow !== false：采集面被上限截断过，计数不可信`)
-    if (data.full !== true) fatal.push(`[${source}] full !== true：分段轮的部分数据不得当全站断面用`)
+    // 执行完整性闸（b95）：`full` / 计划=入场 / 零判定模块 / 环境性断网四条一起判。
+    // 只判 `full` 会让"全量轮里空跑的模块"和"整轮断网"与干净轮同形——而本判据的结论
+    // 恰恰是"0 条失败"，那两种轮次能把它变成一句假绿。
+    fatal.push(...executionCompletenessGaps(data, `[${source}] 点击数据集`))
     if (!data.windowStart || !data.windowEnd) fatal.push(`[${source}] 缺 windowStart/windowEnd：断面无法自证`)
     else if (!(String(data.windowStart) < String(data.windowEnd))) {
       fatal.push(`[${source}] 窗口反向（${data.windowStart} !< ${data.windowEnd}）`)
@@ -347,6 +355,12 @@ const row = (over = {}) => ({
 const dataset = (rows, over = {}) => ({
   generatedAt: '2026-10-21T10:00:00.000Z',
   full: true,
+  // 执行完整性字段（b95 起本判据与另三处共用 `executionCompletenessGaps`）：
+  // 缺字段即 UNRUN——那是旧格式，证不了"每个模块都真的跑过"。
+  modulesPlanned: 92,
+  modulesAttempted: 92,
+  modulesWithZeroVerdicts: [],
+  envNetworkAbort: 0,
   windowStart: '2026-10-21 09:00:00.000',
   windowEnd: '2026-10-21 10:00:00.000',
   channel: {
@@ -437,6 +451,47 @@ const SYNTH_CASES = [
     name: '⑩ 窗口反向必须 UNRUN',
     expect: 'fatal',
     datasets: [{ source: SYNTH_SOURCE, data: dataset([], { windowStart: '2026-10-21 11:00:00.000' }) }],
+    entries: []
+  },
+  {
+    name: '⑩b 提前终止（计划≠入场）必须 UNRUN——剩下的模块从未执行，"0 条失败"不可读',
+    expect: 'fatal',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([], { modulesAttempted: 38 }) }],
+    entries: []
+  },
+  {
+    name: '⑩c 有模块产出 0 条判定必须 UNRUN（进了模块却空跑，与"干净"同形）',
+    expect: 'fatal',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([], { modulesWithZeroVerdicts: [39, 40, 41, 42, 43] }) }],
+    entries: []
+  },
+  {
+    name: '⑩d 整轮环境性网络中断必须 UNRUN（断网期间的"没失败"是没跑到）',
+    expect: 'fatal',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([], { envNetworkAbort: 15720 }) }],
+    entries: []
+  },
+  {
+    name: '⑩e 旧格式缺执行完整性字段必须 UNRUN（证不了跑完，不得当成零失败）',
+    expect: 'fatal',
+    datasets: [
+      {
+        source: SYNTH_SOURCE,
+        data: (() => {
+          const d = dataset([])
+          delete d.modulesPlanned
+          delete d.modulesWithZeroVerdicts
+          delete d.envNetworkAbort
+          return d
+        })()
+      }
+    ],
+    entries: []
+  },
+  {
+    name: '⑩f 对照组：完整性字段齐备且全零必须放行（⑩b~⑩e 不得顺手拦掉正常轮）',
+    expect: 'ok',
+    datasets: [{ source: SYNTH_SOURCE, data: dataset([]) }],
     entries: []
   },
   {

@@ -105,6 +105,7 @@ import {
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { assertFreshServedApp } from './build-freshness.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
+import { scanEnvironmentAbort } from './e2e-env-abort.mjs'
 
 // 兼容全局安装的 playwright（当本地 node_modules 不存在时回退到全局）
 const __filename = fileURLToPath(import.meta.url)
@@ -19116,13 +19117,30 @@ async function main() {
      */
     const clickFile = path.join(
       CONFIG.screenshotDir,
-      CONFIG.featureFilter ? 'main-clickfails.incremental.json' : 'main-clickfails.json'
+      CONFIG.featureFilter || CONFIG.shard ? 'main-clickfails.incremental.json' : 'main-clickfails.json'
     )
     const utcNaiveMain = (ms) => new Date(ms).toISOString().slice(0, 23).replace('T', ' ')
+    // 执行完整性（b95）：与 deep-e2e 同一份语义——计划 = 本轮选中的功能数，
+    // 入场 = 其中真的产出了判定的功能数（差集就是"进了功能却一条结果都没有"），
+    // 环境中断从本轮 console 主通道分类。
+    const selectedFeatureIds = features
+      .filter((f, idx) => {
+        if (CONFIG.shard && (idx < shardRange.start || idx >= shardRange.end)) return false
+        if (CONFIG.featureFilter && !CONFIG.featureFilter.has(f.id)) return false
+        return true
+      })
+      .map((f) => f.id)
+    const seenFeatureIds = new Set(results.map((r) => r.feature).filter((n) => Number.isInteger(n)))
+    const zeroVerdictFeatures = selectedFeatureIds.filter((id) => !seenFeatureIds.has(id))
     const clickSummary = writeClickFailureReport(clickFile, {
-      full: !CONFIG.featureFilter,
-      // 主套件的"计划数"在 features 注册表所在的作用域里，此处只落实际入场数；
-      // 完整性自证由 deep-e2e 那一路的 modulesPlanned/Attempted 承担（见 runner）。
+      // 分片与 --feature 都是子集，写进主文件会让"上一轮全量"被局部断面顶替
+      full: !CONFIG.featureFilter && !CONFIG.shard,
+      modulesPlanned: selectedFeatureIds.length,
+      // 入场数必须由事实算：等于计划数会让 `planned===attempted` 这道闸恒真
+      // （真正的空跑由 modulesWithZeroVerdicts 点名，两者一起才与 deep-e2e 同语义）
+      modulesAttempted: selectedFeatureIds.length - zeroVerdictFeatures.length,
+      modulesWithZeroVerdicts: zeroVerdictFeatures,
+      envNetworkAbort: scanEnvironmentAbort(consoleErrors).count,
       featuresRun: results.length,
       windowStart: utcNaiveMain(MAIN_RUN_STARTED_AT_MS),
       windowEnd: utcNaiveMain(Date.now()),

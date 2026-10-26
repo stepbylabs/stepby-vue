@@ -207,6 +207,7 @@ export default {
   },
   aiConfig: {
     title: 'AI Assistant Config',
+    loadFailed: 'Failed to load configuration; the form is locked so defaults cannot overwrite the server config',
     provider: {
       openai: 'OpenAI Compatible',
       custom: 'Custom'
@@ -237,6 +238,7 @@ export default {
   },
   uploadConfig: {
     title: 'OSS Storage Config',
+    loadFailed: 'Failed to load configuration; the form is locked so empty defaults cannot overwrite the server config',
     btn: {
       test: 'Test Connection'
     },

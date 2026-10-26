@@ -722,6 +722,10 @@ export async function runMain({ testFns, config, helpers, state }) {
       full: isFullRun,
       modulesPlanned: ids.length,
       modulesAttempted: moduleStats.length,
+      // b95：与 reqstats 同一份执行完整性事实（点击判据侧此前只判 planned==attempted，
+      // 漏了"0 判定空跑"与"整轮环境性断网"两条通道——那两种轮次的"0 条失败"与干净轮同形）
+      modulesWithZeroVerdicts: zeroVerdictModules,
+      envNetworkAbort: envAbort.count,
       windowStart: utcNaive(roundStartMs),
       windowEnd: utcNaive(Date.now()),
       channelProbe: clickChannelProbe
@@ -768,6 +772,9 @@ export async function runMain({ testFns, config, helpers, state }) {
               full: isFullRun,
               modulesPlanned: ids.length,
               modulesAttempted: moduleStats.length,
+              // b95：console 判据侧的执行完整性闸与 reqstats / click 同一份事实
+              modulesWithZeroVerdicts: zeroVerdictModules,
+              envNetworkAbort: envAbort.count,
               windowStart: utcNaive(roundStartMs),
               windowEnd: utcNaive(Date.now()),
               // 登记表快照（id/status/url）：审计据此判"数据集与当前表是不是同一批"（前言 ⑲ 的同族）
