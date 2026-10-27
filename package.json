@@ -10,6 +10,8 @@
     "build:prod": "vite build",
     "build:stage": "vite build --mode staging",
     "build:embedded": "vite build --mode embedded",
+    "sync:embedded": "node scripts/sync-embedded.mjs",
+    "check:embedded": "node scripts/sync-embedded.mjs --check",
     "build:analyze": "vite build --mode analyze",
     "preview": "vite preview",
     "prepare": "husky",

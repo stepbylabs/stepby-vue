@@ -35,13 +35,18 @@ const onClose = () => {
   useNotificationStore()._setConnected(false)
 }
 const onNotice = (msg: WsMessage) => {
-  useNotificationStore().addNotification({
-    type: 'notice',
-    title: msg.data.title || i18n.global.t('notification.newNotice'),
-    content: msg.data.content || msg.data.message || JSON.stringify(msg.data),
-    timestamp: msg.timestamp
-  })
-  // 联动 HeaderNotice 铃铛角标：收到新通知后刷新顶部公告列表与未读数
+  // b100：公告推送带 action。只有"新发布"进通知中心；updated/closed/deleted 只刷铃铛。
+  // 缺省按 published 处理（旧后端不带 action 时保持原行为）。
+  const action = msg.data.action ?? 'published'
+  if (action === 'published') {
+    useNotificationStore().addNotification({
+      type: 'notice',
+      title: msg.data.title || i18n.global.t('notification.newNotice'),
+      content: msg.data.content || msg.data.message || msg.data.title || JSON.stringify(msg.data),
+      timestamp: msg.timestamp
+    })
+  }
+  // 联动 HeaderNotice 铃铛角标：任何可见性变化都要重新取顶部公告与未读数
   useNoticeStore()
     .refreshTopNotices()
     .catch(() => {})
@@ -55,9 +60,12 @@ const onOperLog = (msg: WsMessage) => {
   })
 }
 const onSystem = (msg: WsMessage) => {
-  // 连接成功消息不入库
-  const connMsg = i18n.global.t('notification.wsConnected')
-  if (msg.data.message === connMsg) return
+  // b100：按后端下发的稳定 kind 判定，不再比较本地化文案。
+  // 旧实现比 "message === t('notification.wsConnected')"：语言/文案一漂移，
+  // 每次连接成功都会在通知中心塞一条假"系统消息"。sessionExpired 同理不该入库
+  // （连接随后会被服务端关闭，登录态由 401 链路统一收口）。
+  const kind = msg.data.kind
+  if (kind === 'connected' || kind === 'sessionExpired') return
   useNotificationStore().addNotification({
     type: 'system',
     title: i18n.global.t('notification.systemTitle'),

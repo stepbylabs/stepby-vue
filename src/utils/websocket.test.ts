@@ -112,6 +112,13 @@ describe('utils/websocket（WebSocketService）', () => {
     expect(wsService.isConnected).toBe(true)
   })
 
+  it('CONNECTING 期间重复 connect 也不新建连接（b100）', () => {
+    wsService.connect()
+    // 握手未完成时 readyState=CONNECTING；旧实现只挡 OPEN，会开出第二条 socket
+    wsService.connect()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
   it('onopen → 启动心跳（30s 发 ping）+ 派发 open 事件', () => {
     const onOpen = vi.fn()
     wsService.on('open', onOpen)
@@ -221,6 +228,58 @@ describe('utils/websocket（WebSocketService）', () => {
     wsService.forceReconnect()
     expect(wsService.getReconnectInfo().count).toBe(0)
     expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
+  it('forceReconnect 后旧 socket 的异步 onclose 不得再排重连（b100）', () => {
+    wsService.connect()
+    const old = FakeWebSocket.instances[0]
+    old.fireOpen()
+    wsService.forceReconnect()
+    const next = FakeWebSocket.instances[1]
+    next.fireOpen()
+
+    // 真实环境里旧 socket 的 onclose 是异步派发的：此时 isManualClose 已复位
+    old.fireClose()
+    vi.advanceTimersByTime(60000)
+
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(wsService.getReconnectInfo().count).toBe(0)
+    // 旧连接的消息也不得进入总线
+    const onNotice = vi.fn()
+    wsService.on('notice', onNotice)
+    old.fireMessage(JSON.stringify({ type: 'notice', data: {}, timestamp: 1 }))
+    expect(onNotice).not.toHaveBeenCalled()
+  })
+
+  it('换 socket 后心跳定时器不叠加（b100）', () => {
+    wsService.connect()
+    FakeWebSocket.instances[0].fireOpen()
+    vi.advanceTimersByTime(30000) // 第一条连接的第一次心跳
+    wsService.forceReconnect()
+    const next = FakeWebSocket.instances[1]
+    next.fireOpen()
+    vi.advanceTimersByTime(30000)
+    expect(next.sent.filter((x) => x === 'ping')).toHaveLength(1)
+  })
+
+  it('disconnect 主动断开仍派发 close（身份校验不得吞掉连接态收口）', () => {
+    wsService.connect()
+    FakeWebSocket.instances[0].fireOpen()
+    const onClose = vi.fn()
+    wsService.on('close', onClose)
+    wsService.disconnect()
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(wsService.isConnected).toBe(false)
+  })
+
+  it('收到 sessionExpired 后不得拿过期令牌自动重连（b100）', () => {
+    wsService.connect()
+    const ws = FakeWebSocket.instances[0]
+    ws.fireOpen()
+    ws.fireMessage(JSON.stringify({ type: 'system', data: { kind: 'sessionExpired' }, timestamp: 1 }))
+    ws.fireClose(1000, 'session expired')
+    vi.advanceTimersByTime(60000)
+    expect(FakeWebSocket.instances).toHaveLength(1)
   })
 
   it('getReconnectInfo：isExhausted 与 max 一致', () => {

@@ -114,8 +114,22 @@ describe('store/modules/notification', () => {
     h.handlers.get('notice')!({ data: { message: 'fromMessage' }, timestamp: 1 })
     expect(store.list[0].title).toBe('T:notification.newNotice')
     expect(store.list[0].content).toBe('fromMessage')
-    h.handlers.get('notice')!({ data: { foo: 'bar' }, timestamp: 2 })
+    h.handlers.get('notice')!({ data: { title: 'OnlyTitle' }, timestamp: 2 })
+    expect(store.list[0].content).toBe('OnlyTitle')
+    h.handlers.get('notice')!({ data: { foo: 'bar' }, timestamp: 3 })
     expect(store.list[0].content).toBe(JSON.stringify({ foo: 'bar' }))
+    store.disconnect()
+  })
+
+  it('notice callback：updated/closed/deleted 只刷新铃铛，不进通知中心', async () => {
+    const store = useNotificationStore()
+    store.init()
+    for (const action of ['updated', 'closed', 'deleted']) {
+      h.handlers.get('notice')!({ data: { action, noticeId: 9 }, timestamp: 1 })
+      expect(store.list).toHaveLength(0)
+    }
+    await Promise.resolve()
+    expect(h.refreshTopNotices).toHaveBeenCalledTimes(3)
     store.disconnect()
   })
 
@@ -129,14 +143,17 @@ describe('store/modules/notification', () => {
     store.disconnect()
   })
 
-  it('system callback stores messages but skips the connection-success message', () => {
+  it('system callback stores messages but skips kind=connected/sessionExpired', () => {
     const store = useNotificationStore()
     store.init()
-    h.handlers.get('system')!({ data: { message: 'T:notification.wsConnected' }, timestamp: 1 })
+    // b100：按稳定 kind 过滤，不再比较本地化文案（文案漂移不得变成假通知）
+    h.handlers.get('system')!({ data: { kind: 'connected', message: 'whatever' }, timestamp: 1 })
     expect(store.list).toHaveLength(0)
-    h.handlers.get('system')!({ data: { message: 'Deploy finished' }, timestamp: 2 })
+    h.handlers.get('system')!({ data: { kind: 'sessionExpired', message: 'x' }, timestamp: 2 })
+    expect(store.list).toHaveLength(0)
+    h.handlers.get('system')!({ data: { message: 'Deploy finished' }, timestamp: 3 })
     expect(store.list[0]).toMatchObject({ type: 'system', content: 'Deploy finished' })
-    h.handlers.get('system')!({ data: { detail: 'x' }, timestamp: 3 })
+    h.handlers.get('system')!({ data: { detail: 'x' }, timestamp: 4 })
     expect(store.list[0].content).toBe(JSON.stringify({ detail: 'x' }))
     store.disconnect()
   })

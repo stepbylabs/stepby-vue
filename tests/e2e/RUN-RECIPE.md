@@ -44,9 +44,12 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 - **必须先把「嵌入式构建产物」同步进 `stepby-axum/frontend-dist/`**：
   ```bash
   # frontend-dist 已被 .gitignore 的 /frontend-dist 忽略，不会进仓库
-  # ⚠️ 必须用 EMBEDDED 模式构建再拷贝（见下方两构建顺序），不能用 prod 构建：
+  # ⚠️ 必须用 EMBEDDED 模式构建再同步（见下方两构建顺序），不能用 prod 构建：
   #    嵌入式前端 baseURL=''（同源），prod 前端 baseURL=/prod-api（跨源代理）。
-  cp -r stepby-vue/dist/. stepby-axum/frontend-dist/
+  # ⚠️ 禁止手写 `cp -r dist/. …`：那是**合并**语义，hash 换名的旧 chunk 永远留在目标目录
+  #    （b100 实测积了 3 份入口 chunk / 83MB），且会把 .map 一起拷进去。
+  pnpm run sync:embedded        # 镜像语义：先清空、复制、再自证入口 chunk 与 0 个 .map
+  pnpm run check:embedded       # 只校验现状（构建后/跑测前都可跑）
   ```
   ⚠️ 每次重新构建前都要按第 2 节顺序同步 embedded 产物，否则 embedded 后端服务的仍是旧产物。
 
@@ -55,7 +58,7 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 > **关键**：`dist/` 只能保留一个构建产物，而 :4173 preview 与 :8080 embedded 需要**不同模式**，
 > 因此必须按固定**顺序**执行两次构建，避免把错误模式产物交给对方（实测 bug 教训）：
 >
-> 1. `build:embedded`（`vite build --mode embedded`，baseURL='' 同源）→ **立即**拷入 frontend-dist。
+> 1. `build:embedded`（`vite build --mode embedded`，baseURL='' 同源）→ **立即** `sync:embedded` 镜像进 frontend-dist。
 > 2. `build:prod`（`vite build --mode production`，baseURL=/prod-api）→ 留在 dist 供 :4173 preview。
 >
 > 若搞反（把 embedded 产物留在 dist），:4173 上的登录会因 baseURL='' 请求 `:4173/getRouters`
@@ -63,9 +66,9 @@ EMBEDDED_FRONTEND=true SSO_ENABLED=true cargo run
 
 ```bash
 cd stepby-vue
-# 第 1 步：embedded 构建 → 拷入 frontend-dist（供 :8080 内嵌后端）
+# 第 1 步：embedded 构建 → 镜像进 frontend-dist（供 :8080 内嵌后端）
 NODE_OPTIONS="" sh node_modules/.bin/vite build --mode embedded
-cp -r dist/. ../stepby-axum/frontend-dist/
+pnpm run sync:embedded
 # 第 2 步：prod 构建 → 留 dist（供 :4173 preview）
 NODE_OPTIONS="" sh node_modules/.bin/vite build --mode production
 NODE_OPTIONS="" sh node_modules/.bin/vite preview --port 4173
@@ -1131,7 +1134,7 @@ curl.exe -sI http://localhost:18080/system/user             # SPA fallback 亦 n
 #### (6) 环境：**必须先重启服务进程，跑在最终产物上**（否则"假绿"）
 
 - 旧的 `:8080` 后端进程是**上一批的二进制**、旧 `:4173` preview 也在跑：不重启就测不到本批改动。
-  顺序固定为：`build:embedded` → 拷入 `stepby-axum/frontend-dist/` → `build:prod`（留 `dist/`）→ `cargo build`
+  顺序固定为：`build:embedded` → `sync:embedded`（镜像进 `stepby-axum/frontend-dist/`）→ `build:prod`（留 `dist/`）→ `cargo build`
   → 以 `EMBEDDED_FRONTEND=true SSO_ENABLED=true` 启动 `:8080` → `vite preview --port 4173`。
 - 启动方式：**必须在本工具中以「后台任务」方式常驻**（前台 `Start-Process` 曾出现进程随调用结束而消失，
   导致 e2e 首步登录页超时）。启动后先 `curl http://localhost:8080/health` 确认 `db/redis` 双 UP。
@@ -1322,7 +1325,7 @@ Vite/Rolldown 生产构建会**混淆 composable 函数名**，但**保留字符
    }
    ```
 6. **图流程测试的自审禁区**：admin 提交 + 审批人全为 role:admin = 「禁止全链自审」400。审批人用 `role:common`，推进用 stepby/admin123 独立 API 会话（todo/action 端点仅登录、归属校验在 service 层）——与集成测试同范式。
-7. **embedded 链路铁律**：main.mjs 默认 `frontendUrl = FRONTEND_URL || STEPBY_UI_URL || BASE_URL` = **8080 embedded**。改前端源码后必须 `vite build → cp dist/* stepby-axum/frontend-dist/ → 重启后端`（build.rs include 重编），否则测到"不存在的修复"。
+7. **embedded 链路铁律**：main.mjs 默认 `frontendUrl = FRONTEND_URL || STEPBY_UI_URL || BASE_URL` = **8080 embedded**。改前端源码后必须 `vite build → pnpm run sync:embedded → 重启后端`（build.rs include 重编），否则测到"不存在的修复"。禁止手写 `cp -r dist/. …`（合并语义会积陈旧 chunk，并可能把 .map 带进对外目录）。
 8. `ResizeObserver loop` 控制台噪声已入 EXT_NOISE_RE 过滤（良性，非应用缺陷）。
 
 **10 轮循环沉淀（run-rounds.mjs，2026-10-08 批次十八）**：9. **API 连发段必遇 sys_rate_limit 令牌桶 429**（"请求过于频繁"）：M 级簇 76-83 每功能 10-20 连发 API，多轮满载下令牌桶耗尽 → R6-R9 连环 429 假失败。`mLevelApiSetup` 的 `api` 助手已内建 429 退避（1.2s × 3，令牌桶按秒回填）——**尊重限流语义的确定性化，非绕过**；新功能用 mLevelApiSetup 即自动获得。无任何用例以 429 为期望值，重试不改变断言语义。10. **链路中断会污染下一轮状态**：F83「停用→恢复」链在 E1 429 中断会把种子事件 user.created 留在 disabled=0，下一轮 A1 前置断言假失败——尾部已加 best-effort 恢复启用态（幂等）。教训：**有状态翻转的用例必须在尾部恢复初态，不能假设链路必然走完**。
@@ -3310,7 +3313,7 @@ M39–M90 每模块只吃一条 `browser.newContext: Target page, context or bro
 ```bash
 cd stepby-vue
 NODE_OPTIONS="" npm run build:embedded            # base='' 同源，产物落 dist/
-cp -r dist/. ../stepby-axum/frontend-dist/        # :8080 的 ServeDir 读这里，改完不必重启
+pnpm run sync:embedded                            # 镜像进 :8080 读的 frontend-dist（清空+0 map+入口自证）
 NODE_OPTIONS="" npm run build:prod                # dist/ 恢复成 :4173 preview 用的那份
 node tests/e2e/build-freshness.mjs                # 两道闸：新鲜度 + 服务即产物
 ```
@@ -3930,7 +3933,7 @@ b86 实测：`/system/msg/channel` 的动作数 12 → 7 → 12（第三轮该�
    5 个同路径不同（`index.html`/`sw.js*` 这类含时间戳或预缓存清单的）、入口 chunk 换名——
    形状与"`__BUILD_TIME__` 变了而码没变"一致。
 2. **真陈旧**（确实改了 `src/**` 没重建） ⇒ 按 §1/§2 的顺序重建：
-   `build:embedded` → 立即拷入 `stepby-axum/frontend-dist/` → `build:prod` 留在 `dist/`。
+   `build:embedded` → `pnpm run sync:embedded` → `build:prod` 留在 `dist/`。
    顺序搞反会让 :4173 用同源 baseURL 请求 `/getRouters` 命中 SPA fallback，登录后跳 `/500`。
 3. **Rust 侧的变异还原必须反过来做**（b88 台账 §13.7 实测）：上面那条 `cp -p` + `touch -d "<原 mtime>"`
    在 Rust 上是**反效果**——cargo 的增量判断同样读 mtime，把 mtime 拉回产物之前等于告诉它
@@ -4398,3 +4401,31 @@ b98 全量单轮实测：F33 的 `/dashboard` 判据报 `body前80字=…` 而**
 
 复核：`node tests/e2e/main.mjs --headless --feature=33`（17/17）。改动只动判据不动产品码，
 但主套件结论需在同一份 `main.mjs` 上重跑全量后才可引用。
+
+### 3.112 轮次节奏：全量轮 vs 增量轮，以及"只跑变化"必须自证不影响面（b100 固化）
+
+**节奏**（福哥 2026-10-27 明示，AGENTS《测试门禁全景》前言同源）：全量轮只在**每十轮**做一次
+（b90 / b100 / b110 …），其余轮次只跑"变化 + 影响面 + 收口静态面"。这一条省的是**耗时**，
+不是**证明**——增量轮必须能指出**为什么没跑的那部分不受本批影响**（改动文件集合、依赖关系、
+或被改动公共件的调用点清单），不能拿"上次是绿的"当理由。
+
+**变化 → 判据映射**（按改动落到哪一层选，不按"习惯跑什么"选）：
+
+| 本批改动落点                         | 增量轮必跑                                                                                                                                    | 为什么这些不可省                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `stepby-axum/src/**` 生产码          | `cargo test -j 4 --lib`（全量单元+集成，~3 分钟）+ `cargo test -p governance` / `-p migration`（若被触点所在 crate 依赖）                     | 改的是编译进同一 exe 的 crate；同名集成 harness 覆盖了跨模块契约 |
+| 后端新增/修改路由或权限键            | `endpoint-coverage`（写端点触达，需与 deep 数据集同窗）+ `tenant-audit --full --gate` + `sensitive_route_audit` / `PERM_ROUTE_TABLE` 相关单测 | 权限/租户两把锁与新路由的登记面                                  |
+| 前端 `src/**` 生产码                 | `vue-tsc` + `eslint` + `vitest run`（受影响文件 + 引用它的守卫；全量 40s 也不贵）+ **重建 embedded 产物**                                     | 产物不重建 ⇒ 浏览器判据测的是旧包（`build-freshness` 会拦）      |
+| 前端 e2e 判据/工具（`tests/e2e/**`） | 该文件 `--selftest` + **所有引用它的门禁**（变异证伪一条）                                                                                    | 判据自身坏了是"照常绿"的最短路径（AGENTS ⑮）                     |
+| 后端日志面（新增 WARN/ERROR 生产者） | `backend-log-audit --gate`（窗口显式给，起点盖住本轮全部流量）                                                                                | 新信号未登记 ⇒ 下一轮判红时已无现场                              |
+| 写端点/审计面变化                    | `oper-log-audit --gate`（同窗口）+ `test-data-audit`                                                                                          | 失败写操作的负路径必须逐条登记                                   |
+| 页面/交互变化                        | 受影响模块的 `deep-e2e --feature=N` + `main.mjs --feature=N`（含该链路负路径）                                                                | 全量 52 分钟不可省在"全"，单模块 1–3 分钟足够判该链路            |
+| 样式/可访问名变化                    | `a11y-full`（4–5 分钟，路由清单全跑；只加 `aria-label` 也会撞定位器）                                                                         | 单页 a11y 无独立入口，56 路由全跑比漏判便宜                      |
+| 构建/嵌入产物链路                    | `build-freshness --selftest` + 四个浏览器入口的段首预检 + `sync:embedded --check`                                                             | 产物安全面（b100：.map / 多入口 chunk）在这里收口                |
+
+**增量轮的收尾仍是完整的**：`fmt` / `clippy -D warnings` / `eslint` / `vue-tsc` / `i18n` /
+`--selftest` 族 / 台账 / 悬挂审计 / 树哈希，一律照旧——这些是**静态与结构面**，跟全量跑批无关。
+
+**台账必须标档位**：每批台账 §4 标题写明 `全量轮` 或 `增量轮`，增量轮要列出
+"本批改动文件 → 跑了的判据 → 没跑的面及理由"。这一条是为了让下一批能判断
+"当前基线是哪一轮的断面"，避免把增量轮的局部绿当成全量结论（AGENTS ⑩/⑲ 的同族）。

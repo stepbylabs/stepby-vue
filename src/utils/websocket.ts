@@ -16,7 +16,8 @@
 import { getToken } from '@/utils/auth'
 import mitt from 'mitt'
 
-export type WsMessageType = 'notice' | 'operLog' | 'system' | 'ping' | 'pong' | 'forceLogout' | 'taskProgress' | 'flowTodo' | 'flowFinished'
+export type WsMessageType =
+  'notice' | 'operLog' | 'system' | 'ping' | 'pong' | 'forceLogout' | 'taskProgress' | 'flowTodo' | 'flowFinished'
 
 /** WebSocket 消息数据载荷（由后端推送，字段因消息类型而异） */
 export interface WsMessageData {
@@ -24,6 +25,11 @@ export interface WsMessageData {
   content?: string
   message?: string
   businessType?: string
+  /** system 消息的稳定子类型（b100：connected / sessionExpired），不得按文案判定 */
+  kind?: string
+  /** notice 消息的动作：published / updated / closed / deleted（缺省按 published 兼容旧后端） */
+  action?: string
+  noticeId?: number
   [key: string]: unknown
 }
 
@@ -52,7 +58,10 @@ class WebSocketService {
 
   /** 连接 WebSocket */
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) return
+    // b100：CONNECTING 也必须挡——旧实现只挡 OPEN，重连窗口里再调 connect()
+    // 会开出第二条 socket（两条都进通知总线 ⇒ 同一公告收两遍、计数虚增）。
+    const current = this.ws?.readyState
+    if (current === WebSocket.OPEN || current === WebSocket.CONNECTING) return
 
     const token = getToken()
     if (!token) {
@@ -69,8 +78,9 @@ class WebSocketService {
     try {
       // 通过 Sec-WebSocket-Protocol 子协议头传递 token（格式：bearer.<jwt>）
       // 浏览器会在握手请求中带上该头，服务端回显相同协议，避免 token 出现在 URL/日志中
-      this.ws = new WebSocket(wsUrl, [`bearer.${token}`])
-      this.bindEvents()
+      const socket = new WebSocket(wsUrl, [`bearer.${token}`])
+      this.ws = socket
+      this.bindEvents(socket)
     } catch (err) {
       if (import.meta.env.DEV) console.error('[WS] Connection failed:', err)
       this.scheduleReconnect()
@@ -81,11 +91,15 @@ class WebSocketService {
   disconnect(): void {
     this.isManualClose = true
     this.clearTimers()
-    if (this.ws) {
-      this.ws.close(1000, 'client_disconnect')
-      this.ws = null
+    const socket = this.ws
+    this.ws = null
+    if (socket) {
+      socket.close(1000, 'client_disconnect')
     }
     this.reconnectCount = 0
+    // 主动断开不会走 onclose（身份校验会丢弃陈旧连接的事件），连接态必须在这里收口，
+    // 否则 notification.connected 会永远停在 true。
+    this.emitter.emit('close')
   }
 
   /** 订阅消息 */
@@ -105,23 +119,31 @@ class WebSocketService {
     return this.ws?.readyState === WebSocket.OPEN
   }
 
-  private bindEvents(): void {
-    if (!this.ws) return
-
-    this.ws.onopen = () => {
+  private bindEvents(socket: WebSocket): void {
+    // b100：事件回调绑定到**具体 socket 实例**。forceReconnect/重连会换 socket，
+    // 旧 socket 的 onclose 是异步派发的；没有身份校验时它会把"旧连接已关闭"
+    // 当成"当前连接断了"再排一次重连（且在 CONNECTING 窗口会真的开出第三条连接）。
+    socket.onopen = () => {
+      if (this.ws !== socket) return
       if (import.meta.env.DEV) console.warn('[WS] Connection established')
       this.reconnectCount = 0
       this.startHeartbeat()
       this.emitter.emit('open')
     }
 
-    this.ws.onmessage = (event: MessageEvent) => {
+    socket.onmessage = (event: MessageEvent) => {
+      if (this.ws !== socket) return
       try {
         const msg: WsMessage = JSON.parse(event.data)
         // 响应服务端 ping，回复 pong（心跳对称化）
         if (msg.type === 'ping') {
-          this.ws?.send(JSON.stringify({ type: 'pong' }))
+          socket.send(JSON.stringify({ type: 'pong' }))
           return
+        }
+        // b100：服务端已判定会话到期（随后会关闭连接）⇒ 禁止自动重连。
+        // 拿过期令牌重连只会连续 401（握手校验/黑名单），把"该重新登录"变成重连风暴。
+        if (msg.type === 'system' && msg.data?.kind === 'sessionExpired') {
+          this.isManualClose = true
         }
         // 派发给对应类型的订阅者
         this.emitter.emit(msg.type, msg)
@@ -132,14 +154,17 @@ class WebSocketService {
       }
     }
 
-    this.ws.onerror = (err: Event) => {
+    socket.onerror = (err: Event) => {
+      if (this.ws !== socket) return
       if (import.meta.env.DEV) console.error('[WS] Connection error:', err)
       this.emitter.emit('error')
     }
 
-    this.ws.onclose = (event: CloseEvent) => {
+    socket.onclose = (event: CloseEvent) => {
+      if (this.ws !== socket) return
       if (import.meta.env.DEV) console.warn(`[WS] Connection closed code=${event.code} reason=${event.reason}`)
       this.stopHeartbeat()
+      this.ws = null
       this.emitter.emit('close')
       if (!this.isManualClose) {
         this.scheduleReconnect()
@@ -149,6 +174,9 @@ class WebSocketService {
 
   /** 心跳：每 30 秒发送一次 ping 字符串（与后端心跳周期对齐） */
   private startHeartbeat(): void {
+    // 重复 open（例如换 socket）不得叠出第二条定时器：旧实现直接覆盖句柄，
+    // 前一条 interval 永远清不掉，30s 后会对当前连接重复发 ping。
+    this.stopHeartbeat()
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send('ping')

@@ -107,6 +107,44 @@ export function entryChunkFromHtml(html) {
 }
 
 /**
+ * 嵌入产物的目录卫生（b100）：
+ * - **不得含 `.map`**：嵌入档由 rust-embed 直接对外服务，`.map` 与 `.js` 同目录
+ *   ⇒ 访客把入口 chunk 名加 `.map` 即可下载完整源码（实测 200 / 20,805,274 字节）；
+ * - **不得积多份入口 chunk**：`cp -r dist/. frontend-dist/` 是合并语义，hash 换名后
+ *   旧 chunk 永不消失（实测积了 3 份、目录 83MB），且全部被嵌进二进制。
+ */
+export function artifactHygiene(dir, { minFiles = 3 } = {}) {
+  if (!fs.existsSync(dir)) throw new Error(`产物目录不存在：${dir}——没有产物就无从判卫生`)
+  const files = []
+  const rec = (d) => {
+    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+      const abs = path.join(d, ent.name)
+      if (ent.isDirectory()) rec(abs)
+      else files.push(path.relative(dir, abs).split(path.sep).join('/'))
+    }
+  }
+  rec(dir)
+  if (files.length < minFiles) {
+    throw new Error(`产物目录只扫到 ${files.length} 个文件（<${minFiles}）——遍历已坏，拒绝判卫生`)
+  }
+  const maps = files.filter((f) => f.toLowerCase().endsWith('.map'))
+  if (maps.length > 0) {
+    return {
+      ok: false,
+      reason: `嵌入产物含 ${maps.length} 个 .map（会随二进制原样对外下发，源码可被匿名下载）：${maps.slice(0, 3).join('、')}`
+    }
+  }
+  const entries = files.filter((f) => /^static\/js\/index-[^/]+\.js$/.test(f))
+  if (entries.length > 1) {
+    return {
+      ok: false,
+      reason: `嵌入产物积了 ${entries.length} 份入口 chunk（目录未清空，旧 hash 文件永久残留）：${entries.join('、')}`
+    }
+  }
+  return { ok: true, files: files.length, entries: entries.length }
+}
+
+/**
  * 只进测试二进制、不进 exe 的模块面（由**声明本身**派生，不按文件名猜）。
  *
  * 为什么不能按名字排除（b84 实测）：上一版只跳过 `src/integration_tests/` 这一个目录名，
@@ -268,6 +306,17 @@ export async function assertFreshServedApp({
   }
 
   const dir = artifactDir ? path.resolve(VUE_ROOT, artifactDir) : resolveArtifactDir({ baseUrl })
+  // 安全面先于内容面：嵌入产物里的 .map 会被原样对外服务，多份入口 chunk 说明目录没清空
+  if (path.basename(dir) === 'frontend-dist') {
+    const hygiene = artifactHygiene(dir)
+    if (!hygiene.ok) {
+      throw new Error(
+        `嵌入产物不安全：${hygiene.reason}。` +
+          `修复：pnpm run build:embedded && pnpm run sync:embedded（镜像语义：清空 + 排除 .map），` +
+          `然后重启 :8080（build.rs 会重嵌）。`
+      )
+    }
+  }
   const indexFile = path.join(dir, 'index.html')
   const { stale, artifactMs } = staleAppSources({ vueRoot, artifactFile: indexFile, minFiles })
   if (stale.length > 0) {
@@ -378,6 +427,8 @@ async function selftest() {
     fail.push('⑥ 入口 chunk 解析不对')
   // ⑦ 服务即产物：字节数一致放行、不一致拒绝（fetch 由桩给，自检不碰网络）
   mk('stepby-axum/frontend-dist/static/js/index-OLD123.js', -5, 'abc')
+  // 产物卫生判据要求目录有最小体量（防"遍历坏了被读成干净"），夹具按真产物形状给到 3 个文件
+  mk('stepby-axum/frontend-dist/static/css/index-OLD123.css', -5, 'body{}')
   fs.rmSync(path.join(dir, 'src', 'views', 'late.vue'))
   const okFetch = async () => ({ ok: true, status: 200, headers: { get: () => '3' }, text: async () => 'abc' })
   const badFetch = async () => ({ ok: true, status: 200, headers: { get: () => '4' }, text: async () => 'abcd' })
@@ -541,11 +592,50 @@ async function selftest() {
   } catch (e) {
     if (!/采集面缺一块/.test(String(e.message))) fail.push(`⑲ 拒绝理由没指向采集面缺块：${e.message}`)
   }
+  // ⑳ 嵌入产物卫生（b100）：.map 必须拒、多入口 chunk 必须拒、干净目录放行，
+  //    且总闸**真的调用**了它（纯函数写了不接线 = 没写，同 AGENTS ⑮）。
+  const hyg = path.join(dir, 'hyg', 'frontend-dist')
+  mk('hyg/frontend-dist/index.html', -5, '<script src="/static/js/index-H1.js"></script>')
+  mk('hyg/frontend-dist/static/js/index-H1.js', -5, 'abc')
+  mk('hyg/frontend-dist/static/css/a.css', -5, 'x')
+  try {
+    const h = artifactHygiene(hyg)
+    if (!h.ok || h.entries !== 1) fail.push(`⑳ 干净嵌入产物被拒：${JSON.stringify(h)}`)
+  } catch (e) {
+    fail.push(`⑳ 干净嵌入产物抛错：${e.message}`)
+  }
+  mk('hyg/frontend-dist/static/js/index-H1.js.map', -5, '{}')
+  try {
+    const h = artifactHygiene(hyg)
+    if (h.ok || !/\.map/.test(h.reason)) fail.push(`⑳b 含 .map 没有被点名：${JSON.stringify(h)}`)
+  } catch (e) {
+    fail.push(`⑳b 含 .map 抛错：${e.message}`)
+  }
+  try {
+    await assertFreshServedApp({
+      vueRoot,
+      baseUrl: 'http://127.0.0.1:1/',
+      artifactDir: hyg,
+      minFiles,
+      checkBackend: false,
+      fetchImpl: okFetch
+    })
+    fail.push('⑳c 总闸对含 .map 的嵌入产物照常放行（判据没接线）')
+  } catch (e) {
+    if (!/\.map/.test(String(e.message))) fail.push(`⑳c 拒绝理由没指向 .map：${e.message}`)
+  }
+  fs.rmSync(path.join(hyg, 'static', 'js', 'index-H1.js.map'))
+  mk('hyg/frontend-dist/static/js/index-H2.js', -5, 'abc')
+  try {
+    const h = artifactHygiene(hyg)
+    if (h.ok || !/入口 chunk/.test(h.reason)) fail.push(`⑳d 多入口 chunk 没有被点名：${JSON.stringify(h)}`)
+  } catch (e) {
+    fail.push(`⑳d 多入口 chunk 抛错：${e.message}`)
+  }
   fs.rmSync(dir, { recursive: true, force: true })
   fs.rmSync(thin, { recursive: true, force: true })
   return fail
 }
-
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 async function entry() {
   const args = process.argv.slice(2)
@@ -565,7 +655,11 @@ async function entry() {
       '采集面下限',
       '入口解析',
       '服务即产物字节对账（正反）',
-      '总闸拦陈旧'
+      '总闸拦陈旧',
+      '嵌入产物干净放行',
+      '嵌入产物含 .map 点名',
+      '总闸真走到产物卫生这一腿',
+      '嵌入产物多入口 chunk 点名'
     ]
     const BACKEND_CASES = [
       '干净 exe 正控',

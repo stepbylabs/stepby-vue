@@ -10,6 +10,11 @@ yarn-error.log*
 **/*.log.pid
 **/*.log.child.pid
 **/*.log.exit
+# 直接 `cmd > x 2>&1` 式取证留下的裸 pid / 重定向产物（b100 实测 `_logs/b95_gates_outer.pid`
+# 与 `tests/e2e/_logs/_f33.{out,err}` 从 `**/*.log` 的缝里漏出来被 `git status` 报成未跟踪）
+**/*.pid
+/_logs/
+/tests/e2e/_logs/
 
 tests/**/coverage/
 /coverage/

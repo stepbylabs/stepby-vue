@@ -114,15 +114,20 @@ export default defineConfig(({ mode, command }) => {
     // 打包配置
     build: {
       // https://vite.dev/config/build-options.html
-      // 生产构建输出 **hidden sourcemap**（R102-SMAP-001/002）：生成 .map 文件供错误堆栈
-      // 离线还原（scripts/decode-stack.mjs / source-map CLI），但产物 JS 尾部**不带**
-      // sourceMappingURL 注释、浏览器不会自动拉取 ⇒ 源码不暴露给访客。
+      // 反代档（production）构建输出 **hidden sourcemap**（R102-SMAP-001/002）：生成 .map
+      // 文件供错误堆栈离线还原（scripts/decode-stack.mjs / source-map CLI），但产物 JS
+      // 尾部**不带** sourceMappingURL 注释、浏览器不会自动拉取。
       // 部署侧兜底：nginx.conf 拒绝对外提供 *.map（location ~* \.map$ { deny all; }）。
       // 无 Sentry 等第三方错误平台时不需要"上传 map"步骤（R102-SMAP-003/004 改判，见性能文档）。
+      // ⚠ embedded 档必须**不产 map**（b100 实测缺陷）：嵌入档产物由 rust-embed 直接对外
+      // 服务，`.map` 与 `.js` 同目录 ⇒ 访客把入口 chunk 名加 `.map` 即得 200 + 完整源码
+      // （实测 /static/js/index-*.js.map = 20,805,274 字节）。"浏览器不自动拉取"只挡住
+      // 顺手抓取，不构成安全边界。后端已同时拒绝 .map（embedded_assets.rs），此处从生成面
+      // 收口：嵌入档 0 个 map 文件（frontend-dist 也不再被它撑大）。
       // 已知上游限制（2026-10-10 实证）：vite 8（rolldown）CSS 管线不产出 .map（sourcemap:true 亦然），
       // 故 hidden map 仅覆盖 JS；CSS 走 postcss.config.mjs + @tailwindcss/postcss（替代
       // @tailwindcss/vite 插件）后 SOURCEMAP_BROKEN 构建告警已清零，待上游支持后自动生效。
-      sourcemap: command === 'build' ? 'hidden' : 'inline',
+      sourcemap: command === 'build' ? (mode === 'embedded' ? false : 'hidden') : 'inline',
       outDir: 'dist',
       assetsDir: 'assets',
       // 性能优化：目标设为 es2020，使用现代 JS 特性（可选链、空值合并、async/await 原生支持），
