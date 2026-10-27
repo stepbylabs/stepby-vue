@@ -5,7 +5,13 @@
  * logOut 失败仍跳转 / 复位后可再次执行。业务模块全部 mock，断言针对真实函数体。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import fs from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// 从本文件位置反推仓根：vitest 的 cwd 只有一种，但静态引用扫描按仓根解析字面量路径，
+// 写成 readFileSync('src/...') 会被 recovery_gap 的代码级悬挂判据当成"文件不在"。
+const VUE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 const hoisted = vi.hoisted(() => ({
   warning: vi.fn(),
@@ -89,12 +95,12 @@ describe('utils/sessionExpiry（WS 会话到期结局）', () => {
   })
 
   it('复位点必须真的接线：登录后的路由守卫与布局层（写了没接线=没写）', () => {
-    const layout = fs.readFileSync('src/layout/index.vue', 'utf8')
+    const layout = readFileSync(resolve(VUE_ROOT, 'src/layout/index.vue'), 'utf8')
     expect(layout).toContain("from '@/utils/sessionExpiry'")
     expect(layout).toContain("wsService.on('sessionExpired', handleSessionExpired)")
     expect(layout).toContain("wsService.off('sessionExpired', handleSessionExpired)")
     // 登录是 SPA 跳转：复位点若缺失，第二次到期会被闸静默吞掉（本批修复的缺陷形状）
-    const permission = fs.readFileSync('src/permission.ts', 'utf8')
+    const permission = readFileSync(resolve(VUE_ROOT, 'src/permission.ts'), 'utf8')
     expect(permission).toContain("import { resetSessionExpiry } from '@/utils/sessionExpiry'")
     expect(permission).toContain('resetSessionExpiry()')
     // 复位必须与 isRelogin 复位同一处（同一"新会话已建立"事实），不得散落第二处
