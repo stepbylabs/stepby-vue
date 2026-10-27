@@ -301,6 +301,8 @@ import { useDict } from '@/utils/dict'
 import { validateForm } from '@/utils/formValidate'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
+import { confirmAction } from '@/utils/confirm'
+import { checkPermi } from '@/utils/permission'
 import useUserStore from '@/store/modules/user'
 import {
   listFlowTodo,
@@ -328,12 +330,19 @@ import type { FlowActionForm } from '@/api/flow'
 const { t } = useI18n()
 const userStore = useUserStore()
 const userId = computed(() => Number(userStore.id ?? 0))
-// 管理视图 tab 依赖权限键 system:flow:list（v-hasPermi 同源）
-const isManager = computed(() => userStore.permissions.some((p: string) => p === '*:*:*' || p === 'system:flow:list'))
+// 管理视图 tab 依赖权限键 system:flow:list（与 v-hasPermi 同一判定入口：checkPermi 内部
+// 处理超管 `*:*:*`，前端不得各自手写 includes——两处口径必然漂移）
+const isManager = computed(() => checkPermi(['system:flow:list']))
 
 const activeTab = ref('todo')
-const loading = ref(false)
+// 四个 tab 共用一张表，但**可能并发加载**（切页签 + 翻页 + 提交后刷新）：
+// 共享布尔量会被先完成的那条清掉，让另一张表在飞时转圈消失。改计数为 0 才熄灭。
+const pendingLoads = ref(0)
+const loading = computed(() => pendingLoads.value > 0)
 const pendingCount = ref(0)
+// 每个列表各自的请求序号：翻页/筛选快速切换时，**旧响应不得覆盖新响应**
+// （否则页码停在第 2 页、表格显示第 1 页的数据，且总条数也对不上）。
+const listSeq = { todo: 0, mine: 0, done: 0, all: 0 }
 
 // W-17 移动端：窄屏下取消操作列右侧固定，避免遮挡内容
 const isNarrow = ref(false)
@@ -378,53 +387,44 @@ const isOverdue = (row: SysFlowTask) =>
 
 // ---------- 数据加载 ----------
 async function loadPendingCount() {
-  const res = await flowPendingCount()
-  pendingCount.value = Number(res.data ?? 0)
-}
-
-async function loadTodo() {
-  loading.value = true
   try {
-    const res = await listFlowTodo(todoQuery.value)
-    todoRows.value = res.rows
-    todoTotal.value = res.total
-  } finally {
-    loading.value = false
+    const res = await flowPendingCount()
+    pendingCount.value = Number(res.data ?? 0)
+  } catch (e) {
+    // 拦截器已提示；角标数字保持上一次的值（不得清成 0 假装"没有待办"）
+    if (import.meta.env.DEV) console.error('[flow] pendingCount:', e)
   }
 }
 
-async function loadMine() {
-  loading.value = true
+/**
+ * 四个列表共用的加载骨架：序号守卫 + 计数式 loading + 拒绝不逸出。
+ * 旧实现在 `finally` 里直接熄 loading，且没有序号守卫——两条都是"看起来对"的写法。
+ */
+async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
+  key: K,
+  fetch: () => Promise<{ rows: R[]; total: number }>,
+  rows: { value: R[] },
+  total: { value: number }
+) {
+  const seq = ++listSeq[key]
+  pendingLoads.value += 1
   try {
-    const res = await listFlowMine(mineQuery.value)
-    mineRows.value = res.rows
-    mineTotal.value = res.total
+    const res = await fetch()
+    if (seq !== listSeq[key]) return // 已有更新的请求发出，丢弃这份过期结果
+    rows.value = res.rows
+    total.value = res.total
+  } catch (e) {
+    // 拦截器已提示；保留上一份数据（比清空成"暂无数据"诚实）
+    if (import.meta.env.DEV) console.error(`[flow] load ${key}:`, e)
   } finally {
-    loading.value = false
+    pendingLoads.value = Math.max(0, pendingLoads.value - 1)
   }
 }
 
-async function loadDone() {
-  loading.value = true
-  try {
-    const res = await listFlowDone(doneQuery.value)
-    doneRows.value = res.rows
-    doneTotal.value = res.total
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadAll() {
-  loading.value = true
-  try {
-    const res = await listFlowAll(allQuery.value)
-    allRows.value = res.rows
-    allTotal.value = res.total
-  } finally {
-    loading.value = false
-  }
-}
+const loadTodo = () => loadList('todo', () => listFlowTodo(todoQuery.value), todoRows, todoTotal)
+const loadMine = () => loadList('mine', () => listFlowMine(mineQuery.value), mineRows, mineTotal)
+const loadDone = () => loadList('done', () => listFlowDone(doneQuery.value), doneRows, doneTotal)
+const loadAll = () => loadList('all', () => listFlowAll(allQuery.value), allRows, allTotal)
 
 function handleTabChange(tab: string) {
   if (tab === 'todo') loadTodo()
@@ -488,6 +488,9 @@ async function handleSubmit() {
     submitOpen.value = false
     activeTab.value = 'mine'
     await Promise.all([loadMine(), loadPendingCount()])
+  } catch (e) {
+    // 拦截器已提示；对话框保持打开供修正（不得让拒绝逸出）
+    if (import.meta.env.DEV) console.error('[flow] submit:', e)
   } finally {
     submitting.value = false
   }
@@ -515,6 +518,9 @@ async function searchUsers(keyword: string) {
   try {
     const res = await listUser({ pageNum: 1, pageSize: 50, userName: keyword || undefined })
     userOptions.value = res.rows
+  } catch (e) {
+    // 拦截器已提示；候选保持空集（`openAct` 里是**不 await 的调用**，逸出即 unhandledrejection）
+    if (import.meta.env.DEV) console.error('[flow] searchUsers:', e)
   } finally {
     userSearching.value = false
   }
@@ -563,6 +569,8 @@ async function handleAct() {
 }
 
 async function handleWithdraw(row: FlowDemoDoc) {
+  // 撤回会取消在途审批（审批人待办即时消失），属破坏性操作，必须先确认
+  if (!(await confirmAction(t('flow.confirmWithdraw', { title: row.title })))) return
   try {
     await withdrawFlowDemo(row.docId)
     ElMessage.success(t('common.operationSuccess'))
@@ -588,9 +596,14 @@ const detailOpen = ref(false)
 const detail = ref<FlowTaskDetail | null>(null)
 
 async function openDetail(row: SysFlowTask) {
-  const res = await getFlowTaskDetail(row.taskId)
-  detail.value = res.data
-  detailOpen.value = true
+  try {
+    const res = await getFlowTaskDetail(row.taskId)
+    detail.value = res.data
+    detailOpen.value = true
+  } catch (e) {
+    // 拦截器已提示；详情框不打开（不得让拒绝逸出卸载整页）
+    if (import.meta.env.DEV) console.error('[flow] detail:', e)
+  }
 }
 
 function timelineType(action: string) {

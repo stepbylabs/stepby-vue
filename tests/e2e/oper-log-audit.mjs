@@ -18,7 +18,10 @@
  *   node tests/e2e/oper-log-audit.mjs --db=... --since=... --until=... --allow=...
  *   node tests/e2e/oper-log-audit.mjs --since=... --gate --retire-stale
  *
- * 退出码：0 干净 / 1 有未登记失败或未命中登记 / 2 输入不可用或窗口内无操作记录。
+ * 退出码：0 干净 / 1 有未登记失败或未命中登记 / 2 输入不可用、窗口内无操作记录，
+ * **或判定窗口与最近一次 deep-e2e 全量轮的自证窗口不相交（本轮不作数，b103 与
+ * backend-log-audit 共用 dataset-window 的口径闸）**。后两支都在 `--retire-stale`
+ * 之前返回 ⇒ 退役通道不会在"窗口选错"时删掉真在用的登记。
  *
  * 允许表**未命中**条目（b85 项 F）：本轮一条也没打中的登记 ⇒ 判红并必须撤销；带 `until`
  * 的日落豁免过期后结构上再也打不中，同样点名。`--retire-stale` 是真删通道（未命中为空时
@@ -37,6 +40,10 @@ import {
   selfContainedWhyViolation,
   splitUnused
 } from './producer-kit.mjs'
+// 与 backend-log-audit **共用一份**窗口解析与"与全量轮自证窗口相交"闸（b103）。
+// 原先这边没有这道闸：收口跑部分轮窗口时 82 条负路径登记全被报成"未命中 ⇒ 须撤销"，
+// 而 `--retire-stale` 只在 code=2 时拒写 ⇒ 照提示做就是把 82 条真在用的登记一次删光。
+import { fmtWindow, overlapGapDetail, readFullRunWindow, windowToEpoch, windowsOverlap } from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '../../..')
@@ -209,12 +216,21 @@ export function retireStale(file, unused) {
 }
 
 /** 输入可用性：窗口方向、库存在、窗口内确有操作记录（否则"零失败"是没证据）。 */
-export function gateState({ dbFile, since, until, opsCount, unknown, unused = [] }) {
+export function gateState({ dbFile, since, until, opsCount, unknown, unused = [], win = null, dsWin = null }) {
   if (!fs.existsSync(dbFile)) return { code: 2, detail: `运行库不存在：${dbFile}` }
   if (!WINDOW_RE.test(since || '') || !WINDOW_RE.test(until || '')) {
     return { code: 2, detail: `窗口必须是 YYYY-MM-DD HH:MM:SS（实际 ${since} .. ${until}）` }
   }
   if (since >= until) return { code: 2, detail: `窗口方向可疑：${since} .. ${until}` }
+  // 口径闸（b103）：判定窗口与最近一次 deep-e2e 全量轮的自证窗口**不相交**时，这一把里
+  // 根本没有浏览器轮次流量 ⇒ 允许表里那些负路径 witness 结构上不可能出现，
+  // "未命中 N 条"是**窗口选错**，不是豁免该撤销。取向是加闸不是放宽：UNRUN(2)，
+  // 且退役通道在 code=2 时本来就拒写（这正是它保护不可逆动作的那条腿）。
+  // 排在"零操作"之前：两者同时成立时报"没跑/读错库"会把人支使去查库，
+  // 而正确答案是"窗口没盖住那轮"。立案事实见 dataset-window.mjs 的 windowsOverlap。
+  if (win && !windowsOverlap(win, dsWin)) {
+    return { code: 2, detail: overlapGapDetail(win, dsWin) }
+  }
   if (Number(opsCount) === 0) return { code: 2, detail: `窗口内没有任何操作日志（没跑/读错库，不得判成零失败）` }
   const bad = unknown.length + unused.length
   return {
@@ -540,6 +556,71 @@ function selftest() {
   check('窗口内零操作 EXIT=2（没跑 ≠ 零失败）', empty.code === 2, JSON.stringify(empty))
   const reversed = gateState({ dbFile, since: until, until: since, opsCount: 4, unknown: [] })
   check('窗口方向反了 EXIT=2', reversed.code === 2, JSON.stringify(reversed))
+  // 口径闸（b103）：与 backend-log-audit 共用 dataset-window 的实现。这一组的每条都必须
+  // 能独立判红——尤其是"正控"：窗口盖住那轮时，同样的未命中必须照常判 1，
+  // 否则口径闸就成了"把所有未命中洗成不作数"的新通道（AGENTS ⑯(c) 那一族）。
+  {
+    const dsWin = { sinceMs: Date.parse('2026-10-20T09:00:00Z'), untilMs: Date.parse('2026-10-20T10:00:00Z') }
+    const before = { sinceMs: Date.parse('2026-10-20T01:00:00Z'), untilMs: Date.parse('2026-10-20T02:00:00Z') }
+    const disjoint = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: before,
+      dsWin
+    })
+    check(
+      '窗口与全量轮自证窗口不相交 ⇒ EXIT=2 且点名"不相交"（不得报允许表未命中、更不得据此退役）',
+      disjoint.code === 2 && /不相交/.test(disjoint.detail),
+      JSON.stringify(disjoint)
+    )
+    const disjointEmpty = gateState({ dbFile, since, until, opsCount: 0, unknown: [], win: before, dsWin })
+    check(
+      '不相交且窗口内零操作 ⇒ 报"窗口选错"而不是"没跑/读错库"（口径闸先于内容闸）',
+      disjointEmpty.code === 2 && /不相交/.test(disjointEmpty.detail),
+      JSON.stringify(disjointEmpty)
+    )
+    const covered = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: { sinceMs: Date.parse('2026-10-20T09:10:00Z'), untilMs: Date.parse('2026-10-20T09:20:00Z') },
+      dsWin
+    })
+    check(
+      '正控：窗口盖住那轮时同样的未命中必须照常判 1（口径闸不得把真信号洗绿）',
+      covered.code === 1,
+      JSON.stringify(covered)
+    )
+    const noDs = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: before,
+      dsWin: null
+    })
+    check('数据集取不到时不得触发口径闸（否则"缺数据集"被报成"窗口不对"）', noDs.code === 1, JSON.stringify(noDs))
+    const nanWin = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: { sinceMs: NaN, untilMs: NaN },
+      dsWin
+    })
+    check('窗口不可解析时不得触发口径闸（NaN 不得读成"不相交"）', nanWin.code === 1, JSON.stringify(nanWin))
+  }
   // 坏形状必须**因为自己那一处**被拒：夹具理由一律写成自足的长句，否则"方法坏了"会被
   // "理由太短"抢先抛出而照样 non-zero ⇒ 用例看着绿、实际没约束到被测那一支
   // （AGENTS 前言 ⑩ 的"崩掉同样非零，但『红在哪条』这条信息丢了"，同一族）。
@@ -629,7 +710,7 @@ function selftest() {
     process.exit(1)
   }
   console.log(
-    `SYNTH_OK 失败操作日志判据 ${ran} 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未命中对账/退役通道/未登记必红/零操作与反向窗口必拒）`
+    `SYNTH_OK 失败操作日志判据 ${ran} 条双向（窗口/成功行排除/业务 msg 精度/允许表/日落豁免/未命中对账/退役通道/未登记必红/零操作与反向窗口必拒/窗口相交口径闸）`
   )
   process.exit(0)
 }
@@ -651,7 +732,8 @@ function main() {
   }
   const dbFile = path.resolve(opt('db') || DEFAULT_DB)
   const since = normalizeWindow(opt('since') || process.env.STEPBY_OPER_SINCE || '')
-  const until = normalizeWindow(opt('until') || process.env.STEPBY_OPER_UNTIL || '') || '9999-12-31 23:59:59'
+  const untilGiven = normalizeWindow(opt('until') || process.env.STEPBY_OPER_UNTIL || '')
+  const until = untilGiven || '9999-12-31 23:59:59'
   if (!since) {
     console.error('EXIT=2 必须给 --since=（或 STEPBY_OPER_SINCE，UTC，与 oper_time 同口径；窗口不得退化成"不设限"）')
     process.exit(2)
@@ -677,10 +759,24 @@ function main() {
     db.close()
   }
   const { unknown, allowed, unused, held } = classify(rows, allow)
+  // 口径闸的输入：判定窗口 + 最近一次 deep-e2e **全量**轮的自证窗口（后者可能取不到 ⇒ null，
+  // 此时那一支不得触发——"缺数据集"不得被报成"窗口不对"）。
+  const winMs = { sinceMs: windowToEpoch(since), untilMs: untilGiven ? windowToEpoch(untilGiven) : null }
+  const fromDs = readFullRunWindow(HERE)
+  const dsWin = fromDs ? { sinceMs: windowToEpoch(fromDs.since), untilMs: windowToEpoch(fromDs.until) } : null
   console.log(`失败操作日志：${dbFile}`)
   console.log(
     `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length} / 允许表未命中 ${unused.length} / 条件型未触发但生产者仍在 ${held.length}`
   )
+  if (dsWin) console.log(`  全量轮自证窗口：${fmtWindow(dsWin)}（口径闸输入；不相交时本轮不作数）`)
+  // 判定排在**逐条清单之前**（AGENTS ⑨ 口径闸先于内容闸）：判定不可用时（窗口不相交 / 零操作 /
+  // 库与窗口形状坏），把"允许表未命中 82 条"逐条列出来只会把人支使去撤销真在用的登记——
+  // backend-log-audit 早在 b88 就是这个形状，这边 b103 才对齐。
+  const st = gateState({ dbFile, since, until, opsCount, unknown, unused, win: winMs, dsWin })
+  if (st.code === 2) {
+    console.error(`❌ 失败操作判据不作数：${st.detail}`)
+    process.exit(2)
+  }
   for (const u of unknown) {
     console.log(`  ❌ ${u.request_method} ${u.oper_url} [${u.oper_time}] ${String(u.error_msg || '').slice(0, 160)}`)
   }
@@ -700,13 +796,9 @@ function main() {
         `${e.msg ? ` /${e.msg}/` : ''}${e.until ? ` until=${e.until}` : ''} —— ${e.why}`
     )
   }
-  const st = gateState({ dbFile, since, until, opsCount, unknown, unused })
-  // 退役通道（只打提示没有动作=没判）：写在判定之后，且数据集无效（code 2）时一律不写。
+  // 退役通道（只打提示没有动作=没判）：写在判定之后；判定为 code 2 已在上面直接退出，
+  // 所以不可逆的写文件动作在"窗口选错/没有流量"时结构上到不了。
   if (args.includes('--retire-stale')) {
-    if (st.code === 2) {
-      console.error('EXIT=2 数据集无效（库/窗口/零操作），退役判定不作数，允许表未改动')
-      process.exit(2)
-    }
     const allowPath = path.resolve(opt('allow') || DEFAULT_ALLOW)
     const removed = retireStale(allowPath, unused)
     console.log(
@@ -716,7 +808,16 @@ function main() {
     )
     const allow2 = loadAllowlist(allowPath)
     const again = classify(rows, allow2)
-    const st2 = gateState({ dbFile, since, until, opsCount, unknown: again.unknown, unused: again.unused })
+    const st2 = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount,
+      unknown: again.unknown,
+      unused: again.unused,
+      win: winMs,
+      dsWin
+    })
     if (st2.code !== 0) {
       console.error(`❌ 退役后仍有问题（未登记 ${again.unknown.length} 条）：${st2.detail}`)
       process.exit(st2.code)

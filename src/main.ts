@@ -108,6 +108,7 @@ directive(app)
 // 抽象为 errorReporter.report()，保留 console.error 输出，预留 Sentry 等上报服务接入点
 import { errorReporter } from '@/utils/errorReporter'
 import { setupFrontendErrorReporter } from '@/utils/frontendErrorReporter'
+import { isDialogCancel, isRequestLayerError } from '@/utils/requestError'
 
 app.config.errorHandler = (err: unknown, instance: { $options?: { name?: string } } | null, info: string) => {
   errorReporter.report(err, {
@@ -158,6 +159,21 @@ window.addEventListener(
 )
 
 window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+  // 用户取消确认框：正常分支，连浏览器控制台那条 "Uncaught (in promise)" 也不该出现
+  if (isDialogCancel(event.reason)) {
+    event.preventDefault()
+    return
+  }
+  // 请求层拒绝（拦截器已向用户提示）：按 warning 记录保留可观测性，
+  // 但不冒充 JS 错误——否则前端错误监控里全是 4xx，真问题被淹掉
+  if (isRequestLayerError(event.reason)) {
+    errorReporter.report(event.reason, {
+      type: 'Unhandled Rejection (api)',
+      source: 'unhandledrejection',
+      level: 'warning'
+    })
+    return
+  }
   errorReporter.report(event.reason, {
     type: 'Unhandled Rejection',
     source: 'unhandledrejection',

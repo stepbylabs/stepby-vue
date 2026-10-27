@@ -1834,6 +1834,7 @@ export default {
     actCountersign: '加签',
     actCountersignDel: '减签',
     actWithdraw: '撤回',
+    confirmWithdraw: '确定撤回「{title}」？撤回后审批人待办将立即消失。',
     actResubmit: '重新提交',
     btnSubmit: '提交请假单',
     submitTitle: '提交请假申请',

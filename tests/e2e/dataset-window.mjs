@@ -6,8 +6,12 @@
  * 把 argv 当成自己的命令行——实测 `request-storm --selftest` 一 import 就打出了
  * endpoint-coverage 的自检结果并 `process.exit(0)`，自己的判据一条没跑却"绿"了。
  * 这与台账里"collect-warnings import 期要凭据，故不入 run-gates 清单"是同一类约束：
- * **判据脚本之间共享的只能是纯函数模块**，不能是入口脚本。
+ * **判据脚本之间共享的只能是"import 时无副作用"的模块**，不能是入口脚本。
+ * 读数据集文件（`readFullRunWindow`）这类 IO 也在允许范围内——约束是**不在 import 时
+ * 执行**，不是禁 IO；它只被调用方在自己的判定路径上调用。
  */
+import fs from 'node:fs'
+import path from 'node:path'
 
 /**
  * 从数据集对象里取本轮请求窗口（UTC 裸文本，与 `sys_oper_log.oper_time` 同口径）。
@@ -138,4 +142,79 @@ export function executionCompletenessGaps(dataset, fileLabel = '(内存对象)')
 export function assertFullRun(dataset, fileLabel) {
   const gaps = executionCompletenessGaps(dataset, fileLabel)
   if (gaps.length > 0) throw new Error(gaps.join('\n'))
+}
+
+// ---------------------------------------------------------------- 窗口相交闸（b103 抽成共享）
+//
+// 下面四个函数原先只有 `backend-log-audit.mjs` 有；b103 实测 `oper-log-audit` 缺同一道闸，
+// 而它**后果更重**：部分轮次（只跑了几个 feature/module）里 82 条负路径登记全被报成
+// "未命中 ⇒ 须撤销"，而 `--retire-stale` 在 code=1 时**会照常写文件**——照提示做就是
+// 把 82 条真在用的登记一次删光（不可逆）。共用一份实现，禁止两份必漂。
+
+/**
+ * 解析时间串为 epoch 毫秒（UTC）。
+ *
+ * 三种形态：带时区后缀的 ISO（`Z` / `+08:00`）、裸 SQL 串（`YYYY-MM-DD HH:MM:SS[.fff]`，按 UTC）、
+ * 其余一律 `NaN` —— 调用方必须**拒绝**而不是当"无窗口"（`NaN > 容差` 恒 false 一族）。
+ */
+export function windowToEpoch(value) {
+  const s = String(value ?? '').trim()
+  if (!s) return NaN
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return Date.parse(s)
+  const iso = s.replace(' ', 'T')
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return NaN
+  return Date.parse(`${iso}Z`)
+}
+
+/**
+ * 判定窗口与"最近一次 deep-e2e 全量轮的自证窗口"是否**有交集**（b88 收口立的口径闸）。
+ *
+ * 立案事实（b88 收口实测）：重启 :8080 之后跑非浏览器门禁，窗口里只有 96 条启动流量，
+ * 判据照打"允许表未命中 15 条 ⇒ 必须撤销"——那 15 条 witness 全是 deep/main 的负路径，
+ * 这一把里根本没有浏览器轮次。照着提示做就是把真在用的登记撤销（不可逆）。
+ * 取向是**加闸而不是放宽**：不相交 ⇒ UNRUN（EXIT=2），并写明需要的动作。
+ * 数据集取不到（`dsWin` 为 null）**不得**触发这一支：否则"缺数据集"被报成"窗口不对"。
+ */
+export function windowsOverlap(win, dsWin) {
+  if (!dsWin) return true
+  const a1 = Number.isFinite(win?.untilMs) ? win.untilMs : Infinity
+  const b1 = Number.isFinite(dsWin?.untilMs) ? dsWin.untilMs : Infinity
+  if (!Number.isFinite(win?.sinceMs) || !Number.isFinite(dsWin?.sinceMs)) return true
+  return win.sinceMs <= b1 && a1 >= dsWin.sinceMs
+}
+
+/** 窗口的展示形（凭证行与 FATAL 文案共用，两份必漂） */
+export function fmtWindow(w) {
+  const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 19) + 'Z' : '（到末尾）')
+  return `${iso(w.sinceMs)} → ${iso(w.untilMs)}`
+}
+
+/** 不相交时那条"本轮不作数"的话（gateState 与 main 共用一份） */
+export function overlapGapDetail(win, dsWin) {
+  return (
+    `判定窗口 ${fmtWindow(win)} 与最近一次 deep-e2e 全量轮的自证窗口 ${fmtWindow(dsWin)} **不相交**` +
+    ` ⇒ 这一把里没有浏览器轮次流量，允许表里 witness 那些负路径的条目结构上不可能出现` +
+    `（"未命中 N 条"是**窗口选错**，不是豁免该撤销）⇒ 本轮不作数；` +
+    `需要的动作：把 --since/--until 给成覆盖那轮的范围，或先跑一轮浏览器套件`
+  )
+}
+
+/**
+ * 读"最近一次 deep-e2e **全量**轮"的自证窗口（`screenshots/deep-e2e-reqstats.json`）。
+ * 非全量轮（`full !== true`）或缺字段一律返回 `null` —— 部分轮次的窗口**不能**拿来当
+ * "这轮应该出现哪些负路径"的证据（那一轮本来就没跑那些模块）。
+ */
+export function readFullRunWindow(dir) {
+  let data = null
+  try {
+    data = JSON.parse(fs.readFileSync(path.join(dir, 'screenshots', 'deep-e2e-reqstats.json'), 'utf8'))
+  } catch {
+    return null
+  }
+  if (!data || data.full !== true || !data.windowStart || !data.windowEnd) return null
+  return {
+    since: data.windowStart,
+    until: data.windowEnd,
+    source: `${path.basename(path.join(dir, 'screenshots', 'deep-e2e-reqstats.json'))} 自证字段`
+  }
 }

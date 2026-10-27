@@ -239,7 +239,7 @@ import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import type { SysLogininfor, LogininforQueryParams } from '@/types/api/monitor/logininfor'
 import MyLoginPanel from './MyLoginPanel.vue'
-import useUserStore from '@/store/modules/user'
+import { checkPermi } from '@/utils/permission'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import type { TableColumnDef } from '@/utils/userPrefs'
@@ -248,7 +248,6 @@ import type { TableShowColumns } from '@/types/api/common'
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
 const logininforRef = useTemplateRef('logininforRef')
-const userStore = useUserStore()
 const { sys_common_status } = useDict('sys_common_status')
 
 // UX-7：列显隐偏好持久化 —— 接入 useTableColumns（用户偏好持久化单一数据源）：
@@ -351,15 +350,9 @@ const queryParams = ref<LogininforQueryParams>({
 const form = ref<SysLogininfor>({} as SysLogininfor)
 const formRef = ref<FormInstance | null>(null)
 
-// 权限判断
-const hasLogininforPerm = computed(() => {
-  const perms = userStore.permissions || []
-  return perms.includes('*:*:*') || perms.includes('monitor:logininfor:list')
-})
-const hasMyLoginPerm = computed(() => {
-  const perms = userStore.permissions || []
-  return perms.includes('*:*:*') || perms.includes('monitor:mylogin:list')
-})
+// 权限判断：一律走 checkPermi（超管 `*:*:*` 的判定只有那一处实现）
+const hasLogininforPerm = computed(() => checkPermi(['monitor:logininfor:list']))
+const hasMyLoginPerm = computed(() => checkPermi(['monitor:mylogin:list']))
 
 // 默认激活 tab
 const activeTab = ref<'admin' | 'user'>(hasLogininforPerm.value ? 'admin' : 'user')

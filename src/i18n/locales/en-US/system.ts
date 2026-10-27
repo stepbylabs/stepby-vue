@@ -1866,6 +1866,7 @@ export default {
     actCountersign: 'Add Approver',
     actCountersignDel: 'Remove Approver',
     actWithdraw: 'Withdraw',
+    confirmWithdraw: 'Withdraw "{title}"? The approver\'s pending task will disappear immediately.',
     actResubmit: 'Resubmit',
     btnSubmit: 'Submit Leave Request',
     submitTitle: 'Submit Leave Request',

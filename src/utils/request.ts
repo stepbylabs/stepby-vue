@@ -15,6 +15,7 @@ import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import { startProgress, doneProgress } from '@/utils/progress'
 import { errorHub } from '@/utils/errorHub'
+import { markRequestLayerError } from '@/utils/requestError'
 
 const t = i18n.global.t
 
@@ -508,6 +509,23 @@ service.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+/**
+ * 请求层拒绝的统一标记（批一百零三，判定谓词在 `utils/requestError.ts`）。
+ *
+ * 为什么需要：`AppMain` 用 `ErrorBoundary` 包住整棵页面树，任何**未被页面捕获**的异步拒绝
+ * 都会触发它把整页卸载成"页面加载失败"。接口失败时这不是我们要的结果——
+ * 用户该看到一张提示，页面和已填表单应该留着（b102 已逐页补过 catch，但那只是
+ * "修一处不是修一类"：新增页面只要少写一个 try/catch 就复发）。
+ *
+ * 落法：拦截器是**唯一**知道"这个拒绝出自请求链"的地方，所以在响应拦截器之后追加一个
+ * 只做标记的拦截器；`ErrorBoundary` 按标记把"接口失败"与"渲染错误"分开。刻意不改各
+ * reject 站点的形状：`error.response` / `error.httpStatus` 等既有字段原样保留。
+ */
+service.interceptors.response.use(undefined, (error: unknown) => {
+  markRequestLayerError(error)
+  return Promise.reject(error)
+})
 
 // 通用下载方法
 export function download(url: string, params: Record<string, unknown>, filename: string, config?: AxiosRequestConfig) {

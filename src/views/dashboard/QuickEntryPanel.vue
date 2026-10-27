@@ -63,6 +63,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import useUserStore from '@/store/modules/user'
+import { checkPermi } from '@/utils/permission'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -150,9 +151,9 @@ const quickEntries = ref<QuickEntry[]>([])
 
 function hasPermission(perm?: string): boolean {
   if (!perm) return true
-  // 超管拥有所有权限
+  // 超管拥有所有权限（角色态判定是既有行为，保留；`*:*:*` 那条由 checkPermi 统一处理）
   if (userStore.roles?.includes('admin')) return true
-  return (userStore.permissions || []).includes(perm) || (userStore.permissions || []).includes('*:*:*')
+  return checkPermi([perm])
 }
 
 function loadQuickEntries() {

@@ -199,6 +199,7 @@ import { useCrudTable, clampPageToRowCount } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import MySessionPanel from './MySessionPanel.vue'
 import useUserStore from '@/store/modules/user'
+import { checkPermi } from '@/utils/permission'
 
 const { t } = useI18n()
 const queryRefRef = useTemplateRef('queryRef')
@@ -221,15 +222,11 @@ const queryParams = ref<OnlineQueryParams>({
 // §27.13.2 分层视图：平台操作者（tenantId=0）可跨租户查看并筛选；租户操作者仅本租户
 const isPlatform = computed(() => (userStore.tenantId ?? 0) === 0)
 
-// 权限判断：管理员视角需要 monitor:online:list，用户视角需要 monitor:session:list
-const hasOnlinePerm = computed(() => {
-  const perms = userStore.permissions || []
-  return perms.includes('*:*:*') || perms.includes('monitor:online:list')
-})
-const hasSessionPerm = computed(() => {
-  const perms = userStore.permissions || []
-  return perms.includes('*:*:*') || perms.includes('monitor:session:list')
-})
+// 权限判断：管理员视角需要 monitor:online:list，用户视角需要 monitor:session:list。
+// 一律走 checkPermi（超管 `*:*:*` 的判定只有那一处实现），禁裸 permissions.includes——
+// 两处各写一份的结果是"超管能看 tab 但请求被 handler 拒"或反过来。
+const hasOnlinePerm = computed(() => checkPermi(['monitor:online:list']))
+const hasSessionPerm = computed(() => checkPermi(['monitor:session:list']))
 
 // 默认激活 tab：有管理员权限则显示 admin，否则显示 user
 const activeTab = ref<'admin' | 'user'>(hasOnlinePerm.value ? 'admin' : 'user')

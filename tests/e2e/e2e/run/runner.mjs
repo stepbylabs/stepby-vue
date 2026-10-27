@@ -170,7 +170,7 @@ export function applySkipBaselineFromLog(
 }
 
 /** 首参为 browser 的模块（自管页面/独立上下文，runner 不提供 page） */
-const BROWSER_FIRST_MODULES = new Set([13, 29, 39, 67, 92, 94])
+const BROWSER_FIRST_MODULES = new Set([13, 29, 39, 67, 92, 94, 95])
 /** 第四参需要 browser 的模块 */
 const BROWSER_EXTRA_MODULES = new Set([23])
 

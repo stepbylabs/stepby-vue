@@ -167,12 +167,6 @@
         "file": "stepby-axum/src/service/sys_oper_log_service.rs",
         "contains": "链写入乱序（更大 oper_id 已抢先写链）"
       }
-    },
-    {
-      "level": "WARN",
-      "match": "slow statement: execution time exceeded alert threshold summary=\"CREATE UNIQUE INDEX uk_flow_task_biz",
-      "until": "2026-10-27 23:59:59",
-      "why": "(b102 日落豁免，只覆盖已修复缺陷的历史行) flow 兜底建索引段（3.5b ensure_flow_indexes）曾把旧全局唯一索引 uk_flow_task_biz 也列进清单，而它已被租户作用域唯一索引 uk_flow_task_tenant_biz 取代、3.5g 每次启动都会删掉它 ⇒ 每轮启动先整表重建、立刻再删（预修复那次启动在 19:26:18 越过 sqlx 慢语句阈值被记为 WARN）。本批已从兜底清单撤除并加形状锁，到点后同类记录必须重新判红——这条不是为了把慢语句洗成设计内。"
     }
   ]
 }

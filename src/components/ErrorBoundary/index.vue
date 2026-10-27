@@ -62,6 +62,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { WarningFilled, Refresh } from '@element-plus/icons-vue'
 import { errorReporter } from '@/utils/errorReporter'
+import { isDialogCancel, isRequestLayerError } from '@/utils/requestError'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -70,6 +71,19 @@ const hasError = ref(false)
 const errorMessage = ref('')
 
 onErrorCaptured((err: unknown, _instance: unknown, info: string) => {
+  // ① 接口失败：拦截器已经提示过用户，页面与已填表单必须保留（"这次操作没成功"
+  //    不该升级成"页面坏了"）。不进错误监控——4xx 是正常业务分支，写进去会把
+  //    真问题淹成噪声（同 b69 oper_log 被遥测刷屏的纪律）。
+  if (isRequestLayerError(err)) {
+    if (import.meta.env.DEV) console.warn('[ErrorBoundary] 接口失败已由拦截器提示，页面保持可用', err)
+    return false
+  }
+  // ② 用户取消确认框：正常分支，不卸载、不上报。
+  if (isDialogCancel(err)) {
+    if (import.meta.env.DEV) console.warn('[ErrorBoundary] 用户取消操作，页面保持可用')
+    return false
+  }
+
   hasError.value = true
   const errMsg = err instanceof Error ? err.message : String(err)
   errorMessage.value = `${errMsg}\nInfo: ${info}`
