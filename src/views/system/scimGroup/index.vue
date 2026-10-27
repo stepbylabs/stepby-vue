@@ -292,9 +292,14 @@ async function saveEdit() {
 async function handleDelete(row: ScimGroupAdminRow) {
   const ok = await confirmAction(t('scimGroup.deleteConfirm', [row.displayName]))
   if (!ok) return
-  await delScimGroup(row.groupId)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  getList()
+  try {
+    await delScimGroup(row.groupId)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    getList()
+  } catch (e) {
+    // 拦截器已提示；阻止拒绝逸出（async 事件处理器的拒绝会被全局 errorHandler 接管）
+    if (import.meta.env.DEV) console.error('[scimGroup] delete:', e)
+  }
 }
 
 /** 多选变化（批量删除用） */
@@ -306,9 +311,13 @@ function handleSelectionChange(rows: ScimGroupAdminRow[]) {
 async function handleBatchDelete() {
   const ok = await confirmAction(t('scimGroup.batchDeleteConfirm', [selectedIds.value.length]))
   if (!ok) return
-  await delScimGroup(selectedIds.value.join(','))
-  proxy?.$modal.msgSuccess(t('common.batchDeleteSuccess'))
-  getList()
+  try {
+    await delScimGroup(selectedIds.value.join(','))
+    proxy?.$modal.msgSuccess(t('common.batchDeleteSuccess'))
+    getList()
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[scimGroup] batchDelete:', e)
+  }
 }
 
 onMounted(getList)

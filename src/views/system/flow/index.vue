@@ -554,21 +554,33 @@ async function handleAct() {
     ElMessage.success(t('common.operationSuccess'))
     actOpen.value = false
     await Promise.all([loadTodo(), loadPendingCount()])
+  } catch (e) {
+    // 拦截器已提示；对话框保持打开供修正（不得让拒绝逸出）
+    if (import.meta.env.DEV) console.error('[flow] act:', e)
   } finally {
     acting.value = false
   }
 }
 
 async function handleWithdraw(row: FlowDemoDoc) {
-  await withdrawFlowDemo(row.docId)
-  ElMessage.success(t('common.operationSuccess'))
-  await Promise.all([loadMine(), loadPendingCount()])
+  try {
+    await withdrawFlowDemo(row.docId)
+    ElMessage.success(t('common.operationSuccess'))
+    await Promise.all([loadMine(), loadPendingCount()])
+  } catch (e) {
+    // 拦截器已提示（如已被他人处理）；阻止拒绝逸出
+    if (import.meta.env.DEV) console.error('[flow] withdraw:', e)
+  }
 }
 
 async function handleResubmit(row: FlowDemoDoc) {
-  await resubmitFlowDemo(row.docId)
-  ElMessage.success(t('common.operationSuccess'))
-  await Promise.all([loadMine(), loadPendingCount()])
+  try {
+    await resubmitFlowDemo(row.docId)
+    ElMessage.success(t('common.operationSuccess'))
+    await Promise.all([loadMine(), loadPendingCount()])
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[flow] resubmit:', e)
+  }
 }
 
 // ---------- 详情 / 时间线 ----------

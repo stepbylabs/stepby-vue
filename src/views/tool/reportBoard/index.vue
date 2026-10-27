@@ -16,13 +16,15 @@
           :placeholder="t('reportBoard.selectBoard')"
           class="w-[200px]"
           clearable
-          @change="onBoardChange" :aria-label="t('reportBoard.selectBoard')">
+          @change="onBoardChange"
+          :aria-label="t('reportBoard.selectBoard')"
+        >
           <el-option v-for="b in boards" :key="b.id" :value="b.id" :label="b.name" />
         </el-select>
 
-        <el-button icon="Plus" v-hasPermi="['tool:reportBoard:save']" @click="createBoard">{{
-          t('reportBoard.newBoard')
-        }}</el-button>
+        <el-button icon="Plus" v-hasPermi="['tool:reportBoard:save']" @click="createBoard">
+          {{ t('reportBoard.newBoard') }}
+        </el-button>
         <el-button
           v-if="activeBoard"
           icon="Delete"
@@ -99,7 +101,9 @@
         <template #image>
           <el-icon :size="48" class="text-text-secondary"><DataAnalysis /></el-icon>
         </template>
-        <el-button type="primary" v-hasPermi="['tool:reportBoard:save']" @click="openAddDialog">{{ t('reportBoard.addCard') }}</el-button>
+        <el-button type="primary" v-hasPermi="['tool:reportBoard:save']" @click="openAddDialog">
+          {{ t('reportBoard.addCard') }}
+        </el-button>
         <p class="mt-2 text-sm text-text-secondary">{{ t('reportBoard.emptyHint') }}</p>
       </el-empty>
     </el-card>
@@ -108,7 +112,12 @@
     <el-dialog v-model="dialogVisible" :title="t('reportBoard.addCard')" width="480px">
       <el-form :model="form" label-width="90px">
         <el-form-item :label="t('reportBoard.cardTitle')" required>
-          <el-input v-model="form.title" maxlength="64" :placeholder="t('reportBoard.cardTitlePlaceholder')" :aria-label="t('reportBoard.cardTitlePlaceholder')" />
+          <el-input
+            v-model="form.title"
+            maxlength="64"
+            :placeholder="t('reportBoard.cardTitlePlaceholder')"
+            :aria-label="t('reportBoard.cardTitlePlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="t('reportBoard.chartType')" required>
           <el-radio-group v-model="form.chartType">
@@ -121,7 +130,9 @@
           <el-select
             v-model="form.sourceKey"
             :placeholder="t('reportBoard.sourceKeyPlaceholder')"
-            class="w-full" :aria-label="t('reportBoard.sourceKeyPlaceholder')">
+            class="w-full"
+            :aria-label="t('reportBoard.sourceKeyPlaceholder')"
+          >
             <el-option v-for="s in sources" :key="s.sourceKey" :value="s.sourceKey" :label="s.name" />
           </el-select>
         </el-form-item>
@@ -162,14 +173,7 @@ import {
   type SourcePoint,
   type SourceRange
 } from '@/api/tool/reportBoard'
-import {
-  addCard,
-  genCardId,
-  parseConfig,
-  removeCard,
-  sizeToGridClass,
-  validateConfig
-} from '@/utils/reportBoard'
+import { addCard, genCardId, parseConfig, removeCard, sizeToGridClass, validateConfig } from '@/utils/reportBoard'
 
 const { t } = useI18n()
 
@@ -397,15 +401,11 @@ async function saveBoard(): Promise<void> {
 
 /** 新建看板：弹窗输入名称 → POST → 选中新看板 */
 async function createBoard(): Promise<void> {
-  const { value } = await ElMessageBox.prompt(
-    t('reportBoard.boardName'),
-    t('reportBoard.newBoard'),
-    {
-      inputPattern: /^.{1,64}$/u,
-      inputPlaceholder: t('reportBoard.boardNamePlaceholder'),
-      inputErrorMessage: t('reportBoard.nameRequired')
-    }
-  )
+  const { value } = await ElMessageBox.prompt(t('reportBoard.boardName'), t('reportBoard.newBoard'), {
+    inputPattern: /^.{1,64}$/u,
+    inputPlaceholder: t('reportBoard.boardNamePlaceholder'),
+    inputErrorMessage: t('reportBoard.nameRequired')
+  })
   const name = value.trim()
   if (!name) return
   const resp = await addBoard({ name, config: { cards: [] } })
@@ -419,13 +419,22 @@ async function createBoard(): Promise<void> {
 /** 删除当前看板（二次确认） */
 async function removeBoard(): Promise<void> {
   if (!activeId.value) return
-  await ElMessageBox.confirm(t('reportBoard.confirmDeleteBoard'), t('reportBoard.deleteBoard'), {
-    type: 'warning'
-  })
-  await deleteBoardApi(activeId.value)
-  boards.value = boards.value.filter((b: BoardVo) => b.id !== activeId.value)
-  activeId.value = boards.value.length ? boards.value[0].id : null
-  await onBoardChange()
+  try {
+    await ElMessageBox.confirm(t('reportBoard.confirmDeleteBoard'), t('reportBoard.deleteBoard'), {
+      type: 'warning'
+    })
+  } catch {
+    return // 取消：不产生副作用，也不得把拒绝逸出成全局错误
+  }
+  try {
+    await deleteBoardApi(activeId.value)
+    boards.value = boards.value.filter((b: BoardVo) => b.id !== activeId.value)
+    activeId.value = boards.value.length ? boards.value[0].id : null
+    await onBoardChange()
+  } catch (e) {
+    // 拦截器已提示；阻止拒绝逸出（async 事件处理器的拒绝会被全局 errorHandler 接管）
+    if (import.meta.env.DEV) console.error('[reportBoard] removeBoard:', e)
+  }
 }
 </script>
 

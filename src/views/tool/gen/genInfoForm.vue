@@ -122,8 +122,17 @@
             :data="menuOptions"
             :props="{ value: 'menuId', label: 'menuName', children: 'children' }"
             :placeholder="t('gen.genInfo.phParentMenu')"
+            :loading="menuTreeLoading"
             check-strictly
           />
+          <!-- b102：菜单树取不到时必须可见——原实现静默空列表，用户以为"没有可选父菜单"
+               并按空绑定生成代码（生成结果是丢了菜单绑定的代码） -->
+          <div v-if="menuTreeError" class="mt-1 text-xs" data-test="gen-menu-tree-error">
+            <span class="text-[var(--el-color-danger)]">{{ t('common.loadFailed') }}</span>
+            <el-button link type="primary" size="small" @click="getMenuTreeselect">
+              {{ t('common.retry') }}
+            </el-button>
+          </div>
         </el-form-item>
       </el-col>
 
@@ -170,7 +179,11 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select :aria-label="t('gen.genInfo.treeCode')" v-model="info.treeCode" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('gen.genInfo.treeCode')"
+                v-model="info.treeCode"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -188,7 +201,11 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select :aria-label="t('gen.genInfo.treeParentCode')" v-model="info.treeParentCode" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('gen.genInfo.treeParentCode')"
+                v-model="info.treeParentCode"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -206,7 +223,11 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select :aria-label="t('gen.genInfo.treeName')" v-model="info.treeName" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('gen.genInfo.treeName')"
+                v-model="info.treeName"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="column in info.columns"
                   :key="column.columnName"
@@ -255,7 +276,11 @@
                   <el-icon><question-filled /></el-icon>
                 </el-tooltip>
               </template>
-              <el-select :aria-label="t('gen.genInfo.subTableFkName')" v-model="info.subTableFkName" :placeholder="t('common.form.selectPlaceholder')">
+              <el-select
+                :aria-label="t('gen.genInfo.subTableFkName')"
+                v-model="info.subTableFkName"
+                :placeholder="t('common.form.selectPlaceholder')"
+              >
                 <el-option
                   v-for="column in subColumns"
                   :key="column.columnName"
@@ -279,6 +304,8 @@ import { handleTree } from '@/utils/stepby'
 
 const subColumns = ref([])
 const menuOptions = ref([])
+const menuTreeLoading = ref(false)
+const menuTreeError = ref(false)
 
 // FE-003：通过 useTemplateRef + defineExpose 暴露表单 ref，替代父组件 .$refs 访问
 const genInfoFormRef = useTemplateRef('genInfoForm')
@@ -326,13 +353,18 @@ function setSubTableColumns(value: string): void {
   }
 }
 
-/** 查询菜单下拉树结构 */
-function getMenuTreeselect(): void {
-  listMenu()
-    .then((response) => {
-      menuOptions.value = handleTree(response.data || [], 'menuId')
-    })
-    .catch(() => {})
+/** 查询菜单下拉树结构（失败必须可见：空树会让用户按"无父菜单"生成） */
+async function getMenuTreeselect(): Promise<void> {
+  menuTreeLoading.value = true
+  menuTreeError.value = false
+  try {
+    const response = await listMenu()
+    menuOptions.value = handleTree(response.data || [], 'menuId')
+  } catch {
+    menuTreeError.value = true
+  } finally {
+    menuTreeLoading.value = false
+  }
 }
 
 onMounted(() => {

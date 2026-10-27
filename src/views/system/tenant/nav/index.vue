@@ -347,9 +347,14 @@ async function submitForm() {
 async function handleDelete(row: SysTenantMenuVo) {
   const ok = await confirmAction(t('tenantNav.deleteConfirm', [row.refMenuName]))
   if (!ok) return
-  await delTenantNav(row.l3Id)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  await loadAll()
+  try {
+    await delTenantNav(row.l3Id)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    await loadAll()
+  } catch (e) {
+    // 拦截器已提示；阻止拒绝逸出
+    if (import.meta.env.DEV) console.error('[tenantNav] delete:', e)
+  }
 }
 
 onMounted(() => {

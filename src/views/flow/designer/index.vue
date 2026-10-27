@@ -8,7 +8,9 @@
           :placeholder="t('flowDef.searchByCode')"
           class="w-56"
           clearable
-          @keyup.enter="handleQuery" :aria-label="t('flowDef.searchByCode')" />
+          @keyup.enter="handleQuery"
+          :aria-label="t('flowDef.searchByCode')"
+        />
         <el-button icon="Search" type="primary" plain @click="handleQuery">
           {{ t('common.search') }}
         </el-button>
@@ -58,7 +60,13 @@
             >
               {{ t('flowDef.submitTest') }}
             </el-button>
-            <el-button v-hasPermi="['flow:definition:remove']" link type="danger" icon="Delete" @click="handleRemove(row)">
+            <el-button
+              v-hasPermi="['flow:definition:remove']"
+              link
+              type="danger"
+              icon="Delete"
+              @click="handleRemove(row)"
+            >
               {{ t('common.delete') }}
             </el-button>
           </template>
@@ -80,15 +88,9 @@
         <div v-if="diff">
           <h4 class="mb-2 font-medium">{{ t('flowDef.diffNodes') }}</h4>
           <ul class="mb-4 list-inside text-sm">
-            <li v-for="n in diff.addedNodes" :key="'an' + n" class="text-[var(--el-color-success)]">
-              + {{ n }}
-            </li>
-            <li v-for="n in diff.removedNodes" :key="'rn' + n" class="text-[var(--el-color-danger)]">
-              - {{ n }}
-            </li>
-            <li v-for="n in diff.changedNodes" :key="'cn' + n" class="text-[var(--el-color-warning)]">
-              ~ {{ n }}
-            </li>
+            <li v-for="n in diff.addedNodes" :key="'an' + n" class="text-[var(--el-color-success)]">+ {{ n }}</li>
+            <li v-for="n in diff.removedNodes" :key="'rn' + n" class="text-[var(--el-color-danger)]">- {{ n }}</li>
+            <li v-for="n in diff.changedNodes" :key="'cn' + n" class="text-[var(--el-color-warning)]">~ {{ n }}</li>
             <li v-if="diffEmpty" class="text-[var(--el-text-color-secondary)]">{{ t('flowDef.diffNoChange') }}</li>
           </ul>
           <h4 class="mb-2 font-medium">{{ t('flowDef.diffEdges') }}</h4>
@@ -111,7 +113,14 @@
         </el-button>
         <el-button icon="Plus" plain @click="addNode('end')">{{ t('flowDef.addEnd') }}</el-button>
         <el-button icon="Plus" plain @click="addEdgeOpen = true">{{ t('flowDef.addEdge') }}</el-button>
-        <el-button v-hasPermi="['flow:definition:add', 'flow:definition:edit']" type="success" :loading="saving" @click="handleSave">{{ t('common.save') }}</el-button>
+        <el-button
+          v-hasPermi="['flow:definition:add', 'flow:definition:edit']"
+          type="success"
+          :loading="saving"
+          @click="handleSave"
+        >
+          {{ t('common.save') }}
+        </el-button>
       </div>
 
       <!-- 校验错误清单（保存前前端先拦，与后端白名单校验器双份对齐；文案在 i18n flowDef.validate.*） -->
@@ -126,10 +135,32 @@
           <el-tag :type="n.type === 'start' ? 'info' : n.type === 'end' ? 'warning' : 'primary'">
             {{ n.type }}
           </el-tag>
-          <el-input v-model="n.id" :placeholder="t('flowDef.nodeId')" class="w-32" size="small" :disabled="n.type === 'start'" :aria-label="t('flowDef.nodeId')" />
-          <el-input v-model="n.name" :placeholder="t('flowDef.nodeName')" class="w-40" size="small" :aria-label="t('flowDef.nodeName')" />
+          <el-input
+            v-model="n.id"
+            :placeholder="t('flowDef.nodeId')"
+            class="w-32"
+            size="small"
+            :disabled="n.type === 'start'"
+            :aria-label="t('flowDef.nodeId')"
+          />
+          <el-input
+            v-model="n.name"
+            :placeholder="t('flowDef.nodeName')"
+            class="w-40"
+            size="small"
+            :aria-label="t('flowDef.nodeName')"
+          />
           <template v-if="n.type === 'approve'">
-            <el-select v-model="n.assignees" multiple filterable allow-create class="w-64" size="small" :placeholder="t('flowDef.assignees')" :aria-label="t('flowDef.assignees')">
+            <el-select
+              v-model="n.assignees"
+              multiple
+              filterable
+              allow-create
+              class="w-64"
+              size="small"
+              :placeholder="t('flowDef.assignees')"
+              :aria-label="t('flowDef.assignees')"
+            >
               <el-option value="dept_leader" :label="t('flowDef.assigneeDeptLeader')" />
               <el-option value="role:admin" :label="t('flowDef.assigneeRoleAdmin')" />
             </el-select>
@@ -142,8 +173,17 @@
               :min="1"
               :max="1000"
               size="small"
-              :placeholder="t('flowDef.threshold')" :aria-label="t('flowDef.threshold')" />
-            <el-select v-model="n.actions" multiple class="w-52" size="small" :placeholder="t('flowDef.actions')" :aria-label="t('flowDef.actions')">
+              :placeholder="t('flowDef.threshold')"
+              :aria-label="t('flowDef.threshold')"
+            />
+            <el-select
+              v-model="n.actions"
+              multiple
+              class="w-52"
+              size="small"
+              :placeholder="t('flowDef.actions')"
+              :aria-label="t('flowDef.actions')"
+            >
               <el-option v-for="a in ACTIONS" :key="a" :value="a" :label="a" />
             </el-select>
           </template>
@@ -163,22 +203,53 @@
       <h4 class="mt-4 mb-2 font-medium">{{ t('flowDef.edges') }}</h4>
       <el-card v-for="(e, i) in formEdges" :key="i" shadow="never" class="mb-2">
         <div class="flex flex-wrap items-center gap-2">
-          <el-select v-model="e.from" size="small" class="w-36" :placeholder="t('flowDef.edgeFrom')" :aria-label="t('flowDef.edgeFrom')">
+          <el-select
+            v-model="e.from"
+            size="small"
+            class="w-36"
+            :placeholder="t('flowDef.edgeFrom')"
+            :aria-label="t('flowDef.edgeFrom')"
+          >
             <el-option v-for="n in formNodes" :key="n.id" :value="n.id" :label="`${n.id} (${n.type})`" />
           </el-select>
           <span>→</span>
-          <el-select v-model="e.to" size="small" class="w-36" :placeholder="t('flowDef.edgeTo')" :aria-label="t('flowDef.edgeTo')">
+          <el-select
+            v-model="e.to"
+            size="small"
+            class="w-36"
+            :placeholder="t('flowDef.edgeTo')"
+            :aria-label="t('flowDef.edgeTo')"
+          >
             <el-option v-for="n in formNodes" :key="n.id" :value="n.id" :label="`${n.id} (${n.type})`" />
           </el-select>
           <el-checkbox v-model="e.hasCondition" size="small">{{ t('flowDef.hasCondition') }}</el-checkbox>
           <template v-if="e.hasCondition">
-            <el-input v-model="e.condField" size="small" class="w-36" :placeholder="t('flowDef.condField')" :aria-label="t('flowDef.condField')" />
+            <el-input
+              v-model="e.condField"
+              size="small"
+              class="w-36"
+              :placeholder="t('flowDef.condField')"
+              :aria-label="t('flowDef.condField')"
+            />
             <el-select v-model="e.condOp" size="small" class="w-20" :aria-label="t('flowDef.condOp')">
               <el-option v-for="op in CONDITION_OPS" :key="op" :value="op" :label="op" />
             </el-select>
-            <el-input v-model="e.condValue" size="small" class="w-28" :placeholder="t('flowDef.condValue')" :aria-label="t('flowDef.condValue')" />
+            <el-input
+              v-model="e.condValue"
+              size="small"
+              class="w-28"
+              :placeholder="t('flowDef.condValue')"
+              :aria-label="t('flowDef.condValue')"
+            />
           </template>
-          <el-button link type="danger" icon="Delete" size="small" :aria-label="t('common.delete')" @click="formEdges.splice(i, 1)" />
+          <el-button
+            link
+            type="danger"
+            icon="Delete"
+            size="small"
+            :aria-label="t('common.delete')"
+            @click="formEdges.splice(i, 1)"
+          />
         </div>
       </el-card>
 
@@ -207,14 +278,21 @@
     <el-dialog v-model="graphSubmitOpen" :title="t('flowDef.submitTest')" width="480px">
       <el-form label-width="90px">
         <el-form-item :label="t('flowDef.docTitle')" required>
-          <el-input v-model="graphSubmitTitle" maxlength="200" :placeholder="t('flowDef.submitTitlePh')" :aria-label="t('flowDef.submitTitlePh')" />
+          <el-input
+            v-model="graphSubmitTitle"
+            maxlength="200"
+            :placeholder="t('flowDef.submitTitlePh')"
+            :aria-label="t('flowDef.submitTitlePh')"
+          />
         </el-form-item>
         <el-form-item :label="t('flowDef.fieldsJson')" required>
           <el-input
             v-model="graphSubmitFields"
             type="textarea"
             :rows="6"
-            :placeholder="t('flowDef.fieldsJsonTip')" :aria-label="t('flowDef.fieldsJsonTip')" />
+            :placeholder="t('flowDef.fieldsJsonTip')"
+            :aria-label="t('flowDef.fieldsJsonTip')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -244,7 +322,13 @@ import {
   type FlowGraphNode,
   type FlowNodeType
 } from '@/api/flow'
-import { diffGraphs, parseGraphJson, validateGraph, type GraphDiff, type GraphValidationMessage } from '../definition/flowGraph'
+import {
+  diffGraphs,
+  parseGraphJson,
+  validateGraph,
+  type GraphDiff,
+  type GraphValidationMessage
+} from '../definition/flowGraph'
 
 const { t } = useI18n()
 
@@ -295,8 +379,13 @@ const diffEmpty = computed(() => {
   if (!diff.value) return true
   const d = diff.value
   return (
-    d.addedNodes.length + d.removedNodes.length + d.changedNodes.length +
-    d.addedEdges.length + d.removedEdges.length + d.changedEdges.length === 0
+    d.addedNodes.length +
+      d.removedNodes.length +
+      d.changedNodes.length +
+      d.addedEdges.length +
+      d.removedEdges.length +
+      d.changedEdges.length ===
+    0
   )
 })
 
@@ -351,11 +440,7 @@ async function openEdit(row?: FlowDefinition): Promise<void> {
       flowName: t('flowDef.newDefinitionDefaultName'),
       graphJson: ''
     }
-    formNodes.value = [
-      { id: 'start', type: 'start' },
-      nodeSkeleton('a1'),
-      { id: 'end', type: 'end' }
-    ]
+    formNodes.value = [{ id: 'start', type: 'start' }, nodeSkeleton('a1'), { id: 'end', type: 'end' }]
     formEdges.value = [
       { from: 'start', to: 'a1', hasCondition: false, condField: '', condOp: '=', condValue: '' },
       { from: 'a1', to: 'end', hasCondition: false, condField: '', condOp: '=', condValue: '' }
@@ -374,9 +459,7 @@ function addNode(type: FlowNodeType): void {
   let i = formNodes.value.length + 1
   while (used.has(type === 'end' ? `end${i > 1 ? i : ''}` : `${type}_${i}`)) i++
   const id = type === 'end' ? `end${i > 1 ? i : ''}` : `${type}_${i}`
-  formNodes.value.push(
-    type === 'end' ? { id, type: 'end' } : nodeSkeleton(id)
-  )
+  formNodes.value.push(type === 'end' ? { id, type: 'end' } : nodeSkeleton(id))
 }
 
 function confirmAddEdge(): void {
@@ -454,10 +537,19 @@ async function handleSave(): Promise<void> {
 }
 
 async function handlePublish(row: FlowDefinition): Promise<void> {
-  await ElMessageBox.confirm(t('flowDef.publishConfirm'), t('common.warning'), { type: 'warning' })
-  const res = await publishFlowDefinition(row.flowId)
-  ElMessage.success(t('flowDef.publishDone', { version: res.data?.version ?? '' }))
-  load()
+  try {
+    await ElMessageBox.confirm(t('flowDef.publishConfirm'), t('common.warning'), { type: 'warning' })
+  } catch {
+    return // 取消
+  }
+  try {
+    const res = await publishFlowDefinition(row.flowId)
+    ElMessage.success(t('flowDef.publishDone', { version: res.data?.version ?? '' }))
+    load()
+  } catch (e) {
+    // 拦截器已提示（如版本唯一约束冲突）；保持列表可继续操作，不得整页崩溃
+    if (import.meta.env.DEV) console.error('[flowDesigner] publish:', e)
+  }
 }
 
 // ==================== 批次十七：提交测试单据（按图推进体验入口） ====================
@@ -508,10 +600,18 @@ async function confirmGraphSubmit(): Promise<void> {
 }
 
 async function handleRemove(row: FlowDefinition): Promise<void> {
-  await ElMessageBox.confirm(t('flowDef.removeConfirm'), t('common.warning'), { type: 'warning' })
-  await removeFlowDefinition(row.flowId)
-  ElMessage.success(t('common.operationSuccess'))
-  load()
+  try {
+    await ElMessageBox.confirm(t('flowDef.removeConfirm'), t('common.warning'), { type: 'warning' })
+  } catch {
+    return // 取消
+  }
+  try {
+    await removeFlowDefinition(row.flowId)
+    ElMessage.success(t('common.operationSuccess'))
+    load()
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[flowDesigner] remove:', e)
+  }
 }
 
 /** 版本对比：历史版本 vs 同 code 最新版本 */
@@ -523,10 +623,7 @@ async function openDiff(row: FlowDefinition): Promise<void> {
     ElMessage.info(t('flowDef.diffNoOlderVersion'))
     return
   }
-  const [oldRes, newRes] = await Promise.all([
-    getFlowDefinition(row.flowId),
-    getFlowDefinition(latest.flowId)
-  ])
+  const [oldRes, newRes] = await Promise.all([getFlowDefinition(row.flowId), getFlowDefinition(latest.flowId)])
   diff.value = diffGraphs(parseGraphJson(oldRes.data?.graphJson), parseGraphJson(newRes.data?.graphJson))
   diffOpen.value = true
 }

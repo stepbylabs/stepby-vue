@@ -31,7 +31,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeState.query })
 }))
 
-import { useCrudTable } from './useCrudTable'
+import { useCrudTable, clampPageToRowCount } from './useCrudTable'
 
 // 冲刷宏任务（连带 flush 所有挂起的微任务链）
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
@@ -908,5 +908,36 @@ describe('useCrudTable loadError 状态机（空态分形：失败 ≠ 暂无数
     ctx.retryLoad()
     await flush()
     expect(ctx.loadError.value, '只读模式失败后 loadError 同样置真').toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// clampPageToRowCount（b102）：全量拉取 + 前端 slice 分页的页面（在线用户）
+// 删掉末页最后一条后，行数仍非 0（pageAfterEmptyResult 看不见越界），
+// 必须由本地页码收敛到仍存在的最大页，否则停在空页而前面还有数据。
+// ---------------------------------------------------------------------------
+describe('clampPageToRowCount（前端切片分页的页码收敛）', () => {
+  it('末页最后一条被删：页码回到新的最后一页', () => {
+    // 21 条 → 删掉第 21 条后 20 条，每页 10 ⇒ 第 3 页不存在，收敛到 2
+    expect(clampPageToRowCount(3, 20, 10)).toBe(2)
+  })
+
+  it('末页还有数据：页码不动（不得把合法页误收敛）', () => {
+    expect(clampPageToRowCount(2, 20, 10)).toBe(2)
+    expect(clampPageToRowCount(2, 11, 10)).toBe(2)
+  })
+
+  it('整表被清空：回到第 1 页', () => {
+    expect(clampPageToRowCount(3, 0, 10)).toBe(1)
+  })
+
+  it('页大小为 0/负数：按 1 计，不得算出 Infinity 或负数页', () => {
+    expect(clampPageToRowCount(5, 3, 0)).toBe(3)
+    expect(clampPageToRowCount(5, 3, -10)).toBe(3)
+  })
+
+  it('对照：本地行数超过最后一页容量时页码保持（边界恰整除）', () => {
+    expect(clampPageToRowCount(2, 20, 10)).toBe(2)
+    expect(clampPageToRowCount(1, 0, 10)).toBe(1)
   })
 })

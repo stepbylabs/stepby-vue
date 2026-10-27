@@ -13,6 +13,11 @@
   </el-row>
 
   <el-table v-loading="loading" :data="rows">
+    <template #empty>
+      <ListEmpty :load-error="loadError" @retry="loadList">
+        <el-empty :description="t('common.empty')" />
+      </ListEmpty>
+    </template>
     <el-table-column :label="t('tenantDomain.domain')" prop="domain" min-width="220" show-overflow-tooltip>
       <template #default="{ row }">
         <span>{{ row.domain }}</span>
@@ -207,6 +212,8 @@ const allowSubdomain = computed(() => props.allowSubdomain ?? isPlatformMode.val
 const effectiveTenantId = computed(() => props.tenantId ?? userStore.tenantId)
 
 const loading = ref(false)
+// b102：域名列表失败必须可见（原实现 try/finally 无 catch，首次挂载失败会逸出且页面空着）
+const loadError = ref(false)
 const saving = ref(false)
 const rows = ref<TenantDomainVo[]>([])
 
@@ -255,10 +262,14 @@ function verifyTagType(status?: string): 'success' | 'danger' | 'warning' {
 async function loadList() {
   if (!hasDomainPermi) return
   loading.value = true
+  loadError.value = false
   try {
     // 自助模式不传 tenantId：后端按操作者所属租户强制收窄（避免越权枚举他租户域名）
     const res = await listTenantDomain(isPlatformMode.value ? props.tenantId : undefined)
     rows.value = res.data ?? []
+  } catch (e) {
+    loadError.value = true
+    if (import.meta.env.DEV) console.error('[tenantDomain] load:', e)
   } finally {
     loading.value = false
   }
@@ -298,11 +309,16 @@ async function saveAdd() {
 }
 
 async function handleVerify(row: TenantDomainVo) {
-  const res = await verifyTenantDomain(row.domainId)
-  verifyResult.value = res.data ?? null
-  verifyVisible.value = true
-  await loadList()
-  emit('refresh')
+  try {
+    const res = await verifyTenantDomain(row.domainId)
+    verifyResult.value = res.data ?? null
+    verifyVisible.value = true
+    await loadList()
+    emit('refresh')
+  } catch (e) {
+    // 拦截器已提示；阻止拒绝逸出（async 事件处理器逸出会被全局 errorHandler 接管）
+    if (import.meta.env.DEV) console.error('[tenantDomain] verify:', e)
+  }
 }
 
 async function copyTxtValue() {
@@ -323,10 +339,14 @@ async function copyTxtValue() {
 async function handleSetPrimary(row: TenantDomainVo) {
   const ok = await confirmAction(t('tenantDomain.setPrimaryConfirm', [row.domain]))
   if (!ok) return
-  await setPrimaryTenantDomain(row.domainId)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  await loadList()
-  emit('refresh')
+  try {
+    await setPrimaryTenantDomain(row.domainId)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    await loadList()
+    emit('refresh')
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[tenantDomain] setPrimary:', e)
+  }
 }
 
 async function handleStatusChange(row: TenantDomainVo) {
@@ -336,18 +356,28 @@ async function handleStatusChange(row: TenantDomainVo) {
     row.status = row.status === '0' ? '1' : '0'
     return
   }
-  await changeTenantDomainStatus(row.domainId, next)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  emit('refresh')
+  try {
+    await changeTenantDomainStatus(row.domainId, next)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    emit('refresh')
+  } catch (e) {
+    // b102：接口失败时开关必须回到服务端真实状态（原实现拒绝逸出且页面仍显示新状态）
+    row.status = row.status === '0' ? '1' : '0'
+    if (import.meta.env.DEV) console.error('[tenantDomain] changeStatus:', e)
+  }
 }
 
 async function handleDelete(row: TenantDomainVo) {
   const ok = await confirmAction(t('tenantDomain.deleteConfirm', [row.domain]))
   if (!ok) return
-  await delTenantDomain(row.domainId)
-  proxy?.$modal.msgSuccess(t('common.success'))
-  await loadList()
-  emit('refresh')
+  try {
+    await delTenantDomain(row.domainId)
+    proxy?.$modal.msgSuccess(t('common.success'))
+    await loadList()
+    emit('refresh')
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[tenantDomain] delete:', e)
+  }
 }
 
 // 抽屉 destroy-on-close：每次打开重新挂载即拉取；页面模式下进入页面拉取

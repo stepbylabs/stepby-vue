@@ -96,7 +96,13 @@
         class="query-form px-4 pt-4 rounded mb-3"
       >
         <el-form-item :label="t('myLogin.searchStatus')" prop="status">
-          <el-select :aria-label="t('myLogin.searchStatus')" v-model="queryParams.status" :placeholder="t('myLogin.allStatus')" clearable class="w-[160px]">
+          <el-select
+            :aria-label="t('myLogin.searchStatus')"
+            v-model="queryParams.status"
+            :placeholder="t('myLogin.allStatus')"
+            clearable
+            class="w-[160px]"
+          >
             <el-option v-for="dict in sys_common_status" :key="dict.value" :label="dict.label" :value="dict.value" />
           </el-select>
         </el-form-item>
@@ -108,7 +114,9 @@
             range-separator="-"
             :start-placeholder="t('myLogin.startDate')"
             :end-placeholder="t('myLogin.endDate')"
-            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]" :aria-label="t('myLogin.startDate')" />
+            :default-time="[new Date(2000, 1, 1, 0, 0, 0), new Date(2000, 1, 1, 23, 59, 59)]"
+            :aria-label="t('myLogin.startDate')"
+          />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -125,8 +133,24 @@
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList" />
     </el-row>
 
+    <!-- 最近一次刷新失败且仍有旧数据：失败必须可见（不得让旧数据冒充最新） -->
+    <el-alert
+      v-if="loadError && loginList.length > 0"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="mb-2"
+      data-test="my-login-load-error"
+      :title="t('common.loadFailed')"
+    >
+      <el-button link type="primary" @click="getList">{{ t('common.retry') }}</el-button>
+    </el-alert>
+
     <!-- 登录历史列表 -->
     <el-table v-loading="loading" :data="loginList" @sort-change="handleSortChange" highlight-current-row>
+      <template #empty>
+        <ListEmpty :load-error="loadError" @retry="getList" />
+      </template>
       <el-table-column :label="t('myLogin.columnTime')" align="center" prop="loginTime" width="170" sortable="custom" />
       <el-table-column :label="t('myLogin.columnStatus')" align="center" width="90" sortable="custom" prop="status">
         <template #default="scope">
@@ -197,6 +221,8 @@ const queryRefRef = useTemplateRef('queryRef')
 
 const loginList = shallowRef<SysLogininfor[]>([])
 const loading = ref(true)
+// b102：失败态必须与"真的没有数据"可分（原实现 catch 静默，页面落回"暂无数据"）
+const loadError = ref(false)
 const showSearch = ref(true)
 const total = ref(0)
 const dateRange = ref<string[]>([])
@@ -254,9 +280,10 @@ const anomalyDetail = computed(() =>
   })
 )
 
-/** 查询登录日志列表 */
-async function getList(): Promise<void> {
+/** 查询登录日志列表（返回本回合结局，供"重新分析"只在成功时提示） */
+async function getList(): Promise<boolean> {
   loading.value = true
+  loadError.value = false
   try {
     const params = addDateRange(queryParams, dateRange.value)
     const res: TableDataInfo<SysLogininfor> = await listLogininfor(params)
@@ -264,8 +291,11 @@ async function getList(): Promise<void> {
     total.value = res.total || 0
     successCount.value = loginList.value.filter((r: SysLogininfor) => r.status === '0').length
     failCount.value = loginList.value.filter((r: SysLogininfor) => r.status === '1').length
+    return true
   } catch {
-    // 静默处理错误
+    // 错误提示由响应拦截器统一弹出；页面侧只负责让失败可见（ListEmpty / 告警条）
+    loadError.value = true
+    return false
   } finally {
     loading.value = false
   }
@@ -307,10 +337,12 @@ function isCurrentSession(row: SysLogininfor): boolean {
   return row === currentSession.value
 }
 
-/** 重新分析异常（重新查询） */
-function refreshAnalysis(): void {
-  getList()
-  modal.msgSuccess(t('myLogin.reanalyzeSuccess'))
+/** 重新分析异常（重新查询；提示由本回合结局驱动，失败不得报成功） */
+async function refreshAnalysis(): Promise<void> {
+  const ok = await getList()
+  if (ok) {
+    modal.msgSuccess(t('myLogin.reanalyzeSuccess'))
+  }
 }
 
 onMounted(async () => {

@@ -30,6 +30,19 @@ export function pageAfterEmptyResult(pageNum: number, rowCount: number, total: n
 }
 
 /**
+ * 前端切片分页的页码收敛：本地页码超过"仍存在的页数"时回到最后一页。
+ *
+ * 全量拉取后在前端 slice 分页的页面（如在线用户）删掉末页最后一条时，
+ * 服务端分页的空页回退（pageAfterEmptyResult）看不见这种越界——行数仍非 0，
+ * 只是不足以填满当前页；不收敛就会停在空页而前面还有数据。
+ */
+export function clampPageToRowCount(pageNum: number, rowCount: number, pageSize: number): number {
+  const size = pageSize > 0 ? pageSize : 1
+  const maxPage = Math.max(1, Math.ceil(rowCount / size))
+  return pageNum > maxPage ? maxPage : pageNum
+}
+
+/**
  * 通用 CRUD 表格 composable
  * 抽取岗位/角色/字典/通知/参数/定时任务/备份等页面的共性逻辑
  *

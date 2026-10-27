@@ -7435,6 +7435,32 @@ async function testFeature35(page) {
     return null
   }
 
+  // ---------- 0. 会话身份前提（先证明"读的是谁"，再证明"读到了什么"） ----------
+  // MySessionPanel 的页签与文案受角色权限控制：非连续 --feature 组合跑批时，
+  // 上一段可能把会话留在别的账号（F13 按设计把会话留在 stepby），
+  // 此时读"活跃会话数"会判红而产品没有缺陷（b101 N-101-4）。
+  // 判据：读自身会话身份；与套件账号不一致 ⇒ 重新登录后再继续。
+  try {
+    const readUserName = () => fetchWithAuth(page, `/prod-api/getInfo`).then((r) => r.data?.user?.userName || '')
+    const before = await readUserName().catch(() => '')
+    let current = before
+    if (current !== CONFIG.username) {
+      log(`  ⚠️ F35 会话身份=${current || 'unknown'}，与套件账号 ${CONFIG.username} 不一致 ⇒ 重新登录`)
+      // 有 token 时直接 goto /login 会被守卫弹回 / ⇒ 必须先清会话（与 F13/F14 同一做法）
+      await logout(page)
+      await login(page, CONFIG.username, CONFIG.password)
+      current = await readUserName().catch(() => '')
+    }
+    record(
+      35,
+      '会话身份前提（套件管理员账号）',
+      current === CONFIG.username,
+      `会话身份=${current || 'unknown'}${before && before !== current ? `（原 ${before}）` : ''}`
+    )
+  } catch (err) {
+    record(35, '会话身份前提（套件管理员账号）', false, `异常: ${err.message.slice(0, 80)}`)
+  }
+
   // ---------- 1. 通知中心菜单注册验证 ----------
   try {
     const result = await fetchWithAuth(page, `/prod-api/getRouters`)
@@ -7673,13 +7699,6 @@ async function testFeature35(page) {
     await page.goto(`${CONFIG.frontendUrl}/index`, { waitUntil: 'load' }).catch(() => {})
     await sleep(500)
     const themeText = { hasThemeTitle: true, hasLight: true, hasDark: true } // 主题切换已在测试8验证过 UI 可见
-    // 直接通过文档检查 i18n 翻译对象是否构建到 bundle（间接验证）
-    const i18nBundleCheck = await page.evaluate(() => {
-      // 通过 performance API 获取已加载的脚本资源
-      const entries = performance.getEntriesByType('resource')
-      const routerScript = entries.find((e) => e.name.includes('router-') && e.name.endsWith('.js'))
-      return { hasRouterScript: !!routerScript }
-    })
 
     const allI18nOk =
       noticeCenterText.hasNoticeCenterTitle &&
@@ -7693,7 +7712,7 @@ async function testFeature35(page) {
       allI18nOk,
       `noticeCenter.title=${noticeCenterText.hasNoticeCenterTitle}, unread=${noticeCenterText.hasUnreadLabel}, ` +
         `mySession.title=${mySessionText.hasMySessionTitle}, activeCount=${mySessionText.hasActiveCount}, ` +
-        `theme=${themeText.hasThemeTitle}, bundle=${i18nBundleCheck.hasRouterScript}`
+        `theme=${themeText.hasThemeTitle}`
     )
   } catch (err) {
     record(35, 'i18n 翻译完整性（noticeCenter + mySession + theme）', false, `异常: ${err.message.slice(0, 80)}`)

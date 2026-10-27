@@ -292,6 +292,17 @@ function summarize(records) {
  *   (b) 恢复瞬间 2 秒内**成簇**（≥2 条）出现超时/fail-closed 族 ⇒ 被压住的批次一起冒头。
  * 只有一条超时行、前面又正好安静（套件之间的自然空闲），不按停顿处理，照常判未登记——
  * 放宽到"有 gap 就算"会把真回归也一起豁免掉，那是把判据关掉。
+ *
+ * **进程重启接缝不是停顿**（b102）：多进程拼接日志（收口轮重启 `:8080` 之后要覆盖到
+ * 前一轮 deep 全量的 witness 面，见 ㊱）里，两段之间必然有一段"日志没在写"的空洞，
+ * 而新进程启动时恰好会成簇打出 `权限 fail-closed 模式已启用` + 冷启动 `slow statement`。
+ * 实测（`logs/b102_union.log`，14:46:30 → 19:26:17 静默 16787s）这条被判定成"整机停顿
+ * ⇒ 本轮不作数"，给出的处置是"确认主机没有并行负载…然后重跑"——**指错了方向**：
+ * 那段时间主机好好的，是后端进程被停掉去重新构建了。
+ * 判别证据是决定性的：真冻结是**同一进程**被挂起后继续写，恢复行不可能是进程启动标记；
+ * 反过来，第一条就是 `stepby_axum::logger` 的初始化行 ⇒ 上一个进程已经退出。
+ * 因此接缝只豁免"成簇"这一支；若某条自带 `latency=` 横跨整段停顿（在飞请求的计时字段
+ * 证明进程一直活着），仍然判停顿——两条证据互相排斥，标记不得把硬证据洗掉。
  */
 const STALL_GAP_SECS = 20
 const STALL_RECOVER_SECS = 2
@@ -305,6 +316,16 @@ export function stallArtifactReason(msg, gapMs) {
   if (lat && Number(lat[1]) >= gapMs * 0.8) return `latency=${lat[1]}ms 横跨整段停顿`
   if (STALL_FAMILY_RE.test(msg)) return '超时/fail-closed 族在恢复瞬间成簇'
   return null
+}
+
+/**
+ * 进程启动标记：tracing 第一行由 `stepby_axum::logger` 打出（`main.rs` 里初始化后
+ * 立刻落一行）。**同一进程被挂起后恢复不可能重新打这一行** ⇒ 它把"进程重启接缝"
+ * 与"主机冻结"分开。判据只认这个模块名，不认 `INFO` 级别（启动流水里 INFO 很多，
+ * 拿级别当标记等于"有 gap 就豁免"）。
+ */
+export function isProcessStartMarker(msg) {
+  return /stepby_axum::logger:/.test(String(msg || ''))
 }
 
 /**
@@ -337,7 +358,10 @@ export function detectStalls(
       if (reason) hits.push({ ...r, reason })
     }
     const crossing = hits.some((h) => h.reason.startsWith('latency='))
-    if (hits.length >= 2 || crossing) {
+    // 进程重启接缝：恢复行是 logger 初始化 ⇒ 这段静默是"上一个进程已退出"，不是主机冻结。
+    // 只豁免成簇那一支（理由见上方段落）；`crossing` 是进程一直在飞的硬证据，照常判停顿。
+    const restartSeam = isProcessStartMarker(inWin[i].msg)
+    if (crossing || (hits.length >= 2 && !restartSeam)) {
       stalls.push({
         from: inWin[i - 1].ts,
         to: inWin[i].ts,
@@ -1092,6 +1116,42 @@ function selftest() {
     sCross.length === 1,
     JSON.stringify(sCross)
   )
+  // 进程重启接缝（b102 实测形状：14:46:30 → 19:26:17 静默 16787s，恢复行是 logger 初始化，
+  // 随后 2 秒内成簇打出 fail-closed 启动 WARN + 冷启动 slow statement）
+  const seam = [
+    '2026-10-27T14:46:30.104645Z  INFO stepby_axum::scheduler: mod.rs:364: 内置任务 alertEvalTask 跳过',
+    '2026-10-27T19:26:17.599236Z  INFO stepby_axum::logger: src\\logger.rs:88: 日志初始化完成 level=INFO',
+    '2026-10-27T19:26:17.700000Z  WARN sqlx::query: logger.rs:121: slow statement: execution time exceeded slow threshold',
+    '2026-10-27T19:26:17.800000Z  WARN stepby_axum::router: src\\router\\mod.rs:256: 权限 fail-closed 模式已启用（permission_deny_by_default=true）'
+  ]
+  check(
+    '进程重启接缝不得算停顿（恢复行是 logger 初始化 ⇒ 上一个进程已退出，不是主机冻结）；' +
+      '否则拼接日志每轮都判"不作数"并把人支使去查一台根本没有冻住的主机',
+    detectStalls(parseLog(seam.join('\n')).records).length === 0,
+    JSON.stringify(detectStalls(parseLog(seam.join('\n')).records))
+  )
+  // 反向：同样的接缝形状但恢复行**不是**启动标记（同一进程被挂起后继续）⇒ 照常判停顿。
+  // 这一支是上一条的对照，缺了它"接缝豁免"会退化成"有 gap 就不报"。
+  const reseam = seam.map((l) =>
+    l.includes('stepby_axum::logger') ? l.replace('stepby_axum::logger', 'stepby_axum::handler::run') : l
+  )
+  check(
+    '同样的 16787s 静默 + 成簇，但恢复行不是进程启动标记 ⇒ 必须照常判整机停顿',
+    detectStalls(parseLog(reseam.join('\n')).records).length === 1,
+    JSON.stringify(detectStalls(parseLog(reseam.join('\n')).records))
+  )
+  // 硬证据优先：某条 latency 横跨整段停顿 ⇒ 进程一直在飞，启动标记不得把它洗成接缝
+  // （`latency` 与 gap 同为毫秒：4h39m 的静默要横跨它，得是 ≈1679 万毫秒的在飞请求）
+  const seamCross = [
+    seam[0],
+    '2026-10-27T19:26:17.599236Z  INFO stepby_axum::logger: src\\logger.rs:88: 日志初始化完成 level=INFO',
+    '2026-10-27T19:26:17.700000Z ERROR tower_http::trace::on_failure: on_failure.rs:93: response failed classification=Status code: 503 Service Unavailable latency=16790000 ms'
+  ]
+  check(
+    '接缝豁免不得洗掉横跨停顿的 latency 硬证据（两条证据互斥，硬的那条优先）',
+    detectStalls(parseLog(seamCross.join('\n')).records).length === 1,
+    JSON.stringify(detectStalls(parseLog(seamCross.join('\n')).records))
+  )
 
   if (fails.length) {
     console.error(`SYNTH_FAIL 后端日志判据 ${fails.length} 条：`)
@@ -1099,7 +1159,7 @@ function selftest() {
     process.exit(1)
   }
   console.log(
-    `SYNTH_OK 后端日志判据 ${ran} 条双向（解析/续行/窗口过滤/窗口时区口径/统计量窗口对账/允许表形状/未命中对账/退役通道/空日志与窗口内零记录/未登记必红/整机停顿必判不作数 + 六种"不得算成停顿"的反脆弱）`
+    `SYNTH_OK 后端日志判据 ${ran} 条双向（解析/续行/窗口过滤/窗口时区口径/统计量窗口对账/允许表形状/未命中对账/退役通道/空日志与窗口内零记录/未登记必红/整机停顿必判不作数 + 各种"不得算成停顿"的反脆弱，含进程重启接缝与它的两向对照）`
   )
   process.exit(0)
 }

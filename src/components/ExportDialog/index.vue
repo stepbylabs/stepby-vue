@@ -70,6 +70,11 @@ interface Props {
   columns: ExportField[]
   /** 对话框标题 */
   title?: string
+  /**
+   * 导出进行中（由调用方持有）：下载失败时调用方必须复位，
+   * 否则按钮会永久停在 loading —— 用户既看不到结局也无法重试。
+   */
+  loading?: boolean
 }
 
 interface Emits {
@@ -78,7 +83,8 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  title: ''
+  title: '',
+  loading: false
 })
 const emit = defineEmits<Emits>()
 
@@ -89,13 +95,12 @@ const visible = computed({
 
 const exportRange = ref<'all' | 'selected'>('all')
 const selectedFields = ref<string[]>([])
-const exporting = ref(false)
+const exporting = computed(() => props.loading)
 
 watch(visible, (v: boolean) => {
   if (v) {
     exportRange.value = 'all'
     selectedFields.value = props.columns.map((c: ExportField) => c.field)
-    exporting.value = false
   }
 })
 
@@ -114,19 +119,18 @@ function selectNone() {
 }
 
 function handleConfirm() {
+  if (exporting.value) return
   if (exportRange.value === 'selected' && selectedFields.value.length === 0) {
     errorHub.report('warning', 'other', t('exportDialog.pleaseSelectField'))
     return
   }
-  exporting.value = true
-  // 调用方负责实际下载，下载完成后通过 v-model 控制关闭对话框
-  // 不再使用硬编码 timeout，避免与调用方 loading 状态竞争
+  // 调用方负责实际下载（loading 由调用方持有），下载完成后通过 v-model 控制关闭对话框；
+  // 失败时调用方复位 loading，按钮恢复可点、用户可改字段重试
   const fields = exportRange.value === 'all' ? null : [...selectedFields.value]
   emit('export', fields)
 }
 
 function handleClose() {
-  exporting.value = false
   selectedFields.value = []
   exportRange.value = 'all'
 }

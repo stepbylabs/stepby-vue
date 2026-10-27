@@ -54,10 +54,13 @@
         </div>
       </template>
 
-      <el-empty
+      <ListEmpty
         v-if="loading === false && bindingList.length === 0 && availableProviders.length === 0"
-        :description="t('oauth.tip.empty')"
-      />
+        :load-error="loadError"
+        @retry="load"
+      >
+        <el-empty :description="t('oauth.tip.empty')" />
+      </ListEmpty>
     </div>
   </el-card>
 </template>
@@ -70,6 +73,8 @@ import { errorHub } from '@/utils/errorHub'
 
 const { t } = useI18n()
 const loading = ref(true)
+// b102：失败态与"没有可绑定的第三方"必须可分
+const loadError = ref(false)
 const bindingList = ref<MyOauthBinding[]>([])
 const allProviders = ref<EnabledOauthProvider[]>([])
 const binding = ref('')
@@ -94,17 +99,19 @@ function oauthIcon(providerCode: string): string {
   }
 }
 
-function load(): void {
+async function load(): Promise<void> {
   loading.value = true
-  Promise.all([listMyBindings(), listEnabledProviders()])
-    .then(([bindingsRes, providersRes]) => {
-      bindingList.value = bindingsRes.data || []
-      allProviders.value = providersRes.data || []
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+  loadError.value = false
+  try {
+    const [bindingsRes, providersRes] = await Promise.all([listMyBindings(), listEnabledProviders()])
+    bindingList.value = bindingsRes.data || []
+    allProviders.value = providersRes.data || []
+  } catch {
+    // 两路里任一失败 ⇒ 整个"绑定面"不可信（不能只显示一半），渲染失败态 + 重试
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
 }
 
 // 发起绑定：生成授权 URL 后跳转第三方，回调落地 /oauth-login 用当前登录态直接绑定

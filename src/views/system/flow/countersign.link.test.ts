@@ -21,10 +21,7 @@ import enUS from '@/i18n/locales/en-US'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const VIEW = path.join(HERE, 'index.vue')
 const API_FLOW = path.resolve(HERE, '../../../api/flow.ts')
-const RUST_FLOW_SERVICE = path.resolve(
-  HERE,
-  '../../../../../stepby-axum/src/service/sys_flow_service.rs'
-)
+const RUST_FLOW_SERVICE = path.resolve(HERE, '../../../../../stepby-axum/src/service/sys_flow_service.rs')
 
 function readRequired(fp: string, label: string): string {
   if (!fs.existsSync(fp)) {
@@ -34,15 +31,22 @@ function readRequired(fp: string, label: string): string {
 }
 
 /**
- * 提取引擎写入 sys_flow_log.action 的字面量。两种成文形态：
+ * 提取引擎写入 sys_flow_log.action 的字面量。三种成文形态：
  * - `action: Set("x".to_string())`（ActiveModel 直写，如 submit / countersign_add）
  * - `self.write_log(...)` 的**第一个字符串字面量**实参（前四个实参恒为表达式，
  *   故首个字面量即 action；定义处 `async fn write_log(` 无前置点号，不会被命中）
+ * - `flow_log_model(...)` 的**首个字符串字面量**实参（b102 起撤回/改派/自动转办在事务内
+ *   直接构造 ActiveModel，与 write_log 共用同一构造函数；定义处的首个字面量落在
+ *   属性/参数之外，不会被误读成动作）
  */
 function extractFlowActions(rust: string): Set<string> {
   const out = new Set<string>()
   for (const m of rust.matchAll(/action:\s*Set\(\s*"([a-z_]+)"/g)) out.add(m[1])
   for (const m of rust.matchAll(/\.write_log\(/g)) {
+    const lit = rust.slice(m.index, m.index + 600).match(/"([a-z][a-z_]{2,})"/)
+    if (lit) out.add(lit[1])
+  }
+  for (const m of rust.matchAll(/flow_log_model\(/g)) {
     const lit = rust.slice(m.index, m.index + 600).match(/"([a-z][a-z_]{2,})"/)
     if (lit) out.add(lit[1])
   }
@@ -103,15 +107,12 @@ describe('加减签前后端链路齐备', () => {
   it('减签按钮存在且仅在会签族节点出现（单审减签必触发后端 last_assignee 防线）', () => {
     expect(viewSrc).toContain("openAct(row, 'countersign')")
     expect(viewSrc).toContain("openAct(row, 'countersignDel')")
-    expect(viewSrc).toContain("v-if=\"row.taskType !== 'single'\"")
+    expect(viewSrc).toContain('v-if="row.taskType !== \'single\'"')
     expect(viewSrc).toContain("t('flow.actCountersignDel')")
   })
 
   it('needsTargetUser 覆盖三类选人动作，漏一类会走错表单分支', () => {
-    const block = viewSrc.slice(
-      viewSrc.indexOf('const needsTargetUser'),
-      viewSrc.indexOf('const userSearching')
-    )
+    const block = viewSrc.slice(viewSrc.indexOf('const needsTargetUser'), viewSrc.indexOf('const userSearching'))
     expect(block).toContain("'transfer'")
     expect(block).toContain("'countersign'")
     expect(block).toContain("'countersignDel'")

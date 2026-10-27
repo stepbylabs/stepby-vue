@@ -195,7 +195,7 @@ import type { FormInstance } from 'element-plus'
 import type { SysUserOnline, OnlineQueryParams } from '@/types/api/monitor/online'
 import modal from '@/plugins/modal'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
-import { useCrudTable } from '@/composables/useCrudTable'
+import { useCrudTable, clampPageToRowCount } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import MySessionPanel from './MySessionPanel.vue'
 import useUserStore from '@/store/modules/user'
@@ -260,6 +260,13 @@ const {
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
+
+// 强退/批量强退/自动刷新都会让全量列表变短：把本地切片页码收敛到仍存在的最大页。
+// 本页分页由前端 slice 完成（useCrudTable 的 queryParams.pageNum 不参与），
+// 删掉末页最后一条后若只依赖 useCrudTable 的空页回退，页码越界会停在空页。
+watch([onlineList, pageSize], () => {
+  pageNum.value = clampPageToRowCount(pageNum.value, onlineList.value.length, pageSize.value)
+})
 
 /** 搜索按钮操作（前端分页：重置到第 1 页并重新拉取全量数据） */
 function handleQuery() {

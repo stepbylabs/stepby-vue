@@ -19,13 +19,7 @@
 
     <el-alert :title="t('profile.passkey.tip')" type="info" :closable="false" show-icon class="mb15" />
 
-    <el-alert
-      v-if="!supported"
-      :title="t('profile.passkey.unsupported')"
-      type="warning"
-      :closable="false"
-      show-icon
-    />
+    <el-alert v-if="!supported" :title="t('profile.passkey.unsupported')" type="warning" :closable="false" show-icon />
 
     <el-table v-else v-loading="loading" :data="credentials">
       <el-table-column prop="name" :label="t('profile.passkey.column.name')" show-overflow-tooltip />
@@ -48,14 +42,28 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('profile.passkey.empty')" />
+        <ListEmpty :load-error="loadError" @retry="load">
+          <el-empty :description="t('profile.passkey.empty')" />
+        </ListEmpty>
       </template>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="t('profile.passkey.dialogTitle')" width="min(90%, 420px)" append-to-body destroy-on-close :close-on-click-modal="false">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="t('profile.passkey.dialogTitle')"
+      width="min(90%, 420px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('profile.passkey.nameLabel')" prop="name">
-          <el-input v-model.trim="form.name" :maxlength="50" :placeholder="t('profile.passkey.namePlaceholder')" :aria-label="t('profile.passkey.namePlaceholder')" />
+          <el-input
+            v-model.trim="form.name"
+            :maxlength="50"
+            :placeholder="t('profile.passkey.namePlaceholder')"
+            :aria-label="t('profile.passkey.namePlaceholder')"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -79,6 +87,8 @@ const { t } = useI18n()
 const userStore = useUserStore()
 const supported = ref(isWebauthnSupported())
 const loading = ref(false)
+// b102：失败态与"尚未绑定任何通行密钥"必须可分
+const loadError = ref(false)
 const adding = ref(false)
 const credentials = ref<WebauthnCredentialVo[]>([])
 const deleting = ref(0)
@@ -90,16 +100,18 @@ const rules = computed<FormRules>(() => ({
   name: [{ required: true, trigger: 'blur', message: t('profile.passkey.nameRequired') }]
 }))
 
-function load(): void {
+async function load(): Promise<void> {
   loading.value = true
-  listCredentials()
-    .then((res) => {
-      credentials.value = res.data || []
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+  loadError.value = false
+  try {
+    const res = await listCredentials()
+    credentials.value = res.data || []
+  } catch {
+    // 拦截器已弹提示；页面侧必须把它渲染成失败态（可重试），不得与"尚未绑定"同形
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
 }
 
 function openDialog(): void {

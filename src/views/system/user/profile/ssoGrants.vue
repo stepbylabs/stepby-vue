@@ -34,7 +34,9 @@
         </div>
       </template>
 
-      <el-empty v-if="loading === false && grants.length === 0" :description="t('sso.grants.empty')" />
+      <ListEmpty v-if="loading === false && grants.length === 0" :load-error="loadError" @retry="load">
+        <el-empty :description="t('sso.grants.empty')" />
+      </ListEmpty>
     </div>
   </el-card>
 </template>
@@ -48,6 +50,8 @@ import type { SsoGrant } from '@/types'
 // client_name 为同意时快照；撤销 = 软删同意记录 + 服务端级联吊销该应用名下全部访问令牌。
 const { t } = useI18n()
 const loading = ref(true)
+// b102：失败态与"暂无授权"必须可分（原实现 catch 静默，失败渲染成"暂无"）
+const loadError = ref(false)
 const grants = ref<SsoGrant[]>([])
 const revoking = ref('')
 
@@ -56,16 +60,18 @@ function scopeText(scopes: string[]): string {
   return scopes.join(' · ')
 }
 
-function load(): void {
+async function load(): Promise<void> {
   loading.value = true
-  listSsoGrants()
-    .then((res) => {
-      grants.value = res.data || []
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+  loadError.value = false
+  try {
+    const res = await listSsoGrants()
+    grants.value = res.data || []
+  } catch {
+    // 错误提示由响应拦截器统一弹出；页面侧负责把失败渲染成失败态（含重试）
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
 }
 
 function handleRevoke(g: SsoGrant): void {

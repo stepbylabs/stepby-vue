@@ -109,6 +109,7 @@ import { makeWriteEndpointBreadthTest } from './modules/writeEndpointBreadth.mjs
 import { makePwdPolicyTest } from './modules/pwdPolicy.mjs'
 import { makeSecurityMessageBoxTest } from './modules/securityMessageBox.mjs'
 import { makeListLoadFailureTest } from './modules/listLoadFailure.mjs'
+import { makeWsSessionExpiryTest } from './modules/wsSessionExpiry.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -21822,6 +21823,19 @@ const testModule93 = makeListLoadFailureTest({
   clickButton
 })
 
+// 模块 94（b102）：WS 会话到期的浏览器结局（b101 N-101-3 的端到端判据）。
+// 服务端到期帧由 `routeWebSocket` 的服务端替身注入（协议事实，不是产品实现），
+// 前端连的仍是真实 wsService + 真实布局订阅 + 真实路由；四条判据都带反向对照。
+const testModule94 = makeWsSessionExpiryTest({
+  record,
+  log,
+  CONFIG,
+  checkConsoleErrors,
+  sleep,
+  getApiToken,
+  createPage
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -21917,7 +21931,8 @@ const testFns = {
   90: testModule90,
   91: testModule91,
   92: testModule92,
-  93: testModule93
+  93: testModule93,
+  94: testModule94
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

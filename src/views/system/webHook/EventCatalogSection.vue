@@ -38,13 +38,7 @@
           <pre class="result-pre">{{ scope.row.payloadExample || '-' }}</pre>
         </template>
       </el-table-column>
-      <el-table-column
-        :label="t('webHook.column.status')"
-        align="center"
-        width="120"
-        prop="enabled"
-        sortable="custom"
-      >
+      <el-table-column :label="t('webHook.column.status')" align="center" width="120" prop="enabled" sortable="custom">
         <template #default="scope">
           <!-- 停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断 -->
           <el-switch
@@ -59,7 +53,9 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <ListEmpty :load-error="eventCatalogLoadError" @retry="loadEventCatalog(true)">
+          <el-empty :description="t('common.empty')" />
+        </ListEmpty>
       </template>
     </el-table>
     <pagination
@@ -95,6 +91,9 @@ const options = defineModel<EventCatalogOption[]>('options', { required: true })
 
 // ==================== 事件目录（GET /system/webhook/event/list） ====================
 const eventCatalogLoading = ref(false)
+// b102：失败态与"事件目录为空"必须可分（原实现 catch 静默，且 loaded 不置位，
+// 表现为"目录一直空着、每次打开都静默重试一次"）
+const eventCatalogLoadError = ref(false)
 const eventCatalog = ref<WebhookEventVo[]>([])
 const eventCatalogTotal = ref(0)
 // 目录是否已加载过（多选下拉/测试发送复用，避免重复请求）
@@ -102,20 +101,22 @@ const eventCatalogLoaded = ref(false)
 const eventCatalogQuery = reactive<WebhookEventQueryParams>({ pageNum: 1, pageSize: 10 })
 
 /** 加载事件目录（force=true 时重新拉取，如目录对话框分页） */
-function loadEventCatalog(force = false): void {
+async function loadEventCatalog(force = false): Promise<void> {
   if (eventCatalogLoading.value) return
   if (eventCatalogLoaded.value && !force) return
   eventCatalogLoading.value = true
-  listWebhookEvents({ ...eventCatalogQuery })
-    .then((res) => {
-      eventCatalog.value = res.rows || []
-      eventCatalogTotal.value = res.total || 0
-      eventCatalogLoaded.value = true
-    })
-    .catch(() => {})
-    .finally(() => {
-      eventCatalogLoading.value = false
-    })
+  eventCatalogLoadError.value = false
+  try {
+    const res = await listWebhookEvents({ ...eventCatalogQuery })
+    eventCatalog.value = res.rows || []
+    eventCatalogTotal.value = res.total || 0
+    eventCatalogLoaded.value = true
+  } catch {
+    // 失败不置 loaded：下次打开/分页会重试；页面本次渲染失败态 + 手动重试
+    eventCatalogLoadError.value = true
+  } finally {
+    eventCatalogLoading.value = false
+  }
 }
 
 /** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
@@ -171,10 +172,7 @@ loadEventOptionsFull()
 // 语义：停用 = 目录下架展示并拒绝新订阅与测试发送；存量 hook 投递不中断
 const eventEnabledLoadingId = ref<number | string | null>(null)
 
-async function handleEventEnabledChange(
-  row: WebhookEventVo,
-  val: string | number | boolean
-): Promise<void> {
+async function handleEventEnabledChange(row: WebhookEventVo, val: string | number | boolean): Promise<void> {
   const target = val === true || val === '1' ? '1' : '0'
   const prev = row.enabled
   eventEnabledLoadingId.value = row.id

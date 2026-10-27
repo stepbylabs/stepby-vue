@@ -61,6 +61,8 @@
             link
             type="primary"
             icon="Promotion"
+            :loading="runningIds.includes(scope.row.subId)"
+            :disabled="runningIds.includes(scope.row.subId)"
             @click="handleSubRun(scope.row)"
             v-hasPermi="['system:report:sub:run']"
           >
@@ -102,11 +104,21 @@
   <el-dialog :title="subTitle" v-model="subFormOpen" width="min(90%, 620px)" append-to-body destroy-on-close>
     <el-form ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
       <el-form-item :label="t('report.sub.form.subName')" prop="subName">
-        <el-input v-model.trim="subForm.subName" :placeholder="t('report.sub.form.phSubName')" :maxlength="64" :aria-label="t('report.sub.form.phSubName')" />
+        <el-input
+          v-model.trim="subForm.subName"
+          :placeholder="t('report.sub.form.phSubName')"
+          :maxlength="64"
+          :aria-label="t('report.sub.form.phSubName')"
+        />
       </el-form-item>
       <el-form-item :label="t('report.sub.form.cron')" prop="cron">
         <div class="w-full">
-          <el-input v-model.trim="subForm.cron" :placeholder="t('report.sub.form.phCron')" class="font-mono" :aria-label="t('report.sub.form.phCron')" />
+          <el-input
+            v-model.trim="subForm.cron"
+            :placeholder="t('report.sub.form.phCron')"
+            class="font-mono"
+            :aria-label="t('report.sub.form.phCron')"
+          />
           <div class="mt-1 text-xs text-text-secondary">{{ t('report.sub.form.cronTip') }}</div>
         </div>
       </el-form-item>
@@ -116,16 +128,14 @@
           <el-checkbox value="site">{{ t('report.sub.channel.site') }}</el-checkbox>
         </el-checkbox-group>
       </el-form-item>
-      <el-form-item
-        v-if="subChannels.includes('email')"
-        :label="t('report.sub.form.receiveEmail')"
-        prop="receiveEmail"
-      >
+      <el-form-item v-if="subChannels.includes('email')" :label="t('report.sub.form.receiveEmail')" prop="receiveEmail">
         <el-input
           v-model="subForm.receiveEmail"
           type="textarea"
           :rows="3"
-          :placeholder="t('report.sub.form.phReceiveEmail')" :aria-label="t('report.sub.form.phReceiveEmail')" />
+          :placeholder="t('report.sub.form.phReceiveEmail')"
+          :aria-label="t('report.sub.form.phReceiveEmail')"
+        />
       </el-form-item>
       <el-form-item
         v-if="subChannels.includes('site')"
@@ -136,7 +146,9 @@
           v-model="subForm.receiveUserIds"
           type="textarea"
           :rows="3"
-          :placeholder="t('report.sub.form.phReceiveUserIds')" :aria-label="t('report.sub.form.phReceiveUserIds')" />
+          :placeholder="t('report.sub.form.phReceiveUserIds')"
+          :aria-label="t('report.sub.form.phReceiveUserIds')"
+        />
       </el-form-item>
       <el-form-item :label="t('report.sub.form.status')">
         <el-switch
@@ -165,6 +177,7 @@
 <script setup lang="ts" name="SubReportSection">
 import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub } from '@/api/system/report'
 import type { SysReport, SysReportSub } from '@/types/api/system/report'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import type { FormRules } from 'element-plus'
 
@@ -177,6 +190,10 @@ const { t } = useI18n()
 
 const subLoading = ref(false)
 const subList = ref<SysReportSub[]>([])
+/** 立即推送的互斥与 loading（连点不得重复投递，见 useRowActionGuard） */
+const { runningIds, guarded } = useRowActionGuard<number>((id, e) => {
+  if (import.meta.env.DEV) console.error('[report] run sub failed:', id, e)
+})
 const subFormOpen = ref(false)
 const subSubmitLoading = ref(false)
 const subTitle = ref('')
@@ -294,15 +311,16 @@ function handleSubStatusChange(row: SysReportSub) {
     })
 }
 
-function handleSubRun(row: SysReportSub) {
-  modal
-    .confirm(t('report.sub.tip.confirmRun', { name: row.subName }))
-    .then(() => runSub(row.subId!))
-    .then(() => {
+async function handleSubRun(row: SysReportSub) {
+  await guarded(
+    row.subId!,
+    () => modal.confirm(t('report.sub.tip.confirmRun', { name: row.subName })),
+    async () => {
+      await runSub(row.subId!)
       modal.msgSuccess(t('report.sub.tip.runSuccess'))
       getSubList()
-    })
-    .catch(() => {})
+    }
+  )
 }
 </script>
 

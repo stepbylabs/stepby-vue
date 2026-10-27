@@ -118,6 +118,8 @@
             link
             type="primary"
             icon="Promotion"
+            :loading="runningIds.includes(scope.row.subId)"
+            :disabled="runningIds.includes(scope.row.subId)"
             @click="handleRun(scope.row)"
             v-hasPermi="['system:report:sub:run']"
           >
@@ -248,6 +250,7 @@ import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub, li
 import type { SysReportSub, SysReport } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -368,12 +371,19 @@ function handleStatusChange(row: SysReportSub) {
 }
 
 // 立即推送
-function handleRun(row: SysReportSub) {
-  modal
-    .confirm(t('report.sub.tip.confirmRun', { name: row.subName }))
-    .then(() => runSub(row.subId!))
-    .then(() => modal.msgSuccess(t('report.sub.tip.runSuccess')))
-    .catch(() => {})
+/** 立即推送的互斥与 loading（连点不得重复投递，见 useRowActionGuard） */
+const { runningIds, guarded } = useRowActionGuard<number>((id, e) => {
+  if (import.meta.env.DEV) console.error('[report] run sub failed:', id, e)
+})
+async function handleRun(row: SysReportSub) {
+  await guarded(
+    row.subId!,
+    () => modal.confirm(t('report.sub.tip.confirmRun', { name: row.subName })),
+    async () => {
+      await runSub(row.subId!)
+      modal.msgSuccess(t('report.sub.tip.runSuccess'))
+    }
+  )
 }
 
 loadReportOptions()

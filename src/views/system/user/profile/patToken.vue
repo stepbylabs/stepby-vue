@@ -79,7 +79,9 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <ListEmpty :load-error="loadError" @retry="getList">
+          <el-empty :description="t('common.empty')" />
+        </ListEmpty>
       </template>
     </el-table>
 
@@ -92,13 +94,32 @@
     />
 
     <!-- 新建令牌对话框 -->
-    <el-dialog v-model="createVisible" :title="t('pat.create.title')" width="min(90%, 560px)" append-to-body destroy-on-close :close-on-click-modal="false">
+    <el-dialog
+      v-model="createVisible"
+      :title="t('pat.create.title')"
+      width="min(90%, 560px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('pat.form.name')" prop="name">
-          <el-input v-model="form.name" :placeholder="t('pat.form.namePh')" :maxlength="100" :aria-label="t('pat.form.namePh')" />
+          <el-input
+            v-model="form.name"
+            :placeholder="t('pat.form.namePh')"
+            :maxlength="100"
+            :aria-label="t('pat.form.namePh')"
+          />
         </el-form-item>
         <el-form-item :label="t('pat.form.scopes')" prop="scopes">
-          <el-select :aria-label="t('pat.form.scopes')" v-model="form.scopes" multiple filterable :placeholder="t('pat.form.scopesPh')" class="w-full">
+          <el-select
+            :aria-label="t('pat.form.scopes')"
+            v-model="form.scopes"
+            multiple
+            filterable
+            :placeholder="t('pat.form.scopesPh')"
+            class="w-full"
+          >
             <el-option v-for="opt in scopeOptions" :key="opt" :label="scopeLabel(opt)" :value="opt" />
           </el-select>
         </el-form-item>
@@ -166,6 +187,8 @@ import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type Expi
 const { t } = useI18n()
 
 const loading = ref(false)
+// b102：失败态与"尚未创建令牌"必须可分
+const loadError = ref(false)
 const tokenList = ref<SysPat[]>([])
 const total = ref(0)
 const queryParams = reactive({ pageNum: 1, pageSize: 10 })
@@ -192,17 +215,19 @@ const plainToken = ref('')
 const plainAccessKey = ref('')
 const plainSecretKey = ref('')
 
-function getList(): void {
+async function getList(): Promise<void> {
   loading.value = true
-  listMyTokens(queryParams)
-    .then((res) => {
-      tokenList.value = res.rows || []
-      total.value = res.total || 0
-    })
-    .catch(() => {})
-    .finally(() => {
-      loading.value = false
-    })
+  loadError.value = false
+  try {
+    const res = await listMyTokens(queryParams)
+    tokenList.value = res.rows || []
+    total.value = res.total || 0
+  } catch {
+    // 拦截器已弹提示；失败必须在列表区可见（否则"没有令牌"与"取不到"同形）
+    loadError.value = true
+  } finally {
+    loading.value = false
+  }
 }
 
 function loadScopes(): void {

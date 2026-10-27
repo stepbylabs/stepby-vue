@@ -288,6 +288,7 @@
     <ExportDialog
       v-model="exportDialogVisible"
       :columns="exportColumns"
+      :loading="exportLoading"
       :title="t('operlog.btn.exportFieldSelect')"
       @export="handleExportWithFields"
     />
@@ -692,6 +693,8 @@ function handleClean() {
 
 /** 导出按钮操作：弹字段选择对话框 */
 const exportDialogVisible = ref(false)
+/** 导出下载进行中：对话框按钮的 loading 由这里持有，失败必须复位（否则永久转圈、无法重试） */
+const exportLoading = ref(false)
 const exportColumns: ExportField[] = [
   // T-09：field 使用与后端 JSON 序列化名一致的稳定 key（serde camelCase），
   // 后端按 key 匹配列并依据请求 Accept-Language 输出双语表头
@@ -714,17 +717,23 @@ function handleExport() {
 
 /** 实际下载逻辑 */
 function handleExportWithFields(fields: string[] | null) {
+  if (exportLoading.value) return
   const params: Record<string, unknown> = { ...addDateRange(queryParams.value, dateRange.value) }
   if (fields && fields.length > 0) {
     params.fields = fields.join(',')
   }
-  // download() 返回 Promise，成功后关闭对话框；失败时保留对话框以便用户重试（R12 修复）
+  exportLoading.value = true
+  // download() 返回 Promise，成功后关闭对话框；失败时保留对话框以便用户重试（R12 修复），
+  // 但 loading 必须在 finally 复位——否则"保留对话框"只是一个不能再点的空壳
   download('/monitor/operlog/export', params, `operlog_${new Date().getTime()}.xlsx`)
     .then(() => {
       exportDialogVisible.value = false
     })
     .catch(() => {
       // 导出失败时不关闭对话框，保留用户选择的导出字段
+    })
+    .finally(() => {
+      exportLoading.value = false
     })
 }
 
