@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { FILE_DOWNLOAD_TIMEOUT } from '@/utils/request'
 import type { OperlogQueryParams, SysOperLog, AjaxResult, TableDataInfo } from '@/types'
 
 // 查询操作日志列表
@@ -88,10 +88,12 @@ export function listArchiveAnchors(params: {
 }
 
 // 下载归档对象 JSONL（平台专属，octet-stream → Blob）
+// b99：归档 JSONL 随日志量增长，传输时长不受服务端处理时长约束 ⇒ 走下载族长上限
 export function downloadArchiveFile(anchorId: number): Promise<Blob> {
   return request({
     url: `/monitor/operlog/archive/${anchorId}`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: FILE_DOWNLOAD_TIMEOUT
   })
 }

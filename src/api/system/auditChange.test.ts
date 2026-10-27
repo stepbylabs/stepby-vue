@@ -13,7 +13,7 @@ const { requestMock, saveAsMock, warningMock } = vi.hoisted(() => ({
   warningMock: vi.fn()
 }))
 
-vi.mock('@/utils/request', () => ({ default: requestMock }))
+vi.mock('@/utils/request', () => ({ default: requestMock, FILE_DOWNLOAD_TIMEOUT: 600_000 }))
 vi.mock('file-saver', () => ({ saveAs: saveAsMock }))
 vi.mock('element-plus', () => ({ ElMessage: { warning: warningMock } }))
 vi.mock('@/i18n', () => ({ default: { global: { t: (k: string) => k } } }))

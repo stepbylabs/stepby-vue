@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { FILE_DOWNLOAD_TIMEOUT } from '@/utils/request'
 import { saveAs } from 'file-saver'
 import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
@@ -29,7 +29,9 @@ export function exportAuditChange(query: AuditChangeQueryParams): Promise<Blob> 
     url: '/system/audit-change/export',
     method: 'get',
     params: query,
-    responseType: 'blob'
+    responseType: 'blob',
+    // b99：审计导出可达 EXPORT_MAX_ROWS 上限，生成 + 传输超过全局 30s ⇒ 下载族长上限
+    timeout: FILE_DOWNLOAD_TIMEOUT
   }).then((blob: unknown) => {
     const data = blob instanceof Blob ? blob : new Blob([blob as BlobPart])
     saveAs(data, `audit_change_${new Date().getTime()}.csv`)

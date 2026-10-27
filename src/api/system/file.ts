@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { FILE_DOWNLOAD_TIMEOUT } from '@/utils/request'
 import type { AjaxResult, TableDataInfo } from '@/types'
 
 /** 文件信息 */
@@ -69,10 +69,12 @@ export function deleteFile(fileName: string): Promise<AjaxResult> {
 // 下载/预览文件内容（blob，经 /common/download 存储后端统一代理）
 // 与 download.name 同鉴权链（带 Authorization 的同源代理请求），不引入 token 查询参数；
 // s3 后端下对象 URL 为跨域绝对地址，直连会被同源守卫拦截，故必须走代理端点。
+// b99：文件大小不受控（上传上限内的任意文件），走下载族长上限而不是全局 30s。
 export function downloadFileBlob(fileName: string): Promise<Blob> {
   return request({
     url: `/common/download?fileName=${encodeURIComponent(fileName)}&delete=false`,
     method: 'get',
-    responseType: 'blob'
+    responseType: 'blob',
+    timeout: FILE_DOWNLOAD_TIMEOUT
   }) as unknown as Promise<Blob>
 }

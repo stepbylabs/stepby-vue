@@ -1203,7 +1203,9 @@ export default {
       selfExportSuccess: '导出成功',
       confirmDelete: '确认删除选中的 {count} 条备份记录及文件？',
       confirmCreate: '确认立即创建一个数据库备份？该操作可能耗时数秒至数分钟。',
-      confirmRestore: '确认从备份 "{name}" 恢复数据库？此操作将覆盖当前数据库所有数据，不可撤销！'
+      confirmRestore: '确认从备份 "{name}" 恢复数据库？此操作将覆盖当前数据库所有数据，不可撤销！',
+      restoring: '正在恢复数据库，请勿关闭或刷新页面…',
+      restoreRelogin: '数据库已恢复，正在退出登录以便重新加载权限…'
     }
   },
   userView: {

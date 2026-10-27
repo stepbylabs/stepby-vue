@@ -25,6 +25,23 @@ export const RETRY_AFTER_HEADER = 'retry-after'
 const RETRY_AFTER_MAX_SECONDS = 86400
 
 /**
+ * 服务端同步长任务（备份创建 / 恢复 / 租户包导出）的前端等待上限。
+ *
+ * 后端子进程硬超时是 300s（`sys_backup_service.rs::BACKUP_TIMEOUT_SECS`），
+ * 全局 axios timeout 只有 30s ⇒ 大库上任务**还在正常跑**，前端已经 abort，
+ * 用户重试一次就撞上「恢复进行中」互斥锁（b99 实测：备份 43MB+ 时必然超时）。
+ * 取 300s + 30s 余量，两端错开但同源；调用点一律引用此常量而非各写数字。
+ */
+export const LONG_TASK_TIMEOUT = 330_000
+
+/**
+ * 文件下载（blob 传输）的等待上限：耗时不取决于服务端处理时长，而取决于文件大小与链路。
+ * 仍需**有限**上限——`timeout: 0` 会让连接挂死时全屏 loading 永不关闭（用户只能刷新页面），
+ * 10 分钟足够传完数百 MB，也足以让挂死的连接最终落到可重试的错误提示。
+ */
+export const FILE_DOWNLOAD_TIMEOUT = 600_000
+
+/**
  * 解析 `Retry-After`：接受 delta-seconds 与 HTTP-date 两种合法形态，返回**剩余秒数**。
  *
  * 返回 `undefined` 的四种情形都不该让界面拿到 `NaN`/`0` 去显示"0 秒后再试"：
@@ -506,6 +523,9 @@ export function download(url: string, params: Record<string, unknown>, filename:
       ],
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       responseType: 'blob',
+      // b99：导出 / 模板下载同属"生成需要时间 + 传输需要时间"，全局 30s 会在
+      // 大导出上 abort（服务端 export 闸只有并发上限、没有 30s 上限）。
+      timeout: FILE_DOWNLOAD_TIMEOUT,
       ...config
     }) as Promise<Blob>
   )

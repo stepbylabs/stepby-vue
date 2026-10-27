@@ -53,6 +53,7 @@
           plain
           icon="Plus"
           :loading="creating"
+          :disabled="restoring"
           @click="handleCreate"
           v-hasPermi="['system:backup:add']"
         >
@@ -64,7 +65,7 @@
           type="danger"
           plain
           icon="Delete"
-          :disabled="multiple"
+          :disabled="multiple || restoring"
           @click="handleDelete"
           v-hasPermi="['system:backup:remove']"
         >
@@ -78,6 +79,7 @@
             plain
             icon="Upload"
             :loading="selfExporting"
+            :disabled="restoring"
             @click="handleSelfExport"
             v-hasPermi="['system:backup:export']"
           >
@@ -92,7 +94,8 @@
       <SkeletonTable v-if="loading" :columns="9" :rows="8" />
       <el-table
         v-else
-        v-loading="loading"
+        v-loading="loading || restoring"
+        :element-loading-text="t('backup.tip.restoring')"
         :data="dataList"
         :row-key="(row: SysBackupLog) => row.backupId"
         @selection-change="handleSelectionChange"
@@ -143,7 +146,7 @@
               type="primary"
               icon="Download"
               :loading="downloadingIds.includes(scope.row.backupId)"
-              :disabled="scope.row.status !== 'success'"
+              :disabled="scope.row.status !== 'success' || restoring"
               @click="handleDownload(scope.row)"
               v-hasPermi="['system:backup:download']"
             >
@@ -153,7 +156,12 @@
               link
               type="warning"
               icon="RefreshRight"
-              :disabled="scope.row.status !== 'success' || scope.row.backupType === 'tenant_export'"
+              :loading="restoringId === scope.row.backupId"
+              :disabled="
+                scope.row.status !== 'success' ||
+                scope.row.backupType === 'tenant_export' ||
+                (restoring && restoringId !== scope.row.backupId)
+              "
               @click="handleRestore(scope.row)"
               v-hasPermi="['system:backup:edit']"
             >
@@ -163,6 +171,7 @@
               link
               type="danger"
               icon="Delete"
+              :disabled="restoring"
               @click="handleDelete(scope.row)"
               v-hasPermi="['system:backup:remove']"
             >
@@ -202,14 +211,23 @@ import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { ElLoading } from 'element-plus'
+import useUserStore from '@/store/modules/user'
+import { goLogin } from '@/utils/navigation'
 import type { Ref } from 'vue'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
+const userStore = useUserStore()
 
 const creating = ref(false)
 const selfExporting = ref(false)
 const downloadingIds = ref<number[]>([])
+// 恢复是分钟级同步操作（后端硬超时 300s）：用单值而不是布尔，既能给被恢复那一行
+// 挂 loading，又能据此禁用全部写操作——恢复期间删掉正在被读的备份文件，
+// 或并发再点一次恢复（服务端会回「恢复进行中」），都是纯自伤。
+const restoringId = ref<number | null>(null)
+const restoring = computed(() => restoringId.value !== null)
 const dateRange = ref<string[]>([])
 
 const queryParams = ref<BackupLogQueryParams>({
@@ -300,19 +318,43 @@ function handleSelfExport() {
     })
 }
 
+/**
+ * 恢复备份。
+ *
+ * 成功之后**必须让当前会话下线**，理由与「改密后强制重登录」是同一条、但更强：
+ * 恢复替换的是整库——当前账号、角色、权限、菜单都可能来自那份旧快照，而后端已清掉
+ * `perm:user:*` 与业务缓存。前端 store 里仍是恢复前的 roles/permissions/动态路由，
+ * 若只弹一句"恢复成功"，用户会带着**已经不存在的权限**继续操作一个刚被替换的库
+ * （点下去才 403/404，或者看到已删除的菜单）。全屏 loading 文案即提示，不需要 sleep。
+ */
 function handleRestore(row: SysBackupLog) {
+  if (restoring.value) return
   modal
     .confirm(t('backup.tip.confirmRestore', { name: row.fileName }))
     .then(() => {
+      restoringId.value = row.backupId
       return restoreBackup(row.backupId)
     })
     .then(() => {
       modal.msgSuccess(t('backup.tip.restoreSuccess'))
+      const loading = ElLoading.service({
+        lock: true,
+        text: t('backup.tip.restoreRelogin'),
+        background: 'rgba(0, 0, 0, 0.7)'
+      })
+      // logOut 内部已吞掉登出请求错误并在 finally 清本地态，不会 reject
+      userStore.logOut().finally(() => {
+        loading.close()
+        goLogin()
+      })
     })
     .catch((err: unknown) => {
       if (err !== 'cancel' && err !== 'close') {
         if (import.meta.env.DEV) console.error('Restore failed:', err)
       }
+    })
+    .finally(() => {
+      restoringId.value = null
     })
 }
 

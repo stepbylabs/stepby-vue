@@ -1232,7 +1232,9 @@ export default {
       confirmCreate:
         'Are you sure to create a database backup now? This operation may take a few seconds to several minutes.',
       confirmRestore:
-        'Are you sure to restore the database from backup "{name}"? This will overwrite all current database data and cannot be undone!'
+        'Are you sure to restore the database from backup "{name}"? This will overwrite all current database data and cannot be undone!',
+      restoring: 'Restoring the database, please do not close or refresh the page…',
+      restoreRelogin: 'Database restored. Signing out to reload your permissions…'
     }
   },
   userView: {
