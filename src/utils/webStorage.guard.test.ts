@@ -257,10 +257,25 @@ describe('存储单点守卫：裸 localStorage/sessionStorage 只允许出现�
     expect(scanRawStorage('synthetic/counter.ts', 'localStorage.getItem(LOCK_KEY)\n').length).toBe(1)
   })
 
+  // 共用掩码器的真实缺陷形状：`return /[",\r\n]/` 曾被当成除法，正则里的引号
+  // 开启一段永不闭合的字符串 ⇒ 文件余下部分（含追加在末尾的合成违规）整片被掩掉。
+  // 这条直接喂纯判据，不依赖任何真实文件当前是否恰好含这个形状。
+  it('扫描器：关键字后的正则字面量不得吞掉文件余下部分', () => {
+    const src =
+      'function f(v: string) { return /[",\\r\\n]/.test(v) ? 1 : 2 }\n' + "const probe = localStorage.getItem('x')\n"
+    const hits = scanRawStorage('synthetic/keywordRegex.ts', src)
+    expect(hits).toHaveLength(1)
+    expect(hits[0].line).toBe(2)
+    // 反证：属性名不是关键字，不得因此把 `foo.return / 2` 后面的引号当正则吃掉
+    const notRegex = 'const r = foo.return / 2\nconst s = localStorage.getItem("y")\n'
+    expect(scanRawStorage('synthetic/propertyDivision.ts', notRegex)).toHaveLength(1)
+  })
+
   it('刀口活性：每个能承载违规的被扫文件插入一条合成违规，命中数必须 +1', () => {
     const planted = "localStorage.getItem('__web_storage_guard_probe__')"
     let caught = 0
     const noScriptRegion: string[] = []
+    const missed: string[] = []
     for (const rel of FACE) {
       const src = readFileSync(resolve(SRC_DIR, rel), 'utf8')
       const base = scanRawStorage(rel, src).length
@@ -274,7 +289,11 @@ describe('存储单点守卫：裸 localStorage/sessionStorage 只允许出现�
       expect(maskedView(rel, mutated).length, `掩码改变了 ${rel} 的长度 ⇒ 本用例报出的行号不再可信`).toBe(
         mutated.length
       )
-      if (scanRawStorage(rel, mutated).length === base + 1) caught++
+      if (scanRawStorage(rel, mutated).length === base + 1) {
+        caught++
+      } else {
+        missed.push(rel)
+      }
     }
     // 没有 `<script>` 的 SFC（实测只有 `components/ParentView/index.vue` 这种纯 `<router-view/>`
     // 壳）结构上承载不了存储调用——模板作用域里没有这个全局。放行它们，但**逐条核对成因**：
@@ -286,7 +305,9 @@ describe('存储单点守卫：裸 localStorage/sessionStorage 只允许出现�
         `${rel} 有 <script> 却没插进探针 ⇒ 活性自证的刀口坏了`
       ).toBe(false)
     }
-    expect(caught, '每条合成违规都必须让命中数 +1').toBe(FACE.length - noScriptRegion.length)
+    expect(caught, `每条合成违规都必须让命中数 +1；未被抓住的文件：${missed.join(', ') || '(无)'}`).toBe(
+      FACE.length - noScriptRegion.length
+    )
     console.warn(
       `[webStorage] 活性自证覆盖 ${caught}/${FACE.length} 个文件（另 ${noScriptRegion.length} 个无 <script> 区间，逐条核对过成因）`
     )

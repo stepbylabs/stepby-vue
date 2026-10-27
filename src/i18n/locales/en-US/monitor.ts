@@ -406,6 +406,7 @@ export default {
       autoRefresh: 'Auto Refresh (10s)',
       lastUpdate: 'Last Update:'
     },
+    loadFailed: 'Some monitoring data failed to load; the page is not showing the latest values',
     loading: 'Loading',
     uptime: 'Uptime:',
     database: 'Database',

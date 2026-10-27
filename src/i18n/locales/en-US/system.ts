@@ -178,6 +178,7 @@ export default {
   },
   dataRule: {
     title: 'Data Permission Rules',
+    loadFailed: 'Failed to load rules; an empty table does not mean there are no rules',
     name: 'Rule Name',
     table: 'Target Table',
     field: 'Target Column',
@@ -1928,7 +1929,9 @@ export default {
       failed: 'Failed',
       empty: 'No query history yet',
       replay: 'Replay',
-      replayFailed: 'Replay failed'
+      replayFailed: 'Replay failed',
+      remove: 'Delete',
+      confirmRemove: 'Delete this query history entry? This cannot be undone.'
     },
     title: 'AI Data Assistant (natural language queries)',
     toggleTables: 'Queryable scope',

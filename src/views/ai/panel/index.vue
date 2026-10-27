@@ -175,6 +175,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { aiChat, aiTables } from '@/api/ai/chat'
 import request from '@/utils/request'
+import { csvEscape } from '@/utils/csv'
+import { confirmAction } from '@/utils/confirm'
 
 interface ChatResult {
   answer: string
@@ -241,6 +243,8 @@ async function loadHistory() {
 }
 
 async function removeHistory(id: number) {
+  // 历史行是用户可见数据的物理删除：先确认，取消不是错误（confirmAction 折叠成 false）
+  if (!(await confirmAction(t('aiPanel.history.confirmRemove')))) return
   try {
     await request({ url: `/system/ai/history/${id}`, method: 'delete' })
     historyRows.value = historyRows.value.filter((r: HistoryItem) => r.id !== id)
@@ -322,16 +326,12 @@ async function ask() {
   }
 }
 
-/** 前端导出 CSV（结果已在内存，无需再走后端） */
+/** 前端导出 CSV（结果已在内存，无需再走后端；转义走 utils/csv 的公式注入防护） */
 function exportCsv() {
   if (!result.value || result.value.columns.length === 0) return
-  const esc = (v: unknown) => {
-    const s = v === null || v === undefined ? '' : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  const lines = [result.value.columns.map(esc).join(',')]
+  const lines = [result.value.columns.map(csvEscape).join(',')]
   for (const row of result.value.rows) {
-    lines.push(result.value.columns.map((c: string) => esc((row as Record<string, unknown>)?.[c])).join(','))
+    lines.push(result.value.columns.map((c: string) => csvEscape((row as Record<string, unknown>)?.[c])).join(','))
   }
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)

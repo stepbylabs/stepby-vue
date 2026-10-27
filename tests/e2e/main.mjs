@@ -6954,12 +6954,20 @@ async function testFeature33(page) {
       // 收尾十修正：expectContains 必须检查全文——嵌 layout 的页面 body 前 300 字被
       // 侧边栏菜单文本占据，主区内容（错误页标题等）在窗口外被截掉（/401 实证）
       const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '')
-      const ok =
-        status === 200 &&
-        bodyText.length > 0 &&
-        expectNotContains.every((kw) => !bodyText.includes(kw)) &&
-        expectContains.every((kw) => bodyText.includes(kw))
-      const detail = `HTTP ${status}, title=${title.slice(0, 40)}, body前80字=${bodyText.slice(0, 80)}`
+      const hitForbidden = expectNotContains.filter((kw) => bodyText.includes(kw))
+      const missing = expectContains.filter((kw) => !bodyText.includes(kw))
+      const ok = status === 200 && bodyText.length > 0 && hitForbidden.length === 0 && missing.length === 0
+      // 失败必须点名"红在哪一条"：b98 全量轮 F33 的 /dashboard 只报了正文前 80 字，
+      // 而命中的禁止词在正文深处，复盘时无法判断是错误页还是数据巧合（AGENTS ⑩
+      // "崩掉同样非零，但『红在哪条』丢了"）。命中词连上下文一起打出来。
+      const why = [
+        ...hitForbidden.map((kw) => {
+          const i = bodyText.indexOf(kw)
+          return `命中禁止词「${kw}」@${i}…${bodyText.slice(i, i + 40).replace(/\s+/g, ' ')}`
+        }),
+        ...missing.map((kw) => `缺少「${kw}」`)
+      ].join('；')
+      const detail = `HTTP ${status}, title=${title.slice(0, 40)}, body前80字=${bodyText.slice(0, 80)}${why ? `（${why}）` : ''}`
       return { ok, detail }
     } catch (err) {
       return { ok: false, detail: `异常: ${err.message.slice(0, 80)}` }
@@ -7132,11 +7140,16 @@ async function testFeature33(page) {
   // ---------- 8. /dashboard 数据看板页（需登录后访问） ----------
   // 注意：菜单重组后 getRouters 实际路径——/dashboard=数据看板（含快捷入口，组件 dashboard/index），
   //       /workbench/index=工作台首页。手写旧路径 /dashboard/index、/dashboard/workbench 均命中 404。
-  const rDashboard = await visitPageRendered(`${CONFIG.frontendUrl}/dashboard`, ['401', '未授权', 'Vue warn'])
+  // 判据用**正地标**（看板独有的"统计概览"卡片组标题）而非裸数字黑名单：b98 全量轮
+  // 这里报过一次假失败——正文里出现 `401`（统计/耗时一类合法数值或瞬时提示）就判"401
+  // 错误页"，而同一功能隔离复跑 17/17 全绿。错误页（/401 组件）没有"统计概览"地标，
+  // 正地标既更能证明"渲染的是看板"，也不会被页面数据里的数字误伤。
+  const rDashboard = await visitPageRendered(`${CONFIG.frontendUrl}/dashboard`, ['Vue warn'], ['统计概览'])
   record(33, '/dashboard 数据看板页渲染（登录后）', rDashboard.ok, rDashboard.detail)
 
   // ---------- 9. /user/profile 个人中心页（需登录后访问） ----------
-  const rProfile = await visitPageRendered(`${CONFIG.frontendUrl}/user/profile`, ['401', '未授权', 'Vue warn'])
+  // 同口径：正地标取个人中心表单标题"基本资料"（错误页不含它）。
+  const rProfile = await visitPageRendered(`${CONFIG.frontendUrl}/user/profile`, ['Vue warn'], ['基本资料'])
   record(33, '/user/profile 个人中心页渲染（登录后）', rProfile.ok, rProfile.detail)
 
   // ---------- 10. 综合验证 ----------

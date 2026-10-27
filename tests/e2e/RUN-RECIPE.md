@@ -4310,3 +4310,91 @@ cd stepby-axum && cargo test -j 4 --lib production_code_never_parses_operator_su
 cargo test -j 4 --lib fail_counter_parse_is_fail_closed_on_garbage
 cargo test -j 4 --lib admin_history_maps_tenant_and_user_from_snake_case_columns
 ```
+
+### 3.111 导出族的三个"看起来成功"面与 NL2SQL 守卫的六条绕过（b98）
+
+导出链路有三处缺陷的共同形状：**HTTP 200 / 文件落盘 / 请求成功都不等于用户拿到了正确且完整的数据**。
+
+#### ① CSV 公式注入（OWASP）
+
+- 后端 `audit::handler::csv_escape`：先按 `=` `+` `-` `@` `\t` `\r` 前缀中和（加单引号），
+  **再**按 RFC 4180 加引号。顺序不可换（先引号会产出 `"'=…"` 这种各表格软件解释不一致的形态）。
+- 纯十进制数值豁免：`-42` / `+3.5` / `-1e3` 本身不会被求值，加前缀反而把数值列变成文本；
+  `+inf` / `-NaN` 这类 `f64` 能解析但非十进制的形态**不**豁免。
+- 前端同口径实现 `src/utils/csv.ts::csvEscape`（AI 面板导出走它）；两份实现必须同时改，
+  否则"后端导出安全、前端导出危险"只在用户换入口时可见。
+- 判据：后端 `cargo test -j 4 --lib audit::handler::tests::csv_escape`；前端
+  `npx vitest run src/utils/csv.test.ts`。盘上变异：把 `neutralize_formula` 改成恒等返回
+  ⇒ 六类前缀用例同时红。
+
+#### ② 截断可见性
+
+- 审计 CSV 与 xlsx 族同口径：行数 `>= EXPORT_MAX_ROWS` ⇒ `X-Export-Truncated: true`；
+  拦截器把它挂到 Blob 的 `_truncated` 上，`exportAuditChange` 消费并弹
+  `common.exportTruncated`。只加响应头而前端不读 = 审计员拿到一份"看起来完整"的半份数据。
+- 判据：`cargo test -j 4 --lib audit::handler::tests::export_truncation_flag_is_exact_at_the_limit`
+  - `npx vitest run src/api/system/auditChange.test.ts`（含"无标记不得打扰"对照组）。
+
+#### ③ 导出失败时的错误体是 Blob
+
+导出族全部 `responseType: 'blob'`，HTTP≥400 的 JSON 错误体也被 axios 包成 Blob ⇒
+改造前错误拦截器读 `data.msg` 恒 `undefined`，资源闸的 429（点名 `export:excel` +
+`Retry-After`）在界面上只剩"请求过于频繁"。
+
+- 实现：`src/utils/request.ts::readBlobErrorBody`（JSON Blob / ArrayBuffer / 非 JSON /
+  空消息各自归一；取不到一律 `undefined`，不得回落成空串）。
+- 跨 realm 细节：jsdom 里 `new TextEncoder().encode('x').buffer instanceof ArrayBuffer`
+  实测为 **false** ⇒ 判定必须用 `Object.prototype.toString`，否则 ArrayBuffer 支路静默失效。
+- 判据：`npx vitest run src/utils/request.blobError.test.ts`（真实 service + 桩适配器；
+  HTML 错误页必须回落通用文案且不得为空）。
+- 盘上变异：删掉拦截器里 `backendMsg = blobBody.msg` 那一行 ⇒ 429 用例转红、对照组保持绿。
+
+#### ④ NL2SQL 守卫的六条真实绕过（b98 前）
+
+| 绕过形状                                              | 旧行为                        | 现判据                                                                |
+| ----------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------- |
+| `FROM sys_user, secret_table`                         | 只抽 `FROM` 后的第一个表      | 逗号连写/`JOIN` 链/引号标识符**逐表**过白名单                         |
+| `LIMIT 100000000`                                     | 只判"有没有 LIMIT"，不夹取    | 支持 `n` / `n OFFSET m` / `m, n` 三种形态，超限**改写**；其它形态拒绝 |
+| `UNION SELECT …`（第二支无租户谓词）                  | 文本含 `tenant_id = 5` 即放行 | 单 SELECT 强制；`UNION` / 子查询 / `OR` 一律拒绝                      |
+| `tenant_id = 50` 冒充 `= 5`                           | 子串匹配                      | 数字精确匹配                                                          |
+| `WHERE tenant_id = 5 IS NOT NULL` / `(tenant_id = 5)` | 谓词被二次运算后不再过滤      | 谓词必须是 `WHERE`/`AND`/`ON` 的直接连接项，后缀必须是子句边界        |
+| `JOIN` 只给主表过滤                                   | 从表可读其他租户              | 每个表引用都必须有 `<别名>.tenant_id = <tid>`                         |
+
+另：`pg_read_file` / `load_file` / `pg_sleep` / `randomblob` 等按函数调用形状拒绝；
+执行段复用 `[ai].timeout_secs` 作为预算（SQLite 没有数据库侧语句超时兜底）。
+
+```bash
+cd stepby-axum
+cargo test -j 4 --lib ai::sql_guard            # 17 条
+cargo test -j 4 --lib integration_tests::ai_config   # 非法表名 400 且无半应用配置
+```
+
+盘上变异（都必须先红再还原；Rust 侧还原后 `touch` 到当下，见 §3.99）：
+把 LIMIT 早返回改成恒 `return Ok(sql)` ⇒ `clamps_existing_limit_over_max_rows` 红；
+逗号分支改空操作 ⇒ `rejects_comma_joined_unlisted_table` 红；
+`parse::<i64>()` 改成前缀匹配 ⇒ `tenant_number_must_match_exactly` 红。
+
+#### ⑤ 静态守卫的掩码器：关键字后的正则字面量
+
+`return /[",\r\n]/` 原先被当成除法，正则里的引号开启一段永不闭合的字符串 ⇒
+文件余下部分（含追加在末尾的合成违规）整片被掩掉，活性自证会显示
+`expected 500 to be 501`。修法是在 `utils/e2eSuiteScanKit.ts` 识别
+`return/typeof/case/…` 之后的正则；判据见
+`npx vitest run src/utils/webStorage.guard.test.ts`（新增"关键字后正则不得吞掉余下文件"
+与"属性名不是关键字"的正反用例）。
+
+#### ⑥ 页面渲染判据用"正地标"，不用裸数字黑名单
+
+b98 全量单轮实测：F33 的 `/dashboard` 判据报 `body前80字=…` 而**命中的禁止词在正文深处**，
+同一功能隔离复跑 17/17 全绿。根因是判据写成"正文不得包含 `401`"——看板的统计卡片/耗时列
+本来就会渲染数字，任何合法数值或瞬时提示凑出 `401` 都会把"渲染成功"判成"401 错误页"
+（数据耦合，AGENTS ④）。改法两点：
+
+1. **正地标**：`/dashboard` 必须有 `统计概览`（看板独有卡片组标题）、`/user/profile` 必须有
+   `基本资料`；401/403/500 错误页不含这些地标 ⇒ 拦截能力不减，且不再被页面数据误伤。
+   `Vue warn` 仍保留在禁止词里（生产包里出现即真异常）。
+2. **失败点名**：`visitPageRendered` 失败时把命中的禁止词、正文偏移与 40 字上下文一并写进
+   detail；此前只报前 80 字，复盘时无法区分"错误页"与"数据巧合"（AGENTS ⑩ 的同族）。
+
+复核：`node tests/e2e/main.mjs --headless --feature=33`（17/17）。改动只动判据不动产品码，
+但主套件结论需在同一份 `main.mjs` 上重跑全量后才可引用。

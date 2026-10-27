@@ -47,6 +47,36 @@ export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now())
   return Math.min(secs, RETRY_AFTER_MAX_SECONDS)
 }
 
+/**
+ * 读取 `responseType: 'blob'` 请求的**错误体**。
+ *
+ * 导出族（xlsx / CSV / 备份）都走 blob，axios 对 HTTP≥400 的 JSON 错误体同样按 blob
+ * 返回 ⇒ 错误拦截器里 `response.data.msg` 恒 `undefined`，用户看到的是"请求过于频繁"
+ * 这类通用文案，而不是后端真正给的"导出任务繁忙（export:excel）"。
+ *
+ * 解析不出来（HTML 错误页 / 非 JSON / 空体）一律返回 `undefined`——"取不到"不得读成
+ * "有一个空消息"，否则通用文案会被一条空串顶掉。
+ */
+export async function readBlobErrorBody(data: unknown): Promise<{ code?: number; msg?: string } | undefined> {
+  const isBlob = typeof Blob !== 'undefined' && data instanceof Blob
+  // 跨 realm 的 ArrayBuffer（jsdom 里 TextEncoder 的产物）用 instanceof 判不出来：
+  // 实测 `new TextEncoder().encode('x').buffer instanceof ArrayBuffer === false`。
+  // 按内部标签判定，避免"只支持 arraybuffer"这条支路在多环境下静默失效。
+  const isArrayBuffer =
+    typeof data === 'object' && data !== null && Object.prototype.toString.call(data) === '[object ArrayBuffer]'
+  if (!isBlob && !isArrayBuffer) return undefined
+  try {
+    const text = isBlob ? await (data as Blob).text() : new TextDecoder().decode(data as ArrayBuffer)
+    const parsed = JSON.parse(text) as { code?: unknown; msg?: unknown }
+    const out: { code?: number; msg?: string } = {}
+    if (typeof parsed.code === 'number') out.code = parsed.code
+    if (typeof parsed.msg === 'string' && parsed.msg.trim() !== '') out.msg = parsed.msg
+    return out.code === undefined && out.msg === undefined ? undefined : out
+  } catch {
+    return undefined
+  }
+}
+
 // 是否显示重新登录
 export const isRelogin = { show: false }
 
@@ -330,18 +360,23 @@ service.interceptors.response.use(
       return Promise.resolve(res.data)
     }
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (import.meta.env.DEV) console.warn('[response error]', error)
-    // TierA-1: 错误响应也要完成进度条，避免进度条卡死
+    // TierA-1：错误响应也要完成进度条，避免进度条卡死
     doneProgress()
     // 处理 HTTP 状态码 401（与响应体 code=401 区分，P0-42）
     const httpStatus = error?.response?.status
     // 提取后端返回的具体错误信息（body.msg）
     const responseError = error as AxiosError<{ msg?: string; code?: number }>
-    const backendMsg = responseError?.response?.data?.msg
+    let backendMsg = responseError?.response?.data?.msg
     // P2-33：同时取出 body.code —— `restful` 档（HTTP 状态码约定）下业务失败会走真实状态码，
     // 此时 body.code 仍是权威业务码，不能被 HTTP 状态吞掉。
-    const backendCode = responseError?.response?.data?.code
+    let backendCode = responseError?.response?.data?.code
+    // 导出族用 blob：错误体也是 Blob，直接读 data.msg 恒 undefined ⇒ 这里先解出 JSON 体。
+    // 读不出（HTML/非 JSON）时保持原值，后续分支照常回落通用文案。
+    const blobBody = await readBlobErrorBody(responseError?.response?.data)
+    if (blobBody?.msg !== undefined) backendMsg = blobBody.msg
+    if (blobBody?.code !== undefined) backendCode = blobBody.code
     if (httpStatus === 401) {
       // 登录页/锁屏页的 401 是认证失败（用户名/密码错误），显示具体错误信息而非"重新登录"对话框
       const path = window.location.pathname

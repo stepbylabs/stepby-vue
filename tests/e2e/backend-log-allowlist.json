@@ -158,6 +158,15 @@
         "file": "stepby-axum/src/repository/sys_frontend_error.rs",
         "contains": "like_escape(n)"
       }
+    },
+    {
+      "level": "WARN",
+      "match": "链写入乱序（更大 oper_id 已抢先写链），本条降级为 NULL",
+      "why": "并发写入时 oper_id 分配序与链写入序可能不一致，这是设计内的顺序守卫：本条降级为 NULL，链在非 NULL 子序列上续写、校验端跳过 NULL 行；防篡改锚点由 db_state_audit 单独核对。登记的是『并发生成 NULL 降级』这条设计内信号，不是『任意链异常都算过』（match 精确到这句话）。",
+      "producer": {
+        "file": "stepby-axum/src/service/sys_oper_log_service.rs",
+        "contains": "链写入乱序（更大 oper_id 已抢先写链）"
+      }
     }
   ]
 }

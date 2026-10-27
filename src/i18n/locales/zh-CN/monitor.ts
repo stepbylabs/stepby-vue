@@ -405,6 +405,7 @@ export default {
       autoRefresh: '自动刷新（10秒）',
       lastUpdate: '最后更新：'
     },
+    loadFailed: '部分监控数据未能加载，页面显示的不是最新值',
     loading: '加载中',
     uptime: '运行时长：',
     database: '数据库',

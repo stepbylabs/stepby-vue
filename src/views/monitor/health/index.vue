@@ -1,5 +1,17 @@
 <template>
   <div class="app-container" v-loading="loading">
+    <el-alert
+      v-if="loadError"
+      type="error"
+      :title="t('health.loadFailed')"
+      :closable="false"
+      class="mb-5"
+      data-test="health-load-error"
+    >
+      <template #default>
+        <el-button link type="primary" @click="loadHealth">{{ t('common.retry') }}</el-button>
+      </template>
+    </el-alert>
     <!-- 整体状态卡片 -->
     <el-row :gutter="20" class="mb-5">
       <el-col v-motion="fadeInUp" :span="24">
@@ -293,12 +305,7 @@
             <!-- 忙/闲占比：以连接池总大小为分母 -->
             <div class="pool-bar-row">
               <span class="pool-bar-label">{{ t('health.dbPool.busy') }}</span>
-              <el-progress
-                :percentage="busyPercent"
-                :stroke-width="14"
-                :color="poolProgressColor"
-                class="flex-1"
-              />
+              <el-progress :percentage="busyPercent" :stroke-width="14" :color="poolProgressColor" class="flex-1" />
             </div>
             <div class="pool-bar-row">
               <span class="pool-bar-label">{{ t('health.dbPool.idle') }}</span>
@@ -317,7 +324,11 @@
 
     <!-- 自动刷新 -->
     <div class="auto-refresh mt-5 flex items-center gap-5 justify-end">
-      <el-switch v-model="autoRefresh" :aria-label="t('health.form.autoRefresh')" :active-text="t('health.form.autoRefresh')" />
+      <el-switch
+        v-model="autoRefresh"
+        :aria-label="t('health.form.autoRefresh')"
+        :active-text="t('health.form.autoRefresh')"
+      />
       <span v-if="lastUpdate" class="last-update text-text-secondary text-xs">
         {{ t('health.form.lastUpdate') }}{{ lastUpdate }}
       </span>
@@ -405,6 +416,8 @@ interface ServerRawData {
 }
 
 const loading = ref(false)
+/** 主链路或 best-effort 支路失败：页面必须说出来，不能让旧值/空值冒充当前状态。 */
+const loadError = ref(false)
 const healthData = ref<HealthStatus>({} as HealthStatus)
 const serverData = ref<ServerInfo>({})
 const sysData = ref<SysInfo>({})
@@ -508,7 +521,7 @@ const formattedUptime = computed(() => {
  * 未携带令牌的请求返回 401，走 axios 拦截器会误触发"重新登录"对话框；
  * 指标展示属 best-effort，失败时置 available=false 即可。
  */
-async function loadMetrics(): Promise<void> {
+async function loadMetrics(): Promise<boolean> {
   try {
     const base = String(import.meta.env.VITE_APP_BASE_API || '')
     const resp = await fetch(`${base}/metrics`, { method: 'GET' })
@@ -536,8 +549,10 @@ async function loadMetrics(): Promise<void> {
       rssBytes: gauges.get('stepby_process_resident_memory_bytes') ?? null,
       vmsBytes: gauges.get('stepby_process_virtual_memory_bytes') ?? null
     }
+    return true
   } catch {
     metricsData.value.available = false
+    return false
   }
 }
 
@@ -555,18 +570,23 @@ function formatBytes(bytes: number): string {
 }
 
 /** 拉取数据库连接池状态（best-effort：失败置 null 展示空态，不打断主流程） */
-async function loadDbPool(): Promise<void> {
+async function loadDbPool(): Promise<boolean> {
   try {
     const res = await getDbPool()
     dbPool.value = res.data ?? null
+    return true
   } catch {
     dbPool.value = null
+    return false
   }
 }
 
 async function loadHealth(): Promise<void> {
   loading.value = true
-  // /metrics 与连接池状态并发拉取（best-effort，内部自行吞错）
+  loadError.value = false
+  // /metrics 与连接池状态并发拉取（best-effort；失败不再静默——
+  // 首次加载失败时页面曾一直停在"加载中"，刷新后失败则保留旧值而不说明，
+  // 两种形态都让运维把"没读到"读成"当前状态"）
   const metricsPromise = loadMetrics()
   const dbPoolPromise = loadDbPool()
   try {
@@ -615,14 +635,17 @@ async function loadHealth(): Promise<void> {
       }))
     }
     lastUpdate.value = new Date().toLocaleTimeString()
-    // 等待 /metrics 与连接池解析完成（两者内部自行吞错，不会抛出）
-    await Promise.all([metricsPromise, dbPoolPromise])
+    // 等待 /metrics 与连接池解析完成；任一路失败都要在页面上说明，
+    // 不能让"指标区空白/连接池 0"冒充真实采集结果
+    const [metricsOk, dbPoolOk] = await Promise.all([metricsPromise, dbPoolPromise])
+    if (!metricsOk || !dbPoolOk) loadError.value = true
     // 用 /metrics 的 stepby_uptime_seconds 校准运行时长（页面本地自增仅作刷新间隔内的近似值）
     if (metricsData.value.uptimeSeconds != null) {
       uptimeSeconds.value = Math.max(0, Math.round(metricsData.value.uptimeSeconds))
     }
     // 不重置 uptimeSeconds：uptimeTimer 每秒自增，重置会导致运行时长永远不超过刷新间隔
   } catch (err) {
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[HealthDashboard] Failed to load:', err)
   } finally {
     loading.value = false

@@ -61,6 +61,35 @@ export function muteNonCode(src: string, opts: { keepStrings?: boolean; keepRege
     '>',
     ''
   ])
+  /**
+   * 正则字面量也可以直接跟在关键字后面（`return /re/`、`case /re/:`）。只看"前一
+   * 字符"判不出来——那里是 `n`，于是它被当成除法；而正则里的引号会开启一段永不
+   * 闭合的字符串、把文件余下部分整片掩掉。实测 `utils/csv.ts` 的
+   * `return /[",\r\n]/…` 就让追加在文件末尾的合成违规从未被看见（活性用例红在
+   * "expected 500 to be 501"）。
+   */
+  const REGEX_OK_KEYWORDS = new Set([
+    'return',
+    'typeof',
+    'instanceof',
+    'case',
+    'delete',
+    'void',
+    'throw',
+    'yield',
+    'await',
+    'in',
+    'of'
+  ])
+  const regexFollowsKeyword = (pos: number): boolean => {
+    let j = pos - 1
+    while (j >= 0 && /\s/.test(src[j])) j--
+    const end = j + 1
+    while (j >= 0 && /[A-Za-z0-9_$]/.test(src[j])) j--
+    if (j === end - 1) return false // 紧邻的不是标识符
+    if (j >= 0 && src[j] === '.') return false // 属性名（foo.return）不是关键字
+    return REGEX_OK_KEYWORDS.has(src.slice(j + 1, end))
+  }
   let out = ''
   let i = 0
   let prev = ''
@@ -126,7 +155,7 @@ export function muteNonCode(src: string, opts: { keepStrings?: boolean; keepRege
     }
     // 正则字面量：整段置空；字符类 [ … ] 里的 `/` 不算结束；遇到未转义换行就放弃
     // （那说明它其实不是正则，退化为普通字符处理，宁可少掩码也不吞代码）
-    if (c === '/' && REGEX_OK_AFTER.has(prev)) {
+    if (c === '/' && (REGEX_OK_AFTER.has(prev) || regexFollowsKeyword(i))) {
       let j = i + 1
       let inClass = false
       let closed = false

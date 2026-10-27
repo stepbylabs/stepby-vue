@@ -4,16 +4,24 @@
       <template #header>
         <div class="flex items-center justify-between">
           <span class="font-medium">{{ t('dataRule.title') }}</span>
-          <el-button
-            v-hasPermi="['system:dataRule:add']"
-            type="primary"
-            icon="Plus"
-            @click="openCreate"
-          >
+          <el-button v-hasPermi="['system:dataRule:add']" type="primary" icon="Plus" @click="openCreate">
             {{ t('common.add') }}
           </el-button>
         </div>
       </template>
+
+      <el-alert
+        v-if="loadError"
+        type="error"
+        :title="t('dataRule.loadFailed')"
+        :closable="false"
+        class="mb-3"
+        data-test="data-rule-load-error"
+      >
+        <template #default>
+          <el-button link type="primary" @click="load()">{{ t('common.retry') }}</el-button>
+        </template>
+      </el-alert>
 
       <el-table :data="rows" border stripe max-height="560" v-loading="loading">
         <el-table-column prop="ruleId" label="ID" width="80" align="center" />
@@ -36,20 +44,10 @@
         </el-table-column>
         <el-table-column :label="t('common.column.operation')" width="150" align="center">
           <template #default="scope">
-            <el-button
-              v-hasPermi="['system:dataRule:edit']"
-              link
-              type="primary"
-              @click="openEdit(scope.row)"
-            >
+            <el-button v-hasPermi="['system:dataRule:edit']" link type="primary" @click="openEdit(scope.row)">
               {{ t('common.edit') }}
             </el-button>
-            <el-button
-              v-hasPermi="['system:dataRule:remove']"
-              link
-              type="danger"
-              @click="removeRule(scope.row.ruleId)"
-            >
+            <el-button v-hasPermi="['system:dataRule:remove']" link type="danger" @click="removeRule(scope.row.ruleId)">
               {{ t('common.delete') }}
             </el-button>
           </template>
@@ -66,7 +64,14 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.ruleId ? t('common.edit') : t('common.add')" width="min(90%, 560px)" append-to-body destroy-on-close :close-on-click-modal="false">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="form.ruleId ? t('common.edit') : t('common.add')"
+      width="min(90%, 560px)"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
       <el-form :model="form" label-width="110px">
         <el-form-item :label="t('dataRule.name')">
           <el-input v-model="form.ruleName" maxlength="64" />
@@ -91,7 +96,13 @@
           <el-input v-model="form.ruleValue" />
         </el-form-item>
         <el-form-item :label="t('dataRule.role')">
-          <el-select v-model="form.roleIds" multiple class="w-full" :placeholder="t('dataRule.ph.roles')" :aria-label="t('dataRule.ph.roles')">
+          <el-select
+            v-model="form.roleIds"
+            multiple
+            class="w-full"
+            :placeholder="t('dataRule.ph.roles')"
+            :aria-label="t('dataRule.ph.roles')"
+          >
             <el-option v-for="r in roles" :key="r.roleId" :value="r.roleId" :label="r.roleName" />
           </el-select>
         </el-form-item>
@@ -112,8 +123,10 @@
 <script setup lang="ts" name="DataRule">
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { confirmAction } from '@/utils/confirm'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 interface DataRuleRow {
   ruleId: number
@@ -137,6 +150,8 @@ const { t } = useI18n()
 const rows = ref<DataRuleRow[]>([])
 const loading = ref(false)
 const saving = ref(false)
+/** 列表加载失败时不得与"没有规则"同形（表格空态会静默承担后者）。 */
+const loadError = ref(false)
 const page = ref(1)
 const size = 20
 const total = ref(0)
@@ -160,6 +175,7 @@ const form = reactive({
 async function load(p?: number) {
   if (p) page.value = p
   loading.value = true
+  loadError.value = false
   try {
     const res = (await request({
       url: '/system/dataRule/list',
@@ -168,7 +184,14 @@ async function load(p?: number) {
     })) as unknown as { rows?: DataRuleRow[]; total?: number }
     rows.value = res.rows ?? []
     total.value = res.total ?? 0
+    // 删掉末页最后一条后回到上一页（与 useCrudTable 页面同口径）：只有"有数据但本页为空"才回退
+    const nextPage = pageAfterEmptyResult(page.value, rows.value.length, total.value)
+    if (nextPage !== page.value) {
+      page.value = nextPage
+      await load()
+    }
   } catch (e) {
+    loadError.value = true
     if (import.meta.env.DEV) console.error('[dataRule] load failed:', e)
   } finally {
     loading.value = false
@@ -244,11 +267,13 @@ async function submitRule() {
 }
 
 async function removeRule(id: number) {
+  // 取消不是错误：confirmAction 把 rejected 折叠成 false，DEV 日志里也不再出现
+  // "删除失败"；接口失败由拦截器提示，页面保留现状。
+  if (!(await confirmAction(t('dataRule.ph.confirmRemove')))) return
   try {
-    await ElMessageBox.confirm(t('dataRule.ph.confirmRemove'), t('common.confirm'))
     await request({ url: `/system/dataRule/${id}`, method: 'delete' })
     ElMessage.success(t('common.success'))
-    load(page.value)
+    await load(page.value)
   } catch (e) {
     if (import.meta.env.DEV) console.error('[dataRule] remove failed:', e)
   }

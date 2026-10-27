@@ -174,6 +174,7 @@ export default {
   },
   dataRule: {
     title: '数据权限规则',
+    loadFailed: '规则列表加载失败，表格为空不代表没有规则',
     name: '规则名',
     table: '目标表',
     field: '目标列',
@@ -1896,7 +1897,9 @@ export default {
       failed: '失败',
       empty: '暂无查询历史',
       replay: '重放',
-      replayFailed: '重放失败'
+      replayFailed: '重放失败',
+      remove: '删除',
+      confirmRemove: '确认删除这条查询历史？删除后不可恢复'
     },
     title: 'AI 数据助手（自然语言查数据）',
     toggleTables: '可查询范围',
