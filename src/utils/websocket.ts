@@ -45,6 +45,8 @@ type Events = {
   close: void
   error: void
   reconnectFailed: void
+  /** 服务端判定会话到期（b101）：语义事件，UI 侧据此走统一登出，不得按文案判定 */
+  sessionExpired: void
 }
 
 class WebSocketService {
@@ -142,8 +144,11 @@ class WebSocketService {
         }
         // b100：服务端已判定会话到期（随后会关闭连接）⇒ 禁止自动重连。
         // 拿过期令牌重连只会连续 401（握手校验/黑名单），把"该重新登录"变成重连风暴。
+        // b101：同时派发语义事件，让布局层执行与 HTTP 401 / 强制下线一致的登出跳转——
+        // 旧实现只"不重连"，用户停在看似登录、实际已失效的页面，直到下一次请求才被 401。
         if (msg.type === 'system' && msg.data?.kind === 'sessionExpired') {
           this.isManualClose = true
+          this.emitter.emit('sessionExpired')
         }
         // 派发给对应类型的订阅者
         this.emitter.emit(msg.type, msg)

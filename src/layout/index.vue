@@ -63,6 +63,7 @@ import { useFaviconBadge } from '@/composables/useFaviconBadge'
 import { useSessionTimeout } from '@/composables/useSessionTimeout'
 import { safeT } from '@/utils/safeI18n'
 import { wsService, type WsMessage } from '@/utils/websocket'
+import { handleSessionExpired } from '@/utils/sessionExpiry'
 import Tour from '@/components/Tour/index.vue'
 import type { TourStep } from '@/components/Tour/index.vue'
 import { errorHub } from '@/utils/errorHub'
@@ -201,10 +202,14 @@ onMounted(() => {
   }
   // 监听强制下线 WS 事件（管理员通过在线用户页面强退）
   wsService.on('forceLogout', handleForceLogout)
+  // b101：服务端判定会话到期（WS 已收到 sessionExpired 并停止重连）⇒ 与强退同一结局：
+  // 提示 + 清会话 + 回登录页，避免页面停在"看似登录、实际已失效"的状态
+  wsService.on('sessionExpired', handleSessionExpired)
 })
 
 onBeforeUnmount(() => {
   wsService.off('forceLogout', handleForceLogout)
+  wsService.off('sessionExpired', handleSessionExpired)
   // P3-2：清理待执行的 setTimeout，避免对已卸载组件写入或重复跳转
   if (tourTimer.value) {
     clearTimeout(tourTimer.value)

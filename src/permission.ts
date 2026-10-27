@@ -5,6 +5,7 @@ import 'nprogress/nprogress.css'
 import { getToken } from '@/utils/auth'
 import { isHttp, isPathMatch } from '@/utils/validate'
 import { isRelogin } from '@/utils/request'
+import { resetSessionExpiry } from '@/utils/sessionExpiry'
 import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
@@ -139,6 +140,9 @@ router.beforeEach(async (to, _from) => {
         // P1 修复：无论成功/失败都复位 isRelogin.show，
         // 否则残留 true 会导致 request.ts 中后续所有 401 不再触发"重新登录"对话框
         isRelogin.show = false
+        // b101：同一处复位 WS 到期闸——登录是 SPA 跳转（不刷新页面），闸不复位会让
+        // 同一标签页的下一次会话到期被静默吞掉（详见 utils/sessionExpiry.ts 模块注释）
+        resetSessionExpiry()
       }
     }
     return true

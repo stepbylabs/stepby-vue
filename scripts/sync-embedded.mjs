@@ -12,6 +12,13 @@
  * 3. 复制后要证明"入口 chunk 真的在目标目录里"——index.html 指向的 chunk 不存在时
  *    服务端只会回 SPA HTML，症状是白屏而非 404。
  *
+ * b101 补的三条失败安全（每一条都对应一次"先破坏、后报错"的可能）：
+ * - 源侧除 index.html 外还要校验**入口 chunk 文件真实存在**，且文件清单在清空目标
+ *   **之前**算好——残缺 dist 不得先把可服务的旧产物删掉再失败；
+ * - 复制后做**文件集合对账**（不只是 index/entry 两个点），中途丢文件必然红；
+ * - `fail()` 抛 `SyncError` 而不是 `process.exit`，失败路径可被单测覆盖
+ *   （`src/utils/embeddedSync.test.ts`），入口在 main 里统一打印 `[FATAL]` 并退出 1。
+ *
  * 用法：
  *   pnpm run sync:embedded            # 镜像复制（先清空目标内容）
  *   pnpm run check:embedded           # 只校验目标目录现状（构建后/跑测前）
@@ -26,6 +33,13 @@ import { fileURLToPath } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const VUE_ROOT = path.resolve(HERE, '..')
 const DIST = path.join(VUE_ROOT, 'dist')
+
+export class SyncError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'SyncError'
+  }
+}
 
 /** 按布局解析嵌入产物目录；解析不到返回 null（调用方 fail-closed） */
 export function resolveTarget(vueRoot = VUE_ROOT) {
@@ -46,8 +60,7 @@ export function entryChunkFromIndex(html) {
 }
 
 function fail(msg) {
-  console.error(`[FATAL] ${msg}`)
-  process.exit(1)
+  throw new SyncError(msg)
 }
 
 function walk(dir, base = dir, out = []) {
@@ -91,11 +104,19 @@ export function sync(source = DIST, target = resolveTarget()) {
   if (!target || path.basename(target) !== 'frontend-dist') {
     fail(`拒绝写入：目标目录不是 frontend-dist（${target ?? '<未解析到>'}）`)
   }
-  if (!fs.existsSync(path.join(source, 'index.html'))) {
+  if (!source || !fs.existsSync(path.join(source, 'index.html'))) {
     fail(`源产物缺失：${source}/index.html（先跑 pnpm run build:embedded）`)
   }
   const entry = entryChunkFromIndex(fs.readFileSync(path.join(source, 'index.html'), 'utf8'))
   if (!entry) fail('源 index.html 中解析不到唯一入口 chunk')
+  if (!fs.existsSync(path.join(source, entry))) {
+    fail(`源入口 chunk 不存在：${source}/${entry}（dist 不完整，先重新构建）`)
+  }
+
+  // 清单在清空目标**之前**算好：walk 抛错时目标仍是上一份可服务的产物
+  const all = walk(source)
+  const files = all.filter((rel) => !rel.toLowerCase().endsWith('.map'))
+  const skippedMaps = all.length - files.length
 
   fs.mkdirSync(target, { recursive: true })
   // 只清内容、保留目录本身：build.rs 检查目录存在，删除目录在句柄被占用时会失败
@@ -104,12 +125,7 @@ export function sync(source = DIST, target = resolveTarget()) {
   }
 
   let copied = 0
-  let skippedMaps = 0
-  for (const rel of walk(source)) {
-    if (rel.toLowerCase().endsWith('.map')) {
-      skippedMaps += 1
-      continue
-    }
+  for (const rel of files) {
     const dst = path.join(target, rel)
     fs.mkdirSync(path.dirname(dst), { recursive: true })
     fs.copyFileSync(path.join(source, rel), dst)
@@ -118,21 +134,42 @@ export function sync(source = DIST, target = resolveTarget()) {
 
   const verdict = checkTarget(target)
   if (!verdict.ok) fail(`同步后校验失败：${verdict.reason}`)
+  // 集合对账：index/entry 只是两个点，复制途中丢掉其它资源时上面那条看不出来
+  const expected = [...files].sort()
+  const actual = walk(target).sort()
+  const same = expected.length === actual.length && expected.every((rel, i) => rel === actual[i])
+  if (!same) {
+    const missing = expected.filter((rel) => !actual.includes(rel)).slice(0, 5)
+    const extra = actual.filter((rel) => !expected.includes(rel)).slice(0, 5)
+    fail(
+      `同步后文件集合不一致：期望 ${expected.length} 个，实际 ${actual.length} 个` +
+        `（缺 ${missing.join(', ') || '无'}；多 ${extra.join(', ') || '无'}）`
+    )
+  }
+
   console.log(
     `[OK] embedded 产物已镜像：${copied} 个文件（跳过 ${skippedMaps} 个 .map）→ ${target}\n` +
-      `     入口 chunk=${entry}，目标内 .map=0，index.html=${verdict.files} 个文件`
+      `     入口 chunk=${entry}，目标内 .map=0，共 ${verdict.files} 个文件`
   )
   return { copied, skippedMaps, entry }
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isMain) {
-  const target = resolveTarget()
-  if (process.argv.includes('--check')) {
-    const verdict = checkTarget(target)
-    if (!verdict.ok) fail(`嵌入产物校验失败：${verdict.reason}`)
-    console.log(`[OK] 嵌入产物可服务：入口 chunk=${verdict.entry}，.map=0，共 ${verdict.files} 个文件 → ${target}`)
-  } else {
-    sync(DIST, target)
+  try {
+    const target = resolveTarget()
+    if (process.argv.includes('--check')) {
+      const verdict = checkTarget(target)
+      if (!verdict.ok) fail(`嵌入产物校验失败：${verdict.reason}`)
+      console.log(`[OK] 嵌入产物可服务：入口 chunk=${verdict.entry}，.map=0，共 ${verdict.files} 个文件 → ${target}`)
+    } else {
+      sync(DIST, target)
+    }
+  } catch (err) {
+    if (err instanceof SyncError) {
+      console.error(`[FATAL] ${err.message}`)
+      process.exit(1)
+    }
+    throw err
   }
 }

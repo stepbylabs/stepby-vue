@@ -272,11 +272,17 @@ describe('utils/websocket（WebSocketService）', () => {
     expect(wsService.isConnected).toBe(false)
   })
 
-  it('收到 sessionExpired 后不得拿过期令牌自动重连（b100）', () => {
+  it('收到 sessionExpired 派发语义事件且不得拿过期令牌自动重连（b100/b101）', () => {
     wsService.connect()
     const ws = FakeWebSocket.instances[0]
     ws.fireOpen()
-    ws.fireMessage(JSON.stringify({ type: 'system', data: { kind: 'sessionExpired' }, timestamp: 1 }))
+    const onExpired = vi.fn()
+    wsService.on('sessionExpired', onExpired)
+    // 其他 system 子类型不得触发到期通道
+    ws.fireMessage(JSON.stringify({ type: 'system', data: { kind: 'connected' }, timestamp: 1 }))
+    expect(onExpired).not.toHaveBeenCalled()
+    ws.fireMessage(JSON.stringify({ type: 'system', data: { kind: 'sessionExpired' }, timestamp: 2 }))
+    expect(onExpired).toHaveBeenCalledTimes(1)
     ws.fireClose(1000, 'session expired')
     vi.advanceTimersByTime(60000)
     expect(FakeWebSocket.instances).toHaveLength(1)
