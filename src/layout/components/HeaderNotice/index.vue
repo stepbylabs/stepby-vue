@@ -109,6 +109,7 @@ import type { SysNotice } from '@/types/api/system/notice'
 import useNotificationStore from '@/store/modules/notification'
 import useNoticeStore from '@/store/modules/notice'
 import modal from '@/plugins/modal'
+import { isImeComposing } from '@/utils/keyboard'
 // 动效优化：通知列表增删/已读时 FLIP 过渡（Vue 原生 transition-group，零依赖）
 
 interface PopperElement extends HTMLElement {
@@ -162,6 +163,8 @@ onMounted(() => {
 
 // P1-2: Esc 键关闭通知 popover（键盘可访问性）
 function onNoticeKeydown(e: KeyboardEvent): void {
+  // b114：组合态里的 Esc 属于输入法（取消候选），不得顺带关掉公告弹层
+  if (isImeComposing(e)) return
   if (e.key === 'Escape' && noticeVisible.value) {
     noticeVisible.value = false
   }

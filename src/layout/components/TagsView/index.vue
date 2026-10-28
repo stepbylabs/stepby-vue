@@ -171,6 +171,7 @@ import tab from '@/plugins/tab'
 import { useMenuTitle } from '@/composables/useMenuTitle'
 import { vAutoAnimate } from '@formkit/auto-animate/vue'
 import { safeT } from '@/utils/safeI18n'
+import { isImeComposing } from '@/utils/keyboard'
 
 const visible = ref<boolean>(false)
 const top = ref<number>(0)
@@ -238,6 +239,8 @@ onBeforeUnmount(() => {
 })
 
 function handleKeyDown(event: KeyboardEvent): void {
+  // b114：组合态里的 Esc 是「取消候选词」，不是「退出全屏」
+  if (isImeComposing(event)) return
   // 当按下Esc键且处于全屏状态时，退出全屏
   if (event.key === 'Escape' && isFullscreen.value) {
     toggleFullscreen()

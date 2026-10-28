@@ -11360,6 +11360,151 @@ async function testModule35(page, consoleErrors, pageErrors) {
     // 不实际触发全屏（可能导致测试卡住），仅验证按钮存在
   }
 
+  // 35.6 输入面不得被全局快捷键/输入法抢走（b114）
+  // 真机取证：搜索框内按 `?` 会弹「键盘快捷键」模态框且字符丢失；`Ctrl+Shift+D` 会切暗色；
+  // 输入法组合态的 Enter 会发出列表查询。三条都必须在真实浏览器里被钉住。
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/user`, { moduleName: M, waitMs: 1500 })) {
+    const searchBox = page.locator('.app-main input[placeholder*="用户名称"]').first()
+    const hasBox = await searchBox
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    if (hasBox) {
+      // ① 输入面里的 `?` 只进输入框，不得弹帮助模态框
+      await searchBox.click()
+      await page.keyboard.press('Shift+Slash')
+      await sleep(700)
+      const helpDialog = await page.locator('.el-overlay-message-box[aria-label="键盘快捷键"]:visible').count()
+      const boxValue = await searchBox.inputValue()
+      record(M, 'b114 输入面: `?` 不弹快捷键帮助框', helpDialog === 0, `帮助框=${helpDialog}`)
+      record(M, 'b114 输入面: `?` 字符进入输入框', boxValue.includes('?'), `值=${JSON.stringify(boxValue)}`)
+
+      // ② 输入面里的 Ctrl+Shift+D 不得改暗色主题
+      const darkBefore = await page.evaluate(() => document.documentElement.classList.contains('dark'))
+      await searchBox.click()
+      await page.keyboard.press('Control+Shift+d')
+      await sleep(600)
+      const darkAfter = await page.evaluate(() => document.documentElement.classList.contains('dark'))
+      record(M, 'b114 输入面: Ctrl+Shift+D 不切暗色', darkBefore === darkAfter, `${darkBefore}→${darkAfter}`)
+      if (darkBefore !== darkAfter) {
+        // 判据已红：恢复主题，避免污染后续模块
+        await page.keyboard.press('Control+Shift+d')
+        await sleep(400)
+      }
+
+      // ③ 输入法组合态的 Enter 不得提交查询（合成组合事件 + 真实按键）
+      const listReqs = []
+      const onListReq = (req) => {
+        if (req.url().includes('/system/user/list')) listReqs.push(req.url())
+      }
+      page.on('request', onListReq)
+      await searchBox.click()
+      await searchBox.fill('测试')
+      await page.evaluate(() => {
+        const el = document.querySelector('.app-main input[placeholder*="用户名称"]')
+        el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'ce' }))
+      })
+      await page.keyboard.press('Enter')
+      await sleep(900)
+      page.off('request', onListReq)
+      await page.evaluate(() => {
+        const el = document.querySelector('.app-main input[placeholder*="用户名称"]')
+        el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '测试' }))
+      })
+      record(M, 'b114 输入面: 组合态 Enter 不触发查询', listReqs.length === 0, `列表请求=${listReqs.length}`)
+
+      // ④ 对照组：焦点不在输入面时 `?` 仍要打开帮助框（证明不是把功能删掉了）
+      await searchBox.fill('')
+      await page.evaluate(() => document.activeElement?.blur?.())
+      await page.keyboard.press('Shift+Slash')
+      await sleep(700)
+      const helpOnBody = await page.locator('.el-overlay-message-box[aria-label="键盘快捷键"]:visible').count()
+      record(M, 'b114 对照组: body 上 `?` 仍打开帮助框', helpOnBody > 0, `帮助框=${helpOnBody}`)
+      if (helpOnBody > 0) {
+        await page
+          .locator('.el-overlay-message-box .el-message-box__btns button')
+          .first()
+          .click({ timeout: 3000 })
+          .catch(() => {})
+        await sleep(500)
+      }
+    } else {
+      recordSkip(M, 'b114 输入面快捷键', '搜索输入框不可见（跳过）')
+    }
+  }
+
+  // 35.7 输入法组合态的 Esc 只取消候选，不得关掉对话框（b114）
+  // Element Plus 的对话框在 document 级 keydown 上关自己、不判组合态；真机取证（CDP
+  // `Input.imeSetComposition` + 真实 Esc）显示组合态 Esc 会把对话框一起关掉。守卫必须在
+  // keydown 捕获层停传播（且**不得** preventDefault，否则输入法收不到取消）。
+  // 两腿同段：先量普通 Esc（对照，必须关），再量组合态 Esc（必须留）。
+  // 顺序刻意"普通在前"：CDP 造的组合态不会像真实输入法那样被 Esc 取消，若把它排在前面，
+  // 后面的普通 Esc 会带着残留组合态（本模块首轮实测：对照组假红）。
+  if (await safeGoto(page, `${CONFIG.frontendUrl}/system/config`, { moduleName: M, waitMs: 2000 })) {
+    const addBtn = page.locator('.app-main button:has-text("新增")').first()
+    const addVisible = await addBtn
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+    if (addVisible) {
+      const dialog = page.locator('.el-overlay-dialog .el-dialog').first()
+      const openDialog = async () => {
+        await addBtn.click({ timeout: 3000 }).catch(() => {})
+        return waitForVisibleDialog(page, 5000)
+      }
+
+      // 对照：普通 Esc 必须关闭（证明对话框/组件本身没问题）
+      const o1 = await openDialog()
+      if (o1) {
+        await page.keyboard.press('Escape')
+        await sleep(800)
+        const closed = !(await dialog.isVisible().catch(() => false))
+        record(M, 'b114 对照组: 普通 Esc 关闭对话框', closed)
+      } else {
+        record(M, 'b114 对照组: 普通 Esc 关闭对话框', false, '对话框未打开')
+      }
+      await sleep(500)
+
+      // 组合态：Esc 只取消候选，对话框必须留着
+      const o2 = await openDialog()
+      if (o2) {
+        const input = page.locator('.el-dialog:visible input').first()
+        await input.click({ timeout: 3000 }).catch(() => {})
+        await page.evaluate(() => {
+          window.__b114Composed = 0
+          if (!window.__b114CompListener) {
+            window.__b114CompListener = true
+            document.addEventListener('compositionstart', () => (window.__b114Composed += 1), true)
+          }
+        })
+        let client = null
+        try {
+          client = await page.context().newCDPSession(page)
+          await client.send('Input.imeSetComposition', { text: 'ce', selectionStart: 2, selectionEnd: 2 })
+          await sleep(300)
+        } catch {
+          client = null
+        }
+        const composed = await page.evaluate(() => window.__b114Composed || 0)
+        if (client && composed > 0) {
+          await page.keyboard.press('Escape')
+          await sleep(800)
+          const stillOpen = await dialog.isVisible().catch(() => false)
+          record(M, 'b114 组合态 Esc 不关闭对话框', stillOpen, `compositionstart=${composed}`)
+          if (client) await client.detach().catch(() => {})
+        } else {
+          record(M, 'b114 组合态 Esc 不关闭对话框', false, 'CDP 组合态不可用（未触发 compositionstart）')
+        }
+        // 收尾：不依赖 Esc/取消按钮（可能被上层提示框挡住），直接离开页面丢弃临时对话框
+        await safeGoto(page, `${CONFIG.frontendUrl}/index`, { moduleName: M, waitMs: 800 })
+      } else {
+        record(M, 'b114 组合态 Esc 不关闭对话框', false, '对话框未打开')
+      }
+    } else {
+      record(M, 'b114 组合态 Esc 不关闭对话框', false, '新增按钮不可见')
+    }
+  }
+
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 

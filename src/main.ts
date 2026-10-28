@@ -109,6 +109,11 @@ directive(app)
 import { errorReporter } from '@/utils/errorReporter'
 import { setupFrontendErrorReporter } from '@/utils/frontendErrorReporter'
 import { isDialogCancel, isRequestLayerError } from '@/utils/requestError'
+import { installImeKeyGuard } from '@/utils/keyboard'
+
+// b114：输入法组合态的 Enter/Escape 属于输入法（上屏/取消），不是业务提交。
+// 在事件到达组件之前统一吞掉——全仓约 50 处列表搜索框的 @keyup.enter 因此不必逐点改造。
+installImeKeyGuard()
 
 app.config.errorHandler = (err: unknown, instance: { $options?: { name?: string } } | null, info: string) => {
   errorReporter.report(err, {

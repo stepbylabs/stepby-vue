@@ -64,6 +64,7 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import cache from '@/plugins/cache'
+import { isEditableTarget, isImeComposing } from '@/utils/keyboard'
 
 const { t } = useI18n()
 
@@ -273,9 +274,10 @@ function onResize() {
 
 function onKeydown(e: KeyboardEvent) {
   if (!props.visible) return
-  // H5: 输入元素聚焦时忽略全局快捷键，避免在输入框中按方向键/Escape 误触发引导导航
-  const target = e.target as HTMLElement
-  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+  // H5: 输入面聚焦时忽略全局快捷键，避免在输入框中按方向键/Escape 误触发引导导航；
+  // b114：判定收口到 keyboard 单一实现（原先只认 INPUT/TEXTAREA，漏了 select 与
+  // role=textbox），并补输入法组合态（组合中的 Esc 是取消候选，不是跳过引导）。
+  if (isImeComposing(e) || isEditableTarget(e.target)) return
   if (e.key === 'Escape') skip()
   else if (e.key === 'ArrowRight') next()
   else if (e.key === 'ArrowLeft') prev()

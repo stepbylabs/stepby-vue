@@ -116,6 +116,7 @@ import { globalSearch } from '@/api/common'
 import type { GlobalSearchItem } from '@/api/common'
 import { isExternal, isHttp } from '@/utils/validate'
 import { toggleFullscreen } from '@/utils/fullscreen'
+import { isImeComposing } from '@/utils/keyboard'
 import type { AppRouteRecord } from '@/types'
 
 interface Command {
@@ -381,6 +382,9 @@ onBeforeUnmount(() => {
 })
 
 function handleKeydown(e: KeyboardEvent) {
+  // b114：组合态里的 Enter/Escape/方向键属于输入法（上屏、取消、翻候选），
+  // 此时执行命令 = 用户还在打中文就跳走了页面。全局 keyup 守卫管不到 keydown，故在此显式判。
+  if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     activeIndex.value = Math.min(activeIndex.value + 1, filteredCommands.value.length - 1)
