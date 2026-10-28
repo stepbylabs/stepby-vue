@@ -21,7 +21,9 @@
       :image-size="60"
       :description="t('common.noData')"
     />
-    <el-empty v-if="error" class="chart-empty" :image-size="60" :description="t('dashboard.operDistLoadFail')" />
+    <el-empty v-if="error" class="chart-empty" :image-size="60" :description="t('dashboard.operDistLoadFail')">
+      <el-button link type="primary" @click="refresh">{{ t('common.retry') }}</el-button>
+    </el-empty>
   </WidgetCard>
 </template>
 

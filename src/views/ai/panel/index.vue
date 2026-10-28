@@ -75,7 +75,14 @@
             {{ t.columns.map((c: any) => c.name).join(', ') }}
           </span>
         </div>
-        <el-empty v-if="tables.length === 0" :description="t('aiPanel.noTables')" />
+        <el-empty
+          v-if="tables.length === 0"
+          :description="tablesLoadError ? t('aiPanel.tablesLoadFail') : t('aiPanel.noTables')"
+        >
+          <el-button v-if="tablesLoadError" link type="primary" @click="loadTables">
+            {{ t('common.retry') }}
+          </el-button>
+        </el-empty>
       </template>
     </el-card>
 
@@ -165,7 +172,14 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="historyRows.length === 0 && !historyLoading" :description="t('aiPanel.history.empty')" />
+      <el-empty
+        v-if="historyRows.length === 0 && !historyLoading"
+        :description="historyLoadError ? t('aiPanel.history.loadFail') : t('aiPanel.history.empty')"
+      >
+        <el-button v-if="historyLoadError" link type="primary" @click="loadHistory">
+          {{ t('common.retry') }}
+        </el-button>
+      </el-empty>
     </el-card>
   </div>
 </template>
@@ -177,6 +191,7 @@ import { aiChat, aiTables } from '@/api/ai/chat'
 import request from '@/utils/request'
 import { csvEscape } from '@/utils/csv'
 import { confirmAction } from '@/utils/confirm'
+import { useWidgetLoad } from '@/composables/useWidgetLoad'
 
 interface ChatResult {
   answer: string
@@ -222,25 +237,21 @@ interface HistoryItem {
   errorMsg?: string
   createTime: string
 }
-const historyRows = ref<HistoryItem[]>([])
-const historyLoading = ref(false)
-
-async function loadHistory() {
-  historyLoading.value = true
-  try {
-    const res = await request({
-      url: '/system/ai/history',
-      method: 'get',
-      params: { page: 1, size: 20 }
-    })
-    const d = (res as { data?: unknown }).data ?? res
-    historyRows.value = ((d as { items?: HistoryItem[] }).items ?? []) as HistoryItem[]
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('[aiPanel] loadHistory failed:', e)
-  } finally {
-    historyLoading.value = false
-  }
-}
+// 历史是辅助信息，但"取数失败"不得伪装成"没有历史"（b107）：失败态给文案 + 重试
+const {
+  data: historyRows,
+  loading: historyLoading,
+  loadError: historyLoadError,
+  load: loadHistory
+} = useWidgetLoad<HistoryItem[]>(async () => {
+  const res = await request({
+    url: '/system/ai/history',
+    method: 'get',
+    params: { page: 1, size: 20 }
+  })
+  const d = (res as { data?: unknown }).data ?? res
+  return ((d as { items?: HistoryItem[] }).items ?? []) as HistoryItem[]
+}, [])
 
 async function removeHistory(id: number) {
   // 历史行是用户可见数据的物理删除：先确认，取消不是错误（confirmAction 折叠成 false）
@@ -280,19 +291,25 @@ async function replay(row: HistoryItem) {
 // 快捷模板（引导首次使用；命中实际数据形态）
 const templates = computed(() => [t('aiPanel.tpl1'), t('aiPanel.tpl2'), t('aiPanel.tpl3')])
 
-// 白名单表范围（懒加载：展开时才拉）
-watch(showTables, async (v: boolean) => {
-  if (v && tables.value.length === 0 && !tablesLoading.value) {
-    tablesLoading.value = true
-    try {
-      const resp = (await aiTables()) as unknown as AiTablesResp
-      tables.value = resp?.data ?? []
-    } catch {
-      tables.value = []
-    } finally {
-      tablesLoading.value = false
-    }
+// 白名单表范围（懒加载：展开时才拉）；失败不得显示成"没有可选表"（b107）
+const tablesLoadError = ref(false)
+async function loadTables(): Promise<void> {
+  if (tablesLoading.value) return
+  tablesLoading.value = true
+  tablesLoadError.value = false
+  try {
+    const resp = (await aiTables()) as unknown as AiTablesResp
+    tables.value = resp?.data ?? []
+  } catch (e) {
+    tablesLoadError.value = true
+    if (import.meta.env.DEV) console.warn('[aiPanel] loadTables failed:', e)
+  } finally {
+    tablesLoading.value = false
   }
+}
+
+watch(showTables, (v: boolean) => {
+  if (v && tables.value.length === 0 && !tablesLoading.value) void loadTables()
 })
 
 async function ask() {

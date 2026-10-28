@@ -32,12 +32,24 @@
             <el-icon><Bell /></el-icon>
             {{ t('workbench.notices') }}
             <Transition name="fade">
-              <el-badge v-if="stats.unreadNotices > 0" :value="stats.unreadNotices" class="welcome-badge" />
+              <el-badge v-if="unreadLoaded && unreadData.length > 0" :value="unreadData.length" class="welcome-badge" />
             </Transition>
           </el-button>
         </div>
       </div>
     </el-card>
+
+    <!-- 三项网络统计的失败必须可见：值显示 `—`（不是 0），并给统一重试入口（b107） -->
+    <el-alert
+      v-if="statsFail"
+      class="mb-4"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="t('workbench.statsPartialFail')"
+    >
+      <el-button link type="primary" @click="reloadStats">{{ t('common.retry') }}</el-button>
+    </el-alert>
 
     <!-- 我的统计卡片 -->
     <el-row :gutter="16" class="stats-row mb-4">
@@ -57,7 +69,9 @@
               <el-icon><Histogram /></el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">{{ stats.weekLogins }}</div>
+              <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">
+                {{ weekLoginsLoaded ? weekLoginsData : '—' }}
+              </div>
               <div class="stat-label text-[13px] text-text-secondary mt-1">{{ t('workbench.weekLogins') }}</div>
             </div>
           </div>
@@ -80,7 +94,7 @@
             </div>
             <div class="stat-info">
               <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">
-                {{ stats.unreadNotices }}
+                {{ unreadLoaded ? unreadData.length : '—' }}
               </div>
               <div class="stat-label text-[13px] text-text-secondary mt-1">{{ t('workbench.unreadNotices') }}</div>
             </div>
@@ -95,7 +109,7 @@
             </div>
             <div class="stat-info">
               <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">
-                {{ stats.activeSessions }}
+                {{ sessionsLoaded ? sessionsData : '—' }}
               </div>
               <div class="stat-label text-[13px] text-text-secondary mt-1">{{ t('workbench.activeSessions') }}</div>
             </div>
@@ -109,7 +123,7 @@
               <el-icon><StarFilled /></el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">{{ stats.favorites }}</div>
+              <div class="stat-value text-[28px] font-bold text-text-primary leading-[1.2]">{{ favoritesCount }}</div>
               <div class="stat-label text-[13px] text-text-secondary mt-1">{{ t('workbench.favorites') }}</div>
             </div>
           </div>
@@ -230,12 +244,17 @@
             </div>
           </template>
           <Transition name="fade" mode="out-in">
-            <div v-if="unreadNotices.length === 0" key="empty" class="empty-tip py-4">
+            <div v-if="unreadError && !unreadLoaded" key="fail" class="empty-tip py-4">
+              <el-empty :description="t('workbench.unreadLoadFail')" :image-size="80">
+                <el-button link type="primary" @click="loadUnreadNotices">{{ t('common.retry') }}</el-button>
+              </el-empty>
+            </div>
+            <div v-else-if="unreadData.length === 0" key="empty" class="empty-tip py-4">
               <el-empty :description="t('workbench.noUnread')" :image-size="80" />
             </div>
             <div v-else key="list" class="notice-list flex flex-col gap-1">
               <div
-                v-for="notice in unreadNotices.slice(0, 5)"
+                v-for="notice in unreadData.slice(0, 5)"
                 :key="notice.noticeId"
                 class="notice-item flex items-center gap-2 py-2 px-3 rounded-md cursor-pointer"
                 role="button"
@@ -318,6 +337,7 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import { useMenuFavorites } from '@/composables/useMenuFavorites'
 import { useRecentViews } from '@/composables/useRecentViews'
+import { useWidgetLoad } from '@/composables/useWidgetLoad'
 import { translateTitle } from '@/composables/useMenuTitle'
 import { listNoticeTop } from '@/api/system/notice'
 import { list as listOnline } from '@/api/monitor/online'
@@ -338,18 +358,52 @@ function translateItemTitle(item: { title: string; i18nKey?: string }): string {
 }
 
 const loading = ref(false)
-const unreadNotices = ref<SysNotice[]>([])
-const activeSessionsCount = ref(0)
-const weekLoginsCount = ref(0)
 const currentDate = ref('')
 const defaultAvatar = defAva
 
-const stats = computed(() => ({
-  weekLogins: weekLoginsCount.value,
-  unreadNotices: unreadNotices.value.length,
-  activeSessions: activeSessionsCount.value,
-  favorites: fav.favorites.value.length
-}))
+// 三项网络统计各自维护"是否成功过 / 是否最近失败"（b107）：
+// 失败时值显示 `—` 而不是 0，并在页面顶部给统一重试入口——
+// 否则服务抖动会看起来像"本周没人登录、没有未读、没有会话"。
+const {
+  data: weekLoginsData,
+  loaded: weekLoginsLoaded,
+  loadError: weekLoginsError,
+  load: loadWeekLogins
+} = useWidgetLoad<number>(async () => {
+  const res = (await request({
+    url: '/monitor/logininfor/stats?days=7',
+    method: 'get'
+  })) as { data?: Array<{ success: number; fail: number }> }
+  return (res.data || []).reduce((sum, item) => sum + item.success + item.fail, 0)
+}, 0)
+
+const {
+  data: unreadData,
+  loaded: unreadLoaded,
+  loadError: unreadError,
+  load: loadUnreadNotices
+} = useWidgetLoad<SysNotice[]>(async () => {
+  const res = await listNoticeTop()
+  // listTop 返回 { data: [...], unreadCount: N }
+  return res.data || []
+}, [])
+
+const {
+  data: sessionsData,
+  loaded: sessionsLoaded,
+  loadError: sessionsError,
+  load: loadActiveSessions
+} = useWidgetLoad<number>(async () => {
+  const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
+  return (res.rows || []).length
+}, 0)
+
+const statsFail = computed(() => weekLoginsError.value || unreadError.value || sessionsError.value)
+const favoritesCount = computed(() => fav.favorites.value.length)
+
+function reloadStats(): void {
+  void Promise.all([loadWeekLogins(), loadUnreadNotices(), loadActiveSessions()])
+}
 
 // 问候语（根据当前小时）
 const greeting = computed(() => {
@@ -412,38 +466,6 @@ function goToNotice(noticeId: number): void {
 function onAvatarError(e: Event): void {
   const img = e.target as HTMLImageElement
   if (img.src !== defAva) img.src = defAva
-}
-
-async function loadUnreadNotices(): Promise<void> {
-  try {
-    const res = await listNoticeTop()
-    // listTop 返回 { data: [...], unreadCount: N }
-    unreadNotices.value = res.data || []
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[Workbench] Failed to load unread notices:', e)
-  }
-}
-
-async function loadActiveSessions(): Promise<void> {
-  try {
-    const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
-    activeSessionsCount.value = (res.rows || []).length
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[Workbench] Failed to load active sessions:', e)
-  }
-}
-
-async function loadWeekLogins(): Promise<void> {
-  try {
-    const res = (await request({
-      url: '/monitor/logininfor/stats?days=7',
-      method: 'get'
-    })) as { data?: Array<{ success: number; fail: number }> }
-    const data: Array<{ success: number; fail: number }> = res.data || []
-    weekLoginsCount.value = data.reduce((sum, item) => sum + item.success + item.fail, 0)
-  } catch (e) {
-    if (import.meta.env.DEV) console.warn('[Workbench] Failed to load weekly login stats:', e)
-  }
 }
 
 function updateCurrentDate(): void {

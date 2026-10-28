@@ -17,6 +17,9 @@ export default {
     loginStatTitle: '登录统计（最近 7 天）',
     loginStatSummary: '成功 {success} / 失败 {fail}',
     chartLoadFail: '图表加载失败，请重试',
+    statsLoadFail: '统计数据加载失败',
+    recentOperLogLoadFail: '最近操作日志加载失败',
+    flowTodoLoadFail: '待办数量加载失败',
     loginTrendLoadFail: '登录趋势加载失败',
     operDistLoadFail: '操作分布加载失败',
     userTrendLoadFail: '用户创建趋势加载失败',
@@ -84,6 +87,8 @@ export default {
     }
   },
   workbench: {
+    statsPartialFail: '部分统计加载失败，显示为 — 的项请重试',
+    unreadLoadFail: '未读通知加载失败',
     profile: '个人中心',
     notices: '我的通知',
     weekLogins: '本周登录',

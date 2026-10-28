@@ -17,6 +17,9 @@ export default {
     loginStatTitle: 'Login Stats (Last 7 days)',
     loginStatSummary: 'Success {success} / Failed {fail}',
     chartLoadFail: 'Chart load failed, please retry',
+    statsLoadFail: 'Failed to load statistics',
+    recentOperLogLoadFail: 'Failed to load recent operation logs',
+    flowTodoLoadFail: 'Failed to load pending approvals',
     loginTrendLoadFail: 'Login trend load failed',
     operDistLoadFail: 'Operation distribution load failed',
     userTrendLoadFail: 'User creation trend load failed',
@@ -84,6 +87,8 @@ export default {
     }
   },
   workbench: {
+    statsPartialFail: 'Some statistics failed to load; retry the items shown as —',
+    unreadLoadFail: 'Failed to load unread notices',
     profile: 'Profile',
     notices: 'Notices',
     weekLogins: 'Week Logins',
