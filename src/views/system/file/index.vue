@@ -186,6 +186,7 @@ import download from '@/plugins/download'
 import modal from '@/plugins/modal'
 import { listFiles, uploadFile, deleteFile, downloadFileBlob } from '@/api/system/file'
 import type { FileInfo } from '@/api/system/file'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 
@@ -352,16 +353,12 @@ function handleDownload(row: FileInfo): void {
   download.name(row.fileName, false)
 }
 
-function handleCopyUrl(row: FileInfo): void {
+async function handleCopyUrl(row: FileInfo): Promise<void> {
   const fullUrl = getFullUrl(row.url)
-  navigator.clipboard
-    .writeText(fullUrl)
-    .then(() => {
-      modal.msgSuccess(t('file.tip.linkCopied'))
-    })
-    .catch(() => {
-      modal.msgError(t('common.copyFail'))
-    })
+  // 走 utils/clipboard：自托管 http 内网地址下 navigator.clipboard 不存在（非安全上下文），
+  // 原先直调会抛 TypeError 且 Promise 无人接住，按钮表现为"点了什么都不发生"
+  if (await writeClipboard(fullUrl)) modal.msgSuccess(t('file.tip.linkCopied'))
+  else modal.msgError(t('common.copyFail'))
 }
 
 async function handleDelete(row: FileInfo): Promise<void> {

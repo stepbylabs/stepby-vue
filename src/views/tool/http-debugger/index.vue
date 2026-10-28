@@ -164,6 +164,7 @@ import { ElMessage } from 'element-plus'
 import type { AxiosError } from 'axios'
 import { ALLOWED_METHODS, executeHttpDebug, type HttpDebugHeader, type HttpDebugResult } from '@/api/tool/httpDebug'
 import { errorHub } from '@/utils/errorHub'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 
@@ -241,12 +242,8 @@ async function copyResponse(): Promise<void> {
   const payload = result.value
     ? `${result.value.status} ${result.value.statusText || ''}\n\n${result.value.body}`
     : errorMsg.value
-  try {
-    await navigator.clipboard.writeText(payload)
-    ElMessage.success(t('httpDebug.copied'))
-  } catch {
-    errorHub.report('error', 'other', t('httpDebug.copyFail'))
-  }
+  if (await writeClipboard(payload)) ElMessage.success(t('httpDebug.copied'))
+  else errorHub.report('error', 'other', t('httpDebug.copyFail'))
 }
 </script>
 

@@ -217,6 +217,7 @@ import { makeUpJs } from '@/utils/generator/js'
 import { makeUpCss } from '@/utils/generator/css'
 import Download from '@/plugins/download'
 import modal from '@/plugins/modal'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 import { ElNotification } from 'element-plus'
 import DraggableItem from './DraggableItem.vue'
 import RightPanel from './RightPanel.vue'
@@ -394,10 +395,9 @@ function execDownload(data: GenerateConf): void {
 
 async function execCopy(): Promise<void> {
   const codeStr = generateCode()
-  try {
-    await navigator.clipboard.writeText(codeStr)
+  if (await writeClipboard(codeStr)) {
     ElNotification({ title: t('common.successStatus'), message: t('build.copyCodeSuccess'), type: 'success' })
-  } catch {
+  } else {
     modal.msgError(t('build.copyCodeFail'))
   }
 }

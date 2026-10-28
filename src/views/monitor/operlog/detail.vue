@@ -215,6 +215,7 @@
 <script setup lang="ts">
 import { CopyDocument } from '@element-plus/icons-vue'
 import modal from '@/plugins/modal'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 import type { SysOperLog } from '@/types/api/monitor/operlog'
 import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { parseOperDiff, heuristicDiff, type DiffItem } from './diff'
@@ -244,23 +245,12 @@ function formatJson(str?: string): string {
   }
 }
 
-function copyText(str?: string): void {
-  const text = formatJson(str)
-  if (navigator.clipboard) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => modal.msgSuccess(t('common.copySuccess')))
-      .catch(() => modal.msgError(t('common.copyFail')))
-  } else {
-    // 已废弃：execCommand('copy') 在部分浏览器中已被弃用，仅在 navigator.clipboard 不可用时作为降级方案
-    const ta = document.createElement('textarea')
-    ta.value = text
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    modal.msgSuccess(t('common.copySuccess'))
-  }
+async function copyText(str?: string): Promise<void> {
+  // 统一走 utils/clipboard（b111）：现代 API → 降级通道，返回真实结果；
+  // 此前降级分支忽略 execCommand 的返回值，剪贴板没写进去也报"复制成功"
+  const ok = await writeClipboard(formatJson(str))
+  if (ok) modal.msgSuccess(t('common.copySuccess'))
+  else modal.msgError(t('common.copyFail'))
 }
 
 // 变更对比逻辑：仅修改操作（businessType=2）展示

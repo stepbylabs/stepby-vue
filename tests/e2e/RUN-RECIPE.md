@@ -4461,3 +4461,45 @@ b102 给 `/system/tenant` 加了敏感档（容量 5 / 回填 0.05/s），而主
 结论随数据态漂移（本轮被我自己手工探针留下的 1 条租户撞红）。真实不变式只有一条：
 **未选租户时域名面板不得渲染**，空态与警告条二选一。配套纪律：**手工探针也是测试数据，必须自带
 `finally` 清理**——探针污染让一条判据红，说明判据在正确工作，而污染本身必须消失（台账 b110 N-110-E）。
+
+### 3.114 浏览器能力（剪贴板）单通道：桩、清场、三向断言与掩码层的 needle（b111 固化）
+
+剪贴板在本仓是**会抛错的通道**，不是可用 API：`navigator.clipboard.writeText` 只在**安全上下文**存在，
+自托管 `http://内网IP` 下该属性本身是 `undefined`（`navigator.clipboard` 也是 `undefined` ⇒ 读 `.writeText`
+当场 `TypeError`）。改造前 `git grep` HEAD 口径 = **11 文件 / 11 份实现 / 17 入口**，8 份是错的（3 假成功 /
+5 无降级 / 1 硬 TypeError / 1 旧值）。现全部收敛到 `src/utils/clipboard.ts::copyText(): Promise<boolean>`
+（现代 API 优先 → 异常/缺失**降级** → `execCommand` 返回布尔；空文本直接 false 且不碰任何通道），
+指令 `v-copyText` 回调签名 `(ok, value)`、`updated` 刷新缓存值。
+
+**① 浏览器级判据只判我们自己的分支，不判这台机器的剪贴板。** headless 的 copy 权限由启动策略决定
+（同一份码在不同机器上成功/失败都可能）⇒ 拿它断言就是 AGENTS ④"判据不得与环境耦合"。做法是把两条
+通道都换成可控桩、断言**结局**：
+
+```js
+// main.mjs 已内置（F66 指令路径 / F141 工具函数路径共用）
+await stubClipboard(page, execOk) // navigator.clipboard -> undefined；document.execCommand -> () => execOk
+await restoreClipboard(page) // 按 window.__b111Clipboard 记录的 descriptor 复原
+```
+
+- 桩成**失败** ⇒ 必须弹失败提示 **且页面还在**（`navigator.clipboard.writeText` 在旧实现里同步抛
+  `TypeError`，事件处理器里逸出会被 ErrorBoundary 接管 ⇒ "点一下复制，整页没了"）；
+- 桩成**成功** ⇒ 必须弹成功提示（证明**返回值被消费**——无脑弹"已复制"与真判返回值，在失败分支上的表现相反）；
+- **还原本身单独判一条**（"我调了还原函数" ≠ "环境真回到原样"，否则后续用例继承假环境，别处
+  "失败必须可见"永远绿）。桩的原始状态必须连同**"原本有没有"**一起记录，否则 `delete` 与 `defineProperty` 用错方向。
+
+**② 验证失败态的断言会留下副作用，存在性判据与缺失性判据共用同一个 Toast 容器时，顺序就是判据的一部分。**
+F66 的旧断言「取消同步：0 Toast」在加了"复制失败必须可见"之后变红（实测 `post=0 / ok=1 / err=1`）——
+不是旧断言错，也不是新断言错，是那条 error Toast 还没消失。修法是**清场**而不是放宽：
+`await waitToastsCleared(page)`（等 `.el-message` 归零）插在两个断言块之间；F66/F141 复跑 24/24。
+
+**③ 静态守卫的 needle 必须能在掩码后存活，并且守卫自己要自证活性。**
+`src/utils/clipboard.guard.test.ts` 第一版用 `document\s*\[\s*['"]execCommand['"]\s*\]` 抓括号访问，
+真实树与合成用例**双双 0 命中**：扫描器共用的 `muteNonCode` 会把字符串内容抹成空白（`document[   ](`），
+针被掩码吃掉了。改成形状判据 `\bdocument\s*\[\s*\]\s*\(`（"字符串键下标调用"），并把"动态拼接的键
+（`document['exec' + 'Command']`）看不见"写成已知局限。守卫的四类必备用例：真实树 0 违规 +
+**采集面自证**（507/508，唯一缺席是纯展示 SFC，原因逐条核对）+ 合成违规必抓且行号指对 + 合规反例不误报；
+再配**逐消费点接线反查**（11 个 `import` + 2 处 `v-copyText`，少一个就红——否则下一个页面照抄旧写法没人拦）。
+
+**④ 变异证伪要各打一条腿、且还原后逐字节比对**：M1 真实树塞裸写 ⇒ 守卫点名 `views/system/file/index.vue:362`；
+M2 util 丢弃返回值 ⇒ 3 条单测红；M3 清空 `updated` ⇒ 3 条指令单测 + 守卫红；M4 改回括号形式 ⇒ 通道形状断言红。
+四条互不顶班，才说明四条腿各自真的在判。还原用 `cp -p`（连 mtime 一起还原，见 AGENTS ㉖/RUN-RECIPE §3.99）。

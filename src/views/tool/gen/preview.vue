@@ -190,8 +190,9 @@ const highlightedCode = computed(() => {
   return escapeHtml(code)
 })
 
-function copyTextSuccess() {
-  modal.msgSuccess(t('common.copySuccess'))
+function copyTextSuccess(ok: boolean) {
+  if (ok) modal.msgSuccess(t('common.copySuccess'))
+  else modal.msgError(t('common.copyFail'))
 }
 
 /** 打开预览弹窗并拉取指定表的生成代码 */

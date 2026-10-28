@@ -389,6 +389,7 @@ import {
 } from '@/api/sso'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -556,37 +557,11 @@ function finishReveal(): void {
   revealed.value = { clientId: '', clientSecret: '' }
 }
 
-function copy(text: string, label: string): void {
-  if (!text) return
-  const fallback = () => {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    let ok = false
-    try {
-      ok = document.execCommand('copy')
-    } catch {
-      ok = false
-    }
-    document.body.removeChild(ta)
-    return ok
-  }
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => ElMessage.success(t('sso.secret.copied', { label })))
-      .catch(() => {
-        if (fallback()) ElMessage.success(t('sso.secret.copied', { label }))
-        else ElMessage.error(t('sso.secret.copyFailed'))
-      })
-  } else if (fallback()) {
-    ElMessage.success(t('sso.secret.copied', { label }))
-  } else {
-    ElMessage.error(t('sso.secret.copyFailed'))
-  }
+async function copy(text: string, label: string): Promise<void> {
+  // 统一走 utils/clipboard（b111）：现代 API → 降级通道，返回真实结果
+  const ok = await writeClipboard(text)
+  if (ok) ElMessage.success(t('sso.secret.copied', { label }))
+  else ElMessage.error(t('sso.secret.copyFailed'))
 }
 
 const toggleLoading = ref(0)

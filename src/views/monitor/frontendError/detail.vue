@@ -130,6 +130,7 @@
 <script setup lang="ts">
 import { CopyDocument } from '@element-plus/icons-vue'
 import modal from '@/plugins/modal'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 import type { SysFrontendError } from '@/types/api/monitor/frontendError'
 
 const { t, te } = useI18n()
@@ -166,24 +167,12 @@ const vitalText = computed<string>(() => {
   return `${Math.round(v)} ms`
 })
 
-function copyText(str?: string): void {
-  const text = str || ''
-  if (!text) return
-  if (navigator.clipboard) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => modal.msgSuccess(t('common.copySuccess')))
-      .catch(() => modal.msgError(t('common.copyFail')))
-  } else {
-    // 已废弃：仅在 navigator.clipboard 不可用时降级
-    const ta = document.createElement('textarea')
-    ta.value = text
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    modal.msgSuccess(t('common.copySuccess'))
-  }
+async function copyText(str?: string): Promise<void> {
+  // 统一走 utils/clipboard（b111）：现代 API → 降级通道，返回真实结果；
+  // 此前降级分支忽略 execCommand 的返回值，剪贴板没写进去也报"复制成功"
+  const ok = await writeClipboard(str || '')
+  if (ok) modal.msgSuccess(t('common.copySuccess'))
+  else modal.msgError(t('common.copyFail'))
 }
 </script>
 

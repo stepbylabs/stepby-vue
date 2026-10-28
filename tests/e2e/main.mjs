@@ -295,6 +295,83 @@ async function gotoDynamicRoute(page, url, pathToken) {
 }
 
 /**
+ * 剪贴板通道桩（b111）：把 `navigator.clipboard` 与 `document.execCommand` 换成页面内可控实现。
+ *
+ * 为什么必须桩掉而不能直接读真实剪贴板：headless 浏览器是否放行 clipboard 由策略/权限决定，
+ * 把判据建在它上面等于让门禁绿红由环境决定（AGENTS 测试门禁全景 前言 ④）。而本批要证的是
+ * **我们这一侧的分支**：两条通道都失败时必须报失败、降级通道返回 true 时必须报成功。
+ * 桩只替换浏览器能力，产品代码与点击链路原样执行。
+ *
+ * 返回是否真的装上——装不上即判红，不得静默跳过（⑥：零捕获 ≠ PASS）。
+ */
+async function stubClipboard(page, execOk) {
+  return page
+    .evaluate((ok) => {
+      const w = window
+      try {
+        if (!w.__b111Clipboard) {
+          w.__b111Clipboard = {
+            clipboard: Object.getOwnPropertyDescriptor(navigator, 'clipboard'),
+            exec: Object.getOwnPropertyDescriptor(document, 'execCommand')
+          }
+        }
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+        Object.defineProperty(document, 'execCommand', { value: () => ok, configurable: true })
+        return true
+      } catch {
+        return false
+      }
+    }, execOk)
+    .catch(() => false)
+}
+
+/** 还原 {@link stubClipboard} 改过的两条通道（后续用例不得继承被改造过的环境） */
+async function restoreClipboard(page) {
+  return page
+    .evaluate(() => {
+      const w = window
+      const saved = w.__b111Clipboard
+      if (!saved) return false
+      try {
+        if (saved.clipboard) Object.defineProperty(navigator, 'clipboard', saved.clipboard)
+        else Reflect.deleteProperty(navigator, 'clipboard')
+        if (saved.exec) Object.defineProperty(document, 'execCommand', saved.exec)
+        else Reflect.deleteProperty(document, 'execCommand')
+        delete w.__b111Clipboard
+        return true
+      } catch {
+        return false
+      }
+    })
+    .catch(() => false)
+}
+
+/** 等一条可见的 EP 消息（按文案精确过滤，整页 innerText 不算——时钟/日志里的数字会把它洗绿） */
+async function waitToast(page, text, timeout = 6000) {
+  return page
+    .locator('.el-message')
+    .filter({ hasText: text })
+    .first()
+    .waitFor({ state: 'visible', timeout })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
+ * 等现有 EP 消息全部自消。
+ *
+ * 为什么必须等：同一功能内后续断言会数"当前可见的 `.el-message--error|success`"
+ * （F66 的"取消同步：0 Toast"就是这么写的），残留一条就把**别人的**判据染红。
+ * 这是"构造断言副作用"的反面教训——验证失败态本身没问题，但不能把副作用留在共用页面里。
+ */
+async function waitToastsCleared(page, timeout = 8000) {
+  return page
+    .waitForFunction(() => document.querySelectorAll('.el-message').length === 0, undefined, { timeout })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
  * 测试债轮抽取的「页面打开五连」样板：presetTourDisabled → goto（动态路由重试）
  * → sleep(1500) → skipTour → is404 判定。
  * 替换 F91/F92/F100/F101 中 16 处重复的「预置 tour → goto → sleep → skipTour → 非404」
@@ -15065,6 +15142,36 @@ async function testFeature66(page) {
       `tag=${langTag1}, len=${codeLen1}`
     )
     record(66, 'TS 文件同样获 Prism 高亮 token', tokens1 > 0, `tokens=${tokens1}`)
+    // 复制按钮（v-copyText 指令，b111）：旧实现的回调只有 value、没有 ok，降级分支也不看
+    // execCommand 的返回值 ⇒ 复制失败照样报"复制成功"。这里桩掉两条通道，确定性验证
+    // 指令回调真的按 ok 分支提示，且失败不会把弹窗/页面带走。
+    const copyBtn = dlg.getByRole('button', { name: '复制' }).first()
+    const stubFail = await stubClipboard(page, false)
+    await copyBtn.click().catch(() => {})
+    const failToast = await waitToast(page, '复制失败')
+    const dlgAlive = await dlg.isVisible().catch(() => false)
+    record(
+      66,
+      '复制：两条通道都失败时必须报失败，且弹窗不得被卸载',
+      stubFail && failToast && dlgAlive,
+      `stub=${stubFail}, toast=${failToast}, dlg=${dlgAlive}`
+    )
+
+    const stubOk = await stubClipboard(page, true)
+    await copyBtn.click().catch(() => {})
+    const okToast = await waitToast(page, '复制成功')
+    record(
+      66,
+      '复制：降级通道返回成功时必须报成功（指令回调消费真实结果）',
+      stubOk && okToast,
+      `stub=${stubOk}, toast=${okToast}`
+    )
+
+    const restored = await restoreClipboard(page)
+    record(66, '复制：剪贴板桩已还原', restored, `restored=${restored}`)
+    // 清掉本轮制造的 toast：下面的"取消同步：0 Toast"数的是当前可见消息，
+    // 残留一条就把它染红（实测第一版就是 06:31:58 的复制失败把 06:32:00 的判据打红）
+    await waitToastsCleared(page)
     // Esc 依赖焦点在弹窗内不可靠，改点弹窗自身的关闭按钮
     await dlg.locator('.el-dialog__headerbtn').first().click()
     await sleep(600)
@@ -27981,6 +28088,49 @@ async function testFeature141(page) {
     record(141, '④ UI 上传落库（列表首行新增 .txt）', false, `异常: ${err.message.slice(0, 100)}`)
   }
 
+  // ⑤⑥⑦ 复制链接的真实结局（b111）：文件页原先直调 `navigator.clipboard.writeText`，
+  // 非安全上下文（自托管 http://内网IP）下该 API 不存在 ⇒ 事件处理器同步抛 TypeError
+  // ⇒ ErrorBoundary 接管，用户看到的是"点一下复制，整页没了"。这里把两条通道都换成
+  // 可控桩，确定性验证三件事：失败必须报失败且页面还在、降级成功必须报成功（返回值被消费）、
+  // 桩必须还原（不得把改造过的环境留给后续用例）。
+  if (uploadedName) {
+    const row = page.locator('.el-table__row').filter({ hasText: uploadedName }).first()
+    const rowOk = await _visible(row, 5000)
+    const copyBtn = row.getByRole('button', { name: '复制链接' }).first()
+    const stubFail = rowOk && (await stubClipboard(page, false))
+    await copyBtn.click().catch(() => {})
+    const failToast = await waitToast(page, '复制失败')
+    const tableAlive = await _visible(page.locator('.el-table').first(), 3000)
+    record(
+      141,
+      '⑤ 复制链接失败必须可见，且页面不得被整页卸载',
+      stubFail && failToast && tableAlive,
+      `stub=${stubFail}, toast=${failToast}, table=${tableAlive}`
+    )
+
+    const stubOk = await stubClipboard(page, true)
+    await copyBtn.click().catch(() => {})
+    const okToast = await waitToast(page, '链接已复制')
+    record(
+      141,
+      '⑥ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
+      stubOk && okToast,
+      `stub=${stubOk}, toast=${okToast}`
+    )
+
+    const restored = await restoreClipboard(page)
+    record(141, '⑦ 剪贴板桩已还原（后续用例不得继承改造过的通道）', restored, `restored=${restored}`)
+    await waitToastsCleared(page)
+  } else {
+    for (const name of [
+      '⑤ 复制链接失败必须可见，且页面不得被整页卸载',
+      '⑥ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
+      '⑦ 剪贴板桩已还原（后续用例不得继承改造过的通道）'
+    ]) {
+      record(141, name, false, '上传未落库，无行内复制按钮可点')
+    }
+  }
+
   // ⑤ UI 删除：行内删除按钮 → 确认弹窗 → API 复核移除（自清理，失败走 API 兜底）
   if (uploadedName) {
     try {
@@ -28002,9 +28152,9 @@ async function testFeature141(page) {
       )
       const rows2 = list2.body?.data?.rows || list2.body?.rows || []
       const still = Array.isArray(rows2) ? rows2.find((f) => f.fileName === uploadedName) : null
-      record(141, '⑤ UI 删除（API 复核已移除）', !still, `remaining=${!!still}`)
+      record(141, '⑧ UI 删除（API 复核已移除）', !still, `remaining=${!!still}`)
     } catch (err) {
-      record(141, '⑤ UI 删除（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
+      record(141, '⑧ UI 删除（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
       try {
         const token = await sessionTokenOf(page)
         await apiWithBackoff('/system/file/delete', {
@@ -28017,7 +28167,7 @@ async function testFeature141(page) {
       }
     }
   } else {
-    record(141, '⑤ UI 删除（API 复核已移除）', false, '上传未落库，跳过删除')
+    record(141, '⑧ UI 删除（API 复核已移除）', false, '上传未落库，跳过删除')
   }
 }
 

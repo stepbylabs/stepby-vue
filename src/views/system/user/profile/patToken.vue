@@ -183,6 +183,7 @@ import { listMyTokens, getScopeOptions, createToken, revokeMyToken, rotateAk, re
 import type { AjaxResult, RotateAkResult } from '@/types'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 
@@ -290,39 +291,11 @@ function submitCreate(): void {
   })
 }
 
-function copyText(text: string): void {
-  if (!text) return
-  const done = () => ElMessage.success(t('pat.msg.copied'))
-  const fail = () => ElMessage.error(t('pat.msg.copyFailed'))
-  const fallback = () => {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    let ok = false
-    try {
-      ok = document.execCommand('copy')
-    } catch {
-      ok = false
-    }
-    document.body.removeChild(ta)
-    return ok
-  }
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard
-      .writeText(text)
-      .then(done)
-      .catch(() => {
-        if (fallback()) done()
-        else fail()
-      })
-  } else if (fallback()) {
-    done()
-  } else {
-    fail()
-  }
+async function copyText(text: string): Promise<void> {
+  // 统一走 utils/clipboard（b111）：现代 API → 降级通道，返回真实结果
+  const ok = await writeClipboard(text)
+  if (ok) ElMessage.success(t('pat.msg.copied'))
+  else ElMessage.error(t('pat.msg.copyFailed'))
 }
 
 function copyToken(): void {

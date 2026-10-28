@@ -254,8 +254,10 @@ async function handleDisable(): Promise<void> {
   })
 }
 
-function copySuccess(): void {
-  modal.msgSuccess(t('profile.totp.keyCopied'))
+function copySuccess(ok: boolean): void {
+  // 复制结果是真实结局（b111）：失败时不得再报"已复制"
+  if (ok) modal.msgSuccess(t('profile.totp.keyCopied'))
+  else modal.msgError(t('common.copyFail'))
 }
 
 onMounted(loadStatus)

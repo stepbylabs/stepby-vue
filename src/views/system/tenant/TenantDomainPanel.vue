@@ -184,6 +184,7 @@ import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { validateForm } from '@/utils/formValidate'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 import useUserStore from '@/store/modules/user'
 
 /**
@@ -331,16 +332,10 @@ async function handleVerify(row: TenantDomainVo) {
 async function copyTxtValue() {
   const value = verifyResult.value?.txtValue
   if (!value) return
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-    } else {
-      throw new Error('clipboard unavailable')
-    }
-    proxy?.$modal.msgSuccess(t('tenantDomain.copyOk'))
-  } catch {
-    proxy?.$modal.msgError(t('common.failed'))
-  }
+  // 统一走 utils/clipboard（b111）：此前无降级通道，自托管 http 下该按钮永远复制不了
+  const ok = await writeClipboard(value)
+  if (ok) proxy?.$modal.msgSuccess(t('tenantDomain.copyOk'))
+  else proxy?.$modal.msgError(t('common.failed'))
 }
 
 async function handleSetPrimary(row: TenantDomainVo) {

@@ -97,6 +97,7 @@ import { Key, Search, Compass, Setting, Monitor } from '@element-plus/icons-vue'
 import useSettingsStore, { DEFAULT_HOTKEYS } from '@/store/modules/settings'
 import { formatHotkey } from '@/composables/useGlobalHotkeys'
 import { errorHub } from '@/utils/errorHub'
+import { copyText as writeClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -104,12 +105,8 @@ const searchKeyword = ref('')
 
 // 复制快捷键组合到剪贴板
 async function copyShortcut(keys: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(keys)
-    ElMessage.success(t('shortcuts.copySuccess'))
-  } catch {
-    errorHub.report('warning', 'other', t('shortcuts.copyFail'))
-  }
+  if (await writeClipboard(keys)) ElMessage.success(t('shortcuts.copySuccess'))
+  else errorHub.report('warning', 'other', t('shortcuts.copyFail'))
 }
 
 interface ShortcutItem {
