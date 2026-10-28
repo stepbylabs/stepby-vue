@@ -46,6 +46,8 @@ interface NoticeState {
   loadFailed: boolean
   /** P1 修复: 进行中的刷新 Promise，用于消除竞态条件 */
   refreshPromise: Promise<void> | null
+  /** 在途期间又来了"代表新事件"的刷新请求（WS 公告帧），当前轮结束后必须补一轮 */
+  refreshQueued: boolean
 }
 
 const useNoticeStore = defineStore('notice', {
@@ -56,7 +58,8 @@ const useNoticeStore = defineStore('notice', {
     readIds: new Set<number>(),
     loading: false,
     loadFailed: false,
-    refreshPromise: null
+    refreshPromise: null,
+    refreshQueued: false
   }),
   getters: {
     /** 判断指定公告是否已读 */
@@ -86,24 +89,38 @@ const useNoticeStore = defineStore('notice', {
      * P1 修复: 使用 promise reuse 模式消除竞态条件。
      * 当多个调用者并发触发 refreshTopNotices 时，它们共享同一个 Promise，
      * 避免旧请求返回后覆盖新请求的结果，同时保证所有调用者都能拿到最新数据。
+     *
+     * @param trailing 本次调用是否代表一次**新事件**（WS 公告帧）而不是"我也要一份当前数据"。
+     *   WS 推送可能在刷新在途时到达，而在途请求读的是事件之前的数据集 —— 直接复用它的
+     *   promise 会把这次变更静默吞掉（铃铛少 1 直到下次交互）。trailing=true 时在当前轮
+     *   结束后补取一轮，把"事件到达"这件事真正落到状态上；默认 false 保住并发去重
+     *   （挂载期多个组件同时请求只打一次，request-storm 的密度也不会因补刷而漂）。
      */
-    async refreshTopNotices(): Promise<void> {
+    async refreshTopNotices(trailing = false): Promise<void> {
       // P1 修复: 复用进行中的 Promise，避免竞态条件
-      if (this.refreshPromise) return this.refreshPromise
-      this.loading = true
+      if (this.refreshPromise) {
+        if (trailing) this.refreshQueued = true
+        return this.refreshPromise
+      }
       this.refreshPromise = (async () => {
         try {
-          const res = await listNoticeTop()
-          this.topNotices = res.data || []
-          this.unreadCount =
-            res.unreadCount !== undefined ? res.unreadCount : this.topNotices.filter((n: SysNotice) => !n.isRead).length
-          // 缺字段按 0 fail-safe（与 unreadCount 同口径：宁可不显示数字，也不显示来路不明的数）
-          this.totalCount = res.totalCount !== undefined ? res.totalCount : 0
-          // 同步 readIds：listTop 返回的每条公告带 isRead 字段
-          this.readIds = new Set(
-            this.topNotices.filter((n: SysNotice) => n.isRead).map((n: SysNotice) => n.noticeId as number)
-          )
-          this.loadFailed = false
+          do {
+            this.refreshQueued = false
+            this.loading = true
+            const res = await listNoticeTop()
+            this.topNotices = res.data || []
+            this.unreadCount =
+              res.unreadCount !== undefined
+                ? res.unreadCount
+                : this.topNotices.filter((n: SysNotice) => !n.isRead).length
+            // 缺字段按 0 fail-safe（与 unreadCount 同口径：宁可不显示数字，也不显示来路不明的数）
+            this.totalCount = res.totalCount !== undefined ? res.totalCount : 0
+            // 同步 readIds：listTop 返回的每条公告带 isRead 字段
+            this.readIds = new Set(
+              this.topNotices.filter((n: SysNotice) => n.isRead).map((n: SysNotice) => n.noticeId as number)
+            )
+            this.loadFailed = false
+          } while (this.refreshQueued)
         } catch (e) {
           // 失败留痕并保留旧列表：调用方（HeaderNotice）据此渲染失败态与重试入口。
           // 拒绝继续上抛——调用方仍要能感知失败（不允许把错误吞成"刷新完成"）。
@@ -112,6 +129,7 @@ const useNoticeStore = defineStore('notice', {
         } finally {
           this.loading = false
           this.refreshPromise = null
+          this.refreshQueued = false
         }
       })()
       return this.refreshPromise
@@ -202,6 +220,7 @@ const useNoticeStore = defineStore('notice', {
       this.loading = false
       this.loadFailed = false
       this.refreshPromise = null
+      this.refreshQueued = false
     }
   }
 })

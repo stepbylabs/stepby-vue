@@ -150,6 +150,34 @@ describe('store/modules/notice', () => {
     expect(mocked.listNoticeTop).toHaveBeenCalledTimes(1)
   })
 
+  it('refreshTopNotices(trailing)：在途期间到达的新事件必须补取一轮，不得被 promise 复用吞掉', async () => {
+    const resolvers: Array<(v: SysNoticeTopResult) => void> = []
+    mocked.listNoticeTop.mockImplementation(() => new Promise<SysNoticeTopResult>((r) => resolvers.push(r)))
+    const store = useNoticeStore()
+    const first = store.refreshTopNotices()
+    // 第一条公告的刷新还没回来时，第二条公告的 WS 帧到达（服务端已经写入，帧晚于写入）
+    const second = store.refreshTopNotices(true)
+    expect(resolvers).toHaveLength(1) // 在途期间不并发打请求
+    resolvers[0]({ data: [{ noticeId: 1, isRead: false }], unreadCount: 1, totalCount: 1 } as SysNoticeTopResult)
+    await new Promise((r) => setTimeout(r, 0))
+    // 补取必须真的发出去：否则在途响应（读的是第二条公告落库之前的数据集）会把这次变更洗掉
+    expect(resolvers).toHaveLength(2)
+    resolvers[1]({
+      data: [
+        { noticeId: 1, isRead: false },
+        { noticeId: 2, isRead: false }
+      ],
+      unreadCount: 2,
+      totalCount: 2
+    } as SysNoticeTopResult)
+    await first
+    await second
+    expect(store.unreadCount).toBe(2)
+    expect(store.topNotices).toHaveLength(2)
+    expect(store.refreshPromise).toBeNull()
+    expect(store.loading).toBe(false)
+  })
+
   it('markRead optimistically updates and calls the API', async () => {
     mocked.listNoticeTop.mockResolvedValue({ data: [{ noticeId: 5, isRead: false }] } as SysNoticeTopResult)
     mocked.markNoticeRead.mockResolvedValue({} as AjaxResult)

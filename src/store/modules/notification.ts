@@ -17,15 +17,30 @@ interface NotificationState {
   list: NotificationItem[]
   unreadCount: number
   connected: boolean
+  /**
+   * 公告数据变更序号（b116）
+   *
+   * 只在"服务端可能改动过公告数据"时递增：WS 的 notice 帧（增/改/关/删）与**重连**
+   * （断线期间会漏帧）。首次连接不递增——首屏取数由各消费方挂载时自己完成，
+   * 在这里加一记就是给全站每次导航多打一次请求（request-storm 会记成密度退步）。
+   * AnnouncementBanner 据此重取"最新一条公告"，它与铃铛读的是不同口径（只取公告类型
+   * 且服务端只回 1 条），不能共用 listTop 的列表。
+   */
+  noticeEventSeq: number
 }
 
 let notificationId = 0
 // 防止 init() 重复注册事件监听导致回调累积
 let listenersRegistered = false
+// 是否已经连上过一次（b116）：第二次及以后的 open 才是"重连"，此时断线期间可能漏过公告帧
+let hasConnectedOnce = false
 
 // P1 修复: 监听器使用具名函数，便于 disconnect 时 off 移除，避免回调累积
 const onOpen = () => {
-  useNotificationStore()._setConnected(true)
+  const store = useNotificationStore()
+  store._setConnected(true)
+  if (hasConnectedOnce) store._markNoticeDataChanged()
+  hasConnectedOnce = true
   // R12：重连后补全断线期间错过的通知（首次连接也会加载顶部公告，幂等无副作用）
   useNoticeStore()
     .refreshTopNotices()
@@ -46,9 +61,12 @@ const onNotice = (msg: WsMessage) => {
       timestamp: msg.timestamp
     })
   }
-  // 联动 HeaderNotice 铃铛角标：任何可见性变化都要重新取顶部公告与未读数
+  // 联动 HeaderNotice 铃铛角标：任何可见性变化都要重新取顶部公告与未读数。
+  // trailing=true：这是一次**新事件**，若刷新正在途，在途结果可能早于本帧，必须补取一轮
+  // （否则连续两条公告时第二条会被 promise 复用吞掉，角标少 1 直到下次交互）。
+  useNotificationStore()._markNoticeDataChanged()
   useNoticeStore()
-    .refreshTopNotices()
+    .refreshTopNotices(true)
     .catch(() => {})
 }
 const onOperLog = (msg: WsMessage) => {
@@ -78,12 +96,17 @@ const useNotificationStore = defineStore('notification', {
   state: (): NotificationState => ({
     list: [],
     unreadCount: 0,
-    connected: false
+    connected: false,
+    noticeEventSeq: 0
   }),
   actions: {
     /** 内部使用：更新连接状态（供模块级回调调用） */
     _setConnected(val: boolean) {
       this.connected = val
+    },
+    /** 内部使用：标记"服务端可能改动过公告数据"（WS notice 帧 / 重连） */
+    _markNoticeDataChanged() {
+      this.noticeEventSeq += 1
     },
     /** 初始化 WebSocket 连接并订阅消息 */
     init() {
@@ -167,6 +190,9 @@ const useNotificationStore = defineStore('notification', {
     disconnect() {
       wsService.disconnect()
       this.connected = false
+      // 显式断开是会话边界：下一次连接不是"重连"，不该记一笔"可能漏了公告帧"
+      // （断网重连走的是 onclose → scheduleReconnect，不经过这里）
+      hasConnectedOnce = false
       // P1 修复: 移除事件监听器，避免 disconnect→init 循环后回调累积
       if (listenersRegistered) {
         wsService.off('open', onOpen)

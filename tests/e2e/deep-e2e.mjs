@@ -8186,6 +8186,213 @@ async function testModule25(page, consoleErrors, pageErrors) {
     recordSkip(M, 'AnnouncementBanner: 横幅按最新公告可见', 'API 未取到 token，无法构造夹具公告')
   } else {
     const bannerHdr = { Authorization: `Bearer ${bannerToken}`, 'Content-Type': 'application/json' }
+    // 25.8a 公告实时推送（b116）：WS notice 帧 → 铃铛角标 / 公告横幅，全程不刷新页面
+    // 立项：b100 给了服务端推送（发布/更新/关闭/删除都向同租户广播），后端有集成测试、
+    // 前端有 store 单测，但"真浏览器里这一帧到底有没有到、到了界面有没有动"没有任何判据
+    // （`grep framereceived / page.on('websocket')` 在两套 e2e 里都是 0 处）。
+    // 页面级 listener 只捕获 attach 之后建立的连接，所以先挂监听再重建一次页面。
+    const liveTitle = `E2E116实时公告${Date.now()}`
+    const liveFrames = []
+    const liveWsUrls = []
+    let liveId = null
+    let liveDelStatus = -1
+    const onWs = (ws) => {
+      liveWsUrls.push(ws.url())
+      ws.on('framereceived', (frame) => {
+        try {
+          const raw = typeof frame.payload === 'string' ? frame.payload : Buffer.from(frame.payload).toString('utf8')
+          if (raw && raw.length < 20000) liveFrames.push(JSON.parse(raw))
+        } catch {
+          // 非 JSON 帧不参与（客户端心跳发的裸 'ping'）
+        }
+      })
+    }
+    // 一次性轮询：返回 { ok, ...实测值 }；读取失败按"还没到达"继续等，
+    // 不把工具异常当成产品结论（异常最终由 ok=false 表现，并带出最后一次实测值）
+    const pollAsync = async (fn, timeoutMs, interval = 150) => {
+      const deadline = Date.now() + timeoutMs
+      let last = { ok: false }
+      while (Date.now() < deadline) {
+        try {
+          last = await fn()
+        } catch {
+          last = { ok: false }
+        }
+        if (last && last.ok) return last
+        await sleep(interval)
+      }
+      return last
+    }
+    // 一律用一次 evaluate 读取：locator.innerText() 自带 actionability 等待，
+    // 元素不存在时会干等满 30s（b88 §9 实测），"轮询到落定"会被它偷成"轮询到超时"
+    const readBadge = () =>
+      page
+        .evaluate(() => {
+          const el = document.querySelector('.notice-badge')
+          return el ? Number((el.textContent || '').trim()) || 0 : 0
+        })
+        .catch(() => -1)
+    const readBanner = () =>
+      page
+        .evaluate(() => {
+          const el = document.querySelector('.announcement-banner')
+          return el ? { visible: true, text: (el.textContent || '').trim() } : { visible: false, text: '' }
+        })
+        .catch(() => ({ visible: false, text: '' }))
+    page.on('websocket', onWs)
+    try {
+      // 重建页面：让布局重新建连（首次连接的 welcome 帧也在这条连接上）
+      const topRespP = page
+        .waitForResponse((r) => /\/system\/notice\/listTop/.test(r.url()), { timeout: 15000 })
+        .catch(() => null)
+      await page.evaluate(() => localStorage.removeItem('announcement-banner-dismissed')).catch(() => {})
+      await page.reload({ waitUntil: 'load', timeout: 20000 }).catch(() => {})
+      await topRespP
+      await pollAsync(async () => ({ ok: liveWsUrls.length > 0 }), 10000)
+      await pollAsync(
+        async () => ({ ok: liveFrames.some((f) => f && f.type === 'system' && f.data && f.data.kind === 'connected') }),
+        10000
+      )
+      await sleep(400)
+      // 基线读数必须等它"连续两拍相同"再采：单拍读到的是渲染中间态时，后面的 +1 判据会跟着漂
+      let badgeBase = await readBadge()
+      await pollAsync(
+        async () => {
+          const v = await readBadge()
+          const ok = v === badgeBase
+          badgeBase = v
+          return { ok }
+        },
+        3000,
+        200
+      )
+      // 不刷新标记：整段实时链路跑完后它仍在 ⇒ 期间没有发生导航/刷新（界面变化不是 reload 带来的）
+      await page.evaluate(() => {
+        window.__b116NoReload = 'live'
+      })
+      record(
+        M,
+        '公告实时推送: 页面重建后恰好一条 WS 连接（无重复建连）',
+        liveWsUrls.length === 1,
+        `连接=${liveWsUrls.length} urls=${liveWsUrls.join(',')}`
+      )
+      let createStatus = -1
+      const cr = await fetch(`${CONFIG.backendUrl}/system/notice`, {
+        method: 'POST',
+        headers: bannerHdr,
+        body: JSON.stringify({
+          noticeTitle: liveTitle,
+          noticeType: '2',
+          noticeContent: 'b116 公告实时推送判据夹具',
+          status: '0'
+        })
+      }).catch(() => null)
+      createStatus = cr ? cr.status : -1
+      if (createStatus === 200) {
+        const lr = await fetch(
+          `${CONFIG.backendUrl}/system/notice/list?pageSize=20&status=0&noticeType=2&noticeTitle=${encodeURIComponent(liveTitle)}`,
+          { headers: bannerHdr }
+        ).catch(() => null)
+        const lj = lr && lr.ok ? await lr.json().catch(() => null) : null
+        const lrows = (lj && (lj.rows || (lj.data && lj.data.rows))) || []
+        const hit = lrows.find((x) => String(x.noticeTitle) === liveTitle)
+        if (hit) liveId = hit.noticeId
+      }
+      const pub = await pollAsync(async () => {
+        return {
+          ok: liveFrames.some(
+            (f) =>
+              f &&
+              f.type === 'notice' &&
+              f.data &&
+              f.data.action === 'published' &&
+              String(f.data.title || '') === liveTitle
+          ),
+          frame: liveFrames.find(
+            (f) =>
+              f &&
+              f.type === 'notice' &&
+              f.data &&
+              f.data.action === 'published' &&
+              String(f.data.title || '') === liveTitle
+          )
+        }
+      }, 8000)
+      record(
+        M,
+        '公告实时推送: 浏览器收到 published 帧（标题+noticeId）',
+        createStatus === 200 && !!pub.frame && Number(pub.frame.data.noticeId) > 0,
+        `建公告HTTP=${createStatus} id=${liveId} action=${pub.frame && pub.frame.data.action} title=${pub.frame && pub.frame.data.title}`
+      )
+      let badgeAfter = badgeBase
+      const badgeUp = await pollAsync(async () => {
+        badgeAfter = await readBadge()
+        return { ok: badgeAfter === badgeBase + 1 }
+      }, 8000)
+      const markerOk = await page.evaluate(() => window.__b116NoReload === 'live').catch(() => false)
+      record(
+        M,
+        '公告实时推送: 铃铛角标无刷新 +1（WS→listTop→store）',
+        badgeUp.ok && markerOk,
+        `基线=${badgeBase} 现值=${badgeAfter} 未刷新=${markerOk}`
+      )
+      let bannerLive = { visible: false, text: '' }
+      const bannerUp = await pollAsync(async () => {
+        bannerLive = await readBanner()
+        return { ok: bannerLive.visible && bannerLive.text.includes(liveTitle) }
+      }, 8000)
+      record(
+        M,
+        '公告实时推送: 横幅无刷新切到新公告（另取"最新 1 条公告"口径）',
+        bannerUp.ok,
+        `可见=${bannerLive.visible} 文本前60="${bannerLive.text.replace(/\s+/g, ' ').slice(0, 60)}"`
+      )
+      if (liveId) {
+        const dr = await fetch(`${CONFIG.backendUrl}/system/notice/${liveId}`, {
+          method: 'DELETE',
+          headers: bannerHdr
+        }).catch(() => null)
+        liveDelStatus = dr ? dr.status : -1
+      }
+      const delFrame = await pollAsync(
+        async () => ({
+          ok: liveFrames.some((x) => x && x.type === 'notice' && x.data && x.data.action === 'deleted')
+        }),
+        8000
+      )
+      record(
+        M,
+        '公告实时推送: 删除后收到 deleted 帧',
+        liveDelStatus === 200 && delFrame.ok,
+        `删除HTTP=${liveDelStatus} 帧=${delFrame.ok}`
+      )
+      let badgeBack = -1
+      const back = await pollAsync(async () => {
+        badgeBack = await readBadge()
+        return { ok: badgeBack === badgeBase }
+      }, 8000)
+      record(M, '公告实时推送: 删除后角标回落到基线', back.ok, `基线=${badgeBase} 现值=${badgeBack}`)
+      let bannerAfterDel = { visible: false, text: '' }
+      const bannerCleared = await pollAsync(async () => {
+        bannerAfterDel = await readBanner()
+        return { ok: !bannerAfterDel.text.includes(liveTitle) }
+      }, 8000)
+      record(
+        M,
+        '公告实时推送: 删除后横幅不再显示该公告',
+        bannerCleared.ok,
+        `可见=${bannerAfterDel.visible} 文本前60="${bannerAfterDel.text.replace(/\s+/g, ' ').slice(0, 60)}"`
+      )
+    } finally {
+      page.off('websocket', onWs)
+      // 兜底清理：只有删除没成功才补一次（重复删除会造一条真实失败操作，污染 oper_log 审计面）
+      if (liveId && liveDelStatus !== 200) {
+        await fetch(`${CONFIG.backendUrl}/system/notice/${liveId}`, {
+          method: 'DELETE',
+          headers: bannerHdr
+        }).catch(() => null)
+      }
+    }
     // 采一次横幅加载：清掉本地 dismiss 标记 → 重进页面 → 等横幅那一次请求 → 读它的响应与渲染文本
     const captureBanner = async () => {
       const box = { requested: false, status: 0, rows: -1, firstTitle: '', visible: false, text: '' }

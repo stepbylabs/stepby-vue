@@ -84,6 +84,9 @@ describe('store/modules/notification', () => {
     expect(store.connected).toBe(true)
     await Promise.resolve()
     expect(h.refreshTopNotices).toHaveBeenCalled()
+    // b116：连接建立不是"公告有变更"，不得带 trailing——否则首屏挂载的那次刷新若还在途，
+    // 每次进页面都会多补一轮请求（request-storm 会把它记成密度退步）
+    expect(h.refreshTopNotices).toHaveBeenCalledWith()
     store.disconnect()
   })
 
@@ -105,6 +108,8 @@ describe('store/modules/notification', () => {
     expect(store.unreadCount).toBe(1)
     await Promise.resolve()
     expect(h.refreshTopNotices).toHaveBeenCalled()
+    // b116：WS 帧是"新事件"，刷新在途时必须补取一轮（否则连续两条公告时第二条被复用吞掉）
+    expect(h.refreshTopNotices).toHaveBeenCalledWith(true)
     store.disconnect()
   })
 
@@ -130,6 +135,43 @@ describe('store/modules/notification', () => {
     }
     await Promise.resolve()
     expect(h.refreshTopNotices).toHaveBeenCalledTimes(3)
+    store.disconnect()
+  })
+
+  // b116：公告数据变更信号——横幅（只关心"最新一条公告"）据此重取，口径与铃铛的
+  // listTop 不同，因此信号必须由"服务端改过公告数据"这一事实驱动
+  it('noticeEventSeq：每个 notice 帧都递增（published 与可见性变化同权）', () => {
+    const store = useNotificationStore()
+    store.init()
+    expect(store.noticeEventSeq).toBe(0)
+    for (const action of ['published', 'updated', 'closed', 'deleted']) {
+      const before = store.noticeEventSeq
+      h.handlers.get('notice')!({ data: { action, title: 'x' }, timestamp: 1 })
+      expect(store.noticeEventSeq).toBe(before + 1)
+    }
+    store.disconnect()
+  })
+
+  it('noticeEventSeq：首次连接不递增，重连（第二次 open）才补一记', () => {
+    const store = useNotificationStore()
+    store.init()
+    h.handlers.get('open')!()
+    expect(store.noticeEventSeq).toBe(0)
+    // 断线重连不经过 disconnect()（走 onclose → scheduleReconnect），open 再发一次
+    h.handlers.get('close')!()
+    h.handlers.get('open')!()
+    expect(store.noticeEventSeq).toBe(1)
+    store.disconnect()
+  })
+
+  it('noticeEventSeq：显式 disconnect 是会话边界——下次连接不再算重连', () => {
+    const store = useNotificationStore()
+    store.init()
+    h.handlers.get('open')!()
+    store.disconnect()
+    store.init()
+    h.handlers.get('open')!()
+    expect(store.noticeEventSeq).toBe(0)
     store.disconnect()
   })
 

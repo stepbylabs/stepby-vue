@@ -30,12 +30,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 const { t } = useI18n()
 import { WarningFilled, InfoFilled, SuccessFilled, Close } from '@element-plus/icons-vue'
 import { listNotice } from '@/api/system/notice'
 import cache from '@/plugins/cache'
 import { navigate } from '@/utils/navigation'
+import useNotificationStore from '@/store/modules/notification'
 
 interface Props {
   /** 显示时长（小时），超过则不再显示，0 表示每次都显示 */
@@ -59,11 +60,32 @@ const iconMap = {
 
 const DISMISS_KEY = 'announcement-banner-dismissed'
 
+const notificationStore = useNotificationStore()
+// 后发先回守卫：公告变更可能连发（发布后紧接着被改/被删），早发的响应不得覆盖晚发的
+let loadSeq = 0
+
 onMounted(async () => {
   await loadAnnouncement()
 })
 
+// b116：公告数据变更（WS notice 帧 / 重连后补帧）时重取"最新一条公告"。
+// 只认这个信号、不监听通用刷新：铃铛弹层打开、标记已读等也会刷新顶部公告，
+// 若一并跟随，全站每次导航会多打一次 pageSize=1 请求（request-storm 记成密度退步）。
+watch(
+  () => notificationStore.noticeEventSeq,
+  () => {
+    void loadAnnouncement()
+  }
+)
+
+function hideBanner() {
+  visible.value = false
+  message.value = ''
+  noticeId.value = null
+}
+
 async function loadAnnouncement() {
+  const seq = ++loadSeq
   try {
     // 拉取"公告"类型（notice_type='2'、status='0'）的**最新** 1 条。
     // 改造前这里写的是 noticeType='F'——公告类型只有 '1'/'2'，'F' 永不命中，
@@ -78,9 +100,14 @@ async function loadAnnouncement() {
       orderByColumn: 'createTime',
       isAsc: 'desc'
     })
-    const rows = res.rows || []
-    if (rows.length === 0) return
-    const notice = rows[0]
+    if (seq !== loadSeq) return
+    const notice = (res.rows || [])[0]
+    // 最新公告被删除/关闭（或从未有过）：必须收回横幅，
+    // 否则屏幕上留着一条已不存在的公告，且"查看详情"会跳到查不到它的列表。
+    if (!notice) {
+      hideBanner()
+      return
+    }
     noticeId.value = notice.noticeId
     message.value = notice.noticeTitle || notice.noticeContent || ''
     // 简单判断严重级别（标题含"紧急/重要/警告"使用 warning）
@@ -91,11 +118,16 @@ async function loadAnnouncement() {
     const dismissed = cache.local.getJSON(DISMISS_KEY) as { noticeId?: number; at?: number } | null
     if (dismissed && dismissed.noticeId === notice.noticeId) {
       const elapsed = Date.now() - (dismissed.at ?? 0)
-      if (elapsed < props.dismissHours * 3600 * 1000) return
+      if (elapsed < props.dismissHours * 3600 * 1000) {
+        // 回落到一条已被用户关闭过的公告时也要收回：留着的是上一条的旧文案
+        hideBanner()
+        return
+      }
     }
     visible.value = true
   } catch (e) {
-    // 静默失败，不影响主流程
+    if (seq !== loadSeq) return
+    // 保留上一次成功的内容（失败清空会把"曾经有公告"变成"没有公告"），仅留痕
     if (import.meta.env.DEV) console.warn('Failed to load announcements:', e)
   }
 }
