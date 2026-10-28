@@ -128,6 +128,7 @@ export default {
     repeatSubmitWarning: 'Data is being processed, please do not submit repeatedly',
     requestSizeExceeded: 'Request data size exceeds the 5M limit, duplicate submission check is skipped.',
     sessionExpired: 'Invalid session or session has expired, please log in again.',
+    crossTabLogout: 'Your session was ended in another tab. Please log in again.',
     reloginCanceled: 'User canceled re-login.',
     usernameOrPasswordError: 'Username or password is incorrect',
     passwordError: 'Password is incorrect',
@@ -384,5 +385,11 @@ export default {
     desc: 'Reload to apply it. Unsaved changes will be lost — save your work first.',
     reload: 'Reload now',
     later: 'Later'
+  },
+  // b122: browser connectivity banner (states what the browser reports, not backend reachability)
+  networkBanner: {
+    offline: 'You are offline. Actions may fail; you will be notified when the connection returns.',
+    recovered: 'Connection restored',
+    ariaLabel: 'Network connection status'
   }
 }

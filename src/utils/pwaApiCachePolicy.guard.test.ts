@@ -183,7 +183,10 @@ describe('PWA 运行时缓存策略（b115）', () => {
     expect(functionBody(user, 'applyLoginToken'), '登录成功必须清一次（换账号不继承上一个凭据的缓存）').toContain(
       'purgeSessionSwCaches('
     )
-    expect(functionBody(user, 'logOut'), '登出必须清一次').toContain('purgeSessionSwCaches(')
+    // 清理点已抽进 clearLocalSession()（b122：登出广播与本地清场共用一份）：判据盯"链条"而不是
+    // 盯一处字面量——登出必须经该唯一清场点，而清场点必须真清 SW 会话缓存，缺任一环都红。
+    expect(functionBody(user, 'logOut'), '登出必须经唯一清场点 clearLocalSession').toContain('clearLocalSession(')
+    expect(functionBody(user, 'clearLocalSession'), '清场点必须清一次 SW 会话缓存').toContain('purgeSessionSwCaches(')
   })
 
   it('历史档名字不得被新策略复用（否则启动回收会误删新档 / 新档继承旧数据）', () => {

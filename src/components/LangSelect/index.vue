@@ -20,21 +20,24 @@
 </template>
 
 <script setup lang="ts">
-import { setLanguage, getLanguage, switchOutcome } from '@/i18n'
+import { setLanguage, switchOutcome } from '@/i18n'
 import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 
 // 语言切换的短促进度条反馈：与全局进度管理（@/utils/progress）独立，路由无关
 NProgress.configure({ showSpinner: false, trickleSpeed: 200 })
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 interface LangOption {
   label: string
   value: 'zh-CN' | 'en-US'
 }
 
-const currentLang = ref<'zh-CN' | 'en-US'>(getLanguage())
+// b122：当前语言只有一个事实源（vue-i18n 的 locale）。此前是组件挂载时从存储读一次的
+// 本地 ref——跨标签页同步（或任何非本组件发起的切换）之后，下拉里的禁用项会停在旧语言，
+// 用户会看到"英文界面 + 简体中文被禁用"。computed 让展示态自动跟住真实 locale。
+const currentLang = computed<'zh-CN' | 'en-US'>(() => (locale.value === 'en-US' ? 'en-US' : 'zh-CN'))
 const langOptions = computed<LangOption[]>(() => [
   { label: t('langSelect.simplifiedChinese'), value: 'zh-CN' },
   { label: t('langSelect.english'), value: 'en-US' }
@@ -61,7 +64,6 @@ async function handleSetLang(lang: 'zh-CN' | 'en-US'): Promise<void> {
     NProgress.done()
     return
   }
-  currentLang.value = lang
   if (outcome === 'switched') {
     ElMessage.success(t('langSelect.switchSuccess'))
   } else if (outcome === 'switched-not-persisted') {

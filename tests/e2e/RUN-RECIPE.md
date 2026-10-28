@@ -4675,3 +4675,46 @@ F13 登出清存储兜住，子集跑跳过 F13 就暴露成"后继功能全英�
 **⑥ 已知边界。** 全集副本只在懒加载侧多存一份（`IconsDialog-*.js` 44.36KB gzip），只影响访问设计器的
 用户；总量预算因此略增，三栏口径分开记录，不合并。首帧语言是无 DOM 证据的时序属性，本批只证明
 "刷新后以 en-US 启动 + 表头语言正确"，不声称证明了"第一帧不是中文"。
+
+### 3.119 跨标签页同步与网络状态横幅的判据配方（b122 固化）
+
+**① 令牌在 Cookie 里 ⇒ 会话变化没有 `storage` 事件，只能显式广播。**
+`utils/auth.ts` 用 js-cookie 存 `Admin-Token`，而 `storage` 事件只属于 Web Storage。
+跨标签页一致性的唯一通道是 `utils/crossTab.ts`（键 `stepby:cross-tab`，事件
+`session-ended / identity-changed / language-changed`）：写走 `webStorage.setItem`、读走
+`parseCrossTabEvent` 的严格解析（存储是外部输入，畸形值一律 `null` 不抛）。
+**不要**把 `sessionStorage` 当同步通道——它按标签页隔离，`storage` 事件只在本页触发；
+`event.storageArea` 的判别必须经 `webStorage.storage('local')` 取句柄（同源 iframe 写
+sessionStorage 也会触发同键事件，裸访问 `window.localStorage` 会被 b89 守卫拦下）。
+
+**② "本页是否有会话"只能读内存 token，不能读共享 Cookie。**
+接收侧第一版写 `if (!getToken()) return`，而广播方在写事件**之前**已经删了 Cookie ⇒
+接收页读到"没有会话"，把真正要处理的事件静默吞掉。浏览器判据只看见"界面没动"，
+分不清"事件没来"与"事件来了但判成无会话"——所以这一条必须由**单测断面**钉住：
+构造"Cookie 已清、store.token 仍在"，断言仍然收场（变异改回 `getToken()` 时，
+该条与"本来就没有会话"两条同时红、其余 4 条绿）。
+
+**③ 两页用例必须用独立浏览器上下文。**
+`browser.newContext()` 各登录一次，不污染主套件的 console 捕获、点击台账与登录态；
+"无整页重载"用链首注入的 `window.__b122Alive === true` 回读作运行时事实，不靠
+"我们没调 reload"推断。语言下拉的状态用**一次** `page.evaluate` 读可见的
+`.el-dropdown-menu`（EP 会把隐藏副本 teleport 在 body 里，locator 会读到另一份）。
+
+**④ 断网用例：先等信号，再读界面；恢复态要等它自己收起。**
+`context.setOffline(true)` 之后先 `page.waitForFunction(() => navigator.onLine === false)`，
+再读横幅（文案 + `role=status` + `aria-live=polite` + `pointer-events:none`）。
+恢复时分两段判：先等"网络连接已恢复"出现，再等它**自动收起**（4s 窗口）；
+第二段不能写成"读一眼还在不在"——那会由网络/渲染快慢决定结论（前言 ④）。
+
+**⑤ 断言方向：禁用项是"当前"语言。**
+切到 English 之后，下拉里 `English` 是禁用项、`Simplified Chinese` 可用。
+第一版写成 `zhDisabled=true`，得到一条与实现无关的假红；成对文案也不要链式
+`replace`（同 ③ 的"再点一次回到基线"纪律）。
+
+**⑥ 变异口径：单测三刀 + 浏览器三刀，每次重建产物。**
+单测刀：`crossTabHandlers` 的 store-token 判据改回 `getToken()`（2 红/4 绿）、
+`logOut` 删 `announceSessionEnded`（1 红/21 绿）、`setLanguage` 删
+`announceLanguageChanged`（1 红/13 绿）。浏览器刀：`App.vue` 删横幅（F146 4/2）、
+`logOut` 删广播（5/1）、`setLanguage` 删广播（5/1）——每刀都要
+`npm run build:embedded` + `sync:embedded`，否则测的还是旧包（前言 ㉕）；
+还原用 `cp -p` 保留 mtime + `diff -q` 逐字节一致，最后重建再取权威读数。

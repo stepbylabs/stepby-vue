@@ -156,3 +156,51 @@ describe('懒加载接线形状', () => {
     }
   })
 })
+
+/**
+ * 跨标签页语言同步（b122）。
+ *
+ * 与本地切换的区别只有一个但很关键：**不得回写语言存储**。回写会让两个标签页
+ * 互相触发 storage 事件，即使值相同也在事件层反复弹。
+ */
+describe('跨标签页语言同步', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    document.documentElement.lang = 'zh-CN'
+  })
+
+  afterEach(() => {
+    vi.doUnmock(EN_LOCALE)
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    localStorage.clear()
+    document.documentElement.lang = 'zh-CN'
+  })
+
+  it('applyExternalLanguage：生效（含 html lang）但不写语言存储', async () => {
+    const mod = await freshI18n()
+    expect(await mod.applyExternalLanguage('en-US')).toBe(true)
+    expect(mod.getLanguage()).toBe('en-US')
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(localStorage.getItem(KEY)).toBeNull()
+  })
+
+  it('applyExternalLanguage：语言包加载失败 ⇒ 保持原语言并返回 false', async () => {
+    vi.doMock(EN_LOCALE, () => {
+      throw new Error('load boom')
+    })
+    const mod = await freshI18n()
+    expect(await mod.applyExternalLanguage('en-US')).toBe(false)
+    expect(mod.getLanguage()).toBe('zh-CN')
+    expect(document.documentElement.lang).toBe('zh-CN')
+  })
+
+  it('本地切换成功时广播 language-changed（其他标签页据此跟随）', async () => {
+    const mod = await freshI18n()
+    const result = await mod.setLanguage('en-US')
+    expect(result).toEqual({ ok: true, applied: true, persisted: true })
+    const raw = localStorage.getItem('stepby:cross-tab')
+    expect(raw).toBeTruthy()
+    expect(JSON.parse(raw as string)).toMatchObject({ type: 'language-changed', locale: 'en-US' })
+  })
+})

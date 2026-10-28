@@ -6,6 +6,7 @@ import { getToken, setToken, removeToken } from '@/utils/auth'
 import { isHttp, isEmpty } from '@/utils/validate'
 import { clearAllApiCache } from '@/utils/apiCache'
 import { purgeSessionSwCaches } from '@/utils/swCache'
+import { announceIdentityIfChanged, announceSessionEnded } from '@/utils/crossTab'
 import useLockStore from '@/store/modules/lock'
 import usePermissionStore from '@/store/modules/permission'
 import useDictStore from '@/store/modules/dict'
@@ -166,6 +167,10 @@ const useUserStore = defineStore('user', {
         this.roles = ['ROLE_DEFAULT']
       }
       this.id = user.userId || ''
+      // b122：身份确定后通知其他标签页。换账号时令牌 Cookie 是共享的，另一个标签页
+      // 若不重载就会拿着新令牌按旧账号的 roles/permissions 继续渲染（跨身份数据混用）。
+      // 同 id 时 announce 内部不写盘，冷加载不会反复打扰其他标签页。
+      announceIdentityIfChanged(String(this.id))
       this.name = user.userName || ''
       this.nickName = user.nickName || ''
       this.avatar = avatar
@@ -239,50 +244,65 @@ const useUserStore = defineStore('user', {
     // 退出系统
     // 使用 finally 块确保无论登出请求成功失败都清理本地 token 和状态，
     // 避免 logOut 失败导致 token 未清理的死锁问题（P0-61）
-    async logOut() {
+    async logOut(reason: 'logout' | 'expired' = 'logout') {
       try {
         await logout()
       } catch {
         // 忽略登出请求错误，继续清理本地状态
       } finally {
-        // P0 修复: 登出时主动断开 WebSocket 连接并清理通知状态
-        // 否则 WS 会继续用旧 token 重连（失败循环），且通知列表/未读数会残留到下次登录
-        const notifStore = useNotificationStore()
-        notifStore.disconnect()
-        notifStore.clearAll()
-        // P0 修复: 清理通知公告共享状态（顶部列表 + 未读数 + 已读 ID）
-        useNoticeStore().clearAll()
-        // 清理动态路由，防止权限泄漏（P0-60）
-        usePermissionStore().resetRoutes()
-        this.token = ''
-        this.roles = []
-        this.permissions = []
-        // 清理用户信息
-        this.id = ''
-        this.name = ''
-        this.nickName = ''
-        this.avatar = ''
-        // 多租户 Phase 3：清理租户归属，避免切换账号后残留（P0-60 同类权限泄漏问题）
-        this.tenantId = 0
-        this.showTenantColumn = false
-        this.showTenantFilter = false
-        this.showUserErasure = false
-        this.showPasskey = false
-        this.showPat = false
-        this.showSsoGrants = false
-        this.showFieldPerm = false
-        // 清理字典缓存
-        useDictStore().cleanDict()
-        // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）
-        // 防止切换账号后看到上一个账号权限范围内的数据
-        clearAllApiCache()
-        // b115：SW 的 Cache Storage 是这条纪律的第二个断面——它跨刷新、跨会话存活，
-        // 旧规则连 `no-store` 的 API 响应与受鉴权的上传预览图都存了（见 utils/swCache.ts）
-        void purgeSessionSwCaches()
-        // 清理 tagsView
-        useTagsViewStore().delAllViews()
-        removeToken()
+        this.clearLocalSession()
+        // b122：会话结束必须让同浏览器的其他标签页知道。令牌在 Cookie 里，
+        // 它的变化不触发 storage 事件——没有这条显式广播，另一个标签页会带着
+        // "已登录"的界面继续用被吊销的令牌发请求，直到各自撞上 401 才被动收场。
+        announceSessionEnded(reason)
       }
+    },
+    /**
+     * 纯本地会话收尾（b122 从 logOut 的 finally 抽出）。
+     *
+     * 两个消费方：`logOut()`（远程登出 + 本地收尾 + 广播）与跨标签页的
+     * `session-ended` 处理器（对方已经删了令牌，再发一次远程登出只会换来 401）。
+     * 合在一处是为了让"登出要清哪些东西"永远只有一份清单——拆成两份时，
+     * 新增一项清理（比如将来某个缓存）必然有一边漏掉。
+     */
+    clearLocalSession() {
+      // P0 修复: 登出时主动断开 WebSocket 连接并清理通知状态
+      // 否则 WS 会继续用旧 token 重连（失败循环），且通知列表/未读数会残留到下次登录
+      const notifStore = useNotificationStore()
+      notifStore.disconnect()
+      notifStore.clearAll()
+      // P0 修复: 清理通知公告共享状态（顶部列表 + 未读数 + 已读 ID）
+      useNoticeStore().clearAll()
+      // 清理动态路由，防止权限泄漏（P0-60）
+      usePermissionStore().resetRoutes()
+      this.token = ''
+      this.roles = []
+      this.permissions = []
+      // 清理用户信息
+      this.id = ''
+      this.name = ''
+      this.nickName = ''
+      this.avatar = ''
+      // 多租户 Phase 3：清理租户归属，避免切换账号后残留（P0-60 同类权限泄漏问题）
+      this.tenantId = 0
+      this.showTenantColumn = false
+      this.showTenantFilter = false
+      this.showUserErasure = false
+      this.showPasskey = false
+      this.showPat = false
+      this.showSsoGrants = false
+      this.showFieldPerm = false
+      // 清理字典缓存
+      useDictStore().cleanDict()
+      // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）
+      // 防止切换账号后看到上一个账号权限范围内的数据
+      clearAllApiCache()
+      // b115：SW 的 Cache Storage 是这条纪律的第二个断面——它跨刷新、跨会话存活，
+      // 旧规则连 `no-store` 的 API 响应与受鉴权的上传预览图都存了（见 utils/swCache.ts）
+      void purgeSessionSwCaches()
+      // 清理 tagsView
+      useTagsViewStore().delAllViews()
+      removeToken()
     }
   }
 })

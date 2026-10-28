@@ -128,6 +128,7 @@ export default {
     repeatSubmitWarning: '数据正在处理，请勿重复提交',
     requestSizeExceeded: '请求数据大小超出允许的5M限制，无法进行防重复提交验证。',
     sessionExpired: '无效的会话，或者会话已过期，请重新登录。',
+    crossTabLogout: '登录状态已在其他标签页结束，请重新登录。',
     reloginCanceled: '用户取消重新登录。',
     usernameOrPasswordError: '用户名或密码错误',
     passwordError: '密码错误',
@@ -383,5 +384,11 @@ export default {
     desc: '刷新后生效。未保存的修改会丢失，建议先保存再刷新。',
     reload: '立即刷新',
     later: '稍后'
+  },
+  // b122：浏览器网络状态横幅（只陈述浏览器报告的连通性，不承诺后端可达）
+  networkBanner: {
+    offline: '网络连接已断开，操作可能失败；恢复后会自动提示',
+    recovered: '网络连接已恢复',
+    ariaLabel: '网络连接状态'
   }
 }

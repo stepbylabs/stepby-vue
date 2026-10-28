@@ -2,33 +2,45 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 // ---- Mock collaborators so only the user store's own logic runs ----
-const { api, auth, cacheSessionSet, setPwdChrType, clearAllApiCache, elConfirm, routerPush, i18nT, collaborators } =
-  vi.hoisted(() => {
-    const lockStore = { unlockScreen: vi.fn() }
-    const notifStore = { init: vi.fn(), disconnect: vi.fn(), clearAll: vi.fn() }
-    const permissionStore = { resetRoutes: vi.fn() }
-    const dictStore = { cleanDict: vi.fn() }
-    const tagsViewStore = { delAllViews: vi.fn() }
-    const noticeStore = { clearAll: vi.fn() }
-    return {
-      api: {
-        login: vi.fn(),
-        logout: vi.fn(),
-        getInfo: vi.fn()
-      },
-      auth: { getToken: vi.fn(), setToken: vi.fn(), removeToken: vi.fn() },
-      cacheSessionSet: vi.fn(),
-      setPwdChrType: vi.fn(),
-      clearAllApiCache: vi.fn(),
-      elConfirm: vi.fn(() => Promise.resolve()),
-      routerPush: vi.fn(),
-      i18nT: vi.fn((k: string) => k),
-      collaborators: { lockStore, notifStore, permissionStore, dictStore, tagsViewStore, noticeStore }
-    }
-  })
+const {
+  api,
+  auth,
+  cacheSessionSet,
+  setPwdChrType,
+  clearAllApiCache,
+  elConfirm,
+  routerPush,
+  i18nT,
+  crossTab,
+  collaborators
+} = vi.hoisted(() => {
+  const lockStore = { unlockScreen: vi.fn() }
+  const notifStore = { init: vi.fn(), disconnect: vi.fn(), clearAll: vi.fn() }
+  const permissionStore = { resetRoutes: vi.fn() }
+  const dictStore = { cleanDict: vi.fn() }
+  const tagsViewStore = { delAllViews: vi.fn() }
+  const noticeStore = { clearAll: vi.fn() }
+  return {
+    api: {
+      login: vi.fn(),
+      logout: vi.fn(),
+      getInfo: vi.fn()
+    },
+    auth: { getToken: vi.fn(), setToken: vi.fn(), removeToken: vi.fn() },
+    cacheSessionSet: vi.fn(),
+    setPwdChrType: vi.fn(),
+    clearAllApiCache: vi.fn(),
+    elConfirm: vi.fn(() => Promise.resolve()),
+    routerPush: vi.fn(),
+    i18nT: vi.fn((k: string) => k),
+    crossTab: { announceIdentityIfChanged: vi.fn(), announceSessionEnded: vi.fn() },
+    collaborators: { lockStore, notifStore, permissionStore, dictStore, tagsViewStore, noticeStore }
+  }
+})
 
 vi.mock('@/api/login', () => api)
 vi.mock('@/utils/auth', () => auth)
+vi.mock('@/utils/crossTab', () => crossTab)
 vi.mock('@/utils/passwordRule', () => ({ setPwdChrType }))
 vi.mock('@/utils/apiCache', () => ({ clearAllApiCache }))
 vi.mock('@/plugins/cache', () => ({ default: { session: { set: cacheSessionSet } } }))
@@ -90,6 +102,8 @@ describe('store/modules/user', () => {
     collaborators.dictStore.cleanDict.mockClear()
     collaborators.tagsViewStore.delAllViews.mockClear()
     collaborators.noticeStore.clearAll.mockClear()
+    crossTab.announceIdentityIfChanged.mockClear()
+    crossTab.announceSessionEnded.mockClear()
     vi.stubEnv('VITE_APP_BASE_API', '/dev-api')
   })
 
@@ -338,5 +352,38 @@ describe('store/modules/user', () => {
     expect(store.token).toBe('')
     expect(auth.removeToken).toHaveBeenCalled()
     expect(collaborators.permissionStore.resetRoutes).toHaveBeenCalled()
+  })
+
+  // b122：会话结束必须让同浏览器的其他标签页知道（令牌在 Cookie 里，不触发 storage 事件）
+  it('logOut 广播会话结束，并透传 reason（到期 ≠ 主动登出）', async () => {
+    api.logout.mockResolvedValue({})
+    const store = useUserStore()
+    await store.logOut()
+    expect(crossTab.announceSessionEnded).toHaveBeenLastCalledWith('logout')
+    await store.logOut('expired')
+    expect(crossTab.announceSessionEnded).toHaveBeenLastCalledWith('expired')
+    expect(crossTab.announceSessionEnded).toHaveBeenCalledTimes(2)
+  })
+
+  // b122：跨标签页收到 session-ended 时只做本地收尾——对方已删令牌，再发远程登出只会 401
+  it('clearLocalSession 只清本地：不发远程 logout、不广播', async () => {
+    const store = useUserStore()
+    store.token = 't'
+    store.roles = ['admin']
+    store.clearLocalSession()
+    expect(api.logout).not.toHaveBeenCalled()
+    expect(auth.removeToken).toHaveBeenCalled()
+    expect(crossTab.announceSessionEnded).not.toHaveBeenCalled()
+    expect(store.token).toBe('')
+    expect(store.roles).toEqual([])
+    expect(collaborators.permissionStore.resetRoutes).toHaveBeenCalled()
+  })
+
+  // b122：getInfo 拿到身份后广播（换账号时其他标签页据此重载）
+  it('getInfo 广播身份（userId 字符串化）', async () => {
+    api.getInfo.mockResolvedValue({ user: { userId: 7 }, roles: ['r'] })
+    const store = useUserStore()
+    await store.getInfo()
+    expect(crossTab.announceIdentityIfChanged).toHaveBeenCalledWith('7')
   })
 })

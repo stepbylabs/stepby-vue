@@ -7,6 +7,8 @@
     <CookieConsent />
     <!-- b117：Service Worker 新版本提示（只在后台发版后出现，用户点了才刷新） -->
     <SwUpdateNotice />
+    <!-- b122：全局网络状态（离线常驻 / 恢复短暂确认），App 级保证登录页也能看到 -->
+    <NetworkStatusBanner />
   </el-config-provider>
 </template>
 
@@ -28,6 +30,8 @@ import { errorReporter } from '@/utils/errorReporter'
 import CookieConsent from '@/components/CookieConsent/index.vue'
 // b117：SW 新版本提示（App 级，登录页与业务页都要能看到）
 import SwUpdateNotice from '@/components/SwUpdateNotice/index.vue'
+// b122：网络状态横幅（App 级，登录页也要能看到"已断网"，不能只在登录后的布局里）
+import NetworkStatusBanner from '@/components/NetworkStatusBanner/index.vue'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()

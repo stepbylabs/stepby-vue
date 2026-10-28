@@ -28,7 +28,7 @@ export async function handleSessionExpired(): Promise<void> {
   isRelogin.show = true
   const redirect = router.currentRoute.value.fullPath
   try {
-    await useUserStore().logOut()
+    await useUserStore().logOut('expired')
   } catch {
     // logOut 内部已在 finally 清理本地态；这里不让拒绝逸出到事件总线
   } finally {

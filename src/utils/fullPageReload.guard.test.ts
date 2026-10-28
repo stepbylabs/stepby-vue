@@ -66,6 +66,10 @@ const ALLOWED: AllowEntry[] = [
   {
     file: 'utils/swUpdate.ts',
     why: 'SW 新版本就绪后用户点「立即刷新」的动作语义：只有整页重载才能拿到新入口与预缓存（触发者是人，不是状态变更）'
+  },
+  {
+    file: 'utils/crossTabHandlers.ts',
+    why: '其他标签页换了登录身份（共享 Cookie 已被替换）时，本页内存里仍是旧账号的 roles/permissions：按新凭据重建整棵应用状态只能整页重载，SPA 内重登会残留旧权限树'
   }
 ]
 

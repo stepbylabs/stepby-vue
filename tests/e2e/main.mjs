@@ -19166,6 +19166,239 @@ async function testFeature145(page) {
   await dismissAllOverlays(page)
 }
 
+// ==================== 功能 146：跨标签页一致性与网络状态（b122） ====================
+/**
+ * 三组判据，全部在**独立上下文**里跑（不污染主套件的登录态与 console 采集）：
+ * ① 网络状态横幅：登录页在真实 `setOffline` 下必须显示断开/恢复，且恢复提示自动收起；
+ * ② 跨标签页登出：B 页走 UI 退出后，A 页（同一上下文、共享 Cookie）必须收到广播
+ *    并 **SPA** 回到登录页（页面 JS 上下文不重建 ⇒ 未保存的其它状态不是被"刷新"洗掉的）；
+ * ③ 跨标签页语言同步：A 页切英文后，C 页的 `<html lang>` 与下拉禁用项跟随，且没有整页重载。
+ *
+ * 为什么用独立上下文：主套件共用一个已登录 page，在这里登出会污染后续功能；
+ * 而 `setOffline` 造成的 WS/请求失败若落在主采集面上会被记成"未分类 console error"，
+ * 那是本用例自己制造的噪声，不该由产品豁免表承担。
+ */
+async function testFeature146(page) {
+  log('=== 功能 146：跨标签页一致性与网络状态（b122） ===')
+  const browser = page.context().browser()
+  const frontend = CONFIG.frontendUrl
+
+  // ① 网络状态横幅（无登录态，登录页也必须有）
+  let ctxOffline = null
+  try {
+    ctxOffline = await browser.newContext()
+    const p = await ctxOffline.newPage()
+    await p.goto(`${frontend}/login`, { waitUntil: 'load' })
+    const loginReady = await p
+      .locator('input[name="username"], input[placeholder="账号"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    const onlineBefore = await p.evaluate(() => navigator.onLine)
+    await ctxOffline.setOffline(true)
+    const offlineSignal = await p
+      .waitForFunction(() => navigator.onLine === false, null, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    const offlineBanner = await p
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('[data-testid="network-status-banner"]')
+          return !!el && (el.textContent || '').includes('网络连接已断开')
+        },
+        null,
+        { timeout: 5000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    const offlineA11y = await p.evaluate(() => {
+      const el = document.querySelector('[data-testid="network-status-banner"]')
+      if (!el) return null
+      return {
+        role: el.getAttribute('role'),
+        live: el.getAttribute('aria-live'),
+        pe: el.classList.contains('pointer-events-none')
+      }
+    })
+    record(
+      146,
+      '① 断网：navigator.onLine=false 且登录页显示网络横幅（role=status / aria-live / 不拦点击）',
+      loginReady &&
+        onlineBefore === true &&
+        offlineSignal &&
+        offlineBanner &&
+        offlineA11y?.role === 'status' &&
+        offlineA11y?.live === 'polite' &&
+        offlineA11y?.pe === true,
+      `loginReady=${loginReady} before=${onlineBefore} signal=${offlineSignal} banner=${offlineBanner} a11y=${JSON.stringify(offlineA11y)}`
+    )
+
+    await ctxOffline.setOffline(false)
+    const recoveredBanner = await p
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('[data-testid="network-status-banner"]')
+          return !!el && (el.textContent || '').includes('网络连接已恢复')
+        },
+        null,
+        { timeout: 6000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    const bannerGone = await p
+      .waitForFunction(() => !document.querySelector('[data-testid="network-status-banner"]'), null, { timeout: 9000 })
+      .then(() => true)
+      .catch(() => false)
+    record(
+      146,
+      '①b 恢复：先给一次"已恢复"确认，随后自动收起（不长期占住顶部）',
+      recoveredBanner && bannerGone,
+      `recovered=${recoveredBanner} gone=${bannerGone}`
+    )
+  } catch (err) {
+    record(146, '① 断网横幅链路', false, `异常: ${err.message.slice(0, 160)}`)
+  } finally {
+    if (ctxOffline) await ctxOffline.close().catch(() => {})
+  }
+
+  // ② + ③ 跨标签页（同一上下文的两页共享 Cookie 与 localStorage）
+  let ctxTabs = null
+  try {
+    ctxTabs = await browser.newContext()
+    const tabA = await ctxTabs.newPage()
+    const loggedIn = await login(tabA)
+    record(146, '② 前置：独立上下文登录成功', loggedIn, `url=${tabA.url().slice(0, 80)}`)
+    if (!loggedIn) return
+
+    const tabB = await ctxTabs.newPage()
+    await tabB.goto(`${frontend}/index`, { waitUntil: 'load' })
+    const bReady = await tabB
+      .locator('.avatar-container')
+      .first()
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    // 证据通道：整页重载会重建 JS 上下文，标记随之消失；SPA 导航不会
+    await tabA.evaluate(() => {
+      window.__b122Alive = true
+    })
+    await tabB.locator('.avatar-container').first().click()
+    const logoutItem = tabB.locator('.el-dropdown-menu__item:visible', { hasText: '退出登录' }).first()
+    const hasLogoutItem = await logoutItem
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    if (hasLogoutItem) await logoutItem.click()
+    const confirmBtn = tabB.locator('.el-message-box__btns .el-button--primary').first()
+    const hasConfirm = await confirmBtn
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    if (hasConfirm) await confirmBtn.click()
+
+    const aBackToLogin = await tabA
+      .waitForURL((u) => u.toString().includes('/login'), { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    const aliveAfter = await tabA.evaluate(() => window.__b122Alive === true).catch(() => false)
+    const crossTabToast = await tabA
+      .locator('.el-message:visible', { hasText: '其他标签页' })
+      .first()
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    const tokenCleared = await tabA.evaluate(() => !document.cookie.includes('Admin-Token')).catch(() => false)
+    record(
+      146,
+      '② 跨标签页登出：另一页收到广播 → SPA 回登录页 + 提示可见 + Cookie 已清（无整页重载）',
+      bReady && hasLogoutItem && hasConfirm && aBackToLogin && aliveAfter && crossTabToast && tokenCleared,
+      `bReady=${bReady} item=${hasLogoutItem} confirm=${hasConfirm} aLogin=${aBackToLogin} alive=${aliveAfter} toast=${crossTabToast} tokenCleared=${tokenCleared}`
+    )
+
+    // ③ 语言跨标签同步：A 页重新登录并切英文，新开的 C 页跟随且不重载
+    const relogged = await login(tabA)
+    const tabC = await ctxTabs.newPage()
+    await tabC.goto(`${frontend}/index`, { waitUntil: 'load' })
+    const cReady = await tabC
+      .locator('.avatar-container')
+      .first()
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    await tabC.evaluate(() => {
+      window.__b122Alive = true
+    })
+    const langBeforeC = await tabC.evaluate(() => document.documentElement.lang)
+    await tabA.locator('#lang-select').first().click()
+    const enItem = tabA.locator('.el-dropdown-menu__item:visible:not(.is-disabled)', { hasText: 'English' }).first()
+    const hasEnItem = await enItem
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    if (hasEnItem) await enItem.click()
+    const aEnglish = await tabA
+      .waitForFunction(() => document.documentElement.lang === 'en-US', null, { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    const cEnglish = await tabC
+      .waitForFunction(() => document.documentElement.lang === 'en-US', null, { timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    const cAlive = await tabC.evaluate(() => window.__b122Alive === true).catch(() => false)
+    // LangSelect 的禁用项必须跟住真实 locale（此前是挂载时读一次的本地 ref，外部同步后停在旧值）
+    await tabC.locator('#lang-select').first().click()
+    const menuOpen = await tabC
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll('.el-dropdown-menu')].some(
+            (m) => m.getBoundingClientRect().height > 0 && m.querySelectorAll('.el-dropdown-menu__item').length > 0
+          ),
+        null,
+        { timeout: 5000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    // 一次 evaluate 只读**当前可见**的菜单：页面里还有头像等其它下拉的隐藏菜单，
+    // 逐个 locator 会命中 DOM 序第一个（可能是隐藏的），把"菜单没开"误报成"项不存在"
+    const menuState = menuOpen
+      ? await tabC.evaluate(() => {
+          const menus = [...document.querySelectorAll('.el-dropdown-menu')].filter(
+            (m) => m.getBoundingClientRect().height > 0
+          )
+          return menus.flatMap((m) =>
+            [...m.querySelectorAll('.el-dropdown-menu__item')].map((i) => ({
+              text: (i.textContent || '').trim(),
+              disabled: i.classList.contains('is-disabled')
+            }))
+          )
+        })
+      : []
+    // 当前语言项必须禁用（切到英文后 = English 禁用、简体中文可选），且标签本身已随 locale 变英文
+    const enDisabled = menuState.some((i) => i.text.includes('English') && i.disabled)
+    const zhEnabled = menuState.some((i) => i.text.includes('Simplified Chinese') && !i.disabled)
+    await tabC.keyboard.press('Escape').catch(() => {})
+    record(
+      146,
+      '③ 跨标签页语言：A 页切英文 ⇒ C 页 <html lang> 跟随、下拉禁用项同步、且无整页重载',
+      relogged &&
+        cReady &&
+        langBeforeC !== 'en-US' &&
+        hasEnItem &&
+        aEnglish &&
+        cEnglish &&
+        cAlive &&
+        enDisabled &&
+        zhEnabled,
+      `relogged=${relogged} cReady=${cReady} langBefore=${langBeforeC} aEn=${aEnglish} cEn=${cEnglish} cAlive=${cAlive} menu=${JSON.stringify(menuState)}`
+    )
+  } catch (err) {
+    record(146, '②/③ 跨标签页同步链路', false, `异常: ${err.message.slice(0, 160)}`)
+  } finally {
+    if (ctxTabs) await ctxTabs.close().catch(() => {})
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -19450,7 +19683,8 @@ async function main() {
       { id: 142, fn: testFeature142 },
       { id: 143, fn: testFeature143 },
       { id: 144, fn: testFeature144 },
-      { id: 145, fn: testFeature145 }
+      { id: 145, fn: testFeature145 },
+      { id: 146, fn: testFeature146 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

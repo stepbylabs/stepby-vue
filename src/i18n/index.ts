@@ -24,6 +24,7 @@
 import { createI18n } from 'vue-i18n'
 import zhCN from './locales/zh-CN'
 import { getItem, setItem } from '@/utils/webStorage'
+import { announceLanguageChanged } from '@/utils/crossTab'
 import { createLatestGuard } from '@/composables/latestRequest'
 
 export type AppLocale = 'zh-CN' | 'en-US'
@@ -162,6 +163,14 @@ export interface LanguageSwitchResult {
 }
 
 const switchGuard = createLatestGuard()
+/**
+ * 跨标签页应用用的独立票据（b122）。
+ *
+ * 与 `switchGuard` 分开：本地的用户点击必须**永远**赢过外来的同步。若两者共用一组票据，
+ * "点完语言 A 后收到另一标签页同步 B 的事件"会让 B 覆盖用户刚选的 A——而用户此刻
+ * 正看着 A 已生效。反过来，本地切换开始时应让在途的外来应用作废（见 setLanguage）。
+ */
+const externalGuard = createLatestGuard()
 
 /** 切换结局的归一（组件只做「结局 → 提示」映射，不自行组合三个布尔） */
 export type LanguageSwitchOutcome = 'failed' | 'superseded' | 'switched' | 'switched-not-persisted'
@@ -175,6 +184,8 @@ export function switchOutcome(result: LanguageSwitchResult): LanguageSwitchOutco
 /** 切换语言并持久化；返回可区分的三种结局（失败 / 被取代 / 成功）。 */
 export async function setLanguage(locale: AppLocale): Promise<LanguageSwitchResult> {
   const ticket = switchGuard.begin()
+  // 用户刚刚做出了选择：任何更早开始的跨标签页应用都不得再覆盖它
+  externalGuard.invalidate()
   const loaded = await loadLocaleWithTimeout(locale)
   if (!switchGuard.isCurrent(ticket)) {
     // 更晚的一次切换已经开始：旧调用既不改语言也不弹提示（避免"先报错后成功"）
@@ -186,7 +197,26 @@ export async function setLanguage(locale: AppLocale): Promise<LanguageSwitchResu
   i18n.global.locale.value = locale
   applyHtmlLang(locale)
   const persisted = setItem(LANGUAGE_STORAGE_KEY, locale)
+  // b122：其他标签页跟随。广播写的是另一条键，不会与语言键本身的写入互相回声。
+  announceLanguageChanged(locale)
   return { ok: true, applied: true, persisted }
+}
+
+/**
+ * 仅应用、不持久化：跨标签页同步的入口（b122）。
+ *
+ * 回写存储会造成两个标签页互相触发 storage 事件（A 写 → B 应用并回写 → A 再应用…），
+ * 即使值相同也会在事件层来回弹；对方已经落过盘，这里只负责让本页追上。
+ * 返回值：`true` = 已生效或本来就是该语言；`false` = 语言包加载失败（保持原语言）。
+ */
+export async function applyExternalLanguage(locale: AppLocale): Promise<boolean> {
+  if (locale === getLanguage()) return true
+  const ticket = externalGuard.begin()
+  const loaded = await loadLocaleWithTimeout(locale)
+  if (!externalGuard.isCurrent(ticket) || !loaded) return false
+  i18n.global.locale.value = locale
+  applyHtmlLang(locale)
+  return true
 }
 
 /** 获取当前语言（值域归一：未知值一律按 zh-CN） */

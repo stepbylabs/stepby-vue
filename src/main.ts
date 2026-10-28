@@ -112,6 +112,13 @@ import { setupFrontendErrorReporter } from '@/utils/frontendErrorReporter'
 import { isDialogCancel, isRequestLayerError } from '@/utils/requestError'
 import { installImeKeyGuard } from '@/utils/keyboard'
 import { purgeLegacySwCaches } from '@/utils/swCache'
+import { installCrossTabHandlers } from '@/utils/crossTabHandlers'
+import { installNetworkStatus } from '@/composables/useNetworkStatus'
+
+// b122：跨标签页会话/语言同步（storage 事件只在其他标签页触发，天然无回声）
+installCrossTabHandlers()
+// b122：网络状态监听要在挂载前装好——冷启动就已断网的标签页不会再有 offline 事件
+installNetworkStatus()
 
 // b114：输入法组合态的 Enter/Escape 属于输入法（上屏/取消），不是业务提交。
 // 在事件到达组件之前统一吞掉——全仓约 50 处列表搜索框的 @keyup.enter 因此不必逐点改造。
