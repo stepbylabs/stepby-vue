@@ -175,6 +175,7 @@ import type { ScimGroupAdminRow, ScimGroupAdminDetail, SysRole, SysDept } from '
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { confirmAction } from '@/utils/confirm'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { createLatestGuard } from '@/composables/latestRequest'
 
 const { t } = useI18n()
 const { proxy } = getCurrentInstance() as ComponentInternalInstance
@@ -184,6 +185,8 @@ const showSearch = ref(true)
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 const loading = ref(false)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref(false)
 const saving = ref(false)
@@ -210,9 +213,11 @@ const deptOptions = ref<SysDept[]>([])
 const hasBindings = computed(() => (detail.value?.bindingTargetIds?.length ?? 0) > 0)
 
 async function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   try {
     const res = await listScimGroup(queryForm)
+    if (!listGuard.isCurrent(ticket)) return
     const nextPage = pageAfterEmptyResult(queryForm.pageNum, res.rows.length, res.total)
     if (nextPage !== queryForm.pageNum) {
       queryForm.pageNum = nextPage
@@ -222,12 +227,13 @@ async function getList() {
     groupList.value = res.rows
     total.value = res.total
   } catch {
+    if (!listGuard.isCurrent(ticket)) return
     // b105：失败必须与"暂无数据"可区分；此前没有 catch，拒绝会逸出到全局处理器
     loadError.value = true
     groupList.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(ticket)) loading.value = false
   }
 }
 

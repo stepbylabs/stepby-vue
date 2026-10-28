@@ -184,10 +184,14 @@ import type { AjaxResult, RotateAkResult } from '@/types'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 import { copyText as writeClipboard } from '@/utils/clipboard'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 
 const loading = ref(false)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // b102：失败态与"尚未创建令牌"必须可分
 const loadError = ref(false)
 const tokenList = ref<SysPat[]>([])
@@ -217,17 +221,28 @@ const plainAccessKey = ref('')
 const plainSecretKey = ref('')
 
 async function getList(): Promise<void> {
+  const ticket = listGuard.begin()
   loading.value = true
   loadError.value = false
   try {
     const res = await listMyTokens(queryParams)
+    // 旧响应（期间又发起了新的查询）不得覆盖新请求的数据与结局
+    if (!listGuard.isCurrent(ticket)) return
+    // 删掉末页最后一条后页码越界：有数据但本页为空 ⇒ 回退一页重取（b119）
+    const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+    if (nextPage !== queryParams.pageNum) {
+      queryParams.pageNum = nextPage
+      await getList()
+      return
+    }
     tokenList.value = res.rows || []
     total.value = res.total || 0
   } catch {
+    if (!listGuard.isCurrent(ticket)) return
     // 拦截器已弹提示；失败必须在列表区可见（否则"没有令牌"与"取不到"同形）
     loadError.value = true
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(ticket)) loading.value = false
   }
 }
 

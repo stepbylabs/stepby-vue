@@ -52,6 +52,7 @@ import { useI18n } from 'vue-i18n'
 import { previewDataset, type DashboardChart } from '@/api/report'
 import { buildChartOption, buildStatValue } from '../designer/chartOption'
 import { useChart } from '@/composables/useChart'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { formatClockTime } from '@/utils'
 
 const props = defineProps<{ chart: DashboardChart }>()
@@ -68,8 +69,8 @@ const chartRef = ref<HTMLElement>()
 const { getChart, resize, dispose } = useChart()
 /** 当前屏上数据来自哪个数据集（换数据集 = 换了问题，旧值不得冒充新结果） */
 let loadedDatasetId: number | null = null
-/** 刷新序号：属性面板 deep 快改时只让最后一次请求的结局生效 */
-let seq = 0
+/** 刷新守卫：属性面板 deep 快改时只让最后一次请求的结局生效（b119 单一实现） */
+const guard = createLatestGuard()
 
 const statValue = computed(() => buildStatValue(props.chart, rows.value))
 const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
@@ -82,7 +83,7 @@ const hasRenderable = computed(() => {
 
 /** 丢快照（换数据集时调用；序号前移让在飞的旧请求作废） */
 function resetSnapshot(): void {
-  seq++
+  guard.invalidate()
   rows.value = []
   columns.value = []
   loaded.value = false
@@ -93,13 +94,13 @@ function resetSnapshot(): void {
 async function load() {
   // 换数据集：必须先丢旧值，否则新数据集失败时屏上是另一个数据集的结果
   if (loadedDatasetId !== null && loadedDatasetId !== props.chart.datasetId) resetSnapshot()
-  const my = ++seq
+  const my = guard.begin()
   loading.value = true
   loadError.value = ''
   try {
     // 数据集执行走 preview 通道（LIMIT 100 硬顶 + Semaphore fail-closed，A2 铁律复用）
     const res = await previewDataset({ datasetId: props.chart.datasetId, params: {} })
-    if (my !== seq) return
+    if (!guard.isCurrent(my)) return
     columns.value = res.data?.columns ?? []
     rows.value = res.data?.rows ?? []
     loaded.value = true
@@ -107,7 +108,7 @@ async function load() {
     lastSuccessAt.value = Date.now()
     await renderEcharts()
   } catch (e) {
-    if (my !== seq) return
+    if (!guard.isCurrent(my)) return
     loadError.value = String(e)
     // 失败保留上一次的行/列 ⇒ 图表/表格/统计值继续展示旧结论（横幅说明时效）；
     // 只有从未成功过时才清空，避免把"取数失败"显示成一堆空行
@@ -116,7 +117,7 @@ async function load() {
       columns.value = []
     }
   } finally {
-    if (my === seq) loading.value = false
+    if (guard.isCurrent(my)) loading.value = false
   }
 }
 

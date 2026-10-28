@@ -361,6 +361,7 @@
 
 <script setup lang="ts">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { createLatestGuard } from '@/composables/latestRequest'
 import {
   listTenant,
   getTenant,
@@ -396,6 +397,8 @@ const showSearch = ref(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)
 const loading = ref(false)
+/** 列表请求守卫：连点搜索/刷新时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref(false)
 const saving = ref(false)
@@ -549,17 +552,20 @@ async function saveCapabilities() {
 }
 
 async function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   try {
     const res = await listTenant({ ...queryForm })
+    if (!listGuard.isCurrent(ticket)) return
     loadError.value = false
     tenantList.value = res.data ?? []
   } catch {
+    if (!listGuard.isCurrent(ticket)) return
     // b105：失败必须与"没有租户"可区分；此前没有 catch，拒绝会逸出到全局处理器
     loadError.value = true
     tenantList.value = []
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(ticket)) loading.value = false
   }
 }
 

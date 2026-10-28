@@ -37,6 +37,7 @@ import { listNotice } from '@/api/system/notice'
 import cache from '@/plugins/cache'
 import { navigate } from '@/utils/navigation'
 import useNotificationStore from '@/store/modules/notification'
+import { createLatestGuard } from '@/composables/latestRequest'
 
 interface Props {
   /** 显示时长（小时），超过则不再显示，0 表示每次都显示 */
@@ -61,8 +62,8 @@ const iconMap = {
 const DISMISS_KEY = 'announcement-banner-dismissed'
 
 const notificationStore = useNotificationStore()
-// 后发先回守卫：公告变更可能连发（发布后紧接着被改/被删），早发的响应不得覆盖晚发的
-let loadSeq = 0
+// 后发先回守卫（b119 单一实现）：公告变更可能连发（发布后紧接着被改/被删），早发的响应不得覆盖晚发的
+const loadGuard = createLatestGuard()
 
 onMounted(async () => {
   await loadAnnouncement()
@@ -85,7 +86,7 @@ function hideBanner() {
 }
 
 async function loadAnnouncement() {
-  const seq = ++loadSeq
+  const ticket = loadGuard.begin()
   try {
     // 拉取"公告"类型（notice_type='2'、status='0'）的**最新** 1 条。
     // 改造前这里写的是 noticeType='F'——公告类型只有 '1'/'2'，'F' 永不命中，
@@ -100,7 +101,7 @@ async function loadAnnouncement() {
       orderByColumn: 'createTime',
       isAsc: 'desc'
     })
-    if (seq !== loadSeq) return
+    if (!loadGuard.isCurrent(ticket)) return
     const notice = (res.rows || [])[0]
     // 最新公告被删除/关闭（或从未有过）：必须收回横幅，
     // 否则屏幕上留着一条已不存在的公告，且"查看详情"会跳到查不到它的列表。
@@ -126,7 +127,7 @@ async function loadAnnouncement() {
     }
     visible.value = true
   } catch (e) {
-    if (seq !== loadSeq) return
+    if (!loadGuard.isCurrent(ticket)) return
     // 保留上一次成功的内容（失败清空会把"曾经有公告"变成"没有公告"），仅留痕
     if (import.meta.env.DEV) console.warn('Failed to load announcements:', e)
   }

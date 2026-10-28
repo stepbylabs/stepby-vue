@@ -173,6 +173,7 @@ import type { ComponentPublicInstance } from 'vue'
 import type { EChartsOption } from '@/utils/echarts'
 import { formatClockTime } from '@/utils'
 import { readCssVar, useChart } from '@/composables/useChart'
+import { createLatestGuard } from '@/composables/latestRequest'
 import {
   addBoard,
   deleteBoard as deleteBoardApi,
@@ -219,8 +220,8 @@ const dataMap = ref<Map<string, SourcePoint[]>>(new Map())
 const failedSources = ref<Set<string>>(new Set())
 /** 数据源快照时刻：sourceKey → 最近一次成功取数的毫秒时间戳（b109：陈旧必须说得出"几点的数据"） */
 const sourceLoadedAt = ref<Map<string, number>>(new Map())
-/** 刷新序号：快速切换看板/范围时只让最后一次请求的结局生效 */
-let refreshSeq = 0
+/** 刷新守卫：快速切换看板/范围时只让最后一次请求的结局生效（b119 单一实现） */
+const refreshGuard = createLatestGuard()
 
 /** 添加卡片对话框 */
 const dialogVisible = ref(false)
@@ -286,8 +287,8 @@ function onRangeChange(): void {
  * 还挂着"陈旧"徽标，读报表的人会把旧结论当成新范围的结果（b109，同 b108 日志页）。
  */
 function resetSnapshots(): void {
-  // 序号前移 ⇒ 任何在飞的旧请求结局直接作废，不得在下一次取数之前回填旧数据
-  refreshSeq++
+  // 票据前移 ⇒ 任何在飞的旧请求结局直接作废，不得在下一次取数之前回填旧数据
+  refreshGuard.invalidate()
   dataMap.value = new Map()
   failedSources.value = new Set()
   sourceLoadedAt.value = new Map()
@@ -295,7 +296,7 @@ function resetSnapshots(): void {
 
 /** 拉取看板所有 sourceKey 的数据并渲染图表（同一 sourceKey 只请求一次） */
 async function refreshData(): Promise<void> {
-  const my = ++refreshSeq
+  const my = refreshGuard.begin()
   const cards: ReportCard[] = config.value.cards
   const keys: string[] = [...new Set<string>(cards.map((c: ReportCard) => c.sourceKey))]
   // 错误提示由 @/utils/request 响应拦截器 errorHub 统一弹出，此处记录失败源并区分"有无旧快照"
@@ -310,7 +311,7 @@ async function refreshData(): Promise<void> {
     })
   )
   // 后发先回：旧请求的结局一律丢弃（既不覆盖数据，也不改失败集合）
-  if (my !== refreshSeq) return
+  if (!refreshGuard.isCurrent(my)) return
   const nextData = new Map<string, SourcePoint[]>(dataMap.value)
   const nextAt = new Map<string, number>(sourceLoadedAt.value)
   const nextFailed = new Set<string>()

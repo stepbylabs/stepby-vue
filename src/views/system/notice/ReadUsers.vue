@@ -76,6 +76,8 @@
 <script setup lang="ts" name="ReadUsers">
 import { Search } from '@element-plus/icons-vue'
 import { listNoticeReadUsers } from '@/api/system/notice'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import type { NoticeReadUser, NoticeReadUserQueryParams, SysNotice } from '@/types/api/system/notice'
 
 const { t } = useI18n()
@@ -83,6 +85,8 @@ const queryRefRef = useTemplateRef('queryRef')
 
 const visible = ref(false)
 const loading = ref(false)
+/** 列表请求守卫：连续打开不同公告时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref(false)
 const noticeTitle = ref('')
@@ -106,21 +110,30 @@ function open(row: SysNotice) {
 }
 
 function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   listNoticeReadUsers(queryParams)
     .then((res) => {
+      if (!listGuard.isCurrent(ticket)) return
+      const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+      if (nextPage !== queryParams.pageNum) {
+        queryParams.pageNum = nextPage
+        getList()
+        return
+      }
       loadError.value = false
       userList.value = res.rows
       total.value = res.total
     })
     .catch(() => {
+      if (!listGuard.isCurrent(ticket)) return
       // 失败必须与"无人已读"可区分（b105）：清空陈旧行 + 失败态带重试入口
       loadError.value = true
       userList.value = []
       total.value = 0
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

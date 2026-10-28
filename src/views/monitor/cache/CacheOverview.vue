@@ -112,6 +112,7 @@ import { formatClockTime } from '@/utils'
 // 性能优化：echarts 按需导入（统一从 @/utils/echarts 引入，所有页面共享同一份注册）
 import { type ECharts, type EChartsOption } from '@/utils/echarts'
 import { useChart } from '@/composables/useChart'
+import { createLatestGuard } from '@/composables/latestRequest'
 import useSettingsStore from '@/store/modules/settings'
 import modal from '@/plugins/modal'
 
@@ -131,8 +132,8 @@ const loading = ref(false)
 const chartError = ref(false)
 /** 最近一次成功取数的时刻（陈旧横幅要说得出"几点的数据"） */
 const lastSuccessAt = ref<number | null>(null)
-/** 刷新序号：连续点刷新时只让最后一次请求的结局生效 */
-let seq = 0
+/** 刷新守卫：连续点刷新时只让最后一次请求的结局生效（b119 单一实现） */
+const refreshGuard = createLatestGuard()
 const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 const chartErrorText = computed(() => (lastSuccessAt.value ? staleHint.value : t('dashboard.chartLoadFail')))
 const commandstats = useTemplateRef<HTMLDivElement>('commandstats')
@@ -330,27 +331,27 @@ async function renderCharts(data: CacheData): Promise<void> {
 }
 
 function getList(): void {
-  const my = ++seq
+  const my = refreshGuard.begin()
   loading.value = true
   chartError.value = false
   modal.loading(t('cache.tip.loading'))
   getCache()
     .then(async (response) => {
       // 后发先回：旧请求的结局一律丢弃（不覆盖数据、不改错误态与时刻）
-      if (my !== seq) return
+      if (!refreshGuard.isCurrent(my)) return
       const data = response.data as CacheData
       cache.value = data
       lastSuccessAt.value = Date.now()
       await renderCharts(data)
     })
     .catch(() => {
-      if (my !== seq) return
+      if (!refreshGuard.isCurrent(my)) return
       modal.msgError(t('cache.tip.loadFailed'))
       // 成功过 ⇒ 旧信息保留 + 横幅说明时刻；从未成功 ⇒ 空态显示"取数失败"而不是"未连接"
       chartError.value = true
     })
     .finally(() => {
-      if (my !== seq) return
+      if (!refreshGuard.isCurrent(my)) return
       modal.closeLoading()
       loading.value = false
     })

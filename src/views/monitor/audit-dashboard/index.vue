@@ -208,6 +208,7 @@
 <script setup lang="ts" name="AuditDashboard">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useChart, readCssVar } from '@/composables/useChart'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { useMotionPresets } from '@/composables/useMotion'
 import useSettingsStore from '@/store/modules/settings'
 import {
@@ -244,8 +245,8 @@ const statsLoaded = ref(false)
 const statsLastSuccessAt = ref<number | null>(null)
 /** 屏上图形属于哪个统计窗口（换窗口 = 换了问题，旧图不得顶着新标题） */
 let loadedDays: number | null = null
-/** 刷新序号：快速切换 7/14/30 天时只让最后一次请求的结局生效 */
-let statsSeq = 0
+/** 刷新守卫：快速切换 7/14/30 天时只让最后一次请求的结局生效（b119 单一实现） */
+const statsGuard = createLatestGuard()
 const chartErrorText = computed(() =>
   statsLoaded.value
     ? t('common.staleDataHintAt', { time: formatClockTime(statsLastSuccessAt.value) })
@@ -320,7 +321,8 @@ const alarmLoading = ref(false)
 const alarmError = ref(false)
 /** 最近一次成功取到告警状态的时刻（失败时面板要说明"旧状态是什么时候的"） */
 const alarmLastSuccessAt = ref<number | null>(null)
-let alarmSeq = 0
+/** 告警状态守卫：刷新与窗口切换可能重叠（b119 单一实现） */
+const alarmGuard = createLatestGuard()
 const alarmStaleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(alarmLastSuccessAt.value) }))
 const alarmThresholdTip = computed(() => {
   const cfg = alarmData.value?.config
@@ -348,7 +350,7 @@ interface TypeStatsVo {
 }
 
 async function loadStats(): Promise<void> {
-  const my = ++statsSeq
+  const my = statsGuard.begin()
   // 统计窗口变了（7/14/30 天 = 换了问题）：旧图形与旧汇总必须先丢，
   // 否则新窗口取数失败时屏上是上一个窗口的结果，却顶着新窗口的标题（b109）。
   if (loadedDays !== null && loadedDays !== days.value) {
@@ -379,7 +381,7 @@ async function loadStats(): Promise<void> {
       })
     ])) as [Partial<StatsVo> & { data?: StatsVo }, Partial<{ data?: TypeStatsVo }> & Partial<TypeStatsVo>]
     // 后发先回：旧请求的结局一律丢弃（既不覆盖数据，也不改错误态与时刻）
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     const vo: StatsVo = (res.data || res) as StatsVo
     const summary = vo.summary || { total: 0, success: 0, fail: 0 }
     const businessTypes = vo.businessTypes || []
@@ -408,7 +410,7 @@ async function loadStats(): Promise<void> {
       other: typeVo.other || 0
     }
     await nextTick()
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     // 图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
     await Promise.all([
       renderTrendChart(lastDaily.value),
@@ -418,36 +420,36 @@ async function loadStats(): Promise<void> {
       renderFailTrendChart(lastDaily.value),
       renderTypeStatsChart(lastTypeStats.value)
     ])
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     statsLoaded.value = true
     statsLastSuccessAt.value = Date.now()
     loadedDays = days.value
   } catch (e) {
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     if (import.meta.env.DEV) console.error('Failed to load audit dashboard data:', e)
     // 成功过 ⇒ 旧图保留、文案说明时刻；从未成功 ⇒ 文案为"加载失败，请重试"
     chartError.value = true
   } finally {
-    if (my === statsSeq) loading.value = false
+    if (statsGuard.isCurrent(my)) loading.value = false
   }
 }
 
 /** 加载异常操作告警状态（失败必须可见：否则"取不到"会被读成"没有异常"） */
 async function loadAlarm(): Promise<void> {
-  const my = ++alarmSeq
+  const my = alarmGuard.begin()
   alarmLoading.value = true
   alarmError.value = false
   try {
     const res = (await getAlarmStatus()) as { data?: AlarmStatus }
-    if (my !== alarmSeq) return
+    if (!alarmGuard.isCurrent(my)) return
     alarmData.value = res?.data ?? null
     alarmLastSuccessAt.value = Date.now()
   } catch (e) {
-    if (my !== alarmSeq) return
+    if (!alarmGuard.isCurrent(my)) return
     if (import.meta.env.DEV) console.error('Failed to load alarm status:', e)
     alarmError.value = true
   } finally {
-    if (my === alarmSeq) alarmLoading.value = false
+    if (alarmGuard.isCurrent(my)) alarmLoading.value = false
   }
 }
 

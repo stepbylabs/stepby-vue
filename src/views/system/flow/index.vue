@@ -299,6 +299,7 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useDict } from '@/utils/dict'
 import { validateForm } from '@/utils/formValidate'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
 import { confirmAction } from '@/utils/confirm'
@@ -342,7 +343,12 @@ const loading = computed(() => pendingLoads.value > 0)
 const pendingCount = ref(0)
 // 每个列表各自的请求序号：翻页/筛选快速切换时，**旧响应不得覆盖新响应**
 // （否则页码停在第 2 页、表格显示第 1 页的数据，且总条数也对不上）。
-const listSeq = { todo: 0, mine: 0, done: 0, all: 0 }
+const listGuards = {
+  todo: createLatestGuard(),
+  mine: createLatestGuard(),
+  done: createLatestGuard(),
+  all: createLatestGuard()
+}
 
 // W-17 移动端：窄屏下取消操作列右侧固定，避免遮挡内容
 const isNarrow = ref(false)
@@ -406,11 +412,11 @@ async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
   rows: { value: R[] },
   total: { value: number }
 ) {
-  const seq = ++listSeq[key]
+  const ticket = listGuards[key].begin()
   pendingLoads.value += 1
   try {
     const res = await fetch()
-    if (seq !== listSeq[key]) return // 已有更新的请求发出，丢弃这份过期结果
+    if (!listGuards[key].isCurrent(ticket)) return // 已有更新的请求发出，丢弃这份过期结果
     rows.value = res.rows
     total.value = res.total
   } catch (e) {

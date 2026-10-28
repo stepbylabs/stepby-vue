@@ -158,6 +158,7 @@ import useUserStore from '@/store/modules/user'
 import { listMySessions as listOnline, logoutMySession as forceLogout } from '@/api/monitor/online'
 import { getToken } from '@/utils/auth'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { createLatestGuard } from '@/composables/latestRequest'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -253,11 +254,11 @@ function formatTime(timestamp: number): string {
 }
 
 // 获取会话列表
-// P1 修复: 使用请求序号防止竞态——silentRefresh 与手动刷新并发时，旧请求结果不覆盖新请求结果
-let requestSeq = 0
+// 请求守卫（b119 单一实现）：silentRefresh 与手动刷新并发时，旧请求结果不覆盖新请求结果
+const requestGuard = createLatestGuard()
 async function getList() {
   loading.value = true
-  const seq = ++requestSeq
+  const ticket = requestGuard.begin()
   try {
     const token = getToken() as string
     if (token && !currentTokenHash.value) {
@@ -265,18 +266,18 @@ async function getList() {
     }
     const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
     // 仅当本次请求是最新的才更新结果，避免旧请求覆盖新请求
-    if (seq === requestSeq) {
+    if (requestGuard.isCurrent(ticket)) {
       loadError.value = false
       sessionList.value = res.rows || []
     }
   } catch {
     // 失败必须与"没有其它会话"可区分（b105）；仅最新请求可改状态，旧请求的失败不得污染
-    if (seq === requestSeq) {
+    if (requestGuard.isCurrent(ticket)) {
       loadError.value = true
       sessionList.value = []
     }
   } finally {
-    if (seq === requestSeq) {
+    if (requestGuard.isCurrent(ticket)) {
       loading.value = false
     }
   }
@@ -285,10 +286,10 @@ async function getList() {
 // P1-5：接入 useAutoRefresh（读取用户偏好 autoRefreshInterval，标签页隐藏时自动暂停）
 // 静默刷新：不显示 loading，避免周期性闪烁
 async function silentRefresh() {
-  const seq = ++requestSeq
+  const ticket = requestGuard.begin()
   try {
     const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
-    if (seq === requestSeq) {
+    if (requestGuard.isCurrent(ticket)) {
       loadError.value = false
       sessionList.value = res.rows || []
     }

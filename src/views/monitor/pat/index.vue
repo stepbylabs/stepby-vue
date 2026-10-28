@@ -117,12 +117,16 @@ import { listPat, revokePat } from '@/api/monitor/pat'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef<FormInstance>('queryRef')
 
 const loading = ref(false)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 const showSearch = ref(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)
@@ -134,22 +138,30 @@ const userIdInput = ref('')
 const queryParams = reactive({ pageNum: 1, pageSize: 10 })
 
 function getList(): void {
+  const ticket = listGuard.begin()
   loading.value = true
   const uid = userIdInput.value.trim()
   const params: Record<string, unknown> = { pageNum: queryParams.pageNum, pageSize: queryParams.pageSize }
   if (uid && !Number.isNaN(Number(uid))) params.userId = Number(uid)
   listPat(params as never)
     .then((res) => {
+      if (!listGuard.isCurrent(ticket)) return
+      const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+      if (nextPage !== queryParams.pageNum) {
+        queryParams.pageNum = nextPage
+        getList()
+        return
+      }
       loadError.value = false
       tokenList.value = res.rows || []
       total.value = res.total || 0
     })
     // 失败不再静默吞成空列表：置 loadError，空态显示「加载失败 + 重试」
     .catch(() => {
-      loadError.value = true
+      if (listGuard.isCurrent(ticket)) loadError.value = true
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

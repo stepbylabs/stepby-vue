@@ -110,6 +110,7 @@ import useAppStore from '@/store/modules/app'
 import useLockStore from '@/store/modules/lock'
 import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
+import { createLatestGuard } from '@/composables/latestRequest'
 import modal from '@/plugins/modal'
 import { translateTitle } from '@/composables/useMenuTitle'
 import { globalSearch } from '@/api/common'
@@ -309,8 +310,8 @@ const filteredCommands = computed<Command[]>(() => {
 const searchLoading = ref(false)
 const searchResults = ref<Command[]>([])
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-// 请求序号：丢弃防抖窗口外过期响应，避免竞态覆盖
-let searchSeq = 0
+// 请求守卫（b119 单一实现）：丢弃防抖窗口外过期响应，避免竞态覆盖
+const searchGuard = createLatestGuard()
 
 // 输入 >= 2 字符进入搜索模式
 const isSearchMode = computed(() => query.value.trim().length >= 2)
@@ -335,16 +336,16 @@ function scheduleGlobalSearch(): void {
 
 /** 执行全局搜索：结果按类型转为可执行命令（回车/点击跳 url） */
 async function runGlobalSearch(q: string): Promise<void> {
-  const seq = ++searchSeq
+  const ticket = searchGuard.begin()
   try {
     const res = await globalSearch(q, 20)
     // 过期响应丢弃（期间用户可能已修改输入）
-    if (seq !== searchSeq) return
+    if (!searchGuard.isCurrent(ticket)) return
     searchResults.value = (res.data || []).map(toSearchCommand)
   } catch {
-    if (seq === searchSeq) searchResults.value = []
+    if (searchGuard.isCurrent(ticket)) searchResults.value = []
   } finally {
-    if (seq === searchSeq) searchLoading.value = false
+    if (searchGuard.isCurrent(ticket)) searchLoading.value = false
   }
 }
 

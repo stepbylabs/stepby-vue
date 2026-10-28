@@ -39,7 +39,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { muteNonCode } from '@/utils/e2eSuiteScanKit'
+import { CRUD_CALL_RE, isHandwrittenListPage, maskVueSource } from '@/utils/listPageSurface'
 
 /** 仓根按本文件位置反推（src/utils 的上两层），与其余守卫同一口径 */
 const VUE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -49,18 +49,11 @@ const VIEWS_DIR = resolve(VUE_ROOT, 'src', 'views')
 const MIN_VIEWS_FILES = 100
 const MIN_CRUD_CALLERS = 25
 
-/** 组合子调用形态：泛型尖括号或直接圆括号；裸 import 名 / 路径字符串 / 注释文本都不算 */
-const CRUD_CALL_RE = /\buseCrudTable\s*[<(]/
 /**
  * "暂无数据"类空态文案键：只认 `common.empty` / `common.noData` 整键
  * （后面不得再接字母——`common.emptyActionReset` 是 CTA 按钮文案，不是空态本身）。
  */
 const EMPTY_TEXT_RE = /common\.(?:empty|noData)(?![A-Za-z])/
-
-/** HTML 注释等长置空（保留换行，行号可信）；注释里的反例不是代码 */
-function blankHtmlComments(src: string): string {
-  return src.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '))
-}
 
 /** 偏移 → 1 基行号 */
 function lineOf(text: string, offset: number): number {
@@ -98,15 +91,12 @@ function emptyTemplateBlocks(masked: string): Array<{ body: string; line: number
 
 /** 单文件的违规行号列表（判据主体，纯函数：真实树与合成夹具共用同一份实现） */
 function violationLines(text: string): number[] {
-  // 掩码口径三件套，每件都各有理由（缺一即判据的输入坏）：
+  // 掩码口径三件套（现由 listPageSurface 单一实现提供）：
   // · HTML 注释等长置空：模板里的说明注释不是代码；
-  // · muteNonCode(keepStrings)：JS 注释置空，但**字符串保留**——空态绑定
-  //   （`:description="t('common.empty')"`）就长在模板属性字符串里，
-  //   连字符串一起抹掉等于把判据的输入抹没；
+  // · JS 注释置空，但**字符串保留**——空态绑定就长在模板属性字符串里；
   // · keepRegex：模板里 `/>`、`</el-table>` 的 `/` 会被 JS 掩码器当成"正则起点"，
-  //   默认分支把整段**置空**、吞掉 `</template>` 闭合标签（探针实测），块定界当场失衡；
-  //   keepRegex 让这类伪正则区间原样搬运，注释与字符串的处理不受影响。
-  const masked = muteNonCode(blankHtmlComments(text), { keepStrings: true, keepRegex: true })
+  //   默认分支把整段**置空**、吞掉 `</template>` 闭合标签（探针实测），块定界当场失衡。
+  const masked = maskVueSource(text)
   if (!CRUD_CALL_RE.test(masked)) return []
   const hits: number[] = []
   for (const block of emptyTemplateBlocks(masked)) {
@@ -130,11 +120,8 @@ const MIN_HANDWRITTEN_LIST_PAGES = 8
  * 纯函数与真实树共用同一份实现，合成夹具直接喂它。
  */
 function handwrittenListViolation(text: string): boolean {
-  const masked = muteNonCode(blankHtmlComments(text), { keepStrings: true, keepRegex: true })
-  const hasGetList = /\bfunction\s+getList\b|\bconst\s+getList\b/.test(masked)
-  const hasTable = /<el-table[\s>]/.test(masked)
-  if (!hasGetList || !hasTable) return false
-  if (CRUD_CALL_RE.test(masked)) return false
+  const masked = maskVueSource(text)
+  if (!isHandwrittenListPage(masked)) return false
   return !/:load-error="loadError"/.test(masked)
 }
 
@@ -151,9 +138,7 @@ function walkVue(dir: string, out: string[] = []): string[] {
 }
 
 const viewFiles = walkVue(VIEWS_DIR)
-const crudCallers = viewFiles.filter((f) =>
-  CRUD_CALL_RE.test(muteNonCode(blankHtmlComments(readFileSync(f, 'utf8')), { keepStrings: true, keepRegex: true }))
-)
+const crudCallers = viewFiles.filter((f) => CRUD_CALL_RE.test(maskVueSource(readFileSync(f, 'utf8'))))
 
 describe('静态守卫：useCrudTable 页面的 #empty 槽必须消费 loadError', () => {
   it('① 真实树：绑"暂无数据"但未消费 loadError 的组合子空态槽必须 0 处', () => {
@@ -298,11 +283,7 @@ describe('静态守卫：useCrudTable 页面的 #empty 槽必须消费 loadError
     for (const f of viewFiles) {
       const rel = f.slice(VUE_ROOT.length + 1).replace(/\\/g, '/')
       const text = readFileSync(f, 'utf8')
-      const masked = muteNonCode(blankHtmlComments(text), { keepStrings: true, keepRegex: true })
-      const isCandidate =
-        /\bfunction\s+getList\b|\bconst\s+getList\b/.test(masked) &&
-        /<el-table[\s>]/.test(masked) &&
-        !CRUD_CALL_RE.test(masked)
+      const isCandidate = isHandwrittenListPage(maskVueSource(text))
       if (isCandidate) surface++
       if (handwrittenListViolation(text)) {
         offenders.push(`${rel}: 加载失败会落回"暂无数据"（缺 :load-error="loadError" 接线）`)

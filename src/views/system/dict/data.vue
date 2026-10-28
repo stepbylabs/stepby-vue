@@ -238,6 +238,7 @@
 <script setup lang="ts" name="Data">
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { createLatestGuard } from '@/composables/latestRequest'
 import useDictStore from '@/store/modules/dict'
 import { optionselect as getDictOptionselect, getType } from '@/api/system/dict/type'
 import { listData, getData, delData, addData, updateData } from '@/api/system/dict/data'
@@ -260,6 +261,8 @@ const { sys_normal_disable } = useDict('sys_normal_disable')
 const dataList = shallowRef<SysDictData[]>([])
 const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref<boolean>(false)
 const submitLoading = ref<boolean>(false)
@@ -338,9 +341,11 @@ function getTypeList() {
 
 /** 查询字典数据列表 */
 function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   listData(queryParams.value)
     .then((response) => {
+      if (!listGuard.isCurrent(ticket)) return
       const nextPage = pageAfterEmptyResult(queryParams.value.pageNum, response.rows.length, response.total)
       if (nextPage !== queryParams.value.pageNum) {
         queryParams.value.pageNum = nextPage
@@ -352,13 +357,14 @@ function getList() {
       total.value = response.total
     })
     .catch(() => {
+      if (!listGuard.isCurrent(ticket)) return
       // 失败必须与"暂无数据"可区分（b105）：清空陈旧行 + 失败态带重试入口
       loadError.value = true
       dataList.value = []
       total.value = 0
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

@@ -86,6 +86,8 @@
 
 <script setup lang="ts" name="SelectUser">
 import { authUserSelectAll, unallocatedUserList } from '@/api/system/role'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import type { SysUser, UserQueryParams } from '@/types/api/system/user'
 import modal from '@/plugins/modal'
 
@@ -105,6 +107,8 @@ const visible = ref<boolean>(false)
 const total = ref<number>(0)
 const userIds = ref<number[]>([])
 const loading = ref<boolean>(false)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 const submitLoading = ref<boolean>(false)
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref<boolean>(false)
@@ -136,21 +140,30 @@ function handleSelectionChange(selection: SysUser[]) {
 
 // 查询表数据
 function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   unallocatedUserList(queryParams)
     .then((res) => {
+      if (!listGuard.isCurrent(ticket)) return
+      const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+      if (nextPage !== queryParams.pageNum) {
+        queryParams.pageNum = nextPage
+        getList()
+        return
+      }
       loadError.value = false
       userList.value = res.rows
       total.value = res.total
     })
     .catch(() => {
+      if (!listGuard.isCurrent(ticket)) return
       // 失败必须与"没有可分配用户"可区分（b105）
       loadError.value = true
       userList.value = []
       total.value = 0
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

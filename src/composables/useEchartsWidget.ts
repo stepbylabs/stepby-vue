@@ -16,6 +16,7 @@ import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ECharts, EChartsOption } from '@/utils/echarts'
 import { useChart, readCssVar } from '@/composables/useChart'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { errorHub } from '@/utils/errorHub'
 import { saveDataUrl } from '@/utils/saveBlob'
 import { useI18n } from 'vue-i18n'
@@ -51,7 +52,7 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
   let lastData: T | null = null
   let chart: ECharts | null = null
   let disposed = false
-  let seq = 0
+  const guard = createLatestGuard()
 
   const dataPresent = cfg.hasData ?? ((d: T): boolean => (Array.isArray(d) ? d.length > 0 : d != null))
 
@@ -64,25 +65,25 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
 
   async function refresh(): Promise<void> {
     // 自动刷新与手动重试可能重叠：只让最后一次请求的结局生效，且旧响应不得把 loading 提前摘掉
-    const my = ++seq
+    const my = guard.begin()
     loading.value = true
     error.value = false
     try {
       const next = await cfg.fetchData()
-      if (my !== seq) return
+      if (!guard.isCurrent(my)) return
       lastData = next
       lastSuccessAt.value = Date.now()
       loaded.value = true
       empty.value = !dataPresent(next)
       await nextTick()
-      if (my !== seq) return
+      if (!guard.isCurrent(my)) return
       await render()
     } catch (e) {
-      if (my !== seq) return
+      if (!guard.isCurrent(my)) return
       error.value = true
       if (import.meta.env.DEV) console.error(`[dashboard:${cfg.name}] load failed:`, e)
     } finally {
-      if (my === seq) loading.value = false
+      if (guard.isCurrent(my)) loading.value = false
     }
   }
 

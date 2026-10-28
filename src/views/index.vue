@@ -149,6 +149,7 @@ import { useChart, readCssVar } from '@/composables/useChart'
 import useSettingsStore from '@/store/modules/settings'
 import request from '@/utils/request'
 import { formatClockTime } from '@/utils'
+import { createLatestGuard } from '@/composables/latestRequest'
 
 const version = ref<string>(__APP_VERSION__ || '0.1.0')
 const chartRef = ref<HTMLElement | null>(null)
@@ -159,8 +160,8 @@ const chartError = ref(false)
 const lastSuccessAt = ref<number | null>(null)
 const totalSuccess = ref(0)
 const totalFail = ref(0)
-/** 刷新序号：连续点刷新时只让最后一次请求的结局生效 */
-let statsSeq = 0
+/** 刷新守卫：连续点刷新时只让最后一次请求的结局生效（b119 单一实现） */
+const statsGuard = createLatestGuard()
 const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 const chartErrorText = computed(() => (lastSuccessAt.value ? staleHint.value : t('dashboard.chartLoadFail')))
 // TierS-4: 水印改由 layout/index.vue 全局控制（userPrefs.watermarkEnabled）
@@ -177,7 +178,7 @@ function goTarget(url: string): void {
 
 /** 加载登录统计 */
 async function loadLoginStats(): Promise<void> {
-  const my = ++statsSeq
+  const my = statsGuard.begin()
   loading.value = true
   chartError.value = false
   try {
@@ -185,22 +186,22 @@ async function loadLoginStats(): Promise<void> {
       data?: Array<{ date: string; success: number; fail: number }>
     }
     // 后发先回：旧请求的结局一律丢弃（不覆盖统计值、不改错误态与时刻）
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     const data: Array<{ date: string; success: number; fail: number }> = res.data || []
     lastLoginStatsData = data
     totalSuccess.value = data.reduce((sum, item) => sum + item.success, 0)
     totalFail.value = data.reduce((sum, item) => sum + item.fail, 0)
     lastSuccessAt.value = Date.now()
     await nextTick()
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     await renderChart(data)
   } catch (err) {
-    if (my !== statsSeq) return
+    if (!statsGuard.isCurrent(my)) return
     if (import.meta.env.DEV) console.error('[Home] Failed to load login stats:', err)
     // 成功过 ⇒ 旧曲线/旧汇总保留、横幅说明时刻；从未成功 ⇒ 文案为"加载失败"
     chartError.value = true
   } finally {
-    if (my === statsSeq) loading.value = false
+    if (statsGuard.isCurrent(my)) loading.value = false
   }
 }
 

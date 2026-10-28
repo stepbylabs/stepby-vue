@@ -107,6 +107,8 @@
 
 <script setup lang="ts" name="AuthUser">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import selectUser from './selectUser.vue'
 import { allocatedUserList, authUserCancel, authUserCancelAll } from '@/api/system/role'
 import type { SysUser, AuthUserQueryParams } from '@/types/api/system/user'
@@ -122,6 +124,8 @@ const { sys_normal_disable } = useDict('sys_normal_disable')
 
 const userList = shallowRef<SysUser[]>([])
 const loading = ref<boolean>(true)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 const showSearch = ref<boolean>(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
@@ -142,21 +146,30 @@ const queryParams = reactive<AuthUserQueryParams>({
 
 /** 查询授权用户列表 */
 function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   allocatedUserList(queryParams)
     .then((response) => {
+      if (!listGuard.isCurrent(ticket)) return
+      const nextPage = pageAfterEmptyResult(queryParams.pageNum, response.rows?.length ?? 0, response.total ?? 0)
+      if (nextPage !== queryParams.pageNum) {
+        queryParams.pageNum = nextPage
+        getList()
+        return
+      }
       loadError.value = false
       userList.value = response.rows
       total.value = response.total
     })
     .catch(() => {
+      if (!listGuard.isCurrent(ticket)) return
       // 失败必须与"暂无数据"可区分（b105）：清空陈旧行 + 失败态带重试入口
       loadError.value = true
       userList.value = []
       total.value = 0
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

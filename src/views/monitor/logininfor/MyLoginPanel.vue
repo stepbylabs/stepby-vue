@@ -213,6 +213,8 @@ import useUserStore from '@/store/modules/user'
 import { addDateRange } from '@/utils/stepby'
 import modal from '@/plugins/modal'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -221,6 +223,8 @@ const queryRefRef = useTemplateRef('queryRef')
 
 const loginList = shallowRef<SysLogininfor[]>([])
 const loading = ref(true)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 // b102：失败态必须与"真的没有数据"可分（原实现 catch 静默，页面落回"暂无数据"）
 const loadError = ref(false)
 const showSearch = ref(true)
@@ -282,22 +286,32 @@ const anomalyDetail = computed(() =>
 
 /** 查询登录日志列表（返回本回合结局，供"重新分析"只在成功时提示） */
 async function getList(): Promise<boolean> {
+  const ticket = listGuard.begin()
   loading.value = true
   loadError.value = false
   try {
     const params = addDateRange(queryParams, dateRange.value)
     const res: TableDataInfo<SysLogininfor> = await listLogininfor(params)
+    // 旧响应（期间又发起了新的查询）不得覆盖新请求的数据与结局
+    if (!listGuard.isCurrent(ticket)) return false
+    // 删掉末页最后一条后页码越界：有数据但本页为空 ⇒ 回退一页重取（b119）
+    const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+    if (nextPage !== queryParams.pageNum) {
+      queryParams.pageNum = nextPage
+      return await getList()
+    }
     loginList.value = res.rows || []
     total.value = res.total || 0
     successCount.value = loginList.value.filter((r: SysLogininfor) => r.status === '0').length
     failCount.value = loginList.value.filter((r: SysLogininfor) => r.status === '1').length
     return true
   } catch {
+    if (!listGuard.isCurrent(ticket)) return false
     // 错误提示由响应拦截器统一弹出；页面侧只负责让失败可见（ListEmpty / 告警条）
     loadError.value = true
     return false
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(ticket)) loading.value = false
   }
 }
 

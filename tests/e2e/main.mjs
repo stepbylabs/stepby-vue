@@ -65,6 +65,7 @@
  *  121. gen 导入表/建表对话框负路径（不选表错误 Toast + 取消零落库）
  *  122. cache 键管理/统计 Tab 交互（getNames/getKeys/getValue 链 + 清空取消 0 DELETE）
  *  123. profile TOTP Tab UI 真测（setup 200/QR/错误码验证失败/初态不落库）
+ *  145. 手写列表页竞态守卫（page.route 构造先发后到）+ 删空回退（11 条夹具下删末页最后一条 → 回到第 1 页）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -18900,6 +18901,230 @@ function parseCliArgs() {
   }
 }
 
+// ==================== 功能 145：手写列表页竞态守卫 + 删空回退（b119） ====================
+// 立案（本轮 HEAD 实测）：13 个手写列表页里 **11 个没有任何"后发先回"守卫**——
+// 连按两次搜索/翻页时先发的响应后到，表格显示 A 条件的行而搜索框写着 B；
+// 7 个服务端分页页没有**删空回退**——删掉末页最后一条后停在"暂无数据"而前面还有数据。
+// 两件事本轮收进 `createLatestGuard` 与 `pageAfterEmptyResult` 并逐页接线，
+// 本功能在真实浏览器里证两件事（不是读源码）：
+// ① 构造"先发的请求后回来"（page.route 按住 r01 的响应）：表格必须仍是 r02 的结果；
+// ② 11 条夹具（= 页容量 10 + 1）下第 2 页恰好 1 条，UI 删掉它后必须回退到第 1 页并显示 10 行。
+async function testFeature145(page) {
+  log('=== 功能 145：手写列表页竞态守卫 + 删空回退 ===')
+  const token = await sessionTokenOf(page)
+  if (!token) {
+    record(145, '前置登录', false, 'token 获取失败')
+    return
+  }
+  const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const uniq = Date.now().toString(36).slice(-7)
+  const dictType = `e2e119_${uniq}`
+  // 11 条：页容量 10 ⇒ 第 2 页恰好只有 1 条，"删末页最后一条"的断面才成立
+  const labels = Array.from({ length: 11 }, (_, i) => `e2e119-${uniq}-r${String(i + 1).padStart(2, '0')}`)
+  let dictId = null
+
+  const rowsNow = () =>
+    page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.el-table__row')]
+      return { n: rows.length, text: rows.map((r) => r.innerText).join('\n') }
+    })
+  const waitRows = (want, timeout) =>
+    page
+      .waitForFunction((n) => document.querySelectorAll('.el-table__row').length === n, want, { timeout })
+      .then(() => true)
+      .catch(() => false)
+
+  try {
+    // ⓪ 夹具：字典类型 + 11 条数据（自建自清，不依赖任何存量数据）
+    const addType = await apiWithBackoff('/system/dict/type', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ dictName: `e2e119-${uniq}`, dictType, status: '0', remark: 'b119 fixture' })
+    })
+    const typeList = await apiWithBackoff(`/system/dict/type/list?dictType=${encodeURIComponent(dictType)}`, {
+      headers: jsonHeaders
+    })
+    dictId = typeList?.body?.rows?.find((r) => r.dictType === dictType)?.dictId ?? null
+    record(
+      145,
+      '⓪ 夹具：字典类型可查（dictId 拿到）',
+      addType.status === 200 && !!dictId,
+      `status=${addType.status} dictId=${dictId}`
+    )
+    if (!dictId) return
+
+    let created = 0
+    for (let i = 0; i < labels.length; i++) {
+      const r = await apiWithBackoff('/system/dict/data', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ dictType, dictLabel: labels[i], dictValue: String(i + 1), dictSort: i + 1, status: '0' })
+      })
+      if (r.status === 200 && r.body?.code === 200) created++
+    }
+    record(145, '⓪b 夹具：11 条字典数据写入', created === 11, `created=${created}`)
+
+    // ① 打开字典数据页（手写列表页，本轮接线对象）
+    const opened = await openPage(page, `/system/dict-data/index/${dictId}`, '/system/dict-data')
+    const firstPage = await waitRows(10, 12000)
+    record(145, '① 字典数据页可达且首页 10 行', opened && firstPage, `opened=${opened} rows10=${firstPage}`)
+    if (!opened || !firstPage) return
+
+    // ② 竞态：按住 r01 的响应，让 r02 先回来；放行后表格必须仍是 r02
+    const gate = { release: null, started: false, hits: { r01: 0, r02: 0 } }
+    const held = new Promise((resolve) => {
+      gate.release = resolve
+    })
+    const listRoute = async (route) => {
+      const url = route.request().url()
+      if (url.includes(labels[0])) {
+        gate.hits.r01++
+        gate.started = true
+        await held // 制造"先发后到"
+      } else if (url.includes(labels[1])) {
+        gate.hits.r02++
+      }
+      await route.continue().catch(() => {})
+    }
+    await page.route('**/system/dict/data/list**', listRoute)
+    const searchInput = page.locator('input[aria-label="数据标签"]:visible').first()
+    await searchInput.fill(labels[0])
+    await searchInput.press('Enter')
+    for (let i = 0; i < 80 && !gate.started; i++) await sleep(100)
+    const heldOk = gate.started
+    await searchInput.fill(labels[1])
+    await searchInput.press('Enter')
+    const newerLanded = await page
+      .waitForFunction(
+        (want) => {
+          const rows = [...document.querySelectorAll('.el-table__row')]
+          return rows.length === 1 && rows[0].innerText.includes(want)
+        },
+        labels[1],
+        { timeout: 12000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    const staleResp = page
+      .waitForResponse((r) => r.url().includes('/system/dict/data/list') && r.url().includes(labels[0]), {
+        timeout: 12000
+      })
+      .catch(() => null)
+    const releasedAt = Date.now()
+    if (gate.release) gate.release()
+    const stale = await staleResp
+    // 旧响应已到达且浏览器已渲染两帧才读：缺守卫时此刻表格已被旧结果覆盖
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    const afterStale = await rowsNow()
+    const raceOk =
+      heldOk &&
+      newerLanded &&
+      !!stale &&
+      afterStale.n === 1 &&
+      afterStale.text.includes(labels[1]) &&
+      !afterStale.text.includes(labels[0])
+    record(
+      145,
+      '② 后发先回：新结果落地后，旧响应不得覆盖表格',
+      raceOk,
+      `按住=${heldOk} 新响应落地=${newerLanded} 旧响应到达=${!!stale}(${stale ? stale.status() : '-'}) ` +
+        `放行到落地=${Date.now() - releasedAt}ms 落地行=${afterStale.n} 命中r02=${afterStale.text.includes(labels[1])} ` +
+        `命中r01=${afterStale.text.includes(labels[0])} 请求数=${gate.hits.r01}/${gate.hits.r02}`
+    )
+    await page.unroute('**/system/dict/data/list**').catch(() => {})
+
+    // ③ 删空回退：清空筛选 → 第 2 页 1 行 → UI 删除它 → 必须回到第 1 页 10 行
+    await searchInput.fill('')
+    await searchInput.press('Enter')
+    const backToFirst = await waitRows(10, 12000)
+    const pagerBtn = page.locator('.el-pager li.number').filter({ hasText: /^2$/ }).first()
+    const pagerOk = await pagerBtn
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    let secondPageOk = false
+    if (backToFirst && pagerOk) {
+      await pagerBtn.click({ timeout: 5000 }).catch(() => {})
+      secondPageOk = await waitRows(1, 8000)
+    }
+    const secondPage = await rowsNow()
+    let deleteChain = false
+    if (secondPageOk) {
+      const row = page.locator('.el-table__row').first()
+      await row
+        .getByRole('button', { name: '删除' })
+        .first()
+        .click({ timeout: 5000 })
+        .catch(() => {})
+      const confirmBtn = page.locator('.el-message-box:visible .el-message-box__btns button.el-button--primary').first()
+      await confirmBtn
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .then(() => true)
+        .catch(() => false)
+      await confirmBtn.click({ timeout: 5000 }).catch(() => {})
+      // 删除 → getList(第 2 页) 返回 0 行 → pageAfterEmptyResult 回退到第 1 页 → 再来一次
+      deleteChain = await waitRows(10, 15000)
+    }
+    const afterDelete = await rowsNow()
+    const activePage = await page
+      .locator('.el-pager li.is-active')
+      .first()
+      .innerText()
+      .catch(() => '')
+    const emptyShown = afterDelete.text.includes('暂无数据')
+    record(
+      145,
+      '③ 删空回退：删掉末页最后一条后回到第 1 页（不得停在"暂无数据"）',
+      backToFirst &&
+        pagerOk &&
+        secondPageOk &&
+        deleteChain &&
+        afterDelete.n === 10 &&
+        !emptyShown &&
+        activePage.trim() === '1',
+      `回到首页=${backToFirst} 第2页按钮=${pagerOk} 第2页1行=${secondPageOk} 删除链=${deleteChain} ` +
+        `落地行=${afterDelete.n} 当前页=${activePage.trim() || '-'} 空态=${emptyShown}`
+    )
+  } catch (err) {
+    record(145, '夹具/页面链', false, `异常: ${err.message.slice(0, 140)}`)
+  } finally {
+    await page.unroute('**/system/dict/data/list**').catch(() => {})
+    // 尾部恢复初态：删掉本用例造的全部字典数据与字典类型（失败也要清）
+    let removedData = 0
+    try {
+      const list = await apiWithBackoff(
+        `/system/dict/data/list?dictType=${encodeURIComponent(dictType)}&pageNum=1&pageSize=100`,
+        { headers: jsonHeaders }
+      )
+      const codes = (list?.body?.rows ?? []).map((r) => r.dictCode).filter((c) => c != null)
+      if (codes.length) {
+        const del = await apiWithBackoff(`/system/dict/data/${codes.join(',')}`, {
+          method: 'DELETE',
+          headers: jsonHeaders
+        })
+        if (del.status === 200 && del.body?.code === 200) removedData = codes.length
+      }
+    } catch {
+      /* 清理失败不阻断，下面的 record 会如实记录 */
+    }
+    let typeRemoved = false
+    if (dictId) {
+      const delType = await apiWithBackoff(`/system/dict/type/${dictId}`, {
+        method: 'DELETE',
+        headers: jsonHeaders
+      }).catch(() => null)
+      typeRemoved = delType?.status === 200 && delType?.body?.code === 200
+    }
+    record(
+      145,
+      '④ 清理：删除自建字典数据与字典类型（恢复初态）',
+      typeRemoved,
+      `data=${removedData} type=${typeRemoved}`
+    )
+  }
+  await dismissAllOverlays(page)
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -19174,7 +19399,8 @@ async function main() {
       { id: 141, fn: testFeature141 },
       { id: 142, fn: testFeature142 },
       { id: 143, fn: testFeature143 },
-      { id: 144, fn: testFeature144 }
+      { id: 144, fn: testFeature144 },
+      { id: 145, fn: testFeature145 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

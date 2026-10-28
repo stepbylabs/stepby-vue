@@ -422,6 +422,7 @@
 import TreePanel from '@/components/TreePanel/index.vue'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { createLatestGuard } from '@/composables/latestRequest'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
@@ -675,17 +676,17 @@ function syncUrlQuery() {
 }
 
 /** 查询用户列表（UX-6：同步查询条件到 URL，刷新/分享不丢失） */
-let listSeq = 0
+const listGuard = createLatestGuard()
 function getList() {
   // 快速切部门/翻页时先发后到的响应会把旧结果盖在新条件上（页面显示 A 部门的行，
   // 而筛选器写着 B）。只让最后一次请求落地；失败/收尾也必须按同一序号判定，
   // 否则旧请求会把新请求的 loading 提前关掉。
-  const seq = ++listSeq
+  const ticket = listGuard.begin()
   loading.value = true
   syncUrlQuery()
   listUser(addDateRange(queryParams.value, dateRange.value))
     .then((res) => {
-      if (seq !== listSeq) return
+      if (!listGuard.isCurrent(ticket)) return
       loadError.value = false
       const nextPage = pageAfterEmptyResult(queryParams.value.pageNum, res.rows.length, res.total)
       if (nextPage !== queryParams.value.pageNum) {
@@ -698,10 +699,10 @@ function getList() {
     })
     // 失败不再静默吞成空列表：置 loadError，空态显示「加载失败 + 重试」（与 useCrudTable 同口径）
     .catch(() => {
-      if (seq === listSeq) loadError.value = true
+      if (listGuard.isCurrent(ticket)) loadError.value = true
     })
     .finally(() => {
-      if (seq === listSeq) loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

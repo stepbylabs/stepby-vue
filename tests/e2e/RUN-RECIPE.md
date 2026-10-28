@@ -4544,3 +4544,58 @@ const body = await (await p).json()
 改成 `false` 并重建产物 ⇒ F141 ⑦ 红而其余 11 条全绿；关键现象是**同一轮 9MB 文件经单请求
 确实落库了**（`top=...zip / 9437184`）仍被判红——只判"有没有传上去"的判据会被单请求满足，
 这条变异就是用来证明我们判的不是那个。还原后重建产物，12/12 绿。
+
+### 3.116 「后发先回」的派生面判据、落地块刀口与浏览器级竞态构造（b119 固化）
+
+**① 采集面只能由事实派生，且两个守卫共用一份实现。** 手写列表页的判定是
+`rendersTable(masked) && declaresGetList(masked) && !CRUD_CALL_RE.test(masked)`
+（`src/utils/listPageSurface.ts`）。**不能用 shell 的 `grep -q useCrudTable` 代替**——
+本仓有 11 个页面在注释里提到过 `useCrudTable`（"不走组合子"这类说明），按字面排除会把它们
+整页漏掉；本轮实测 `grep` 口径给出 2 页、派生口径给出 13 页，差的就是这一族。
+体量下限（`MIN_SURFACE = 12`）与 must-hit（本轮修复的 11 页）必须同时断言：
+"一条都没扫到"与"扫到了且干净"在报告里同形。
+
+**② 刀口取"落地块"，不取函数体。** 判据第一版只要求 `getList` 体内出现 `isCurrent(`，
+于是把 `.then` 那一句拆掉、只留 `catch`/`finally` 的**照常绿**——而"数据落地处不判票、
+只在收尾处判"正是最典型的坏法。现逐块判：`.then/.catch/.finally` 按**括号配对**取回调体
+（表达式回调 `(r) => (rows.value = r.rows)` 也进面）、`try/catch/finally` 按花括号取块体，
+**只要有状态写入（`.value =`）就必须有 `isCurrent(`**。取不到块边界 = 输入坏了 ⇒ 响亮失败。
+
+**③ 浏览器级竞态必须"构造"而不是"碰运气"。** 判据用 `page.route` 按住**旧**请求的响应，
+等**新**请求真正落地之后再放行：
+
+```js
+const gate = { release: null }
+const held = new Promise((r) => {
+  gate.release = r
+})
+await page.route('**/system/dict/data/list**', async (route) => {
+  const url = route.request().url()
+  if (url.includes(labels[0])) await held // 旧条件：扣住
+  await route.continue().catch(() => {})
+})
+```
+
+放行后要 `await` 到那条响应真的回来（`page.waitForResponse` 或请求计数），再用**两帧**
+（`requestAnimationFrame` × 2）等 Vue 刷完 DOM 再读表格。只 `await gate.release()` 就读，
+读到的是新结果——那一条会**恒绿**，与实现无关。
+判据文案要打"放行到落地=NNms"与"命中旧/新标签"两个事实：前者证明竞态窗口真的存在过，
+后者才是结论。
+
+**④ 删空回退的夹具要正好造出"末页只有一条"。** 列表默认 `pageSize=10` ⇒ 建 **11 条**
+自建数据，第 2 页恰好 1 行；删掉它后 `getList()` 拿到 `rows=[] / total=10`，
+判据读"当前页=1 / 落地行=10 / 空态=false"三件事——只判"表格有行"会被"停在空页但仍显示
+上一页残影"蒙过（清空发生在响应回来后）。
+
+**⑤ 盘上变异必须改在"被真正执行的那份产物"上，还原要连产物一起重建。**
+把 `dict/data.vue` 的两处 `!isCurrent(ticket)` 删掉后**必须重建嵌入产物**再跑 F145，
+否则 e2e 读的还是旧包（`build-freshness` 会先 FATAL）。本轮实测：删掉后 F145 ② 红
+（`命中r02=false 命中r01=true`）而 ③ 保持绿 ⇒ 两条判据各自独立；还原用 `cp -p`
+保留 mtime、再重建产物，权威轮 6/6 绿（入口 `index-B1pLJqhM.js` / 5,853,490 字节）。
+
+**⑥ 形状锁的正则要按"真名"写，不能按"我以为的命名习惯"写。** 本轮收编的 14 个计数器里
+**4 个就叫 `seq`**（`useWidgetLoad` / `useEchartsWidget` / `CacheOverview` / `ChartCard`），
+而第一版正则写成 `let xxxSeq = 0`（前缀必填）⇒ 那个形态**结构上永远不会命中**。
+判据落地时配了一条反脆弱：`let seq = 0` + `++seq` 的合成源码必须命中 2 条规则。
+同理，采集面的排除条件不能拿 `grep useCrudTable` 代替派生（11 个页面在注释里提过它，
+实测 grep 面 2 页 vs 派生面 13 页）——**"我的写法"与"仓里的写法"是两件事**。

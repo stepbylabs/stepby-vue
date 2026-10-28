@@ -205,6 +205,7 @@ import { getJob } from '@/api/monitor/job'
 import { listJobLog, delJobLog, cleanJobLog } from '@/api/monitor/jobLog'
 import modal from '@/plugins/modal'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { createLatestGuard } from '@/composables/latestRequest'
 import tab from '@/plugins/tab'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/stepby'
@@ -219,6 +220,8 @@ const { sys_common_status, sys_job_group } = useDict('sys_common_status', 'sys_j
 const jobLogList = shallowRef<SysJobLog[]>([])
 const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
+/** 列表请求守卫：连点刷新/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 const showSearch = ref<boolean>(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
@@ -250,9 +253,11 @@ const { queryParams, form } = toRefs(data)
 
 /** 查询调度日志列表 */
 function getList() {
+  const ticket = listGuard.begin()
   loading.value = true
   listJobLog(addDateRange(queryParams.value, dateRange.value))
     .then((response) => {
+      if (!listGuard.isCurrent(ticket)) return
       loadError.value = false
       const nextPage = pageAfterEmptyResult(queryParams.value.pageNum, response.rows.length, response.total)
       if (nextPage !== queryParams.value.pageNum) {
@@ -264,13 +269,14 @@ function getList() {
       total.value = response.total
     })
     .catch((e) => {
+      if (!listGuard.isCurrent(ticket)) return
       if (import.meta.env.DEV) console.error(e)
       modal.msgError(t('common.requestFailed'))
       // 失败不再静默吞成"暂无数据"：置位后空态显示「加载失败 + 重试」
       loadError.value = true
     })
     .finally(() => {
-      loading.value = false
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 

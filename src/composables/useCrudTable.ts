@@ -5,6 +5,7 @@ import { toPositiveInt } from '@/utils/validate'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
+import { createLatestGuard } from '@/composables/latestRequest'
 import type { FormInstance } from 'element-plus'
 
 /**
@@ -302,8 +303,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   // 列表请求失败标记：失败置真 / 成功置假（供空态区分「加载失败」与「暂无数据」）
   const loadError = ref(false)
 
-  // 请求版本计数器：防止并发请求时旧响应覆盖新数据（列表专用；详情请求由 updateBusy 保证单飞）
-  let listRequestId = 0
+  // 请求版本守卫：防止并发请求时旧响应覆盖新数据（列表专用；详情请求由 updateBusy 保证单飞）
+  const listGuard = createLatestGuard()
 
   // 同步可重入闸（b105）：`validate()` 与 `modal.confirm()` 都是**异步**的，
   // 而 `submitLoading` 要到校验通过之后才置位 ⇒ 两者之间的窗口里第二次点击
@@ -390,13 +391,13 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
 
   /** 查询列表 */
   function getList(): void {
-    const currentRequestId = ++listRequestId
+    const ticket = listGuard.begin()
     syncUrlQuery()
     loading.value = true
     // 排序参数（supportsSort 开启时）已直接写入 queryParams，随请求自然透传
     listApi(queryParams.value)
       .then((response) => {
-        if (currentRequestId !== listRequestId) return // discard stale response
+        if (!listGuard.isCurrent(ticket)) return // discard stale response
         const resp = response as { rows: T[]; total: number }
         loadError.value = false
         const pageNum = Number((queryParams.value as { pageNum?: number }).pageNum ?? 1)
@@ -413,7 +414,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         // 全局拦截器已弹 ElMessage.error；此处清空列表避免显示陈旧数据，
         // 并置失败标记让空态显示「加载失败 + 重试」（区别于"暂无数据"），
         // 同时在 DEV 模式记录详细错误便于排查。
-        if (currentRequestId === listRequestId) {
+        if (listGuard.isCurrent(ticket)) {
           loadError.value = true
           dataList.value = []
           total.value = 0
@@ -422,7 +423,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       })
       .finally(() => {
         // 空页回退会立刻发起新请求：旧请求的 finally 不得把新请求的 loading 关掉
-        if (currentRequestId === listRequestId) loading.value = false
+        if (listGuard.isCurrent(ticket)) loading.value = false
       })
   }
 

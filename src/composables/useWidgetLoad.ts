@@ -14,6 +14,7 @@
  * 全局未处理拒绝，而不是用户可见的结局。
  */
 import { ref, type Ref } from 'vue'
+import { createLatestGuard } from '@/composables/latestRequest'
 
 export interface WidgetLoad<T> {
   data: Ref<T>
@@ -31,24 +32,24 @@ export function useWidgetLoad<T>(fetcher: () => Promise<T>, initialValue: T): Wi
   const loaded = ref(false)
   const loadError = ref(false)
   const lastSuccessAt = ref<number | null>(null)
-  let seq = 0
+  const guard = createLatestGuard()
 
   async function load(): Promise<void> {
-    const my = ++seq
+    const my = guard.begin()
     loading.value = true
     try {
       const next = await fetcher()
-      if (my !== seq) return
+      if (!guard.isCurrent(my)) return
       data.value = next
       loaded.value = true
       loadError.value = false
       lastSuccessAt.value = Date.now()
     } catch (e) {
-      if (my !== seq) return
+      if (!guard.isCurrent(my)) return
       loadError.value = true
       if (import.meta.env.DEV) console.warn('[useWidgetLoad] 取数失败（界面标注并给重试）:', e)
     } finally {
-      if (my === seq) loading.value = false
+      if (guard.isCurrent(my)) loading.value = false
     }
   }
 

@@ -37,6 +37,7 @@
     </el-form>
     <el-row>
       <el-table
+        v-loading="loading"
         @row-click="clickRow"
         ref="table"
         :data="dbTableList"
@@ -81,12 +82,18 @@
 <script setup lang="ts">
 const { t } = useI18n()
 import { listDbTable, importTable } from '@/api/tool/gen'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import modal from '@/plugins/modal'
 import type { GenQueryParams, GenTable } from '@/types/api/tool/gen'
 
 const total = ref<number>(0)
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref<boolean>(false)
+// 取数中的可见反馈：此前本页没有 loading 态，打开弹窗到数据回来之间是一张空表（b119）
+const loading = ref<boolean>(false)
+/** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
+const listGuard = createLatestGuard()
 const visible = ref<boolean>(false)
 const tables = ref<string[]>([])
 const dbTableList = ref<GenTable[]>([])
@@ -124,19 +131,32 @@ function handleSelectionChange(selection: GenTable[]) {
 
 /** 查询表数据 */
 function getList() {
+  const ticket = listGuard.begin()
+  loading.value = true
   listDbTable(queryParams)
     .then((res) => {
+      if (!listGuard.isCurrent(ticket)) return
+      const nextPage = pageAfterEmptyResult(queryParams.pageNum, res.rows?.length ?? 0, res.total ?? 0)
+      if (nextPage !== queryParams.pageNum) {
+        queryParams.pageNum = nextPage
+        getList()
+        return
+      }
       loadError.value = false
       dbTableList.value = res.rows
       total.value = res.total
     })
     .catch((err: unknown) => {
+      if (!listGuard.isCurrent(ticket)) return
       // b105：失败落在空态里（带重试），不再只用一条会自动消失的 toast；
       // 错误文案仍由全局拦截器提示，此处只在 DEV 留痕，避免同一失败弹两次
       loadError.value = true
       dbTableList.value = []
       total.value = 0
       if (import.meta.env.DEV) console.error('[gen/importTable] getList:', err)
+    })
+    .finally(() => {
+      if (listGuard.isCurrent(ticket)) loading.value = false
     })
 }
 
