@@ -9,7 +9,9 @@
             :maxlength="30"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('user.search.phUsername')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('user.search.phUsername')"
+          />
         </el-form-item>
         <el-form-item :label="t('user.search.phone')" prop="phonenumber">
           <el-input
@@ -18,7 +20,9 @@
             :maxlength="11"
             clearable
             class="w-[240px]"
-            @keyup.enter="handleQuery" :aria-label="t('user.search.phPhone')" />
+            @keyup.enter="handleQuery"
+            :aria-label="t('user.search.phPhone')"
+          />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -58,7 +62,7 @@
       @selection-change="handleSelectionChange"
     >
       <template #empty>
-        <el-empty :description="t('common.noData')" :image-size="80" />
+        <list-empty :load-error="loadError" @retry="getList" />
       </template>
       <el-table-column type="selection" width="55" align="center" />
       <el-table-column :label="t('user.column.username')" prop="userName" show-overflow-tooltip />
@@ -125,6 +129,8 @@ void isMobileFilter
 const multiple = ref<boolean>(true)
 const total = ref<number>(0)
 const userIds = ref<number[]>([])
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref<boolean>(false)
 
 const queryParams = reactive<AuthUserQueryParams>({
   pageNum: 1,
@@ -139,10 +145,16 @@ function getList() {
   loading.value = true
   allocatedUserList(queryParams)
     .then((response) => {
+      loadError.value = false
       userList.value = response.rows
       total.value = response.total
     })
-    .catch(() => {})
+    .catch(() => {
+      // 失败必须与"暂无数据"可区分（b105）：清空陈旧行 + 失败态带重试入口
+      loadError.value = true
+      userList.value = []
+      total.value = 0
+    })
     .finally(() => {
       loading.value = false
     })

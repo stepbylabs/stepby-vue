@@ -104,7 +104,7 @@
       :title="t('mySession.degradedHint')"
     />
     <el-card shadow="never" class="list-card" v-loading="loading">
-      <el-table :data="filteredSessions" :empty-text="t('common.noData')">
+      <el-table :data="filteredSessions">
         <el-table-column :label="t('mySession.colStatus')" width="120">
           <template #default="{ row }">
             <el-tag v-if="isCurrentSession(row)" type="success" size="small" effect="dark">
@@ -128,6 +128,9 @@
             {{ formatTime(row.loginTime) }}
           </template>
         </el-table-column>
+        <template #empty>
+          <list-empty :load-error="loadError" @retry="getList" />
+        </template>
         <el-table-column :label="t('common.column.operation')" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
@@ -172,6 +175,8 @@ interface SessionRow {
 }
 
 const loading = ref(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref(false)
 const sessionList = shallowRef<SessionRow[]>([])
 const currentTokenHash = ref<string>('')
 
@@ -261,10 +266,15 @@ async function getList() {
     const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
     // 仅当本次请求是最新的才更新结果，避免旧请求覆盖新请求
     if (seq === requestSeq) {
+      loadError.value = false
       sessionList.value = res.rows || []
     }
   } catch {
-    // 静默处理错误
+    // 失败必须与"没有其它会话"可区分（b105）；仅最新请求可改状态，旧请求的失败不得污染
+    if (seq === requestSeq) {
+      loadError.value = true
+      sessionList.value = []
+    }
   } finally {
     if (seq === requestSeq) {
       loading.value = false
@@ -279,10 +289,11 @@ async function silentRefresh() {
   try {
     const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
     if (seq === requestSeq) {
+      loadError.value = false
       sessionList.value = res.rows || []
     }
   } catch {
-    // 静默刷新失败不打扰用户
+    // 静默刷新失败不打扰用户：保留上一次成功的数据与状态（不置 loadError）
   }
 }
 

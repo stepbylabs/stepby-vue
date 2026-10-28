@@ -18,7 +18,9 @@
           :prefix-icon="Search"
           class="w-[220px]"
           @keyup.enter="handleQuery"
-          @clear="handleQuery" :aria-label="t('notice.readUsers.phSearch')" />
+          @clear="handleQuery"
+          :aria-label="t('notice.readUsers.phSearch')"
+        />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" size="small" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -56,6 +58,9 @@
           <span>{{ parseTime(scope.row.readTime) }}</span>
         </template>
       </el-table-column>
+      <template #empty>
+        <list-empty :load-error="loadError" @retry="getList" />
+      </template>
     </el-table>
     <pagination
       v-show="total > 0"
@@ -78,6 +83,8 @@ const queryRefRef = useTemplateRef('queryRef')
 
 const visible = ref(false)
 const loading = ref(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref(false)
 const noticeTitle = ref('')
 const total = ref(0)
 const userList = ref<NoticeReadUser[]>([])
@@ -102,10 +109,16 @@ function getList() {
   loading.value = true
   listNoticeReadUsers(queryParams)
     .then((res) => {
+      loadError.value = false
       userList.value = res.rows
       total.value = res.total
     })
-    .catch(() => {})
+    .catch(() => {
+      // 失败必须与"无人已读"可区分（b105）：清空陈旧行 + 失败态带重试入口
+      loadError.value = true
+      userList.value = []
+      total.value = 0
+    })
     .finally(() => {
       loading.value = false
     })

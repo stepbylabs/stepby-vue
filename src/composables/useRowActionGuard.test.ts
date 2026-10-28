@@ -100,6 +100,45 @@ describe('useRowActionGuard（行内动作互斥 + loading）', () => {
     expect(gate.runningIds.value).toEqual([])
   })
 
+  it('返回值 = 本次是否真的执行了动作（被挡掉/取消为 false，动作失败仍为 true）', async () => {
+    const gate = useRowActionGuard<number>()
+    const confirm = deferred<unknown>()
+    const action = vi.fn(async () => {})
+    const first = gate.guarded(1, () => confirm.promise, action)
+    // 同一行在飞：第二次必须被同步闸挡掉，返回值让页面知道"这次没发请求"
+    await expect(gate.guarded(1, () => confirm.promise, action)).resolves.toBe(false)
+    confirm.resolve(true)
+    await expect(first).resolves.toBe(true)
+    // 用户取消：动作没执行 ⇒ false
+    await expect(gate.guarded(1, () => Promise.reject(new Error('cancel')), action)).resolves.toBe(false)
+    // 动作执行了但失败：仍算"已执行"（页面据 runningIds/onError 处理结果，不回滚成"没点过"）
+    await expect(
+      gate.guarded(
+        1,
+        () => Promise.resolve(true),
+        async () => {
+          throw new Error('boom')
+        }
+      )
+    ).resolves.toBe(true)
+    expect(action).toHaveBeenCalledTimes(1)
+  })
+
+  it('接线反查：告警页启停开关必须走同一份组合子并按返回结局回滚', () => {
+    const src = readFileSync(resolve(VUE_ROOT, 'src/views/monitor/alert/index.vue'), 'utf8')
+    expect(src, '必须 import useRowActionGuard').toContain("from '@/composables/useRowActionGuard'")
+    expect(src, '必须按行绑 loading（不得再用全局单一 id）').toContain(
+      ':loading="switchLoadingIds.includes(scope.row.id)"'
+    )
+    expect(src, '必须按返回值决定回滚').toContain('if (!executed)')
+    // 接口失败是第六条出口：guarded 返回 true（动作已执行），回滚必须写在 action 的 catch 里
+    expect(src, '接口失败必须回滚开关').toContain('row.enabled = oldVal')
+    expect(src, '回滚后必须把错误交回组合子（不得吞掉失败）').toMatch(/row\.enabled = oldVal\s*\n\s*throw e/)
+    // 下拉加载失败必须在弹窗里可见并可重试（失败不得装成"没有可选渠道"）
+    expect(src, '下拉失败提示必须绑定 optionsLoadError').toContain('v-if="optionsLoadError"')
+    expect(src, '下拉失败必须给重试入口').toContain('@click="retryLoadOptions"')
+  })
+
   it('接线反查：两处"立即推送"页面都必须走同一份组合子并绑按钮 loading', () => {
     for (const rel of ['src/views/system/report/SubReportSection.vue', 'src/views/system/report/sub/index.vue']) {
       const src = readFileSync(resolve(VUE_ROOT, rel), 'utf8')

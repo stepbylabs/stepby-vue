@@ -127,6 +127,9 @@
             {{ formatTime(row.createTime) }}
           </template>
         </el-table-column>
+        <template #empty>
+          <list-empty :load-error="loadError" @retry="getList" />
+        </template>
         <el-table-column :label="t('common.column.operation')" width="330" align="center" fixed="right">
           <template #default="{ row }">
             <el-button
@@ -391,6 +394,8 @@ const showSearch = ref(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)
 const loading = ref(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref(false)
 const saving = ref(false)
 const tenantList = ref<TenantVo[]>([])
 const packageOptions = ref<TenantPackageOption[]>([])
@@ -545,7 +550,12 @@ async function getList() {
   loading.value = true
   try {
     const res = await listTenant({ ...queryForm })
+    loadError.value = false
     tenantList.value = res.data ?? []
+  } catch {
+    // b105：失败必须与"没有租户"可区分；此前没有 catch，拒绝会逸出到全局处理器
+    loadError.value = true
+    tenantList.value = []
   } finally {
     loading.value = false
   }

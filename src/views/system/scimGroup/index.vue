@@ -93,6 +93,9 @@
             </el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <list-empty :load-error="loadError" @retry="getList" />
+        </template>
       </el-table>
       <pagination
         v-show="total > 0"
@@ -181,6 +184,8 @@ const showSearch = ref(true)
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 const loading = ref(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref(false)
 const saving = ref(false)
 const groupList = ref<ScimGroupAdminRow[]>([])
 const total = ref(0)
@@ -213,8 +218,14 @@ async function getList() {
       queryForm.pageNum = nextPage
       return getList()
     }
+    loadError.value = false
     groupList.value = res.rows
     total.value = res.total
+  } catch {
+    // b105：失败必须与"暂无数据"可区分；此前没有 catch，拒绝会逸出到全局处理器
+    loadError.value = true
+    groupList.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }

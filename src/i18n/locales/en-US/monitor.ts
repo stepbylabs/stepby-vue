@@ -859,6 +859,7 @@ export default {
       notifyChannelId: 'Notify Channel',
       phNotifyChannel: 'Select notify channel',
       notifyChannelTip: 'Leave empty to record only without sending notifications',
+      optionsLoadFailed: 'Failed to load notify channels/templates; selects may be empty (saving is unaffected)',
       notifyTemplateId: 'Notify Template',
       phNotifyTemplate: 'Select notify template',
       enabled: 'Enabled'

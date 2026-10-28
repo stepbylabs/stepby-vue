@@ -22,8 +22,10 @@
  * 兄弟键 `common.emptyActionReset` 等 CTA 文案**不得**误判为空态（正则按词尾截断）。
  *
  * 采集面口径：src/views 下全部 .vue 文件。非组合子接入页（手写 getList 的弹窗副表、
- * cache 页等）不在本锁约束内——它们的失败态由各页本地 ref 接同一 ListEmpty，
- * 无统一状态源可锁，强行纳入会把"未接入"判成"接错"。
+ * cache 页等）不在**块级**判据（①②③④⑤⑥）的约束内——它们的空态槽形状各异，
+ * 强行纳入会把"未接入"判成"接错"。b105 另立**文件级**判据（⑦⑧）覆盖这一面：
+ * "渲染 el-table 且自己有 getList、又不是组合子调用方"的页面，必须出现
+ * `:load-error="loadError"` 的接线（由事实派生，不维护文件清单）。
  *
  * 三条腿（与仓内守卫族同一写法）：
  * 1. 真实树：src/views 全量扫描，违规必须 0 处；
@@ -111,6 +113,29 @@ function violationLines(text: string): number[] {
     if (EMPTY_TEXT_RE.test(block.body) && !/loadError/.test(block.body)) hits.push(block.line)
   }
   return hits
+}
+
+/** 手写列表页的最小体量（低于下限 = 派生逻辑走偏，拒绝判据而不是报 0 违规） */
+const MIN_HANDWRITTEN_LIST_PAGES = 8
+
+/**
+ * 手写列表页的失败态判据（b105，文件级）
+ *
+ * 违规 ⇔ 同时满足：有网络取数入口 `getList`、模板里渲染 `el-table`、
+ * **不是** `useCrudTable` 调用方（那一路由块级判据 ① 负责）、且整份文件没有
+ * `:load-error="loadError"` 接线。
+ *
+ * 为什么按"有 getList + el-table"派生而不是列文件清单：清单会随新页面静默过期
+ * （AGENTS ㉔/㉗：分母要么来自承诺、要么来自本轮事实，记文件名两者都不是）。
+ * 纯函数与真实树共用同一份实现，合成夹具直接喂它。
+ */
+function handwrittenListViolation(text: string): boolean {
+  const masked = muteNonCode(blankHtmlComments(text), { keepStrings: true, keepRegex: true })
+  const hasGetList = /\bfunction\s+getList\b|\bconst\s+getList\b/.test(masked)
+  const hasTable = /<el-table[\s>]/.test(masked)
+  if (!hasGetList || !hasTable) return false
+  if (CRUD_CALL_RE.test(masked)) return false
+  return !/:load-error="loadError"/.test(masked)
 }
 
 function walkVue(dir: string, out: string[] = []): string[] {
@@ -265,5 +290,56 @@ describe('静态守卫：useCrudTable 页面的 #empty 槽必须消费 loadError
       (composable.match(/loadError\.value\s*=/g) || []).length,
       '写点必须成对（成功置假/失败置真）'
     ).toBeGreaterThanOrEqual(2)
+  })
+
+  it('⑦ 真实树：手写列表页（有 getList + el-table 且非组合子）必须接 loadError，0 处违规', () => {
+    const offenders: string[] = []
+    let surface = 0
+    for (const f of viewFiles) {
+      const rel = f.slice(VUE_ROOT.length + 1).replace(/\\/g, '/')
+      const text = readFileSync(f, 'utf8')
+      const masked = muteNonCode(blankHtmlComments(text), { keepStrings: true, keepRegex: true })
+      const isCandidate =
+        /\bfunction\s+getList\b|\bconst\s+getList\b/.test(masked) &&
+        /<el-table[\s>]/.test(masked) &&
+        !CRUD_CALL_RE.test(masked)
+      if (isCandidate) surface++
+      if (handwrittenListViolation(text)) {
+        offenders.push(`${rel}: 加载失败会落回"暂无数据"（缺 :load-error="loadError" 接线）`)
+      }
+    }
+    // 采集面自证：派生逻辑坏了（正则走偏/目录读空）必须响亮失败，不得报"0 违规"
+    expect(
+      surface,
+      `手写列表页采集面 ${surface} 个，低于下限 ${MIN_HANDWRITTEN_LIST_PAGES}（扫不全 ≠ 没缺口）`
+    ).toBeGreaterThanOrEqual(MIN_HANDWRITTEN_LIST_PAGES)
+    expect(offenders, `手写列表页失败态回流：\n${offenders.join('\n')}`).toEqual([])
+    // 条数一律由本守卫自己打印，文档不抄数
+    console.warn(`[listEmptyGuard] 手写列表页采集面 ${surface} 个 / 违规 ${offenders.length} 处`)
+  })
+
+  it('⑧ 合成双向：缺接线必须被抓；已接线 / 无取数 / 组合子页面不得误报', () => {
+    const page = (body: string) => `<template><el-table :data="rows">${body}</el-table></template>`
+    const emptySlot = `<template #empty><el-empty :description="t('common.empty')" /></template>`
+
+    // 必须被抓：有取数 + 有表格 + 空态只绑文案
+    const bad = `${page(emptySlot)}
+<script setup>function getList() { listApi().catch(() => {}) }</script>`
+    expect(handwrittenListViolation(bad), '缺 loadError 接线的手写列表页必须被抓').toBe(true)
+
+    // 不得误报：标准接线
+    const wired = `${page('<template #empty><list-empty :load-error="loadError" @retry="getList" /></template>')}
+<script setup>function getList() { listApi().then(() => (loadError.value = false)).catch(() => (loadError.value = true)) }</script>`
+    expect(handwrittenListViolation(wired), '已接线不得误报').toBe(false)
+
+    // 不得误报：静态表格（没有取数入口，失败态无从谈起）
+    const staticTable = `${page(emptySlot)}
+<script setup>const rows = [{ id: 1 }]</script>`
+    expect(handwrittenListViolation(staticTable), '无 getList 的静态表格不得误报').toBe(false)
+
+    // 不得误报：组合子调用方由块级判据 ① 负责，不做双罚
+    const crudPage = `${page(emptySlot)}
+<script setup>const c = useCrudTable<Row>({ listApi })</script>`
+    expect(handwrittenListViolation(crudPage), '组合子页面不得被本腿重复判红').toBe(false)
   })
 })

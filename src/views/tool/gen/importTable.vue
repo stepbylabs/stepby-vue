@@ -1,6 +1,7 @@
 <template>
   <!-- 导入表 -->
-  <el-dialog :close-on-click-modal="false"
+  <el-dialog
+    :close-on-click-modal="false"
     :title="t('gen.importTable.title')"
     v-model="visible"
     width="800px"
@@ -57,7 +58,7 @@
         <el-table-column prop="createTime" :label="t('common.column.createTime')"></el-table-column>
         <el-table-column prop="updateTime" :label="t('common.column.updateTime')"></el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <list-empty :load-error="loadError" @retry="getList" />
         </template>
       </el-table>
       <pagination
@@ -84,6 +85,8 @@ import modal from '@/plugins/modal'
 import type { GenQueryParams, GenTable } from '@/types/api/tool/gen'
 
 const total = ref<number>(0)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref<boolean>(false)
 const visible = ref<boolean>(false)
 const tables = ref<string[]>([])
 const dbTableList = ref<GenTable[]>([])
@@ -123,10 +126,18 @@ function handleSelectionChange(selection: GenTable[]) {
 function getList() {
   listDbTable(queryParams)
     .then((res) => {
+      loadError.value = false
       dbTableList.value = res.rows
       total.value = res.total
     })
-    .catch((err: unknown) => modal.msgError(err instanceof Error ? err.message : String(err)))
+    .catch((err: unknown) => {
+      // b105：失败落在空态里（带重试），不再只用一条会自动消失的 toast；
+      // 错误文案仍由全局拦截器提示，此处只在 DEV 留痕，避免同一失败弹两次
+      loadError.value = true
+      dbTableList.value = []
+      total.value = 0
+      if (import.meta.env.DEV) console.error('[gen/importTable] getList:', err)
+    })
 }
 
 /** 搜索按钮操作 */

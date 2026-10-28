@@ -148,7 +148,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <el-empty :description="t('common.empty')" />
+        <list-empty :load-error="loadError" @retry="getList" />
       </template>
     </el-table>
 
@@ -260,6 +260,8 @@ const { sys_normal_disable } = useDict('sys_normal_disable')
 const dataList = shallowRef<SysDictData[]>([])
 const open = ref<boolean>(false)
 const loading = ref<boolean>(true)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref<boolean>(false)
 const submitLoading = ref<boolean>(false)
 const showSearch = ref<boolean>(true)
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
@@ -332,10 +334,16 @@ function getList() {
         getList()
         return
       }
+      loadError.value = false
       dataList.value = response.rows
       total.value = response.total
     })
-    .catch(() => {})
+    .catch(() => {
+      // 失败必须与"暂无数据"可区分（b105）：清空陈旧行 + 失败态带重试入口
+      loadError.value = true
+      dataList.value = []
+      total.value = 0
+    })
     .finally(() => {
       loading.value = false
     })

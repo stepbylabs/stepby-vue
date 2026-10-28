@@ -513,6 +513,53 @@ describe('composables/useCrudTable', () => {
       await flush()
       expect(addApi).not.toHaveBeenCalled()
     })
+
+    it('同步连点两次只提交一次（校验窗口内的第二次必须被同步闸挡掉）', async () => {
+      const { ctx, formRef, addApi, form } = makeCtx()
+      form.value = { postId: undefined, postName: 'new' }
+      // 把校验回调挂起：模拟 async-validator 的真实异步窗口（默认桩是同步 cb(true)）
+      let releaseValidate!: (v: boolean) => void
+      formRef.value!.validate = vi.fn((cb: (v: boolean) => void) => {
+        releaseValidate = cb
+      })
+      ctx.submitForm()
+      ctx.submitForm()
+      expect(formRef.value!.validate).toHaveBeenCalledTimes(1)
+      releaseValidate(true)
+      await flush()
+      expect(addApi).toHaveBeenCalledTimes(1)
+      // 一次提交结束后闸必须复位：下一次点击照常能提交（闸不是一次性的）
+      ctx.submitForm()
+      releaseValidate(true)
+      await flush()
+      expect(addApi).toHaveBeenCalledTimes(2)
+    })
+
+    it('校验失败会释放闸（否则表单会永久不可提交）', async () => {
+      const { ctx, formRef, addApi } = makeCtx()
+      formRef.value!.validate = vi.fn((cb: (v: boolean) => void) => cb(false))
+      ctx.submitForm()
+      await flush()
+      expect(addApi).not.toHaveBeenCalled()
+      // 修好表单后再次提交必须能走到请求
+      formRef.value!.validate = vi.fn((cb: (v: boolean) => void) => cb(true))
+      ctx.submitForm()
+      await flush()
+      expect(addApi).toHaveBeenCalledTimes(1)
+    })
+
+    it('请求失败会释放闸：可立即重试且不会重复提交', async () => {
+      const { ctx, addApi, form } = makeCtx()
+      form.value = { postId: undefined, postName: 'new' }
+      addApi.mockRejectedValueOnce(new Error('save fail'))
+      ctx.submitForm()
+      await flush()
+      expect(addApi).toHaveBeenCalledTimes(1)
+      ctx.submitForm()
+      await flush()
+      expect(addApi).toHaveBeenCalledTimes(2)
+      expect(ctx.submitLoading.value).toBe(false)
+    })
   })
 
   // ===== 删除 =====
@@ -558,6 +605,35 @@ describe('composables/useCrudTable', () => {
       await flush()
       expect(onAfterDelete).not.toHaveBeenCalled()
       expect(modal.msgSuccess).not.toHaveBeenCalledWith('common.deleteSuccess')
+    })
+
+    it('连点两次只弹一个确认框（确认框渲染前的第二次必须被同步闸挡掉）', async () => {
+      const { ctx, deleteApi } = makeCtx()
+      const d = deferred()
+      modal.confirm.mockReturnValueOnce(d.promise)
+      ctx.handleDelete({ postId: 7 })
+      ctx.handleDelete({ postId: 7 })
+      expect(modal.confirm).toHaveBeenCalledTimes(1)
+      d.resolve({})
+      await flush()
+      expect(deleteApi).toHaveBeenCalledTimes(1)
+      // 结束后闸复位：下一次删除照常弹框
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleDelete({ postId: 7 })
+      await flush()
+      expect(modal.confirm).toHaveBeenCalledTimes(2)
+    })
+
+    it('取消确认后闸必须释放（否则删除按钮永久失灵）', async () => {
+      const { ctx, deleteApi } = makeCtx()
+      modal.confirm.mockRejectedValueOnce('cancel')
+      ctx.handleDelete({ postId: 7 })
+      await flush()
+      expect(deleteApi).not.toHaveBeenCalled()
+      modal.confirm.mockResolvedValueOnce({})
+      ctx.handleDelete({ postId: 7 })
+      await flush()
+      expect(deleteApi).toHaveBeenCalledWith(7)
     })
   })
 

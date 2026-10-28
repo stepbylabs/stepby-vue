@@ -306,6 +306,14 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   let listRequestId = 0
   let updateRequestId = 0
 
+  // 同步可重入闸（b105）：`validate()` 与 `modal.confirm()` 都是**异步**的，
+  // 而 `submitLoading` 要到校验通过之后才置位 ⇒ 两者之间的窗口里第二次点击
+  // 会各自再走一遍：提交发两次请求（新增两条记录），删除叠两个确认框（确认两次发两次 DELETE）。
+  // 闸必须在函数入口**同步**置位（不能用响应式 ref —— DOM 更新要等下一个 tick），
+  // 并在「校验失败 / 取消确认 / 请求失败」三条出口都释放。
+  let submitBusy = false
+  let deleteBusy = false
+
   // 未保存守卫（UX-5）：编辑弹窗脏表单关闭前确认
   const { snapshotForm, markSaved, confirmLeave } = useUnsavedGuard()
 
@@ -537,32 +545,45 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       reportMissingCapability()
       return
     }
-    formRef.value?.validate((valid: boolean) => {
+    if (submitBusy) return
+    const target = formRef.value
+    if (!target) return
+    submitBusy = true
+    target.validate((valid: boolean) => {
       // UX：校验失败时滚动并聚焦第一个错误字段（长表单不必手动找红字）
       if (!valid) {
+        submitBusy = false
         focusFirstError()
         return
       }
       submitLoading.value = true
-      const isUpdate = form.value[idField] != null
-      const payload = beforeSubmit ? beforeSubmit(form.value) : form.value
-      const api = isUpdate ? updateApi(payload) : addApi(payload)
-      api
-        .then(() => {
-          modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))
-          markSaved(form.value)
-          open.value = false
-          getList()
-          onAfterSubmit?.()
-        })
-        .catch((e) => {
-          // 全局拦截器已弹 ElMessage.error；保持弹窗打开让用户修改后重试，
-          // DEV 模式记录详细错误便于排查
-          if (import.meta.env.DEV) console.error('[useCrudTable] submitForm:', e)
-        })
-        .finally(() => {
-          submitLoading.value = false
-        })
+      try {
+        const isUpdate = form.value[idField] != null
+        const payload = beforeSubmit ? beforeSubmit(form.value) : form.value
+        const api = isUpdate ? updateApi(payload) : addApi(payload)
+        api
+          .then(() => {
+            modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))
+            markSaved(form.value)
+            open.value = false
+            getList()
+            onAfterSubmit?.()
+          })
+          .catch((e) => {
+            // 全局拦截器已弹 ElMessage.error；保持弹窗打开让用户修改后重试，
+            // DEV 模式记录详细错误便于排查
+            if (import.meta.env.DEV) console.error('[useCrudTable] submitForm:', e)
+          })
+          .finally(() => {
+            submitLoading.value = false
+            submitBusy = false
+          })
+      } catch (e) {
+        // beforeSubmit 等同步段抛错：闸与 loading 必须释放，否则表单永久不可提交
+        submitLoading.value = false
+        submitBusy = false
+        throw e
+      }
     })
   }
 
@@ -572,6 +593,10 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       reportMissingCapability()
       return
     }
+    // 同步闸：确认框渲染出来之前连点两下会叠两个确认框，各自确认后发两次 DELETE
+    // （第二次对已删除行返回"不存在"——用户看到"删除成功"紧接着一条报错）
+    if (deleteBusy) return
+    deleteBusy = true
     const targetIds = row?.[idField] ?? ids.value
     // 删除确认文案插值契约：缺省 = 既有 `{ ids: targetIds }`；
     // 提供 deleteTipParams 时由调用方决定插值参数（支持 {name}/{count} 等契约），
@@ -598,6 +623,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         if (import.meta.env.DEV && e instanceof Error) {
           console.error('[useCrudTable] handleDelete:', e)
         }
+      })
+      .finally(() => {
+        deleteBusy = false
       })
   }
 

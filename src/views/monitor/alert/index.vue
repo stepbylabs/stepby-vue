@@ -142,7 +142,7 @@
             v-model="scope.row.enabled"
             active-value="1"
             inactive-value="0"
-            :loading="switchLoading === scope.row.id"
+            :loading="switchLoadingIds.includes(scope.row.id)"
             @change="handleEnabledChange(scope.row)"
             v-hasPermi="['monitor:alert:edit']"
           ></el-switch>
@@ -220,6 +220,18 @@
       :close-on-click-modal="false"
       :before-close="beforeDialogClose"
     >
+      <el-alert
+        v-if="optionsLoadError"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="mb-2"
+        :title="t('alert.form.optionsLoadFailed')"
+      >
+        <el-button link type="primary" size="small" @click="retryLoadOptions">
+          {{ t('common.retry') }}
+        </el-button>
+      </el-alert>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item :label="t('alert.form.name')" prop="name">
           <el-input v-model.trim="form.name" :placeholder="t('alert.form.phName')" :maxlength="64" />
@@ -317,6 +329,7 @@
 
 <script setup lang="ts" name="MonitorAlert">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import {
   listAlert,
   getAlert,
@@ -376,8 +389,17 @@ const defaultSort = ref({ prop: 'lastFiredAt', order: 'descending' })
 // 消息渠道/模板下拉数据（编辑弹窗与列表展示共用）
 const channelList = ref<SysMsgChannel[]>([])
 const channelLoading = ref(false)
+const channelLoadError = ref(false)
 const templateList = ref<SysMsgTemplate[]>([])
 const templateLoading = ref(false)
+const templateLoadError = ref(false)
+// 下拉失败必须在弹窗里看得见（b105）：空下拉 + 无提示会让用户以为"没有可选的渠道"，
+// 把规则保存成"仅记录不通知"。两个下拉任一失败即提示，重试一次同时补两路。
+const optionsLoadError = computed(() => channelLoadError.value || templateLoadError.value)
+function retryLoadOptions(): void {
+  loadChannels()
+  loadTemplates()
+}
 
 const queryParams = ref<AlertRuleQueryParams>({
   pageNum: 1,
@@ -461,13 +483,17 @@ function loadChannels(): void {
   channelLoading.value = true
   listChannel({ pageNum: 1, pageSize: 100, status: '0' })
     .then((res) => {
+      channelLoadError.value = false
       channelList.value = res.rows || []
       // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
       if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
         console.warn('[alert] 消息渠道下拉拉取达到 pageSize=100 上限，可能存在截断')
       }
     })
-    .catch(() => {})
+    .catch(() => {
+      channelLoadError.value = true
+      channelList.value = []
+    })
     .finally(() => {
       channelLoading.value = false
     })
@@ -478,13 +504,17 @@ function loadTemplates(): void {
   templateLoading.value = true
   listTemplate({ pageNum: 1, pageSize: 100, status: '0' })
     .then((res) => {
+      templateLoadError.value = false
       templateList.value = res.rows || []
       // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
       if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
         console.warn('[alert] 消息模板下拉拉取达到 pageSize=100 上限，可能存在截断')
       }
     })
-    .catch(() => {})
+    .catch(() => {
+      templateLoadError.value = true
+      templateList.value = []
+    })
     .finally(() => {
       templateLoading.value = false
     })
@@ -511,26 +541,38 @@ function handleUpdate(row?: SysAlertRule): void {
   crudHandleUpdate(row)
 }
 
-/** 启停切换（行级防连点：请求期间该行 switch 置 loading，期间再次触发直接忽略） */
-const switchLoading = ref<number | null>(null)
+/**
+ * 启停切换（**行级**防连点，复用 `useRowActionGuard` 的单一实现）
+ *
+ * b105：原实现是一个全局 `switchLoading` —— 任一行请求在飞时，其它行的开关会被
+ * 立即翻回去且没有任何提示（注释写的是"该行"，代码锁的是整张表）。改为按行互斥：
+ * 只挡同一行的重复触发，行与行之间互不影响（组合子自带该语义的用例）。
+ *
+ * 开关是 `v-model` 乐观更新，所以三条"动作没落地"的出口都必须回滚：
+ * ① 同键在飞被同步闸挡掉；② 用户取消确认；③ 接口失败（拦截器已弹错，勿重复弹）。
+ */
+const { runningIds: switchLoadingIds, guarded } = useRowActionGuard<number>()
 
 async function handleEnabledChange(row: SysAlertRule): Promise<void> {
-  if (switchLoading.value !== null) {
-    row.enabled = row.enabled === '1' ? '0' : '1'
-    return
-  }
   const oldVal = row.enabled === '1' ? '0' : '1'
-  switchLoading.value = row.id
   const text = row.enabled === '1' ? t('common.enabled') : t('common.disabled')
-  try {
-    await modal.confirm(t('alert.tip.confirmChange', { text, name: row.name }))
-    await changeAlertEnabled(row.id, row.enabled ?? '0')
-    modal.msgSuccess(text + t('common.success'))
-  } catch {
-    // 取消确认或接口失败（request 封装已弹错，勿重复弹）均回滚
+  const executed = await guarded(
+    row.id,
+    () => modal.confirm(t('alert.tip.confirmChange', { text, name: row.name })),
+    async () => {
+      try {
+        await changeAlertEnabled(row.id, row.enabled ?? '0')
+        modal.msgSuccess(text + t('common.success'))
+      } catch (e) {
+        // 接口失败：拦截器已弹错（勿重复弹），但开关必须回到真实状态
+        row.enabled = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) {
+    // 被挡掉（同键在飞）或用户取消 ⇒ v-model 的翻转不成立，翻回去
     row.enabled = oldVal
-  } finally {
-    switchLoading.value = null
   }
 }
 

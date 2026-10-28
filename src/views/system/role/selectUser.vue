@@ -16,7 +16,9 @@
           :maxlength="30"
           clearable
           class="w-[180px]"
-          @keyup.enter="handleQuery" :aria-label="t('user.search.phUsername')" />
+          @keyup.enter="handleQuery"
+          :aria-label="t('user.search.phUsername')"
+        />
       </el-form-item>
       <el-form-item :label="t('user.search.phone')" prop="phonenumber">
         <el-input
@@ -25,7 +27,9 @@
           :maxlength="11"
           clearable
           class="w-[180px]"
-          @keyup.enter="handleQuery" :aria-label="t('user.search.phPhone')" />
+          @keyup.enter="handleQuery"
+          :aria-label="t('user.search.phPhone')"
+        />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">{{ t('common.search') }}</el-button>
@@ -58,7 +62,7 @@
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty :description="t('common.empty')" />
+          <list-empty :load-error="loadError" @retry="getList" />
         </template>
       </el-table>
       <pagination
@@ -102,6 +106,8 @@ const total = ref<number>(0)
 const userIds = ref<number[]>([])
 const loading = ref<boolean>(false)
 const submitLoading = ref<boolean>(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref<boolean>(false)
 
 const queryParams = reactive<UserQueryParams>({
   pageNum: 1,
@@ -133,10 +139,13 @@ function getList() {
   loading.value = true
   unallocatedUserList(queryParams)
     .then((res) => {
+      loadError.value = false
       userList.value = res.rows
       total.value = res.total
     })
     .catch(() => {
+      // 失败必须与"没有可分配用户"可区分（b105）
+      loadError.value = true
       userList.value = []
       total.value = 0
     })

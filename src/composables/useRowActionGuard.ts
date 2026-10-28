@@ -11,24 +11,28 @@ import { ref, type Ref } from 'vue'
  *
  * 取消确认 = 不执行动作（`confirmed` 拒绝时直接释放）；动作失败默认只记录不再抛
  * （提示由请求拦截器统一负责），可通过 `onError` 换口径。
+ *
+ * `guarded` 返回**本次是否真的执行了动作**：`false` = 被同步闸挡掉（同键在飞）或用户取消。
+ * 乐观更新的页面（先改 v-model 再发请求）必须用它决定是否回滚——否则"被挡掉的第二次点击"
+ * 会把开关停在用户以为生效、实际没发请求的位置（b105 告警页实测形态）。
  */
 export function useRowActionGuard<K extends number | string>(
   onError?: (key: K, error: unknown) => void
 ): {
   runningIds: Ref<K[]>
-  guarded: (key: K, confirmed: () => Promise<unknown>, action: () => Promise<void>) => Promise<void>
+  guarded: (key: K, confirmed: () => Promise<unknown>, action: () => Promise<void>) => Promise<boolean>
 } {
   const runningIds = ref<K[]>([]) as Ref<K[]>
   const busy = new Set<K>()
 
-  async function guarded(key: K, confirmed: () => Promise<unknown>, action: () => Promise<void>): Promise<void> {
-    if (busy.has(key)) return
+  async function guarded(key: K, confirmed: () => Promise<unknown>, action: () => Promise<void>): Promise<boolean> {
+    if (busy.has(key)) return false
     busy.add(key)
     try {
       try {
         await confirmed()
       } catch {
-        return
+        return false
       }
       runningIds.value = [...runningIds.value, key]
       try {
@@ -37,6 +41,7 @@ export function useRowActionGuard<K extends number | string>(
         if (onError) onError(key, e)
         else if (import.meta.env.DEV) console.error('[useRowActionGuard] action failed:', key, e)
       }
+      return true
     } finally {
       runningIds.value = runningIds.value.filter((x: K) => x !== key)
       busy.delete(key)
