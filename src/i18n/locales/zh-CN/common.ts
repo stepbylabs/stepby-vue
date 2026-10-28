@@ -374,5 +374,12 @@ export default {
   envBanner: {
     tip: '当前为非生产环境，数据与操作仅用于测试',
     ariaLabel: '当前运行环境标识'
+  },
+  // b117：Service Worker 新版本提示（用户手动刷新，不静默打断未保存内容）
+  swUpdate: {
+    title: '系统有新版本',
+    desc: '刷新后生效。未保存的修改会丢失，建议先保存再刷新。',
+    reload: '立即刷新',
+    later: '稍后'
   }
 }

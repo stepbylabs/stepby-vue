@@ -5,6 +5,8 @@
     <router-view />
     <!-- ROUNDS61-100 #7 / R10-SEC-005：Cookie 同意 Banner，全局显示 -->
     <CookieConsent />
+    <!-- b117：Service Worker 新版本提示（只在后台发版后出现，用户点了才刷新） -->
+    <SwUpdateNotice />
   </el-config-provider>
 </template>
 
@@ -24,6 +26,8 @@ import { useMobileTableCards } from '@/composables/useMobileTableCards'
 import { errorReporter } from '@/utils/errorReporter'
 // Cookie 同意组件需全局展示，显式引入以保证类型与可见性
 import CookieConsent from '@/components/CookieConsent/index.vue'
+// b117：SW 新版本提示（App 级，登录页与业务页都要能看到）
+import SwUpdateNotice from '@/components/SwUpdateNotice/index.vue'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()

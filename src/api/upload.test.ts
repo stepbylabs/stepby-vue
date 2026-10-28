@@ -84,7 +84,14 @@ describe('G-10 分片上传 · 编排器 uploadFileChunked', () => {
         return ok({ sessionId: 'sid-1', received: 3, totalParts: 3, complete: true, receivedIndexes: [0, 1, 2] })
       }
       if (method === 'POST' && url.includes('/chunk/complete')) {
-        return ok({ code: 200, msg: 'ok', url: '/uploads/file/x.bin', fileName: '/uploads/file/x.bin', newFileName: 'x.bin', originalFilename: 'it-chunk.bin' })
+        return ok({
+          code: 200,
+          msg: 'ok',
+          url: '/uploads/file/x.bin',
+          fileName: '/uploads/file/x.bin',
+          newFileName: 'x.bin',
+          originalFilename: 'it-chunk.bin'
+        })
       }
       return Promise.reject(new Error(`unexpected ${method} ${url}`))
     })
@@ -128,11 +135,24 @@ describe('G-10 分片上传 · 编排器 uploadFileChunked', () => {
       }
       if (method === 'GET' && url.includes('/chunk/session/')) {
         const received = Array.from(receivedSet).sort((a, b) => a - b)
-        return ok({ sessionId: 'sid-2', received: received.length, totalParts: 3, complete: received.length === 3, receivedIndexes: received })
+        return ok({
+          sessionId: 'sid-2',
+          received: received.length,
+          totalParts: 3,
+          complete: received.length === 3,
+          receivedIndexes: received
+        })
       }
       if (method === 'POST' && url.includes('/chunk/complete')) {
         expect(receivedSet.size).toBe(3)
-        return ok({ code: 200, msg: 'ok', url: '/uploads/file/y.bin', fileName: '/uploads/file/y.bin', newFileName: 'y.bin', originalFilename: 'it-resume.bin' })
+        return ok({
+          code: 200,
+          msg: 'ok',
+          url: '/uploads/file/y.bin',
+          fileName: '/uploads/file/y.bin',
+          newFileName: 'y.bin',
+          originalFilename: 'it-resume.bin'
+        })
       }
       return Promise.reject(new Error(`unexpected ${method} ${url}`))
     })
@@ -147,6 +167,45 @@ describe('G-10 分片上传 · 编排器 uploadFileChunked', () => {
     // 无 abort（最终成功）
     const aborts = axiosMock.mock.calls.filter(([m, u]) => m === 'DELETE' && String(u).includes('/chunk/'))
     expect(aborts).toHaveLength(0)
+  })
+
+  it('b117：失败片不得计入进度（否则"99%"是谎报）', async () => {
+    const file = new File(['D'.repeat(11)], 'it-progress.bin', { type: 'application/octet-stream' })
+    const receivedSet = new Set<number>()
+
+    axiosMock.mockImplementation((method: string, url: string, body?: unknown) => {
+      if (method === 'POST' && url.includes('/chunk/init')) {
+        return ok({ sessionId: 'sid-4', chunkSize: 4, ttlSecs: 7200 })
+      }
+      if (method === 'POST' && url.includes('/chunk/part')) {
+        const idx = Number((body as FormData).get('partIndex'))
+        // index=1 永远失败：断点续传轮也补不上
+        if (idx === 1) return Promise.reject(new Error('always fails'))
+        receivedSet.add(idx)
+        return ok({ sessionId: 'sid-4', received: receivedSet.size, totalParts: 3, complete: false })
+      }
+      if (method === 'GET' && url.includes('/chunk/session/')) {
+        const received = Array.from(receivedSet).sort((a, b) => a - b)
+        return ok({
+          sessionId: 'sid-4',
+          received: received.length,
+          totalParts: 3,
+          complete: received.length === 3,
+          receivedIndexes: received
+        })
+      }
+      if (method === 'DELETE' && url.includes('/chunk/')) {
+        return Promise.resolve({ data: { code: 200, msg: 'ok' } })
+      }
+      return Promise.reject(new Error(`unexpected ${method} ${url}`))
+    })
+
+    const progresses: number[] = []
+    await expect(uploadFileChunked(file, { onProgress: (p) => progresses.push(p), partSize: 4 })).rejects.toThrow()
+
+    // 3 片只成功 2 片 ⇒ 进度上限 2/3×99 = 66；失败片若被计入会一路到 99
+    expect(Math.max(...progresses)).toBe(66)
+    expect(progresses).not.toContain(99)
   })
 
   it('最终失败：持续失败 → abort 清理会话（孤儿分片由服务端定时任务兜底）', async () => {

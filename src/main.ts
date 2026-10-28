@@ -200,9 +200,12 @@ setupFrontendErrorReporter()
 
 // PWA 支持（P3-23）：注册 Service Worker（生产构建生效；开发模式为 no-op），
 // 支持"安装为桌面应用 / 添加到主屏"并开启离线缓存优先。
-// autoUpdate 会在 SW 有新版本时于后台静默更新，避免用户长期停留在旧缓存。
+// b117：更新时机必须经 `installSwUpdate` 收口——裸 `registerSW({ immediate: true })` 在
+// autoUpdate 档会于激活新 SW 时**静默整页刷新**（丢未保存输入），且长驻 SPA 不再检查更新。
+// 现口径：只置"新版本就绪"信号，由界面给用户可见入口并手动刷新（见 utils/swUpdate.ts）。
 import { registerSW } from 'virtual:pwa-register'
-registerSW({ immediate: true })
+import { installSwUpdate } from '@/utils/swUpdate'
+installSwUpdate(registerSW)
 
 // 初始化 WebSocket 通知服务（登录后自动连接）
 import useNotificationStore from '@/store/modules/notification'

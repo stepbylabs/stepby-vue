@@ -192,7 +192,10 @@ function handleBeforeUpload(file: File): boolean {
 // 成功/失败计数与列表收敛复用单请求路径的 uploadList + uploadedSuccessfully 逻辑
 async function handleChunkedUpload(file: File): Promise<void> {
   try {
-    const result = await uploadFileChunked(file)
+    // b117：把编排器的进度接到遮罩文案上（此前 onProgress 无消费点，>8MB 文件只有静态"请稍候"）
+    const result = await uploadFileChunked(file, {
+      onProgress: (percent) => modal.updateLoading(t('fileUpload.uploadingProgress', { percent }))
+    })
     if (result.code === 200) {
       uploadList.value.push({ name: result.fileName, url: result.fileName })
       uploadedSuccessfully()

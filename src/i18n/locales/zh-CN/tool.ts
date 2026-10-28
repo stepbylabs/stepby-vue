@@ -324,6 +324,8 @@ export default {
     fileNameError: '文件名不正确，不能包含英文逗号!',
     fileSizeExceeded: '上传文件大小不能超过 {size} MB!',
     uploadingFile: '正在上传文件，请稍候...',
+    // b117：>8MB 分片上传的进度文案（百分比来自服务端确认收下的分片数）
+    uploadingProgress: '正在上传文件… {percent}%',
     fileCountExceed: '上传文件数量不能超过 {limit} 个!',
     uploadFailed: '上传文件失败'
   },

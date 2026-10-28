@@ -323,6 +323,8 @@ export default {
     fileNameError: 'Invalid file name, cannot contain English comma!',
     fileSizeExceeded: 'Upload file size cannot exceed {size} MB!',
     uploadingFile: 'Uploading file, please wait...',
+    // b117: progress text for chunked uploads (>8MB), percent = server-acknowledged parts
+    uploadingProgress: 'Uploading… {percent}%',
     fileCountExceed: 'Upload file count cannot exceed {limit}!',
     uploadFailed: 'Upload file failed'
   },

@@ -81,7 +81,10 @@ const WIRED = [
   'composables/useAutoRefresh.ts',
   'views/monitor/server/index.vue',
   'views/report/view/index.vue',
-  'views/system/task/index.vue'
+  'views/system/task/index.vue',
+  // b117：SW 新版本检查同样是"定时去问后端"（registration.update 会取 sw.js），
+  // 隐藏标签页不该继续问，回到前台应立即补一次。
+  'components/SwUpdateNotice/index.vue'
 ]
 
 interface Violation {
@@ -148,7 +151,7 @@ describe('周期轮询单一实现（b113）', () => {
     expect(scanSetInterval('x.ts', 'const re = /setInterval\\(/g')).toEqual([])
   })
 
-  it('接线反查：四个周期取数站点必须走统一实现（只删旧 timer = 轮询消失）', () => {
+  it('接线反查：全部周期取数站点必须走统一实现（只删旧 timer = 轮询消失）', () => {
     for (const rel of WIRED) {
       const code = codeOf(rel)
       expect(code, `${rel} 必须经由 useVisiblePolling 轮询`).toMatch(/useVisiblePolling\s*\(/)

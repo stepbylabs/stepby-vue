@@ -98,6 +98,20 @@ export default {
       background: 'rgba(0, 0, 0, 0.7)'
     })
     loadingStack.push(instance)
+    // b117：返回实例，供长任务刷新文案（分片上传进度）；既有调用点忽略返回值即可
+    return instance
+  },
+  /**
+   * 更新栈顶 loading 的文案（b117）。
+   *
+   * 分片上传（>8MB）此前只有一个固定文案的遮罩：1GB 文件在慢网下要盯几分钟的"请稍候"，
+   * 而 `uploadFileChunked` 的进度回调**没有消费点**（写了没接线=没写）。
+   * 栈顶语义与 closeLoading 的 LIFO 一致：并发上传时进度只刷新最近打开的那一个。
+   * 栈空时静默跳过（loading 已关闭而回调迟到，不是错误）。
+   */
+  updateLoading(content: string) {
+    const instance = loadingStack[loadingStack.length - 1]
+    instance?.setText(content)
   },
   // 关闭遮罩层
   closeLoading() {

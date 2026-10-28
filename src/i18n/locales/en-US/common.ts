@@ -375,5 +375,12 @@ export default {
   envBanner: {
     tip: 'Non-production environment: data and actions are for testing only',
     ariaLabel: 'Current runtime environment banner'
+  },
+  // b117: Service Worker update notice (manual reload so unsaved work is not interrupted)
+  swUpdate: {
+    title: 'A new version is available',
+    desc: 'Reload to apply it. Unsaved changes will be lost — save your work first.',
+    reload: 'Reload now',
+    later: 'Later'
   }
 }

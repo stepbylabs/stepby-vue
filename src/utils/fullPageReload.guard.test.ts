@@ -11,7 +11,7 @@
  *
  * ## 判据
  *
- * 1. `src/**` 代码里的 `location.reload()` 只允许出现在 `ALLOWED` 登记的 5 个文件里，
+ * 1. `src/**` 代码里的 `location.reload()` 只允许出现在 `ALLOWED` 登记的文件里，
  *    每条必须带自足理由，且**必须仍命中**（失效的豁免要报撤销，同 §㉘）；
  * 2. `App.vue` 必须以 `appStore.size` 为尺寸来源（接线反查：只删 cookie 读取、不接 store
  *    = 尺寸永远停在默认档，比原来更坏）；
@@ -62,6 +62,10 @@ const ALLOWED: AllowEntry[] = [
   {
     file: 'views/error/network-error.vue',
     why: '网络错误页的「重试」按钮：连骨架都没加载出来，重载等价于重新发起首屏引导'
+  },
+  {
+    file: 'utils/swUpdate.ts',
+    why: 'SW 新版本就绪后用户点「立即刷新」的动作语义：只有整页重载才能拿到新入口与预缓存（触发者是人，不是状态变更）'
   }
 ]
 

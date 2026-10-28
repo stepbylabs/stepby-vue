@@ -128,11 +128,7 @@ export async function getChunkSession(sessionId: string): Promise<ChunkProgressV
 /** 完成合并（服务端：拼接 → 整对象扫描 → 统一校验链 → 落最终存储）
  *  响应为 AjaxResult 包套 {code,msg,data:{url,fileName,...}}（集成测试锁定形状；与单请求扁平结构不同） */
 export async function completeChunk(sessionId: string): Promise<ChunkCompleteResult> {
-  const res = await axios.post(
-    `${BASE}/common/upload/chunk/complete`,
-    { sessionId },
-    { headers: authHeaders() }
-  )
+  const res = await axios.post(`${BASE}/common/upload/chunk/complete`, { sessionId }, { headers: authHeaders() })
   const body = res.data as { code: number; data?: ChunkCompleteResult }
   return (body.data ?? (body as unknown as ChunkCompleteResult)) as ChunkCompleteResult
 }
@@ -172,10 +168,12 @@ export async function uploadFileChunked(file: File, opts: ChunkUploadOptions = {
   async function uploadOne(index: number): Promise<void> {
     try {
       await uploadChunkPart(sessionId, index, parts[index])
+      // b117：只有服务端确认收下的片才计入进度。此前失败片也 +1 ⇒ 进度能到 99%
+      // 而文件其实缺片（断点续传轮随后才补），慢网用户看到的是"快好了"然后失败。
+      uploadedCount++
     } catch {
       // 静默：该片会在续传轮经 getChunkSession 发现后补传
     }
-    uploadedCount++
     if (opts.onProgress) {
       opts.onProgress(Math.min(99, Math.round((uploadedCount / totalParts) * 99)))
     }

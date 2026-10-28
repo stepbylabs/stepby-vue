@@ -27,10 +27,14 @@ const h = vi.hoisted(() => {
   const notification = { info: vi.fn(), success: vi.fn(), warning: vi.fn(), error: vi.fn() }
   const messageBox = { alert: vi.fn(() => Promise.resolve()), confirm: vi.fn(), prompt: vi.fn() }
   const closeFns: Mock[] = []
+  // b117：updateLoading 刷新栈顶实例的文案——每个实例一个 setText，按开栈顺序记录
+  const setTextFns: Mock[] = []
   const loadingService = vi.fn(() => {
     const close = vi.fn()
+    const setText = vi.fn()
     closeFns.push(close)
-    return { close }
+    setTextFns.push(setText)
+    return { close, setText }
   })
   const t = vi.fn((key: string) => `T:${key}`)
   const clearAll = () => {
@@ -43,8 +47,9 @@ const h = vi.hoisted(() => {
     loadingService.mockClear()
     t.mockClear()
     closeFns.length = 0
+    setTextFns.length = 0
   }
-  return { message, notification, messageBox, closeFns, loadingService, t, clearAll }
+  return { message, notification, messageBox, closeFns, setTextFns, loadingService, t, clearAll }
 })
 
 vi.mock('element-plus', () => ({
@@ -267,5 +272,48 @@ describe('plugins/modal', () => {
     modal.closeLoading()
     expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
     expect(h.closeFns[1]).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * b117：长任务进度文案（分片上传 >8MB）。
+ *
+ * 立的案：`uploadFileChunked` 从批次十八起就提供 `onProgress`，但全仓**零消费点**——
+ * 慢网下 1GB 文件只能盯着一句固定"请稍候"（写了没接线=没写）。接线时补的这条能力
+ * 必须与栈语义同源：进度只刷新**最近打开**的那一个（与 closeLoading 的 LIFO 一致），
+ * 栈空时迟到回调静默跳过。
+ */
+describe('plugins/modal · 进度文案（b117）', () => {
+  let modal: (typeof import('./modal'))['default']
+
+  beforeEach(async () => {
+    vi.resetModules()
+    h.clearAll()
+    modal = (await import('./modal')).default
+  })
+
+  it('loading() 返回遮罩实例（长任务据此刷新文案）', () => {
+    const instance = modal.loading('正在上传文件')
+    expect(instance).toBeTypeOf('object')
+    expect(h.loadingService).toHaveBeenCalledTimes(1)
+  })
+
+  it('updateLoading 只改栈顶实例；关闭一层后回到下一层，空栈时静默跳过', () => {
+    modal.loading('第一层')
+    modal.loading('第二层')
+    expect(h.setTextFns).toHaveLength(2)
+
+    modal.updateLoading('进度 42%')
+    expect(h.setTextFns[1]).toHaveBeenCalledWith('进度 42%')
+    expect(h.setTextFns[0]).not.toHaveBeenCalled()
+
+    modal.closeLoading()
+    modal.updateLoading('进度 80%')
+    expect(h.setTextFns[0]).toHaveBeenCalledWith('进度 80%')
+
+    modal.closeLoading()
+    expect(() => modal.updateLoading('迟到')).not.toThrow()
+    expect(h.setTextFns[0]).toHaveBeenCalledTimes(1)
+    expect(h.setTextFns[1]).toHaveBeenCalledTimes(1)
   })
 })
