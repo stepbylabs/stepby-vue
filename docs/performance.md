@@ -170,15 +170,18 @@ node tests/e2e/visual-regression.mjs --update
 
 ## 6. 已知限制（诚实登记）
 
-- **路由级分包（b120 已恢复）**：此前 Vite 8.1.5 / Rolldown 1.1.5 在 element-plus
+- **路由级分包（b120 已恢复）+ 首屏两块按需化（b121）**：此前 Vite 8.1.5 / Rolldown 1.1.5 在 element-plus
   跨 chunk 引用处 panic，被迫 `codeSplitting: false`（单 chunk，入口 1705.8KB gzip）。
-  升级 vite 8.3.5（rolldown 1.2.15）后构建通过，入口 chunk 62KB、首屏必须下载
-  573.4KB JS + 52.3KB CSS（gzip），产物 423 个 JS / 144 个 CSS chunk。
+  升级 vite 8.3.5（rolldown 1.2.15）后构建通过（入口 chunk 62KB），b121 再把两块挪出首屏：
+  `en-US` 改动态 `import()`、图标由 293 全量注册改为 91 项显式注册表（设计器全集经
+  `@element-plus/icons-vue?catalog` 只进懒加载 chunk）。当前首屏必须下载 **499.2KB JS + 52.3KB CSS**
+  （gzip），全部 JS chunk 之和 **1856.6KB**（懒加载侧多存一份全集，属分包副本的必然账）。
   `perf-budget.json` 因此分成三类口径：`initial*`（首屏，用户实际等待）、
-  `singleJsChunk*`（单 chunk 上限）、`*Total*`（全部 chunk 之和，构建卫生）。
-  判据 `scripts/check-perf-budget.mjs` 常驻门禁电池（`perfbudgetsynth`/`perfbudget`）。
+  `singleJsChunk*`（单 chunk 上限）、`*Total*`（全部 chunk 之和，构建卫生），
+  另有内容判据 `iconCatalogInInitial`（哨兵 `IceCream`：命中首屏 = 分包失效，全部找不到 = 判据输入坏）。
+  判据 `scripts/check-perf-budget.mjs` 常驻门禁电池（`perfbudgetsynth`/`perfbudget`，自检 19 组双向）。
   已知边界：Vite 为动态 import 生成的 `__vite__mapDeps` 表随 chunk 数增长
-  （本轮实测约 118KB gzip 落在 router chunk），属框架开销，当前不单独设闸。
+  （b120 实测约 118KB gzip 落在 router chunk），属框架开销，当前不单独设闸。
 - MySQL 语句级超时仅覆盖 SELECT（引擎限制，见后端 `config.toml.example` 注释）。
 - Web Push / Background Sync / Periodic Sync（PWA-005/006/008）：需要后端推送服务
   （VAPID、订阅存储、推送场景定义），单独做前端 handler 属无后端的假功能——按

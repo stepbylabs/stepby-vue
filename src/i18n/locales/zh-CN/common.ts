@@ -347,6 +347,8 @@ export default {
     english: 'English',
     switchingLanguage: '正在切换语言，请稍候...',
     switchSuccess: '语言切换成功',
+    switchFailed: '语言包加载失败，已保留原语言',
+    switchNotPersisted: '语言已切换，但偏好未能保存（刷新后可能回退）',
     triggerAriaLabel: '切换语言'
   },
   sizeSelect: {

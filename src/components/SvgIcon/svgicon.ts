@@ -1,11 +1,221 @@
-import { App, type Component } from 'vue'
-import * as components from '@element-plus/icons-vue'
+import type { App, Component } from 'vue'
+import {
+  ArrowDown,
+  ArrowUp,
+  Back,
+  Bell,
+  Calendar,
+  CaretRight,
+  ChatDotRound,
+  ChatLineSquare,
+  Check,
+  CircleCheck,
+  CircleClose,
+  CirclePlus,
+  Clock,
+  Close,
+  Cloudy,
+  Coin,
+  Collection,
+  Connection,
+  CopyDocument,
+  Cpu,
+  DArrowLeft,
+  DArrowRight,
+  DataAnalysis,
+  DataBoard,
+  DataLine,
+  Delete,
+  Document,
+  DocumentAdd,
+  DocumentCopy,
+  Download,
+  Edit,
+  Files,
+  Filter,
+  Finished,
+  Folder,
+  FolderOpened,
+  FullScreen,
+  Grid,
+  Hide,
+  Histogram,
+  HomeFilled,
+  InfoFilled,
+  Key,
+  Lightning,
+  Link,
+  List,
+  Loading,
+  Lock,
+  MagicStick,
+  Menu,
+  Message,
+  Minus,
+  Money,
+  Monitor,
+  Odometer,
+  OfficeBuilding,
+  Operation,
+  PieChart,
+  Plus,
+  Pointer,
+  Position,
+  Printer,
+  Promotion,
+  QuestionFilled,
+  Rank,
+  Reading,
+  Refresh,
+  RefreshLeft,
+  RefreshRight,
+  Remove,
+  RemoveFilled,
+  Right,
+  ScaleToOriginal,
+  Search,
+  Select,
+  Setting,
+  Sort,
+  Star,
+  StarFilled,
+  Switch,
+  Timer,
+  Top,
+  TrendCharts,
+  Unlock,
+  Upload,
+  User,
+  UserFilled,
+  VideoPlay,
+  View,
+  Warning,
+  WarningFilled
+} from '@element-plus/icons-vue'
+
+/**
+ * 全局注册的 Element Plus 图标**显式子集**。
+ *
+ * 历史：`import * as components` 把 293 个图标全部注册，整个图标包因此进首屏
+ * （42.3KB gzip / 167KB raw）。本表 = 生产码里**会以名字出现**的图标并集：
+ *
+ * - 模板直接标签 `<Folder />`：uniplugin 的 ElementPlusResolver 只解析 `El*`
+ *   组件，图标标签没有本地 import 时靠全局注册解析；
+ * - 模板未绑定属性 `icon="Refresh"` / `prefix-icon="Search"`：Element Plus 用全局
+ *   组件名解析字符串（绑定的 `:icon="Refresh"` 不依赖本表）；
+ * - 生产脚本里的字符串图标值（如 `dashboardLayout.ts` 的 widget 图标）。
+ *
+ * 对"文件内已显式 import 的标签"采取**超集**登记（只多花几 KB，绝不出现空白图标）。
+ * 唯一的全集消费者是表单设计器的图标选择器（`views/tool/build/IconsDialog.vue`）：
+ * 它自己 `import *` 并以组件对象渲染，只随设计器 chunk 加载，不进首屏。
+ *
+ * ⚠ 新增任何图标名字必须同步本表——`elementIcons.guard.test.ts` 扫描全部 `.vue`
+ * 与三处脚本配置，逐个与 `@element-plus/icons-vue` 的真实导出对账；漏登记或拼错
+ * 当场红，否则表现是**空白图标**（Element Plus 对未注册名字静默渲染空）。
+ */
+export const elementIcons: Record<string, Component> = {
+  ArrowDown,
+  ArrowUp,
+  Back,
+  Bell,
+  Calendar,
+  CaretRight,
+  ChatDotRound,
+  ChatLineSquare,
+  Check,
+  CircleCheck,
+  CircleClose,
+  CirclePlus,
+  Clock,
+  Close,
+  Cloudy,
+  Coin,
+  Collection,
+  Connection,
+  CopyDocument,
+  Cpu,
+  DArrowLeft,
+  DArrowRight,
+  DataAnalysis,
+  DataBoard,
+  DataLine,
+  Delete,
+  Document,
+  DocumentAdd,
+  DocumentCopy,
+  Download,
+  Edit,
+  Files,
+  Filter,
+  Finished,
+  Folder,
+  FolderOpened,
+  FullScreen,
+  Grid,
+  Hide,
+  Histogram,
+  HomeFilled,
+  InfoFilled,
+  Key,
+  Lightning,
+  Link,
+  List,
+  Loading,
+  Lock,
+  MagicStick,
+  Menu,
+  Message,
+  Minus,
+  Money,
+  Monitor,
+  Odometer,
+  OfficeBuilding,
+  Operation,
+  PieChart,
+  Plus,
+  Pointer,
+  Position,
+  Printer,
+  Promotion,
+  QuestionFilled,
+  Rank,
+  Reading,
+  Refresh,
+  RefreshLeft,
+  RefreshRight,
+  Remove,
+  RemoveFilled,
+  Right,
+  ScaleToOriginal,
+  Search,
+  Select,
+  Setting,
+  Sort,
+  Star,
+  StarFilled,
+  Switch,
+  Timer,
+  Top,
+  TrendCharts,
+  Unlock,
+  Upload,
+  User,
+  UserFilled,
+  VideoPlay,
+  View,
+  Warning,
+  WarningFilled
+}
+
+/** 按名称解析图标组件；未命中回退 `Menu`，避免动态 `:is` 拿到 undefined。 */
+export function resolveElementIcon(name?: string): Component {
+  return (name && elementIcons[name]) || elementIcons.Menu
+}
 
 export default {
   install: (app: App) => {
-    for (const key in components) {
-      const componentConfig = components[key as keyof typeof components] as { name: string } & Component
-      app.component(componentConfig.name, componentConfig)
+    for (const [name, component] of Object.entries(elementIcons)) {
+      app.component(name, component)
     }
   }
 }

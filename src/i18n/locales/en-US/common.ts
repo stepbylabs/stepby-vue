@@ -348,6 +348,8 @@ export default {
     english: 'English',
     switchingLanguage: 'Switching language, please wait...',
     switchSuccess: 'Language switched successfully',
+    switchFailed: 'Failed to load the language pack; previous language kept',
+    switchNotPersisted: 'Language switched, but the preference could not be saved (it may revert after reload)',
     triggerAriaLabel: 'Switch language'
   },
   sizeSelect: {

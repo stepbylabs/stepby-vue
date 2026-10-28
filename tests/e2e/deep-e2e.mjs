@@ -5430,9 +5430,16 @@ async function testModule10(page, consoleErrors, pageErrors) {
         .catch(() => false)
     ) {
       await enOption.click().catch(() => {})
-      await sleep(1500)
-      // 结果判据：i18n 切换必须真的落到 <html lang>（主套件 F59 同源口径），仅"选项被点到"不算切换成功
-      const langAfterEn = await page.evaluate(() => document.documentElement.lang || '')
+      // 结果判据：i18n 切换必须真的落到 <html lang>（主套件 F16/F59 同源口径），仅"选项被点到"不算切换成功。
+      // b121：en-US 语言包改为按需加载 ⇒ 切换是异步的；轮询到落地（≤5s），不用固定 sleep
+      // 决定绿红（AGENTS ④：判据不得与环境耦合）。
+      let langAfterEn = ''
+      const langDeadline = Date.now() + 5000
+      while (Date.now() < langDeadline) {
+        langAfterEn = await page.evaluate(() => document.documentElement.lang || '').catch(() => '')
+        if (/en/i.test(langAfterEn)) break
+        await sleep(100)
+      }
       record(M, '切换到英文', /en/i.test(langAfterEn), `htmlLang=${langAfterEn}`)
     } else {
       record(M, '切换到英文', false, '英文选项不可见')

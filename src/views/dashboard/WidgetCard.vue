@@ -17,14 +17,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import * as ElIcons from '@element-plus/icons-vue'
+import { resolveElementIcon } from '@/components/SvgIcon/svgicon'
 
 const props = withDefaults(defineProps<{ title: string; icon?: string }>(), { icon: 'Menu' })
 
-// 按名称解析图标组件；未命中回退通用图标，避免动态 :is 拿到 undefined
-const iconComp = computed(
-  () => (ElIcons as Record<string, unknown>)[props.icon] || (ElIcons as Record<string, unknown>).Menu
-)
+// b121：不再 `import *` 整个图标包（会把 293 个图标拉进工作台 chunk），
+// 改为查全局注册的同一份显式登记表；未命中回退 Menu。
+const iconComp = computed(() => resolveElementIcon(props.icon))
 </script>
 
 <style lang="scss" scoped>

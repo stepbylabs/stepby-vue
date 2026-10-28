@@ -895,6 +895,21 @@ async function skipTour(page) {
   await sleep(300)
 }
 
+/**
+ * 轮询 `<html lang>` 直到命中或超时（b121）。
+ * 语言切换自 b121 起按需加载语言包、不再整页重载，唯一可靠的落地信号是 `documentElement.lang`
+ * （与 deep M10 同一口径）；固定 sleep 会把结论交给网络快慢（AGENTS ④）。
+ */
+async function waitForHtmlLang(page, lang, timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const current = await page.evaluate(() => document.documentElement.lang || '').catch(() => '')
+    if (current === lang) return true
+    await sleep(100)
+  }
+  return false
+}
+
 // ==================== 功能 1：在线用户强制踢出 ====================
 
 async function testFeature1(page) {
@@ -2357,15 +2372,12 @@ async function testFeature12(page) {
     return
   }
 
-  // 点击 English 触发页面 reload
+  // 点击 English：b121 起语言包按需加载、切换不再整页重载 ⇒ 以 documentElement.lang 落地为判据
   await englishOption.click()
+  const enApplied = await waitForHtmlLang(page, 'en-US', 5000)
+  if (!enApplied) log('  ⚠️ English 点击后 5s 内 html lang 未变为 en-US')
 
-  // 等待页面 reload（modal.loading 显示 800ms 后调用 window.location.reload）
-  await sleep(3000)
-  await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
-  await sleep(2000)
-
-  // 重新登录（reload 后 token 可能仍在 localStorage，但保险起见检查 URL）
+  // 重新登录（切换不重载，token 仍在；仅在真的掉到登录页时补登）
   if (page.url().includes('login')) {
     await login(page)
     await sleep(2000)
@@ -2396,8 +2408,30 @@ async function testFeature12(page) {
     .catch(() => false)
   record(12, '英文模式按钮文本切换', !zhAddVisible, !zhAddVisible ? '已切换为英文' : '仍显示中文"新增"')
 
+  // b121：en-US 改为按需加载 ⇒ 刷新后必须仍以 en-US 启动（ensureInitialLocale 先于挂载），
+  // 否则"首帧中文再跳英文"或"刷新回退中文"都会从这条判据漏过去。
+  await page.reload({ waitUntil: 'load' })
+  const enAfterReload = await waitForHtmlLang(page, 'en-US', 5000)
+  const enHeaderAfterReload = await page
+    .locator('.el-table__header-wrapper th:has-text("Route Pattern")')
+    .first()
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    12,
+    '刷新后保持英文（懒加载启动路径）',
+    enAfterReload && enHeaderAfterReload,
+    `lang=${enAfterReload ? 'en-US' : '未命中'}, 表头=${enHeaderAfterReload}`
+  )
+
   // 步骤 3：切回中文（恢复其他测试的环境）
+  // b121 修复：英文态下该选项文案是 "Simplified Chinese"（i18n 正确行为），
+  // 原先按 "简体中文" 匹配在结构上永远命中不到 —— 恢复步骤一直静默失败，
+  // 全量轮只是靠 F13 的登出清存储兜住；子集跑（跳过 F13）会把它暴露成后继功能全英文。
+  // 判据取"首个未禁用项"（语言列表固定 zh 在前），并以 html lang 实测收局。
   const langIcon2 = page.locator('#lang-select, #lang-select .lang-icon--style, [id*="lang"] .lang-icon--style').first()
+  let restored = false
   if (
     await langIcon2
       .waitFor({ state: 'visible', timeout: 2000 })
@@ -2406,7 +2440,7 @@ async function testFeature12(page) {
   ) {
     await langIcon2.click()
     await sleep(800)
-    const zhOption = page.locator('.el-dropdown-menu__item:has-text("简体中文")').first()
+    const zhOption = page.locator('.el-dropdown-menu__item:not(.is-disabled)').first()
     if (
       await zhOption
         .waitFor({ state: 'visible', timeout: 2000 })
@@ -2414,16 +2448,16 @@ async function testFeature12(page) {
         .catch(() => false)
     ) {
       await zhOption.click()
-      await sleep(3000)
-      await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {})
-      await sleep(2000)
+      restored = await waitForHtmlLang(page, 'zh-CN', 5000)
       if (page.url().includes('login')) {
         await login(page)
         await sleep(2000)
       }
-      log('  已切回中文')
+      if (restored) log('  已切回中文')
     }
   }
+  // 恢复是环境契约（后续功能依赖中文文案），必须留痕并判定，不得"做了就算"
+  record(12, '切回中文（html lang 落地）', restored, restored ? 'lang=zh-CN' : '5s 内未回到 zh-CN')
 }
 
 // ==================== 功能 13：多角色登录（stepby 普通角色） ====================

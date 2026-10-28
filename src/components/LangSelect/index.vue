@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { setLanguage, getLanguage } from '@/i18n'
+import { setLanguage, getLanguage, switchOutcome } from '@/i18n'
 import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 
@@ -40,15 +40,33 @@ const langOptions = computed<LangOption[]>(() => [
   { label: t('langSelect.english'), value: 'en-US' }
 ])
 
-function handleSetLang(lang: 'zh-CN' | 'en-US'): void {
+async function handleSetLang(lang: 'zh-CN' | 'en-US'): Promise<void> {
   if (lang === currentLang.value) return
   // 切换语言：vue-i18n 响应式更新，菜单/面包屑/标签页等通过 useMenuTitle 自动跟随
   // 无需 location.reload()，避免页面闪烁和状态丢失
   // 短促进度条反馈（U5）：语言已切换，通知 ElMessage 成功提示后再结束进度条
   NProgress.start()
-  setLanguage(lang)
+  // b121：en-US 按需加载 ⇒ 切换是异步的。三种结局必须分开：
+  //   加载失败 ⇒ 保留原语言并报错（不得先报成功）；
+  //   被更晚的点击取代 ⇒ 静默退出（新调用自己会给结局）；
+  //   成功但持久化失败 ⇒ 本次会话已生效，提示"偏好未能保存"而不是成功。
+  const outcome = switchOutcome(await setLanguage(lang))
+  if (outcome === 'failed') {
+    ElMessage.error(t('langSelect.switchFailed'))
+    NProgress.done()
+    return
+  }
+  if (outcome === 'superseded') {
+    // 更晚的一次点击会自己给结局：旧调用静默退出（不重复弹两条相反的提示）
+    NProgress.done()
+    return
+  }
   currentLang.value = lang
-  ElMessage.success(t('langSelect.switchSuccess'))
+  if (outcome === 'switched') {
+    ElMessage.success(t('langSelect.switchSuccess'))
+  } else if (outcome === 'switched-not-persisted') {
+    ElMessage.warning(t('langSelect.switchNotPersisted'))
+  }
   window.setTimeout(() => NProgress.done(), 300)
 }
 </script>

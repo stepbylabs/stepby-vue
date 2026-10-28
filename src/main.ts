@@ -24,7 +24,7 @@ import App from './App.vue'
 import store from './store'
 import router from './router'
 import directive from './directive' // directive
-import i18n from '@/i18n'
+import i18n, { ensureInitialLocale } from '@/i18n'
 
 // 注册指令
 import plugins from './plugins' // plugins
@@ -90,7 +90,8 @@ app.component('ImagePreview', ImagePreview)
 app.component('RightToolbar', RightToolbar)
 app.component('Editor', Editor)
 
-app.use(router)
+// b121：`app.use(router)` 后移到 startApp()——初始导航会触发 permission 守卫里的
+// 标题翻译，必须在语言包（已保存 en-US 时按需加载）就绪之后才开始，否则先渲染中文。
 app.use(store)
 app.use(plugins)
 app.use(elementIcons)
@@ -193,11 +194,6 @@ window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => 
   })
 })
 
-app.mount('#app')
-
-// Tier-S #1：接入前端异常与性能监控持久化上报（在挂载后启动，采集 Vue/全局/资源/拒绝错误 + Web Vitals）
-setupFrontendErrorReporter()
-
 // PWA 支持（P3-23）：注册 Service Worker（生产构建生效；开发模式为 no-op），
 // 支持"安装为桌面应用 / 添加到主屏"并开启离线缓存优先。
 // b117：更新时机必须经 `installSwUpdate` 收口——裸 `registerSW({ immediate: true })` 在
@@ -205,12 +201,28 @@ setupFrontendErrorReporter()
 // 现口径：只置"新版本就绪"信号，由界面给用户可见入口并手动刷新（见 utils/swUpdate.ts）。
 import { registerSW } from 'virtual:pwa-register'
 import { installSwUpdate } from '@/utils/swUpdate'
-installSwUpdate(registerSW)
 
 // 初始化 WebSocket 通知服务（登录后自动连接）
 import useNotificationStore from '@/store/modules/notification'
-const notificationStore = useNotificationStore()
-notificationStore.init()
+
+/**
+ * 启动序列（b121）：语言包就绪 → 初始导航 → 挂载 → 挂载后的后台服务。
+ *
+ * 语言包按需加载（en-US），必须排在 `app.use(router)` 之前：初始导航会触发
+ * permission 守卫里的标题翻译，晚于导航就会先按中文渲染一帧。
+ */
+async function startApp(): Promise<void> {
+  await ensureInitialLocale()
+  app.use(router)
+  app.mount('#app')
+  // Tier-S #1：接入前端异常与性能监控持久化上报（在挂载后启动，采集 Vue/全局/资源/拒绝错误 + Web Vitals）
+  setupFrontendErrorReporter()
+  installSwUpdate(registerSW)
+  const notificationStore = useNotificationStore()
+  notificationStore.init()
+}
+
+void startApp()
 
 // U13 优化：浏览器通知权限改为按需请求
 // 不在加载时自动请求权限，避免打扰用户

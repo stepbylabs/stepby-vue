@@ -4630,7 +4630,48 @@ chunk 数 `< 50` ⇒ 抛错（分包退化或采集面被截断）；合计 `< 1
 首屏必须下载（`index.html` 的 script + modulepreload + stylesheet 图）、单个 chunk 上限（构建卫生，
 防止退回"一个 5.8MB chunk"）、全部产物之和（发布体积）。`scripts/check-perf-budget.mjs`
 的 `--selftest` 14 条双向逐项钉住"只有它红"（改 ulimit 只红 012，改 single 只红 006b…），
-`perfbudgetsynth`/`perfbudget` 两把接进电池（80 → 82 把）。**阈值必须由实测推**：
+`perfbudgetsynth`/`perfbudget` 两把接进电池（80 → 82 把，b121 自检 14 → **19 条**）。**阈值必须由实测推**：
 本轮 `initialCssGzipKb` 第一版按经验写 40，实测 52.3 ⇒ 设 60；
 `slow-3g` 的 `lcpMul` 由 5 收到 3 之前先跑校准（单 chunk 6028ms / 分包 5360ms / 上限 7500ms），
 而且**夹具必须由阈值派生**（`passLcp = sc.lcpLimit - 1`），否则调阈值就会让自检假红。
+
+### 3.118 单 ESM 图标包的拆法、哨兵内容判据与「恢复环境」判据（b121 固化）
+
+**① 先量再写：首屏还剩哪两块。** b120 把首屏从 573.4KB 起算，逐块量下来 i18n（99.0KB，两个语言包同时进包）
+与图标（42.1KB，`import *` 全量 293 个）是仅剩的两块可压空间。b121 做完后首屏 **499.2KB**
+（i18n 贡献 45.2KB、图标 29.1KB），全部 chunk 之和 1841.6 → 1856.6KB（懒加载侧多存一份全集，见 ⑥）。
+
+**② 图标：具名导入与 `import *` 共用同一模块实例 ⇒ 只能拆成两个实例。**
+`@element-plus/icons-vue` 的 `dist/index.js` 是单一 ESM 模块；只要首屏还有任何具名图标导入，
+设计器的 `import *` 就会把整包钉在同一个 chunk 里（首次构建实测：改完注册表首屏仍 42.4KB）。
+正确做法：首屏侧建**显式注册表** `src/components/SvgIcon/svgicon.ts::elementIcons`（91 项），
+设计器侧用 `@element-plus/icons-vue?catalog`（查询后缀 = 第二个模块实例）+ `iconComponents[icon]`。
+新增图标的动作是"改注册表"，由 `elementIcons.guard.test.ts` 扫描全部 `.vue`（模板标签 +
+未绑定 `icon|prefix-icon|suffix-icon`）与生产 `.ts`（`icon:` / `titleIcon:` 字符串）逐个对账；
+漏登记的表现是**空白图标**（EP 对未注册名字静默渲染空），所以必须按名字面判，不能只看体积。
+
+**③ 判据：体积只能证明"变大"，不能证明"为什么变大"。**
+`perf-budget.json` 新增 `iconCatalogInInitial: 0`，`check-perf-budget.mjs` 用哨兵 `IceCream`
+（只在全集里、91 项登记里没有）判"全集是否只进懒加载 chunk"。**两种失败必须分开**：
+命中首屏 = 真实回归（`R102-PERF-013` 红）；整个产物都找不到 = 判据输入坏了（EXIT=2）。
+第一版把两者都当输入坏，M2 变异（设计器改回普通导入、首屏 528.2KB）打出 EXIT=2 而不是 PERF-013——
+那会把回归报成"判据坏"。自检 ⑯b 钉住"只在首屏 ⇒ 命中 1 且不得抛"（用例自身必须 try/catch 并点名，
+否则变异只会把自检崩成 TypeError，丢失"红在哪条"）。
+
+**④ 语言切换：启动序 + 四态结局 + 真实浏览器判据。**
+`en-US` 懒加载后，`app.use(router)` 必须后移到 `await ensureInitialLocale()` 之后（初始导航会挂布局）；
+切换返回 `{ ok, applied, persisted }` 并归一成 `failed / superseded / switched / switched-not-persisted`：
+`superseded` 必须静默（否则旧调用先弹一条与结果相反的提示），`persisted=false` 提示"偏好未保存"。
+e2e 判据一律轮询 `document.documentElement.lang`（不再用固定 sleep 等一个并不存在的整页重载），
+并补"刷新后仍以 en-US 启动"覆盖懒加载启动路径。
+
+**⑤ 「恢复环境」的步骤必须是判据。** F12 的"切回中文"一直按 `简体中文` 定位选项，而英文态下
+该项文案是 "Simplified Chinese"（i18n 的正确行为）⇒ 恢复步骤结构上永远命不中；全量轮靠紧随其后的
+F13 登出清存储兜住，子集跑跳过 F13 就暴露成"后继功能全英文"（本轮一次性红了 F33/F36/F108 共 7 条）。
+修法：取"首个未禁用项"（语言列表固定 zh 在前）+ `html lang` 实测收局 + 新增一条判定。
+**子集选择必须覆盖"前序功能会改变全局状态（语言/主题/尺寸）"的恢复路径**，
+否则"只跑影响面"会漏掉这一族。
+
+**⑥ 已知边界。** 全集副本只在懒加载侧多存一份（`IconsDialog-*.js` 44.36KB gzip），只影响访问设计器的
+用户；总量预算因此略增，三栏口径分开记录，不合并。首帧语言是无 DOM 证据的时序属性，本批只证明
+"刷新后以 en-US 启动 + 表头语言正确"，不声称证明了"第一帧不是中文"。

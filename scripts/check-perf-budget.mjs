@@ -99,8 +99,50 @@ export const BUDGET_KEYS = [
   'singleJsChunkGzipKb',
   'imageMaxGzipKb',
   'fontTotalGzipKb',
-  'thirdPartyScriptCount'
+  'thirdPartyScriptCount',
+  'iconCatalogInInitial'
 ]
+
+/**
+ * 设计器图标目录的哨兵（Element Plus 图标里**生产模板不使用**的一个）。
+ *
+ * 图标包是单个 ESM 模块：设计器的全量命名空间导入会把 293 个图标钉进与首屏具名
+ * 导入共享的 chunk（b121 实测：不拆时首屏图标块 42.4KB，拆后 13.3KB）。拆法是让
+ * 设计器从 `@element-plus/icons-vue?catalog` 导入——查询后缀使 Rolldown 视其为
+ * 另一个模块实例，全集副本只进懒加载 chunk。
+ *
+ * 这是一条构建期实现细节，**回归形态就是首屏重新变大 29KB**，所以必须有内容判据：
+ * 哨兵出现在任何首屏 JS 里 ⇒ 分包口径失效（PERF-013 判红，这是产品/构建缺陷）；
+ * 哨兵在整个产物里一处都没有 ⇒ 无法证明口径（判据输入坏了，EXIT=2）。两种结局
+ * 刻意分开：把"回归"报成"判据坏"会把人支使去修判据，而真相是设计器又把全集拉回首屏。
+ * 哨兵必须真的存在于图标包里，由"懒加载侧必须命中"这条正控钉住。
+ */
+export const ICON_CATALOG_SENTINEL = 'IceCream'
+
+/**
+ * 判「设计器图标目录是否真的只在懒加载 chunk 里」。
+ * @param distRoot 产物根
+ * @param initialFiles `measure()` 给出的首屏引用（pathname 以 `/static/` 开头）
+ */
+export function iconCatalogSplit(distRoot, initialFiles) {
+  const initial = new Set(initialFiles.filter((f) => f.kind === 'js').map((f) => f.path))
+  const jsFiles = walk(join(distRoot, 'static', 'js')).filter((f) => f.endsWith('.js'))
+  let inInitial = 0
+  let lazyChunk = null
+  for (const f of jsFiles) {
+    const text = readFileSync(f, 'utf8')
+    if (!text.includes(ICON_CATALOG_SENTINEL)) continue
+    const pathname = '/' + relative(distRoot, f).replace(/\\/g, '/')
+    if (initial.has(pathname)) inInitial += 1
+    else if (!lazyChunk) lazyChunk = pathname
+  }
+  if (!inInitial && !lazyChunk) {
+    throw new InputError(
+      `图标目录哨兵「${ICON_CATALOG_SENTINEL}」在全部产物里都找不到：无法证明「设计器全集不进首屏」的分包口径（判据输入坏了，先确认图标包名与构建产物）`
+    )
+  }
+  return { inInitial, lazyChunk }
+}
 
 /** 预算缺键必须拒绝判据：缺键时 `value > undefined` 恒 false，会把超限静默放行 */
 export function missingBudgetKeys(b) {
@@ -117,7 +159,13 @@ export function evaluate(measured, budget) {
     makeCheck('R102-PERF-007', '全部 CSS 之和（gzip，构建卫生）', round(measured.cssTotalKb), budget.cssTotalGzipKb),
     makeCheck('R102-PERF-008', '单图最大（gzip，首屏背景等）', round(measured.maxImageKb), budget.imageMaxGzipKb),
     makeCheck('R102-PERF-009', '字体总体积（gzip）', round(measured.fontTotalKb), budget.fontTotalGzipKb),
-    makeCheck('R102-PERF-010', '第三方跨域脚本数', measured.thirdPartyScripts, budget.thirdPartyScriptCount)
+    makeCheck('R102-PERF-010', '第三方跨域脚本数', measured.thirdPartyScripts, budget.thirdPartyScriptCount),
+    makeCheck(
+      'R102-PERF-013',
+      '设计器图标目录进首屏（哨兵命中数）',
+      measured.iconCatalogInInitial,
+      budget.iconCatalogInInitial
+    )
   ]
 }
 
@@ -204,7 +252,8 @@ function selftest() {
     singleJsChunkGzipKb: 300,
     imageMaxGzipKb: 140,
     fontTotalGzipKb: 100,
-    thirdPartyScriptCount: 0
+    thirdPartyScriptCount: 0,
+    iconCatalogInInitial: 0
   }
   const base = {
     initialJsKb: 600,
@@ -214,7 +263,8 @@ function selftest() {
     cssTotalKb: 109,
     maxImageKb: 126,
     fontTotalKb: 0,
-    thirdPartyScripts: 0
+    thirdPartyScripts: 0,
+    iconCatalogInInitial: 0
   }
   const failedIds = (m) =>
     evaluate(m, budget)
@@ -245,7 +295,8 @@ function selftest() {
     ['⑤ JS 总量超限只红 PERF-006', { ...base, jsTotalKb: 1901 }, 'R102-PERF-006'],
     ['⑥ 单 chunk 超限只红 PERF-006b', { ...base, maxChunkKb: 301 }, 'R102-PERF-006b'],
     ['⑦ CSS 总量超限只红 PERF-007', { ...base, cssTotalKb: 121 }, 'R102-PERF-007'],
-    ['⑧ 第三方脚本只红 PERF-010', { ...base, thirdPartyScripts: 1 }, 'R102-PERF-010']
+    ['⑧ 第三方脚本只红 PERF-010', { ...base, thirdPartyScripts: 1 }, 'R102-PERF-010'],
+    ['⑩ 图标目录进首屏只红 PERF-013', { ...base, iconCatalogInInitial: 1 }, 'R102-PERF-013']
   ]
   for (const [name, m, id] of cases) {
     const ids = failedIds(m)
@@ -261,7 +312,7 @@ function selftest() {
     } catch (e) {
       threw = e instanceof InputError
     }
-    ok('⑨ 产物目录缺失必须抛 InputError', threw)
+    ok('⑪ 产物目录缺失必须抛 InputError', threw)
 
     const fake = join(tmp, 'dist')
     mkdirSync(join(fake, 'static', 'js'), { recursive: true })
@@ -269,7 +320,7 @@ function selftest() {
     writeFileSync(join(fake, 'index.html'), '<script src="/static/js/index-abc.js"></script>')
     const got = measure(fake)
     ok(
-      '⑩ 引用文件存在时首屏 JS 量等于该文件 gzip',
+      '⑫ 引用文件存在时首屏 JS 量等于该文件 gzip',
       got.initial.jsKb === gzipSync('console.log(1)').length / 1024,
       `实际：${got.initial.jsKb}`
     )
@@ -281,7 +332,7 @@ function selftest() {
     } catch (e) {
       threw2 = e instanceof InputError
     }
-    ok('⑪ index.html 引用了不存在的产物必须抛 InputError', threw2)
+    ok('⑬ index.html 引用了不存在的产物必须抛 InputError', threw2)
 
     writeFileSync(join(fake, 'index.html'), '<script src="/app.js"></script>')
     let threw3 = false
@@ -290,17 +341,54 @@ function selftest() {
     } catch (e) {
       threw3 = e instanceof InputError
     }
-    ok('⑫ 非 /static/ 的引用形状必须抛（防按旧形状静默少数）', threw3)
+    ok('⑭ 非 /static/ 的引用形状必须抛（防按旧形状静默少数）', threw3)
+
+    // ⑬~⑮ 设计器图标目录的分包口径：哨兵只在懒加载 chunk 才算拆开
+    const splitDir = join(tmp, 'split')
+    mkdirSync(join(splitDir, 'static', 'js'), { recursive: true })
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const x = 1')
+    writeFileSync(join(splitDir, 'static', 'js', 'IconsDialog-b.js'), 'const y = "IceCream"')
+    const initialJs = [{ kind: 'js', path: '/static/js/index-a.js' }]
+    const good = iconCatalogSplit(splitDir, initialJs)
+    ok(
+      '⑮ 哨兵只在懒加载 chunk ⇒ 首屏命中 0（正控）',
+      good.inInitial === 0 && good.lazyChunk === '/static/js/IconsDialog-b.js',
+      JSON.stringify(good)
+    )
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const y = "IceCream"')
+    ok('⑯ 哨兵也出现在首屏 ⇒ 命中 1', iconCatalogSplit(splitDir, initialJs).inInitial === 1)
+    writeFileSync(join(splitDir, 'static', 'js', 'IconsDialog-b.js'), 'const y = "Basketball"')
+    let initialOnly = null
+    let initialOnlyErr = null
+    try {
+      initialOnly = iconCatalogSplit(splitDir, initialJs)
+    } catch (e) {
+      initialOnlyErr = e
+    }
+    ok(
+      '⑯b 哨兵只在首屏 ⇒ 命中 1 且不得抛（真实回归 ≠ 判据输入坏）',
+      initialOnly?.inInitial === 1 && initialOnly?.lazyChunk === null,
+      initialOnlyErr ? `抛了：${initialOnlyErr.message}` : JSON.stringify(initialOnly)
+    )
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const x = 1')
+    writeFileSync(join(splitDir, 'static', 'js', 'IconsDialog-b.js'), 'const y = "Basketball"')
+    let threwSplit = false
+    try {
+      iconCatalogSplit(splitDir, initialJs)
+    } catch (e) {
+      threwSplit = e instanceof InputError
+    }
+    ok('⑰ 哨兵缺席必须抛 InputError（"证明不了"不得当通过）', threwSplit)
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
 
   // ⑬ 预算缺键必须被显式拒绝（缺键时 `value > undefined` 恒 false ⇒ 超限会被静默放行）
   ok(
-    '⑬ 预算缺键必须被列出',
+    '⑱ 预算缺键必须被列出',
     JSON.stringify(missingBudgetKeys({ ...budget, initialJsGzipKb: undefined })) === JSON.stringify(['initialJsGzipKb'])
   )
-  ok('⑭ 预算齐全时必须零缺键（正控）', missingBudgetKeys(budget).length === 0)
+  ok('⑲ 预算齐全时必须零缺键（正控）', missingBudgetKeys(budget).length === 0)
 
   console.log(`\n[perf-budget] selftest：${passed} 通过 / ${failed} 失败（共 ${passed + failed} 组双向）`)
   return failed === 0
@@ -332,7 +420,18 @@ try {
   process.exit(2)
 }
 
-const checks = evaluate(result.measured, b)
+let split
+try {
+  split = iconCatalogSplit(join(root, distDir), result.initial.files)
+} catch (e) {
+  console.error(`[perf-budget] [FATAL] ${e.message}`)
+  process.exit(2)
+}
+console.log(
+  `[perf-budget] 图标目录懒加载 chunk：${split.lazyChunk ?? '（懒加载侧缺失——全集被拉回首屏）'}（首屏命中 ${split.inInitial}）`
+)
+
+const checks = evaluate({ ...result.measured, iconCatalogInInitial: split.inInitial }, b)
 const over = checks.filter((c) => c.over)
 
 console.log('[perf-budget] 构建产物预算核查')

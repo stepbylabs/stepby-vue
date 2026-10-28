@@ -28,7 +28,7 @@
         >
           <div>
             <el-icon :size="30">
-              <component :is="icon" />
+              <component :is="iconComponents[icon]" />
             </el-icon>
             <div>{{ icon }}</div>
           </div>
@@ -38,19 +38,21 @@
   </div>
 </template>
 <script setup lang="ts">
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+import type { Component } from 'vue'
+import * as ElementPlusIconsVue from '@element-plus/icons-vue?catalog'
+
+// b121：图标选择器是**唯一需要全集**的消费者。它随设计器 chunk 懒加载，因此这
+// 一份 `import *` 只在打开表单设计器时下载；这里按**组件对象**渲染（而非全局名），
+// 全局注册表只保留生产码按字符串消费的显式子集（见 components/SvgIcon/svgicon.ts）。
+const iconComponents = ElementPlusIconsVue as unknown as Record<string, Component>
 
 const { t } = useI18n()
-const iconList = ref<string[]>([])
-const originList: string[] = []
+const originList = Object.keys(iconComponents)
+const iconList = ref<string[]>([...originList])
 const key = ref<string>('')
 const active = ref<string>('')
 const emit = defineEmits(['select'])
 const value = defineModel()
-for (const [iconName] of Object.entries(ElementPlusIconsVue)) {
-  iconList.value.push(iconName)
-  originList.push(iconName)
-}
 
 function onSelect(icon: string): void {
   active.value = icon
