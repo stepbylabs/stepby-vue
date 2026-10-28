@@ -442,19 +442,36 @@ describe('composables/useCrudTable', () => {
       expect(form.value).toEqual({ postId: undefined, postName: '' })
     })
 
-    it('并发详情请求丢弃旧响应', async () => {
+    it('详情在途时重复点击只发一次请求（b106 同步闸；行内与工具栏两个入口都可达）', async () => {
       const { ctx, getApi, form } = makeCtx()
-      const d1 = deferred<{ data: Row }>()
-      const d2 = deferred<{ data: Row }>()
-      getApi.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise)
+      const d = deferred<{ data: Row }>()
+      getApi.mockReturnValueOnce(d.promise)
       ctx.handleUpdate({ postId: 1 })
       ctx.handleUpdate({ postId: 2 })
-      d2.resolve({ data: { postId: 2, postName: 'new' } })
+      expect(getApi).toHaveBeenCalledTimes(1)
+      expect(getApi).toHaveBeenCalledWith(1)
+      d.resolve({ data: { postId: 1, postName: 'fetched' } })
       await flush()
-      expect(form.value).toEqual({ postId: 2, postName: 'new' })
-      d1.resolve({ data: { postId: 1, postName: 'old' } })
+      expect(form.value).toEqual({ postId: 1, postName: 'fetched' })
+      // 闸必须复位：一次详情加载后再点另一行照常能加载
+      ctx.handleUpdate({ postId: 2 })
       await flush()
-      expect(form.value).toEqual({ postId: 2, postName: 'new' })
+      expect(getApi).toHaveBeenCalledTimes(2)
+      expect(form.value).toEqual({ postId: 2, postName: 'fetched' })
+    })
+
+    it('详情缺 data 时不打开弹窗、不把 form 置空（否则模板读 form.xxx 整页崩）', async () => {
+      const { ctx, getApi, form } = makeCtx()
+      getApi.mockResolvedValueOnce({ data: undefined } as unknown as { data: Row })
+      ctx.handleUpdate({ postId: 9 })
+      await flush()
+      expect(ctx.open.value).toBe(false)
+      expect(form.value).toEqual({ postId: undefined, postName: '' })
+      expect(modal.msgError).toHaveBeenCalledWith('common.loadDetailFailed')
+      // 同一条链路不得把闸卡死：下一次正常详情必须能打开
+      ctx.handleUpdate({ postId: 10 })
+      await flush()
+      expect(ctx.open.value).toBe(true)
     })
   })
 

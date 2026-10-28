@@ -107,6 +107,7 @@
             <el-switch
               v-model="scope.row.enabled"
               :aria-label="`${scope.row.routePattern} ${t('rateLimit.column.enabled')}`"
+              :loading="statusLoadingIds.includes(scope.row.id)"
               :active-value="true"
               :inactive-value="false"
               @change="handleStatusChange(scope.row)"
@@ -224,6 +225,7 @@
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import type { SysRateLimit, RateLimitQueryParams } from '@/api/system/rateLimit'
 import { listRateLimit, getRateLimit, delRateLimit, addRateLimit, updateRateLimit } from '@/api/system/rateLimit'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { useExport } from '@/composables/useExport'
@@ -349,19 +351,29 @@ function handleDelete(row?: SysRateLimit) {
 }
 
 /** 启用状态变更 */
-function handleStatusChange(row: SysRateLimit) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：限流档位停用/启用直接影响全站或单路由的
+ * 保护面，连点的最坏形态是两次方向相反请求乱序落地（终态不可预期）。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysRateLimit): Promise<void> {
+  const oldVal = !row.enabled
   const text = row.enabled ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('rateLimit.tip.confirmStatusChange', { text, name: row.routePattern }))
-    .then(function () {
-      return updateRateLimit(row)
-    })
-    .then(() => {
-      modal.msgSuccess(t('rateLimit.tip.statusChangeSuccess', { text }))
-    })
-    .catch(function () {
-      row.enabled = !row.enabled
-    })
+  const executed = await guarded(
+    row.id,
+    () => modal.confirm(t('rateLimit.tip.confirmStatusChange', { text, name: row.routePattern })),
+    async () => {
+      try {
+        await updateRateLimit(row)
+        modal.msgSuccess(t('rateLimit.tip.statusChangeSuccess', { text }))
+      } catch (e) {
+        row.enabled = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.enabled = oldVal
 }
 
 /** 导出按钮操作（由 useExport 提供，文件名前缀 rate_limit 保持不变） */

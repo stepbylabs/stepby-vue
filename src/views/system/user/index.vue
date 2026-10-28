@@ -222,6 +222,7 @@
                   :aria-label="`${scope.row.userName} ${t('user.column.status')}`"
                   v-hasPermi="['system:user:edit']"
                   v-model="scope.row.status"
+                  :loading="statusLoadingIds.includes(scope.row.userId!)"
                   active-value="0"
                   inactive-value="1"
                   @change="handleStatusChange(scope.row)"
@@ -452,6 +453,7 @@ import { download } from '@/utils/request'
 import { getConfigKey } from '@/api/system/config'
 import { ElMessageBox } from 'element-plus'
 import { useSearchPersistence } from '@/composables/useSearchPersistence'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { useTableColumns } from '@/composables/useTableColumns'
 import type { TableColumnDef } from '@/utils/userPrefs'
 import { useRoute } from 'vue-router'
@@ -830,19 +832,30 @@ function handleImportSuccess() {
 }
 
 /** 用户状态修改  */
-function handleStatusChange(row: SysUser) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：`v-model` 乐观更新，被挡掉/取消/失败三出口都回滚。
+ * 停用用户会连带吊销其令牌与 PAT（后端 b103/b104 已收口），重复提交没有意义且会让
+ * 两次请求的终态互相覆盖。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysUser): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
   const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('user.tip.confirmStatusChange', { text, name: row.userName }))
-    .then(function () {
-      return changeUserStatus(row.userId!, row.status!)
-    })
-    .then(() => {
-      modal.msgSuccess(t('common.success'))
-    })
-    .catch(function () {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+  const executed = await guarded(
+    row.userId!,
+    () => modal.confirm(t('user.tip.confirmStatusChange', { text, name: row.userName })),
+    async () => {
+      try {
+        await changeUserStatus(row.userId!, row.status!)
+        modal.msgSuccess(t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 /** 跳转角色分配 */

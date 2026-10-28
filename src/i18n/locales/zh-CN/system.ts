@@ -1338,6 +1338,7 @@ export default {
         confirmDelete: '是否确认删除订阅「{name}」？',
         confirmDeleteBatch: '是否确认删除订阅编号为"{ids}"的数据项？',
         confirmRun: '是否立即推送订阅「{name}」？',
+        confirmStatusChange: '是否确认{text}订阅「{name}」？',
         runSuccess: '已触发推送'
       }
     }

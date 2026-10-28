@@ -43,7 +43,13 @@
     </el-table-column>
     <el-table-column :label="t('common.status')" width="90" align="center">
       <template #default="{ row }">
-        <el-switch v-model="row.status" active-value="0" inactive-value="1" @change="handleStatusChange(row)" />
+        <el-switch
+          v-model="row.status"
+          :loading="statusLoadingIds.includes(row.domainId)"
+          active-value="0"
+          inactive-value="1"
+          @change="handleStatusChange(row)"
+        />
       </template>
     </el-table-column>
     <el-table-column :label="t('tenantDomain.verifiedAt')" width="170" align="center">
@@ -176,6 +182,7 @@ import type { TenantDomainVo, TenantDomainAddDto, TenantDomainVerifyVo } from '@
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -349,22 +356,34 @@ async function handleSetPrimary(row: TenantDomainVo) {
   }
 }
 
-async function handleStatusChange(row: TenantDomainVo) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：b102 已修过"失败不回滚/拒绝逸出"，
+ * 本轮补上**在途互斥**——同一域名连点会叠两次确认并发出两个方向相反的状态请求。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: TenantDomainVo): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
+  // 与列表页同口径：把翻转后的状态收敛成显式目标值（后端契约不接受 undefined）
   const next = row.status === '0' ? '0' : '1'
-  const ok = await confirmAction(t('tenantDomain.statusTip'))
-  if (!ok) {
-    row.status = row.status === '0' ? '1' : '0'
-    return
-  }
-  try {
-    await changeTenantDomainStatus(row.domainId, next)
-    proxy?.$modal.msgSuccess(t('common.success'))
-    emit('refresh')
-  } catch (e) {
-    // b102：接口失败时开关必须回到服务端真实状态（原实现拒绝逸出且页面仍显示新状态）
-    row.status = row.status === '0' ? '1' : '0'
-    if (import.meta.env.DEV) console.error('[tenantDomain] changeStatus:', e)
-  }
+  const executed = await guarded(
+    row.domainId,
+    async () => {
+      if (!(await confirmAction(t('tenantDomain.statusTip')))) throw new Error('cancelled')
+    },
+    async () => {
+      try {
+        await changeTenantDomainStatus(row.domainId, next)
+        proxy?.$modal.msgSuccess(t('common.success'))
+        emit('refresh')
+      } catch (e) {
+        row.status = oldVal
+        if (import.meta.env.DEV) console.error('[tenantDomain] changeStatus:', e)
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 async function handleDelete(row: TenantDomainVo) {

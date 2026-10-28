@@ -42,6 +42,7 @@
         <template #default="scope">
           <el-switch
             v-model="scope.row.status"
+            :loading="subStatusLoadingIds.includes(scope.row.subId!)"
             active-value="0"
             inactive-value="1"
             @change="handleSubStatusChange(scope.row)"
@@ -303,12 +304,29 @@ function handleSubDelete(row: SysReportSub) {
     .catch(() => {})
 }
 
-function handleSubStatusChange(row: SysReportSub) {
-  changeSubStatus(row.subId!, row.status!)
-    .then(() => modal.msgSuccess(t('common.success')))
-    .catch(() => {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+/**
+ * 启停切换（**行级**互斥 + 在途态 + 确认，b106）——与 `sub/index.vue` 同一口径，
+ * 两个入口改的是同一条订阅记录，重入语义必须一致。
+ */
+const { runningIds: subStatusLoadingIds, guarded: subStatusGuarded } = useRowActionGuard<number>()
+
+async function handleSubStatusChange(row: SysReportSub): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
+  const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
+  const executed = await subStatusGuarded(
+    row.subId!,
+    () => modal.confirm(t('report.sub.tip.confirmStatusChange', { text, name: row.subName })),
+    async () => {
+      try {
+        await changeSubStatus(row.subId!, row.status!)
+        modal.msgSuccess(t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 async function handleSubRun(row: SysReportSub) {

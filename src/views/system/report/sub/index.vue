@@ -99,6 +99,7 @@
         <template #default="scope">
           <el-switch
             v-model="scope.row.status"
+            :loading="statusLoadingIds.includes(scope.row.subId!)"
             active-value="0"
             inactive-value="1"
             @change="handleStatusChange(scope.row)"
@@ -362,12 +363,31 @@ function submitForm() {
 }
 
 // 状态切换
-function handleStatusChange(row: SysReportSub) {
-  changeSubStatus(row.subId!, row.status!)
-    .then(() => modal.msgSuccess(t('common.success')))
-    .catch(() => {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+/**
+ * 启停切换（**行级**互斥 + 在途态 + 确认，b106）
+ *
+ * 原实现三缺：无确认框（误触即改订阅的推送状态）、无在途态（连点发两次方向相反的请求）、
+ * 取消与失败同形（都只是翻回去，看不出到底发生了什么）。订阅停用会真的停掉定时投递。
+ */
+const { runningIds: statusLoadingIds, guarded: statusGuarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysReportSub): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
+  const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
+  const executed = await statusGuarded(
+    row.subId!,
+    () => modal.confirm(t('report.sub.tip.confirmStatusChange', { text, name: row.subName })),
+    async () => {
+      try {
+        await changeSubStatus(row.subId!, row.status!)
+        modal.msgSuccess(t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 // 立即推送

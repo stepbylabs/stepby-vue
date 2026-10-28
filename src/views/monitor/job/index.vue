@@ -112,6 +112,7 @@
             v-hasPermi="['monitor:job:changeStatus']"
             v-model="scope.row.status"
             :aria-label="`${scope.row.jobName} ${t('job.column.status')}`"
+            :loading="statusLoadingIds.includes(scope.row.jobId!)"
             active-value="0"
             inactive-value="1"
             @change="handleStatusChange(scope.row)"
@@ -325,6 +326,7 @@ import { nextFireTimes } from '@/utils/cronPreview'
 import { listJob, getJob, delJob, addJob, updateJob, runJob, changeJobStatus } from '@/api/monitor/job'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import type { JobQueryParams, SysJob } from '@/types/api/monitor/job'
 
@@ -406,19 +408,33 @@ const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 
 // 任务状态修改
-function handleStatusChange(row: SysJob) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）
+ *
+ * `el-switch` 是先改 `v-model` 再触发 `@change` 的乐观更新，因此"动作没落地"的
+ * 三条出口都必须把开关翻回去：① 同行在飞被同步闸挡掉；② 用户取消确认；③ 接口失败。
+ * 没有闸时连点会叠两个确认框、发两次状态请求，且两次请求的返回顺序不定 ⇒
+ * 界面终态与服务端终态可能相反（b106 立项取证）。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysJob): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
   const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('job.tip.confirmChange', { text: text, name: row.jobName }))
-    .then(function () {
-      return changeJobStatus(row.jobId!, row.status!)
-    })
-    .then(() => {
-      modal.msgSuccess(text + t('common.success'))
-    })
-    .catch(function () {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+  const executed = await guarded(
+    row.jobId!,
+    () => modal.confirm(t('job.tip.confirmChange', { text: text, name: row.jobName })),
+    async () => {
+      try {
+        await changeJobStatus(row.jobId!, row.status!)
+        modal.msgSuccess(text + t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 /* 立即执行一次 */

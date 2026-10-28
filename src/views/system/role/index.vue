@@ -155,6 +155,7 @@
               :aria-label="`${scope.row.roleName} ${t('role.column.status')}`"
               v-hasPermi="['system:role:edit']"
               v-model="scope.row.status"
+              :loading="statusLoadingIds.includes(scope.row.roleId!)"
               active-value="0"
               inactive-value="1"
               @change="handleStatusChange(scope.row)"
@@ -418,6 +419,7 @@ import useUserStore from '@/store/modules/user'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 
@@ -552,19 +554,29 @@ function handleSortChange(column: { prop: string | null; order: string | null })
 }
 
 /** 角色状态修改 */
-function handleStatusChange(row: SysRole) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：`v-model` 乐观更新，被挡掉/取消/失败三出口都回滚。
+ * 原实现连点会叠确认框并发出两次状态请求，返回顺序不定 ⇒ 界面终态可反于服务端。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysRole): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
   const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('role.tip.confirmStatusChange', { text, name: row.roleName }))
-    .then(function () {
-      return changeRoleStatus(row.roleId!, row.status!)
-    })
-    .then(() => {
-      modal.msgSuccess(t('common.success'))
-    })
-    .catch(function () {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+  const executed = await guarded(
+    row.roleId!,
+    () => modal.confirm(t('role.tip.confirmStatusChange', { text, name: row.roleName })),
+    async () => {
+      try {
+        await changeRoleStatus(row.roleId!, row.status!)
+        modal.msgSuccess(t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 /** 分配用户 */

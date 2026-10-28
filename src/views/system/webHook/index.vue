@@ -151,6 +151,7 @@
           <el-switch
             :aria-label="`${scope.row.hookName} ${t('webHook.column.status')}`"
             v-model="scope.row.status"
+            :loading="statusLoadingIds.includes(String(scope.row.id))"
             active-value="0"
             inactive-value="1"
             @change="handleStatusChange(scope.row)"
@@ -420,6 +421,7 @@ import type { SysWebHook, DeliveryResult } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import EventCatalogSection from './EventCatalogSection.vue'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import { useRouter } from 'vue-router'
 
@@ -594,15 +596,29 @@ function resetQuery() {
 }
 
 // 状态切换
-function handleStatusChange(row: SysWebHook) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：停用会改变出站投递的可用性，
+ * 连点叠两次确认并发出两个方向相反的状态请求是最坏形态（终态由返回顺序决定）。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<string>()
+
+async function handleStatusChange(row: SysWebHook): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
   const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('webHook.tip.confirmChange', { text, name: row.hookName || '' }))
-    .then(() => changeWebHookStatus(row.id, row.status!))
-    .then(() => modal.msgSuccess(text + t('common.success')))
-    .catch(() => {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+  const executed = await guarded(
+    String(row.id),
+    () => modal.confirm(t('webHook.tip.confirmChange', { text, name: row.hookName || '' })),
+    async () => {
+      try {
+        await changeWebHookStatus(row.id, row.status!)
+        modal.msgSuccess(text + t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 // ----- 测试推送 -----

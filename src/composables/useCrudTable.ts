@@ -302,9 +302,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   // 列表请求失败标记：失败置真 / 成功置假（供空态区分「加载失败」与「暂无数据」）
   const loadError = ref(false)
 
-  // 请求版本计数器：防止并发请求时旧响应覆盖新数据
+  // 请求版本计数器：防止并发请求时旧响应覆盖新数据（列表专用；详情请求由 updateBusy 保证单飞）
   let listRequestId = 0
-  let updateRequestId = 0
 
   // 同步可重入闸（b105）：`validate()` 与 `modal.confirm()` 都是**异步**的，
   // 而 `submitLoading` 要到校验通过之后才置位 ⇒ 两者之间的窗口里第二次点击
@@ -515,20 +514,36 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     title.value = t('common.add') + t(titleKey)
   }
 
-  /** 修改按钮操作（只读模式未注入 getApi 时给出可读错误，不静默） */
+  /**
+   * 修改按钮操作（只读模式未注入 getApi 时给出可读错误，不静默）
+   *
+   * 两道 b106 收口的护栏：
+   * - **在途互斥**：详情 GET 期间重复点击直接忽略（旧实现每点一次就 reset 一次表单并再发一次
+   *   GET；行内与工具栏两个入口都可达时最容易触发）；
+   * - **缺数据不得开弹窗**：`data` 缺失 / 非对象（记录被并发删除、后端返回 `data: null`）时
+   *   原实现把 `form.value` 置成 `undefined` 并打开弹窗，模板一读 `form.xxx` 整页崩——
+   *   改为提示"详情加载失败"且不打开。
+   */
+  let updateBusy = false
+
   function handleUpdate(row?: T): void {
     if (!getApi) {
       reportMissingCapability()
       return
     }
+    if (updateBusy) return
     reset()
     const targetId = row?.[idField] ?? ids.value[0]
-    const currentRequestId = ++updateRequestId
+    updateBusy = true
     getApi(targetId)
       .then((response) => {
-        if (currentRequestId !== updateRequestId) return // discard stale response
-        const resp = response as { data?: T }
-        form.value = resp.data as T
+        const resp = response as { data?: T } | null | undefined
+        const data = resp?.data
+        if (!data || typeof data !== 'object') {
+          modal.msgError(t('common.loadDetailFailed'))
+          return
+        }
+        form.value = data
         snapshotForm(form.value)
         open.value = true
         title.value = t('common.edit') + t(titleKey)
@@ -536,6 +551,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       .catch((e) => {
         // 全局拦截器已弹 ElMessage.error；DEV 模式记录详细错误便于排查
         if (import.meta.env.DEV) console.error('[useCrudTable] handleUpdate:', e)
+      })
+      .finally(() => {
+        updateBusy = false
       })
   }
 

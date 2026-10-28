@@ -115,6 +115,7 @@
             <el-switch
               :aria-label="`${row.tenantName} ${t('common.status')}`"
               v-model="row.status"
+              :loading="statusLoadingIds.includes(row.tenantId)"
               active-value="0"
               inactive-value="1"
               :disabled="!canToggleStatus(row)"
@@ -380,6 +381,7 @@ import { downloadBackup } from '@/api/system/backup'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -685,24 +687,39 @@ async function saveForm() {
   }
 }
 
-async function handleStatusChange(row: TenantVo) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：`v-model` 乐观更新，被挡掉/取消/失败三出口都回滚。
+ *
+ * `confirmAction` 用布尔返回（不 reject），这里把它适配成 guard 的 `confirmed`：
+ * 取消时抛错 ⇒ guard 返回 false ⇒ 调用方回滚。停用租户会连带撤销其 PAT/会话，
+ * 重复提交的两次请求会各自触发一轮收敛，终态由返回顺序决定。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: TenantVo): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
+  // 后端契约要求显式目标状态：开关翻转后的 row.status 可能缺省，这里收敛成确定的 '0'/'1'
   const next = row.status === '0' ? '0' : '1'
-  const ok = await confirmAction(
-    row.status === '1' ? t('tenant.enableConfirm', [row.tenantName]) : t('tenant.disableConfirm', [row.tenantName])
+  const executed = await guarded(
+    row.tenantId,
+    async () => {
+      const ok = await confirmAction(
+        row.status === '1' ? t('tenant.enableConfirm', [row.tenantName]) : t('tenant.disableConfirm', [row.tenantName])
+      )
+      if (!ok) throw new Error('cancelled')
+    },
+    async () => {
+      try {
+        await changeTenantStatus(row.tenantId, next)
+        proxy?.$modal.msgSuccess(t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        if (import.meta.env.DEV) console.error('[tenant] changeStatus:', e)
+        throw e
+      }
+    }
   )
-  if (!ok) {
-    // 恢复原状态
-    row.status = row.status === '0' ? '1' : '0'
-    return
-  }
-  try {
-    await changeTenantStatus(row.tenantId, next)
-    proxy?.$modal.msgSuccess(t('common.success'))
-  } catch (e) {
-    // 接口失败时开关必须回到服务端真实状态，否则页面在骗人
-    row.status = row.status === '0' ? '1' : '0'
-    if (import.meta.env.DEV) console.error('[tenant] changeStatus:', e)
-  }
+  if (!executed) row.status = oldVal
 }
 
 async function handleDelete(row: TenantVo) {

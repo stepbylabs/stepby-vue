@@ -118,6 +118,7 @@
         <template #default="scope">
           <el-switch
             v-model="scope.row.status"
+            :loading="statusLoadingIds.includes(scope.row.reportId!)"
             active-value="0"
             inactive-value="1"
             @change="handleStatusChange(scope.row)"
@@ -355,6 +356,7 @@ import {
 import type { SysReport, ReportSnapshot } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import SubReportSection from './SubReportSection.vue'
 
@@ -458,15 +460,28 @@ const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 
 // 状态切换
-function handleStatusChange(row: SysReport) {
+/**
+ * 启停切换（**行级**互斥 + 在途态，b106）：`v-model` 乐观更新，被挡掉/取消/失败三出口都回滚。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleStatusChange(row: SysReport): Promise<void> {
+  const oldVal = row.status === '0' ? '1' : '0'
   const text = row.status === '0' ? t('common.enabled') : t('common.disabled')
-  modal
-    .confirm(t('report.tip.confirmChange', { text, name: row.reportName || '' }))
-    .then(() => changeReportStatus(row.reportId!, row.status!))
-    .then(() => modal.msgSuccess(text + t('common.success')))
-    .catch(() => {
-      row.status = row.status === '0' ? '1' : '0'
-    })
+  const executed = await guarded(
+    row.reportId!,
+    () => modal.confirm(t('report.tip.confirmChange', { text, name: row.reportName || '' })),
+    async () => {
+      try {
+        await changeReportStatus(row.reportId!, row.status!)
+        modal.msgSuccess(text + t('common.success'))
+      } catch (e) {
+        row.status = oldVal
+        throw e
+      }
+    }
+  )
+  if (!executed) row.status = oldVal
 }
 
 // ----- 预览 -----

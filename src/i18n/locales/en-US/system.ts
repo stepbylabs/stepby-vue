@@ -1367,6 +1367,7 @@ export default {
         confirmDelete: 'Delete subscription "{name}"?',
         confirmDeleteBatch: 'Are you sure to delete subscription #{ids}?',
         confirmRun: 'Push subscription "{name}" now?',
+        confirmStatusChange: 'Are you sure you want to {text} the subscription "{name}"?',
         runSuccess: 'Push triggered'
       }
     }
