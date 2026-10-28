@@ -42,6 +42,9 @@
           </el-button>
         </template>
       </el-table-column>
+      <template #empty>
+        <list-empty :load-error="loadError" @retry="retryLoad" />
+      </template>
     </el-table>
     <pagination
       v-show="total > 0"
@@ -84,7 +87,7 @@
             type="textarea"
             :rows="3"
             class="font-mono"
-            :placeholder='`[{"name":"days","type":"number","required":true}]`'
+            :placeholder="`[{&quot;name&quot;:&quot;days&quot;,&quot;type&quot;:&quot;number&quot;,&quot;required&quot;:true}]`"
           />
         </el-form-item>
         <el-form-item :label="t('common.status')">
@@ -188,6 +191,8 @@ const {
   loading,
   showSearch,
   total,
+  loadError,
+  retryLoad,
   getList,
   handleQuery,
   handleDelete: crudHandleDelete
@@ -198,8 +203,7 @@ const {
   updateApi: (data) => editDataset(data as DatasetUpsertForm),
   deleteApi: (ids) => removeDataset(String(Array.isArray(ids) ? ids[0] : ids)),
   idField: 'datasetId',
-  defaultForm: () =>
-    ({ datasetCode: '', datasetName: '', sqlTemplate: '', status: '0' }) as unknown as ReportDataset,
+  defaultForm: () => ({ datasetCode: '', datasetName: '', sqlTemplate: '', status: '0' }) as unknown as ReportDataset,
   titleKey: 'rp.datasetName',
   deleteTipKey: 'rp.removeDatasetConfirm',
   queryParams: queryParams as never,
@@ -249,8 +253,7 @@ async function openEdit(row?: ReportDataset) {
       status: d?.status ?? '0',
       remark: d?.remark
     }
-    paramsSchemaText.value =
-      d?.paramsSchema != null ? JSON.stringify(d.paramsSchema) : ''
+    paramsSchemaText.value = d?.paramsSchema != null ? JSON.stringify(d.paramsSchema) : ''
     try {
       const sqlRes = await getDatasetSql(Number(d?.datasetId ?? row.datasetId))
       form.value.sqlTemplate = sqlRes.data ?? ''

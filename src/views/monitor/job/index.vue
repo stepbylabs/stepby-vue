@@ -168,6 +168,9 @@
           </el-tooltip>
         </template>
       </el-table-column>
+      <template #empty>
+        <list-empty :load-error="loadError" @retry="retryLoad" />
+      </template>
     </el-table>
 
     <pagination
@@ -369,6 +372,8 @@ const {
   multiple,
   total,
   title,
+  loadError,
+  retryLoad,
   getList,
   beforeDialogClose,
   cancel,

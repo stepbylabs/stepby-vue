@@ -138,6 +138,20 @@ export async function abortChunk(sessionId: string): Promise<void> {
   await axios.delete(`${BASE}/common/upload/chunk/${sessionId}`, { headers: authHeaders() })
 }
 
+/**
+ * complete 重试的可重试判据（纯函数，b118）。
+ *
+ * 重试只对"可能过一会儿就好了"的失败有意义：429（合并并发闸门忙）/ 503（服务暂不可用）
+ * 与无响应（网络层）。确定性 4xx（会话缺失 / magic bytes 不符 / 大小超限）重试只会把
+ * 失败反馈推迟 1.6s、并让一次用户动作在服务端留下 3 条 400——b118 实测一次 9MB 上传
+ * 在 magic 校验失败时打了 3 次 complete。取不到状态码时按可重试处理（网络错误的形状）。
+ */
+export function isRetryableCompleteError(e: unknown): boolean {
+  const status = (e as { response?: { status?: number } } | null)?.response?.status
+  if (typeof status !== 'number') return true
+  return status === 429 || status === 503
+}
+
 export interface ChunkUploadOptions {
   /** 上传进度回调（0-100，按已传字节计） */
   onProgress?: (percent: number) => void
@@ -207,14 +221,14 @@ export async function uploadFileChunked(file: File, opts: ChunkUploadOptions = {
       throw new Error(`chunk parts incomplete: ${final.received}/${final.totalParts}`)
     }
 
-    // complete（429 并发闸门 busy 自动重试——闸门按秒释放，间隔 800ms）
+    // complete（仅对可重试失败重试：429 闸门忙 / 503 / 网络；确定性 4xx 立即抛出）
     let result: ChunkCompleteResult | null = null
     for (let attempt = 0; attempt < 3 && !result; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 800))
       try {
         result = await completeChunk(sessionId)
       } catch (e) {
-        if (attempt === 2) throw e
+        if (attempt === 2 || !isRetryableCompleteError(e)) throw e
       }
     }
     if (!result) throw new Error('chunk complete failed')

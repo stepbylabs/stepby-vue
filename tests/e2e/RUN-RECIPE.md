@@ -4503,3 +4503,44 @@ F66 的旧断言「取消同步：0 Toast」在加了"复制失败必须可见"�
 **④ 变异证伪要各打一条腿、且还原后逐字节比对**：M1 真实树塞裸写 ⇒ 守卫点名 `views/system/file/index.vue:362`；
 M2 util 丢弃返回值 ⇒ 3 条单测红；M3 清空 `updated` ⇒ 3 条指令单测 + 守卫红；M4 改回括号形式 ⇒ 通道形状断言红。
 四条互不顶班，才说明四条腿各自真的在判。还原用 `cp -p`（连 mtime 一起还原，见 AGENTS ㉖/RUN-RECIPE §3.99）。
+
+### 3.115 失败态接线的派生面判据；分片链的判据必须取端点响应（b118）
+
+**① 采集面由事实派生，不用文件名清单。** `src/composables/listFailureWiring.guard.test.ts`
+的进面条件是 `src/views/**` 里同时满足 `} = useCrudTable` 与含 `<el-table` 的 `.vue`
+（本轮 30 页）。两个坑都在真树上撞过：① 只判"文本里有 `useCrudTable`"会把只 import
+纯函数（`pageAfterEmptyResult` / `resetQueryDefaults`）的**手写列表页**一并拉进来
+（实测 11 条误报）；② 从解构块取名时要剥掉行尾的 `}`，否则 `loadError }` 这种名字
+永远匹配不上，合成夹具里的合规页会被误判。体量下限取**低于当前实测值**（25 vs 30）：
+下限等于当前值会让"合法删一页"和"扫描器坏了"长成同一个红。
+
+**② 失败断面的浏览器判据要"构造"而不是"看一眼"。** 用 `page.route('**/system/file/list**', r => r.abort())`
+按住列表请求 → 点「刷新」→ 断言「数据加载失败」+「重试」出现、且**「暂无数据」不得出现**；
+随后 `page.unroute` + 点「重试」→ 断言刚才那行**真的回来了**。第二半不可省：只判
+"失败态出现"会被"这个入口永远不发请求"满足（AGENTS 前端归一规范 §3.③）。
+
+**③ 分片上传的成功信号只能取 `/common/upload/chunk/complete` 的响应体。**
+body 里的「上传成功」与单请求路径共用同一句文案，上一条用例的 toast 存活 3 秒 ⇒
+第一版判据在分片链还在传时就命中、列表查询跑到 complete 之前，**判据恒假**（而末尾的
+上传残留清理却报"删除了 1 个 9MB 文件"，说明链其实走通了）。形状：
+
+```js
+const p = page.waitForResponse(
+  (r) => r.url().includes('/common/upload/chunk/complete') && r.request().method() === 'POST'
+)
+await input.setInputFiles({ name: 'e2e141-big.zip', mimeType: 'application/zip', buffer: zipLike(9 << 20) })
+const body = await (await p).json()
+// 判据 = body.code===200 && !!body.data.fileName && init/part/complete 计数 && 遮罩出现并收起 && 列表首行 ext/size
+```
+
+伪 zip 必须带 `PK\x03\x04` 前缀（服务端 `save_upload_bytes` 校验 magic bytes；全 `0x50`
+填充会被 400 拒绝——本轮首跑就是这样拿到"3 次 complete 400"的证据的）。
+
+**④ 节流只用于构造可观测窗口，不参与判定。** 本机 2 片几乎瞬间完成，遮罩可能整段错过；
+在 `page.route` 里对 part 请求 `await sleep(300)` 造窗口。判据本身不含任何耗时阈值
+（AGENTS ④：判据不得与环境耦合）。
+
+**⑤ 盘上变异要证明判据区分的是"哪条链"。** 把文件页的 `const chunked = shouldChunk(size)`
+改成 `false` 并重建产物 ⇒ F141 ⑦ 红而其余 11 条全绿；关键现象是**同一轮 9MB 文件经单请求
+确实落库了**（`top=...zip / 9437184`）仍被判红——只判"有没有传上去"的判据会被单请求满足，
+这条变异就是用来证明我们判的不是那个。还原后重建产物，12/12 绿。

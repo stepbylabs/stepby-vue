@@ -28183,7 +28183,12 @@ async function testFeature140(page) {
   }
 }
 
-/** 功能 141：文件管理页 UI 全链路（b70 e2e 缺口补齐：F26 只打 API，页面 UI 零覆盖） */
+/**
+ * 功能 141：文件管理页 UI 全链路（b70 e2e 缺口补齐：F26 只打 API，页面 UI 零覆盖）。
+ *
+ * b118 追加三组：列表失败态（abort ⇒ 「加载失败 + 重试」而不是「暂无数据」）/ 重试恢复的
+ * 对照组 / >8MB 走分片链（init/part/complete 计数 + 进度遮罩 + 9MB 整段落库）。
+ */
 async function testFeature141(page) {
   log('=== 功能 141：文件管理页 UI（上传→列表→删除，类型化 api 接线回归） ===')
   const ok = await openPage(page, '/system/file', 'file')
@@ -28254,7 +28259,146 @@ async function testFeature141(page) {
     record(141, '④ UI 上传落库（列表首行新增 .txt）', false, `异常: ${err.message.slice(0, 100)}`)
   }
 
-  // ⑤⑥⑦ 复制链接的真实结局（b111）：文件页原先直调 `navigator.clipboard.writeText`，
+  // ⑤ 列表加载失败态（b118）：列表请求被中止时必须渲染「数据加载失败，请刷新重试」+ 重试按钮，
+  // **不得**把失败画成「暂无数据」——两者在屏幕上必须可分（b90 ① / ListEmpty 的分工）。
+  // 用 abort 构造真实失败断面（不是软断言看一眼）：路由拦截只覆盖本次刷新，随后 unroute 复原。
+  const pageScope = page.locator('.app-container')
+  let failStateOk = false
+  try {
+    await page.route('**/system/file/list**', (route) => route.abort())
+    await pageScope.getByRole('button', { name: '刷新' }).first().click()
+    const failText = await page
+      .waitForFunction(() => document.body.innerText.includes('数据加载失败'), { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false)
+    const retryVisible = await _visible(page.getByRole('button', { name: '重试' }).first(), 3000)
+    const emptyShown = await page.evaluate(() => document.body.innerText.includes('暂无数据'))
+    failStateOk = failText && retryVisible && !emptyShown
+    record(
+      141,
+      '⑤ 列表失败态：显示「加载失败 + 重试」而不是「暂无数据」',
+      failStateOk,
+      `failText=${failText}, retry=${retryVisible}, emptyShown=${emptyShown}`
+    )
+  } catch (err) {
+    record(141, '⑤ 列表失败态：显示「加载失败 + 重试」而不是「暂无数据」', false, `异常: ${err.message.slice(0, 100)}`)
+  } finally {
+    await page.unroute('**/system/file/list**').catch(() => {})
+  }
+
+  // ⑥ 重试恢复（对照组）：网络复原后点「重试」，列表必须真的回来（失败态不是死胡同）。
+  try {
+    let retryOk = false
+    if (failStateOk && uploadedName) {
+      await page.getByRole('button', { name: '重试' }).first().click()
+      retryOk = await page
+        .waitForFunction((n) => document.body.innerText.includes(n), uploadedName, { timeout: 8000 })
+        .then(() => true)
+        .catch(() => false)
+    }
+    record(141, '⑥ 重试恢复：行回来（失败态不是死胡同）', retryOk, `retryOk=${retryOk}`)
+  } catch (err) {
+    record(141, '⑥ 重试恢复：行回来（失败态不是死胡同）', false, `异常: ${err.message.slice(0, 100)}`)
+  }
+
+  // ⑦ 大文件走分片链（b118）：>8MB 经 handleUpload → uploadFileChunked（init/part/complete），
+  // 前端不再写死 10MB 封顶（上限由后端 common_chunk_max_total_size 裁决、init 阶段快速失败）。
+  // 判据取「服务端分片端点确实被调用」+「进度遮罩真的出现」+「9MB 整段落库」——只判 toast
+  // 不行：单请求同样弹"上传成功"，只有端点计数能区分两条链。单片人为放慢 300ms 是为了
+  // 构造可观测窗口（本机 2 片几十毫秒就完成），不是放宽判据。
+  let uploadedBigName = ''
+  try {
+    const chunkHits = { init: 0, part: 0, complete: 0, other: 0 }
+    const chunkRoute = async (route) => {
+      const u = route.request().url()
+      if (u.includes('/common/upload/chunk/init')) chunkHits.init += 1
+      else if (u.includes('/common/upload/chunk/part')) {
+        chunkHits.part += 1
+        await sleep(300)
+      } else if (u.includes('/common/upload/chunk/complete')) chunkHits.complete += 1
+      else chunkHits.other += 1
+      await route.continue().catch(() => {})
+    }
+    await page.route('**/common/upload/chunk/**', chunkRoute)
+    const tokenB = await sessionTokenOf(page)
+    const listB = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=50', {
+      headers: { Authorization: `Bearer ${tokenB}` }
+    })
+    const beforeBig = (listB.body?.data?.rows || listB.body?.rows || [])[0]?.fileName || null
+
+    // 权威成功信号取 complete 的响应体：④ 的「上传成功」toast 存活数秒，
+    // 拿 body 文本等待会在分片链还在传的时候就命中（实测 2s 就误判），
+    // 于是列表查在 complete 之前，落库判据恒假。
+    await waitToastsCleared(page)
+    const completePromise = page
+      .waitForResponse((r) => r.url().includes('/common/upload/chunk/complete') && r.request().method() === 'POST', {
+        timeout: 90000
+      })
+      .catch(() => null)
+
+    // 9MB 伪 zip：后端 save_upload_bytes 校验 magic bytes（zip/docx 需 PK\x03\x04 前缀）
+    const bigBuffer = Buffer.alloc(9 * 1024 * 1024)
+    bigBuffer.write('PK\x03\x04', 0, 'binary')
+    await page
+      .locator('.el-upload input[type="file"]')
+      .first()
+      .setInputFiles({
+        name: `e2e141-big-${stamp}.zip`,
+        mimeType: 'application/zip',
+        buffer: bigBuffer
+      })
+    const maskSeen = await page
+      .waitForFunction(() => document.body.innerText.includes('正在上传文件'), { timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    const completeResp = await completePromise
+    const completeBody = completeResp ? await completeResp.json().catch(() => null) : null
+    const completeOk = !!completeBody && completeBody.code === 200 && !!completeBody.data?.fileName
+    // 遮罩必须在完成之后收起（否则用户永远看不到"上传结束"）
+    const maskClosed = await page
+      .waitForFunction(() => !document.body.innerText.includes('正在上传文件'), { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    // 列表由上传成功后的 getList 刷新，轮询到 zip 行出现（不拿秒表赌）
+    let topC = null
+    for (let i = 0; i < 20 && !topC; i++) {
+      const tokenC = await sessionTokenOf(page)
+      const listC = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=50', {
+        headers: { Authorization: `Bearer ${tokenC}` }
+      })
+      const rowsC = listC.body?.data?.rows || listC.body?.rows || []
+      const cand = rowsC[0]
+      if (cand && cand.ext === 'zip' && Number(cand.fileSize) >= 9 * 1024 * 1024) topC = cand
+      else await sleep(300)
+    }
+    const bigLanded = !!topC && topC.fileName !== beforeBig
+    uploadedBigName = bigLanded ? topC.fileName : ''
+    record(
+      141,
+      '⑦ 9MB 大文件走分片链落库（init/part/complete 各≥1 + 进度遮罩出现）',
+      completeOk &&
+        bigLanded &&
+        chunkHits.init >= 1 &&
+        chunkHits.part >= 2 &&
+        chunkHits.complete >= 1 &&
+        maskSeen &&
+        maskClosed,
+      `hit=${JSON.stringify(chunkHits)}, complete=${completeOk}, mask=${maskSeen}/${maskClosed}, before=${
+        beforeBig || '空'
+      }, top=${topC?.fileName || '无'}, ext=${topC?.ext || '-'}, size=${topC?.fileSize || 0}`
+    )
+  } catch (err) {
+    record(
+      141,
+      '⑦ 9MB 大文件走分片链落库（init/part/complete 各≥1 + 进度遮罩出现）',
+      false,
+      `异常: ${err.message.slice(0, 120)}`
+    )
+  } finally {
+    await page.unroute('**/common/upload/chunk/**').catch(() => {})
+  }
+
+  // ⑧⑨⑩ 复制链接的真实结局（b111）：文件页原先直调 `navigator.clipboard.writeText`，
   // 非安全上下文（自托管 http://内网IP）下该 API 不存在 ⇒ 事件处理器同步抛 TypeError
   // ⇒ ErrorBoundary 接管，用户看到的是"点一下复制，整页没了"。这里把两条通道都换成
   // 可控桩，确定性验证三件事：失败必须报失败且页面还在、降级成功必须报成功（返回值被消费）、
@@ -28269,7 +28413,7 @@ async function testFeature141(page) {
     const tableAlive = await _visible(page.locator('.el-table').first(), 3000)
     record(
       141,
-      '⑤ 复制链接失败必须可见，且页面不得被整页卸载',
+      '⑧ 复制链接失败必须可见，且页面不得被整页卸载',
       stubFail && failToast && tableAlive,
       `stub=${stubFail}, toast=${failToast}, table=${tableAlive}`
     )
@@ -28279,25 +28423,25 @@ async function testFeature141(page) {
     const okToast = await waitToast(page, '链接已复制')
     record(
       141,
-      '⑥ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
+      '⑨ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
       stubOk && okToast,
       `stub=${stubOk}, toast=${okToast}`
     )
 
     const restored = await restoreClipboard(page)
-    record(141, '⑦ 剪贴板桩已还原（后续用例不得继承改造过的通道）', restored, `restored=${restored}`)
+    record(141, '⑩ 剪贴板桩已还原（后续用例不得继承改造过的通道）', restored, `restored=${restored}`)
     await waitToastsCleared(page)
   } else {
     for (const name of [
-      '⑤ 复制链接失败必须可见，且页面不得被整页卸载',
-      '⑥ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
-      '⑦ 剪贴板桩已还原（后续用例不得继承改造过的通道）'
+      '⑧ 复制链接失败必须可见，且页面不得被整页卸载',
+      '⑨ 降级通道返回成功时必须报成功（返回值被消费，不再无脑报成功/失败）',
+      '⑩ 剪贴板桩已还原（后续用例不得继承改造过的通道）'
     ]) {
       record(141, name, false, '上传未落库，无行内复制按钮可点')
     }
   }
 
-  // ⑤ UI 删除：行内删除按钮 → 确认弹窗 → API 复核移除（自清理，失败走 API 兜底）
+  // ⑪ UI 删除：行内删除按钮 → 确认弹窗 → API 复核移除（自清理，失败走 API 兜底）
   if (uploadedName) {
     try {
       const row = page.locator('.el-table__row').filter({ hasText: uploadedName }).first()
@@ -28318,9 +28462,9 @@ async function testFeature141(page) {
       )
       const rows2 = list2.body?.data?.rows || list2.body?.rows || []
       const still = Array.isArray(rows2) ? rows2.find((f) => f.fileName === uploadedName) : null
-      record(141, '⑧ UI 删除（API 复核已移除）', !still, `remaining=${!!still}`)
+      record(141, '⑪ UI 删除（API 复核已移除）', !still, `remaining=${!!still}`)
     } catch (err) {
-      record(141, '⑧ UI 删除（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
+      record(141, '⑪ UI 删除（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
       try {
         const token = await sessionTokenOf(page)
         await apiWithBackoff('/system/file/delete', {
@@ -28333,7 +28477,29 @@ async function testFeature141(page) {
       }
     }
   } else {
-    record(141, '⑧ UI 删除（API 复核已移除）', false, '上传未落库，跳过删除')
+    record(141, '⑪ UI 删除（API 复核已移除）', false, '上传未落库，跳过删除')
+  }
+
+  // ⑫ 分片上传文件自清理（API 复核已移除）
+  if (uploadedBigName) {
+    try {
+      const token = await sessionTokenOf(page)
+      await apiWithBackoff('/system/file/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileName: uploadedBigName })
+      })
+      const list3 = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=200', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const rows3 = list3.body?.data?.rows || list3.body?.rows || []
+      const still = Array.isArray(rows3) ? rows3.find((f) => f.fileName === uploadedBigName) : null
+      record(141, '⑫ 分片上传文件自清理（API 复核已移除）', !still, `remaining=${!!still}`)
+    } catch (err) {
+      record(141, '⑫ 分片上传文件自清理（API 复核已移除）', false, `异常: ${err.message.slice(0, 100)}`)
+    }
+  } else {
+    record(141, '⑫ 分片上传文件自清理（API 复核已移除）', false, '分片上传未落库，无文件可清理')
   }
 }
 

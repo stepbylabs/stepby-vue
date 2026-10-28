@@ -235,4 +235,69 @@ describe('G-10 分片上传 · 编排器 uploadFileChunked', () => {
     const completes = axiosMock.mock.calls.filter(([m, u]) => m === 'POST' && String(u).includes('/chunk/complete'))
     expect(completes).toHaveLength(0)
   })
+
+  it('complete 429（闸门忙）会重试：第二次成功仍算成功', async () => {
+    const file = new File(['D'.repeat(11)], 'it-429.bin', { type: 'application/octet-stream' })
+    let completeCalls = 0
+    axiosMock.mockImplementation((method: string, url: string) => {
+      if (method === 'POST' && url.includes('/chunk/init')) {
+        return ok({ sessionId: 'sid-5', chunkSize: 4, ttlSecs: 7200 })
+      }
+      if (method === 'POST' && url.includes('/chunk/part')) {
+        return ok({ sessionId: 'sid-5', received: 1, totalParts: 3, complete: false })
+      }
+      if (method === 'GET' && url.includes('/chunk/session/')) {
+        return ok({ sessionId: 'sid-5', received: 3, totalParts: 3, complete: true, receivedIndexes: [0, 1, 2] })
+      }
+      if (method === 'POST' && url.includes('/chunk/complete')) {
+        completeCalls += 1
+        if (completeCalls === 1) return Promise.reject({ response: { status: 429 } })
+        return ok({
+          code: 200,
+          msg: 'ok',
+          url: '/uploads/file/ok.bin',
+          fileName: '/uploads/file/ok.bin',
+          newFileName: 'ok.bin',
+          originalFilename: 'it-429.bin'
+        })
+      }
+      if (method === 'DELETE' && url.includes('/chunk/')) {
+        return Promise.resolve({ data: { code: 200, msg: 'ok' } })
+      }
+      return Promise.reject(new Error(`unexpected ${method} ${url}`))
+    })
+
+    const result = await uploadFileChunked(file, { partSize: 4 })
+    expect(result.url).toBe('/uploads/file/ok.bin')
+    expect(completeCalls).toBe(2)
+  }, 10_000)
+
+  it('complete 400（确定性拒绝）立即抛出且只调一次——重试只会推迟失败反馈', async () => {
+    const file = new File(['E'.repeat(11)], 'it-400.bin', { type: 'application/octet-stream' })
+    let completeCalls = 0
+    axiosMock.mockImplementation((method: string, url: string) => {
+      if (method === 'POST' && url.includes('/chunk/init')) {
+        return ok({ sessionId: 'sid-6', chunkSize: 4, ttlSecs: 7200 })
+      }
+      if (method === 'POST' && url.includes('/chunk/part')) {
+        return ok({ sessionId: 'sid-6', received: 1, totalParts: 3, complete: false })
+      }
+      if (method === 'GET' && url.includes('/chunk/session/')) {
+        return ok({ sessionId: 'sid-6', received: 3, totalParts: 3, complete: true, receivedIndexes: [0, 1, 2] })
+      }
+      if (method === 'POST' && url.includes('/chunk/complete')) {
+        completeCalls += 1
+        return Promise.reject({ response: { status: 400, data: { code: 400, msg: 'magic mismatch' } } })
+      }
+      if (method === 'DELETE' && url.includes('/chunk/')) {
+        return Promise.resolve({ data: { code: 200, msg: 'ok' } })
+      }
+      return Promise.reject(new Error(`unexpected ${method} ${url}`))
+    })
+
+    await expect(uploadFileChunked(file, { partSize: 4 })).rejects.toBeTruthy()
+    expect(completeCalls).toBe(1)
+    const aborts = axiosMock.mock.calls.filter(([m, u]) => m === 'DELETE' && String(u).includes('/chunk/'))
+    expect(aborts).toHaveLength(1)
+  })
 })

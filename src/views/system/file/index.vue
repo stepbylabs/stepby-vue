@@ -145,6 +145,9 @@
           </el-tooltip>
         </template>
       </el-table-column>
+      <template #empty>
+        <list-empty :load-error="loadError" @retry="retryLoad" />
+      </template>
     </el-table>
 
     <pagination
@@ -186,6 +189,7 @@ import download from '@/plugins/download'
 import modal from '@/plugins/modal'
 import { listFiles, uploadFile, deleteFile, downloadFileBlob } from '@/api/system/file'
 import type { FileInfo } from '@/api/system/file'
+import { shouldChunk, uploadFileChunked } from '@/api/upload'
 import { copyText as writeClipboard } from '@/utils/clipboard'
 
 const { t } = useI18n()
@@ -210,6 +214,8 @@ const {
   loading,
   showSearch: _unusedShowSearch,
   total,
+  loadError,
+  retryLoad,
   ids,
   multiple,
   getList,
@@ -268,11 +274,9 @@ function extTagType(ext: string): 'success' | 'warning' | 'info' | 'danger' | 'p
 }
 
 function beforeUpload(file: File): boolean {
-  // 大小限制 10MB
-  if (file.size > 10 * 1024 * 1024) {
-    modal.msgError(t('common.fileTooLarge'))
-    return false
-  }
+  // 体积不在这里一刀切（b118）：>8MB 走分片链，上限由后端 common_chunk_max_total_size
+  // 裁决并在 init 阶段快速失败——前端写死 10MB 会让文件管理页永久失去上传大文件的能力，
+  // 而分片链（断点续传 + 服务端权威进度）早已可用（口径与 components/FileUpload 一致）。
   // 扩展名白名单校验
   const ext = file.name.split('.').pop()?.toLowerCase() || ''
   if (!extOptions.includes(ext)) {
@@ -290,16 +294,48 @@ function beforeUpload(file: File): boolean {
   return true
 }
 
+/**
+ * 分片上传遮罩的并发计数（b118）。
+ *
+ * 文件页支持一次选多个文件；每个 >8MB 文件各自走分片编排器。若每个都 `modal.loading()`，
+ * 遮罩会按开栈/关栈各自 LIFO，先完成的上传会关掉别人的遮罩（`closeLoading` 只认栈顶）。
+ * 这里共用一个遮罩：第一个分片上传打开、最后一个结束关闭，进度文案由最近一次回调刷新。
+ */
+let chunkedInFlight = 0
+function beginChunkedMask(): void {
+  if (chunkedInFlight++ === 0) modal.loading(t('fileUpload.uploadingFile'))
+}
+function endChunkedMask(): void {
+  if (chunkedInFlight > 0 && --chunkedInFlight === 0) modal.closeLoading()
+}
+
 async function handleUpload(options: UploadRequestOptions): Promise<void> {
-  const formData = new FormData()
-  formData.append('file', options.file)
+  const file = options.file as File
+  const chunked = shouldChunk(file.size)
   try {
-    // 走类型化 api（不手动设 Content-Type：浏览器自动带 boundary，手动设会丢 boundary 致后端解析失败）
-    await uploadFile(formData)
+    if (chunked) {
+      // 分片链：单片请求体 ≤ 全局 body limit，>8MB 的整包单请求会被限长拒绝。
+      // 进度只由服务端确认收下的片驱动（api/upload.ts 编排器），失败不谎报。
+      beginChunkedMask()
+      const result = await uploadFileChunked(file, {
+        onProgress: (percent) => modal.updateLoading(t('fileUpload.uploadingProgress', { percent }))
+      })
+      if (result.code !== 200) throw new Error(result.msg || 'chunk upload failed')
+    } else {
+      const formData = new FormData()
+      formData.append('file', file)
+      // 走类型化 api（不手动设 Content-Type：浏览器自动带 boundary，手动设会丢 boundary 致后端解析失败）
+      await uploadFile(formData)
+    }
     modal.msgSuccess(t('common.uploadSuccess'))
     getList()
   } catch (err) {
     if (import.meta.env.DEV) console.error('[FileMgr] Upload failed:', err)
+    // 单请求路径的错误提示由全局拦截器承担（service 实例）；分片链走裸 axios，
+    // 不弹这一句的话用户只看到遮罩消失、什么都不知道（b118）。
+    if (chunked) modal.msgError(t('fileUpload.uploadFailed'))
+  } finally {
+    if (chunked) endChunkedMask()
   }
 }
 
