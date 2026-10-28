@@ -59,6 +59,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { saveBlob } from '@/utils/saveBlob'
 
 interface AiHistoryAdminRow {
   id: number
@@ -152,12 +153,10 @@ async function exportHistory() {
     })
     if (!resp.ok) throw new Error('export failed: ' + resp.status)
     const blob = await resp.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ai_history_${new Date().toISOString().slice(0, 10)}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+    // 保存失败要落进下面同一个失败分支：不刷新"导出成功"的错觉，也不静默
+    if (!saveBlob(blob, `ai_history_${new Date().toISOString().slice(0, 10)}.xlsx`)) {
+      throw new Error('save channel rejected the payload')
+    }
   } catch (e) {
     // 导出失败必须有用户可见反馈（此前静默吞错，用户点导出无任何响应）
     ElMessage.error(t('aiHistory.exportFailed'))

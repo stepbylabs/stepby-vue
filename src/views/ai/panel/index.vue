@@ -196,10 +196,12 @@
 <script setup lang="ts" name="AiPanel">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { aiChat, aiTables } from '@/api/ai/chat'
 import request from '@/utils/request'
 import { formatClockTime } from '@/utils'
 import { csvEscape } from '@/utils/csv'
+import { saveBlob } from '@/utils/saveBlob'
 import { confirmAction } from '@/utils/confirm'
 import { useWidgetLoad } from '@/composables/useWidgetLoad'
 
@@ -367,12 +369,11 @@ function exportCsv() {
     lines.push(result.value.columns.map((c: string) => csvEscape((row as Record<string, unknown>)?.[c])).join(','))
   }
   const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `ai_result_${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  // 保存走 utils/saveBlob：原先手搓 anchor 且同步 revokeObjectURL（Safari/Firefox 上会拿到 0 字节），
+  // 抛错时还会把异常穿给点击处理器让 ErrorBoundary 接管整页
+  if (!saveBlob(blob, `ai_result_${Date.now()}.csv`)) {
+    ElMessage.error(t('common.downloadError'))
+  }
 }
 onMounted(() => {
   // AI-02：面板加载即拉本人历史（失败静默，历史为辅助信息）

@@ -123,8 +123,20 @@ const useNotificationStore = defineStore('notification', {
       this.unreadCount = this.list.filter((n: NotificationItem) => !n.read).length
 
       // 浏览器原生通知（已授权时）
+      // b112：构造器本身是**会抛错的通道**——移动端 Chrome 禁止在页面上下文 `new Notification`
+      // （须走 ServiceWorkerRegistration.showNotification），部分内核/权限撤销后同样抛。
+      // 站内通知列表在上面已经写入，这里失败只留痕，绝不让它打断 WS 消息派发链。
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(item.title, { body: item.content })
+        try {
+          const native = new Notification(item.title, { body: item.content })
+          // 点击系统通知要回到应用——此前 onclick 为空，用户点通知毫无反应
+          native.onclick = () => {
+            window.focus()
+            native.close()
+          }
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn('[notification] native notification unavailable:', e)
+        }
       }
     },
 

@@ -15,7 +15,7 @@
         <el-radio-button value="view">{{ t('rp.modeView') }}</el-radio-button>
         <el-radio-button v-if="canEdit" value="design">{{ t('rp.modeDesign') }}</el-radio-button>
       </el-radio-group>
-      <el-button v-if="mode === 'view' && selectedId" icon="FullScreen" plain @click="toggleFullscreen">
+      <el-button v-if="mode === 'view' && selectedId" icon="FullScreen" plain @click="toggleFullscreenView">
         {{ t('rp.fullscreen') }}
       </el-button>
       <el-button v-if="mode === 'view' && selectedId" icon="Refresh" plain @click="refreshAll()">
@@ -64,6 +64,7 @@ import { parseLayout } from '@/views/report/designer/canvasLayout'
 import ChartCard from '../components/ChartCard.vue'
 import Designer from '../designer/index.vue'
 import { checkPermi } from '@/utils/permission'
+import { toggleFullscreen } from '@/utils/fullscreen'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -139,18 +140,12 @@ watch(selectedId, (id: number | undefined) => {
   else charts.value = []
 })
 
-async function toggleFullscreen(): Promise<void> {
+async function toggleFullscreenView(): Promise<void> {
   const el = boardRef.value
   if (!el) return
-  try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-    } else {
-      await el.requestFullscreen()
-    }
-  } catch {
-    modal.msgWarning(t('common.failed'))
-  }
+  // b112：全屏通道统一走 utils/fullscreen（拒绝/不支持都折算成 false），失败可见
+  const ok = await toggleFullscreen(el)
+  if (!ok) modal.msgWarning(t('common.fullscreenFail'))
 }
 
 onMounted(() => void refreshAll())

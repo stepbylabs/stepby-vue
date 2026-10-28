@@ -115,6 +115,7 @@ import { translateTitle } from '@/composables/useMenuTitle'
 import { globalSearch } from '@/api/common'
 import type { GlobalSearchItem } from '@/api/common'
 import { isExternal, isHttp } from '@/utils/validate'
+import { toggleFullscreen } from '@/utils/fullscreen'
 import type { AppRouteRecord } from '@/types'
 
 interface Command {
@@ -213,9 +214,10 @@ const commands = computed<Command[]>(() => {
       title: t('commandPalette.cmd.toggleFullscreen'),
       category: t('commandPalette.category.systemAction'),
       icon: FullScreen,
-      action: () => {
-        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.()
-        else document.exitFullscreen?.()
+      action: async () => {
+        // b112：全屏会因策略/手势被拒绝；失败必须可见，不能"点了没反应"
+        const ok = await toggleFullscreen()
+        if (!ok) modal.msgWarning(t('common.fullscreenFail'))
       }
     },
     {

@@ -43,13 +43,15 @@ export default {
     sync: '同步',
     // TierS-6: 图表下载
     downloadChart: '下载为图片',
-    chartDownloaded: '图表已下载',
+    // b112：落盘不可观测，成功提示只能表述为"已发起"（"图表已下载"是一种假成功）
+    chartDownloading: '已发起下载，请留意浏览器下载记录',
     chartDownloadFail: '图表下载失败',
     chartNotReady: '图表尚未加载，请稍后再试',
     // 状态文本
     loading: '加载中...',
     success: '操作成功',
     failed: '操作失败',
+    fullscreenFail: '无法切换全屏：浏览器拒绝了该操作（可能被嵌入策略或权限设置阻止）',
     noData: '暂无数据',
     empty: '暂无数据',
     // TierA-4: 空状态 CTA

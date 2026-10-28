@@ -1,7 +1,8 @@
 import request, { FILE_DOWNLOAD_TIMEOUT } from '@/utils/request'
-import { saveAs } from 'file-saver'
+import { saveBlob } from '@/utils/saveBlob'
 import { ElMessage } from 'element-plus'
 import i18n from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 import type { TableDataInfo } from '@/types'
 import type { AuditChangeQueryParams, SysAuditChange } from '@/types'
 
@@ -34,7 +35,10 @@ export function exportAuditChange(query: AuditChangeQueryParams): Promise<Blob> 
     timeout: FILE_DOWNLOAD_TIMEOUT
   }).then((blob: unknown) => {
     const data = blob instanceof Blob ? blob : new Blob([blob as BlobPart])
-    saveAs(data, `audit_change_${new Date().getTime()}.csv`)
+    if (!saveBlob(data, `audit_change_${new Date().getTime()}.csv`)) {
+      // 保存失败必须可见（0 字节导出 / 保存通道被拦）；成功分支不弹提示 —— 落盘不可观测
+      errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+    }
     if ((data as Blob & { _truncated?: boolean })._truncated) {
       ElMessage.warning(i18n.global.t('common.exportTruncated'))
     }

@@ -1,5 +1,7 @@
 import request, { LONG_TASK_TIMEOUT, FILE_DOWNLOAD_TIMEOUT } from '@/utils/request'
-import { saveAs } from 'file-saver'
+import { saveBlob } from '@/utils/saveBlob'
+import i18n from '@/i18n'
+import { errorHub } from '@/utils/errorHub'
 import type { AjaxResult, TableDataInfo } from '@/types'
 import type { SysBackupLog, BackupLogQueryParams, BackupCreateVo } from '@/types'
 
@@ -65,7 +67,10 @@ export function downloadBackup(backupId: number, filename?: string): Promise<Blo
     timeout: FILE_DOWNLOAD_TIMEOUT
   }).then((blob: unknown) => {
     const data = blob instanceof Blob ? blob : new Blob([blob as BlobPart])
-    saveAs(data, filename || `backup-${backupId}.sql`)
+    // 0 字节备份 / 保存通道被拦必须可见；成功分支不弹提示（落盘不可观测）
+    if (!saveBlob(data, filename || `backup-${backupId}.sql`)) {
+      errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+    }
     return data
   })
 }

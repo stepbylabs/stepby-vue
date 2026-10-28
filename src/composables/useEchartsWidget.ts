@@ -17,6 +17,7 @@ import { ElMessage } from 'element-plus'
 import type { ECharts, EChartsOption } from '@/utils/echarts'
 import { useChart, readCssVar } from '@/composables/useChart'
 import { errorHub } from '@/utils/errorHub'
+import { saveDataUrl } from '@/utils/saveBlob'
 import { useI18n } from 'vue-i18n'
 import useSettingsStore from '@/store/modules/settings'
 
@@ -106,14 +107,13 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
         pixelRatio: 2,
         backgroundColor: isDark ? readCssVar('--el-bg-color', '#141414') : readCssVar('--el-bg-color-page', '#ffffff')
       })
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `chart-${cfg.name}-${Date.now()}.png`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      a.href = ''
-      ElMessage.success(t('common.chartDownloaded'))
+      // 走 utils/saveBlob 的 data URL 通道：原先把整张 PNG（base64）塞进 a.href，
+      // 且点完立刻报"图表已下载"——落盘不可观测，那句是假成功；失败分支也没有出口
+      if (saveDataUrl(url, `chart-${cfg.name}-${Date.now()}.png`)) {
+        ElMessage.success(t('common.chartDownloading'))
+      } else {
+        errorHub.report('error', 'other', t('common.chartDownloadFail'))
+      }
     } catch (e) {
       if (import.meta.env.DEV) console.error('Chart download failed:', e)
       errorHub.report('error', 'other', t('common.chartDownloadFail'))

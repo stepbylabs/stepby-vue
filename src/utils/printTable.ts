@@ -86,7 +86,7 @@ export function printTable(options: PrintTableOptions): void {
 
   // 构建完整 HTML
   const html = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${escapeHtml(document.documentElement.lang || 'zh-CN')}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -165,13 +165,6 @@ export function printTable(options: PrintTableOptions): void {
   <div class="print-footer">
     ${escapeHtml(t('printTable.title'))} · ${data.length} ${escapeHtml(t('common.detail'))}
   </div>
-  <script>
-    window.onload = function() {
-      setTimeout(function() {
-        window.print();
-      }, 300);
-    };
-  </script>
 </body>
 </html>`
 
@@ -182,23 +175,39 @@ export function printTable(options: PrintTableOptions): void {
     return
   }
 
-  printWindow.document.open()
-  printWindow.document.write(html)
-  printWindow.document.close()
+  // b112：原先这里往新窗口写了一段内联 `<script>window.onload=…print()</script>`，
+  // 而本站 CSP 是 `script-src 'self'`（无 'unsafe-inline'），about:blank 继承 opener 的 CSP
+  // ⇒ 那段脚本**从未执行**（真机探针实测 `inlineRan=false`），打印实际只靠父窗口 1.5s 兜底；
+  // 兜底定时器还会在用户关掉第一个打印对话框后才触发 ⇒ 第二次弹框。
+  // 现改为：父窗口写完后**只发起一次** print()，不再往子文档写脚本，也不留定时器。
+  try {
+    printWindow.opener = null
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+  } catch (e) {
+    // 弹窗被关闭 / 写文档被拦截：必须可见（此前是裸写，异常直接穿到点击处理器），
+    // 窗口里没有可用内容 ⇒ 关掉，免得留一个空白页
+    errorHub.report('error', 'other', i18n.global.t('printTable.printFail'))
+    if (import.meta.env.DEV) console.error('[printTable] failed:', e)
+    try {
+      printWindow.close()
+    } catch {
+      /* 窗口可能已关闭 */
+    }
+    return
+  }
 
   if (autoPrint) {
     try {
-      // 备用：如果 window.onload 内的 print 未触发，1.5s 后兜底
-      setTimeout(() => {
-        try {
-          printWindow.focus()
-          printWindow.print()
-        } catch (e) {
-          if (import.meta.env.DEV) console.error('[printTable] print failed:', e)
-        }
-      }, 1500)
+      printWindow.focus()
+      printWindow.print()
     } catch (e) {
-      if (import.meta.env.DEV) console.error('[printTable] auto print error:', e)
+      // 打印被拦（部分浏览器在非用户手势下会抛）：内容已就绪，**不关窗**，
+      // 用户仍可手动 Ctrl+P；但不得报成功
+      errorHub.report('error', 'other', i18n.global.t('printTable.printFail'))
+      if (import.meta.env.DEV) console.error('[printTable] print failed:', e)
+      return
     }
   }
 

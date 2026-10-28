@@ -9,12 +9,13 @@
  * ② 成功过再失败 ⇒ 旧信息保留 + 横幅写明"几点的数据"（含 HH:mm:ss）；
  * ③ 后发先回：旧请求晚到不得覆盖新结果。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 
 const hoisted = vi.hoisted(() => ({
   getCache: vi.fn(),
   setOption: vi.fn(),
+  resize: vi.fn(),
   msgError: vi.fn()
 }))
 
@@ -32,7 +33,10 @@ vi.mock('@/plugins/modal', () => ({
 
 vi.mock('@/composables/useChart', () => ({
   useChart: () => ({
-    getChart: async () => ({ setOption: hoisted.setOption }),
+    // 形状必须等于真实 ECharts 实例：组件在挂载后 100ms 会调 `instance.resize()`，
+    // 少了它这条定时器会在**别的测试文件**里炸（b112 全量轮实测：cacheOverview 自身
+    // 3 条全绿，却把整个 vitest 判成 1 failed —— 夹具形状与生产形状不符，绿着坏）
+    getChart: async () => ({ setOption: hoisted.setOption, resize: hoisted.resize }),
     withDark: (_chart: unknown, option: unknown) => option,
     waitForRef: async (get: () => HTMLElement | null) => get(),
     resize: vi.fn()
@@ -101,12 +105,22 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+// 挂载过的 wrapper 必须在文件结束前卸载：组件里有一个 100ms 的 resize 定时器，
+// 不卸载就会在本文件跑完之后才触发，把异常记到当时正在跑的**另一个文件**头上（同 ㉓）
+const mounted: VueWrapper[] = []
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
+afterEach(() => {
+  for (const w of mounted.splice(0)) w.unmount()
+  vi.useRealTimers()
+})
+
 async function mountReady(): Promise<VueWrapper> {
   const w = mount(CacheOverview, { global: globalOptions })
+  mounted.push(w)
   await flushPromises()
   return w
 }
@@ -156,6 +170,7 @@ describe('缓存概览：失败不得冒充"Redis 未连接"，陈旧必须有�
     const slow = deferred<{ data: unknown }>()
     hoisted.getCache.mockReturnValueOnce(slow.promise).mockResolvedValueOnce(cacheData(2))
     const w = mount(CacheOverview, { global: globalOptions })
+    mounted.push(w)
     await flushPromises()
     const vm = vmOf(w)
     vm.getList()

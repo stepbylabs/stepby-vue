@@ -43,13 +43,15 @@ export default {
     sync: 'Sync',
     // TierS-6: Chart download
     downloadChart: 'Download as image',
-    chartDownloaded: 'Chart downloaded',
+    // b112: whether the file lands on disk is unobservable — the toast must say "started", not "downloaded"
+    chartDownloading: 'Download started — check your browser downloads',
     chartDownloadFail: 'Chart download failed',
     chartNotReady: 'Chart not ready, please try again later',
     // Status text
     loading: 'Loading...',
     success: 'Operation succeeded',
     failed: 'Operation failed',
+    fullscreenFail: 'Unable to toggle fullscreen: the browser denied the request (embedding policy or permissions)',
     noData: 'No data',
     empty: 'No data',
     // TierA-4: Empty state CTA

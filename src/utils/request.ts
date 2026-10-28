@@ -10,7 +10,7 @@ import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
 import { transParams, blobValidate } from '@/utils/stepby'
 import cache from '@/plugins/cache'
-import { saveAs } from 'file-saver'
+import { saveBlob } from '@/utils/saveBlob'
 import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import { startProgress, doneProgress } from '@/utils/progress'
@@ -551,9 +551,12 @@ export function download(url: string, params: Record<string, unknown>, filename:
       const isBlob = blobValidate(data)
       if (isBlob) {
         const blob = new Blob([data])
-        saveAs(blob, filename)
-        // P2/N5：消费导出截断标记（行数触及 EXPORT_MAX_ROWS 上限）
-        if ((data as Blob & { _truncated?: boolean })._truncated) {
+        // 保存失败必须可见（空载荷/通道抛错）；成功分支**不弹**"下载成功"——
+        // 浏览器是否落盘页面无法观测，那会是一次假成功（见 utils/saveBlob 模块文档）
+        if (!saveBlob(blob, filename)) {
+          errorHub.report('error', 'download', t('common.downloadError'))
+        } else if ((data as Blob & { _truncated?: boolean })._truncated) {
+          // P2/N5：消费导出截断标记（行数触及 EXPORT_MAX_ROWS 上限）
           ElMessage.warning(t('common.exportTruncated'))
         }
       } else {

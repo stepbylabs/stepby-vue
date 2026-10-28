@@ -1,6 +1,6 @@
 import axios, { type AxiosResponse } from 'axios'
 import { ElLoading } from 'element-plus'
-import { saveAs, type FileSaverOptions } from 'file-saver'
+import { saveBlob } from '@/utils/saveBlob'
 import i18n from '@/i18n'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
@@ -120,8 +120,9 @@ export default {
         downloadLoadingInstance.close()
       })
   },
-  saveAs(text: Blob, name: string, opts?: FileSaverOptions) {
-    saveAs(text, name, opts)
+  saveAs(text: Blob, name: string) {
+    // 统一走 utils/saveBlob：空载荷/通道抛错必须可见，且成功不弹"下载成功"
+    if (!saveBlob(text, name)) errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
   },
   async printErrMsg(data: Blob) {
     const resText = await data.text()

@@ -454,6 +454,7 @@ import {
 import type { FormInstance } from 'element-plus'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
+import { saveBlob } from '@/utils/saveBlob'
 import { addDateRange } from '@/utils/stepby'
 import { formatModuleTitle as resolveModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
@@ -841,12 +842,10 @@ function downloadArchive(row: LogArchiveAnchor) {
   // 本处只保证不再产生未捕获拒绝，并把原因留在 DEV。
   downloadArchiveFile(row.anchorId)
     .then((blob) => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `anchor_${row.firstOperId}_${row.lastOperId}.jsonl`
-      a.click()
-      URL.revokeObjectURL(url)
+      // 保存失败必须可见（原先手搓 anchor + 同步 revoke，失败时页面毫无反应）
+      if (!saveBlob(blob, `anchor_${row.firstOperId}_${row.lastOperId}.jsonl`)) {
+        modal.msgError(t('common.downloadError'))
+      }
     })
     .catch((e: unknown) => {
       if (import.meta.env.DEV) console.error('[operlog] 归档下载失败:', e)

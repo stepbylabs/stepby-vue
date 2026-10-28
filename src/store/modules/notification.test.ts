@@ -272,4 +272,56 @@ describe('store/modules/notification', () => {
       restoreDescriptor()
     })
   })
+
+  describe('原生通知通道（b112）', () => {
+    const restoreDescriptor = () => {
+      // @ts-expect-error delete for test isolation
+      delete window.Notification
+    }
+
+    it('构造器抛错（移动端 Chrome / 权限被撤）不得打断站内通知', () => {
+      const Ctor = function () {
+        throw new Error('Illegal constructor')
+      } as unknown as { permission: string }
+      Ctor.permission = 'granted'
+      // @ts-expect-error assign to global for test
+      window.Notification = Ctor
+      try {
+        const store = useNotificationStore()
+        expect(() => store.addNotification({ type: 'system', title: 't', content: 'c', timestamp: 1 })).not.toThrow()
+        // 站内列表与未读数照常写入（原生通知只是附加通道）
+        expect(store.list).toHaveLength(1)
+        expect(store.unreadCount).toBe(1)
+      } finally {
+        restoreDescriptor()
+      }
+    })
+
+    it('点击系统通知必须聚焦应用并关闭通知（此前 onclick 为空）', () => {
+      const instance: { onclick?: () => void; close?: () => void } = {}
+      // 构造函数返回对象 ⇒ `new Notification(...)` 拿到的就是 instance。
+      // 刻意不用 `this` 别名（ESLint no-this-alias），也确实不需要：产品代码只把
+      // onclick 挂到构造结果上，共享一个对象足以观测。
+      const Ctor = function () {
+        return instance
+      } as unknown as { permission: string }
+      Ctor.permission = 'granted'
+      // @ts-expect-error assign to global for test
+      window.Notification = Ctor
+      const focus = vi.spyOn(window, 'focus').mockImplementation(() => {})
+      try {
+        const store = useNotificationStore()
+        store.addNotification({ type: 'system', title: 't', content: 'c', timestamp: 1 })
+        expect(typeof instance.onclick).toBe('function')
+        const close = vi.fn()
+        instance.close = close
+        instance.onclick!()
+        expect(focus).toHaveBeenCalledTimes(1)
+        expect(close).toHaveBeenCalledTimes(1)
+      } finally {
+        focus.mockRestore()
+        restoreDescriptor()
+      }
+    })
+  })
 })

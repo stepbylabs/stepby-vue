@@ -346,6 +346,54 @@ async function restoreClipboard(page) {
     .catch(() => false)
 }
 
+/**
+ * 全屏通道桩（b112）：把 `documentElement.requestFullscreen` 换成必然 reject 的实现。
+ *
+ * 为什么必须桩掉而不能真去全屏：headless 里能否进入全屏由窗口/内核策略决定，
+ * 把判据建在它上面等于让绿红由环境决定（前言 ④）。本批要证的是**我们这一侧的分支**：
+ * 浏览器拒绝时必须有可见提示、图标不得假装已进入全屏。桩只替换浏览器能力。
+ *
+ * 返回是否真的装上——装不上即判红，不得静默跳过（⑥：零捕获 ≠ PASS）。
+ */
+async function stubFullscreenDenied(page) {
+  return page
+    .evaluate(() => {
+      const w = window
+      try {
+        if (!w.__b112Fullscreen) {
+          w.__b112Fullscreen = Object.getOwnPropertyDescriptor(document.documentElement, 'requestFullscreen') || null
+        }
+        Object.defineProperty(document.documentElement, 'requestFullscreen', {
+          value: () => Promise.reject(new Error('__b112_denied__')),
+          configurable: true
+        })
+        return typeof document.documentElement.requestFullscreen === 'function'
+      } catch {
+        return false
+      }
+    })
+    .catch(() => false)
+}
+
+/** 还原 {@link stubFullscreenDenied}（按装桩前实测的描述符复原，不假设它原本不存在） */
+async function restoreFullscreen(page) {
+  return page
+    .evaluate(() => {
+      const w = window
+      const saved = w.__b112Fullscreen
+      if (saved === undefined) return false
+      try {
+        if (saved) Object.defineProperty(document.documentElement, 'requestFullscreen', saved)
+        else Reflect.deleteProperty(document.documentElement, 'requestFullscreen')
+        delete w.__b112Fullscreen
+        return true
+      } catch {
+        return false
+      }
+    })
+    .catch(() => false)
+}
+
 /** 等一条可见的 EP 消息（按文案精确过滤，整页 innerText 不算——时钟/日志里的数字会把它洗绿） */
 async function waitToast(page, text, timeout = 6000) {
   return page
@@ -850,6 +898,42 @@ async function testFeature2(page) {
   // 验证 dashboard 页面能正常加载
   const isDashboard = page.url().includes('index') || page.url().endsWith('/')
   record(2, 'Dashboard 页面加载', isDashboard)
+
+  // ===== 全屏通道（b112）：浏览器拒绝时必须可见，图标不得假装已进入全屏 =====
+  const fsStubbed = await stubFullscreenDenied(page)
+  record(2, '全屏拒绝桩已装上', fsStubbed, fsStubbed ? '' : '无法覆盖 requestFullscreen（零捕获 ≠ PASS）')
+  if (fsStubbed) {
+    const fsIcon = page.locator('#screenfull').first()
+    const fsVisible = await fsIcon
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+    // 复原期望值取"点击前实测值"：硬编码终态会把一次正常同步判成假红（前言 ③）
+    const beforeLabel = fsVisible ? await fsIcon.getAttribute('aria-label').catch(() => '') : ''
+    const fsClicked = fsVisible
+      ? await fsIcon
+          .click({ timeout: 4000 })
+          .then(() => true)
+          .catch(() => false)
+      : false
+    const fsWarned = fsClicked ? await waitToast(page, '无法切换全屏', 6000) : false
+    const afterLabel = fsVisible ? await fsIcon.getAttribute('aria-label').catch(() => '') : ''
+    record(
+      2,
+      '全屏被拒时给出可见提示（点击落地 + 文案）',
+      fsVisible && fsClicked && fsWarned,
+      `按钮可见=${fsVisible} 点击=${fsClicked} 提示=${fsWarned}`
+    )
+    record(
+      2,
+      '全屏被拒后图标状态不得变化',
+      fsVisible && !!beforeLabel && beforeLabel === afterLabel,
+      `前=${JSON.stringify(beforeLabel)} 后=${JSON.stringify(afterLabel)}`
+    )
+    record(2, '全屏桩还原（后续用例不得继承被改造的环境）', await restoreFullscreen(page))
+    // 提示自消，避免把"当前可见 message 数"染进后续判据
+    await waitToastsCleared(page)
+  }
 
   // 后端 scheduler 已注册——原 record(...,true) 常量假通过改 recordSkip 口径：
   // scheduler 注册状态无 UI/API 探针可断言（启动日志在测试进程外），故走 SKIP 统计
@@ -8829,8 +8913,9 @@ async function testFeature38(page) {
     await page.goto(`${CONFIG.frontendUrl}/dashboard`, { waitUntil: 'load' })
     await sleep(3000)
 
-    // 查找下载按钮（el-tooltip content 包含"下载为图片"或"Download as image"）
-    const downloadBtns = page.locator('.el-button:has(.el-icon Download), .card-header-actions .el-button')
+    // 查找下载按钮：按可访问名精确命中（旧选择器 `.card-header-actions` 早已不存在，
+    // 读数长期是 0——它只进 detail 不进判据，于是"量不到"被当成"没有"静默了整批）
+    const downloadBtns = page.locator('button[aria-label="下载为图片"]')
     const btnCount = await downloadBtns.count()
 
     // 源码检查 downloadChart 函数
@@ -8860,6 +8945,40 @@ async function testFeature38(page) {
       'TierS-6 图表下载（getDataURL+按钮）',
       passed,
       `函数=${sourceCheck.hasDownloadChart}, getDataURL=${sourceCheck.hasGetDataURL}, 按钮数=${btnCount}`
+    )
+
+    // b112：从"源码里出现 downloadChart"升级为真实点击。旧实现把整张 base64 PNG 塞进
+    // a.href，点完立刻报"图表已下载"——落盘不可观测，那句话是假成功；失败也没有出口。
+    // 现在的语义是"已发起下载"，并且必须能真的点出这条提示（按钮未接线 ⇒ 红）。
+    const chartCanvasReady = await page
+      .locator('canvas')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false)
+    const chartDlBtn = page.locator('button[aria-label="下载为图片"]').first()
+    const chartDlVisible = await chartDlBtn
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false)
+    let chartDlStarted = false
+    let chartDlOldText = 0
+    if (chartCanvasReady && chartDlVisible) {
+      await chartDlBtn.click({ timeout: 4000 }).catch(() => {})
+      chartDlStarted = await waitToast(page, '已发起下载', 6000)
+      // 负向对照：旧文案是承诺口吻（"已下载"），与事实不可证而不符，必须不再出现
+      chartDlOldText = await page
+        .locator('.el-message')
+        .filter({ hasText: '图表已下载' })
+        .count()
+        .catch(() => 0)
+      await waitToastsCleared(page)
+    }
+    record(
+      38,
+      'TierS-6 图表下载真实点击（提示为「已发起下载」而非「已下载」）',
+      chartCanvasReady && chartDlVisible && chartDlStarted && chartDlOldText === 0,
+      `画布=${chartCanvasReady}, 按钮=${chartDlVisible}, 提示=${chartDlStarted}, 旧文案=${chartDlOldText}`
     )
   } catch (err) {
     record(38, 'TierS-6 图表下载（getDataURL+按钮）', false, `异常: ${err.message.slice(0, 80)}`)
@@ -12810,6 +12929,53 @@ async function testFeature52(page) {
   const is404 = await is404Page(page)
   record(52, '用户管理页加载', !is404)
   if (is404) return
+
+  // ===== 打印链路（b112）：CSP 下子文档内的内联脚本是死代码（真机探针 inlineRan=false） =====
+  // 修法改成"父窗口写完内容后自己只调一次 print()"，所以这里要证的正是：打印窗口里
+  // **没有脚本**却仍有真实数据行——有脚本（退回旧形状）或 0 行（内容没写进去）都必须红。
+  const printTableReady = await page
+    .locator('.el-table__body-wrapper tbody tr')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  let printOk = false
+  let printDetail = '表格未渲染出数据行 ⇒ 打印链路无法验证（用户页应有种子用户）'
+  if (printTableReady) {
+    const printBtn = page.locator('.top-right-btn').getByRole('button', { name: '打 印' }).first()
+    const [printPopup] = await Promise.all([
+      page.waitForEvent('popup', { timeout: 8000 }).catch(() => null),
+      printBtn.click({ timeout: 5000 }).catch(() => {})
+    ])
+    if (!printPopup) {
+      printDetail = '未捕获到打印窗口（window.open 被拦或打印按钮未接线）'
+    } else {
+      let popupRows = 0
+      for (let i = 0; i < 20; i++) {
+        popupRows = await printPopup
+          .locator('table tbody tr')
+          .count()
+          .catch(() => 0)
+        if (popupRows > 0) break
+        await sleep(300)
+      }
+      const popupScripts = await printPopup
+        .locator('script')
+        .count()
+        .catch(() => -1)
+      const popupTitle = `${(
+        (await printPopup
+          .locator('.print-title')
+          .first()
+          .textContent()
+          .catch(() => '')) || ''
+      ).trim()}`
+      printOk = popupRows > 0 && popupScripts === 0 && popupTitle.length > 0
+      printDetail = `弹窗行数=${popupRows} 脚本数=${popupScripts} 标题=${JSON.stringify(popupTitle.slice(0, 24))}`
+      await printPopup.close().catch(() => {})
+    }
+  }
+  record(52, '打印弹窗有真实数据行且不含内联脚本', printOk, printDetail)
 
   const dialog = page.locator('.el-dialog:visible').last()
   const itemByLabel = (label) =>

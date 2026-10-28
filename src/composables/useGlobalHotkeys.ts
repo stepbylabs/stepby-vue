@@ -27,6 +27,7 @@ import useAppStore from '@/store/modules/app'
 import useSettingsStore, { DEFAULT_HOTKEYS } from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
 import { navigate } from '@/utils/navigation'
+import { toggleFullscreen } from '@/utils/fullscreen'
 import useLockStore from '@/store/modules/lock'
 import modal from '@/plugins/modal'
 
@@ -66,8 +67,7 @@ export function useGlobalHotkeys() {
       // 防止默认行为仅在命中的组合键时触发
       // Ctrl+K（macOS 下 Cmd+K）在 Chrome 中会触发地址栏搜索，需要 preventDefault
       const searchKey = hotkeys.value.search
-      const isSearchCombo =
-        (e.key === 'k' || e.key === 'K') && e.type === 'keydown' && (e.ctrlKey || e.metaKey)
+      const isSearchCombo = (e.key === 'k' || e.key === 'K') && e.type === 'keydown' && (e.ctrlKey || e.metaKey)
       if (searchKey === 'ctrl_k' && isSearchCombo) {
         e.preventDefault()
       }
@@ -82,8 +82,7 @@ export function useGlobalHotkeys() {
   }
 
   // macOS 平台检测（jsdom/SSR 下 navigator 可能缺失，做安全兜底）
-  const isMac =
-    typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent || '')
+  const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.userAgent || '')
 
   // macOS 下 Cmd 等效 Ctrl：useMagicKeys 不做平台映射（ctrl_k 只匹配左 Ctrl），
   // 故对 ctrl_* 快捷键额外绑定同名的 meta_* 变体（Cmd+K / Cmd+Shift+D 等）
@@ -114,12 +113,11 @@ export function useGlobalHotkeys() {
   })
 
   // Ctrl+Shift+F：切换全屏
-  bind('fullscreen', () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.()
-    } else {
-      document.exitFullscreen?.()
-    }
+  // b112：全屏是**会 reject 的通道**——被 iframe 策略拒绝 / 目标不可见 / 非用户手势时
+  // 旧实现只写 `?.()`（挡不住拒绝），用户按了快捷键毫无反应且留下 unhandledrejection。
+  bind('fullscreen', async () => {
+    const ok = await toggleFullscreen()
+    if (!ok) modal.msgWarning(i18n.global.t('common.fullscreenFail'))
   })
 
   // Ctrl+Shift+L：锁屏
