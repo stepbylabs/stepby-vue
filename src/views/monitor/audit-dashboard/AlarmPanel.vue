@@ -12,6 +12,28 @@
       </div>
     </template>
     <div v-loading="alarmLoading" :element-loading-text="t('common.loading')">
+      <!-- 取数失败且已有旧状态：旧状态继续展示，并说明它是几点的（b109） -->
+      <el-alert
+        v-if="alarmError && alarmData"
+        type="warning"
+        :title="alarmStaleHint"
+        :closable="false"
+        show-icon
+        class="mb-4"
+      >
+        <el-button link type="primary" @click="emit('retry')">{{ t('common.retry') }}</el-button>
+      </el-alert>
+      <!-- 从未取到过状态：必须显示失败而不是"暂无数据"——否则会被读成"没有异常" -->
+      <el-alert
+        v-if="alarmError && !alarmData"
+        type="error"
+        :title="t('auditDashboard.alarm.loadFail')"
+        :closable="false"
+        show-icon
+        class="mb-4"
+      >
+        <el-button link type="primary" @click="emit('retry')">{{ t('common.retry') }}</el-button>
+      </el-alert>
       <el-alert
         v-if="alarmData"
         :type="alarmData.alertTriggered ? 'error' : 'success'"
@@ -71,7 +93,7 @@
           </div>
         </div>
       </template>
-      <el-empty v-if="!alarmData && !alarmLoading" :description="t('common.noData')" :image-size="60" />
+      <el-empty v-if="!alarmData && !alarmLoading && !alarmError" :description="t('common.noData')" :image-size="60" />
     </div>
   </el-card>
 </template>
@@ -98,7 +120,11 @@ defineProps<{
   alarmData: AlarmData | null
   alarmLoading: boolean
   alarmThresholdTip: string
+  alarmError?: boolean
+  alarmStaleHint?: string
 }>()
+
+const emit = defineEmits<{ (e: 'retry'): void }>()
 
 const { t } = useI18n()
 </script>

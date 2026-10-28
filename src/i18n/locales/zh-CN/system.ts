@@ -1688,6 +1688,7 @@ export default {
     removeDatasetConfirm: '删除后引用该数据集的图表将无法渲染，确认删除？',
     formRequired: '编码/名称/SQL 模板必填',
     chartEmptyHint: '无可渲染数据：请检查字段绑定或数据集配置',
+    chartLoadFail: '取数失败，请重试',
     pickDashboard: '选择大屏',
     pickDataset: '选择数据集',
     newDashboard: '新建大屏',

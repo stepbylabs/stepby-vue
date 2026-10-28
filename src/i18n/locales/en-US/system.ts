@@ -1719,6 +1719,7 @@ export default {
     removeDatasetConfirm: 'Charts bound to this dataset will break. Delete anyway?',
     formRequired: 'Code / Name / SQL template are required',
     chartEmptyHint: 'Nothing to render: check field bindings or dataset config',
+    chartLoadFail: 'Failed to load data, please retry',
     pickDashboard: 'Pick dashboard',
     pickDataset: 'Pick dataset',
     newDashboard: 'New dashboard',

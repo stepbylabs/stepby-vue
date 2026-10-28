@@ -156,7 +156,8 @@ export default {
       burstOperators: '高频失败操作人',
       burstModules: '高频失败模块',
       times: '{count} 次',
-      thresholdSet: '判定阈值（{window} 分钟内失败超过 {count} 次，或失败率超过 {rate}%）'
+      thresholdSet: '判定阈值（{window} 分钟内失败超过 {count} 次，或失败率超过 {rate}%）',
+      loadFail: '告警状态加载失败，无法确认当前是否异常'
     },
     btn: {
       exportPdf: '导出合规报告',

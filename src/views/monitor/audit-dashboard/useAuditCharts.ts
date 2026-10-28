@@ -186,12 +186,14 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
 
   // §5.36：操作类型分布环形图（后端 /monitor/operlog/stats-by-type，
   // 四元组 insert/update/delete/other → 环形图；样式对齐 renderPieChart）
-  async function renderTypeStatsChart(vo: {
-    insert: number
-    update: number
-    delete: number
-    other: number
-  } | null) {
+  async function renderTypeStatsChart(
+    vo: {
+      insert: number
+      update: number
+      delete: number
+      other: number
+    } | null
+  ) {
     if (!vo) return
     const chart = await getChart(typeStatsChartRef.value)
     if (!chart) return
@@ -333,6 +335,13 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
     }
   }
 
+  /** 清空全部画布（换统计窗口时调用：旧窗口的图形不得留在新窗口标题下） */
+  function clearAllCharts() {
+    for (const inst of [trendChart, pieChart, topUsersChart, topModulesChart, failTrendChart, typeStatsChart]) {
+      inst?.clear()
+    }
+  }
+
   return {
     trendChartRef,
     pieChartRef,
@@ -353,6 +362,7 @@ export function useAuditCharts(options: UseAuditChartsOptions) {
     renderFailTrendChart,
     renderTypeStatsChart,
     handleResize,
-    clearResizeTimer
+    clearResizeTimer,
+    clearAllCharts
   }
 }

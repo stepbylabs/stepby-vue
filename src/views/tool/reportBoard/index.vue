@@ -36,7 +36,7 @@
           {{ t('reportBoard.deleteBoard') }}
         </el-button>
 
-        <el-radio-group v-model="range" size="small" @change="refreshData">
+        <el-radio-group v-model="range" size="small" @change="onRangeChange">
           <el-radio-button value="7d">{{ t('reportBoard.range7d') }}</el-radio-button>
           <el-radio-button value="30d">{{ t('reportBoard.range30d') }}</el-radio-button>
         </el-radio-group>
@@ -86,12 +86,26 @@
           :aria-label="t('reportBoard.deleteCard')"
           @click="deleteCard(c.id)"
         />
-        <!-- 局部失败占位：该卡片数据源加载失败（全局错误由拦截器弹错，此处仅展示占位） -->
-        <div v-if="failedSources.has(c.sourceKey)" class="h-full w-full flex items-center justify-center">
-          <el-empty :image-size="60" :description="t('reportBoard.dataLoadFail')" />
+        <!-- 局部失败且从未成功过：失败占位（可重试；此时没有任何旧图可展示） -->
+        <div
+          v-if="failedSources.has(c.sourceKey) && !sourceLoadedAt.has(c.sourceKey)"
+          class="h-full w-full flex items-center justify-center"
+        >
+          <el-empty :image-size="60" :description="t('reportBoard.dataLoadFail')">
+            <el-button link type="primary" @click="refreshData">{{ t('common.retry') }}</el-button>
+          </el-empty>
         </div>
         <!-- 图表容器（ECharts，useChart 复用实例 + ResizeObserver 自适应） -->
         <div v-else :ref="(el) => setChartEl(c.id, el)" class="h-full w-full" />
+        <!-- 失败但已有旧快照：旧图继续展示，徽标写明"几点的数据"（b109） -->
+        <div
+          v-if="failedSources.has(c.sourceKey) && sourceLoadedAt.has(c.sourceKey)"
+          class="absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-1 rounded bg-[var(--el-color-warning-light-9)] px-2 py-1 text-xs text-[var(--el-color-warning-dark-2)]"
+        >
+          <el-icon><Warning /></el-icon>
+          <span class="truncate">{{ staleSnapshotText(c.sourceKey) }}</span>
+          <el-button link type="primary" size="small" @click="refreshData">{{ t('common.retry') }}</el-button>
+        </div>
       </el-card>
     </div>
 
@@ -153,10 +167,11 @@
 </template>
 
 <script setup lang="ts" name="ToolReportBoard">
-import { DataBoard, DataAnalysis } from '@element-plus/icons-vue'
+import { DataBoard, DataAnalysis, Warning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { ComponentPublicInstance } from 'vue'
 import type { EChartsOption } from '@/utils/echarts'
+import { formatClockTime } from '@/utils'
 import { readCssVar, useChart } from '@/composables/useChart'
 import {
   addBoard,
@@ -200,8 +215,12 @@ const range = ref<SourceRange>('7d')
 const editing = ref(false)
 /** 数据缓存：sourceKey → 数据点（同一 sourceKey 的卡片共享一次请求） */
 const dataMap = ref<Map<string, SourcePoint[]>>(new Map())
-/** 加载失败的数据源（对应卡片显示局部失败占位） */
+/** 加载失败的数据源（对应卡片显示局部失败占位或"陈旧快照"徽标） */
 const failedSources = ref<Set<string>>(new Set())
+/** 数据源快照时刻：sourceKey → 最近一次成功取数的毫秒时间戳（b109：陈旧必须说得出"几点的数据"） */
+const sourceLoadedAt = ref<Map<string, number>>(new Map())
+/** 刷新序号：快速切换看板/范围时只让最后一次请求的结局生效 */
+let refreshSeq = 0
 
 /** 添加卡片对话框 */
 const dialogVisible = ref(false)
@@ -242,6 +261,8 @@ onMounted(async () => {
 
 /** 切换看板：加载该看板配置并刷新数据 */
 async function onBoardChange(): Promise<void> {
+  // 查询身份变了 ⇒ 旧快照必须先丢（否则新看板失败时屏上留着上一个看板的数据）
+  resetSnapshots()
   if (!activeId.value) {
     config.value = { cards: [] }
     return
@@ -253,26 +274,65 @@ async function onBoardChange(): Promise<void> {
   await refreshData()
 }
 
+/** 切换时间范围：同样是"换了一个问题"，旧范围的快照不得冒充新范围的结果 */
+function onRangeChange(): void {
+  resetSnapshots()
+  void refreshData()
+}
+
+/**
+ * 查询身份变了（换看板 / 换时间范围）就必须丢弃旧快照：
+ * 否则新看板/新范围取数失败时屏上留着的是**上一个看板或上一个范围**的数据，
+ * 还挂着"陈旧"徽标，读报表的人会把旧结论当成新范围的结果（b109，同 b108 日志页）。
+ */
+function resetSnapshots(): void {
+  // 序号前移 ⇒ 任何在飞的旧请求结局直接作废，不得在下一次取数之前回填旧数据
+  refreshSeq++
+  dataMap.value = new Map()
+  failedSources.value = new Set()
+  sourceLoadedAt.value = new Map()
+}
+
 /** 拉取看板所有 sourceKey 的数据并渲染图表（同一 sourceKey 只请求一次） */
 async function refreshData(): Promise<void> {
+  const my = ++refreshSeq
   const cards: ReportCard[] = config.value.cards
   const keys: string[] = [...new Set<string>(cards.map((c: ReportCard) => c.sourceKey))]
-  // 错误提示由 @/utils/request 响应拦截器 errorHub 统一弹出，此处仅记录失败源展示占位
-  failedSources.value.clear()
+  // 错误提示由 @/utils/request 响应拦截器 errorHub 统一弹出，此处记录失败源并区分"有无旧快照"
   const results = await Promise.all(
-    keys.map(async (key: string): Promise<readonly [string, SourcePoint[]]> => {
+    keys.map(async (key: string): Promise<readonly [string, SourcePoint[], boolean]> => {
       try {
         const resp = await getSourceData(key, range.value)
-        failedSources.value.delete(key)
-        return [key, resp.data?.items ?? []]
+        return [key, resp.data?.items ?? [], true]
       } catch {
-        failedSources.value.add(key)
-        return [key, []]
+        return [key, [], false]
       }
     })
   )
-  dataMap.value = new Map(results)
+  // 后发先回：旧请求的结局一律丢弃（既不覆盖数据，也不改失败集合）
+  if (my !== refreshSeq) return
+  const nextData = new Map<string, SourcePoint[]>(dataMap.value)
+  const nextAt = new Map<string, number>(sourceLoadedAt.value)
+  const nextFailed = new Set<string>()
+  for (const [key, items, ok] of results) {
+    if (ok) {
+      nextData.set(key, items)
+      nextAt.set(key, Date.now())
+    } else {
+      nextFailed.add(key)
+      // 失败且从未成功过 ⇒ 没有旧图可留，清掉占位数据；有快照则保留旧值（旧图继续展示）
+      if (!nextAt.has(key)) nextData.set(key, [])
+    }
+  }
+  dataMap.value = nextData
+  failedSources.value = nextFailed
+  sourceLoadedAt.value = nextAt
   await renderCharts()
+}
+
+/** 卡片上的陈旧徽标文案（时刻取该数据源最近一次成功取数） */
+function staleSnapshotText(key: string): string {
+  return t('reportBoard.staleSnapshot', { time: formatClockTime(sourceLoadedAt.value.get(key) ?? null) })
 }
 
 // ==================== 图表渲染 ====================

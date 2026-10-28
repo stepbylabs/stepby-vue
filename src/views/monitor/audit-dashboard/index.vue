@@ -44,7 +44,7 @@
           <Transition name="fade">
             <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
               <el-icon><WarningFilled /></el-icon>
-              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <span>{{ chartErrorText }}</span>
               <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
             </div>
           </Transition>
@@ -73,7 +73,7 @@
           <Transition name="fade">
             <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
               <el-icon><WarningFilled /></el-icon>
-              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <span>{{ chartErrorText }}</span>
               <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
             </div>
           </Transition>
@@ -102,7 +102,7 @@
           <Transition name="fade">
             <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
               <el-icon><WarningFilled /></el-icon>
-              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <span>{{ chartErrorText }}</span>
               <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
             </div>
           </Transition>
@@ -128,7 +128,7 @@
           <Transition name="fade">
             <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
               <el-icon><WarningFilled /></el-icon>
-              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <span>{{ chartErrorText }}</span>
               <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
             </div>
           </Transition>
@@ -157,14 +157,21 @@
           <Transition name="fade">
             <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
               <el-icon><WarningFilled /></el-icon>
-              <span>{{ t('dashboard.chartLoadFail') }}</span>
+              <span>{{ chartErrorText }}</span>
               <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
             </div>
           </Transition>
         </el-card>
       </el-col>
       <el-col v-motion="fadeInUp" :xs="24" :lg="12">
-        <alarm-panel :alarm-data="alarmData" :alarm-loading="alarmLoading" :alarm-threshold-tip="alarmThresholdTip" />
+        <alarm-panel
+          :alarm-data="alarmData"
+          :alarm-loading="alarmLoading"
+          :alarm-threshold-tip="alarmThresholdTip"
+          :alarm-error="alarmError"
+          :alarm-stale-hint="alarmStaleHint"
+          @retry="loadAlarm"
+        />
       </el-col>
     </el-row>
     <!-- 操作类型分布（§5.36：operlog stats-by-type 前端接入） -->
@@ -185,6 +192,13 @@
             v-loading="loading"
             :element-loading-text="t('common.loading')"
           ></div>
+          <Transition name="fade">
+            <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
+              <el-icon><WarningFilled /></el-icon>
+              <span>{{ chartErrorText }}</span>
+              <el-button text type="primary" @click="loadStats">{{ t('common.refresh') }}</el-button>
+            </div>
+          </Transition>
         </el-card>
       </el-col>
     </el-row>
@@ -206,6 +220,7 @@ import {
   Collection
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+import { formatClockTime } from '@/utils'
 import { getAlarmStatus } from '@/api/monitor/operlog'
 import StatCards from './StatCards.vue'
 import AlarmPanel from './AlarmPanel.vue'
@@ -222,8 +237,20 @@ const { sys_oper_type } = useDict('sys_oper_type')
 // 批次十九 P2（福哥拍板）：大屏默认 7 天窗（与后端 stats 默认对齐，聚合量收敛到窗口内）
 const days = ref(7)
 const loading = ref(false)
-// U20 优化：图表加载错误状态
 const chartError = ref(false)
+/** 是否至少成功取过一次统计（失败时区分"留旧图 + 时刻"与"从未加载成功"） */
+const statsLoaded = ref(false)
+/** 最近一次成功取数的时刻（陈旧横幅要说得出"几点的数据"） */
+const statsLastSuccessAt = ref<number | null>(null)
+/** 屏上图形属于哪个统计窗口（换窗口 = 换了问题，旧图不得顶着新标题） */
+let loadedDays: number | null = null
+/** 刷新序号：快速切换 7/14/30 天时只让最后一次请求的结局生效 */
+let statsSeq = 0
+const chartErrorText = computed(() =>
+  statsLoaded.value
+    ? t('common.staleDataHintAt', { time: formatClockTime(statsLastSuccessAt.value) })
+    : t('dashboard.chartLoadFail')
+)
 
 const stats = ref({
   totalOps: 0,
@@ -255,7 +282,8 @@ const {
   renderFailTrendChart,
   renderTypeStatsChart,
   handleResize,
-  clearResizeTimer
+  clearResizeTimer,
+  clearAllCharts
 } = useAuditCharts({
   getChart,
   withDark,
@@ -289,6 +317,11 @@ interface AlarmStatus {
 }
 const alarmData = ref<AlarmStatus | null>(null)
 const alarmLoading = ref(false)
+const alarmError = ref(false)
+/** 最近一次成功取到告警状态的时刻（失败时面板要说明"旧状态是什么时候的"） */
+const alarmLastSuccessAt = ref<number | null>(null)
+let alarmSeq = 0
+const alarmStaleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(alarmLastSuccessAt.value) }))
 const alarmThresholdTip = computed(() => {
   const cfg = alarmData.value?.config
   if (!cfg) return ''
@@ -307,22 +340,53 @@ interface StatsVo {
   daily: Array<{ date: string; success: number; fail: number }>
 }
 
-async function loadStats() {
+interface TypeStatsVo {
+  insert: number
+  update: number
+  delete: number
+  other: number
+}
+
+async function loadStats(): Promise<void> {
+  const my = ++statsSeq
+  // 统计窗口变了（7/14/30 天 = 换了问题）：旧图形与旧汇总必须先丢，
+  // 否则新窗口取数失败时屏上是上一个窗口的结果，却顶着新窗口的标题（b109）。
+  if (loadedDays !== null && loadedDays !== days.value) {
+    clearAllCharts()
+    lastDaily.value = []
+    lastPieData.value = []
+    lastTopUsersData.value = []
+    lastTopModulesData.value = []
+    lastTypeStats.value = null
+    stats.value = { totalOps: 0, successOps: 0, failOps: 0, activeUsers: 0 }
+    statsLoaded.value = false
+    statsLastSuccessAt.value = null
+    loadedDays = null
+  }
   loading.value = true
-  // U20 优化：图表加载错误状态
   chartError.value = false
   try {
-    const res = (await request({
-      url: '/monitor/operlog/stats',
-      method: 'get',
-      params: { days: days.value }
-    })) as Partial<StatsVo> & { data?: StatsVo }
+    // 两个聚合接口并行取数：任一失败即整次失败，避免"部分新数据 + 部分旧数据"的混合断面
+    const [res, ts] = (await Promise.all([
+      request({
+        url: '/monitor/operlog/stats',
+        method: 'get',
+        params: { days: days.value }
+      }),
+      request({
+        url: '/monitor/operlog/stats-by-type',
+        method: 'get'
+      })
+    ])) as [Partial<StatsVo> & { data?: StatsVo }, Partial<{ data?: TypeStatsVo }> & Partial<TypeStatsVo>]
+    // 后发先回：旧请求的结局一律丢弃（既不覆盖数据，也不改错误态与时刻）
+    if (my !== statsSeq) return
     const vo: StatsVo = (res.data || res) as StatsVo
     const summary = vo.summary || { total: 0, success: 0, fail: 0 }
     const businessTypes = vo.businessTypes || []
     const topOperators = vo.topOperators || []
     const topModules = vo.topModules || []
     const daily = vo.daily || []
+    const typeVo = (ts.data || ts) as TypeStatsVo
     // P1-3：缓存 businessTypes 供饼图点击回调反查 code
     lastBusinessTypes.value = businessTypes
     stats.value = {
@@ -337,17 +401,6 @@ async function loadStats() {
     lastPieData.value = businessTypes.map((b) => ({ name: formatBusinessType(b.businessType), value: b.count }))
     lastTopUsersData.value = topOperators.map((u) => ({ userName: u.operName, count: u.count }))
     lastTopModulesData.value = topModules.map((m) => ({ moduleName: m.moduleName, count: m.count }))
-    // §5.36：操作类型分布（独立聚合接口，四元组 insert/update/delete/other）
-    const ts = (await request({
-      url: '/monitor/operlog/stats-by-type',
-      method: 'get'
-    })) as Partial<{ data?: { insert: number; update: number; delete: number; other: number } }> & {
-      insert?: number
-      update?: number
-      delete?: number
-      other?: number
-    }
-    const typeVo = (ts.data || ts) as { insert: number; update: number; delete: number; other: number }
     lastTypeStats.value = {
       insert: typeVo.insert || 0,
       update: typeVo.update || 0,
@@ -355,6 +408,7 @@ async function loadStats() {
       other: typeVo.other || 0
     }
     await nextTick()
+    if (my !== statsSeq) return
     // 图表渲染相互独立，用 Promise.all 并行执行以减少总耗时
     await Promise.all([
       renderTrendChart(lastDaily.value),
@@ -364,25 +418,36 @@ async function loadStats() {
       renderFailTrendChart(lastDaily.value),
       renderTypeStatsChart(lastTypeStats.value)
     ])
+    if (my !== statsSeq) return
+    statsLoaded.value = true
+    statsLastSuccessAt.value = Date.now()
+    loadedDays = days.value
   } catch (e) {
+    if (my !== statsSeq) return
     if (import.meta.env.DEV) console.error('Failed to load audit dashboard data:', e)
-    // U20 优化：图表加载错误状态
+    // 成功过 ⇒ 旧图保留、文案说明时刻；从未成功 ⇒ 文案为"加载失败，请重试"
     chartError.value = true
   } finally {
-    loading.value = false
+    if (my === statsSeq) loading.value = false
   }
 }
 
-/** 加载异常操作告警状态 */
-async function loadAlarm() {
+/** 加载异常操作告警状态（失败必须可见：否则"取不到"会被读成"没有异常"） */
+async function loadAlarm(): Promise<void> {
+  const my = ++alarmSeq
   alarmLoading.value = true
+  alarmError.value = false
   try {
     const res = (await getAlarmStatus()) as { data?: AlarmStatus }
+    if (my !== alarmSeq) return
     alarmData.value = res?.data ?? null
+    alarmLastSuccessAt.value = Date.now()
   } catch (e) {
+    if (my !== alarmSeq) return
     if (import.meta.env.DEV) console.error('Failed to load alarm status:', e)
+    alarmError.value = true
   } finally {
-    alarmLoading.value = false
+    if (my === alarmSeq) alarmLoading.value = false
   }
 }
 
@@ -407,9 +472,8 @@ watch(
 
 onMounted(async () => {
   await nextTick()
-  await loadStats()
-  await loadAlarm()
   window.addEventListener('resize', handleResize)
+  await Promise.all([loadStats(), loadAlarm()])
 })
 
 onBeforeUnmount(() => {

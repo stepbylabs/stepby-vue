@@ -2,16 +2,24 @@
   <!-- Redis 未连接空状态 -->
   <Transition mode="out-in" name="fade">
     <div v-if="!cache?.info" key="empty">
-      <el-empty :description="t('cache.tip.notConnected')" :image-size="120">
+      <!-- 取数失败不等于"Redis 未连接"：从未取到过数据时按失败态显示，并给重试入口 -->
+      <el-empty
+        :description="chartError ? t('dashboard.chartLoadFail') : t('cache.tip.notConnected')"
+        :image-size="120"
+      >
         <el-button type="primary" @click="getList">{{ t('common.refresh') }}</el-button>
       </el-empty>
     </div>
     <div v-else key="content">
+      <!-- 成功过再失败：旧信息继续展示，横幅写明"几点的数据"（b109） -->
+      <el-alert v-if="chartError" class="mb-2" type="warning" :closable="false" show-icon :title="staleHint">
+        <el-button link type="primary" @click="getList">{{ t('common.retry') }}</el-button>
+      </el-alert>
       <el-row :gutter="10">
         <el-col :span="24" class="card-box">
           <el-card>
             <template #header>
-              <Monitor class="align-middle w-[1em] h-[1em]"/>
+              <Monitor class="align-middle w-[1em] h-[1em]" />
               <span class="align-middle">{{ t('cache.info.basicInfo') }}</span>
             </template>
             <el-descriptions :column="4" border size="small">
@@ -62,7 +70,7 @@
         <el-col :xs="24" :sm="24" :md="12" class="card-box">
           <el-card>
             <template #header>
-              <PieChart class="align-middle w-[1em] h-[1em]"/>
+              <PieChart class="align-middle w-[1em] h-[1em]" />
               <span class="align-middle">{{ t('cache.info.commandStats') }}</span>
             </template>
             <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -72,7 +80,7 @@
               <Transition name="fade">
                 <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-sm">
                   <el-icon><WarningFilled /></el-icon>
-                  <span>{{ t('dashboard.chartLoadFail') }}</span>
+                  <span>{{ chartErrorText }}</span>
                   <el-button text type="primary" @click="getList">{{ t('common.refresh') }}</el-button>
                 </div>
               </Transition>
@@ -83,7 +91,7 @@
         <el-col :xs="24" :sm="24" :md="12" class="card-box">
           <el-card>
             <template #header>
-              <Odometer class="align-middle w-[1em] h-[1em]"/>
+              <Odometer class="align-middle w-[1em] h-[1em]" />
               <span class="align-middle">{{ t('cache.info.memoryInfo') }}</span>
             </template>
             <div v-loading="loading" :element-loading-text="t('common.loading')">
@@ -100,6 +108,7 @@
 <script setup lang="ts" name="CacheOverview">
 import { Monitor, PieChart, Odometer, WarningFilled } from '@element-plus/icons-vue'
 import { getCache } from '@/api/monitor/cache'
+import { formatClockTime } from '@/utils'
 // 性能优化：echarts 按需导入（统一从 @/utils/echarts 引入，所有页面共享同一份注册）
 import { type ECharts, type EChartsOption } from '@/utils/echarts'
 import { useChart } from '@/composables/useChart'
@@ -120,6 +129,12 @@ interface CacheData {
 const cache = ref<CacheData | null>(null)
 const loading = ref(false)
 const chartError = ref(false)
+/** 最近一次成功取数的时刻（陈旧横幅要说得出"几点的数据"） */
+const lastSuccessAt = ref<number | null>(null)
+/** 刷新序号：连续点刷新时只让最后一次请求的结局生效 */
+let seq = 0
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
+const chartErrorText = computed(() => (lastSuccessAt.value ? staleHint.value : t('dashboard.chartLoadFail')))
 const commandstats = useTemplateRef<HTMLDivElement>('commandstats')
 const usedmemory = useTemplateRef<HTMLDivElement>('usedmemory')
 let commandstatsInstance: ECharts | null = null
@@ -315,20 +330,27 @@ async function renderCharts(data: CacheData): Promise<void> {
 }
 
 function getList(): void {
+  const my = ++seq
   loading.value = true
   chartError.value = false
   modal.loading(t('cache.tip.loading'))
   getCache()
     .then(async (response) => {
+      // 后发先回：旧请求的结局一律丢弃（不覆盖数据、不改错误态与时刻）
+      if (my !== seq) return
       const data = response.data as CacheData
       cache.value = data
+      lastSuccessAt.value = Date.now()
       await renderCharts(data)
     })
     .catch(() => {
+      if (my !== seq) return
       modal.msgError(t('cache.tip.loadFailed'))
+      // 成功过 ⇒ 旧信息保留 + 横幅说明时刻；从未成功 ⇒ 空态显示"取数失败"而不是"未连接"
       chartError.value = true
     })
     .finally(() => {
+      if (my !== seq) return
       modal.closeLoading()
       loading.value = false
     })

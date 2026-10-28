@@ -24,7 +24,7 @@
       <Transition name="fade">
         <div v-if="chartError" class="chart-error flex items-center justify-center gap-2 p-3 text-danger text-sm">
           <el-icon><WarningFilled /></el-icon>
-          <span>{{ t('dashboard.chartLoadFail') }}</span>
+          <span>{{ chartErrorText }}</span>
           <el-button text type="primary" @click="loadLoginStats">{{ t('common.refresh') }}</el-button>
         </div>
       </Transition>
@@ -148,14 +148,21 @@ import { type ECharts, type EChartsOption } from '@/utils/echarts'
 import { useChart, readCssVar } from '@/composables/useChart'
 import useSettingsStore from '@/store/modules/settings'
 import request from '@/utils/request'
+import { formatClockTime } from '@/utils'
 
 const version = ref<string>(__APP_VERSION__ || '0.1.0')
 const chartRef = ref<HTMLElement | null>(null)
 const loading = ref(false)
 // U20 优化：图表加载错误状态
 const chartError = ref(false)
+/** 最近一次成功取数的时刻（失败时横幅要说得出"几点的数据"） */
+const lastSuccessAt = ref<number | null>(null)
 const totalSuccess = ref(0)
 const totalFail = ref(0)
+/** 刷新序号：连续点刷新时只让最后一次请求的结局生效 */
+let statsSeq = 0
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
+const chartErrorText = computed(() => (lastSuccessAt.value ? staleHint.value : t('dashboard.chartLoadFail')))
 // TierS-4: 水印改由 layout/index.vue 全局控制（userPrefs.watermarkEnabled）
 
 let chartInstance: ECharts | null = null
@@ -170,23 +177,30 @@ function goTarget(url: string): void {
 
 /** 加载登录统计 */
 async function loadLoginStats(): Promise<void> {
+  const my = ++statsSeq
   loading.value = true
   chartError.value = false
   try {
     const res = (await request({ url: '/monitor/logininfor/stats?days=7', method: 'get' })) as {
       data?: Array<{ date: string; success: number; fail: number }>
     }
+    // 后发先回：旧请求的结局一律丢弃（不覆盖统计值、不改错误态与时刻）
+    if (my !== statsSeq) return
     const data: Array<{ date: string; success: number; fail: number }> = res.data || []
     lastLoginStatsData = data
     totalSuccess.value = data.reduce((sum, item) => sum + item.success, 0)
     totalFail.value = data.reduce((sum, item) => sum + item.fail, 0)
+    lastSuccessAt.value = Date.now()
     await nextTick()
+    if (my !== statsSeq) return
     await renderChart(data)
   } catch (err) {
+    if (my !== statsSeq) return
     if (import.meta.env.DEV) console.error('[Home] Failed to load login stats:', err)
+    // 成功过 ⇒ 旧曲线/旧汇总保留、横幅说明时刻；从未成功 ⇒ 文案为"加载失败"
     chartError.value = true
   } finally {
-    loading.value = false
+    if (my === statsSeq) loading.value = false
   }
 }
 

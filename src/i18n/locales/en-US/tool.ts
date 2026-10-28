@@ -822,6 +822,8 @@ export default {
     cancel: 'Cancel',
     confirm: 'OK',
     dataLoadFail: 'Failed to load data',
+    // Refresh failed but the card still shows the last successful fetch — say when (b109)
+    staleSnapshot: 'Refresh failed; showing a snapshot from {time}',
     sourcesLoadFail: 'Failed to load data sources',
     nameRequired: 'Board name is required',
     noBoard: 'Create or select a board first',

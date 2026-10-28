@@ -852,6 +852,8 @@ export default {
     cancel: '取消',
     confirm: '确定',
     dataLoadFail: '数据加载失败',
+    // 刷新失败但卡片仍展示上一次成功取数：必须说得出是几点快照（b109）
+    staleSnapshot: '数据刷新失败，当前展示为 {time} 的数据快照',
     sourcesLoadFail: '数据源清单加载失败',
     nameRequired: '请输入看板名称',
     noBoard: '请先新建或选择一个看板',

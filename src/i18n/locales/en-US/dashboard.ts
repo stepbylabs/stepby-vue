@@ -156,7 +156,8 @@ export default {
       burstOperators: 'High-fail operators',
       burstModules: 'High-fail modules',
       times: '{count} times',
-      thresholdSet: 'Threshold ({window}min, fail>{count}, or rate>{rate}%)'
+      thresholdSet: 'Threshold ({window}min, fail>{count}, or rate>{rate}%)',
+      loadFail: 'Failed to load alarm status — cannot confirm whether anything is abnormal'
     },
     btn: {
       exportPdf: 'Export Report',
