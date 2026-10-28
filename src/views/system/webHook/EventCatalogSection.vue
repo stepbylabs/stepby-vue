@@ -131,11 +131,15 @@ function handleEventCatalogSortChange(column: { prop: string | null; order: stri
 // 枚举（量级有限），下拉统一全量拉取（pageSize: 500 覆盖足够）。
 const eventOptionsFull = ref<WebhookEventVo[]>([])
 const eventOptionsLoading = ref(false)
+// 下拉数据源失败必须可见（b110）：原实现 catch 静默，订阅下拉会一直是空的，
+// 用户看到的是"没有可订阅事件"而不是"目录加载失败"
+const eventOptionsError = ref(false)
 
 /** 全量加载事件目录（供订阅/测试发送下拉；防重入） */
 function loadEventOptionsFull(): void {
   if (eventOptionsLoading.value) return
   eventOptionsLoading.value = true
+  eventOptionsError.value = false
   listWebhookEvents({ pageNum: 1, pageSize: 500 })
     .then((res) => {
       eventOptionsFull.value = res.rows || []
@@ -144,7 +148,10 @@ function loadEventOptionsFull(): void {
         console.warn('[webHook] 事件目录下拉拉取达到 pageSize=500 上限，可能存在截断')
       }
     })
-    .catch(() => {})
+    .catch(() => {
+      eventOptionsFull.value = []
+      eventOptionsError.value = true
+    })
     .finally(() => {
       eventOptionsLoading.value = false
     })
@@ -191,7 +198,10 @@ async function handleEventEnabledChange(row: WebhookEventVo, val: string | numbe
 
 defineExpose({
   /** 供父组件在打开表单/测试对话框时兜底重拉全量下拉（防重入逻辑在本组件内） */
-  reloadOptions: loadEventOptionsFull
+  reloadOptions: loadEventOptionsFull,
+  /** 下拉数据源的加载态/失败态（父组件的订阅多选与测试发送下拉据此显示进度与重试） */
+  optionsLoading: eventOptionsLoading,
+  optionsError: eventOptionsError
 })
 </script>
 

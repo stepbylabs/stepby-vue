@@ -26,7 +26,8 @@
       :data="pagedRoles"
     >
       <template #empty>
-        <el-empty :description="t('common.noData')" :image-size="80" />
+        <!-- 失败与"该用户还没有角色"必须可分：失败由 ListEmpty 给重试入口（b110） -->
+        <list-empty :load-error="loadError" @retry="loadAuthRole" />
       </template>
       <el-table-column :label="t('common.column.sort')" width="55" type="index" align="center">
         <template #default="scope">
@@ -81,6 +82,10 @@ const roleRefRef = useTemplateRef('roleRef')
 const { t } = useI18n()
 
 const loading = ref<boolean>(true)
+// 提交在途态：既是按钮的 loading，也是双击/连点的同步闸（避免重复 updateAuthRole）
+const submitLoading = ref<boolean>(false)
+// 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
+const loadError = ref<boolean>(false)
 const total = ref<number>(0)
 const pageNum = ref<number>(1)
 const pageSize = ref<number>(10)
@@ -130,39 +135,61 @@ function close() {
   tab.closeOpenPage(obj)
 }
 
-/** 提交按钮 */
+/** 提交按钮（在途期重复点击直接丢弃，不重复发请求） */
 function submitForm() {
+  if (submitLoading.value) return
   const userId = form.value.userId
   const rIds = roleIds.value.join(',')
+  submitLoading.value = true
   updateAuthRole({ userId: userId!, roleIds: rIds })
     .then(() => {
       modal.msgSuccess(t('userAuthRole.authSuccess'))
       close()
     })
-    .catch(() => {})
+    .catch(() => {
+      // 接口错误的提示由请求拦截器统一负责；这里只保证拒绝不逸出、按钮复位
+    })
+    .finally(() => {
+      submitLoading.value = false
+    })
 }
 
-;(() => {
+/** 查询该用户的角色授权（重试入口与首次加载共用） */
+function loadAuthRole() {
   const userId = toPositiveInt(route.params.userId)
-  if (userId) {
-    loading.value = true
-    getAuthRole(userId)
-      .then((response) => {
-        form.value = response.user
-        roles.value = response.roles
-        total.value = roles.value.length
-        nextTick(() => {
-          roles.value.forEach((row: SysRoleWithFlag) => {
-            if (row.flag) {
-              roleRefRef.value?.toggleRowSelection(row)
-            }
-          })
+  if (!userId) {
+    // 深链参数非法（缺失/畸形/越界）：不发注定 400 的请求，也不留永久骨架
+    loading.value = false
+    loadError.value = false
+    roles.value = []
+    total.value = 0
+    return
+  }
+  loading.value = true
+  loadError.value = false
+  getAuthRole(userId)
+    .then((response) => {
+      form.value = response.user
+      roles.value = response.roles
+      total.value = roles.value.length
+      nextTick(() => {
+        roles.value.forEach((row: SysRoleWithFlag) => {
+          if (row.flag) {
+            roleRefRef.value?.toggleRowSelection(row)
+          }
         })
       })
-      .catch(() => {})
-      .finally(() => {
-        loading.value = false
-      })
-  }
-})()
+    })
+    .catch(() => {
+      // 失败必须与"该用户没有角色"可区分：清空陈旧行 + 空态给重试
+      loadError.value = true
+      roles.value = []
+      total.value = 0
+    })
+    .finally(() => {
+      loading.value = false
+    })
+}
+
+loadAuthRole()
 </script>

@@ -444,6 +444,31 @@ async function flushFailureEvidence(page, featureId) {
 }
 
 /**
+ * 敏感写面限流适配（b110）：b102 给 `/system/tenant` 加了敏感档
+ * （`SENSITIVE_LIMIT_TIERS`：容量 5 / 回填 0.05/s），而本套件在 F69–F74 会于同一秒内
+ * 连续开户 + 编辑十余次 ⇒ 必然撞 429（实测：F69 的 2 次 POST + 3 次 PUT 恰好耗尽 5 个令牌，
+ * F70 起全部 429、`tenantId=null`，F71–F74 连带"前置失败"）。
+ * 429 的语义是**这次没有执行**，按响应头 `Retry-After` 等待后重试是客户端该做的事，
+ * 不是把判据放宽；只拦**精确路径** `/system/tenant`（F71 要自己断言 429 契约，
+ * 通配 wrapper 会把它一起吞掉）。
+ */
+async function tenantWrite(url, init = {}, label = '') {
+  const maxWaitMs = 180000
+  const started = Date.now()
+  for (;;) {
+    const resp = await fetch(url, init)
+    if (resp.status !== 429) return resp
+    const ra = Number(resp.headers.get('retry-after'))
+    const waitMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 + 300 : 1000
+    if (Date.now() - started + waitMs > maxWaitMs) return resp
+    log(
+      `  ⏳ ${label || 'POST/PUT /system/tenant'} 命中敏感档限流（429），按 Retry-After ${Math.ceil(waitMs / 1000)}s 等待后重试`
+    )
+    await sleep(waitMs)
+  }
+}
+
+/**
  * API 登录（fetch 方式，返回 token 或 null）
  * 用于 testFeature25-32 等纯 API 测试场景，失败时记录详细错误信息
  * 内置 429 限流重试 + token 缓存机制（避免重复登录触发限流）
@@ -10125,12 +10150,12 @@ async function testFeature42(page) {
     const noParallelRoles = !/url:\s*['"]\/system\/role\/list['"]/.test(content)
     const noParallelOnline = !/url:\s*['"]\/monitor\/online\/list['"]/.test(content)
 
-    // 检查使用了聚合字段（卡片内映射到本地 stats）
-    const usesAggregatedFields =
-      content.includes('data.totalUsers') &&
-      content.includes('data.totalRoles') &&
-      content.includes('data.todayLogins') &&
-      content.includes('data.onlineCount')
+    // 检查使用了聚合字段（卡片内映射到本地 stats）。
+    // 只认"这四个聚合字段被以属性形式消费"（`.totalUsers` 这类），不锚定承载变量名：
+    // b107 已把 `data.totalUsers` 重构成 `d.totalUsers`，按变量名锚定会把等价实现判红
+    const usesAggregatedFields = ['totalUsers', 'totalRoles', 'todayLogins', 'onlineCount'].every((f) =>
+      content.includes(`.${f}`)
+    )
 
     const passed = hasSingleCall && noParallelUsers && noParallelRoles && noParallelOnline && usesAggregatedFields
     record(
@@ -15488,7 +15513,7 @@ async function testFeature69(page) {
     let tenantId = null
     let rootDeptId = null
     try {
-      const addResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+      const addResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
         method: 'POST',
         headers: jsonHeaders,
         body: JSON.stringify({
@@ -15572,7 +15597,7 @@ async function testFeature69(page) {
   }
   try {
     const editedName = `租户A改${uniq}`
-    const editResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const editResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'PUT',
       headers: jsonHeaders,
       body: JSON.stringify({ tenantId: tenantIdA, tenantName: editedName, leader: '负责人A改' })
@@ -15612,7 +15637,7 @@ async function testFeature69(page) {
   }
   const expireForSet = '2099-01-01 00:00:00'
   try {
-    const setResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const setResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'PUT',
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -15642,7 +15667,7 @@ async function testFeature69(page) {
 
   // ---------- 步骤 3c：三态语义「清空」方向（显式 null = 清空，区别于缺省 = 不修改） ----------
   try {
-    const clearResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const clearResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'PUT',
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -15924,7 +15949,7 @@ async function testFeature70(page) {
   let adminUserName = null
   let adminInitPassword = null
   try {
-    const addResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const addResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({ tenantName: tName, tenantCode: tCode, accountCount: 1, status: '0' })
@@ -16158,7 +16183,7 @@ async function testFeature71(page) {
   let adminUserName = null
   let adminInitPassword = null
   try {
-    const addResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const addResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({ tenantName: tName, tenantCode: tCode, status: '0' })
@@ -16476,7 +16501,7 @@ async function testFeature72(page) {
 
   // ---------- 步骤 2：建两个租户（A/B），用于同名拦截与跨租户不可见 ----------
   const mkTenant = async (label) => {
-    const resp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+    const resp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -17060,7 +17085,7 @@ async function testFeature73(page) {
       const code = `t${label}${uniq}`
       const body = { tenantName: name, tenantCode: code, status: '0' }
       if (packageId) body.packageId = packageId
-      const resp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+      const resp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
         method: 'POST',
         headers: jsonHeaders,
         body: JSON.stringify(body)
@@ -17145,7 +17170,7 @@ async function testFeature73(page) {
 
     // ---------- 步骤 5：套餐③——套餐变更收敛（改小套餐后越界授权被移除） ----------
     try {
-      const putResp = await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+      const putResp = await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, packageId: pkgSmallId })
@@ -17331,7 +17356,7 @@ async function testFeature73(page) {
       return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
     }
     const setExpire = async (expireTime) => {
-      return await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+      return await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, expireTime })
@@ -17396,7 +17421,7 @@ async function testFeature73(page) {
     try {
       // 1) 恢复租户 A 为"永不过期"（清空到期；同时使租户 A 令牌恢复可用）
       if (ta?.tenantId) {
-        await fetch(`${CONFIG.backendUrl}/system/tenant`, {
+        await tenantWrite(`${CONFIG.backendUrl}/system/tenant`, {
           method: 'PUT',
           headers: jsonHeaders,
           body: JSON.stringify({ tenantId: ta.tenantId, tenantName: ta.name, expireTime: null })
@@ -17534,7 +17559,8 @@ async function testFeature74(page) {
 
   // 统一响应读取（返回 status / body / code / rows / total / data，网络异常安全兜底）
   const api = async (url, opts) => {
-    const res = await fetch(url, opts).catch(() => null)
+    // 同一秒内连续开户会撞 b102 的 /system/tenant 敏感档 ⇒ 走租户写面限流适配
+    const res = await tenantWrite(url, opts).catch(() => null)
     if (!res) return { ok: false, status: 0, body: null, code: null, msg: 'network', rows: [], total: null, data: null }
     const body = await res.json().catch(() => null)
     return {
@@ -27782,8 +27808,18 @@ async function testFeature139(page) {
     .catch(() => 0)
   record(139, '④ 目标租户选择器渲染', selCount > 0, `selects=${selCount}`)
 
-  // ⑤ 平台未选租户 → 空态「暂无数据」（租户选择器无选项时）
+  // ⑤ 平台未选租户 → **域名面板必须不渲染**（防脏数据）；此时按"有没有可选租户"分两种诚实呈现：
+  //    无可选租户 ⇒ el-empty「暂无数据」；有可选租户 ⇒ 警告条「请先选择目标租户」。
+  //    b110 全量轮实测：原判据只认 el-empty，于是库里一旦存在任何租户（本轮是我手工探针留下的一条）
+  //    就把"警告条"判红——**判据的结论由数据态决定**（AGENTS ㉗）。真实不变式只有一条：
+  //    未选租户时不得渲染域名面板。
   const empty = await _visible(page.locator('.el-empty__description').filter({ hasText: '暂无数据' }), 4000)
+  const warnPick =
+    (await page
+      .locator('.el-alert__title')
+      .filter({ hasText: '请先在上方选择目标租户' })
+      .count()
+      .catch(() => 0)) > 0
   const panelAbsent =
     (await page
       .locator('table')
@@ -27791,9 +27827,9 @@ async function testFeature139(page) {
       .catch(() => 0)) === 0
   record(
     139,
-    '⑤ 未选租户 → 空态且域名面板未渲染（防脏数据）',
-    empty && panelAbsent,
-    `empty=${empty}, tables=${panelAbsent ? 0 : '>0'}`
+    '⑤ 未选租户 → 域名面板未渲染（空态或"请先选择租户"提示二选一，防脏数据）',
+    panelAbsent && (empty || warnPick),
+    `panelAbsent=${panelAbsent}, empty=${empty}, warnPick=${warnPick}`
   )
 
   const token = await sessionTokenOf(page)

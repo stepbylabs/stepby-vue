@@ -178,7 +178,7 @@
         </el-table-column>
         <template #empty>
           <!-- 失败/空态分形（ListEmpty 单一实现）：本页手写 getList，用本地 loadError 接同一组件 -->
-          <list-empty :load-error="loadError" @retry="getList" />
+          <list-empty :load-error="loadError" @retry="initPage" />
         </template>
       </el-table>
     </Transition>
@@ -358,19 +358,28 @@ function handleExport() {
   )
 }
 
-;(() => {
+/** 页面初始化（重试入口同源）：深链带 jobId 时先取任务信息再查日志 */
+function initPage() {
   // 深链参数必须过闸门：裸 Number() 会把 100 位数字串折成 1.11e+99 并照常出网（b73 轮 16 取证）
   const jobId = toPositiveInt(route.params?.jobId)
-  if (jobId !== 0) {
-    getJob(jobId)
-      .then((response) => {
-        queryParams.value.jobName = response.data!.jobName
-        queryParams.value.jobGroup = response.data!.jobGroup
-        getList()
-      })
-      .catch(() => {})
-  } else {
+  if (jobId === 0) {
     getList()
+    return
   }
-})()
+  getJob(jobId)
+    .then((response) => {
+      queryParams.value.jobName = response.data!.jobName
+      queryParams.value.jobGroup = response.data!.jobGroup
+      getList()
+    })
+    .catch(() => {
+      // 取不到任务信息时不能拿"无过滤的日志列表"冒充它的执行日志：
+      // 落失败态 + 重试（重试会重跑本函数），页面上不再出现一份看起来正常的空表（b110）
+      loadError.value = true
+      jobLogList.value = []
+      total.value = 0
+    })
+}
+
+initPage()
 </script>

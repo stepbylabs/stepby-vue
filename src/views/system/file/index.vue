@@ -15,7 +15,7 @@
         </el-upload>
       </el-col>
       <el-col :span="1.5">
-        <el-button icon="Refresh" @click="loadList">{{ t('common.refresh') }}</el-button>
+        <el-button icon="Refresh" @click="getList">{{ t('common.refresh') }}</el-button>
       </el-col>
       <el-col :span="1.5">
         <el-button

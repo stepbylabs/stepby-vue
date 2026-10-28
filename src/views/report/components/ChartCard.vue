@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { previewDataset, type DashboardChart } from '@/api/report'
 import { buildChartOption, buildStatValue } from '../designer/chartOption'
@@ -129,10 +129,22 @@ async function renderEcharts() {
   resize()
 }
 
-// deep 必须保留：上游 report/designer 属性面板通过 v-model 原地修改 chart 对象的字段
-// （editing.title/span/xField 等，非整体替换），浅监听 props.chart 引用不会触发；
-// report/view 则整卡 :key 重建，走 onMounted。无法收敛为单一变化源，故保持 deep。
-watch(() => props.chart, load, { deep: true, immediate: false })
+// 属性面板是按字段原地改的（不整体替换 chart 对象），所以监听必须落到**字段**上；
+// 但不能再用一个 deep 监听全量重拉：此前改标题/栅格宽度（纯展示字段）也会重新执行
+// 数据集查询，属性面板每敲一个字就发一次 preview 请求（b110）。
+//
+// 取数身份：只有"取哪份数据"变化才重新请求
+watch(() => props.chart.datasetId, load)
+// 展示身份：换图型/换字段只改变"怎么用已有行画"，本地重画即可，不打接口。
+// nextTick 必须等：从 table/stat 切到 echarts 时容器在 v-else 分支，
+// 本轮渲染前 chartRef 还是空的（renderEcharts 会静默 return，屏幕上什么都不画）。
+watch(
+  () => [props.chart.chartType, props.chart.xField, props.chart.yField, props.chart.nameField, props.chart.valueField],
+  async () => {
+    await nextTick()
+    await renderEcharts()
+  }
+)
 onMounted(load)
 onBeforeUnmount(dispose)
 

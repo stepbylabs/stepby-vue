@@ -28,6 +28,20 @@
     // 类型声明相关配置
     "types": ["node", "vite/client", "element-plus/global", "vitest/globals", "vite-plugin-pwa/client"]
   },
+  // 模板严格模式（b110）：未注册组件 / 未知 prop（含自定义属性）会成为类型错误。
+  // b107 的"模板残留已删除变量 unreadNotices ⇒ 整页卸载"是同一族的真实事故。
+  // **实测边界**（b110 探针，勿凭直觉放宽）：strictTemplates **不报**模板插值/绑定里的未定义
+  // 标识符——`{{ nope }}` / `v-if="nope"` / `:title="nope.x"` 在 vue-tsc 下全无诊断，
+  // 只有 `<NoSuchComp />` 报 TS2339。该类由 ESLint `vue/no-undef-properties` 兜底
+  // （eslint.config.mjs，`eslint` 是门禁电池里的一把），见 templateUndefined.guard.test.ts。
+  // dataAttributes 只豁免"运行时被真实消费、但不在 Vue 元素类型里"的属性名：
+  //   element-loading-*：Element Plus v-loading 指令按 el.getAttribute(...) 读取（EP 公开用法）
+  //   data-*：HTML 规范的自定义数据属性（页面样式与 e2e 判据使用）
+  //   xlink:href：SVG <use> 的合法引用属性
+  "vueCompilerOptions": {
+    "strictTemplates": true,
+    "dataAttributes": ["data-*", "element-loading-*", "xlink:href"]
+  },
   "include": ["src/**/*.ts", "src/**/*.vue", "vite/**/*.ts", "auto-imports.d.ts", "components.d.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.js"]
 }

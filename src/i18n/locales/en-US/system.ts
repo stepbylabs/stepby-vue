@@ -1515,7 +1515,8 @@ export default {
       name: 'Event Name',
       description: 'Description',
       payloadExample: 'Payload Example',
-      empty: 'No events'
+      empty: 'No events',
+      loadFail: 'Failed to load the event catalog; subscription options may be empty'
     }
   },
   auditChange: {

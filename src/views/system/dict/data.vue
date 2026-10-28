@@ -148,7 +148,7 @@
         </template>
       </el-table-column>
       <template #empty>
-        <list-empty :load-error="loadError" @retry="getList" />
+        <list-empty :load-error="loadError" @retry="initPage" />
       </template>
     </el-table>
 
@@ -303,15 +303,28 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
-/** 查询字典类型详细 */
+/** 查询字典类型详细（失败必须可见：否则列表既不加载、页面又显示"暂无数据"） */
 function getTypes(dictId: number) {
+  loadError.value = false
   getType(dictId)
     .then((response) => {
       queryParams.value.dictType = response.data!.dictType
       defaultDictType.value = response.data!.dictType!
       getList()
     })
-    .catch(() => {})
+    .catch(() => {
+      // 类型详情没拿到 ⇒ 无 dictType 可查；落失败态而不是空列表（b110）
+      loadError.value = true
+      dataList.value = []
+      total.value = 0
+    })
+}
+
+/** 页面初始化（重试入口：类型详情失败时重跑本函数，不拿空 dictType 去查列表） */
+function initPage() {
+  const dictId = toPositiveInt(route.params.dictId)
+  if (dictId) getTypes(dictId)
+  else if (queryParams.value.dictType) getList()
 }
 
 /** 查询字典类型列表 */
@@ -476,8 +489,7 @@ function handleExport() {
   rawHandleExport({ ...queryParams.value })
 }
 
-const initialDictId = toPositiveInt(route.params.dictId)
-if (initialDictId) getTypes(initialDictId)
+initPage()
 getTypeList()
 
 // FE-15: keep-alive 缓存后从字典类型页带不同 dictId 跳转时，setup 不会重新执行，

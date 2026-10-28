@@ -127,7 +127,7 @@
       <el-alert v-if="result.answer" :title="result.answer" type="info" :closable="false" class="mb-3" />
 
       <!-- 数据表格（动态列） -->
-      <el-table :data="tableRows" border stripe max-height="480">
+      <el-table :data="result.rows" border stripe max-height="480">
         <el-table-column
           v-for="col in result.columns"
           :key="col"

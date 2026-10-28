@@ -2,7 +2,8 @@
   <div
     id="tags-view-container"
     class="tags-view-container"
-    :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }">
+    :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }"
+  >
     <!-- 左切换箭头 -->
     <span
       class="tags-nav-btn tags-nav-btn--left"
@@ -11,7 +12,8 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollLeft')"
       @click="scrollLeft"
-      @keydown.enter.prevent="scrollLeft" >
+      @keydown.enter.prevent="scrollLeft"
+    >
       <el-icon><arrow-left /></el-icon>
     </span>
 
@@ -39,7 +41,8 @@
           @dragover.prevent="onDragOver($event, idx)"
           @dragleave="onDragLeave(idx)"
           @drop.prevent="onDrop(idx)"
-          @dragend="onDragEnd" >
+          @dragend="onDragEnd"
+        >
           <svg-icon
             v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'"
             :icon-class="tag.meta.icon"
@@ -54,7 +57,8 @@
             class="tags-close-btn inline-flex items-center justify-center w-5 h-5 ml-1 rounded-full cursor-pointer p-0.5 box-border"
             role="button"
             tabindex="0"
-            :aria-label="safeT('layout.tagsView.closeTag', { title: translateTitle(tag.meta) })" >
+            :aria-label="safeT('layout.tagsView.closeTag', { title: translateTitle(tag.meta) })"
+          >
             <close class="w-[1em] h-[1em] el-icon-close" />
           </span>
         </router-link>
@@ -69,7 +73,8 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.scrollRight')"
       @click="scrollRight"
-      @keydown.enter.prevent="scrollRight" >
+      @keydown.enter.prevent="scrollRight"
+    >
       <el-icon><arrow-right /></el-icon>
     </span>
 
@@ -78,7 +83,8 @@
       class="tags-action-dropdown shrink-0 flex items-center"
       trigger="click"
       placement="bottom-end"
-      @command="handleDropdownCommand" >
+      @command="handleDropdownCommand"
+    >
       <!-- 无障碍：触发器必须有可读名称（a11y 全站扫描暴露）；role/tabindex/键盘触发由 el-dropdown 自动处理 -->
       <span class="tags-action-btn" :aria-label="safeT('layout.tagsView.tagActions')">
         <el-icon><arrow-down /></el-icon>
@@ -126,7 +132,8 @@
       tabindex="0"
       :aria-label="safeT('layout.tagsView.refreshCurrent')"
       @click="refreshSelectedTag(selectedDropdownTag)"
-      @keydown.enter.prevent="refreshSelectedTag(selectedDropdownTag)" >
+      @keydown.enter.prevent="refreshSelectedTag(selectedDropdownTag)"
+    >
       <el-icon><refresh-right class="w-[1em] h-[1em]" /></el-icon>
       {{ safeT('common.refresh') }}
     </span>
@@ -189,7 +196,9 @@ const tagsViewPersist = computed(() => useSettingsStore().tagsViewPersist)
 const tagsViewStyle = computed(() => useSettingsStore().tagsViewStyle)
 
 // 拖拽排序（affix 标签禁止拖拽，逻辑封装于 useTagsViewDrag）
-const { draggingIdx, dragOverIdx, onDragStart, onDragOver, onDragLeave, onDrop } = useTagsViewDrag({
+// onDragEnd 必须一并取出：拖拽中途取消（Esc / 在窗口外松开）时 @dragend 是唯一的复位点，
+// 少了它 dragging/drag-over 高亮会一直挂着（模板里一直有 @dragend="onDragEnd"）
+const { draggingIdx, dragOverIdx, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd } = useTagsViewDrag({
   isAffix,
   visitedViews
 })

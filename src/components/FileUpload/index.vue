@@ -14,7 +14,7 @@
       :headers="headers"
       class="upload-file-uploader mb-[5px]"
       ref="fileUpload"
-      v-if="!disable"
+      v-if="!disabled"
     >
       <!-- 上传按钮 -->
       <el-button type="primary">{{ t('fileUpload.selectFile') }}</el-button>

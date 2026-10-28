@@ -269,7 +269,13 @@
             >
               <el-option v-for="opt in eventCatalogOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
-            <div class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.subscribedEventsTip') }}</div>
+            <div v-if="eventCatalogLoadError" class="mt-1 text-xs text-[var(--el-color-danger)]">
+              {{ t('webHook.eventCatalog.loadFail') }}
+              <el-button link type="primary" size="small" @click="loadEventOptionsFull">
+                {{ t('common.retry') }}
+              </el-button>
+            </div>
+            <div v-else class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.subscribedEventsTip') }}</div>
           </div>
         </el-form-item>
         <el-form-item :label="t('webHook.form.targetUrl')" prop="targetUrl">
@@ -446,7 +452,14 @@ const contentTypeOptions = ['json', 'form-urlencoded']
 const eventCatalogOpen = ref(false)
 // 目录下拉选项（停用事件在测试发送中禁用；名称与 event_key 一并展示）由子组件加载并回传
 const eventCatalogOptions = ref<{ value: string; label: string; disabled: boolean }[]>([])
-const eventCatalogSectionRef = useTemplateRef<{ reloadOptions: () => void }>('eventCatalogSectionRef')
+const eventCatalogSectionRef = useTemplateRef<{
+  reloadOptions: () => void
+  optionsLoading: boolean
+  optionsError: boolean
+}>('eventCatalogSectionRef')
+// 下拉数据源的进度/失败由子组件持有（单一数据源），父组件只消费不回推
+const eventCatalogLoading = computed(() => eventCatalogSectionRef.value?.optionsLoading ?? false)
+const eventCatalogLoadError = computed(() => eventCatalogSectionRef.value?.optionsError ?? false)
 
 /** 打开事件目录对话框 */
 function openEventCatalog(): void {

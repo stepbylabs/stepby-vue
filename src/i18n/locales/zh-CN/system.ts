@@ -1486,7 +1486,8 @@ export default {
       name: '事件名称',
       description: '事件说明',
       payloadExample: '负载样例',
-      empty: '暂无事件'
+      empty: '暂无事件',
+      loadFail: '事件目录加载失败，订阅选项可能为空'
     }
   },
   auditChange: {

@@ -125,6 +125,12 @@ export default [
       'vue/multi-word-component-names': 'off',
       'vue/no-v-html': 'off',
       'vue/require-default-prop': 'off',
+      // 模板未定义标识符（b110）：strictTemplates 只抓未注册组件/未知 prop，插值与绑定里的
+      // 未定义名字 vue-tsc 一律不报（b110 探针实测），于是 `{{ tableRows }}` 这类"模板引用
+      // 不存在的变量"会安静渲染成空。该规则一次扫全仓抓出 6 处真缺陷。
+      // ignores 只放 parseTime —— app.config.globalProperties 的唯一保留例外（main.ts M-12），
+      // 它不在 script setup 绑定里，规则看不见；**不得**为此放宽成关掉规则。
+      'vue/no-undef-properties': ['error', { ignores: ['parseTime'] }],
       // 低代码/代码生成器的 schema 对象天然共享可变（父以整对象持有、子就地改字段），
       // 全仓有意保留 6 处豁免：
       //   src/components/RightToolbar/index.vue:74
