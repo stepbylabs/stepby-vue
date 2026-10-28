@@ -1,15 +1,17 @@
 import { VitePWA } from 'vite-plugin-pwa'
 import type { PluginOption } from 'vite'
+import { buildRuntimeCaching } from './pwaRuntimeCaching'
 
 /**
  * PWA 支持（P3-23）
  * - manifest：可将管理系统"安装为桌面应用 / 添加到主屏"。
- * - workbox：预缓存构建静态资源（默认 precache，cache-first）；运行时缓存——
- *   · API 请求（/dev-api、/prod-api、/stage-api 前缀）networkFirst，且仅 GET 幂等接口，
- *     敏感/非幂等的 POST/PUT/DELETE 一律不缓存，保证登录态等接口总是走真实网络。
+ * - workbox：预缓存构建静态资源（默认 precache，cache-first）；运行时缓存见
+ *   `pwaRuntimeCaching.ts`——**只缓存公共静态目录**，受鉴权的 API 与 `/uploads/**`
+ *   一概不进缓存（b115：实测旧规则会把服务端标了 `no-store` 的响应与上传预览图
+ *   写进磁盘并跨会话回放，见 `src/utils/swCache.ts` 文件头）。
  * - devOptions.enabled = false：开发模式不注册 Service Worker，仅生产构建生效。
  */
-export default function createPwaPlugin(): PluginOption {
+export default function createPwaPlugin(viteEnv: Record<string, string> = {}): PluginOption {
   return VitePWA({
     // autoUpdate：SW 安装后自动检查并更新（避免用户长期停留在旧缓存版本）
     registerType: 'autoUpdate',
@@ -50,32 +52,10 @@ export default function createPwaPlugin(): PluginOption {
       // /oauth2/callback：第三方登录（OAuth 客户端）由提供商 302 回本后端的顶层导航，同理必须
       // 打到后端换 token 再 302 到 SPA 路由 /oauth-login；/oauth2/ 其余是 API fetch，不受影响。
       navigateFallbackDenylist: [/^\/sso\//, /^\/oauth2\/callback/, /^\/swagger-ui/, /^\/v3\/api-docs/, /^\/actuator/],
-      runtimeCaching: [
-        {
-          // API：networkFirst（先网络、离线兜底旧缓存），仅 GET 幂等接口
-          // POST/PUT/DELETE 天然不被本策略命中，不会误缓存登录、提交等敏感请求。
-          urlPattern: /(?:\/dev-api\/|\/prod-api\/|\/stage-api\/)/,
-          handler: 'NetworkFirst',
-          method: 'GET',
-          options: {
-            cacheName: 'stepby-api',
-            networkTimeoutSeconds: 3,
-            cacheableResponse: { statuses: [0, 200] },
-            expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 }
-          }
-        },
-        {
-          // 同源静态资源（图片等非预缓存资源）：cache-first，快速离线复用
-          urlPattern: /\.(?:png|jpg|jpeg|gif|webp|svg|woff2?)$/,
-          handler: 'StaleWhileRevalidate',
-          method: 'GET',
-          options: {
-            cacheName: 'stepby-static',
-            cacheableResponse: { statuses: [0, 200] },
-            expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 }
-          }
-        }
-      ]
+      // b115：运行时缓存只保留"公共静态目录"一条；API 缓存是显式 opt-in 档
+      // （`VITE_PWA_API_CACHE=network-first`，默认 off）。判据见
+      // `src/utils/pwaApiCachePolicy.guard.test.ts`（从 .env 派生基址逐个断言不命中）。
+      runtimeCaching: buildRuntimeCaching(viteEnv.VITE_PWA_API_CACHE)
     },
     // 开发环境不启用 SW（避免缓存干扰开发调试/接口代理）；生产构建才生成 manifest + sw.js
     devOptions: { enabled: false }

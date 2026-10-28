@@ -5,6 +5,7 @@ import { login, logout, getInfo } from '@/api/login'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { isHttp, isEmpty } from '@/utils/validate'
 import { clearAllApiCache } from '@/utils/apiCache'
+import { purgeSessionSwCaches } from '@/utils/swCache'
 import useLockStore from '@/store/modules/lock'
 import usePermissionStore from '@/store/modules/permission'
 import useDictStore from '@/store/modules/dict'
@@ -112,13 +113,7 @@ const useUserStore = defineStore('user', {
   actions: {
     // 登录
     // P0-4 修复：`totpCode` 必须透传（否则 TOTP 二次验证永远无法完成，详见 `api/login.ts`）
-    async login(userInfo: {
-      username: string
-      password: string
-      code: string
-      uuid: string
-      totpCode?: string
-    }) {
+    async login(userInfo: { username: string; password: string; code: string; uuid: string; totpCode?: string }) {
       const username = userInfo.username.trim()
       const { password, code, uuid, totpCode } = userInfo
       const res = await login(username, password, code, uuid, totpCode)
@@ -133,6 +128,10 @@ const useUserStore = defineStore('user', {
      * 初始化 WebSocket 通知均在此收敛，避免多套登录链路各自实现而漂移。
      */
     applyLoginToken(token: string) {
+      // b115：登录成功即清掉 SW 层可能与"上一个凭据"绑定的缓存。
+      // 与内存层 `clearAllApiCache()` 同一条纪律（换账号不得看到上一账号的数据），
+      // 区别只是这一层住在浏览器进程里，store 的清理摸不到它。
+      void purgeSessionSwCaches()
       setToken(token)
       this.token = token
       useLockStore().unlockScreen()
@@ -277,6 +276,9 @@ const useUserStore = defineStore('user', {
         // 清理全局共享数据 API 缓存（部门树 / 菜单树 / 配置参数等）
         // 防止切换账号后看到上一个账号权限范围内的数据
         clearAllApiCache()
+        // b115：SW 的 Cache Storage 是这条纪律的第二个断面——它跨刷新、跨会话存活，
+        // 旧规则连 `no-store` 的 API 响应与受鉴权的上传预览图都存了（见 utils/swCache.ts）
+        void purgeSessionSwCaches()
         // 清理 tagsView
         useTagsViewStore().delAllViews()
         removeToken()

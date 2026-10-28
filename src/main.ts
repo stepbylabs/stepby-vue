@@ -110,10 +110,17 @@ import { errorReporter } from '@/utils/errorReporter'
 import { setupFrontendErrorReporter } from '@/utils/frontendErrorReporter'
 import { isDialogCancel, isRequestLayerError } from '@/utils/requestError'
 import { installImeKeyGuard } from '@/utils/keyboard'
+import { purgeLegacySwCaches } from '@/utils/swCache'
 
 // b114：输入法组合态的 Enter/Escape 属于输入法（上屏/取消），不是业务提交。
 // 在事件到达组件之前统一吞掉——全仓约 50 处列表搜索框的 @keyup.enter 因此不必逐点改造。
 installImeKeyGuard()
+
+// b115：回收历史 Service Worker 缓存（`stepby-api` / `stepby-static`）。
+// 旧规则把服务端标了 `no-store` 的 API 响应与受鉴权的 `/uploads/**` 预览图写进了磁盘，
+// 且全仓没有删除通道 ⇒ 换账号/登出后仍可从缓存读回上一账号的数据。新策略用新缓存名，
+// 旧档一个字节都不继承，故启动时无条件删除（删的是旧名，不动 opt-in 档的 `stepby-api-v2`）。
+void purgeLegacySwCaches()
 
 app.config.errorHandler = (err: unknown, instance: { $options?: { name?: string } } | null, info: string) => {
   errorReporter.report(err, {

@@ -21,7 +21,7 @@ export default function createVitePlugins(viteEnv: Record<string, string>, isBui
   vitePlugins.push(createSvgIcon(isBuild))
   // PWA 支持（P3-23）：devOptions.enabled=false 保证仅生产构建生成 SW，
   // 开发/测试不受影响；virtual:pwa-register 模块始终可用，dev 下为 no-op
-  vitePlugins.push(createPwa())
+  vitePlugins.push(createPwa(viteEnv))
   if (isBuild) {
     vitePlugins.push(...createCompression(viteEnv))
     // 性能优化：Bundle 可视化分析工具（仅 VITE_ANALYZE=true 时启用）

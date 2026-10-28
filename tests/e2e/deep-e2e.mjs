@@ -111,6 +111,7 @@ import { makeSecurityMessageBoxTest } from './modules/securityMessageBox.mjs'
 import { makeListLoadFailureTest } from './modules/listLoadFailure.mjs'
 import { makeWsSessionExpiryTest } from './modules/wsSessionExpiry.mjs'
 import { makeErrorBoundarySurvivalTest } from './modules/errorBoundarySurvival.mjs'
+import { makeSwCacheBoundaryTest } from './modules/swCacheBoundary.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1108,20 +1109,14 @@ function statusEvidence(text, ownUrl, sets) {
 }
 
 /**
- * 创建带控制台错误收集的页面
+ * 给页面装 console / pageerror 采集器（**唯一实现**）。
+ *
+ * b115 起 M96 要在自建 context 里测 Service Worker（主套件刻意 `serviceWorkers: 'block'`），
+ * 而它第一版自己写了一份裸 listener ⇒ 把浏览器扩展注入的 CSP 字体噪声
+ * （`chrome-extension://…/rbicon.woff2`，主套件早就登记为环境噪声）判成了产品红。
+ * 口径只能有一份：两份实现必然漂（前言 ㉘）。
  */
-async function createPage(browser) {
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-    locale: 'zh-CN',
-    // 与 main.mjs 同一条纪律（b64）：PWA service worker 会代理页面 fetch，绕过 page.route
-    // ⇒ M25「按住角色列表响应构造骨架屏」在 SW 已接管后 routeHit=0，被判工具自曝。
-    // e2e 测的是应用行为，不是 PWA 注册本身。
-    serviceWorkers: 'block'
-  })
-  const page = await context.newPage()
-  const consoleErrors = []
-  const pageErrors = []
+function attachConsoleCollector(page, consoleErrors, pageErrors) {
   const forbiddenUrls = new Set()
   const unauthorizedUrls = new Set()
   const badRequestUrls = new Set()
@@ -1210,7 +1205,24 @@ async function createPage(browser) {
       return
     pageErrors.push(err.message)
   })
+}
 
+/**
+ * 创建带控制台错误收集的页面
+ */
+async function createPage(browser) {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: 'zh-CN',
+    // 与 main.mjs 同一条纪律（b64）：PWA service worker 会代理页面 fetch，绕过 page.route
+    // ⇒ M25「按住角色列表响应构造骨架屏」在 SW 已接管后 routeHit=0，被判工具自曝。
+    // e2e 测的是应用行为，不是 PWA 注册本身。
+    serviceWorkers: 'block'
+  })
+  const page = await context.newPage()
+  const consoleErrors = []
+  const pageErrors = []
+  attachConsoleCollector(page, consoleErrors, pageErrors)
   return { page, context, consoleErrors, pageErrors }
 }
 
@@ -21994,6 +22006,22 @@ const testModule95 = makeErrorBoundarySurvivalTest({
   createPage
 })
 
+// 模块 96（b115）：Service Worker 的持久缓存必须与会话同生共灭。
+// 旧规则把服务端标了 no-store 的 API 响应与受鉴权的 /uploads/** 预览图写进了磁盘，
+// 且全仓没有删除通道 ⇒ 换账号后仍可读回上一账号的数据。本模块判六条：
+// SW 真的接管 → 两类响应都不进缓存 → 断网不回放 → 旧缓存被启动回收 → 公共静态仍可缓存（对照）。
+const testModule96 = makeSwCacheBoundaryTest({
+  record,
+  log,
+  CONFIG,
+  checkConsoleErrors,
+  getApiToken,
+  // 自建 context 里要真正过一遍登录页（验证码来自页面自身请求），与主套件同一个 login
+  login,
+  // console 分诊只有一份实现（自建 context 也必须吃同一份豁免口径）
+  attachConsoleCollector
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -22091,7 +22119,8 @@ const testFns = {
   92: testModule92,
   93: testModule93,
   94: testModule94,
-  95: testModule95
+  95: testModule95,
+  96: testModule96
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）
