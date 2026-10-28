@@ -54,7 +54,8 @@ export function resolveTarget(vueRoot = VUE_ROOT) {
 export function entryChunkFromIndex(html) {
   const m = [...html.matchAll(/\bsrc="\/(static\/js\/[^"']+\.js)"/g)].map((x) => x[1])
   if (m.length === 0) return null
-  // 多入口不可判定：入口只应有一个（本仓 codeSplitting:false 单 chunk）
+  // 多入口不可判定：入口只应有一个（index.html 里其余 /static/js 引用走 modulepreload 的 href，
+  // 只有入口是 <script src>；b120 分包后实测仍恰好一个）
   const unique = [...new Set(m)]
   return unique.length === 1 ? unique[0] : null
 }

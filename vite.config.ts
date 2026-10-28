@@ -140,30 +140,22 @@ export default defineConfig(({ mode, command }) => {
       cssMinify: true,
       // 小于 4KB 的静态资源内联为 base64，减少 HTTP 请求（R6-DEP-16）
       assetsInlineLimit: 4096,
-      // chunk 体积警告阈值。由于上述 Rolldown 限制被迫使用 codeSplitting:false（单 chunk），
-      // 入口 chunk 稳定在 ~9.5MB，1500KB 阈值必然触发且无法消解，故与单 chunk 实况对齐调高，
-      // 保留对新引入的超大产物（超出当前基线）的告警能力。（R6-DEP-19）
-      chunkSizeWarningLimit: 10000,
+      // chunk 体积告警阈值：分包后最大单 chunk 是 html2pdf（~0.9MB raw），
+      // 取 1.2MB —— 超过即提示"有新的巨型 chunk"，但不为已知的大库报警。（R6-DEP-19）
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
         // 性能优化：开启模块级别 tree shaking，移除未使用的导出
         treeshake: true,
+        // 路由级分包（b120 恢复；此前是被迫关闭）。历史：Vite 8.1.5 / Rolldown 1.1.5 在
+        // element-plus 跨 chunk 引用处 panic（compute_cross_chunk_links.rs:584
+        // "Symbol defaults_default … should belong to a chunk"），当时只能 codeSplitting:false
+        // 把动态 import 全部内联成单 chunk。b120 升级 vite 8.3.5（rolldown 1.2.15）后同一份源码
+        // 构建通过：入口 chunk 1705.8KB → 62.2KB(gzip)，首屏必须下载 573.4KB JS + 52.3KB CSS(gzip)。
+        // 三栏预算与判据见 perf-budget.json + scripts/check-perf-budget.mjs。
         output: {
           chunkFileNames: 'static/js/[name]-[hash].js',
           entryFileNames: 'static/js/[name]-[hash].js',
-          assetFileNames: 'static/[ext]/[name]-[hash].[ext]',
-          // 已知 Rolldown 限制（必选 workaround，非项目缺陷）：
-          // Vite 8 / Rolldown v8.1.5 在处理 element-plus 跨 chunk 引用时存在 panic bug
-          // （compute_cross_chunk_links.rs:584: "Symbol defaults_default in
-          //  element-plus/es/defaults.mjs should belong to a chunk"）。
-          // 实测：无论使用 manualChunks 还是交予 Rolldown 完全自动分包，
-          // 只要存在跨 chunk 引用该符号的分包，构建即 panic。
-          // 当前唯一可成功构建的配置是关闭代码分割（把动态 import 全内联进单 chunk，
-          // 彻底规避跨 chunk 链接）。代价是缺省路由级懒加载、首屏 JS 体积偏大。
-          // 旧选项 inlineDynamicImports 在 Vite 8 已废弃，改用等价的 codeSplitting: false。
-          // 待 Rolldown 修复该 bug（或升级 Vite/Rolldown 版本）后，应移除本选项以恢复分包。
-          // 已登记于 docs/optimization/OPTIMIZATION_PLAN_ROUNDS101-102.md 作为已知限制
-          //（原 docs/code-audit-2026-08-06.md 正文已不在库内）。
-          codeSplitting: false
+          assetFileNames: 'static/[ext]/[name]-[hash].[ext]'
         }
       }
     },

@@ -104,7 +104,7 @@ import {
   writeClickFailureReport
 } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
-import { assertFreshServedApp } from './build-freshness.mjs'
+import { assertFreshServedApp, resolveArtifactDir } from './build-freshness.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
 import { scanEnvironmentAbort } from './e2e-env-abort.mjs'
 
@@ -259,6 +259,46 @@ async function is404Page(page, options = {}) {
     return true
   }
   return false
+}
+
+/**
+ * 源码检查的采集面 = **全部已发布 JS chunk**，不是入口单文件（b120）。
+ *
+ * 立项取证：分包前 133 个路由页与公共模块全在 entry chunk 里，33 处
+ * `fetch(script[src])` 的"源码检查"因此恰好成立；b120 恢复路由级分包后，被检查的标识
+ *（useDynamicTitle / nprogress / printTable / chart-box / requestBrowserPermission …）
+ * 分散到几十个 chunk，只读入口必然 false —— 一次全量跑出 F37–F40/F44 共 30 条假红
+ *（产品链路本身正常，M5/F21 在分包产物上全绿）。
+ *
+ * 产物目录由 build-freshness 的同一解析器给出（:8080 ⇒ stepby-axum/frontend-dist），
+ * 缺失 / chunk 数低于下限 / 文本体量过小一律抛错：判据的输入坏了必须响亮失败，
+ * 不得返回空串让 33 处检查"绿在自己的输入上"（AGENTS ⑥/⑬）。
+ */
+let appSourceBundleCache = null
+function readAppSourceBundle() {
+  if (appSourceBundleCache !== null) return appSourceBundleCache.text
+  const dir = resolveArtifactDir({ baseUrl: CONFIG.frontendUrl })
+  const jsDir = path.join(dir, 'static', 'js')
+  if (!fs.existsSync(jsDir)) {
+    throw new Error(`源码检查的产物目录不存在：${jsDir}（先 build:embedded + sync-embedded）`)
+  }
+  const files = fs
+    .readdirSync(jsDir)
+    .filter((f) => f.endsWith('.js'))
+    .sort()
+  const MIN_CHUNKS = 50 // 单 chunk 时代是 1，分包后实测 423；低于下限说明产物形状变了
+  if (files.length < MIN_CHUNKS) {
+    throw new Error(`产物只有 ${files.length} 个 JS chunk（< ${MIN_CHUNKS}），源码检查的采集面不完整`)
+  }
+  const text = files.map((f) => fs.readFileSync(path.join(jsDir, f), 'utf8')).join('\n')
+  if (text.length < 1_000_000) {
+    throw new Error(`产物源码合计只有 ${text.length} 字符，明显不完整——不做判据`)
+  }
+  appSourceBundleCache = { text, chunks: files.length }
+  log(
+    `源码检查采集面：${files.length} 个 JS chunk / ${(text.length / 1024 / 1024).toFixed(2)}MB（全部已发布 JS，b120）`
+  )
+  return text
 }
 
 /**
@@ -8282,8 +8322,7 @@ async function testFeature37(page) {
           const scripts = Array.from(document.querySelectorAll('script[src]'))
           for (const s of scripts) {
             if (s.src.includes('index-') || s.src.includes('main-')) {
-              const r = await fetch(s.src)
-              const text = await r.text()
+              const text = await window.__stepbyAppSourceText()
               return {
                 hasCorrectRoute: text.includes('/system/log/operlog')
               }
@@ -8314,8 +8353,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return { found: true, has30000: text.includes('30000'), src: s.src }
           }
         }
@@ -8360,8 +8398,7 @@ async function testFeature37(page) {
           const scripts = Array.from(document.querySelectorAll('script[src]'))
           for (const s of scripts) {
             if (s.src.includes('index-') || s.src.includes('main-')) {
-              const r = await fetch(s.src)
-              const text = await r.text()
+              const text = await window.__stepbyAppSourceText()
               return {
                 hasChartBox: text.includes('chart-box'),
                 hasChartError: text.includes('chart-error'),
@@ -8406,8 +8443,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasMethod: text.includes('requestBrowserPermission'),
               hasAutoRequest:
@@ -8470,8 +8506,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 编译后 KeepAlive 形如：cachedViews,max:20  或 max: 20
             // 同时确保不是 max:10（旧值）
             const has20 = /cachedViews\s*,\s*max\s*:\s*20/.test(text) || /max\s*:\s*20/.test(text)
@@ -8503,8 +8538,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 检查是否存在 network-error 路由（U6 新增）
             const hasNetworkError = text.includes('network-error')
             // 检查 403 路由跳转
@@ -8558,8 +8592,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 检查重试按钮相关代码
             const hasRetry = text.includes('点击此处重试') || text.includes('canRetry')
             return { hasRetry }
@@ -8637,8 +8670,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // Rolldown 会保留数值字面量 30000，但属性名 timeout 可能被混淆
             // 使用数值字面量 + 排除旧值 10000 的方式验证
             const hasTimeout30s = text.includes('30000')
@@ -8670,8 +8702,7 @@ async function testFeature37(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 路由路径字符串 '/403' '/500' 'network-error' 在编译后保留
             // httpStatus 变量名会被混淆，改用 response.status 或 status 字符串
             return {
@@ -8729,8 +8760,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasDynamicTitle: text.includes('useDynamicTitle') || text.includes('dynamicTitle'),
               hasTitleStore: text.includes('setTitle') || text.includes('settingsStore.title')
@@ -8779,8 +8809,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasChangelogComponent: text.includes('tool/changelog/index') || text.includes('Changelog')
             }
@@ -8811,8 +8840,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasTableDensity: text.includes('tableDensity'),
               hasDensityClass: text.includes('table-density-comfortable') && text.includes('table-density-compact'),
@@ -8847,8 +8875,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasWatermarkEnabled: text.includes('watermarkEnabled'),
               hasVWatermark: text.includes('v-watermark') || text.includes('"watermark"'),
@@ -8881,8 +8908,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               // 编译后函数名/变量名被混淆，改用 CSS 变量、predefine 属性、toggleTheme 方法验证
               hasElColorPrimary: text.includes('--el-color-primary'),
@@ -8925,8 +8951,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasDownloadChart: text.includes('downloadChart'),
               hasGetDataURL: text.includes('getDataURL'),
@@ -8992,8 +9017,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // useAutoRefresh 调用次数：dashboard + monitor/operlog + monitor/logininfor + monitor/online = 4+ 次
             const useAutoRefreshMatches = text.match(/useAutoRefresh/g) || []
             return {
@@ -9033,8 +9057,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // RightToolbar 组件名编译后被混淆，改用其标志性 props 验证
             // showSearch 是 RightToolbar 独有的 prop（67 次出现代表广泛集成）
             // 加上 RightToolbar 字符串本身（组件注册名至少出现 1 次）
@@ -9128,8 +9151,7 @@ async function testFeature38(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasTableDensityComfortable: text.includes('table-density-comfortable'),
               hasTableDensityCompact: text.includes('table-density-compact'),
@@ -9179,8 +9201,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               // nprogress 库（字符串字面量，不会被混淆）
               hasNProgress: text.includes('nprogress') || text.includes('NProgress'),
@@ -9236,8 +9257,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasFaviconBadge: text.includes('useFaviconBadge') || text.includes('FaviconBadge'),
               hasFaviconLiteral: text.includes('favicon.ico'),
@@ -9271,8 +9291,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasVisibilityPause: text.includes('useVisibilityPause') || text.includes('VisibilityPause'),
               hasVisibilityChange: text.includes('visibilitychange'),
@@ -9306,8 +9325,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasEmptyState: text.includes('EmptyState') || text.includes('empty-state'),
               hasActionSlot: text.includes('actionText') || text.includes('actionType'),
@@ -9385,8 +9403,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasPasswordStrength: text.includes('PasswordStrength') || text.includes('password-strength'),
               hasStrengthBars: text.includes('strength-bars') || text.includes('strength-bar'),
@@ -9418,8 +9435,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasPrintTable: text.includes('printTable') || text.includes('PrintTable'),
               hasPrinterIcon: text.includes('Printer'),
@@ -9517,8 +9533,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasPasswordStrengthComp: text.includes('PasswordStrength') || text.includes('password-strength'),
               hasResetPwdUsage: text.includes('resetPwd') || text.includes('reset-pwd') || text.includes('ResetPwd')
@@ -9550,8 +9565,7 @@ async function testFeature39(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // NProgress 库方法名 .start( / .done( / .configure( 在编译后保留
             // startProgress/doneProgress 是封装函数名，会被混淆
             const hasNProgressLib = text.includes('nprogress') || text.includes('NProgress')
@@ -9638,8 +9652,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasErrorBoundary: text.includes('ErrorBoundary') || text.includes('error-boundary'),
               hasOnErrorCaptured: text.includes('onErrorCaptured') || text.includes('errorCaptured'),
@@ -9671,8 +9684,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               // 稳定字符串：session-timeout（URL 查询参数）+ sessionTimeout（配置字段名）
               hasSessionTimeout: text.includes('session-timeout') || text.includes('sessionTimeout'),
@@ -9706,8 +9718,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasSearchPersistence: text.includes('useSearchPersistence') || text.includes('SearchPersistence'),
               hasSearchPersist: text.includes('search-persist'),
@@ -9818,8 +9829,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               hasVueCropper: text.includes('vue-cropper') || text.includes('VueCropper'),
               hasDragOver: text.includes('drag-over') || text.includes('dragover'),
@@ -9853,8 +9863,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             return {
               // 稳定字符串：skeleton-table（CSS 类名）+ ElSkeleton（Element Plus 组件 import）
               hasSkeletonTable: text.includes('skeleton-table'),
@@ -9947,8 +9956,7 @@ async function testFeature40(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 编译后函数名 handleRetry/handleGoHome 会被混淆
             // 改用 i18n key 字符串（errorBoundary.title/retry/goHome）和 CSS 类名验证
             return {
@@ -10888,8 +10896,7 @@ async function testFeature44(page) {
         const scripts = Array.from(document.querySelectorAll('script[src]'))
         for (const s of scripts) {
           if (s.src.includes('index-') || s.src.includes('main-')) {
-            const r = await fetch(s.src)
-            const text = await r.text()
+            const text = await window.__stepbyAppSourceText()
             // 检查 submitLoading ref 绑定在确认按钮上
             // Vue 3 编译后 :loading="submitLoading" 会变为 loading:submitLoading 或类似形式
             const hasSubmitLoading = text.includes('submitLoading')
@@ -18918,9 +18925,9 @@ async function testFeature145(page) {
   }
   const jsonHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
   const uniq = Date.now().toString(36).slice(-7)
-  const dictType = `e2e119_${uniq}`
+  const dictType = `e2e145_${uniq}`
   // 11 条：页容量 10 ⇒ 第 2 页恰好只有 1 条，"删末页最后一条"的断面才成立
-  const labels = Array.from({ length: 11 }, (_, i) => `e2e119-${uniq}-r${String(i + 1).padStart(2, '0')}`)
+  const labels = Array.from({ length: 11 }, (_, i) => `e2e145-${uniq}-r${String(i + 1).padStart(2, '0')}`)
   let dictId = null
 
   const rowsNow = () =>
@@ -18939,7 +18946,7 @@ async function testFeature145(page) {
     const addType = await apiWithBackoff('/system/dict/type', {
       method: 'POST',
       headers: jsonHeaders,
-      body: JSON.stringify({ dictName: `e2e119-${uniq}`, dictType, status: '0', remark: 'b119 fixture' })
+      body: JSON.stringify({ dictName: `e2e145-${uniq}`, dictType, status: '0', remark: 'b120 fixture' })
     })
     const typeList = await apiWithBackoff(`/system/dict/type/list?dictType=${encodeURIComponent(dictType)}`, {
       headers: jsonHeaders
@@ -19216,6 +19223,15 @@ async function main() {
   })
 
   const page = await context.newPage()
+
+  // b120：把"全部 chunk 的源码文本"以 binding 提供给页面内的源码检查。
+  // 用 exposeFunction 而不是 addInitScript 注入正文：binding 跨导航保留，
+  // 且不会在每次导航时把 ~6MB 文本序列化进页面（145 个功能会导航数百次）。
+  // 页面侧再包一层 window 级缓存，避免同一页面多次检查重复传输。
+  await page.exposeFunction('__stepbyAppSourceTextRaw', () => readAppSourceBundle())
+  await page.addInitScript(() => {
+    window.__stepbyAppSourceText = async () => (window.__sbAppSourceText ??= await window.__stepbyAppSourceTextRaw())
+  })
 
   // 监听控制台错误
   // 浏览器扩展（chrome-extension:// 等）注入的资源并非被测应用的一部分：内嵌 :8080 的

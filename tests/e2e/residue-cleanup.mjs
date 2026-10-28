@@ -132,6 +132,13 @@ export const RESIDUE_STEPS = [
   // F15 i18n 字典测试链：改名 *_deleted_N 后软删（r59 巡检 306 行）
   ['dict_data_i18n', "DELETE FROM sys_dict_data WHERE dict_type LIKE 'i18n_test_%'"],
   ['dict_type_i18n', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'i18n_test_%'"],
+  // b120：F145（b119 立）的夹具是 `e2e<批号>_<随机>` 的字典类型 + 11 条数据。正常路径在
+  // 用例 finally 里 API 自清，但**中断轮**（被 kill / 清理请求失败）留下的类型行不带
+  // `del_flag='2'`，既不在 `e2e%` 软删那一步、也不在 i18n_test_ 族 ⇒ b120 全量轮 testdata
+  // 实测 14 个命名族长期累积。命名族判据按 `e2e<数字>_` / `e2e<数字>-` 收口，
+  // 种子字典类型（sys_user_sex 等）不命中。
+  ['dict_data_e2e', "DELETE FROM sys_dict_data WHERE dict_type GLOB 'e2e[0-9]*'"],
+  ['dict_type_e2e', "DELETE FROM sys_dict_type WHERE dict_type GLOB 'e2e[0-9]*'"],
   // F14 字典 CRUD 链：改名 testdict<ts>_deleted 后软删（r59 巡检 161 行）
   ['dict_data_testdict', "DELETE FROM sys_dict_data WHERE dict_type LIKE 'testdict%'"],
   ['dict_type_testdict', "DELETE FROM sys_dict_type WHERE dict_type LIKE 'testdict%'"],

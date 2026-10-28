@@ -56,6 +56,11 @@ jobs:
 
       # 性能预算门禁：产物体积超 perf-budget.json 预算即失败；
       # 报告（dist/perf-budget-report.json）作为 artifact 留存，观察体积趋势。
+      # 自检（14 组双向）先于本体：首屏引用解析 / 每一栏"只有它红"的排他断言 /
+      # 缺产物与引用缺失必须 exit 2（"没测到"不得读成"没超限"）。
+      - name: Performance budget selftest
+        run: node scripts/check-perf-budget.mjs --selftest
+
       - name: Performance budget gate
         run: node scripts/check-perf-budget.mjs --dir dist
 

@@ -170,9 +170,15 @@ node tests/e2e/visual-regression.mjs --update
 
 ## 6. 已知限制（诚实登记）
 
-- **单 chunk**：`codeSplitting: false`（Rolldown v8.1.5 跨 chunk panic bug 的必选
-  workaround，见 vite.config.ts 注释）→ 无路由级分包，JS 总体积大；Rolldown 修复后
-  移除该选项即可恢复分包（届时 vendor/路由 chunk 自动落入 `/static/` 长缓存规则）。
+- **路由级分包（b120 已恢复）**：此前 Vite 8.1.5 / Rolldown 1.1.5 在 element-plus
+  跨 chunk 引用处 panic，被迫 `codeSplitting: false`（单 chunk，入口 1705.8KB gzip）。
+  升级 vite 8.3.5（rolldown 1.2.15）后构建通过，入口 chunk 62KB、首屏必须下载
+  573.4KB JS + 52.3KB CSS（gzip），产物 423 个 JS / 144 个 CSS chunk。
+  `perf-budget.json` 因此分成三类口径：`initial*`（首屏，用户实际等待）、
+  `singleJsChunk*`（单 chunk 上限）、`*Total*`（全部 chunk 之和，构建卫生）。
+  判据 `scripts/check-perf-budget.mjs` 常驻门禁电池（`perfbudgetsynth`/`perfbudget`）。
+  已知边界：Vite 为动态 import 生成的 `__vite__mapDeps` 表随 chunk 数增长
+  （本轮实测约 118KB gzip 落在 router chunk），属框架开销，当前不单独设闸。
 - MySQL 语句级超时仅覆盖 SELECT（引擎限制，见后端 `config.toml.example` 注释）。
 - Web Push / Background Sync / Periodic Sync（PWA-005/006/008）：需要后端推送服务
   （VAPID、订阅存储、推送场景定义），单独做前端 handler 属无后端的假功能——按

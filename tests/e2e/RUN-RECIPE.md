@@ -4599,3 +4599,38 @@ await page.route('**/system/dict/data/list**', async (route) => {
 判据落地时配了一条反脆弱：`let seq = 0` + `++seq` 的合成源码必须命中 2 条规则。
 同理，采集面的排除条件不能拿 `grep useCrudTable` 代替派生（11 个页面在注释里提过它，
 实测 grep 面 2 页 vs 派生面 13 页）——**"我的写法"与"仓里的写法"是两件事**。
+
+### 3.117 源码检查的采集面：分包之后"入口文件"不再是"全部源码"（b120 固化）
+
+**① 症状与成因。** b120 恢复路由级分包（单 chunk 5,853,490 字节 → 入口 62KB gzip + 422 个懒加载 chunk）之后，
+主套件一次性红 30 条，全部落在 F37–F40/F44 的"源码检查"块上（`目标标识在打包产物中`）。
+那些块写的是 `document.querySelectorAll('script[src]')` + `fetch(s.src)` + `text.includes(target)`——
+**它们采集的是"首屏会加载的脚本"，断言却写着"产品源码里应当出现某标识"。**
+分包之前这两件事恰好等价（只有一个 `script[src]`），分包之后不等价：
+被断言的标识躺在懒加载 chunk 里（例如 Markdown 渲染器只在 `/tool/build` 打开时才拉），
+于是判据红在产品身上，实际红在**采集面**上。这与 ⑬「锁的输入非空且形状对」同族，
+只是这次断的是"输入覆盖面"而不是"输入非空"。
+
+**② 落法：一个出口 + 三条 fail-loud 前置。** 33 处重复块统一改调 `readAppSourceBundle()`
+（`main.mjs`），它读 `resolveArtifactDir()` 下 `static/js/**` 的**全部** `.js` 并拼成一份文本；
+页面侧只在启动时 `page.exposeFunction('__stepbyAppSourceTextRaw', …)` + `addInitScript`
+挂一个 `window.__stepbyAppSourceText()`，Node 侧算一次、浏览器侧缓存一次（`??=`）。
+三条前置各自对应一种"看起来干净"的坏输入：产物目录不存在 ⇒ 抛错；
+chunk 数 `< 50` ⇒ 抛错（分包退化或采集面被截断）；合计 `< 1MB` ⇒ 抛错（读到的是空壳）。
+并打一行"源码检查采集面：N 个 JS chunk / X.XXMB（全部已发布 JS）"——
+**采集面自己报数**，与判据结论同屏可见（⑥"一条都没扫到与扫到了且干净同形"的同一条纪律）。
+
+**③ 判据侧不得改成"放宽关键词"。** 唯一正确的修法是让输入覆盖全部已发布源码；
+若反过来把断言放宽成"任意 chunk 出现该词"，那 30 条红会被洗绿而真正想守的
+"某个功能是否真的被打进产物"从此无人看。变异证伪本轮实测：把 `readAppSourceBundle`
+改回"只读入口 chunk"⇒ F37–F40/F44 立刻红 30 条；还原后 50/50 绿。
+本轮权威读数：`423 个 JS chunk / 5.45MB`、F37 15/15、F37–F40+F44 合计 50/50。
+
+**④ 附带的性能口径三档。** 分包把"总体积"这个词拆成三个不可互相顶替的问题：
+首屏必须下载（`index.html` 的 script + modulepreload + stylesheet 图）、单个 chunk 上限（构建卫生，
+防止退回"一个 5.8MB chunk"）、全部产物之和（发布体积）。`scripts/check-perf-budget.mjs`
+的 `--selftest` 14 条双向逐项钉住"只有它红"（改 ulimit 只红 012，改 single 只红 006b…），
+`perfbudgetsynth`/`perfbudget` 两把接进电池（80 → 82 把）。**阈值必须由实测推**：
+本轮 `initialCssGzipKb` 第一版按经验写 40，实测 52.3 ⇒ 设 60；
+`slow-3g` 的 `lcpMul` 由 5 收到 3 之前先跑校准（单 chunk 6028ms / 分包 5360ms / 上限 7500ms），
+而且**夹具必须由阈值派生**（`passLcp = sc.lcpLimit - 1`），否则调阈值就会让自检假红。

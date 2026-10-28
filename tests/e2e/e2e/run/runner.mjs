@@ -310,6 +310,21 @@ export async function runMain({ testFns, config, helpers, state }) {
             }
             const loggedIn = await login(page)
             if (!loggedIn) {
+              // 登录失败可能是"浏览器已经死了"，不是产品回归：b120 全量轮实测 M81 登录
+              // 无声失败（停在 /login、无错误提示），紧随其后的 M82 在 newContext 上抛
+              // "Target page, context or browser has been closed" ⇒ M81 那条 ❌ 是崩溃的
+              // 连带账。死掉的浏览器产不出任何产品结论，一律并入失联重启通道
+              // （与模块体内抛 BROWSER_DEAD_RE 同一处置），绝不记成产品失败。
+              const alive =
+                browser.isConnected() &&
+                !page.isClosed() &&
+                (await page
+                  .evaluate(() => 1)
+                  .then(() => true)
+                  .catch(() => false))
+              if (!alive) {
+                throw new Error('browser has been closed（登录失败且页面已不可用）')
+              }
               loginFailStreak += 1
               log(`❌ [M${id}] 登录失败，模块整体记为失败`)
               // 走 record 计数（直接 push results 不会累加 failCount，导致 exit 码失真）

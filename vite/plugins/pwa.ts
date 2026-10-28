@@ -34,10 +34,11 @@ export default function createPwaPlugin(viteEnv: Record<string, string> = {}): P
       ]
     },
     workbox: {
-      // 项目因 Rolldown 跨 chunk 链接 bug 采用 codeSplitting:false（单 chunk 约 9.5MB），
-      // 超出 workbox 默认 2MiB 预缓存上限会导致构建失败，故抬升上限以允许预缓存整个应用包
-      // （否则离线/优先缓存无法命中主 JS）。参见 vite.config.ts 中该 workaround 的说明。
-      maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
+      // 预缓存全部构建产物（保留"访问任意页面都能离线"的能力；b120 分包后实测 576 条）。
+      // b120 恢复路由级分包后最大单文件是 html2pdf chunk（~0.9MB raw），上限取 5MB：
+      // 既远高于实测最大值，又能在将来某个 chunk 意外膨胀时让构建失败而不是悄悄预缓存。
+      // （原 20MB 是为单 chunk 时代放宽的，见 vite.config.ts 的 b120 注释。）
+      maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       // 预缓存全部构建产物（带 hash 文件名天然 cache-first；入口 index.html 经 navigateFallback 兜底）
       globPatterns: ['**/*.{js,html,css,svg,ico,png,woff2,eot,ttf}'],
       navigateFallback: '/index.html',

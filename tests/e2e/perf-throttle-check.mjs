@@ -48,12 +48,13 @@ const SCENARIO_MULTIPLIERS = [
   {
     name: 'slow-3g',
     desc: 'Slow 3G（400kbps 下行 / 400ms RTT）',
-    // 校准依据（2026-09-28 实测）：单 chunk（codeSplitting:false）下 1.6MB gzip JS
-    // 在 400kbps 传输 ~6s，FCP/LCP 均 ≈6028ms。Rolldown 修复移除 codeSplitting:false
-    // 恢复分包后应同步收紧倍数。
+    // 校准依据：2026-09-28 单 chunk（codeSplitting:false）下 1.6MB gzip JS ⇒ FCP/LCP ≈6028ms，
+    // 当时取 LCP×5 / FCP×4。b120 恢复分包后实测（首屏 JS 573.4KB gzip）FCP=LCP=5320ms，
+    // LCP 倍数随之由 5 收紧到 3（7500ms，保留 ~41% 余量）；FCP 仍取 ×4（7200ms）——
+    // 实测离 5400ms 只差 1.5%，再收紧就是把机器忙闲写进判据。
     network: { offline: false, downloadThroughput: (400 * 1024) / 8, uploadThroughput: (400 * 1024) / 8, latency: 400 },
     cpuRate: 1,
-    lcpMul: 5,
+    lcpMul: 3,
     fcpMul: 4
   },
   {
@@ -148,22 +149,27 @@ function runSelftest() {
   // ⑦ 预算被写成极大值 ⇒ 上限溢出成 Infinity 必须报
   push('⑦ 上限溢出成 Infinity 必须报', budgetIssues('{"runtime":{"lcpMs":1e308,"fcpMs":1800}}').length === 0)
   // ⑧~㉐ 判定函数双向
-  const sc = buildScenarios(okBudget.runtime)[0] // slow-3g：lcp≤12500 / fcp≤7200
+  const sc = buildScenarios(okBudget.runtime)[0]
+  // 夹具数值一律**由倍数表派生**：b120 把 slow-3g 的 lcpMul 由 5 收到 3 后，
+  // 原先硬编码的 9000/7201 立刻把"两项都达标"的正控顶成越限（夹具记的是旧上限）。
+  // 派生之后改倍数表不会让夹具失真，边界（恰等于上限）也仍由真实上限给出。
+  const passLcp = sc.lcpLimit - 1
+  const passFcp = sc.fcpLimit - 1
   const v = (f, l) => ({ fcp: f, lcp: l })
   const j = (x) => judgeVitals(x, sc)
-  push('⑧ LCP 越限必须判不达标', j(v(6000, 99999)).ok)
-  push('⑨ FCP 越限必须判不达标', j(v(7201, 9000)).ok)
-  push('⑩ 两项都达标必须判达标（正控）', !j(v(6000, 9000)).ok)
-  push('⑪ LCP 恰等于上限必须判达标（边界正控）', !j(v(6000, sc.lcpLimit)).ok)
-  push('⑫ LCP 未测得必须判不达标', j(v(6000, null)).ok)
+  push('⑧ LCP 越限必须判不达标', j(v(passFcp, sc.lcpLimit + 1)).ok)
+  push('⑨ FCP 越限必须判不达标', j(v(sc.fcpLimit + 1, passLcp)).ok)
+  push('⑩ 两项都达标必须判达标（正控）', !j(v(passFcp, passLcp)).ok)
+  push('⑪ LCP 恰等于上限必须判达标（边界正控）', !j(v(passFcp, sc.lcpLimit)).ok)
+  push('⑫ LCP 未测得必须判不达标', j(v(passFcp, null)).ok)
   // ⑬ 这一条钉住本次修掉的 fail-open：FCP 未测得原先**判通过**
-  push('⑬ FCP 未测得必须判不达标（原为假绿）', j(v(null, 9000)).ok)
-  const r13 = j(v(null, 9000))
+  push('⑬ FCP 未测得必须判不达标（原为假绿）', j(v(null, passLcp)).ok)
+  const r13 = j(v(null, passLcp))
   push('⑬b FCP 未测得的理由必须写明"未测得"', r13.ok || !/未测得/.test(r13.why))
   push('⑭ __vitals 整体缺失必须判不达标', j(undefined).ok)
-  push('⑮ LCP 非数值字符串必须判不达标', j(v(6000, '9000')).ok)
+  push('⑮ LCP 非数值字符串必须判不达标', j(v(passFcp, String(passLcp))).ok)
   // ⑯ 未测得的理由不得只说"达标"（防 judgeVitals 退化成一律 ok）
-  push('⑯ 达标理由必须带实测数字', !/FCP 6000ms/.test(j(v(6000, 9000)).why))
+  push('⑯ 达标理由必须带实测数字', !new RegExp(`FCP ${passFcp}ms`).test(j(v(passFcp, passLcp)).why))
   // ⑰ 单位换算锁：CDP 的 throughput 单位是 **字节/秒**，写成 `400 * 1024` 会把限速放大 8 倍
   //     ——"慢速 3G"实际跑成 3.2Mbps 快网，判据从此测不出首屏巨型依赖，且**照样全绿**。
   push('⑰ Slow3G 限速必须是 kbps→B/s 换算', SCENARIO_MULTIPLIERS[0].network.downloadThroughput !== (400 * 1024) / 8)
