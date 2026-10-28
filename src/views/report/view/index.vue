@@ -11,7 +11,7 @@
       >
         <el-option v-for="d in dashboards" :key="d.dashboardId" :value="d.dashboardId" :label="d.dashboardName" />
       </el-select>
-      <el-radio-group v-model="mode">
+      <el-radio-group :key="`mode-${modeEpoch}`" :model-value="mode" @change="onModeChange">
         <el-radio-button value="view">{{ t('rp.modeView') }}</el-radio-button>
         <el-radio-button v-if="canEdit" value="design">{{ t('rp.modeDesign') }}</el-radio-button>
       </el-radio-group>
@@ -39,7 +39,7 @@
     </el-alert>
 
     <!-- 设计态：复用设计器画布（仅编辑权限可见） -->
-    <Designer v-if="mode === 'design' && canEdit" />
+    <Designer v-if="mode === 'design' && canEdit" ref="designerRef" />
 
     <!-- 运行态：只读渲染 -->
     <template v-else>
@@ -57,14 +57,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getDashboard, listDashboard, type ReportDashboard } from '@/api/report'
 import { parseLayout } from '@/views/report/designer/canvasLayout'
 import ChartCard from '../components/ChartCard.vue'
 import Designer from '../designer/index.vue'
 import { checkPermi } from '@/utils/permission'
+import { confirmAction } from '@/utils/confirm'
 import { toggleFullscreen } from '@/utils/fullscreen'
+import { useVisiblePolling } from '@/composables/useVisiblePolling'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -150,6 +152,23 @@ async function toggleFullscreenView(): Promise<void> {
 
 onMounted(() => void refreshAll())
 
+// ==================== b113：模式切换的未保存改动保护 ====================
+// 设计器是内存态画布（改即生效、只有「保存」才落库），而切回运行态会 `v-if` 直接卸载它。
+// 受控 + 确认：取消时重建 radio-group 让显示值回到当前模式（`:model-value` 未变不会自动复位）。
+const designerRef = ref<{ hasUnsavedChanges: () => boolean }>()
+const modeEpoch = ref(0)
+
+async function onModeChange(next: 'view' | 'design'): Promise<void> {
+  if (next === mode.value) return
+  if (next === 'view' && designerRef.value?.hasUnsavedChanges()) {
+    if (!(await confirmAction(t('rp.unsavedDiscardConfirm')))) {
+      modeEpoch.value++
+      return
+    }
+  }
+  mode.value = next
+}
+
 // 从设计态切回运行态时刷新布局；无编辑权限时强制回运行态（不渲染写面）
 watch(mode, (m: 'view' | 'design') => {
   if (m === 'design') {
@@ -159,40 +178,20 @@ watch(mode, (m: 'view' | 'design') => {
   void refreshAll()
 })
 
-// ==================== G-01 M3：自动刷新（递归 setTimeout，对齐 useAutoRefresh P2 范式） ====================
+// ==================== G-01 M3：自动刷新（b113 收敛到 useVisiblePolling） ====================
+// 此前是本页手写的递归 setTimeout：只在**排期那一刻**看 document.hidden ⇒ 隐藏期间照常轮询，
+// 而"隐藏时改间隔"会让它永远不再启动（没有任何 visibilitychange 监听能叫醒它）。
+// 统一实现后：隐藏即停、可见立即补一次、在途不叠加，间隔 0 = 关闭。
 const refreshInterval = ref(0)
-let refreshTimer: ReturnType<typeof setTimeout> | null = null
-let refreshStopped = true
+const poller = useVisiblePolling(
+  () => {
+    reloadTick.value++ // 重建卡片 → ChartCard onMounted 重拉数据
+  },
+  () => refreshInterval.value * 1000
+)
 
-function clearRefreshTimer(): void {
-  refreshStopped = true
-  if (refreshTimer) {
-    clearTimeout(refreshTimer)
-    refreshTimer = null
-  }
-}
-
-function scheduleRefresh(): void {
-  clearRefreshTimer()
-  refreshStopped = false
-  // 标签页隐藏时不启动（与 useVisibilityPause 同口径），间隔 0 = 关闭
-  if (refreshInterval.value > 0 && !document.hidden) {
-    const next = (): void => {
-      refreshTimer = setTimeout(async () => {
-        refreshTimer = null
-        try {
-          reloadTick.value++ // 重建卡片 → ChartCard onMounted 重拉数据
-        } finally {
-          if (refreshTimer === null && !refreshStopped) next()
-        }
-      }, refreshInterval.value * 1000)
-    }
-    next()
-  }
-}
-
-watch(refreshInterval, scheduleRefresh)
-onBeforeUnmount(clearRefreshTimer)
+watch(refreshInterval, () => poller.start())
+onBeforeUnmount(() => poller.stop())
 
 // ==================== G-01 M3：PDF 导出（打印对话框另存 PDF） ====================
 function exportPdf(): void {

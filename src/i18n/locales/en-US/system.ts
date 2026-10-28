@@ -1730,6 +1730,10 @@ export default {
     dashboardName: 'Dashboard Name',
     codeNameRequired: 'Code and name are required',
     removeDashboardConfirm: 'Delete this dashboard?',
+    unsavedSwitchConfirm: 'This dashboard has unsaved changes that will be lost if you switch. Continue?',
+    unsavedLeaveConfirm: 'This dashboard has unsaved changes that will be lost if you leave this page. Leave anyway?',
+    unsavedDiscardConfirm:
+      'This dashboard has unsaved changes that will be lost when switching to view mode. Switch anyway?',
     addChart: 'Add chart',
     chartType: 'Chart type',
     canvasEmpty: 'Canvas is empty: pick a dataset and add charts',

@@ -13,10 +13,11 @@ import { ElConfigProvider } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import enUs from 'element-plus/es/locale/lang/en'
 import { useI18n } from 'vue-i18n'
-import Cookies from 'js-cookie'
 import { useRouter } from 'vue-router'
 import { useWindowSize } from '@vueuse/core'
 import useSettingsStore from '@/store/modules/settings'
+import useAppStore from '@/store/modules/app'
+import { resolveElementSize } from '@/utils/elementSize'
 import { handleThemeStyle } from '@/utils/theme'
 // D8（UX-RESPONSIVE-PLAN）：移动端表格卡片模式运行时增强（开关默认关=横滚）
 import { useMobileTableCards } from '@/composables/useMobileTableCards'
@@ -32,14 +33,13 @@ const { locale } = useI18n()
 const epLocale = computed(() => (locale.value === 'en-US' ? enUs : zhCn))
 
 // 全局尺寸：large / default / small（与原 app.use(ElementPlus, { size }) 等效）
-// S4（UX-RESPONSIVE-PLAN）：用户显式设置（size Cookie）优先；未设置时手机视口（<768px）
-// 自动升 large（组件 40px 高，满足 ≥44px 级触控目标含边距），响应窗口/旋转变化。
+// b113：此前读的是 `Cookies.get('size')`——**非响应式**，store 里的尺寸一次都没被消费，
+// 所以 SizeSelect 只能 `location.reload()` 让新 cookie 生效（整页重载 = 丢状态 + 重跑认证链）。
+// 现以 store 为单一事实源：偏好变化即时生效，未设置时按视口兜底（手机 large）——
+// 这两条规则与 SizeSelect 的勾选态共用同一个纯函数 resolveElementSize。
+const appStore = useAppStore()
 const { width: winWidth } = useWindowSize()
-const size = computed(() => {
-  const userSize = Cookies.get('size')
-  if (userSize) return userSize
-  return winWidth.value < 768 ? 'large' : 'default'
-})
+const size = computed(() => resolveElementSize(appStore.size, winWidth.value < 768))
 
 // TierS-3: 表格密度 - 与全局 size 解耦，仅影响 el-table 单元格内边距
 // 通过 documentElement class 控制，避免影响其他 EP 组件

@@ -13,11 +13,21 @@ describe('store/modules/app', () => {
     })
   })
 
-  it('defaults sidebar.opened to true and size to default when no cookies', () => {
+  it('defaults sidebar.opened to true and keeps size unset (preference) when no cookies', () => {
     const store = useAppStore()
     expect(store.sidebar.opened).toBe(true)
     expect(store.device).toBe('desktop')
-    expect(store.size).toBe('default')
+    // b113：store 存的是**用户偏好**，没选过就是 ''；有效档位（桌面 default / 移动 large）
+    // 由 resolveElementSize 在消费点计算——写死 'default' 会让移动端永远拿不到 large 兜底
+    expect(store.size).toBe('')
+  })
+
+  it('drops out-of-range size cookies and keeps valid ones', () => {
+    Cookies.set('size', 'huge')
+    expect(useAppStore().size, '值域外的存档值必须丢弃').toBe('')
+    setActivePinia(createPinia())
+    Cookies.set('size', 'small')
+    expect(useAppStore().size).toBe('small')
   })
 
   it('toggleSideBar flips opened and persists cookie', () => {

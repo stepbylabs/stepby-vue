@@ -244,6 +244,7 @@ import { onMounted, onBeforeUnmount, ref, computed, watch, nextTick } from 'vue'
 import { TrendCharts, Coin, Monitor, Cpu, Timer } from '@element-plus/icons-vue'
 import { useChart, readCssVar } from '@/composables/useChart'
 import { useMotionPresets } from '@/composables/useMotion'
+import { useVisiblePolling } from '@/composables/useVisiblePolling'
 import useSettingsStore from '@/store/modules/settings'
 import { getServer, type ServerInfo } from '@/api/monitor/server'
 import type { ECharts, EChartsOption } from '@/utils/echarts'
@@ -270,7 +271,6 @@ const times = ref<string[]>([])
 const cpuSerie = ref<number[]>([])
 const memSerie = ref<number[]>([])
 let chart: ECharts | null = null
-let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const cpuUsage = computed<number>(() => server.value?.cpu.used ?? 0)
 const memUsage = computed<number>(() => server.value?.mem.usage ?? 0)
@@ -375,20 +375,17 @@ async function renderChart(): Promise<void> {
   chart.setOption(withDark(chart, option), true)
 }
 
-function schedulePoll(): void {
-  if (pollTimer) clearInterval(pollTimer)
-  pollTimer = setInterval(() => {
-    loadServer(true)
-  }, POLL_INTERVAL)
-}
+// b113：轮询走统一实现（隐藏即停、可见立即补一次、在途不叠加）。
+// 此前是裸 `setInterval(…, 2000)`：后台标签页每分钟仍发 30 次请求，
+// 而曲线只有 60 个点、全部采在没人看的时候。
+const poller = useVisiblePolling(
+  () => loadServer(true),
+  () => (autoRefresh.value ? POLL_INTERVAL : 0)
+)
 
 function toggleAutoRefresh(val: boolean | string | number): void {
-  if (val) {
-    schedulePoll()
-  } else if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  autoRefresh.value = Boolean(val)
+  poller.start() // 开或关都只是重新排期：interval 解析为 0 时自然不排
 }
 
 // 主题切换时复用最近数据重新渲染，保证暗色模式变量生效
@@ -402,15 +399,13 @@ watch(
 
 onMounted(async () => {
   await loadServer()
-  schedulePoll()
+  poller.start()
 })
 
-// 卸载即停止轮询（图表实例/ResizeObserver 由 useChart 卸载钩子统一清理）
+// 卸载即停止轮询（图表实例/ResizeObserver 由 useChart 卸载钩子统一清理；
+// 可见性监听由 useVisiblePolling → useVisibilityPause 的卸载钩子清理）
 onBeforeUnmount(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  poller.stop()
 })
 </script>
 

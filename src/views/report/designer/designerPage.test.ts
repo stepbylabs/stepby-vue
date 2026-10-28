@@ -78,6 +78,7 @@ const globalOptions = {
 }
 
 interface DesignerVm {
+  createForm: { dashboardCode: string; dashboardName: string }
   dashboardsError: boolean
   datasetsError: boolean
   canEdit: boolean
@@ -89,6 +90,8 @@ interface DesignerVm {
   charts: unknown[]
   newChartDataset?: number
   loadDashboards: () => Promise<boolean>
+  requestSelect: (id?: number) => Promise<void>
+  hasUnsavedChanges: () => boolean
   handleCreate: () => Promise<void>
   handleSave: () => Promise<void>
   handleRemove: () => Promise<void>
@@ -168,5 +171,90 @@ describe('报告设计器（b94）', () => {
     await vm.handleCreate()
     expect(hoisted.saveDashboard).not.toHaveBeenCalled()
     expect(vm.createOpen).toBe(false)
+  })
+
+  // ==================== b113：未保存改动保护 ====================
+  it('脏标记跟住落库：加卡片后为脏，保存成功后回落；加载失败不算脏', async () => {
+    hoisted.listDashboard.mockResolvedValue({
+      rows: [{ dashboardId: 1, dashboardCode: 'b', dashboardName: 'B' }]
+    })
+    const wrapper = mount(Designer, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+
+    vm.selectedId = 1
+    await flushPromises()
+    expect(vm.hasUnsavedChanges(), '刚加载完不得算脏').toBe(false)
+
+    vm.newChartDataset = 3
+    vm.handleAddChart()
+    await flushPromises()
+    expect(vm.hasUnsavedChanges(), '加卡片必须算脏').toBe(true)
+
+    await vm.handleSave()
+    expect(hoisted.saveDashboard).toHaveBeenCalledTimes(1)
+    expect(vm.hasUnsavedChanges(), '保存成功后必须回落').toBe(false)
+
+    // 布局加载失败：屏上被清空，不得把"失败"冒充成"有未保存改动"（切大屏时的假警报）
+    hoisted.getDashboard.mockRejectedValueOnce(new Error('layout down'))
+    await vm.requestSelect(2)
+    await flushPromises()
+    expect(vm.selectedId).toBe(2)
+    expect(vm.charts).toHaveLength(0)
+    expect(vm.hasUnsavedChanges(), '加载失败不算脏').toBe(false)
+  })
+
+  it('切换大屏：脏了先确认，取消则不动；确认后才换', async () => {
+    hoisted.listDashboard.mockResolvedValue({
+      rows: [
+        { dashboardId: 1, dashboardCode: 'b1', dashboardName: 'B1' },
+        { dashboardId: 2, dashboardCode: 'b2', dashboardName: 'B2' }
+      ]
+    })
+    const wrapper = mount(Designer, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+    vm.selectedId = 1
+    await flushPromises()
+
+    vm.newChartDataset = 3
+    vm.handleAddChart()
+    await flushPromises()
+    expect(vm.hasUnsavedChanges()).toBe(true)
+
+    hoisted.confirm.mockRejectedValueOnce('cancel')
+    await vm.requestSelect(2)
+    expect(hoisted.confirm).toHaveBeenCalledTimes(1)
+    expect(vm.selectedId, '取消后必须停在大屏 1').toBe(1)
+    expect(hoisted.getDashboard).not.toHaveBeenCalledWith(2)
+
+    hoisted.confirm.mockResolvedValueOnce('confirm')
+    await vm.requestSelect(2)
+    await flushPromises()
+    expect(vm.selectedId).toBe(2)
+  })
+
+  it('新建大屏：脏了先确认，取消则不得创建（否则当前画布的改动静默丢失）', async () => {
+    hoisted.listDashboard.mockResolvedValue({
+      rows: [{ dashboardId: 1, dashboardCode: 'b1', dashboardName: 'B1' }]
+    })
+    const wrapper = mount(Designer, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+    vm.selectedId = 1
+    await flushPromises()
+    vm.newChartDataset = 3
+    vm.handleAddChart()
+    await flushPromises()
+
+    vm.createOpen = true
+    vm.createForm = { dashboardCode: 'new_board', dashboardName: '新大屏' }
+    hoisted.confirm.mockRejectedValueOnce('cancel')
+    await vm.handleCreate()
+    expect(hoisted.saveDashboard, '取消后不得创建大屏').not.toHaveBeenCalled()
+
+    hoisted.confirm.mockResolvedValueOnce('confirm')
+    await vm.handleCreate()
+    expect(hoisted.saveDashboard).toHaveBeenCalledTimes(1)
   })
 })

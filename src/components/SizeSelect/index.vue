@@ -22,26 +22,31 @@
 </template>
 
 <script setup lang="ts">
+import { useWindowSize } from '@vueuse/core'
 import useAppStore from '@/store/modules/app'
+import { resolveElementSize, type ElementSize } from '@/utils/elementSize'
 
 const { t } = useI18n()
 
 interface SizeOption {
   label: string
-  value: 'large' | 'default' | 'small'
+  value: ElementSize
 }
 
 const appStore = useAppStore()
-const size = computed(() => appStore.size)
+const { width: winWidth } = useWindowSize()
+// 与 App.vue 喂给 el-config-provider 的是**同一个**解析结果：勾选态不再自己推断
+const size = computed(() => resolveElementSize(appStore.size, winWidth.value < 768))
 const sizeOptions = computed<SizeOption[]>(() => [
   { label: t('sizeSelect.large'), value: 'large' },
   { label: t('sizeSelect.default'), value: 'default' },
   { label: t('sizeSelect.small'), value: 'small' }
 ])
 
-function handleSetSize(size: 'large' | 'default' | 'small'): void {
-  // P1 优化: Element Plus size 变更需要重新挂载组件才能完全生效，直接刷新避免 loading 闪烁
+function handleSetSize(size: ElementSize): void {
+  // b113：store 是单一事实源，App.vue 的 size 是响应式 computed ⇒ 即时生效。
+  // 原先这里 `location.reload()` 是为了让非响应式的 cookie 读取重新跑一遍，
+  // 代价是整页重载（丢弹窗/筛选/滚动位置，重跑认证与配置链）。
   appStore.setSize(size)
-  location.reload()
 }
 </script>

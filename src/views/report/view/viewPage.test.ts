@@ -16,6 +16,8 @@ const hoisted = vi.hoisted(() => ({
   listDashboard: vi.fn(),
   getDashboard: vi.fn(),
   msgWarning: vi.fn(),
+  confirm: vi.fn(),
+  designerDirty: { value: false },
   allowed: new Set<string>(['report:dashboard:view'])
 }))
 
@@ -25,7 +27,10 @@ vi.mock('@/api/report', () => ({
 }))
 
 vi.mock('@/plugins/modal', () => ({
-  default: { msgWarning: (...a: unknown[]) => hoisted.msgWarning(...a) }
+  default: {
+    msgWarning: (...a: unknown[]) => hoisted.msgWarning(...a),
+    confirm: (...a: unknown[]) => hoisted.confirm(...a)
+  }
 }))
 
 vi.mock('@/utils/permission', () => ({
@@ -38,9 +43,17 @@ vi.mock('vue-i18n', async (orig) => {
 })
 
 import ViewPage from './index.vue'
+import { defineComponent, h, type SetupContext } from 'vue'
 
 const stubs = {
-  Designer: { template: '<div class="designer-stub" />' },
+  // 设计器桩：暴露 hasUnsavedChanges 供"切模式前先问一句"的接线反查（b113）
+  Designer: defineComponent({
+    name: 'DesignerStub',
+    setup(_props: Record<string, never>, ctx: SetupContext) {
+      ctx.expose({ hasUnsavedChanges: () => hoisted.designerDirty.value })
+      return () => h('div', { class: 'designer-stub' })
+    }
+  }),
   ChartCard: { template: '<div class="chart-card-stub" />' },
   'el-select': { template: '<div><slot /></div>' },
   'el-option': { template: '<div />' },
@@ -66,8 +79,11 @@ interface ViewVm {
   loadError: boolean
   loading: boolean
   canEdit: boolean
+  refreshInterval: number
+  reloadTick: number
   refreshAll: () => Promise<boolean>
   loadSelected: (id: number) => Promise<boolean>
+  onModeChange: (next: 'view' | 'design') => Promise<void>
 }
 
 function vmOf(wrapper: ReturnType<typeof mount>): ViewVm {
@@ -84,6 +100,8 @@ describe('报告运行态（b94）', () => {
     hoisted.allowed = new Set(['report:dashboard:view'])
     hoisted.listDashboard.mockResolvedValue(dashboardFixture())
     hoisted.getDashboard.mockResolvedValue({ data: { layoutJson: { schemaVersion: 2, charts: [] } } })
+    hoisted.confirm.mockResolvedValue('confirm')
+    hoisted.designerDirty.value = false
   })
 
   it('列表加载失败时错误条可见，页面不崩', async () => {
@@ -167,5 +185,112 @@ describe('报告运行态（b94）', () => {
 
     expect(vm.charts).toHaveLength(1)
     expect((vm.charts[0] as { datasetId: number }).datasetId).toBe(8)
+  })
+
+  it('自动刷新：按间隔 tick；隐藏即停；回到前台立即补一次（b113）', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(ViewPage, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+    const base = vm.reloadTick
+
+    vm.refreshInterval = 10
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(vm.reloadTick).toBe(base + 1)
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(vm.reloadTick, '隐藏期间不得再刷新').toBe(base + 1)
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(vm.reloadTick, '回到前台必须立即刷新一次').toBe(base + 2)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(vm.reloadTick).toBe(base + 3)
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('设计态切回运行态：设计器脏了必须先确认，取消则留在设计态（b113）', async () => {
+    hoisted.allowed = new Set(['report:dashboard:view', 'report:dashboard:edit'])
+    const wrapper = mount(ViewPage, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+
+    await vm.onModeChange('design')
+    await nextTick()
+    expect(vm.mode).toBe('design')
+    expect(wrapper.find('.designer-stub').exists()).toBe(true)
+
+    // 脏了 + 取消：不得切走（切走会 v-if 卸载设计器，内存态画布随之丢失）
+    hoisted.designerDirty.value = true
+    hoisted.confirm.mockRejectedValueOnce('cancel')
+    await vm.onModeChange('view')
+    await nextTick()
+    expect(hoisted.confirm).toHaveBeenCalledTimes(1)
+    expect(vm.mode, '取消后必须留在设计态').toBe('design')
+    expect(wrapper.find('.designer-stub').exists()).toBe(true)
+
+    // 脏了 + 确认：切走并刷新布局
+    const before = vm.reloadTick
+    await vm.onModeChange('view')
+    await nextTick()
+    await flushPromises()
+    expect(vm.mode).toBe('view')
+    expect(wrapper.find('.designer-stub').exists()).toBe(false)
+    expect(vm.reloadTick, '切回运行态必须重拉画布').toBeGreaterThan(before)
+  })
+
+  it('设计器干净时切回运行态不得打扰（不弹确认）', async () => {
+    hoisted.allowed = new Set(['report:dashboard:view', 'report:dashboard:edit'])
+    const wrapper = mount(ViewPage, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+    await vm.onModeChange('design')
+    await nextTick()
+
+    await vm.onModeChange('view')
+    await nextTick()
+    expect(hoisted.confirm).not.toHaveBeenCalled()
+    expect(vm.mode).toBe('view')
+  })
+
+  it('隐藏时设置间隔，回到前台后必须真的开始轮询（旧实现永远不再启动，b113）', async () => {
+    vi.useFakeTimers()
+    // 先把共享的可见性状态推到"可见"再推到"隐藏"：本文件其余用例没有卸载组件
+    // （`useVisibilityPause` 的监听是模块级共享的），只改 document.hidden 不会让状态机换档。
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+
+    const wrapper = mount(ViewPage, { global: globalOptions })
+    await flushPromises()
+    const vm = vmOf(wrapper)
+    const base = vm.reloadTick
+
+    vm.refreshInterval = 10
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(vm.reloadTick, '隐藏态下不得轮询').toBe(base)
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(vm.reloadTick, '恢复可见必须立刻补一次').toBe(base + 1)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(vm.reloadTick, '排期也必须真的恢复').toBe(base + 2)
+
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 })

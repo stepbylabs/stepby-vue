@@ -251,6 +251,7 @@ import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import EmptyState from '@/components/EmptyState/index.vue'
 import useSettingsStore from '@/store/modules/settings'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useVisiblePolling } from '@/composables/useVisiblePolling'
 import { useTableColumns } from '@/composables/useTableColumns'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import type { TableColumnDef } from '@/utils/userPrefs'
@@ -469,49 +470,44 @@ function handleViewBackups() {
 }
 
 // ==================== running 任务自动刷新 ====================
-// 存在 running 状态任务时以 5s 间隔静默轮询（不闪 loading），任务结束自动停止；
-// onBeforeUnmount 清理定时器，避免内存泄漏。
+// 存在 running 状态任务时以 5s 间隔静默轮询（不闪 loading），任务结束自动停止。
+// b113：改走 useVisiblePolling —— 隐藏即停、回到前台立即补一次（旧实现只是
+// "tick 到了就跳过请求"，所以后台那段时间从没采到过进度，回来还要再等满 5s）。
 const RUNNING_POLL_INTERVAL = 5000
-let runningPollTimer: ReturnType<typeof setInterval> | null = null
 
 const hasRunningTask = computed(() => taskList.value.some((t: SysTask) => t.status === 'running'))
+
+const runningPoller = useVisiblePolling(
+  () => silentRefresh(),
+  () => (hasRunningTask.value ? RUNNING_POLL_INTERVAL : 0)
+)
 
 // 列表更新（含 useCrudTable 的 getList/删除刷新）后同步轮询启停
 watch(taskList, () => syncRunningPoll())
 
-/** 静默刷新：仅更新数据，不触发全页 loading（避免轮询闪烁） */
-function silentRefresh() {
+/** 静默刷新：仅更新数据，不触发全页 loading（避免轮询闪烁）。返回 Promise 让轮询器的在途闸真正生效 */
+function silentRefresh(): Promise<void> {
   const params = addDateRange({ ...queryParams.value } as Record<string, unknown>, dateRange.value) as TaskQueryParams
-  listTask(params)
+  return listTask(params)
     .then((res) => {
       taskList.value = res.rows
       total.value = res.total
       syncRunningPoll()
     })
-    .catch(() => {})
+    .catch((e) => {
+      // 后台静默刷新失败保留屏上旧数据，但不得把拒绝吞成"什么都没发生"
+      if (import.meta.env.DEV) console.error('[TaskList] silent refresh failed:', e)
+    })
 }
 
-/** 按列表中是否存在 running 任务启停轮询 */
-function syncRunningPoll() {
-  if (hasRunningTask.value) {
-    if (!runningPollTimer) {
-      runningPollTimer = setInterval(() => {
-        // 标签页隐藏时跳过请求，回到前台后下一个周期恢复
-        if (document.hidden) return
-        silentRefresh()
-      }, RUNNING_POLL_INTERVAL)
-    }
-  } else if (runningPollTimer) {
-    clearInterval(runningPollTimer)
-    runningPollTimer = null
-  }
+/** 按列表中是否存在 running 任务启停轮询（start 会按当前 interval 重新排期） */
+function syncRunningPoll(): void {
+  if (hasRunningTask.value) runningPoller.start()
+  else runningPoller.stop()
 }
 
 onBeforeUnmount(() => {
-  if (runningPollTimer) {
-    clearInterval(runningPollTimer)
-    runningPollTimer = null
-  }
+  runningPoller.stop()
 })
 
 getList()

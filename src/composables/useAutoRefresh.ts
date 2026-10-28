@@ -6,7 +6,11 @@
  *   - 0 表示禁用自动刷新
  *   - 间隔变化时自动重置定时器
  *   - 组件卸载时清理定时器，避免内存泄漏
- *   - TierA-3: 标签页隐藏时自动暂停轮询，可见时恢复（节省后台资源）
+ *   - 标签页隐藏时暂停、可见时恢复
+ *
+ * b113：调度本身收敛到 `useVisiblePolling`（与 monitor/server、report/view 共用一条实现）。
+ * 此前"可见时恢复"只重新排期、不立即取数 ⇒ 回到标签页看到的是离开前的数据，还要再等
+ * 一个完整周期；现在恢复即刷新一次。其余语义（immediate / 间隔变更 / 卸载清理）保持不变。
  *
  * 用法：
  *   import { useAutoRefresh } from '@/composables/useAutoRefresh'
@@ -16,75 +20,25 @@
  */
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import useSettingsStore from '@/store/modules/settings'
-import { useVisibilityPause } from '@/composables/useVisibilityPause'
+import { useVisiblePolling } from '@/composables/useVisiblePolling'
 
 export function useAutoRefresh(callback: () => void | Promise<void>, immediate = false): void {
   const settingsStore = useSettingsStore()
-  let timer: ReturnType<typeof setTimeout> | null = null
-  // P2 修复: 标记是否已停止，防止递归 setTimeout 在清理后继续调度
-  let stopped = true
-
-  function clearTimer(): void {
-    stopped = true
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
-  }
-
-  function setup(): void {
-    clearTimer()
-    stopped = false
-    const interval = settingsStore.userPrefs.autoRefreshInterval
-    // 标签页隐藏时不启动定时器，避免与 useVisibilityPause 的 onPause 清理产生竞态
-    if (interval > 0 && !document.hidden) {
-      // P2 修复: 使用递归 setTimeout 替代 setInterval，确保前一次回调完成后
-      // 才调度下一次，避免慢回调堆积导致并发执行与状态竞争
-      const scheduleNext = (): void => {
-        timer = setTimeout(async () => {
-          timer = null
-          try {
-            await callback()
-          } catch (e) {
-            if (import.meta.env.DEV) console.error('[useAutoRefresh] callback error:', e)
-          }
-          // 仅当未被清理时才继续调度，避免卸载后重新触发
-          if (timer === null && !stopped) {
-            scheduleNext()
-          }
-        }, interval * 1000)
-      }
-      scheduleNext()
-    }
-  }
+  const poller = useVisiblePolling(callback, () => settingsStore.userPrefs.autoRefreshInterval * 1000)
 
   onMounted(() => {
-    if (immediate) {
-      try {
-        Promise.resolve(callback()).catch((e) => {
-          if (import.meta.env.DEV) console.error('[useAutoRefresh] immediate error:', e)
-        })
-      } catch (e) {
-        if (import.meta.env.DEV) console.error('[useAutoRefresh] immediate sync error:', e)
-      }
-    }
-    setup()
+    // immediate 与 interval 无关：即使关闭自动刷新，"进页面先取一次"仍成立
+    if (immediate) poller.runNow()
+    poller.start()
   })
 
-  // 间隔变化时重新设置定时器
+  // 间隔变化时重新排期（0 = 关闭；从 0 改回 >0 也会重新启动）
   watch(
     () => settingsStore.userPrefs.autoRefreshInterval,
-    () => setup()
-  )
-
-  // TierA-3: 失焦暂停 - 标签页隐藏时暂停轮询，可见时恢复
-  const { onPauseResume } = useVisibilityPause()
-  onPauseResume(
-    () => clearTimer(), // 隐藏时清理定时器
-    () => setup() // 可见时重新启动定时器
+    () => poller.start()
   )
 
   onBeforeUnmount(() => {
-    clearTimer()
+    poller.stop()
   })
 }

@@ -3,11 +3,13 @@
     <!-- 工具栏：选择大屏 / 新建 / 保存 -->
     <div class="mb-4 flex flex-wrap items-center gap-2">
       <el-select
-        v-model="selectedId"
+        :key="`dash-${selectEpoch}`"
+        :model-value="selectedId"
         :placeholder="t('rp.pickDashboard')"
         class="w-64"
         filterable
         :aria-label="t('rp.pickDashboard')"
+        @change="requestSelect"
       >
         <el-option v-for="d in dashboards" :key="d.dashboardId" :value="d.dashboardId" :label="d.dashboardName" />
       </el-select>
@@ -220,6 +222,7 @@ import {
 import ChartCard from '../components/ChartCard.vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
+import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -252,6 +255,29 @@ const editing = computed<DashboardChart | undefined>(() =>
 /** 属性面板列下拉：从该卡片数据集试跑取列（缓存） */
 const editingColumns = ref<string[]>([])
 const createForm = ref({ dashboardCode: '', dashboardName: '' })
+
+// b113：未保存改动保护。设计器是"改即生效"的内存态——加卡片/排序/改字段/调宽度都不落库，
+// 只有点保存才写。改造前切大屏、切模式、离开页面三条路径都静默丢改动。
+const selectEpoch = ref(0)
+const savedSnapshot = ref('')
+
+function snapshotOf(id: number | undefined, list: DashboardChart[]): string {
+  return JSON.stringify({ dashboardId: id ?? null, charts: list })
+}
+
+/** 与"最近一次落库/加载"的快照比对；只有编辑权限下的已选大屏才可能脏 */
+const isDirty = computed(
+  () => canEdit.value && !!selectedId.value && savedSnapshot.value !== snapshotOf(selectedId.value, charts.value)
+)
+
+useUnsavedChangesGuard(
+  () => isDirty.value,
+  () => t('rp.unsavedLeaveConfirm')
+)
+
+// 暴露成函数而不是 ComputedRef：外层（运行/设计模式切换）要在卸载前问一句"有没有未保存改动"，
+// 函数签名让调用点拿到的是**当下布尔值**（ref 在模板 ref 上被自动解包，类型却仍是 ComputedRef）
+defineExpose({ hasUnsavedChanges: (): boolean => isDirty.value })
 
 const propOpen = computed({
   get: () => !!editing.value,
@@ -304,6 +330,7 @@ async function loadLayout(id: number): Promise<boolean> {
     // 快速切换大屏时，先发的请求可能后到：过期响应不得覆盖当前画布
     if (selectedId.value !== id) return false
     charts.value = parseLayout(res.data?.layoutJson).charts
+    savedSnapshot.value = snapshotOf(id, charts.value)
     layoutError.value = false
     await loadEditingColumns()
     return true
@@ -311,6 +338,8 @@ async function loadLayout(id: number): Promise<boolean> {
     // 失败时清空画布：保留上一屏的卡片会让用户以为当前看板已加载成功
     if (selectedId.value === id) {
       charts.value = []
+      // 屏上已无内容 ⇒ 与"库里有什么"的差异不是用户改动，不得在切走时弹"未保存"（假警报）
+      savedSnapshot.value = snapshotOf(id, charts.value)
       layoutError.value = true
     }
     return false
@@ -341,8 +370,27 @@ watch(selectedId, (id: number | undefined) => {
   } else {
     charts.value = []
     layoutError.value = false
+    savedSnapshot.value = ''
   }
 })
+
+/**
+ * 切换大屏（受控 + 确认）：脏了先问，取消则把下拉复位到当前大屏。
+ * 这里刻意不用 `v-model`——它会在确认框还开着的时候就把 selectedId 换掉，
+ * watcher 随即加载另一块看板，用户的未保存改动在"还没回答"时就已经没了。
+ */
+async function requestSelect(id?: number): Promise<void> {
+  if (id === selectedId.value) return
+  if (id == null) {
+    selectEpoch.value++ // 受控下拉复位（无清除按钮，防御性分支）
+    return
+  }
+  if (isDirty.value && !(await confirmAction(t('rp.unsavedSwitchConfirm')))) {
+    selectEpoch.value++ // 重建下拉让其显示值回到 selectedId
+    return
+  }
+  selectedId.value = id
+}
 watch(editing, () => void loadEditingColumns())
 watch(canEdit, (v: boolean) => {
   if (!v) selectedChartId.value = undefined
@@ -363,6 +411,8 @@ async function handleCreate() {
     modal.msgWarning(t('rp.codeNameRequired'))
     return
   }
+  // 新建后会切到新大屏：脏了必须先问，否则当前画布的未保存改动被静默丢弃
+  if (isDirty.value && !(await confirmAction(t('rp.unsavedSwitchConfirm')))) return
   creating.value = true
   try {
     const res = await saveDashboard({
@@ -391,6 +441,7 @@ async function handleRemove() {
     await removeDashboard(String(selectedId.value))
     selectedId.value = undefined
     charts.value = []
+    savedSnapshot.value = ''
     await loadDashboards()
     modal.msgSuccess(t('common.operationSuccess'))
   } catch (e) {
@@ -416,6 +467,8 @@ async function handleSave() {
   const current = dashboards.value.find((d: ReportDashboard) => d.dashboardId === selectedId.value)
   if (!current) return
   saving.value = true
+  // 快照必须在**发请求前**取：await 期间用户仍可继续改，成功后再取会把没发出去的改动记成"已保存"
+  const sentSnapshot = snapshotOf(selectedId.value, charts.value)
   try {
     await saveDashboard({
       dashboardId: current.dashboardId,
@@ -424,6 +477,8 @@ async function handleSave() {
       layoutJson: { schemaVersion: 2, charts: charts.value },
       status: current.status ?? '0'
     })
+    // 落库成功才把快照推平：失败时仍算脏（否则用户以为已保存，离开时不再提示）
+    savedSnapshot.value = sentSnapshot
     modal.msgSuccess(t('common.operationSuccess'))
   } catch (e) {
     if (import.meta.env.DEV) console.error('[report/designer] 保存大屏失败:', e)
