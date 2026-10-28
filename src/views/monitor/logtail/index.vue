@@ -12,7 +12,7 @@
             class="w-[260px]"
             clearable
             filterable
-            @change="onFileChange"
+            @change="applyFilter"
           >
             <el-option v-for="f in files" :key="f.fileName" :label="f.fileName" :value="f.fileName">
               <span class="flex justify-between items-center gap-2">
@@ -25,7 +25,7 @@
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.level') }}</span>
-          <el-select :aria-label="t('logTail.level')" v-model="level" class="w-[130px]" @change="loadTail">
+          <el-select :aria-label="t('logTail.level')" v-model="level" class="w-[130px]" @change="applyFilter">
             <el-option :label="t('logTail.levels.all')" value="" />
             <el-option :label="t('logTail.levels.error')" value="ERROR" />
             <el-option :label="t('logTail.levels.warn')" value="WARN" />
@@ -41,22 +41,22 @@
             :placeholder="t('logTail.keyword')"
             class="w-[180px]"
             clearable
-            @keyup.enter="loadTail"
-            @clear="loadTail"
+            @keyup.enter="applyFilter"
+            @clear="applyFilter"
             :aria-label="t('logTail.keyword')"
           />
         </div>
 
         <div class="toolbar-item">
           <span class="label">{{ t('logTail.lineCount') }}</span>
-          <el-select :aria-label="t('logTail.lineCount')" v-model="lines" class="w-[90px]" @change="loadTail">
+          <el-select :aria-label="t('logTail.lineCount')" v-model="lines" class="w-[90px]" @change="applyFilter">
             <el-option label="500" value="500" />
             <el-option label="1000" value="1000" />
             <el-option label="2000" value="2000" />
           </el-select>
         </div>
 
-        <el-button type="primary" icon="Filter" @click="loadTail">{{ t('logTail.filter') }}</el-button>
+        <el-button type="primary" icon="Filter" @click="applyFilter">{{ t('logTail.filter') }}</el-button>
         <el-button icon="Refresh" @click="loadTail">{{ t('logTail.refresh') }}</el-button>
 
         <div class="flex-1" />
@@ -100,7 +100,7 @@
           show-icon
           :closable="false"
           class="mb-2"
-          :title="t('common.staleDataHint')"
+          :title="t('common.staleDataHintAt', { time: formatClockTime(tailLastSuccessAt) })"
         />
         <div ref="logArea" class="log-area flex-1">
           <div v-for="row in rows" :key="row.no" class="log-line" :class="'level-' + row.level.toLowerCase()">
@@ -116,6 +116,7 @@
 
 <script setup lang="ts" name="MonitorLogTail">
 import { Document } from '@element-plus/icons-vue'
+import { formatClockTime } from '@/utils'
 import { listLogFiles, tailLogFile } from '@/api/monitor/logtail'
 import type { LogFileInfo, LogLine } from '@/api/monitor/logtail'
 import type { AjaxResult } from '@/types'
@@ -134,6 +135,8 @@ const total = ref(0)
 // 失败必须在屏幕上与"没有日志"区分开，排障页不得把失败谎报成"无异常"
 const filesLoadError = ref(false)
 const tailLoadError = ref(false)
+// 陈旧横幅的截止时刻（b108）：失败时不清空，否则"是几点的数据"无从说起
+const tailLastSuccessAt = ref<number | null>(null)
 const autoRefresh = ref(false)
 const logArea = ref<HTMLElement | null>(null)
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -174,6 +177,7 @@ async function loadTail(): Promise<void> {
     rows.value = res.data?.rows ?? []
     total.value = res.data?.total ?? rows.value.length
     tailLoadError.value = false
+    tailLastSuccessAt.value = Date.now()
   } catch (err) {
     // 失败置位：正文不再落回"暂无异常日志"，而是显式"加载失败 + 重试"或快照横幅
     tailLoadError.value = true
@@ -191,12 +195,16 @@ function scrollToBottom(): void {
   }
 }
 
-function onFileChange(): void {
-  if (!currentFile.value) {
-    rows.value = []
-    total.value = 0
-    return
-  }
+/**
+ * 查询身份变了（换文件 / 换级别 / 换关键字 / 换行数）就必须丢弃上一份快照：
+ * 否则新查询失败时屏上留着的是**另一个文件或另一组筛选**的日志，还挂着"陈旧"横幅，
+ * 读日志的人会把上一份结果当成这一份的结论（b108）。
+ */
+function applyFilter(): void {
+  rows.value = []
+  total.value = 0
+  tailLastSuccessAt.value = null
+  if (!currentFile.value) return
   loadTail()
 }
 

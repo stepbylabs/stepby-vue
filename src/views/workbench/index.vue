@@ -40,14 +40,7 @@
     </el-card>
 
     <!-- 三项网络统计的失败必须可见：值显示 `—`（不是 0），并给统一重试入口（b107） -->
-    <el-alert
-      v-if="statsFail"
-      class="mb-4"
-      type="warning"
-      :closable="false"
-      show-icon
-      :title="t('workbench.statsPartialFail')"
-    >
+    <el-alert v-if="statsFail" class="mb-4" type="warning" :closable="false" show-icon :title="statsFailHint">
       <el-button link type="primary" @click="reloadStats">{{ t('common.retry') }}</el-button>
     </el-alert>
 
@@ -243,6 +236,15 @@
               </el-button>
             </div>
           </template>
+          <!-- 成功过再失败：列表保留但必须声明"是几点的数据"，而不是让它看起来像刚刷过（b108） -->
+          <el-alert
+            v-if="unreadError && unreadLoaded"
+            class="mb-2"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="unreadStaleHint"
+          />
           <Transition name="fade" mode="out-in">
             <div v-if="unreadError && !unreadLoaded" key="fail" class="empty-tip py-4">
               <el-empty :description="t('workbench.unreadLoadFail')" :image-size="80">
@@ -342,6 +344,7 @@ import { translateTitle } from '@/composables/useMenuTitle'
 import { listNoticeTop } from '@/api/system/notice'
 import { list as listOnline } from '@/api/monitor/online'
 import request from '@/utils/request'
+import { formatClockTime } from '@/utils'
 import defAva from '@/assets/images/profile.webp'
 import type { SysNotice } from '@/types'
 
@@ -368,6 +371,7 @@ const {
   data: weekLoginsData,
   loaded: weekLoginsLoaded,
   loadError: weekLoginsError,
+  lastSuccessAt: weekLoginsLastSuccessAt,
   load: loadWeekLogins
 } = useWidgetLoad<number>(async () => {
   const res = (await request({
@@ -381,6 +385,7 @@ const {
   data: unreadData,
   loaded: unreadLoaded,
   loadError: unreadError,
+  lastSuccessAt: unreadLastSuccessAt,
   load: loadUnreadNotices
 } = useWidgetLoad<SysNotice[]>(async () => {
   const res = await listNoticeTop()
@@ -392,6 +397,7 @@ const {
   data: sessionsData,
   loaded: sessionsLoaded,
   loadError: sessionsError,
+  lastSuccessAt: sessionsLastSuccessAt,
   load: loadActiveSessions
 } = useWidgetLoad<number>(async () => {
   const res = await listOnline({ ipaddr: undefined, userName: userStore.name })
@@ -399,6 +405,20 @@ const {
 }, 0)
 
 const statsFail = computed(() => weekLoginsError.value || unreadError.value || sessionsError.value)
+
+// 三块里只要有一块从未成功过，横幅就说"部分统计加载失败"（那一块的值是 `—`，不能声称是某时刻的数据）；
+// 三块都成功过再失败，才说得出"屏上是几点的数据"（取三块里最旧的那次，宁可把陈旧程度说重）（b108）
+const statsNeverLoaded = computed(() => !weekLoginsLoaded.value || !unreadLoaded.value || !sessionsLoaded.value)
+const statsFailHint = computed(() => {
+  if (statsNeverLoaded.value) return t('workbench.statsPartialFail')
+  const times = [weekLoginsLastSuccessAt.value, unreadLastSuccessAt.value, sessionsLastSuccessAt.value].filter(
+    (v): v is number => v != null
+  )
+  return t('common.staleDataHintAt', { time: formatClockTime(times.length ? Math.min(...times) : null) })
+})
+const unreadStaleHint = computed(() =>
+  t('common.staleDataHintAt', { time: formatClockTime(unreadLastSuccessAt.value) })
+)
 const favoritesCount = computed(() => fav.favorites.value.length)
 
 function reloadStats(): void {

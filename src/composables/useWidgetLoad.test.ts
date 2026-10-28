@@ -32,6 +32,32 @@ describe('useWidgetLoad（看板小组件取数状态）', () => {
     expect(w.loaded.value).toBe(false)
     expect(w.data.value).toEqual(['seed'])
     expect(w.loading.value).toBe(false)
+    expect(w.lastSuccessAt.value).toBeNull()
+  })
+
+  it('lastSuccessAt：只在成功时写入；失败不清空（陈旧横幅才能说出截止时刻），重试后前移', async () => {
+    let ok = true
+    let value = 1
+    const w = useWidgetLoad<number>(async () => {
+      if (!ok) throw new Error('down')
+      return value
+    }, 0)
+    expect(w.lastSuccessAt.value).toBeNull()
+    const before = Date.now()
+    await w.load()
+    expect(w.lastSuccessAt.value).not.toBeNull()
+    expect(w.lastSuccessAt.value!).toBeGreaterThanOrEqual(before)
+    const first = w.lastSuccessAt.value
+
+    ok = false
+    await w.load()
+    expect(w.lastSuccessAt.value).toBe(first)
+
+    ok = true
+    value = 2
+    await w.load()
+    expect(w.data.value).toBe(2)
+    expect(w.lastSuccessAt.value!).toBeGreaterThanOrEqual(first!)
   })
 
   it('成功后再失败：保留上一次数据并标注失败（loaded 仍真）', async () => {

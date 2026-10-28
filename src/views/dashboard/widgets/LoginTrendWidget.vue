@@ -13,29 +13,38 @@
       </el-tooltip>
     </template>
 
+    <el-alert v-if="error && loaded" class="mb-2" type="warning" :closable="false" show-icon :title="staleHint">
+      <el-button link type="primary" @click="refresh">{{ t('common.retry') }}</el-button>
+    </el-alert>
     <div
-      v-show="!empty && !error"
+      v-show="!empty && !(error && !loaded)"
       v-loading="loading"
       :element-loading-text="t('common.loading')"
       ref="el"
       class="chart-box w-full h-[280px]"
     ></div>
     <el-empty
-      v-if="!loading && !error && empty"
+      v-if="!loading && loaded && empty"
       class="chart-empty"
       :image-size="60"
       :description="t('common.noData')"
     />
-    <el-empty v-if="error" class="chart-empty" :image-size="60" :description="t('dashboard.loginTrendLoadFail')">
+    <el-empty
+      v-if="!loading && error && !loaded"
+      class="chart-empty"
+      :image-size="60"
+      :description="t('dashboard.loginTrendLoadFail')"
+    >
       <el-button link type="primary" @click="refresh">{{ t('common.retry') }}</el-button>
     </el-empty>
   </WidgetCard>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download } from '@element-plus/icons-vue'
+import { formatClockTime } from '@/utils'
 import request from '@/utils/request'
 import { readCssVar } from '@/composables/useChart'
 import { useEchartsWidget } from '@/composables/useEchartsWidget'
@@ -51,7 +60,9 @@ interface LoginTrendItem {
 const { t } = useI18n()
 const loginChartType = ref<'success' | 'fail' | 'all'>('all')
 
-const { el, loading, error, empty, refresh, render, download } = useEchartsWidget<LoginTrendItem[]>({
+const { el, loading, error, empty, loaded, lastSuccessAt, refresh, render, download } = useEchartsWidget<
+  LoginTrendItem[]
+>({
   name: 'login',
   fetchData: async () => {
     const res = (await request({
@@ -96,6 +107,9 @@ const { el, loading, error, empty, refresh, render, download } = useEchartsWidge
     }
   }
 })
+
+// 成功过再失败：保留旧图并说明"屏上是几点的数据"，而不是把整张图换成"加载失败"（b108）
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 
 watch(loginChartType, () => render())
 useAutoRefresh(refresh)

@@ -14,14 +14,7 @@
       <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
     </el-empty>
     <template v-else>
-      <el-alert
-        v-if="loadError"
-        class="mb-2"
-        type="warning"
-        :closable="false"
-        show-icon
-        :title="t('common.staleDataHint')"
-      >
+      <el-alert v-if="loadError" class="mb-2" type="warning" :closable="false" show-icon :title="staleHint">
         <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
       </el-alert>
       <el-table :data="rows" size="small" :show-header="true" class="w-full">
@@ -49,6 +42,7 @@ import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
+import { formatClockTime } from '@/utils'
 import { formatModuleTitle } from '@/utils/operModuleTitle'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useWidgetLoad } from '@/composables/useWidgetLoad'
@@ -70,7 +64,7 @@ function moduleTitle(title: string): string {
 }
 
 // 失败不再显示成"一张空表"：空表与"取数失败"必须可区分（b107）
-const { data, loading, loaded, loadError, load } = useWidgetLoad<RecentOperLog[]>(async () => {
+const { data, loading, loaded, loadError, lastSuccessAt, load } = useWidgetLoad<RecentOperLog[]>(async () => {
   const res: { data?: { recentOperLogs?: RecentOperLog[] } } = await request({
     url: '/dashboard/stats',
     method: 'get'
@@ -84,6 +78,9 @@ const { data, loading, loaded, loadError, load } = useWidgetLoad<RecentOperLog[]
 }, [])
 
 const rows = computed(() => data.value)
+
+// 陈旧横幅必须说得出"屏上是几点的数据"（b108）
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 
 function goToOperLog() {
   // 操作日志菜单动态注册路径为 /system/log/operlog（组件 monitor/operlog/index），

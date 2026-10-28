@@ -67,6 +67,16 @@ export function formatTime(time: number | string, option?: string): string {
   }
 }
 
+/**
+ * 本地时钟 `HH:mm:ss`（陈旧数据横幅用："当前展示 10:05:12 的数据"）。
+ * 刻意不做相对时间（"x 分钟前"）——横幅本身已经说明"刷新失败"，
+ * 用户需要的是可对照日志的绝对时刻；取不到时刻一律返回 `—`，不得静默成空串。
+ */
+export function formatClockTime(ts: number | null | undefined): string {
+  if (ts == null || !Number.isFinite(ts) || ts <= 0) return '—'
+  return parseTime(ts, '{h}:{i}:{s}') || '—'
+}
+
 export function makeMap(str: string, expectsLowerCase?: boolean): (val: string) => boolean {
   const map = Object.create(null)
   const list = str.split(',')

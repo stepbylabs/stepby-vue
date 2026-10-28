@@ -10,7 +10,7 @@
       show-icon
       :closable="false"
       class="mb-4"
-      :title="t('common.staleDataHint')"
+      :title="t('common.staleDataHintAt', { time: lastUpdate || '—' })"
     />
 
     <!-- 顶部统计卡片（P3-16）：CPU / 内存 / 运行时长 / 运行时，使用环形进度展示使用率 -->

@@ -144,6 +144,8 @@ export default {
     retry: '重试',
     // 刷新失败但屏上仍是最近一次成功加载的数据时的显式标注
     staleDataHint: '数据刷新失败，当前展示为最近一次成功加载的数据',
+    // 同上，但带上可对照日志的截止时刻（b108 起陈旧横幅一律带时间）
+    staleDataHintAt: '数据刷新失败，当前展示为 {time} 加载的数据',
     loadDetailFailed: '详情加载失败，请稍后重试',
     submitFailed: '提交失败，请稍后重试',
     cacheRefreshFailed: '缓存刷新失败，前端可能显示脏数据',

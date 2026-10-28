@@ -144,6 +144,8 @@ export default {
     retry: 'Retry',
     // Explicit annotation when refresh failed but the screen still shows the last successful load
     staleDataHint: 'Refresh failed; showing the last successfully loaded data',
+    // Same as above but with a timestamp that can be matched against logs (b108)
+    staleDataHintAt: 'Refresh failed; showing data loaded at {time}',
     loadDetailFailed: 'Failed to load detail, please retry later',
     submitFailed: 'Submit failed, please retry later',
     cacheRefreshFailed: 'Cache refresh failed, frontend may show stale data',

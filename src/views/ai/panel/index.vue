@@ -150,6 +150,15 @@
           </el-button>
         </div>
       </template>
+      <!-- 成功过再失败：旧行保留但标注"是几点的数据"，不让它看起来像刚刷过（b108） -->
+      <el-alert
+        v-if="historyLoadError && historyRows.length > 0"
+        class="mb-2"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="historyStaleHint"
+      />
       <el-table :data="historyRows" border stripe max-height="320" v-loading="historyLoading">
         <el-table-column prop="createTime" :label="t('aiPanel.history.time')" width="170" />
         <el-table-column prop="question" :label="t('aiPanel.history.question')" min-width="180" show-overflow-tooltip />
@@ -189,6 +198,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { aiChat, aiTables } from '@/api/ai/chat'
 import request from '@/utils/request'
+import { formatClockTime } from '@/utils'
 import { csvEscape } from '@/utils/csv'
 import { confirmAction } from '@/utils/confirm'
 import { useWidgetLoad } from '@/composables/useWidgetLoad'
@@ -242,6 +252,7 @@ const {
   data: historyRows,
   loading: historyLoading,
   loadError: historyLoadError,
+  lastSuccessAt: historyLastSuccessAt,
   load: loadHistory
 } = useWidgetLoad<HistoryItem[]>(async () => {
   const res = await request({
@@ -252,6 +263,11 @@ const {
   const d = (res as { data?: unknown }).data ?? res
   return ((d as { items?: HistoryItem[] }).items ?? []) as HistoryItem[]
 }, [])
+
+// 陈旧提示必须说得出"屏上是几点的数据"（b108）
+const historyStaleHint = computed(() =>
+  t('common.staleDataHintAt', { time: formatClockTime(historyLastSuccessAt.value) })
+)
 
 async function removeHistory(id: number) {
   // 历史行是用户可见数据的物理删除：先确认，取消不是错误（confirmAction 折叠成 false）

@@ -21,7 +21,7 @@
           </div>
         </div>
         <div v-if="loadError" class="flow-todo__fail">
-          <span>{{ t('common.staleDataHint') }}</span>
+          <span>{{ staleHint }}</span>
           <el-button link type="primary" size="small" @click.stop="load">{{ t('common.retry') }}</el-button>
         </div>
       </template>
@@ -30,10 +30,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { flowPendingCount } from '@/api/flow'
+import { formatClockTime } from '@/utils'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useWidgetLoad } from '@/composables/useWidgetLoad'
 import WidgetCard from '../WidgetCard.vue'
@@ -46,11 +47,15 @@ const {
   loading,
   loaded,
   loadError,
+  lastSuccessAt,
   load
 } = useWidgetLoad<number>(async () => {
   const res = await flowPendingCount()
   return Number(res.data ?? 0)
 }, 0)
+
+// 陈旧提示必须说得出"屏上是几点的数据"（b108）
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 
 function goFlow() {
   // 审批中心页面路由由后端菜单动态生成（菜单 3600 flow / 3601 todo），实际路径为 /system/flow/todo

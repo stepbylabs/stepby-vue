@@ -5,6 +5,10 @@
  * 下载 PNG。图表实例复用 useChart()（内部 ResizeObserver 自适应 + 卸载自动清理），
  * 使每个卡片成为自包含组件，可随布局自由拖拽 / 显隐而互不影响。
  *
+ * 失败语义（b108）：**首载失败**才用失败态替代图表；**成功过再失败**保留已渲染的图，
+ * 由模板给"陈旧数据 + 截止时刻 + 重试"的横幅——把整张图换成"加载失败"等于把一次
+ * 网络抖动变成数据丢失，用户连"上一次看到的是什么"都失去了。并发请求按后发先回丢弃。
+ *
  * 与旧的 useDashboardCharts 的区别：后者把三张图共享一个实例集合与 window resize 监听，
  * 服务于固定布局的 index.vue；卡片化后每张图拥有独立实例与生命周期，更适合可拖拽布局。
  */
@@ -38,10 +42,15 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
   const loading = ref(false)
   const error = ref(false)
   const empty = ref(false)
+  /** 至少成功取数过一次：模板据此区分「首载失败」与「刷新失败但屏上有旧图」 */
+  const loaded = ref(false)
+  /** 最近一次成功取数的时刻（ms）；失败不清空——否则"陈旧"这件事就没法说明是什么时候的数据 */
+  const lastSuccessAt = ref<number | null>(null)
 
   let lastData: T | null = null
   let chart: ECharts | null = null
   let disposed = false
+  let seq = 0
 
   const dataPresent = cfg.hasData ?? ((d: T): boolean => (Array.isArray(d) ? d.length > 0 : d != null))
 
@@ -53,18 +62,26 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
   }
 
   async function refresh(): Promise<void> {
+    // 自动刷新与手动重试可能重叠：只让最后一次请求的结局生效，且旧响应不得把 loading 提前摘掉
+    const my = ++seq
     loading.value = true
     error.value = false
     try {
-      lastData = await cfg.fetchData()
-      empty.value = !dataPresent(lastData)
+      const next = await cfg.fetchData()
+      if (my !== seq) return
+      lastData = next
+      lastSuccessAt.value = Date.now()
+      loaded.value = true
+      empty.value = !dataPresent(next)
       await nextTick()
+      if (my !== seq) return
       await render()
     } catch (e) {
+      if (my !== seq) return
       error.value = true
       if (import.meta.env.DEV) console.error(`[dashboard:${cfg.name}] load failed:`, e)
     } finally {
-      loading.value = false
+      if (my === seq) loading.value = false
     }
   }
 
@@ -112,5 +129,5 @@ export function useEchartsWidget<T>(cfg: EchartsWidgetConfig<T>) {
     chart = null
   })
 
-  return { el, loading, error, empty, refresh, render, download }
+  return { el, loading, error, empty, loaded, lastSuccessAt, refresh, render, download }
 }

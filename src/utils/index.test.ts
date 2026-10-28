@@ -4,14 +4,7 @@
  * className 工具无返回值（只验证副作用）、sanitizeHtml 剔除 script。
  */
 import { describe, it, expect } from 'vitest'
-import {
-  formatDate,
-  formatTime,
-  makeMap,
-  titleCase,
-  isNumberStr,
-  sanitizeHtml
-} from './index'
+import { formatDate, formatTime, formatClockTime, makeMap, titleCase, isNumberStr, sanitizeHtml } from './index'
 
 describe('utils/index formatDate', () => {
   it('null/undefined 返回空串或占位', () => {
@@ -38,6 +31,21 @@ describe('utils/index formatTime（相对时间语义）', () => {
     // 未来时间 diff<30 → 相对时间档（"刚刚"）
     expect(formatTime(future)).toBeTruthy()
     expect(formatTime(future, '{y}-{m}-{d}')).toBeTruthy()
+  })
+})
+
+describe('utils/index formatClockTime（陈旧横幅的截止时刻）', () => {
+  const at = new Date(2026, 9, 28, 9, 5, 7).getTime()
+
+  it('合法毫秒时间戳 → 本地 HH:mm:ss（逐段补零）', () => {
+    expect(formatClockTime(at)).toBe('09:05:07')
+  })
+  it('取不到时刻（null/undefined/0/NaN）⇒ 哨兵 `—`，不得静默成空串', () => {
+    expect(formatClockTime(null)).toBe('—')
+    expect(formatClockTime(undefined)).toBe('—')
+    expect(formatClockTime(0)).toBe('—')
+    expect(formatClockTime(Number.NaN)).toBe('—')
+    expect(formatClockTime(-1)).toBe('—')
   })
 })
 

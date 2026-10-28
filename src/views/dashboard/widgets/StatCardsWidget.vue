@@ -10,14 +10,7 @@
         <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
       </el-empty>
       <template v-else>
-        <el-alert
-          v-if="loadError"
-          class="mb-2"
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="t('common.staleDataHint')"
-        >
+        <el-alert v-if="loadError" class="mb-2" type="warning" :closable="false" show-icon :title="staleHint">
           <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
         </el-alert>
         <!-- StatCards 输出的是 5 个 el-col（24 栅格各占 6 → 一行 4 张），
@@ -34,6 +27,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatClockTime } from '@/utils'
 import request from '@/utils/request'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { useWidgetLoad } from '@/composables/useWidgetLoad'
@@ -65,10 +59,13 @@ const EMPTY_STATS = {
 }
 
 // 失败不再显示成"全是 0"：首载失败给失败态 + 重试；刷新失败保留上次数据并标注（b107）
-const { data, loading, loaded, loadError, load } = useWidgetLoad<DashboardStats>(async () => {
+const { data, loading, loaded, loadError, lastSuccessAt, load } = useWidgetLoad<DashboardStats>(async () => {
   const res: { data?: DashboardStats } = await request({ url: '/dashboard/stats', method: 'get' })
   return res.data || {}
 }, {})
+
+// 陈旧横幅必须说得出"屏上是几点的数据"（b108）
+const staleHint = computed(() => t('common.staleDataHintAt', { time: formatClockTime(lastSuccessAt.value) }))
 
 const cards = computed(() => {
   const d = data.value
