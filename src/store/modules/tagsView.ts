@@ -8,23 +8,22 @@ function isPersistEnabled() {
   return useSettingsStore().tagsViewPersist
 }
 
-// 生成标签页唯一缓存键，避免同 name/同 path 不同 query 的视图相互冲突（P0-77）
+/**
+ * 标签页身份键：**只看 path，不看 query**（b131）。
+ *
+ * 判据是"这是哪一页"而不是"这一页当前是什么筛选状态"：
+ * - 列表页的筛选条件会经 `useCrudTable.syncUrlQuery` 写回 URL，若把 query 算进身份，
+ *   每搜一次就多一个同名标签（真机实测：初始 2 个、每搜一次 +1），且 keep-alive 会
+ *   按"每个筛选组合一个实例"膨胀；
+ * - 路由参数（`/system/dict/data/:dictId` 这类）在 **path 里**，身份语义不受影响；
+ * - 菜单 query 配置在本仓为空（`sys_menu.query` 非空行 = 0），不依赖 query 区分菜单。
+ *
+ * 标签自身仍保留最新的 `fullPath/query`（见 `addVisitedView` 的更新分支），
+ * 点击标签＝回到该页最后一次的状态。
+ */
 function viewKey(view: View): string {
   if (!view) return ''
-  // 优先使用 fullPath（path + query 序列化），保证唯一性
-  if (view.fullPath) return view.fullPath
-  if (view.path) {
-    let key = view.path
-    if (view.query && typeof view.query === 'object') {
-      try {
-        key += '?' + JSON.stringify(view.query)
-      } catch {
-        // ignore
-      }
-    }
-    return key
-  }
-  return ''
+  return view.path || ''
 }
 
 function saveVisitedViews(views: View[]) {
@@ -91,8 +90,16 @@ const useTagsViewStore = defineStore('tags-view', {
     },
 
     addVisitedView(view: View) {
-      // 使用唯一键去重，避免同 path 不同 query 的视图被误判为重复（P0-77）
-      if (this.visitedViews.some((v: View) => viewKey(v) === viewKey(view))) return
+      // 同路径只保留一个标签：已存在时把 fullPath/query 更新为**最新状态**
+      // （点标签回到的是该页最后一次的筛选，而不是首次进入时的），不再新增条目。
+      const existing = this.visitedViews.find((v: View) => viewKey(v) === viewKey(view))
+      if (existing) {
+        if (view.fullPath) existing.fullPath = view.fullPath
+        existing.query = view.query
+        if (view.meta?.title) existing.title = view.meta.title as string
+        saveVisitedViews(this.visitedViews)
+        return
+      }
       this.visitedViews.push(
         Object.assign({}, view, {
           title: view.meta?.title || 'no-name'

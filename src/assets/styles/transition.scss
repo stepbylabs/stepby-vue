@@ -16,6 +16,16 @@ $transition-easing: ease-out;
   transition: opacity 0.28s;
 }
 
+/* 离场元素不得可交互（b131 真机取证）：列表区把「骨架屏 ↔ el-table」包在
+   `<Transition name="fade" mode="out-in">` 里，Vue 在 leave 开始时就卸载组件
+   （处理器随之失效），但 DOM 要等 0.28s 过渡结束才移除 ⇒ 这 280ms 内旧表格
+   **看得见、命中得到、点了没反应**（同一时刻连行内「删除」也不弹确认框，而
+   700ms 后再点一切正常）。离场面本来就在消失，不该再接收指针事件：让点击
+   落空到容器，而不是命中一个已经失效的假按钮。 */
+.fade-leave-active {
+  pointer-events: none;
+}
+
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;

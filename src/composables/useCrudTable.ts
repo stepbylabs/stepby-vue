@@ -2,6 +2,7 @@ import { nextTick, ref, shallowRef, watch, type Ref, type ShallowRef } from 'vue
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { toPositiveInt } from '@/utils/validate'
+import { buildUrlQuery } from '@/utils/queryUrl'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
@@ -368,23 +369,13 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
   /** 当前查询条件写入 URL（UX-6，replace 不污染历史栈） */
   function syncUrlQuery(): void {
     if (!syncQueryToUrl || !router || !route) return
-    const src = queryParams.value as unknown as Record<string, unknown>
-    const query: Record<string, string> = {}
-    // KB-51：保留 URL 中「非查询条件」的既有参数（如页签 tab 等页面状态），
-    // 避免深链回跳后被 queryParams 序列化整体覆盖而丢失；查询键仍以当前值为准。
-    const existing = route.query as Record<string, unknown>
-    for (const [k, v] of Object.entries(existing)) {
-      if (!(k in src) && v !== undefined && v !== null && v !== '') {
-        query[k] = String(v)
-      }
-    }
-    for (const [k, v] of Object.entries(src)) {
-      if (v === undefined || v === null || v === '') continue
-      // 批六十四：仅同步原始类型——嵌套对象（如 RuoYi 惯例的 params 容器）会被
-      // String(v) 序列化成 `params=[object Object]` 垃圾参数污染 URL（F137 取证实录）
-      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') continue
-      query[k] = String(v)
-    }
+    // b131：序列化口径抽到 `utils/queryUrl::buildUrlQuery`（用户页手写的那份此前漏了
+    // 「非原始值不同步」这条，把 `params=[object Object]` 写进了地址栏）。行为不变：
+    // KB-51 的既有键保留 + 批六十四的对象过滤都在那个纯函数里。
+    const query = buildUrlQuery(
+      queryParams.value as unknown as Record<string, unknown>,
+      route.query as Record<string, unknown>
+    )
     if (JSON.stringify(query) === JSON.stringify(route.query as Record<string, string>)) return
     router.replace({ query }).catch(() => {})
   }

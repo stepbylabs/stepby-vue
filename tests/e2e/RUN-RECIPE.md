@@ -4888,3 +4888,70 @@ F150 ⑦ 首跑红在 `ok=true, items=1`：成功提示已经出现，但 `count
 
 附一条同类教训：`isEnabled()` / `isVisible()` 这类探测本身也会抛（元素不存在时），
 所以 `.catch()` 仍然需要——只是兜底值必须是 `false`。
+
+### 3.124 离场元素、假落定与两条写 URL 路径（b131 固化）
+
+**症状**：F52「编辑对话框回填原昵称」稳定失败——回填读成空串，随后
+`locator.fill: Timeout 30000ms`。同一功能在上一轮全量是绿的，本轮后端只改了批量语义、
+前端只把页面身份从 `fullPath` 改成 `path`，表面上看都不该影响"点行内修改 → 弹窗回填"。
+
+**分诊顺序（每条都能独立定性，别跳过前两条直接读源码）**
+
+1. **点没点中**：`page.evaluate` 里用 `btn.scrollIntoView()` + `document.elementFromPoint(x,y)`
+   打印落点链。实测命中 `svg → button[aria=修改]`，且真实点击坐标 `(1301,658)`、`scrollY=0`
+   ——不是坐标漂移，也不是横向滚动没到位。
+2. **处理器在不在**：同一节点 `page.evaluate(btn.click())`。
+   - 有效 ⇒ 处理器在，是"真实点击"这条路被吃掉了；
+   - 无效 ⇒ 处理器没了（组件已卸载 / 节点被替换）。
+     实测：DOM 直调立刻发出 `GET /system/user/{id}` 并弹窗 ⇒ 处理器在。
+3. **是不是整张表都这样**：同一时刻点行内「删除」。实测也不弹确认框；**晚 700ms 再点全部正常**
+   ⇒ 不是按钮特有，是"这一时刻的整张表"。
+4. **页面有没有重建**：在 `.app-container` 与 shell 上打 `data-*` 标记，点击前后读；
+   同时 patch `XMLHttpRequest.prototype.open` / `window.fetch` / `history.replaceState`。
+   实测：标记存续（没 remount）、**零请求**、无 history 变化，而行数在 600ms 后从 5 变 1
+   ——数据不是网络来的，是旧表被换掉。
+
+**根因（两条）**
+
+- `<Transition name="fade" mode="out-in">` 包住「骨架屏 ↔ `el-table`」：Vue 在 leave **开始**时
+  卸载旧组件（处理器失效），DOM 等 `0.28s` 才移除 ⇒ 旧表**看得见、命中得到、点了没反应**。
+  修法：`.fade-leave-active { pointer-events: none }`（进入态**不加**，进入的是当前内容）。
+- 判据把「目标行可见」当落定。新建记录是列表首行，**搜索前**那张未过滤的表里也有它
+  ⇒ 判据在旧表上提前成立。落定改取事实：**表格行集 == 本次响应 `rows`**（且骨架消失）。
+
+**通用写法**
+
+```js
+// 落定：表格呈现的行集必须等于这次响应返回的行集（不是"首行可见"，也不是 sleep）
+let expected = -1
+try {
+  const body = await resp?.json()
+  const rows = Array.isArray(body?.rows) ? body.rows : body?.data?.rows
+  if (Array.isArray(rows)) expected = rows.length
+} catch {}
+for (let i = 0; i < 40; i++) {
+  const s = await page
+    .evaluate(() => ({
+      skeleton: document.querySelectorAll('.skeleton-table').length,
+      rows: document.querySelectorAll('.el-table__body-wrapper tbody tr').length
+    }))
+    .catch(() => ({ skeleton: -1, rows: -1 }))
+  if (s.skeleton === 0 && expected >= 0 && s.rows === expected) break
+  if (s.skeleton === 0 && expected < 0 && s.rows > 0) break
+  await sleep(150)
+}
+```
+
+**同批的第二条：地址栏里的 `params=[object Object]`**
+
+`addDateRange()` 会**变异**入参（既有单测断言 `result === params`），把
+`params: { beginTime, endTime }` 写回 `queryParams`；用户页手写的 `syncUrlQuery()`
+对每个非空值做 `String(v)` ⇒ 对象被序列化进 URL。`useCrudTable` 的同名逻辑早就过滤
+非原始值 ⇒ **同一句纪律两份实现**。修法是抽 `utils/queryUrl::buildUrlQuery` 单一实现，
+判据除了单测还要有**接线反查**（两条写路径都调用它），并配两条反证：
+修复前的形状必须判否、只在注释里提到不算接线。
+
+**判据自身的两个坑**：① SCSS 规则解析器把 `$ease-enter: ease-out;` 这类无花括号声明并进
+"选择器"段 ⇒ `.fade-enter-active` 一个块都匹配不上（红在判据自己身上）；修法是选择器段
+取最后一个 `;` 之后的部分。② 变异验证必须落在**被真正执行的那份文件**上：本轮变异 A
+第一次"全绿"是因为解析器坏了，不是产品对。

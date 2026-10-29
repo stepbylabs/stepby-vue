@@ -248,13 +248,11 @@ function handleKeyDown(event: KeyboardEvent): void {
 }
 
 function isActive(r: View | Record<string, never>): boolean {
-  // P1 修复：同路径不同 query 的标签也要正确高亮（比较 fullPath 而非仅 path），
-  // 与 AppMain 的 keep-alive key 语义保持一致
+  // b131：标签身份 = path（与 store 的 viewKey、AppMain 的组件 key 同一口径）。
+  // 原先比较 fullPath —— 筛选写回 URL 后 fullPath 与标签保存的值不同，当前页标签会失去高亮，
+  // 同时搜索会不断新增同名标签（身份包含 query 的直接后果）。
   const view = r as View
-  if (view.fullPath) {
-    return view.fullPath === route.fullPath
-  }
-  return view.path === route.path
+  return !!view.path && view.path === route.path
 }
 
 function tagActiveStyle(tag: View): Record<string, string> {
@@ -270,18 +268,18 @@ function isAffix(tag: View | Record<string, never>): boolean {
 }
 
 function isFirstView(): boolean {
-  const tag = selectedTag.value && selectedTag.value.fullPath ? selectedTag.value : selectedDropdownTag.value
-  if (!tag || !tag.fullPath) return false
+  const tag = selectedTag.value && selectedTag.value.path ? selectedTag.value : selectedDropdownTag.value
+  if (!tag || !tag.path) return false
   // 优先以首个 affix（固定）标签作为"第一个视图"判断，避免硬编码下标
   const firstAffix = visitedViews.value.find((v: View) => v.meta && v.meta.affix)
   const firstView = firstAffix || visitedViews.value[0]
-  return !!firstView && tag.fullPath === firstView.fullPath
+  return !!firstView && tag.path === firstView.path
 }
 
 function isLastView(): boolean {
   try {
-    const tag = selectedTag.value && selectedTag.value.fullPath ? selectedTag.value : selectedDropdownTag.value
-    return tag.fullPath === visitedViews.value[visitedViews.value.length - 1].fullPath
+    const tag = selectedTag.value && selectedTag.value.path ? selectedTag.value : selectedDropdownTag.value
+    return tag.path === visitedViews.value[visitedViews.value.length - 1].path
   } catch {
     return false
   }
@@ -436,7 +434,7 @@ function closeRightTags(): void {
   tab
     .closeRightPage(selectedTag.value as View)
     .then((visitedViews) => {
-      if (!visitedViews.find((i: View) => i.fullPath === route.fullPath)) {
+      if (!visitedViews.find((i: View) => i.path === route.path)) {
         toLastView(visitedViews)
       }
     })
@@ -449,7 +447,7 @@ function closeLeftTags(): void {
   tab
     .closeLeftPage(selectedTag.value as View)
     .then((visitedViews) => {
-      if (!visitedViews.find((i: View) => i.fullPath === route.fullPath)) {
+      if (!visitedViews.find((i: View) => i.path === route.path)) {
         toLastView(visitedViews)
       }
     })

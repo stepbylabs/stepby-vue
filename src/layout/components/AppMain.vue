@@ -3,12 +3,15 @@
     <!-- 面包屑（UX-1）：内容区顶部层级定位；随内容滚动（TagsView 常驻提供访问历史） -->
     <breadcrumb v-if="!route.meta.link" class="app-breadcrumb-wrap" />
     <router-view v-slot="{ Component, route }">
-      <!-- P1 修复：key 用 fullPath（含 query），使同一路径不同参数（详情页带参跳转）重建组件，
-           避免 keep-alive 缓存导致显示旧数据；与 TagsView isActive 的 fullPath 语义一致 -->
+      <!-- P1 修复：key 曾用 fullPath（含 query），使同一路径不同参数（详情页带参跳转）重建组件。
+           b131 订正：路由参数在 **path 里**（`/system/dict/data/:dictId` 等），query 在列表页是
+           **筛选状态**（`useCrudTable.syncUrlQuery` 每次搜索都会写）——用 fullPath 当身份会让
+           每搜一次就整页重建：组件卸载重挂、列表请求发两次、keep-alive 按筛选组合膨胀、页签同名重复。
+           身份只认 path（与 TagsView 的 viewKey 同一口径）。 -->
       <ErrorBoundary v-if="!route.meta.link">
         <transition name="fade-transform" mode="out-in">
           <keep-alive :include="tagsViewStore.cachedViews" :max="20">
-            <component :is="Component" :key="route.fullPath" />
+            <component :is="Component" :key="route.path" />
           </keep-alive>
         </transition>
       </ErrorBoundary>

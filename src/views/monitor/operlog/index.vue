@@ -586,16 +586,33 @@ const formRef = ref<FormInstance | null>(null)
 
 // P1-3：支持从 audit-dashboard 通过 query 跳转过来预筛选业务类型
 const route = useRoute()
-function applyRouteQuery() {
+function applyRouteQuery(): boolean {
+  let changed = false
   const q = route.query
   if (q.businessType !== undefined && q.businessType !== '') {
-    queryParams.value.businessType = String(q.businessType)
+    const v = String(q.businessType)
+    if (queryParams.value.businessType !== v) changed = true
+    queryParams.value.businessType = v
   }
   if (q.status !== undefined && q.status !== '') {
-    queryParams.value.status = String(q.status)
+    const v = String(q.status)
+    if (queryParams.value.status !== v) changed = true
+    queryParams.value.status = v
   }
+  return changed
 }
 applyRouteQuery()
+// b131：本页组件身份按 path 复用（不再随 query 重建），所以"从大屏带新的筛选跳过来"
+// 必须由 watcher 跟随 —— 否则第二次跳转（页面已在页签里）筛选不会生效，屏幕上是旧条件的结果。
+watch(
+  () => [route.query.businessType, route.query.status],
+  () => {
+    if (applyRouteQuery()) {
+      queryParams.value.pageNum = 1
+      getList()
+    }
+  }
+)
 
 const {
   dataList: operlogList,

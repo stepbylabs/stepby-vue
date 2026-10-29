@@ -13064,16 +13064,33 @@ async function testFeature52(page) {
       .catch(() => null)
     await page.locator('input[placeholder="请输入用户名称"]').first().fill(name)
     await page.locator('button:has-text("搜索")').first().click()
-    await respPromise
-    // ⚠️ 根因（批次二十五实测定性）：输入/搜索触发页面 `syncUrlQuery()→router.replace({query})`，
-    //    Vue Router 对该路由执行「卸载→重挂」——中间存在**表格短暂消失的空白窗口**（诊断实证：
-    //    点击后 el-table 计数时序 1→1→1→(sleep后)0→(更晚)1 的闪变）。断言若落在窗口内即误判 rows=0。
-    //    故必须等目标行真正出现（而非固定 sleep）：先等表格体至少一行可见，再等含目标文本的行可见。
-    await page
-      .locator('.el-table__body-wrapper tbody tr')
-      .first()
-      .waitFor({ state: 'visible', timeout: 8000 })
-      .catch(() => {})
+    const resp = await respPromise
+    // b131 真机取证（本条判据此前只等「目标行可见」）：新建用户就是列表首行，**搜索前**那张
+    // 未过滤的表里也有它 ⇒ 旧判据在旧表还没换掉时就已经成立，点击落在正在离场的表格上。
+    // 列表区把「骨架屏 ↔ el-table」包在 `<Transition name="fade" mode="out-in">` 里，Vue 在
+    // leave 开始时就卸载旧表（处理器随之失效）却要等 0.28s 才移除 DOM ⇒ 这段窗口内旧表
+    // 看得见、命中得到、点了没反应（同探针实测：同一时刻行内「删除」也不弹确认框，700ms
+    // 后再点一切正常）。落定只能由事实判：**表格呈现的行集必须等于这次响应返回的行集**
+    // （且骨架已消失），不是「首行可见」，也不是 sleep。
+    let expectedRows = -1
+    try {
+      const body = await resp?.json()
+      const rows = Array.isArray(body?.rows) ? body.rows : body?.data?.rows
+      if (Array.isArray(rows)) expectedRows = rows.length
+    } catch {
+      /* 响应体不可解析 ⇒ 退化为「骨架消失且行数稳定非零」 */
+    }
+    for (let i = 0; i < 40; i++) {
+      const state = await page
+        .evaluate(() => ({
+          skeleton: document.querySelectorAll('.skeleton-table').length,
+          rows: document.querySelectorAll('.el-table__body-wrapper tbody tr').length
+        }))
+        .catch(() => ({ skeleton: -1, rows: -1 }))
+      if (state.skeleton === 0 && expectedRows >= 0 && state.rows === expectedRows) break
+      if (state.skeleton === 0 && expectedRows < 0 && state.rows > 0) break
+      await sleep(150)
+    }
     await page
       .locator('.el-table__body-wrapper tbody tr')
       .filter({ hasText: name })
@@ -13182,6 +13199,16 @@ async function testFeature52(page) {
     rowAfterAdd = await rowsOf(uname).count()
   }
   record(52, '新增后列表出现该用户行', rowAfterAdd === 1, `rows=${rowAfterAdd}`)
+  // b131：地址栏不得出现对象序列化垃圾。`addDateRange()` 会给 queryParams 注入
+  // `params: { beginTime, endTime }`，而本页手写的 syncUrlQuery 原先对它做 `String(v)`
+  // ⇒ `/system/user?…&params=[object+Object]`（真机 URL 取证）。分享/刷新都带着这条垃圾。
+  const urlAfterSearch = decodeURIComponent(page.url())
+  record(
+    52,
+    '搜索后地址栏不含对象序列化垃圾（params=[object Object]）',
+    !/\[object/i.test(urlAfterSearch) && !/[?&]params=/.test(urlAfterSearch),
+    `url=${page.url()}`
+  )
   if (!added || rowAfterAdd !== 1) {
     await cleanupUiUser(uname)
     return
@@ -20028,6 +20055,282 @@ async function testFeature151(page) {
   record(151, '⑤ 对照组：取消勾选后批量按钮变灰', !enabledAfterUncheck, `enabled=${enabledAfterUncheck}`)
 }
 
+/**
+ * 功能 152（b131）：页面身份 = path，查询串只是**页面状态**。
+ *
+ * 立案取证（真机）：搜索一次会触发 `syncUrlQuery` → `router.replace`，而 `AppMain` 的
+ * `<component :key="route.fullPath">` 把"筛选变了"当成"换了一个页面" ⇒
+ * ① 每次搜索整页重建（DOM 标记丢失）、② 列表请求发两次（669/1016ms、2869/3252ms）、
+ * ③ 每次搜索**新增一个同名页签**（初始 2 个 → 每次 +1）、④ keep-alive 按筛选组合膨胀。
+ * 修法：`:key="route.path"` + tagsView 身份按 path + store 按 path 去重（b131）。
+ *
+ * 判据刻意全部取**运行时事实**，不用"我们没写 reload"这类写法推断：
+ * ① 页面可达；② 列表已渲染（前置）；③ DOM 标记打上了（判据输入自证——打不上就判红，
+ * 否则 ⑦ 会因"标记本来就没有"而假绿）；④ 搜索请求确带 `postCode=`（点击真的落地）；
+ * ⑤ 从点击到落定只发 **1** 次列表请求（修复前 2 次）；
+ * ⑥ 页签数不增长（修复前每次 +1）；
+ * ⑦ 搜索后表格与表单**仍是同一批 DOM 节点**（整页重建会换掉节点）；
+ * ⑧ URL 仍反映筛选（深链可分享）；⑨ 刷新后按 URL 复原筛选（深链可回放）。
+ */
+async function testFeature152(page) {
+  log('=== 功能 152：搜索不重建页面 / 不新增页签 / 只发一次列表请求（b131） ===')
+  const ok = await openPage(page, '/system/post', 'post')
+  record(152, '① 页面可达（/system/post）', ok)
+  if (!ok) return
+
+  const table = page.locator('.app-main .el-table').first()
+  await table.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  let rows = 0
+  for (let i = 0; i < 40 && rows === 0; i++) {
+    rows = await table
+      .locator('tbody tr')
+      .count()
+      .catch(() => 0)
+    if (rows === 0) await sleep(150)
+  }
+  record(152, '② 前置：列表已渲染', rows > 0, `rows=${rows}`)
+  if (rows === 0) return
+
+  const tagsBefore = await page
+    .locator('.tags-view-item')
+    .count()
+    .catch(() => -1)
+  const marked = await page
+    .evaluate(() => {
+      // 表格节点会被「加载态骨架屏」合法替换（v-if=loading），不能当页面身份标记；
+      // 页面根容器与搜索表单在数据刷新时保持同一节点、整页重建时才会被换掉。
+      const root = document.querySelector('.app-main .app-container')
+      const f = document.querySelector('.app-main .el-form')
+      if (!root || !f) return false
+      root.setAttribute('data-b131-mark', 'root')
+      f.setAttribute('data-b131-mark', 'form')
+      return true
+    })
+    .catch(() => false)
+  record(152, '③ 前置：DOM 标记已打上（判据输入自证）', marked === true, `marked=${marked}`)
+  if (!marked) return
+
+  let listReqs = 0
+  const onReq = (req) => {
+    if (/\/system\/post\/list(\?|$)/.test(req.url())) listReqs += 1
+  }
+  page.on('request', onReq)
+
+  const kw = `b131_none_${Date.now()}`
+  const codeInput = page.locator('.app-main input[placeholder*="岗位编码"]').first()
+  await codeInput.fill(kw, { timeout: 5000 }).catch(() => {})
+  const filled = await codeInput.inputValue().catch(() => '')
+  const respPromise = page
+    .waitForResponse((r) => /\/system\/post\/list(\?|$)/.test(r.url()) && r.url().includes('postCode='), {
+      timeout: 15000
+    })
+    .catch(() => null)
+  await page
+    .locator('.app-main')
+    .getByRole('button', { name: /^搜索$/ })
+    .first()
+    .click({ timeout: 5000 })
+    .catch(() => {})
+  const resp = await respPromise
+  // 修复前 URL 变化会触发整页重建并再发一次请求；这一窗用来把它收齐
+  await sleep(800)
+  page.off('request', onReq)
+  const filtered = !!resp && resp.url().includes(`postCode=${encodeURIComponent(kw)}`)
+  record(
+    152,
+    '④ 搜索请求带筛选参数（点击真的落地）',
+    filled === kw && filtered,
+    `filled=${filled === kw}, req=${resp ? resp.url() : 'none'}`
+  )
+  record(152, '⑤ 一次搜索只发一次列表请求', listReqs === 1, `requests=${listReqs}`)
+
+  const tagsAfter = await page
+    .locator('.tags-view-item')
+    .count()
+    .catch(() => -1)
+  record(152, '⑥ 页签数不随搜索增长', tagsBefore === tagsAfter, `before=${tagsBefore}, after=${tagsAfter}`)
+
+  const marksAfter = await page
+    .evaluate(() => ({
+      root: document.querySelector('.app-main .app-container')?.getAttribute('data-b131-mark') === 'root',
+      form: document.querySelector('.app-main .el-form')?.getAttribute('data-b131-mark') === 'form'
+    }))
+    .catch(() => ({ table: false, form: false }))
+  record(
+    152,
+    '⑦ 搜索后页面未被重建（DOM 标记仍在）',
+    marksAfter.root && marksAfter.form,
+    `root=${marksAfter.root}, form=${marksAfter.form}`
+  )
+
+  const url = new URL(page.url())
+  record(152, '⑧ URL 反映筛选（可分享/可刷新）', url.searchParams.get('postCode') === kw, `search=${url.search}`)
+
+  // 深链复原：刷新后筛选仍在，且首个列表请求带同一关键字
+  const reloadResp = page
+    .waitForResponse((r) => /\/system\/post\/list(\?|$)/.test(r.url()) && r.url().includes('postCode='), {
+      timeout: 15000
+    })
+    .catch(() => null)
+  await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {})
+  const rr = await reloadResp
+  let restored = ''
+  for (let i = 0; i < 40; i++) {
+    restored = await page
+      .locator('.app-main input[placeholder*="岗位编码"]')
+      .first()
+      .inputValue()
+      .catch(() => '')
+    if (restored === kw) break
+    await sleep(150)
+  }
+  record(152, '⑨ 刷新后按 URL 复原筛选', restored === kw && !!rr, `value=${restored}, req=${rr ? 'ok' : 'none'}`)
+
+  // 恢复环境：清空筛选，避免把带筛选的 URL 留给后续功能
+  await page
+    .locator('.app-main input[placeholder*="岗位编码"]')
+    .first()
+    .fill('', { timeout: 5000 })
+    .catch(() => {})
+  await page
+    .locator('.app-main')
+    .getByRole('button', { name: /^搜索$/ })
+    .first()
+    .click({ timeout: 5000 })
+    .catch(() => {})
+  await sleep(500)
+}
+
+/**
+ * 功能 153（b131）：工作台公告跳转的目标页必须真的"接着做"——`?id=` 要打开详情。
+ *
+ * 立案取证：`workbench/index.vue:482 goToNotice` 一直在 push
+ * `/system/notice-center?id=<noticeId>`，而通知中心**全仓无消费点** ⇒ 跳转落在列表页，
+ * 用户还得自己再找一遍那条公告（能力存在、出口不存在，AGENTS 前言 ⑮ 的形态）。
+ * 修复：通知中心在 mounted 与 `route.query.id` 变化时打开对应详情（b131）。
+ *
+ * 判据：① 页面可达；② 有公告可作夹具（无则 SKIP，不伪造数据）；
+ * ③ 行内「详情」请求真的发出（同时把 noticeId 从**真实请求**里取出来，不猜主键）；
+ * ④ 对话框标题 = 该行标题（证明取到的是同一条）；⑤ 带 `?id=` 直达 ⇒ 同一标题的详情自动打开；
+ * ⑥ 对照组：不带 `id` ⇒ **零**详情请求、不弹窗（证明 ⑤ 不是"进页就弹"）。
+ */
+async function testFeature153(page) {
+  log('=== 功能 153：公告 ?id= 深链打开详情（工作台跳转可用）（b131） ===')
+  const ok = await openPage(page, '/system/notice-center', 'notice-center')
+  record(153, '① 页面可达（/system/notice-center）', ok)
+  if (!ok) return
+
+  const table = page.locator('.app-main .el-table').first()
+  await table.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  let rows = 0
+  for (let i = 0; i < 60 && rows === 0; i++) {
+    rows = await table
+      .locator('tbody tr')
+      .count()
+      .catch(() => 0)
+    if (rows === 0) await sleep(200)
+  }
+  if (rows === 0) {
+    recordSkip(153, '② 前置：至少一条公告', '通知中心无公告数据，无法构造深链目标')
+    return
+  }
+
+  const row = table.locator('tbody tr').first()
+  // 列序：勾选 / 状态 / 类型 / 标题 / 创建人 / 时间 / 操作 ⇒ 标题是第 4 个 td
+  const rowTitle = (
+    await row
+      .locator('td')
+      .nth(3)
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  // 标题既是深链的构造输入，也是"列序假设"的活体检查：读空了就不算前置成立
+  // （写成 `true` 会让列序漂移时 ③④⑤ 静默比对空串——b131 assertscan 当场抓到本条）
+  record(153, '② 前置：首行标题可读到（深链目标可构造）', rowTitle.length > 0, `rows=${rows}, title=${rowTitle}`)
+  if (!rowTitle) return
+
+  const detailResp = page
+    .waitForResponse((r) => /\/system\/notice\/\d+(\?|$)/.test(r.url()), { timeout: 15000 })
+    .catch(() => null)
+  await row
+    .getByRole('button', { name: /详细/ })
+    .first()
+    .click({ timeout: 5000 })
+    .catch(() => {})
+  const resp = await detailResp
+  const noticeId = resp ? (resp.url().match(/\/system\/notice\/(\d+)/) || [])[1] : ''
+  record(153, '③ 行内「详情」请求真的发出', !!noticeId, `id=${noticeId || 'none'}`)
+
+  let dialogTitle = ''
+  for (let i = 0; i < 40; i++) {
+    dialogTitle = await page
+      .evaluate(() => document.querySelector('.notice-detail-title')?.textContent?.trim() || '')
+      .catch(() => '')
+    if (dialogTitle) break
+    await sleep(100)
+  }
+  record(
+    153,
+    '④ 行内详情对话框显示该条标题',
+    !!dialogTitle && dialogTitle === rowTitle,
+    `dialog=${dialogTitle}, row=${rowTitle}`
+  )
+  await page
+    .locator('.el-dialog:visible .el-dialog__headerbtn')
+    .first()
+    .click({ timeout: 5000 })
+    .catch(() => {})
+  await sleep(400)
+  if (!noticeId) return
+
+  // ⑤ 深链：直接带 ?id= 打开同一公告（工作台 goToNotice 的形态）
+  const idRe = new RegExp(`/system/notice/${noticeId}(\\?|$)`)
+  const deepResp = page.waitForResponse((r) => idRe.test(r.url()), { timeout: 15000 }).catch(() => null)
+  await page
+    .goto(`${CONFIG.frontendUrl}/system/notice-center?id=${noticeId}`, {
+      waitUntil: 'domcontentloaded'
+    })
+    .catch(() => {})
+  const dr = await deepResp
+  let deepTitle = ''
+  for (let i = 0; i < 80; i++) {
+    deepTitle = await page
+      .evaluate(() => document.querySelector('.notice-detail-title')?.textContent?.trim() || '')
+      .catch(() => '')
+    if (deepTitle) break
+    await sleep(150)
+  }
+  record(
+    153,
+    '⑤ ?id= 深链打开同一公告详情',
+    !!dr && !!deepTitle && deepTitle === rowTitle,
+    `id=${noticeId}, title=${deepTitle}, req=${dr ? 'ok' : 'none'}`
+  )
+
+  // ⑥ 对照组：不带 id 时不请求详情、不弹窗
+  let ctrlReqs = 0
+  const onCtrlReq = (req) => {
+    if (/\/system\/notice\/\d+(\?|$)/.test(req.url())) ctrlReqs += 1
+  }
+  page.on('request', onCtrlReq)
+  await page.goto(`${CONFIG.frontendUrl}/system/notice-center`, { waitUntil: 'domcontentloaded' }).catch(() => {})
+  await sleep(1500)
+  page.off('request', onCtrlReq)
+  const ctrlDialog = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll('.notice-detail-title')).some(
+        (el) => (el.textContent || '').trim().length > 0
+      )
+    )
+    .catch(() => false)
+  record(
+    153,
+    '⑥ 对照组：无 id 时不请求详情、不弹窗',
+    ctrlReqs === 0 && !ctrlDialog,
+    `reqs=${ctrlReqs}, dialog=${ctrlDialog}`
+  )
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -20318,7 +20621,9 @@ async function main() {
       { id: 148, fn: testFeature148 },
       { id: 149, fn: testFeature149 },
       { id: 150, fn: testFeature150 },
-      { id: 151, fn: testFeature151 }
+      { id: 151, fn: testFeature151 },
+      { id: 152, fn: testFeature152 },
+      { id: 153, fn: testFeature153 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

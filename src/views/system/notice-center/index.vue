@@ -242,7 +242,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import modal from '@/plugins/modal'
 import { listNotice, getNotice } from '@/api/system/notice'
@@ -250,6 +251,7 @@ import useNoticeStore from '@/store/modules/notice'
 import { useMotionPresets } from '@/composables/useMotion'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { sanitizeHtml } from '@/utils/index'
+import { toPositiveInt } from '@/utils/validate'
 import type { SysNotice } from '@/types'
 import type { NoticeQueryParams } from '@/types/api/system/notice'
 import type { FormInstance } from 'element-plus'
@@ -463,8 +465,33 @@ function handleRowClick(row: SysNotice, column: { property?: string; label?: str
   handleViewDetail(row)
 }
 
+/**
+ * 深链打开指定公告（b131）：工作台「查看公告」跳转的是
+ * `/system/notice-center?id={noticeId}`，而本页此前**从未消费 `route.query.id`**
+ * （全仓 `query.id` 读点实测 0 处）⇒ 点击后只停在列表，用户还得自己去找那一条。
+ * 本页身份不含 query（页签/组件 key 均按 path），因此必须用 watcher 跟随 `id` 变化，
+ * 不能只在 setup 里读一次。
+ */
+const route = useRoute()
+
+async function openNoticeFromQuery(): Promise<void> {
+  const noticeId = toPositiveInt(route.query.id)
+  if (!noticeId) return
+  // 列表里已有该行时直接复用（含 isRead 状态）；否则按 id 取详情。
+  const inList = noticeList.value.find((n: SysNotice) => n.noticeId === noticeId)
+  await handleViewDetail(inList || ({ noticeId } as SysNotice))
+}
+
+watch(
+  () => route.query.id,
+  () => {
+    void openNoticeFromQuery()
+  }
+)
+
 onMounted(() => {
   getList()
+  void openNoticeFromQuery()
 })
 </script>
 

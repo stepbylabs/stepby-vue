@@ -55,7 +55,7 @@ describe('store/modules/tagsView', () => {
     Pinia.setActivePinia(Pinia.createPinia())
   })
 
-  it('addView pushes a visited view (deduped by fullPath) and caches it', () => {
+  it('addView pushes a visited view (deduped by path) and caches it', () => {
     const store = useTagsViewStore()
     const v = makeView({ path: '/a', name: 'A', fullPath: '/a', meta: { title: 'Alpha' } })
     store.addView(v)
@@ -63,7 +63,7 @@ describe('store/modules/tagsView', () => {
     expect(store.visitedViews[0].title).toBe('Alpha')
     expect(store.cachedViews).toEqual(['A'])
 
-    // same fullPath -> deduped
+    // same path -> deduped
     store.addView(makeView({ path: '/a', name: 'A', fullPath: '/a', meta: { title: 'Alpha' } }))
     expect(store.visitedViews).toHaveLength(1)
   })
@@ -75,20 +75,24 @@ describe('store/modules/tagsView', () => {
     expect(hoisted.cache.local.setJSON).toHaveBeenCalledWith('tags-view-visited', expect.any(Array))
   })
 
-  it('viewKey falls back to path (+JSON query) when no fullPath and dedups by it', () => {
+  it('same path with different query produces ONE tag and keeps the latest fullPath (b131)', () => {
     const store = useTagsViewStore()
-    store.addVisitedView(makeView({ path: '/q', query: { id: 1 }, meta: {} }))
-    store.addVisitedView(makeView({ path: '/q', query: { id: 1 }, meta: {} }))
+    store.addVisitedView(makeView({ path: '/q', fullPath: '/q?pageNum=1&pageSize=10', meta: {} }))
+    store.addVisitedView(makeView({ path: '/q', fullPath: '/q?pageNum=1&pageSize=10&postCode=a', meta: {} }))
     expect(store.visitedViews).toHaveLength(1)
-    // different query -> different key
-    store.addVisitedView(makeView({ path: '/q', query: { id: 2 }, meta: {} }))
+    // 点标签回到该页最后一次的状态
+    expect(store.visitedViews[0].fullPath).toBe('/q?pageNum=1&pageSize=10&postCode=a')
+    // 不同 path 才是不同标签
+    store.addVisitedView(makeView({ path: '/q2', fullPath: '/q2', meta: {} }))
     expect(store.visitedViews).toHaveLength(2)
   })
 
-  it('viewKey tolerates circular query (JSON.stringify throws -> ignored)', () => {
+  it('circular / non-serialisable query never participates in identity (cannot throw)', () => {
     const store = useTagsViewStore()
     const circular: Record<string, unknown> = {}
     circular.self = circular
+    expect(() => store.addVisitedView(makeView({ path: '/c', query: circular as never, meta: {} }))).not.toThrow()
+    expect(store.visitedViews).toHaveLength(1)
     expect(() => store.addVisitedView(makeView({ path: '/c', query: circular as never, meta: {} }))).not.toThrow()
     expect(store.visitedViews).toHaveLength(1)
   })
@@ -147,9 +151,9 @@ describe('store/modules/tagsView', () => {
 
   it('delCachedView keeps cache while another visited view shares the name', () => {
     const store = useTagsViewStore()
-    // two visited views share name C (different fullPath/query)
-    const v1 = makeView({ path: '/c', name: 'C', fullPath: '/c?x=1' })
-    const v2 = makeView({ path: '/c', name: 'C', fullPath: '/c?x=2' })
+    // 两个不同 path 的入口共享同一组件名（多菜单指向同一组件）
+    const v1 = makeView({ path: '/c/one', name: 'C', fullPath: '/c/one' })
+    const v2 = makeView({ path: '/c/two', name: 'C', fullPath: '/c/two' })
     store.addVisitedView(v1)
     store.addVisitedView(v2)
     store.addCachedView(v1)
@@ -246,6 +250,19 @@ describe('store/modules/tagsView', () => {
     const store = useTagsViewStore()
     store.loadPersistedViews()
     expect(store.visitedViews.map((v: View) => v.path)).toEqual(['/p1', '/p2'])
+  })
+
+  it('loadPersistedViews collapses legacy duplicates written by the old fullPath identity (b131)', () => {
+    hoisted.cacheBacking.value = [
+      makeView({ path: '/p', name: 'P', fullPath: '/p?pageNum=1&pageSize=10', meta: { title: 'P' } }),
+      makeView({ path: '/p', name: 'P', fullPath: '/p?pageNum=1&pageSize=10&postCode=a', meta: { title: 'P' } }),
+      makeView({ path: '/p', name: 'P', fullPath: '/p?pageNum=2&pageSize=10', meta: { title: 'P' } })
+    ]
+    const store = useTagsViewStore()
+    store.loadPersistedViews()
+    expect(store.visitedViews).toHaveLength(1)
+    // 恢复后的唯一标签跟随最后一次保存的状态
+    expect(store.visitedViews[0].fullPath).toBe('/p?pageNum=2&pageSize=10')
   })
 
   it('persistence is skipped when tagsViewPersist is disabled', () => {

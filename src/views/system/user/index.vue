@@ -422,6 +422,7 @@
 import TreePanel from '@/components/TreePanel/index.vue'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { buildUrlQuery } from '@/utils/queryUrl'
 import { createLatestGuard } from '@/composables/latestRequest'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
@@ -661,16 +662,17 @@ if (hasUrlQuery) {
 
 /**
  * 查询条件写入 URL（UX-6，replace 不污染历史栈）
- * 仅写入非空值，与 useCrudTable 内的同名逻辑保持一致语义。
+ * b131：改走 `utils/queryUrl::buildUrlQuery` —— 手写的这份此前只做 `String(v)`，
+ * 于是 `addDateRange()` 注入的 `params: { beginTime, endTime }` 被序列化成
+ * `params=[object+Object]` 写进地址栏（真机取证）。现行口径与 `useCrudTable`
+ * 的同名逻辑同一份实现：既有非查询键保留、非原始值不同步、空值不写。
  */
 function syncUrlQuery() {
   if (!router) return
-  const src = queryParams.value as unknown as Record<string, unknown>
-  const q: Record<string, string> = {}
-  for (const [k, v] of Object.entries(src)) {
-    if (v === undefined || v === null || v === '') continue
-    q[k] = String(v)
-  }
+  const q = buildUrlQuery(
+    queryParams.value as unknown as Record<string, unknown>,
+    route.query as Record<string, unknown>
+  )
   if (JSON.stringify(q) === JSON.stringify(route.query as Record<string, string>)) return
   router.replace({ query: q }).catch(() => {})
 }
