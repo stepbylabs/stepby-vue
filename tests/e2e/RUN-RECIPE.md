@@ -5023,3 +5023,50 @@ cargo test -j 4 --lib repository::sys_webhook_event
 第一版 needle 写成 `Column::` 紧跟 `.contains(`（漏列名）⇒ **结构上永远打不中而真实树全绿**；
 是"合成违规必须被抓"那条正控把它抓出来的。凡"扫不到即通过"的判据都要配这条正控 +
 采集面体量下限（"扫少了"与"干净"不同形）。
+
+### 3.126 「读失败 ≠ 空数据」的判据配方（b133 固化）
+
+**A. 三处缺陷的形状与修法**
+
+| 位置                                            | HEAD 形状                                              | 后果                                           | 修法                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------- |
+| `system/role/index.vue` + `DataScopeDialog.vue` | 树读失败 ⇒ `menuOptions/deptOptions = []` 且照开对话框 | 保存把 `menuIds/deptIds` 写成空 ⇒ 清空角色授权 | `*Loaded` 标记 + 读失败不打开 + 对话框 `treeLoaded` prop + 提交函数首行拦截 |
+| `system/user/profile/msgPref.vue`               | `load()` 的 `catch(() => {})`，表单停在默认值          | 保存用默认值覆盖真实偏好                       | `loaded = !!data` / `loadError` + 表单与按钮双闸 + 失败告警可重试           |
+| `system/user/profile/index.vue`                 | 失败只关 `loading` ⇒ 渲染「暂无数据」                  | 把"请求失败"显示成"你没有资料"                 | `loadError` + 告警重试 + `el-empty` 只在 `!loading && !loadError`           |
+
+**B. 守卫的采集面（`src/utils/loadBeforeWrite.guard.test.ts`）**
+
+- **R1**：`src/views/**` 任意失败分支（`.catch(...)` 回调 **与** `try {} catch {}` 语句块）里
+  出现 `menuOptions/deptOptions/menuIds/deptIds/checkedKeys/... = []|null`，却没有
+  `*Loaded=false` / `loadError=true` ⇒ 违规。判据必须**两种失败分支都解析**：
+  b133 第一次变异把修复前的形状写回 `catch` 语句块里，守卫照常绿——它当时只认 `.catch(`。
+- **R2 / R3**：授权树读点（`roleMenuTreeselect` / `roleDeptTreeselect` / `setCheckedKeys(x.checkedKeys)`）
+  必须有读成功闸与写函数早退；四个已修页面 + 告警下拉的接线逐条反查（含"既有失败态
+  `v-if="optionsLoadError"` + `retryLoadOptions` 不得被删"这条回归锁——b133 曾把它的消费点漏读，
+  误判成死状态，见台账 §1.5）。
+- **掩码器**：注释、单双引号字符串、模板串字面部分一律抹成等长空白，但 `${...}` 内部仍按代码扫描；
+  正则字面量按"前一个有效 token"启发式识别（否则 `/push\(`/`里的反引号会让掩码器脱轨，
+把文件后半段整块吞掉——这是 b133 差异法活性在`flowGraph.test.ts` 上抓到的真实缺陷）。
+
+**C. 盘上变异（每个都必须只红自己那条腿）**
+
+```bash
+# M1b：角色页 catch 删掉 menuTreeLoaded=false ⇒ R1 真实树红（点名 views/system/role/index.vue:603）
+# M2 ：DataScopeDialog 删掉 if (!props.treeLoaded) {...} ⇒ R3 + 单测用例 1 红
+# M3 ：msgPref 删掉函数首行闸与按钮 :disabled ⇒ R3 + 两条例单测红
+# M4 ：profile 的 v-if="loadError" 改 v-if="false" ⇒ R3 红
+# M5 ：告警页 data-test="channel-truncated" 改名 ⇒ R3 红
+# M6 ：告警页删掉判票 + channelTruncated 赋值 ⇒ "截断可见"与"后发先回"两条红
+```
+
+还原一律 `cp -p` + `diff -q` 逐字节一致；随后**重建前端产物**（`npm run build:embedded && npm run
+sync:embedded`），否则新鲜度闸会把"源码比产物新"判成陈旧，下一次浏览器判据跑在旧包上。
+
+**D. 组件级单测的坑（本批实测）**
+
+- `defineComponent({ setup(props, ctx) {…} })` 在 `vue-tsc` 下 `props`/`ctx` 会隐式 `any`——
+  显式标注 `SetupContext`。
+- 竞态用例的 `mockReturnValueOnce` **必须在挂载之后排队**：页面挂载即发一次初始加载，
+  先排队会让"慢/快"响应错位到初始加载与第一次搜索上，用例恒真。
+- 桩 `el-select` 用 `:remote-method` 的函数 prop 直接触发搜索；按 `aria-label`（i18n 键名）定位
+  两个下拉，不要靠 DOM 序位（表单里有多个普通下拉）。

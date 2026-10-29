@@ -617,7 +617,8 @@ export default {
     dataScope: 'Data Permission',
     tip: {
       roleKeyHelp: "Permission key defined in the controller, e.g.: ＠PreAuthorize(`＠ss.hasRole('admin')`)",
-      confirmStatusChange: 'Are you sure to "{text}" role "{name}"?'
+      confirmStatusChange: 'Are you sure to "{text}" role "{name}"?',
+      treeNotLoaded: 'The permission tree failed to load, so saving is blocked. Close the dialog and try again.'
     },
     dataScopeOptions: {
       all: 'All data permissions',
@@ -1551,6 +1552,7 @@ export default {
   profile: {
     title: 'Profile',
     basicInfo: 'Basic Info',
+    loadFailed: 'Failed to load profile',
     modifyPwd: 'Change Password',
     mfaSetting: 'Security Settings (MFA)',
     label: {
@@ -1658,7 +1660,8 @@ export default {
       timeRequired: 'Please set start and end time when quiet hours are enabled',
       save: 'Save',
       saveSuccess: 'Saved successfully',
-      saveError: 'Save failed'
+      saveError: 'Save failed',
+      loadFailed: 'Failed to load message preferences, saving is disabled'
     }
   },
   userPrefs: {

@@ -37,7 +37,7 @@
             ref="deptRef"
             node-key="id"
             :check-strictly="!form.deptCheckStrictly"
-            :empty-text="t('common.loading')"
+            :empty-text="t('common.noData')"
             :props="{ label: 'label', children: 'children' }"
           ></el-tree>
         </el-form-item>
@@ -45,7 +45,13 @@
     </el-form>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="primary" :loading="dataScopeLoading" @click="submitDataScope">
+        <el-button
+          type="primary"
+          :loading="dataScopeLoading"
+          :disabled="!treeLoaded"
+          :title="treeLoaded ? undefined : t('role.tip.treeNotLoaded')"
+          @click="submitDataScope"
+        >
           {{ t('common.confirm') }}
         </el-button>
         <el-button @click="cancelDataScope">{{ t('common.cancel') }}</el-button>
@@ -66,6 +72,11 @@ const props = defineProps<{
   title: string
   /** 部门树数据（父级 getDeptTree 加载） */
   deptOptions: TreeSelect[]
+  /**
+   * 部门树是否加载成功（b133）：为假时禁掉"确定"。
+   * 空树 + 提交 = 把该角色的 deptIds 覆盖成空，读失败绝不能变成一次破坏性写入。
+   */
+  treeLoaded: boolean
 }>()
 
 /** 角色表单对象（父级持有；就地读写 roleName/roleKey/dataScope/deptCheckStrictly/deptIds，与拆分前共享同一 reactive 对象） */
@@ -155,6 +166,11 @@ function dataScopeSelectChange() {
 
 /** 提交按钮（数据权限） */
 function submitDataScope() {
+  // 纵深防御（b133）：树未就绪时提交出去的是"空授权"
+  if (!props.treeLoaded) {
+    modal.msgError(t('role.tip.treeNotLoaded'))
+    return
+  }
   if (form.value!.roleId != undefined) {
     dataScopeLoading.value = true
     form.value!.deptIds = getDeptAllCheckedKeys()

@@ -324,7 +324,7 @@
             ref="menuRef"
             node-key="id"
             :check-strictly="!form.menuCheckStrictly"
-            :empty-text="t('common.loading')"
+            :empty-text="t('common.noData')"
             :props="{ label: 'label', children: 'children' }"
           ></el-tree>
         </el-form-item>
@@ -351,6 +351,7 @@
       :title="title"
       :form="form"
       :dept-options="deptOptions"
+      :tree-loaded="deptTreeLoaded"
       @success="getList"
       @cancel="reset"
       ref="dataScopeRef"
@@ -450,6 +451,9 @@ const menuOptions = ref<TreeSelect[]>([])
 const menuExpand = ref<boolean>(false)
 const menuNodeAll = ref<boolean>(false)
 const deptOptions = ref<TreeSelect[]>([])
+// 授权树"读成功"的闸：保存前必须为真（b133——读失败时不得把空树当成"没有授权"保存）
+const menuTreeLoaded = ref<boolean>(false)
+const deptTreeLoaded = ref<boolean>(false)
 const openDataScope = ref<boolean>(false)
 const menuRef = useTemplateRef<TreeInstance>('menuRef')
 const dataScopeRef = useTemplateRef<InstanceType<typeof DataScopeDialog>>('dataScopeRef')
@@ -584,13 +588,24 @@ function handleAuthUser(row: SysRole) {
   router.push('/system/role-auth/user/' + row.roleId)
 }
 
-/** 查询菜单树结构 */
-function getMenuTreeselect() {
-  menuTreeselect()
-    .then((response) => {
-      menuOptions.value = response.data
-    })
-    .catch(() => {})
+/**
+ * 查询菜单树结构（新增角色用）。
+ *
+ * 返回值是"这棵树到底加载成功没有"——失败时**不得**把空数组当成"该角色没有任何菜单"，
+ * 否则新增对话框在空树上勾不出任何节点，保存出来的角色就是无授权角色（b133）。
+ */
+async function getMenuTreeselect(): Promise<boolean> {
+  try {
+    const response = await menuTreeselect()
+    menuOptions.value = response.data
+    menuTreeLoaded.value = true
+    return true
+  } catch {
+    // 拦截器已提示；清空并标记未就绪，由调用方决定"不开对话框"
+    menuOptions.value = []
+    menuTreeLoaded.value = false
+    return false
+  }
 }
 
 /** 重置新增的表单以及其他数据  */
@@ -616,9 +631,10 @@ function reset() {
 }
 
 /** 添加角色 */
-function handleAdd() {
+async function handleAdd() {
   reset()
-  getMenuTreeselect()
+  // 树没加载成功就不开对话框：空树 + 保存 = 创建出一个没有任何菜单授权的角色
+  if (!(await getMenuTreeselect())) return
   open.value = true
   title.value = t('common.add')
 }
@@ -630,6 +646,9 @@ async function handleUpdate(row?: SysRole) {
   const roleId = row?.roleId || ids.value[0]
   try {
     const [roleRes, menuRes] = await Promise.all([getRole(roleId), getRoleMenuTreeselect(roleId)])
+    // 菜单树没拿到就不开对话框（b133）：空树 + 保存会把该角色的 menuIds 写成 []，
+    // 一次加载失败就静默清空全部菜单授权——失败必须是失败，不能变成一次破坏性写入。
+    if (!menuRes) return
     form.value = roleRes.data!
     form.value.roleSort = Number(form.value.roleSort)
     open.value = true
@@ -644,27 +663,39 @@ async function handleUpdate(row?: SysRole) {
   }
 }
 
-/** 根据角色ID查询菜单树结构 */
-function getRoleMenuTreeselect(roleId: number): Promise<RoleMenuTreeselectResult> {
-  // 修复 P0：原 `.catch(() => {}) as Promise<...>` 在失败时返回 undefined，
-  // 下游 `response.menus` 解构会抛 TypeError。现返回空对象兜底，保持类型安全。
-  return roleMenuTreeselect(roleId)
-    .then((response) => {
-      menuOptions.value = response.menus
-      return response
-    })
-    .catch(() => ({ menus: [], checkedKeys: [] })) as Promise<RoleMenuTreeselectResult>
+/**
+ * 根据角色ID查询菜单树结构。
+ * 失败返回 `null`（而不是空对象兜底）：调用方据此**不打开对话框**，
+ * 从结构上杜绝"空树 ⇒ 保存清空授权"（b133）。
+ */
+async function getRoleMenuTreeselect(roleId: number): Promise<RoleMenuTreeselectResult | null> {
+  try {
+    const response = await roleMenuTreeselect(roleId)
+    menuOptions.value = response.menus
+    menuTreeLoaded.value = true
+    return response
+  } catch {
+    menuOptions.value = []
+    menuTreeLoaded.value = false
+    return null
+  }
 }
 
-/** 根据角色ID查询部门树结构 */
-function getDeptTree(roleId: number): Promise<RoleDeptTreeResult> {
-  // 修复 P0：同上，原 `.catch(() => {}) as Promise<...>` 失败时返回 undefined。
-  return deptTreeSelect(roleId)
-    .then((response) => {
-      deptOptions.value = response.depts
-      return response
-    })
-    .catch(() => ({ depts: [], checkedKeys: [] })) as Promise<RoleDeptTreeResult>
+/**
+ * 根据角色ID查询部门树结构。
+ * 同 `getRoleMenuTreeselect`：失败返回 `null`，数据权限对话框不得在空树上打开。
+ */
+async function getDeptTree(roleId: number): Promise<RoleDeptTreeResult | null> {
+  try {
+    const response = await deptTreeSelect(roleId)
+    deptOptions.value = response.depts
+    deptTreeLoaded.value = true
+    return response
+  } catch {
+    deptOptions.value = []
+    deptTreeLoaded.value = false
+    return null
+  }
 }
 
 /** 树权限（展开/折叠）*/
@@ -709,6 +740,11 @@ function getMenuAllCheckedKeys(): number[] {
 function submitForm() {
   roleRefRef.value?.validate((valid: boolean) => {
     if (valid) {
+      // 纵深防御（b133）：即便某个入口在树未就绪时把对话框打开了，也不许把空树写进数据库
+      if (!menuTreeLoaded.value) {
+        modal.msgError(t('role.tip.treeNotLoaded'))
+        return
+      }
       submitLoading.value = true
       if (form.value.roleId != undefined) {
         form.value.menuIds = getMenuAllCheckedKeys()
@@ -746,27 +782,21 @@ function cancel() {
 }
 
 /** 分配数据权限操作 */
-function handleDataScope(row: SysRole) {
+async function handleDataScope(row: SysRole) {
   reset()
-  const deptTreeSelect = getDeptTree(row.roleId!)
-  getRole(row.roleId!)
-    .then((response) => {
-      form.value = response.data!
-      openDataScope.value = true
-      nextTick(() => {
-        deptTreeSelect
-          .then((res) => {
-            nextTick(() => {
-              if (dataScopeRef.value) {
-                dataScopeRef.value?.setCheckedKeys(res.checkedKeys)
-              }
-            })
-          })
-          .catch(() => {})
-      })
-    })
-    .catch(() => {})
-  title.value = t('role.form.deptTree')
+  // 两路都拿到才开对话框（b133）：部门树失败时若照开，屏幕上是一棵空树，
+  // 点确定就会把该角色的 deptIds 覆盖成空——读失败变成了写破坏。
+  try {
+    const [roleRes, treeRes] = await Promise.all([getRole(row.roleId!), getDeptTree(row.roleId!)])
+    if (!treeRes) return
+    form.value = roleRes.data!
+    title.value = t('role.form.deptTree')
+    openDataScope.value = true
+    await nextTick()
+    dataScopeRef.value?.setCheckedKeys(treeRes.checkedKeys)
+  } catch {
+    // 角色详情请求失败：拦截器已提示，不打开对话框（拒绝不得逸出事件处理器）
+  }
 }
 
 // ===== M3 字段级权限：角色字段授权矩阵 =====

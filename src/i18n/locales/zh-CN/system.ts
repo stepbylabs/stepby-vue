@@ -594,7 +594,8 @@ export default {
     dataScope: '数据权限',
     tip: {
       roleKeyHelp: "控制器中定义的权限字符，如：＠PreAuthorize(`＠ss.hasRole('admin')`)",
-      confirmStatusChange: '确认要"{text}""{name}"角色吗?'
+      confirmStatusChange: '确认要"{text}""{name}"角色吗?',
+      treeNotLoaded: '授权树未加载成功，已阻止保存；请关闭对话框后重试'
     },
     dataScopeOptions: {
       all: '全部数据权限',
@@ -1522,6 +1523,7 @@ export default {
   profile: {
     title: '个人中心',
     basicInfo: '基本资料',
+    loadFailed: '个人信息加载失败',
     modifyPwd: '修改密码',
     mfaSetting: '安全设置 (MFA)',
     label: {
@@ -1629,7 +1631,8 @@ export default {
       timeRequired: '开启免打扰后请设置开始与结束时间',
       save: '保存',
       saveSuccess: '保存成功',
-      saveError: '保存失败'
+      saveError: '保存失败',
+      loadFailed: '消息偏好加载失败，保存已暂时禁用'
     }
   },
   userPrefs: {

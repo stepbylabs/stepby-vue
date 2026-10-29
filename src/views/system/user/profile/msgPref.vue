@@ -14,7 +14,16 @@
 
     <el-alert :title="t('profile.pref.tip')" type="info" :closable="false" show-icon class="mb15" />
 
-    <el-form ref="formRef" :model="form" label-width="120px" v-loading="loading">
+    <!-- b133：读失败必须可见且可重试。此前失败静默，表单停在默认值上——
+         用户点一次保存就把真实偏好覆盖成默认值，失败被签成了一次写入。 -->
+    <el-alert v-if="loadError" type="error" :closable="false" show-icon class="mb15" data-test="msg-pref-load-error">
+      <div class="flex items-center gap-3">
+        <span>{{ t('profile.pref.loadFailed') }}</span>
+        <el-button link type="primary" @click="load">{{ t('common.retry') }}</el-button>
+      </div>
+    </el-alert>
+
+    <el-form ref="formRef" :model="form" label-width="120px" v-loading="loading" :disabled="!loaded">
       <el-divider content-position="left">
         <span class="divider-text">{{ t('profile.pref.notifyLabel') }}</span>
       </el-divider>
@@ -38,7 +47,12 @@
       <el-form-item>
         <div class="dnd-box">
           <div class="flex items-center gap-[12px]">
-            <el-switch v-model="form.dndEnabled" :aria-label="t('profile.pref.dnd')" active-value="1" inactive-value="0" />
+            <el-switch
+              v-model="form.dndEnabled"
+              :aria-label="t('profile.pref.dnd')"
+              active-value="1"
+              inactive-value="0"
+            />
             <span>{{ t('profile.pref.dnd') }}</span>
           </div>
           <div v-if="form.dndEnabled === '1'" class="dnd-times">
@@ -66,7 +80,7 @@
       </el-form-item>
 
       <el-form-item>
-        <el-button type="primary" :loading="saving" @click="handleSave">
+        <el-button type="primary" :loading="saving" :disabled="!loaded" @click="handleSave">
           {{ t('profile.pref.save') }}
         </el-button>
       </el-form-item>
@@ -85,6 +99,9 @@ const { t } = useI18n()
 const formRef = ref()
 const loading = ref(true)
 const saving = ref(false)
+// 读成功闸（b133）：读到真实偏好之前，表单里的值只是默认值，不允许被保存
+const loaded = ref(false)
+const loadError = ref(false)
 
 const form = reactive<MessagePrefForm & { dndEnabled: string; dndStart: string; dndEnd: string }>({
   emailNotify: '1',
@@ -97,6 +114,8 @@ const form = reactive<MessagePrefForm & { dndEnabled: string; dndStart: string; 
 
 function load(): void {
   loading.value = true
+  loaded.value = false
+  loadError.value = false
   getMessagePref()
     .then((res) => {
       const d = res.data
@@ -108,14 +127,21 @@ function load(): void {
         form.dndStart = d.dndStart
         form.dndEnd = d.dndEnd
       }
+      // 后端 200 但无 data 也算"没读到真实偏好"：保持未就绪，保存入口继续封锁
+      loaded.value = !!d
     })
-    .catch(() => {})
+    .catch(() => {
+      loadError.value = true
+      loaded.value = false
+    })
     .finally(() => {
       loading.value = false
     })
 }
 
 function handleSave(): void {
+  // 纵深防御：按钮已禁用，这里再挡一次（读失败时保存 = 用默认值覆盖真实偏好）
+  if (!loaded.value) return
   if (form.dndEnabled === '1' && (!form.dndStart || !form.dndEnd)) {
     errorHub.report('warning', 'other', t('profile.pref.timeRequired'))
     return

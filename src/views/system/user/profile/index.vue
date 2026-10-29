@@ -1,5 +1,12 @@
 <template>
   <div class="app-container" v-loading="loading">
+    <!-- b133：读失败不再伪装成「暂无数据」——失败态必须与空态可区分，且给重试入口 -->
+    <el-alert v-if="loadError" type="error" :closable="false" show-icon class="mb-4" data-test="profile-load-error">
+      <div class="flex items-center gap-3">
+        <span>{{ t('profile.loadFailed') }}</span>
+        <el-button link type="primary" @click="getUser">{{ t('common.retry') }}</el-button>
+      </div>
+    </el-alert>
     <el-row :gutter="20">
       <el-col :span="6" :xs="24">
         <el-card class="box-card">
@@ -46,7 +53,7 @@
                 <div class="pull-right">{{ state.user.createTime }}</div>
               </li>
             </ul>
-            <el-empty v-else-if="!loading" :description="t('common.noData')" />
+            <el-empty v-else-if="!loading && !loadError" :description="t('common.noData')" />
           </div>
         </el-card>
       </el-col>
@@ -165,16 +172,22 @@ const state = reactive<UserProfileState>({
 })
 
 const loading = ref(false)
+// 读失败态（b133）：失败时页面必须说明"没读到"，而不是渲染成"这个用户什么都没有"
+const loadError = ref(false)
 
 function getUser() {
   loading.value = true
+  loadError.value = false
   getUserProfile()
     .then((response) => {
       state.user = response.data
       state.roleGroup = response.roleGroup
       state.postGroup = response.postGroup
     })
-    .catch(() => {})
+    .catch(() => {
+      // 拦截器已提示；这里保留上一次成功的数据（若有），并让失败态可见
+      loadError.value = true
+    })
     .finally(() => {
       loading.value = false
     })

@@ -264,11 +264,18 @@
             v-model="form.notifyChannelId"
             :placeholder="t('alert.form.phNotifyChannel')"
             :loading="channelLoading"
+            filterable
+            remote
+            :remote-method="searchChannels"
             clearable
             class="w-full"
           >
             <el-option v-for="ch in channelList" :key="ch.channelId" :label="ch.channelName" :value="ch.channelId!" />
           </el-select>
+          <!-- b133：截断不再只写在 DEV console 里（失败态由对话框顶部的既有告警覆盖） -->
+          <div v-if="channelTruncated" class="form-tip-block" data-test="channel-truncated">
+            {{ t('alert.form.optionsTruncated') }}
+          </div>
           <div class="form-tip-block">{{ t('alert.form.notifyChannelTip') }}</div>
         </el-form-item>
         <el-form-item :label="t('alert.form.notifyTemplateId')" prop="notifyTemplateId">
@@ -277,6 +284,9 @@
             v-model="form.notifyTemplateId"
             :placeholder="t('alert.form.phNotifyTemplate')"
             :loading="templateLoading"
+            filterable
+            remote
+            :remote-method="searchTemplates"
             clearable
             class="w-full"
           >
@@ -287,6 +297,9 @@
               :value="tpl.templateId!"
             />
           </el-select>
+          <div v-if="templateTruncated" class="form-tip-block" data-test="template-truncated">
+            {{ t('alert.form.optionsTruncated') }}
+          </div>
         </el-form-item>
         <el-form-item :label="t('alert.form.enabled')">
           <el-switch v-model="form.enabled" active-value="1" inactive-value="0" />
@@ -350,6 +363,7 @@ import type { SysMsgChannel, SysMsgTemplate } from '@/types/api/system/msg'
 import type { FormInstance, FormRules } from 'element-plus'
 import modal from '@/plugins/modal'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { createLatestGuard } from '@/composables/latestRequest'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
@@ -390,9 +404,17 @@ const defaultSort = ref({ prop: 'lastFiredAt', order: 'descending' })
 const channelList = ref<SysMsgChannel[]>([])
 const channelLoading = ref(false)
 const channelLoadError = ref(false)
+// 首屏拉取命中上限 ⇒ 列表被截断，必须给用户可见提示（b133：原先只有 DEV console）
+const channelTruncated = ref(false)
 const templateList = ref<SysMsgTemplate[]>([])
 const templateLoading = ref(false)
 const templateLoadError = ref(false)
+const templateTruncated = ref(false)
+/** 下拉单次拉取条数：够一屏备选，超出部分靠名称远程搜索（后端已支持模糊过滤） */
+const DROPDOWN_PAGE_SIZE = 100
+// 边输入边搜索 = 多个在飞请求，只让最后一次的结局落地（b119 原语；否则慢网下选项与关键字对不上）
+const channelSearchGuard = createLatestGuard()
+const templateSearchGuard = createLatestGuard()
 // 下拉失败必须在弹窗里看得见（b105）：空下拉 + 无提示会让用户以为"没有可选的渠道"，
 // 把规则保存成"仅记录不通知"。两个下拉任一失败即提示，重试一次同时补两路。
 const optionsLoadError = computed(() => channelLoadError.value || templateLoadError.value)
@@ -478,46 +500,65 @@ const {
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)
 
-/** 加载消息渠道下拉（启用的渠道） */
+/** 加载消息渠道下拉（启用渠道；支持按名称远程搜索） */
 function loadChannels(): void {
-  channelLoading.value = true
-  listChannel({ pageNum: 1, pageSize: 100, status: '0' })
-    .then((res) => {
-      channelLoadError.value = false
-      channelList.value = res.rows || []
-      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
-        console.warn('[alert] 消息渠道下拉拉取达到 pageSize=100 上限，可能存在截断')
-      }
-    })
-    .catch(() => {
-      channelLoadError.value = true
-      channelList.value = []
-    })
-    .finally(() => {
-      channelLoading.value = false
-    })
+  void searchChannels('')
 }
 
-/** 加载消息模板下拉（启用的模板） */
+/**
+ * 渠道远程搜索（b133）：一次性拉 100 条会在渠道数超限时**静默截断**，
+ * 原先只有 `import.meta.env.DEV` 的 console 提示，用户看到的是一个少了几项的"完整"下拉。
+ * 现在：可搜索（后端 channelName 模糊过滤）+ 命中上限时给出可见提示。
+ */
+async function searchChannels(keyword: string): Promise<void> {
+  const ticket = channelSearchGuard.begin()
+  channelLoading.value = true
+  try {
+    const res = await listChannel({
+      pageNum: 1,
+      pageSize: DROPDOWN_PAGE_SIZE,
+      status: '0',
+      channelName: keyword.trim() || undefined
+    })
+    if (!channelSearchGuard.isCurrent(ticket)) return
+    channelLoadError.value = false
+    channelList.value = res.rows || []
+    channelTruncated.value = (res.rows?.length ?? 0) >= DROPDOWN_PAGE_SIZE
+  } catch {
+    if (!channelSearchGuard.isCurrent(ticket)) return
+    channelLoadError.value = true
+    channelList.value = []
+  } finally {
+    if (channelSearchGuard.isCurrent(ticket)) channelLoading.value = false
+  }
+}
+
+/** 加载消息模板下拉（支持按名称远程搜索） */
 function loadTemplates(): void {
+  void searchTemplates('')
+}
+
+async function searchTemplates(keyword: string): Promise<void> {
+  const ticket = templateSearchGuard.begin()
   templateLoading.value = true
-  listTemplate({ pageNum: 1, pageSize: 100, status: '0' })
-    .then((res) => {
-      templateLoadError.value = false
-      templateList.value = res.rows || []
-      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
-        console.warn('[alert] 消息模板下拉拉取达到 pageSize=100 上限，可能存在截断')
-      }
+  try {
+    const res = await listTemplate({
+      pageNum: 1,
+      pageSize: DROPDOWN_PAGE_SIZE,
+      status: '0',
+      templateName: keyword.trim() || undefined
     })
-    .catch(() => {
-      templateLoadError.value = true
-      templateList.value = []
-    })
-    .finally(() => {
-      templateLoading.value = false
-    })
+    if (!templateSearchGuard.isCurrent(ticket)) return
+    templateLoadError.value = false
+    templateList.value = res.rows || []
+    templateTruncated.value = (res.rows?.length ?? 0) >= DROPDOWN_PAGE_SIZE
+  } catch {
+    if (!templateSearchGuard.isCurrent(ticket)) return
+    templateLoadError.value = true
+    templateList.value = []
+  } finally {
+    if (templateSearchGuard.isCurrent(ticket)) templateLoading.value = false
+  }
 }
 
 /** 渠道 ID → 渠道名（列表展示；下拉未加载时回退显示 ID） */

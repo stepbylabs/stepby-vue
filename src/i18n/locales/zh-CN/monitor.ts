@@ -855,6 +855,7 @@ export default {
       phNotifyChannel: '请选择通知渠道',
       notifyChannelTip: '留空表示仅记录不发送通知',
       optionsLoadFailed: '通知渠道/模板加载失败，下拉可能为空（保存不受影响）',
+      optionsTruncated: '仅显示前 100 条；输入名称可搜索全部',
       notifyTemplateId: '通知模板',
       phNotifyTemplate: '请选择通知模板',
       enabled: '是否启用'
