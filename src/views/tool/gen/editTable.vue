@@ -164,6 +164,7 @@ import { optionselect as getDictOptionselect } from '@/api/system/dict/type'
 import modal from '@/plugins/modal'
 import tab from '@/plugins/tab'
 import { toPositiveInt } from '@/utils/validate'
+import { clonePlain } from '@/utils/clone'
 import type { FormInstance } from 'element-plus'
 import type { GenTable, GenTableColumn, GenTableInfoResult } from '@/types/api/tool/gen'
 import type { SysDictType } from '@/types/api/system/dict'
@@ -202,7 +203,9 @@ async function submitForm(): Promise<void> {
     .then((res) => {
       const validateResult = res.every((item) => !!item)
       if (validateResult) {
-        const genTable = structuredClone(info.value) as unknown as GenTable
+        // b126：`info` 是 ref，`info.value` 是响应式 Proxy ⇒ 直接 structuredClone 必抛
+        // DataCloneError（此前异常逸出处理器，保存按钮完全无反应）。
+        const genTable = clonePlain(info.value) as unknown as GenTable
         genTable.columns = columns.value
         genTable.params = {
           genView: info.value.view ? '1' : '0',
@@ -230,8 +233,11 @@ async function submitForm(): Promise<void> {
       }
     })
     // M3: 表单校验异常不应静默
+    // b126：校验/克隆阶段的异常同样必须让用户看见——此前只进 DEV 控制台，
+    // 用户点"提交"后屏幕毫无反应（structuredClone 对 reactive 必抛就落在这里）。
     .catch((e) => {
       if (import.meta.env.DEV) console.error('Form validation error:', e)
+      modal.msgError(t('common.failed'))
     })
     .finally(() => {
       submitLoading.value = false

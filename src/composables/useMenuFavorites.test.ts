@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { nextTick } from 'vue'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // The composable watches useUserStore().id, so the mocked store must be reactive
 // and stable across calls (a single shared instance the test can mutate).
@@ -11,6 +14,7 @@ vi.mock('@/store/modules/user', async () => {
 
 import cache from '@/plugins/cache'
 import useUserStore from '@/store/modules/user'
+import { __resetStorageWarnDedupeForTest } from '@/utils/webStorage'
 import { useMenuFavorites, type FavoriteMenu } from './useMenuFavorites'
 
 function readStore(id: string | number = useUserStore().id): FavoriteMenu[] {
@@ -122,5 +126,58 @@ describe('composables/useMenuFavorites', () => {
     const { addFavorite } = useMenuFavorites()
     addFavorite({ path: '/zero', title: 'Zero' })
     expect(readStore(0).map((f) => f.path)).toEqual(['/zero'])
+  })
+
+  // b126：存储写失败时，界面不得显示"已收藏 / 已清空"（刷新即丢 = 假成功）。
+  // 失败注入走真实通道（Storage.prototype.setItem 抛 QuotaExceededError），
+  // 不是 mock 模块——mock 模块测的是桩，不是 webStorage 的降级语义。
+  describe('persistence failures', () => {
+    function failWrites<T>(run: () => T): T {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('QuotaExceededError')
+      })
+      __resetStorageWarnDedupeForTest()
+      try {
+        return run()
+      } finally {
+        spy.mockRestore()
+        __resetStorageWarnDedupeForTest()
+      }
+    }
+
+    it('does not show a cleared list when the write fails', () => {
+      const { addFavorite, clearFavorites, favorites } = useMenuFavorites()
+      addFavorite({ path: '/a', title: 'A' })
+      const ok = failWrites(() => clearFavorites())
+      expect(ok).toBe(false)
+      expect(favorites.value.map((f: FavoriteMenu) => f.path)).toEqual(['/a'])
+    })
+
+    it('does not add an entry that cannot be persisted', () => {
+      const { addFavorite, favorites } = useMenuFavorites()
+      expect(failWrites(() => addFavorite({ path: '/b', title: 'B' }))).toBe(false)
+      expect(favorites.value).toEqual([])
+    })
+
+    it('does not remove an entry when the write fails', () => {
+      const { addFavorite, removeFavorite, favorites } = useMenuFavorites()
+      addFavorite({ path: '/c', title: 'C' })
+      expect(failWrites(() => removeFavorite('/c'))).toBe(false)
+      expect(favorites.value.map((f: FavoriteMenu) => f.path)).toEqual(['/c'])
+    })
+  })
+
+  it('both clear entry points report the persistence outcome (wiring)', () => {
+    const srcRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+    const workbench = readFileSync(resolve(srcRoot, 'views/workbench/index.vue'), 'utf8')
+    expect(workbench).toContain('if (recent.clearRecentViews())')
+    expect(workbench).toContain('if (fav.clearFavorites())')
+    expect(workbench).toContain("t('common.clearFailed')")
+    // 不得再有"调用完无条件提示清空成功"的旧形状
+    expect(workbench).not.toMatch(/clear(?:RecentViews|Favorites)\(\)\s*\n\s*ElMessage\.success/)
+
+    const navbar = readFileSync(resolve(srcRoot, 'layout/components/Navbar.vue'), 'utf8')
+    expect(navbar).toContain('if (!fav.clearFavorites())')
+    expect(navbar).toContain("safeT('common.clearFailed')")
   })
 })

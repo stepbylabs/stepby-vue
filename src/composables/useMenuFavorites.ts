@@ -31,10 +31,10 @@ function loadFavorites(): FavoriteMenu[] {
   return (cache.local.getJSON(key) as FavoriteMenu[] | null) || []
 }
 
-/** 保存收藏菜单列表 */
-function saveFavorites(list: FavoriteMenu[]): void {
+/** 保存收藏菜单列表（返回是否真的落进存储） */
+function saveFavorites(list: FavoriteMenu[]): boolean {
   const key = getStorageKey()
-  cache.local.setJSON(key, list)
+  return cache.local.setJSON(key, list)
 }
 
 export function useMenuFavorites() {
@@ -48,20 +48,28 @@ export function useMenuFavorites() {
     }
   )
 
-  /** 添加收藏 */
+  /** 添加收藏（`false` = 已存在或存储写入失败；两种都不改内存态） */
   function addFavorite(menu: Omit<FavoriteMenu, 'addedAt'>): boolean {
     if (favorites.value.some((f: FavoriteMenu) => f.path === menu.path)) {
       return false
     }
-    favorites.value.push({ ...menu, addedAt: Date.now() })
-    saveFavorites(favorites.value)
+    const next = [...favorites.value, { ...menu, addedAt: Date.now() }]
+    // b126：写不进存储就不得让界面显示"已收藏"（刷新即丢 = 假成功）
+    if (!saveFavorites(next)) {
+      return false
+    }
+    favorites.value = next
     return true
   }
 
-  /** 移除收藏 */
-  function removeFavorite(path: string): void {
-    favorites.value = favorites.value.filter((f: FavoriteMenu) => f.path !== path)
-    saveFavorites(favorites.value)
+  /** 移除收藏（`false` = 存储写入失败，内存态保持不变） */
+  function removeFavorite(path: string): boolean {
+    const next = favorites.value.filter((f: FavoriteMenu) => f.path !== path)
+    if (!saveFavorites(next)) {
+      return false
+    }
+    favorites.value = next
+    return true
   }
 
   /** 判断是否已收藏 */
@@ -78,10 +86,13 @@ export function useMenuFavorites() {
     }
   }
 
-  /** 清空收藏 */
-  function clearFavorites(): void {
+  /** 清空收藏（`false` = 存储写入失败，界面不得显示已清空） */
+  function clearFavorites(): boolean {
+    if (!saveFavorites([])) {
+      return false
+    }
     favorites.value = []
-    saveFavorites(favorites.value)
+    return true
   }
 
   return {

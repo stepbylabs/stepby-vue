@@ -14,9 +14,10 @@
 import { getItem, getJSON, removeItem, setItem, setJSON, type StorageKind } from '@/utils/webStorage'
 
 interface CacheInterface {
-  set(key: string, value: string): void
+  /** 写入结果：`false` = 存储不可用 / 配额满，**没有落进去**（b126：调用方据此决定是否提示成功） */
+  set(key: string, value: string): boolean
   get(key: string): string | null
-  setJSON(key: string, jsonValue: unknown): void
+  setJSON(key: string, jsonValue: unknown): boolean
   getJSON(key: string): unknown
   remove(key: string): void
 }
@@ -26,9 +27,9 @@ function makeCache(kind: StorageKind): CacheInterface {
     set(key: string, value: string) {
       // 空字符串 key/value 是**合法**写入（既有契约，cache.test.ts 钉着），只跳 null/undefined
       if (key == null || value == null) {
-        return
+        return false
       }
-      setItem(key, value, kind)
+      return setItem(key, value, kind)
     },
     get(key: string): string | null {
       if (key == null) {
@@ -38,9 +39,9 @@ function makeCache(kind: StorageKind): CacheInterface {
     },
     setJSON(key: string, jsonValue: unknown) {
       if (key == null || jsonValue == null) {
-        return
+        return false
       }
-      setJSON(key, jsonValue, kind)
+      return setJSON(key, jsonValue, kind)
     },
     getJSON(key: string): unknown {
       if (key == null) {

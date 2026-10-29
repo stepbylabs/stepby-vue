@@ -504,8 +504,12 @@ async function clearRecent(): Promise<void> {
     await ElMessageBox.confirm(t('workbench.clearRecentConfirm'), t('common.tip'), {
       type: 'warning'
     })
-    recent.clearRecentViews?.()
-    ElMessage.success(t('common.clearSuccess'))
+    // b126：存储写入失败时不得提示"清空成功"——刷新会把旧记录读回来，属于假成功
+    if (recent.clearRecentViews()) {
+      ElMessage.success(t('common.clearSuccess'))
+    } else {
+      ElMessage.error(t('common.clearFailed'))
+    }
   } catch {
     // 用户取消，无需处理
   }
@@ -516,8 +520,11 @@ async function clearFav(): Promise<void> {
     await ElMessageBox.confirm(t('workbench.clearFavConfirm'), t('common.tip'), {
       type: 'warning'
     })
-    fav.clearFavorites?.()
-    ElMessage.success(t('common.clearSuccess'))
+    if (fav.clearFavorites()) {
+      ElMessage.success(t('common.clearSuccess'))
+    } else {
+      ElMessage.error(t('common.clearFailed'))
+    }
   } catch {
     // 用户取消，无需处理
   }

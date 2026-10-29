@@ -96,6 +96,7 @@ export default {
     saveSuccess: 'Saved successfully',
     refreshSuccess: 'Refreshed successfully',
     clearSuccess: 'Cleared successfully',
+    clearFailed: 'Clear failed: local storage is unavailable or full; nothing was removed',
     batchDeleteSuccess: 'Batch deleted successfully',
     uploadSuccess: 'Uploaded successfully',
     restoreSuccess: 'Restored successfully',
@@ -115,6 +116,10 @@ export default {
     selectUser: 'Please select users to assign',
     fileTooLarge: 'File size cannot exceed 10MB',
     formValidationFailed: 'Form validation failed, please check and resubmit',
+    // Passkey (WebAuthn) browser-side outcomes; API errors are surfaced by the request layer
+    passkeyUnsupported: 'Passkeys are unavailable here (browser capability disabled or insecure context)',
+    passkeyInvalid: 'The passkey data is invalid or already used, please retry',
+    passkeyNoCredential: 'No passkey is available, please add one in your profile first',
     // System tips
     systemTip: 'System Tip',
     gotIt: 'Got it',

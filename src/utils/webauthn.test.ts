@@ -1,7 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   isWebauthnSupported,
   isUserCancelled,
+  classifyWebauthnFailure,
   base64UrlToBuffer,
   bufferToBase64Url,
   toCreationOptions,
@@ -9,6 +13,8 @@ import {
   registrationToDto,
   assertionToDto
 } from '@/utils/webauthn'
+
+const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /** 以 Buffer 的 base64url 输出作为独立基准（不依赖被测实现的替换逻辑） */
 function expectedBase64Url(bytes: number[]): string {
@@ -248,5 +254,40 @@ describe('registrationToDto / assertionToDto', () => {
       }
     } as unknown as PublicKeyCredential
     expect(assertionToDto(credential, 'alice').response.userHandle).toBe(bufferToBase64Url(userHandle))
+  })
+})
+
+describe('classifyWebauthnFailure（b126：非取消失败必须有结局）', () => {
+  it('用户取消保持安静', () => {
+    expect(classifyWebauthnFailure(new DOMException('x', 'NotAllowedError'))).toBe('cancelled')
+    expect(classifyWebauthnFailure(new DOMException('x', 'AbortError'))).toBe('cancelled')
+  })
+
+  it('浏览器能力缺失 / 被策略禁止归为 unsupported', () => {
+    expect(classifyWebauthnFailure(new DOMException('x', 'SecurityError'))).toBe('unsupported')
+    expect(classifyWebauthnFailure(new DOMException('x', 'NotSupportedError'))).toBe('unsupported')
+  })
+
+  it('数据无效归为 invalid', () => {
+    expect(classifyWebauthnFailure(new TypeError('bad options'))).toBe('invalid')
+    expect(classifyWebauthnFailure(new DOMException('x', 'InvalidStateError'))).toBe('invalid')
+    expect(classifyWebauthnFailure(new DOMException('x', 'DataError'))).toBe('invalid')
+  })
+
+  it('接口错误与非异常值归为 unknown（交给请求层或不打扰）', () => {
+    expect(classifyWebauthnFailure(new Error('request failed'))).toBe('unknown')
+    expect(classifyWebauthnFailure(undefined)).toBe('unknown')
+    expect(classifyWebauthnFailure('boom')).toBe('unknown')
+  })
+
+  it('两个入口都接线：分类函数 + 三条可见文案，且缺 options 不得裸 return', () => {
+    for (const rel of ['views/login.vue', 'views/system/user/profile/passkeys.vue']) {
+      const src = readFileSync(resolve(SRC_DIR, rel), 'utf8')
+      expect(src).toContain('classifyWebauthnFailure(')
+      expect(src).toContain("t('common.passkeyUnsupported')")
+      expect(src).toContain("t('common.passkeyInvalid')")
+      expect(src).toContain("t('common.passkeyNoCredential')")
+      expect(src).not.toMatch(/if \(!options\) return/)
+    }
   })
 })

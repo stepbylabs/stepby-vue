@@ -16,6 +16,7 @@ const { store, localMock, holder } = vi.hoisted(() => {
     }),
     setJSON: vi.fn((key: string, value: unknown) => {
       store.set(key, JSON.stringify(value))
+      return true
     })
   }
   // reactive user id (created after imports below); the composable's
@@ -109,9 +110,26 @@ describe('composables/useRecentViews', () => {
   it('clearRecentViews empties and persists an empty list', () => {
     const { recentViews, recordVisit, clearRecentViews } = useRecentViews()
     recordVisit({ path: '/a', fullPath: '/a', title: 'A' })
-    clearRecentViews()
+    expect(clearRecentViews()).toBe(true)
     expect(recentViews.value).toEqual([])
     expect(localMock.setJSON).toHaveBeenLastCalledWith('recent-views-1', [])
+  })
+
+  it('clearRecentViews reports failure and keeps the list when persistence fails', () => {
+    const { recentViews, recordVisit, clearRecentViews } = useRecentViews()
+    recordVisit({ path: '/a', fullPath: '/a', title: 'A' })
+    localMock.setJSON.mockReturnValueOnce(false)
+    expect(clearRecentViews()).toBe(false)
+    expect(recentViews.value.map((v: RecentView) => v.path)).toEqual(['/a'])
+  })
+
+  it('removeRecentView reports failure and keeps the entry when persistence fails', () => {
+    const { recentViews, recordVisit, removeRecentView } = useRecentViews()
+    recordVisit({ path: '/a', fullPath: '/a', title: 'A' })
+    recordVisit({ path: '/b', fullPath: '/b', title: 'B' })
+    localMock.setJSON.mockReturnValueOnce(false)
+    expect(removeRecentView('/a')).toBe(false)
+    expect(recentViews.value.map((v: RecentView) => v.path)).toEqual(['/b', '/a'])
   })
 
   it('reloads records for a different user when id changes (watch)', async () => {

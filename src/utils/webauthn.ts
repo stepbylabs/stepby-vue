@@ -37,6 +37,39 @@ export function isUserCancelled(error: unknown): boolean {
   )
 }
 
+/**
+ * 浏览器侧通行密钥失败的归因（b126）。
+ *
+ * 立项缺陷：两个入口（登录页 / 个人中心）都把 catch 写成"用户取消就安静返回，
+ * 其余错误已由 request 拦截器展示"——前半句对，后半句只对**接口**错误成立。
+ * 浏览器 API 抛出的 `SecurityError`（非安全上下文 / 策略禁止）、`NotSupportedError`
+ * （内核裁剪）、`TypeError`（options 非法）不经过任何拦截器，用户看到的是
+ * "点了按钮，什么都没发生"。
+ *
+ * `unknown` 刻意保留给接口错误：那一路已由请求层统一提示，页面不得重复弹。
+ */
+export type WebauthnFailureKind = 'cancelled' | 'unsupported' | 'invalid' | 'unknown'
+
+export function classifyWebauthnFailure(error: unknown): WebauthnFailureKind {
+  if (isUserCancelled(error)) {
+    return 'cancelled'
+  }
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+    if (error.name === 'NotSupportedError' || error.name === 'SecurityError') {
+      return 'unsupported'
+    }
+    // InvalidStateError（该认证器已注册过凭据）/ DataError 等：数据层面不可用
+    if (error.name === 'InvalidStateError' || error.name === 'DataError') {
+      return 'invalid'
+    }
+    return 'unknown'
+  }
+  if (error instanceof TypeError) {
+    return 'invalid'
+  }
+  return 'unknown'
+}
+
 /** base64url 字符串 → ArrayBuffer（还原 `-`/`_` 并补全 `=` 填充） */
 export function base64UrlToBuffer(value: string): ArrayBuffer {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/')

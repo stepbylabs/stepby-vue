@@ -96,6 +96,7 @@ export default {
     saveSuccess: '保存成功',
     refreshSuccess: '刷新成功',
     clearSuccess: '清空成功',
+    clearFailed: '清空失败：本地存储不可用或已满，数据未被删除',
     batchDeleteSuccess: '批量删除成功',
     uploadSuccess: '上传成功',
     restoreSuccess: '恢复成功',
@@ -115,6 +116,10 @@ export default {
     selectUser: '请选择要分配的用户',
     fileTooLarge: '文件大小不能超过 10MB',
     formValidationFailed: '表单校验未通过，请重新检查提交内容',
+    // 通行密钥（WebAuthn）浏览器侧结局：与接口错误分家，后者由请求层统一提示
+    passkeyUnsupported: '当前环境不支持通行密钥（浏览器能力被禁用或站点非安全上下文）',
+    passkeyInvalid: '通行密钥数据无效或已被使用，请重试',
+    passkeyNoCredential: '没有可用的通行密钥，请先在个人中心添加',
     // 系统提示
     systemTip: '系统提示',
     gotIt: '我知道了',

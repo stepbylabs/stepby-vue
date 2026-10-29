@@ -67,6 +67,7 @@
  *  123. profile TOTP Tab UI 真测（setup 200/QR/错误码验证失败/初态不落库）
  *  145. 手写列表页竞态守卫（page.route 构造先发后到）+ 删空回退（11 条夹具下删末页最后一条 → 回到第 1 页）
  *  149. 下载失败的后端理由与追踪号（plugins/download 裸 axios 通道：具体理由 + 追踪号 + 不重复提示 + 对照组仍可下载）
+ *  150. 清空本地记录的失败必须可见（存储写失败 ⇒ 错误提示 + 列表不清空 + 桩还原 + 对照组真清空）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -19774,6 +19775,153 @@ async function testFeature149(page) {
   }
 }
 
+/**
+ * 功能 150（b126）：本地存储写失败时"清空"必须报失败，且界面不得显示已清空。
+ *
+ * 立项缺陷链：`plugins/cache.ts` 的 `set/setJSON` 返回 void（丢弃 `webStorage` 的布尔值）
+ * ⇒ `useRecentViews.clearRecentViews()` 先清内存再写存储 ⇒ 工作台无条件提示"清空成功"。
+ * 在隐私模式 / 配额满的浏览器里，记录会在刷新后回来。
+ *
+ * 判据（真实通道注入，不是 mock 模块）：覆盖 `Storage.prototype.setItem`，只让
+ * `recent-views-*` 抛 `QuotaExceededError` ⇒ ① 出现错误提示且文案含"清空失败"
+ * ② 列表项仍在 ③ 没有成功提示；对照组：还原 setItem 后同一按钮必须真的清空
+ * （证明闸不是"按钮永远坏"）。还原本身也是判据的一部分——不还原会让后续功能
+ * 继承一个"写不进存储"的环境（b111 桩未还原的教训）。
+ */
+async function testFeature150(page) {
+  log('=== 功能 150：清空本地记录的失败必须可见（b126） ===')
+  const recentCard = page
+    .locator('.section-card')
+    .filter({ hasText: /最近访问|Recent/i })
+    .first()
+  const clearBtn = recentCard.locator('button:has-text("清空"), button:has-text("Clear")').first()
+  const items = () => page.locator('.recent-item').count()
+  const toastTexts = async (kind) =>
+    page
+      .locator(`.el-message--${kind}`)
+      .allInnerTexts()
+      .catch(() => [])
+
+  const confirmClear = async () => {
+    await clearBtn.click({ timeout: 5000 })
+    const mbox = page.locator('.el-message-box:visible')
+    const shown = await mbox
+      .waitFor({ state: 'visible', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+    if (!shown) return false
+    await mbox
+      .getByRole('button', { name: /确\s*定/ })
+      .click({ timeout: 4000 })
+      .catch(() => {})
+    return true
+  }
+
+  try {
+    // 前置：制造"最近访问"记录（访问一个页面再回工作台，afterEach 会记录）
+    await page.goto(`${CONFIG.frontendUrl}/system/user`, { waitUntil: 'load' })
+    await sleep(1200)
+    await skipTour(page)
+    await page.goto(`${CONFIG.frontendUrl}/workbench/index`, { waitUntil: 'load' })
+    await sleep(1500)
+    await skipTour(page)
+    await waitToastsCleared(page)
+    const before = await items()
+    // 取不到按钮状态时按不可用处理（fail-closed），不能用 catch(() => true)
+    const enabled = await clearBtn.isEnabled().catch(() => false)
+    record(150, '① 前置：最近访问有条目且清空按钮可用', before > 0 && enabled, `items=${before}, enabled=${enabled}`)
+    if (before === 0) return
+
+    // 真实通道注入：只对最近访问键抛配额异常（其它键照常写，避免污染引导状态等）
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem
+      window.__b126SetItem = original
+      Storage.prototype.setItem = function (key, value) {
+        if (typeof key === 'string' && key.indexOf('recent-views-') === 0) {
+          throw new DOMException('quota exceeded', 'QuotaExceededError')
+        }
+        return original.call(this, key, value)
+      }
+    })
+
+    const confirmed = await confirmClear()
+    record(150, '② 清空需二次确认', confirmed)
+    if (!confirmed) return
+
+    // 两类 toast 必须**同时累积采样**：EP 的 message 3 秒自消，先轮询完错误提示再读成功，
+    // 会把"确实弹过一条成功"读成 0 条（b125 ⑤ 的同一条纪律，实测变异 A 时 ④ 曾假绿）。
+    let errText = ''
+    let okCount = 0
+    let firstErrAt = 0
+    for (let i = 0; i < 24; i++) {
+      const [errs, oks] = await Promise.all([toastTexts('error'), toastTexts('success')])
+      if (!errText) {
+        errText = errs.find((t) => t.includes('清空失败')) || ''
+        if (errText) firstErrAt = Date.now()
+      }
+      okCount = Math.max(okCount, oks.length)
+      if (errText && (okCount > 0 || Date.now() - firstErrAt > 600)) break
+      await sleep(150)
+    }
+    record(150, '③ 写失败时提示"清空失败"（不是成功）', !!errText, errText ? errText.slice(0, 80) : '未出现错误提示')
+    record(150, '④ 写失败时不得同时提示成功', okCount === 0, `success=${okCount}`)
+    const afterFail = await items()
+    record(150, '⑤ 写失败时列表不得显示已清空', afterFail === before, `items ${before}→${afterFail}`)
+
+    const restored = await page.evaluate(() => {
+      if (window.__b126SetItem) {
+        Storage.prototype.setItem = window.__b126SetItem
+        delete window.__b126SetItem
+        return true
+      }
+      return false
+    })
+    record(150, '⑥ 判据桩已还原', restored)
+
+    // 对照组：存储恢复可用后，同一按钮必须真的清空。
+    // 数量必须**轮询到落定**：列表外层是 `<Transition name="fade">` 的 out-in 切换，
+    // 清空后旧 DOM 会保留到离场动画结束（实测 150ms 时仍读到 1 条 ⇒ 误判"没清空"）。
+    await waitToastsCleared(page)
+    // 按钮若已禁用，说明内存列表在失败时被清空了（那正是 ⑤ 的缺陷），
+    // 这里点名根因而不是让它退化成一记 click 超时。
+    const enabled2 = await clearBtn.isEnabled().catch(() => false)
+    if (!enabled2) {
+      record(150, '⑦ 对照组：存储可用时同一按钮真的清空', false, '按钮已禁用（内存列表在失败时被清空）')
+      return
+    }
+    const confirmed2 = await confirmClear()
+    let okText = ''
+    for (let i = 0; i < 24 && !okText; i++) {
+      await sleep(150)
+      const texts = await toastTexts('success')
+      okText = texts.find((t) => t.includes('清空成功')) || ''
+    }
+    let afterOk = await items()
+    for (let i = 0; i < 24 && afterOk !== 0; i++) {
+      await sleep(150)
+      afterOk = await items()
+    }
+    record(
+      150,
+      '⑦ 对照组：存储可用时同一按钮真的清空',
+      confirmed2 && !!okText && afterOk === 0,
+      `ok=${!!okText}, items=${afterOk}`
+    )
+  } catch (e) {
+    record(150, '清空失败链路', false, `异常: ${String(e.message).slice(0, 200)}`)
+  } finally {
+    // 兜底还原：即使中途抛错也不能把坏环境留给后续功能
+    await page
+      .evaluate(() => {
+        if (window.__b126SetItem) {
+          Storage.prototype.setItem = window.__b126SetItem
+          delete window.__b126SetItem
+        }
+      })
+      .catch(() => {})
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -20062,7 +20210,8 @@ async function main() {
       { id: 146, fn: testFeature146 },
       { id: 147, fn: testFeature147 },
       { id: 148, fn: testFeature148 },
-      { id: 149, fn: testFeature149 }
+      { id: 149, fn: testFeature149 },
+      { id: 150, fn: testFeature150 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

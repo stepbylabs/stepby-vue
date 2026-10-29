@@ -201,7 +201,13 @@ import { errorHub } from '@/utils/errorHub'
 import { getCodeImg } from '@/api/login'
 import { listEnabledProviders, getAuthorizeUrl, bindOauth } from '@/api/oauth'
 import { webauthnLoginStart, webauthnLoginFinish } from '@/api/webauthn'
-import { isWebauthnSupported, isUserCancelled, toRequestOptions, assertionToDto } from '@/utils/webauthn'
+import {
+  isWebauthnSupported,
+  isUserCancelled,
+  classifyWebauthnFailure,
+  toRequestOptions,
+  assertionToDto
+} from '@/utils/webauthn'
 import { takePendingHandoff } from '@/utils/oauth'
 import { resolveLoginTarget } from '@/utils/redirect'
 import { useRetryAfterLock } from '@/composables/useRetryAfterLock'
@@ -413,16 +419,28 @@ async function handlePasskeyLogin(): Promise<void> {
   try {
     const startRes = await webauthnLoginStart({ username })
     const options = startRes.data
-    if (!options) return
+    if (!options) {
+      // 后端 200 却没给 options = 契约破坏；静默 return 会让按钮"点了没反应"
+      ElMessage.error(t('common.passkeyInvalid'))
+      return
+    }
     const credential = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
-    if (!credential) return
+    if (!credential) {
+      ElMessage.error(t('common.passkeyNoCredential'))
+      return
+    }
     const finishRes = await webauthnLoginFinish(assertionToDto(credential as PublicKeyCredential, username))
     userStore.applyLoginToken(finishRes.token)
     afterLoginSuccess()
   } catch (err) {
     // 用户取消认证器交互（NotAllowedError）：安静返回，不报错刷红
     if (isUserCancelled(err)) return
-    // 其余错误（含能力位关闭的 404、登录失败反枚举统一的 401）已由 request 拦截器展示后端 msg
+    // b126：浏览器能力失败的结局必须可见——此前这里只写"已由拦截器展示"，
+    // 而 SecurityError / NotSupportedError / TypeError 根本不经过拦截器。
+    const kind = classifyWebauthnFailure(err)
+    if (kind === 'unsupported') ElMessage.error(t('common.passkeyUnsupported'))
+    else if (kind === 'invalid') ElMessage.error(t('common.passkeyInvalid'))
+    // unknown：接口错误（含能力位关闭的 404、登录失败反枚举的 401）由 request 拦截器展示
   } finally {
     webauthnLoading.value = false
   }

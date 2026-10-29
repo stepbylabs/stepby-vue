@@ -79,7 +79,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { listCredentials, registerStart, registerFinish, deleteCredential } from '@/api/webauthn'
 import type { WebauthnCredentialVo } from '@/types'
-import { isWebauthnSupported, isUserCancelled, toCreationOptions, registrationToDto } from '@/utils/webauthn'
+import {
+  isWebauthnSupported,
+  isUserCancelled,
+  classifyWebauthnFailure,
+  toCreationOptions,
+  registrationToDto
+} from '@/utils/webauthn'
 import useUserStore from '@/store/modules/user'
 
 const { t } = useI18n()
@@ -126,9 +132,16 @@ function handleAdd(): void {
     try {
       const startRes = await registerStart()
       const options = startRes.data
-      if (!options) return
+      if (!options) {
+        // 后端 200 却没给 options = 契约破坏；静默 return 会让"添加"按钮点了没反应
+        ElMessage.error(t('common.passkeyInvalid'))
+        return
+      }
       const credential = await navigator.credentials.create({ publicKey: toCreationOptions(options) })
-      if (!credential) return
+      if (!credential) {
+        ElMessage.error(t('common.passkeyNoCredential'))
+        return
+      }
       await registerFinish(registrationToDto(credential as PublicKeyCredential, form.name || null))
       ElMessage.success(t('profile.passkey.addSuccess'))
       dialogVisible.value = false
@@ -136,7 +149,11 @@ function handleAdd(): void {
     } catch (err) {
       // 用户取消认证器交互：安静返回，不报错
       if (isUserCancelled(err)) return
-      // 其余错误（含能力位关闭的 404）已由 request 拦截器统一提示
+      // b126：浏览器能力失败（SecurityError / NotSupportedError / TypeError）不经过请求拦截器，
+      // 必须由页面给出结局；接口错误仍交给拦截器，避免重复提示。
+      const kind = classifyWebauthnFailure(err)
+      if (kind === 'unsupported') ElMessage.error(t('common.passkeyUnsupported'))
+      else if (kind === 'invalid') ElMessage.error(t('common.passkeyInvalid'))
     } finally {
       adding.value = false
     }

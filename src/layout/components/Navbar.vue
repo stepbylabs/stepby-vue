@@ -29,7 +29,8 @@
             :aria-label="safeT('layout.navbar.commandPalette')"
             @click="cmdVisible = true"
             @keydown.enter.prevent="cmdVisible = true"
-            @keydown.space.prevent="cmdVisible = true">
+            @keydown.space.prevent="cmdVisible = true"
+          >
             <el-icon><Operation /></el-icon>
           </div>
         </el-tooltip>
@@ -41,7 +42,8 @@
               class="right-menu-item hover-effect fav-trigger"
               role="button"
               tabindex="0"
-              :aria-label="safeT('layout.navbar.favorites')" >
+              :aria-label="safeT('layout.navbar.favorites')"
+            >
               <el-icon><StarFilled /></el-icon>
               <Transition name="fade">
                 <!-- 注：fav.favorites 是 useMenuFavorites 返回的 Ref，模板中作为对象属性访问不会自动解包，故显式 .value -->
@@ -75,7 +77,8 @@
               class="right-menu-item hover-effect recent-trigger"
               role="button"
               tabindex="0"
-              :aria-label="safeT('layout.navbar.recent')" >
+              :aria-label="safeT('layout.navbar.recent')"
+            >
               <el-icon><Clock /></el-icon>
             </div>
             <template #dropdown>
@@ -87,7 +90,8 @@
                 <el-dropdown-item
                   v-for="(item, idx) in recent.recentViews.value"
                   :key="item.path"
-                  :command="item.fullPath">
+                  :command="item.fullPath"
+                >
                   <span class="recent-idx">{{ Number(idx) + 1 }}</span>
                   <svg-icon v-if="item.icon" :icon-class="item.icon" class="mr-1.5" />
                   {{ translateRecentTitle(item) }}
@@ -113,7 +117,8 @@
             :aria-label="safeT('layout.navbar.themeMode')"
             @click="toggleTheme"
             @keydown.enter.prevent="toggleTheme"
-            @keydown.space.prevent="toggleTheme">
+            @keydown.space.prevent="toggleTheme"
+          >
             <Transition name="fade" mode="out-in">
               <svg-icon v-if="settingsStore.isDark" key="dark" icon-class="sunny" />
               <svg-icon v-else key="light" icon-class="moon" />
@@ -149,7 +154,8 @@
           class="avatar-wrapper"
           role="button"
           tabindex="0"
-          :aria-label="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })" >
+          :aria-label="safeT('layout.navbar.avatarAlt', { name: userStore.nickName })"
+        >
           <img
             :src="userStore.avatar || defAva"
             class="user-avatar"
@@ -245,7 +251,10 @@ function translateRecentTitle(item: { title: string; i18nKey?: string }): string
 
 function handleFavClick(path: string): void {
   if (path === '__clear__') {
-    fav.clearFavorites()
+    // b126：清空收藏的结局由存储写入结果决定，失败不得显示为成功
+    if (!fav.clearFavorites()) {
+      modal.msgError(safeT('common.clearFailed'))
+    }
     return
   }
   router.push(path)

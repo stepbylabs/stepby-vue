@@ -33,9 +33,9 @@ function loadRecentViews(): RecentView[] {
   return (cache.local.getJSON(key) as RecentView[] | null) || []
 }
 
-function saveRecentViews(list: RecentView[]): void {
+function saveRecentViews(list: RecentView[]): boolean {
   const key = getStorageKey()
-  cache.local.setJSON(key, list)
+  return cache.local.setJSON(key, list)
 }
 
 export function useRecentViews() {
@@ -48,7 +48,7 @@ export function useRecentViews() {
     }
   )
 
-  /** 记录一次访问（在路由 afterEach 调用） */
+  /** 记录一次访问（在路由 afterEach 调用）。写失败只影响下次启动，不打扰用户。 */
   function recordVisit(view: Omit<RecentView, 'visitedAt'>): void {
     if (!view.path || view.path.startsWith('/redirect') || view.path === '/login' || view.path === '/lock') {
       return
@@ -60,16 +60,23 @@ export function useRecentViews() {
     saveRecentViews(list)
   }
 
-  /** 清空最近访问记录 */
-  function clearRecentViews(): void {
+  /** 清空最近访问记录（`false` = 存储写入失败，界面不得显示已清空） */
+  function clearRecentViews(): boolean {
+    if (!saveRecentViews([])) {
+      return false
+    }
     recentViews.value = []
-    saveRecentViews([])
+    return true
   }
 
-  /** 移除单条记录 */
-  function removeRecentView(path: string): void {
-    recentViews.value = recentViews.value.filter((v: RecentView) => v.path !== path)
-    saveRecentViews(recentViews.value)
+  /** 移除单条记录（`false` = 存储写入失败，内存态保持不变） */
+  function removeRecentView(path: string): boolean {
+    const next = recentViews.value.filter((v: RecentView) => v.path !== path)
+    if (!saveRecentViews(next)) {
+      return false
+    }
+    recentViews.value = next
+    return true
   }
 
   return {
