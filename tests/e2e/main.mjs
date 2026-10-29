@@ -18103,10 +18103,23 @@ async function testFeature74(page) {
           headers
         }
       )
+    // 两条：一条常规定位用；一条带 PII（b132 入库脱敏判据的输入——筛选词会随地址栏进 pageUrl）
     const report = await api(`${CONFIG.backendUrl}/monitor/frontendError/report`, {
       method: 'POST',
       headers: jsonHeaders,
-      body: JSON.stringify({ items: [{ level: 'error', source: 'vue', name: feMarker, message: feMarker }] })
+      body: JSON.stringify({
+        items: [
+          { level: 'error', source: 'vue', name: feMarker, message: feMarker },
+          {
+            level: 'error',
+            source: 'api',
+            name: feMarker,
+            message: 'GET /system/user/list?phonenumber=13800000000 failed',
+            stack: 'at x (http://h/app.js?token=STACK_SECRET:1:1)',
+            pageUrl: 'http://localhost:8080/system/user?pageNum=1&userName=SECRET_PII&code=SECRET_CODE'
+          }
+        ]
+      })
     })
     record(
       74,
@@ -18123,6 +18136,28 @@ async function testFeature74(page) {
       adminSearch.code === 200 && (adminSearch.total ?? 0) >= 1 && feRecordIds.length >= 1,
       `total=${adminSearch.total}, ids=${feRecordIds.length}`
     )
+    // b132：遥测入库脱敏（服务端边界兜底——客户端是用户可改的外部输入）
+    const piiRow = (adminSearch.rows || []).find(
+      (r) => r.name === feMarker && String(r.pageUrl || '').includes('/system/user')
+    )
+    const piiJson = piiRow ? JSON.stringify(piiRow) : ''
+    record(
+      74,
+      'D5 遥测入库脱敏：pageUrl 只留参数名，凭据键与原始值全消失',
+      !!piiRow &&
+        piiRow.pageUrl === 'http://localhost:8080/system/user?pageNum=***&userName=***' &&
+        !/SECRET_PII|SECRET_CODE|code=|13800000000|STACK_SECRET/.test(piiJson),
+      `pageUrl=${piiRow ? piiRow.pageUrl : 'none'}`
+    )
+    record(
+      74,
+      'D6 遥测入库脱敏：message/stack 查询值遮蔽（键名保留，排障不失真）',
+      !!piiRow &&
+        String(piiRow.message || '').includes('phonenumber=***') &&
+        String(piiRow.stack || '').includes('token=***'),
+      `message=${String(piiRow ? piiRow.message : '').slice(0, 60)}`
+    )
+
     const aSearch = await feList(authA)
     const bSearch = await feList(authB)
     record(
@@ -20331,6 +20366,220 @@ async function testFeature153(page) {
   )
 }
 
+/**
+ * 功能 154：深链页码越界一次性收敛（不得变成请求风暴）（b132）
+ *
+ * 缺陷形态：`useCrudTable.getList` 的空页回退每轮只把 pageNum -1，然后立刻重发。
+ * 深链 `?pageNum=9999`（b131 让 URL 可分享之后是真实可点/可转发的形态）在 3 条数据
+ * 的页面上要连发 **9998 次**列表请求才停；用户看到的是长时间转圈 + 后端被打。
+ *
+ * 修法：`total` 已知时末页 = `ceil(total/pageSize)`，一次收敛（`pageAfterEmptyResult` 扩参）。
+ * 判据全部取运行时事实：请求计数、行数、地址栏收敛后的 pageNum；
+ * ④ 是**对照组**——正常首页必须只发 1 次，否则"≤2 次"可能被"这里永远不发请求"满足。
+ */
+async function testFeature154(page) {
+  log('=== 功能 154：深链页码越界一次性收敛（b132） ===')
+  const listRe = /\/system\/post\/list(\?|$)/
+  let listReqs = 0
+  const onReq = (req) => {
+    if (listRe.test(req.url())) listReqs += 1
+  }
+  const firstResp = page.waitForResponse((r) => listRe.test(r.url()), { timeout: 20000 }).catch(() => null)
+  page.on('request', onReq)
+  await page
+    .goto(`${CONFIG.frontendUrl}/system/post?pageNum=9999&pageSize=10`, { waitUntil: 'domcontentloaded' })
+    .catch(() => {})
+  const resp = await firstResp
+  const body = resp ? await resp.json().catch(() => null) : null
+  const total = Number(body?.total ?? 0)
+  const pageSize = 10
+  const lastPage = total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1
+  const table = page.locator('.app-main .el-table').first()
+  let rows = 0
+  for (let i = 0; i < 60; i++) {
+    rows = await table
+      .locator('tbody tr')
+      .count()
+      .catch(() => 0)
+    if (rows > 0) break
+    await sleep(150)
+  }
+  // 旧实现每轮回退一页且几乎无间隔；多留 800ms 让"还会继续发"显形
+  await sleep(800)
+  page.off('request', onReq)
+  const cur = new URL(page.url())
+  record(154, '① 深链 ?pageNum=9999 打开后有数据行（不再是空页）', rows > 0, `rows=${rows}, total=${total}`)
+  record(154, '② 越界页码只发 ≤2 次列表请求（不逐页回退成风暴）', listReqs > 0 && listReqs <= 2, `requests=${listReqs}`)
+  record(
+    154,
+    '③ URL 的 pageNum 收敛到真实末页（可继续分享）',
+    Number(cur.searchParams.get('pageNum')) === lastPage && Number(cur.searchParams.get('pageSize')) === pageSize,
+    `pageNum=${cur.searchParams.get('pageNum')}, last=${lastPage}, search=${cur.search}`
+  )
+
+  let ctrlReqs = 0
+  const onCtrl = (req) => {
+    if (listRe.test(req.url())) ctrlReqs += 1
+  }
+  page.on('request', onCtrl)
+  await page
+    .goto(`${CONFIG.frontendUrl}/system/post?pageNum=1&pageSize=10`, { waitUntil: 'domcontentloaded' })
+    .catch(() => {})
+  let ctrlRows = 0
+  for (let i = 0; i < 60; i++) {
+    ctrlRows = await page
+      .locator('.app-main .el-table tbody tr')
+      .count()
+      .catch(() => 0)
+    if (ctrlRows > 0) break
+    await sleep(150)
+  }
+  await sleep(500)
+  page.off('request', onCtrl)
+  record(
+    154,
+    '④ 对照组：正常首页只发 1 次列表请求且有行',
+    ctrlRows > 0 && ctrlReqs === 1,
+    `requests=${ctrlReqs}, rows=${ctrlRows}`
+  )
+}
+
+async function testFeature155(page) {
+  log('=== 功能 155：校验失败定位统一（validateForm 滚动+聚焦，b132-D） ===')
+  const ok = await openPage(page, '/system/tenant', 'tenant')
+  record(155, '① 页面可达（/system/tenant）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  let postCount = 0
+  const onReq = (req) => {
+    if (req.method() === 'POST' && /\/system\/tenant(\?|$)/.test(req.url())) postCount += 1
+  }
+  page.on('request', onReq)
+  const addBtn = page.locator('.app-main button:has-text("新增")').first()
+  const addVisible = await _visible(addBtn)
+  record(155, '② 「新增」按钮可见', addVisible)
+  if (!addVisible) {
+    page.off('request', onReq)
+    return
+  }
+  await _click(addBtn)
+  // append-to-body + destroy-on-close：按标题锁定本页新增对话框，避免命中套餐/域名等其他弹窗
+  const dialog = page.locator('.el-dialog').filter({ hasText: '新增租户' }).first()
+  const dialogVisible = await _visible(dialog)
+  record(155, '③ 新增对话框打开（真实点击落地）', dialogVisible)
+  if (!dialogVisible) {
+    page.off('request', onReq)
+    return
+  }
+
+  // 空表单直接保存：必填的租户名称为空 ⇒ 校验失败，处理器必须把第一个错误字段定位出来
+  const saveBtn = dialog.locator('.el-dialog__footer button:has-text("保存")').first()
+  await _click(saveBtn)
+
+  let errorItems = 0
+  for (let i = 0; i < 40; i++) {
+    errorItems = await dialog
+      .locator('.el-form-item.is-error')
+      .count()
+      .catch(() => 0)
+    if (errorItems > 0) break
+    await sleep(100)
+  }
+  record(155, '④ 空表单提交 ⇒ 字段级校验错误渲染（处理器真跑了）', errorItems > 0, `is-error=${errorItems}`)
+
+  // 语言无关的结构判据：第一个错误项必须是「空白的输入框」那一项（租户名称必填规则）
+  let errInfo = { hasItem: false, text: '', msg: '', html: '' }
+  for (let i = 0; i < 20; i++) {
+    errInfo = await page
+      .evaluate(() => {
+        const dlg = Array.from(document.querySelectorAll('.el-dialog')).find((d) =>
+          (d.textContent || '').includes('新增租户')
+        )
+        const item = dlg?.querySelector('.el-form-item.is-error')
+        const input = item?.querySelector('input')
+        const msg = item?.querySelector('.el-form-item__error')?.textContent || ''
+        return {
+          hasItem: !!item,
+          text: (input?.value || '').trim(),
+          msg: msg.trim(),
+          html: (item?.outerHTML || '').slice(0, 300)
+        }
+      })
+      .catch(() => ({ hasItem: false, text: '', msg: '', html: '' }))
+    if (errInfo.msg.length > 0) break
+    await sleep(100)
+  }
+  record(
+    155,
+    '⑤ 错误落在空白的必填字段上（规则文案非空）',
+    errInfo.hasItem && errInfo.text === '' && errInfo.msg.length > 0,
+    `value="${errInfo.text}", msg=${errInfo.msg.slice(0, 40)}, html=${errInfo.html.replace(/\s+/g, ' ').slice(0, 160)}`
+  )
+
+  // b132 修复点：焦点必须落进第一个错误项（修复前 activeElement 是 body，长表单看不到红字）
+  let focus = { hasItem: false, inside: false, tag: '', cls: '', html: '' }
+  for (let i = 0; i < 20; i++) {
+    focus = await page
+      .evaluate(() => {
+        const dlg = Array.from(document.querySelectorAll('.el-dialog')).find((d) =>
+          (d.textContent || '').includes('新增租户')
+        )
+        const item = dlg?.querySelector('.el-form-item.is-error')
+        const active = document.activeElement
+        return {
+          hasItem: !!item,
+          inside: !!(item && active && item.contains(active)),
+          tag: active?.tagName || '',
+          cls: typeof active?.className === 'string' ? active.className : '',
+          html: (active?.outerHTML || '').replace(/\s+/g, ' ').slice(0, 120)
+        }
+      })
+      .catch(() => ({ hasItem: false, inside: false, tag: '', cls: '', html: '' }))
+    if (focus.inside) break
+    await sleep(100)
+  }
+  record(
+    155,
+    '⑥ 首个错误字段获得焦点（校验失败必须定位）',
+    focus.hasItem && focus.inside && focus.tag === 'INPUT',
+    `tag=${focus.tag}, inside=${focus.inside}, cls=${focus.cls}, html=${focus.html}`
+  )
+
+  record(155, '⑦ 校验未通过时零新增请求（闸门生效而非按钮失灵）', postCount === 0, `POST /system/tenant=${postCount}`)
+
+  // b79 回归锁：校验失败不得逸出成 ErrorBoundary（整页/对话框被卸载换成错误兜底）
+  const bodyLen = await page.evaluate(() => (document.body.innerText || '').length).catch(() => 0)
+  const stillOpen = await dialog.isVisible().catch(() => false)
+  record(
+    155,
+    '⑧ 对话框仍在、页面未卸载（校验失败不炸整页）',
+    stillOpen && bodyLen > 200,
+    `open=${stillOpen}, bodyLen=${bodyLen}`
+  )
+
+  // 取消关闭再打开：destroy-on-close 下错误态不得残留（否则新表单一开就满屏红字）
+  const cancelBtn = dialog
+    .locator('.el-dialog__footer button:has-text("取 消"), .el-dialog__footer button:has-text("取消")')
+    .first()
+  await _click(cancelBtn)
+  await sleep(500)
+  await _click(addBtn)
+  const reopened = await _visible(dialog)
+  let residual = -1
+  for (let i = 0; i < 30; i++) {
+    residual = await dialog
+      .locator('.el-form-item.is-error')
+      .count()
+      .catch(() => -1)
+    if (reopened && residual === 0) break
+    await sleep(100)
+  }
+  record(155, '⑨ 取消后重开无错误残留', reopened && residual === 0, `open=${reopened}, is-error=${residual}`)
+  await _click(cancelBtn)
+  page.off('request', onReq)
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -20623,7 +20872,9 @@ async function main() {
       { id: 150, fn: testFeature150 },
       { id: 151, fn: testFeature151 },
       { id: 152, fn: testFeature152 },
-      { id: 153, fn: testFeature153 }
+      { id: 153, fn: testFeature153 },
+      { id: 154, fn: testFeature154 },
+      { id: 155, fn: testFeature155 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

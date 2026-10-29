@@ -14,6 +14,7 @@
 import { errorReporter } from '@/utils/errorReporter'
 import type { ErrorLevel, ErrorSource } from '@/utils/errorHub'
 import { getToken } from '@/utils/auth'
+import { sanitizePageUrl, redactTelemetryText } from '@/utils/telemetrySanitize'
 
 /** 与后端 FrontendErrorItem(camelCase) 对齐的上报项 */
 interface FrontendErrorPayload {
@@ -85,7 +86,9 @@ function pageContext(): Pick<
   'pageUrl' | 'userAgent' | 'deviceType' | 'viewWidth' | 'viewHeight'
 > {
   return {
-    pageUrl: location.href,
+    // b132：只上报 origin + path + 参数名（值遮蔽、凭据键丢弃）——筛选值会含 PII，
+    // 详见 telemetrySanitize 模块头部的取证。
+    pageUrl: sanitizePageUrl(location.href),
     userAgent: navigator.userAgent,
     deviceType: detectDeviceType(),
     viewWidth: window.innerWidth,
@@ -159,8 +162,9 @@ function transport(err: unknown, context?: Record<string, unknown>): void {
     level,
     source,
     name: isErr ? err.name : typeof context?.type === 'string' ? String(context.type) : undefined,
-    message,
-    stack: isErr ? err.stack : undefined,
+    // b132：message/stack 里的请求 URL 会把查询值（筛选词/PII）一并带进遥测表
+    message: redactTelemetryText(message),
+    stack: isErr ? redactTelemetryText(err.stack) : undefined,
     ...pageContext()
   })
 }

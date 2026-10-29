@@ -4955,3 +4955,71 @@ for (let i = 0; i < 40; i++) {
 "选择器"段 ⇒ `.fade-enter-active` 一个块都匹配不上（红在判据自己身上）；修法是选择器段
 取最后一个 `;` 之后的部分。② 变异验证必须落在**被真正执行的那份文件**上：本轮变异 A
 第一次"全绿"是因为解析器坏了，不是产品对。
+
+### 3.125 遥测脱敏、深链页码风暴与校验定位（b132 固化）
+
+**A. 遥测脱敏：判据三件事同判，且只扫被脱敏的那三列**
+
+`sys_frontend_error` 是**跨租户可见面**（平台管理员可查），而 `page_url` 存的是原始
+`location.href`；b131 让列表筛选写进 URL 之后，用户搜过的手机号/用户名就随遥测入库。
+取证 SQL（只读，开发库）：
+
+```sql
+select count(*),
+       sum(case when page_url like '%?%' then 1 else 0 end),
+       sum(case when page_url like '%userName=%' then 1 else 0 end),
+       sum(case when page_url like '%code=%' then 1 else 0 end)
+from sys_frontend_error;
+-- 实测 177,147 / 38,872 / 2,108 / 197（2026-10-30）
+```
+
+判据必须三层同判，缺一层就会"前端改了但直 POST 仍泄漏"或反之：
+
+1. 前端单测（`utils/telemetrySanitize.test.ts`）：值遮蔽成 `***`、**凭据键整条丢弃**、hash 丢弃、
+   解析失败按 `?` 截断、幂等；
+2. 后端 ingest 集成（`integration_tests/sys_frontend_error.rs`）：直 POST 原始载荷，读回三列；
+   **只扫 `page_url+message+stack`** —— 扫整行会被标记列 `name` 自己命中（判据自己的洞）；
+3. e2e（F74 D5/D6）：断言用户可查的三列里 `SECRET_PII/SECRET_CODE/code=/13800000000/STACK_SECRET`
+   一个都不出现，同时"键名仍在"（`userName=***`）——只删整条查询串会让排障失去"在哪一页筛了什么"。
+
+**先量后写**：同一库里 `message`/`stack` 的实测泄漏为 0，对它们的遮蔽按"同族预防"记账，
+不得写成"已发生泄漏"（否则台账会替一个不存在的缺陷要成本）。
+
+**B. 深链页码越界：收敛式必须一步到位，且对照组证明正常路径仍发一次请求**
+
+旧实现 `pageNum - 1` 每轮退一页：`?pageNum=9999` ⇒ 9998 次列表请求。修法用
+`ceil(total/pageSize)` 直接算末页。判据形状（F154）：
+
+- 主判据 `requests > 0 && requests <= 2`（"永远不发请求"也会满足 `<=2`）；
+- **对照组**：`?pageNum=1&pageSize=10` 必须 `requests === 1` 且有行；
+- 同时断言 URL 的 `pageNum` 收敛到真实末页（深链可继续分享）。
+
+**C. 校验失败定位：`querySelector` 按文档顺序取首个命中；文案比 `is-error` 晚一帧**
+
+```js
+// 错：querySelector 不看选择器优先级，EP 错误项里的 div[tabindex] 会抢走焦点（实测 tag=DIV）
+item.querySelector('input, textarea, select, [tabindex]')
+// 对：先可编辑控件，再回落复合控件
+item.querySelector('input, textarea, select, [contenteditable="true"]') ??
+  item.querySelector('[tabindex]:not([tabindex="-1"])')
+```
+
+F155 的判据序列（缺一条就会把"按钮失灵"记成"闸门生效"）：
+①页面可达 ②新增按钮可见 ③对话框打开 ④空表单提交后 `.el-form-item.is-error` ≥1
+⑤错误落在**空白**的必填字段上且**规则文案非空（轮询 ≤2s，文案晚于 is-error 一帧）**
+⑥`activeElement` 在第一个错误项内**且 `tag === 'INPUT'`** ⑦零 POST 请求
+⑧对话框仍在、页面未卸载 ⑨取消重开无错误残留（`destroy-on-close` 的回归锁）。
+
+**D. LIKE 形状锁：needle 必须被自己的正控打红**
+
+```bash
+# 行为面：真实迁移库（未转义 % 必须命中整表 ⇒ 修复后的仓库路径 0 命中）
+cargo test -j 4 --lib repository::sys_webhook_event
+# 形状面：src/repository/*.rs 生产码视图里
+#   Column::<列>.contains(          —— 0 处
+#   .like(...) 含 format! 无 like_escape —— 0 处（按括号配对取实参，rustfmt 折行不影响）
+```
+
+第一版 needle 写成 `Column::` 紧跟 `.contains(`（漏列名）⇒ **结构上永远打不中而真实树全绿**；
+是"合成违规必须被抓"那条正控把它抓出来的。凡"扫不到即通过"的判据都要配这条正控 +
+采集面体量下限（"扫少了"与"干净"不同形）。

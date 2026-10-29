@@ -31,7 +31,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeState.query })
 }))
 
-import { useCrudTable, clampPageToRowCount } from './useCrudTable'
+import { useCrudTable, clampPageToRowCount, pageAfterEmptyResult } from './useCrudTable'
 
 // 冲刷宏任务（连带 flush 所有挂起的微任务链）
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
@@ -1032,5 +1032,38 @@ describe('clampPageToRowCount（前端切片分页的页码收敛）', () => {
   it('对照：本地行数超过最后一页容量时页码保持（边界恰整除）', () => {
     expect(clampPageToRowCount(2, 20, 10)).toBe(2)
     expect(clampPageToRowCount(1, 0, 10)).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// pageAfterEmptyResult（b132 扩：带 pageSize 时一次性收敛到末页）
+// 旧实现每轮只回退一页 ⇒ 深链 ?pageNum=9999 会连发 9998 次列表请求
+// （b131 让 URL 可分享之后这条路径更现实）。判据同时钉住"有数据但当前页为空"
+// 的三类成因：深链越界、删空末页、筛选无结果（不得白跑）。
+// ---------------------------------------------------------------------------
+describe('pageAfterEmptyResult（空页收敛口径）', () => {
+  it('深链越界：一步收敛到末页，而不是逐页回退', () => {
+    // 3 条数据、pageSize=10 ⇒ 末页是 1；旧实现要 9998 次请求才停
+    expect(pageAfterEmptyResult(9999, 0, 3, 10)).toBe(1)
+    // 21 条 ⇒ 末页 3
+    expect(pageAfterEmptyResult(9999, 0, 21, 10)).toBe(3)
+  })
+
+  it('删空末页：回到新的最后一页（不是机械 -1）', () => {
+    // 删掉第 21 条后剩 20 条 ⇒ 第 3 页不存在，直接落到 2
+    expect(pageAfterEmptyResult(3, 0, 20, 10)).toBe(2)
+  })
+
+  it('筛选无结果（total=0）不得白跑；有行时页码不动', () => {
+    expect(pageAfterEmptyResult(5, 0, 0, 10)).toBe(5)
+    expect(pageAfterEmptyResult(3, 2, 25, 10)).toBe(3)
+    expect(pageAfterEmptyResult(1, 0, 25, 10)).toBe(1)
+  })
+
+  it('非法 pageSize 不得算出 Infinity/负页；缺省 pageSize 保持旧语义（-1）', () => {
+    expect(pageAfterEmptyResult(5, 0, 25, 0)).toBe(4)
+    expect(pageAfterEmptyResult(5, 0, 25, -10)).toBe(4)
+    // 手写列表页仍用三参签名 ⇒ 行为与 b90 一致（单步回退）
+    expect(pageAfterEmptyResult(3, 0, 20)).toBe(2)
   })
 })

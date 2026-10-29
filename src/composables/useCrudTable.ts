@@ -7,28 +7,24 @@ import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 import { createLatestGuard } from '@/composables/latestRequest'
+import { focusFirstError } from '@/utils/formValidate'
 import type { FormInstance } from 'element-plus'
 
 /**
- * 表单校验失败后定位到第一个错误字段（UX：长表单不必手动找红字）。
- * 滚动到可视区并聚焦其输入框；弹窗内表单同样生效（按文档顺序取首个 is-error）。
- */
-export function focusFirstError(): void {
-  nextTick(() => {
-    const item = document.querySelector<HTMLElement>('.el-form-item.is-error')
-    if (!item) return
-    item.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    const field = item.querySelector<HTMLElement>('input, textarea, select')
-    field?.focus()
-  })
-}
-
-/**
  * 空页回退：删掉末页最后一条后页码越界，列表会显示"暂无数据"而前面还有数据。
- * 返回应当请求的页码（只在"有数据但当前页为空"时回退一页，避免筛选无结果时白跑）。
+ * 返回应当请求的页码（只在"有数据但当前页为空"时回退，避免筛选无结果时白跑）。
+ *
+ * b132：带 `pageSize` 时**一次性收敛到末页**，不再逐页 -1。
+ * 取证：深链 `?pageNum=9999` 在旧实现里每一轮只回退一页，用户会看到 9998 次
+ * 连续列表请求（b131 让 URL 可分享之后这条路径更现实）；实测 3 条数据、
+ * pageSize=10 时末页 = 1，旧实现要连发 9998 次才停。`total` 已知时末页可由
+ * `ceil(total/pageSize)` 直接算出——那才是"有数据但当前页为空"的唯一确定的落点。
+ * 不给 `pageSize` 的调用方（手写列表页沿用三参签名）保持原语义。
  */
-export function pageAfterEmptyResult(pageNum: number, rowCount: number, total: number): number {
-  return rowCount === 0 && total > 0 && pageNum > 1 ? pageNum - 1 : pageNum
+export function pageAfterEmptyResult(pageNum: number, rowCount: number, total: number, pageSize?: number): number {
+  if (rowCount !== 0 || total <= 0 || pageNum <= 1) return pageNum
+  const lastPage = pageSize && pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : pageNum - 1
+  return Math.min(pageNum, lastPage)
 }
 
 /**
@@ -392,7 +388,9 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
         const resp = response as { rows: T[]; total: number }
         loadError.value = false
         const pageNum = Number((queryParams.value as { pageNum?: number }).pageNum ?? 1)
-        const nextPage = pageAfterEmptyResult(pageNum, resp.rows.length, resp.total)
+        // b132：带 pageSize 一次性收敛到末页（深链 pageNum=9999 不得变成上千次请求）
+        const pageSize = Number((queryParams.value as { pageSize?: number }).pageSize ?? 10) || 10
+        const nextPage = pageAfterEmptyResult(pageNum, resp.rows.length, resp.total, pageSize)
         if (nextPage !== pageNum) {
           ;(queryParams.value as unknown as { pageNum: number }).pageNum = nextPage
           getList()
@@ -563,7 +561,7 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       // UX：校验失败时滚动并聚焦第一个错误字段（长表单不必手动找红字）
       if (!valid) {
         submitBusy = false
-        focusFirstError()
+        void focusFirstError(target)
         return
       }
       submitLoading.value = true

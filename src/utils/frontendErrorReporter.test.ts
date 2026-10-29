@@ -166,4 +166,36 @@ describe('frontendErrorReporter', () => {
     expect(items).toHaveLength(1)
     expect(items[0].message).toBe('real business error')
   })
+
+  /**
+   * b132：遥测落库前必须脱敏。
+   *
+   * 立案证据：开发库 `sys_frontend_error.page_url` 有 39,039 行带查询串、
+   * `userName=` 命中 2,112 行——筛选词（可能是姓名/手机号）被持久化进管理端遥测表。
+   */
+  it('pageUrl 上报前遮蔽查询值、丢弃凭据键（真实 location 带筛选串）', () => {
+    window.history.replaceState({}, '', '/system/user?pageNum=1&userName=alice&code=SECRET')
+    __testables.transport(new Error('boom'), { level: 'error', source: 'vue' })
+    __testables.flush()
+    const item = JSON.parse(fetchCalls[0].init.body as string).items[0]
+    expect(item.pageUrl).toContain('/system/user')
+    expect(item.pageUrl).toContain('userName=***')
+    expect(item.pageUrl).toContain('pageNum=***')
+    expect(item.pageUrl).not.toContain('alice')
+    expect(item.pageUrl).not.toContain('SECRET')
+    expect(item.pageUrl).not.toContain('code=')
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('message/stack 里的查询值同样脱敏（请求 URL 会嵌进错误文本）', () => {
+    __testables.transport(new Error('GET /system/user/list?phonenumber=13800000000 failed'), {
+      level: 'error',
+      source: 'api'
+    })
+    __testables.flush()
+    const item = JSON.parse(fetchCalls[0].init.body as string).items[0]
+    expect(item.message).toContain('phonenumber=***')
+    expect(item.message).not.toContain('13800000000')
+    expect(item.stack).not.toContain('13800000000')
+  })
 })
