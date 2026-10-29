@@ -7,6 +7,7 @@ import { isHttp, isEmpty } from '@/utils/validate'
 import { clearAllApiCache } from '@/utils/apiCache'
 import { purgeSessionSwCaches } from '@/utils/swCache'
 import { announceIdentityIfChanged, announceSessionEnded } from '@/utils/crossTab'
+import { registerReloginHandler } from '@/utils/reloginHandler'
 import useLockStore from '@/store/modules/lock'
 import usePermissionStore from '@/store/modules/permission'
 import useDictStore from '@/store/modules/dict'
@@ -306,5 +307,8 @@ const useUserStore = defineStore('user', {
     }
   }
 })
+
+// b124：把登出动作注入 request 的 401 对话框（反向依赖会让 user -> api/login -> request -> user 成环）
+registerReloginHandler(() => useUserStore().logOut())
 
 export default useUserStore

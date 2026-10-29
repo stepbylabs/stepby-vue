@@ -2,7 +2,6 @@ import router, { constantRoutes, dynamicRoutes, extraConstantRoutes, Layout } fr
 import { getRouters } from '@/api/router'
 import ParentView from '@/components/ParentView/index.vue'
 import InnerLink from '@/layout/components/InnerLink/index.vue'
-import useUserStore from '@/store/modules/user'
 import i18n from '@/i18n'
 import { errorHub } from '@/utils/errorHub'
 import type { AppRouteRecord } from '@/types'
@@ -12,13 +11,22 @@ import type { RouteRecordRaw } from 'vue-router'
 const SUPER_ADMIN_ROLE = 'admin'
 const ALL_PERMISSION = '*:*:*'
 
-function hasPermiOr(permissions: string[]): boolean {
-  const userPermissions: string[] = useUserStore().permissions
+/**
+ * b124：权限/角色由**调用方注入**，本模块不再 import user store。
+ * 原实现 `user.ts -> permission.ts -> user.ts` 是循环依赖（rolldown `checks.circularDependency`
+ * 实测点名），ESM live binding 让"谁先初始化"决定拿到的 store 是实例还是 TDZ 空档。
+ * 依赖方向改成单向：路由守卫（`src/permission.ts`）本来就有 userStore，取两个字段传进来即可。
+ */
+export interface RouteAuth {
+  permissions: string[]
+  roles: string[]
+}
+
+function hasPermiOr(permissions: string[], userPermissions: string[]): boolean {
   return permissions.some((p) => userPermissions.some((up: string) => up === ALL_PERMISSION || up === p))
 }
 
-function hasRoleOr(roles: string[]): boolean {
-  const userRoles: string[] = useUserStore().roles
+function hasRoleOr(roles: string[], userRoles: string[]): boolean {
   return roles.some((r) => userRoles.some((ur: string) => ur === SUPER_ADMIN_ROLE || ur === r))
 }
 
@@ -48,7 +56,7 @@ const usePermissionStore = defineStore('permission', {
       this.sidebarRouters = routes
     },
     // 改用 async/await，确保异常能被调用方捕获（P0-45）
-    async generateRoutes(_roles?: string[]): Promise<AppRouteRecord[]> {
+    async generateRoutes(auth: RouteAuth): Promise<AppRouteRecord[]> {
       try {
         // 先清空旧路由缓存，确保使用最新权限（P0-43）
         this.resetRoutes()
@@ -64,7 +72,7 @@ const usePermissionStore = defineStore('permission', {
         const sidebarRoutes = filterAsyncRouter(sdata)
         const rewriteRoutes = filterAsyncRouter(rdata, false, true)
         const defaultRoutes = filterAsyncRouter(defaultData)
-        const asyncRoutes = filterDynamicRoutes(dynamicRoutes)
+        const asyncRoutes = filterDynamicRoutes(dynamicRoutes, auth)
         asyncRoutes.forEach((route) => {
           router.addRoute(route as unknown as RouteRecordRaw)
         })
@@ -179,15 +187,15 @@ function filterChildren(childrenMap: AppRouteRecord[], lastRouter: AppRouteRecor
 }
 
 // 动态路由遍历，验证是否具备权限
-export function filterDynamicRoutes(routes: AppRouteRecord[]): AppRouteRecord[] {
+export function filterDynamicRoutes(routes: AppRouteRecord[], auth: RouteAuth): AppRouteRecord[] {
   const res: AppRouteRecord[] = []
   routes.forEach((route) => {
     if (route.permissions) {
-      if (hasPermiOr(route.permissions)) {
+      if (hasPermiOr(route.permissions, auth.permissions)) {
         res.push(route)
       }
     } else if (route.roles) {
-      if (hasRoleOr(route.roles)) {
+      if (hasRoleOr(route.roles, auth.roles)) {
         res.push(route)
       }
     }

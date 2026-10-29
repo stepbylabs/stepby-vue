@@ -33,12 +33,15 @@ export interface MonitorIssue {
   message: string
   time: number
   count: number
+  /** b124：后端 `trace_id`/`X-Request-Id`（有则展示与可复制，供用户报障时贴给运维） */
+  traceId?: string
 }
 
 interface BufferedToast {
   level: ErrorLevel
   source: ErrorSource
   message: string
+  traceId?: string
 }
 
 export type ToastHandler = (level: ErrorLevel, source: ErrorSource, count: number, message: string) => void
@@ -88,16 +91,16 @@ class ErrorHub {
   /**
    * 仅记录监控，不触发界面弹窗（供已有独立提示的场景复用，如可点击"重试"的网络错误 toast）。
    */
-  record(level: ErrorLevel, source: ErrorSource, message: string): MonitorIssue {
-    return this.push(level, source, message)
+  record(level: ErrorLevel, source: ErrorSource, message: string, traceId?: string): MonitorIssue {
+    return this.push(level, source, message, traceId)
   }
 
   /**
    * 记录监控并触发聚合弹窗（推荐入口，绝大多数错误/警告走这里）。
    */
-  report(level: ErrorLevel, source: ErrorSource, message: string): MonitorIssue {
-    const issue = this.push(level, source, message)
-    this.buffered.push({ level, source, message })
+  report(level: ErrorLevel, source: ErrorSource, message: string, traceId?: string): MonitorIssue {
+    const issue = this.push(level, source, message, traceId)
+    this.buffered.push({ level, source, message, traceId })
     this.scheduleFlush()
     return issue
   }
@@ -113,13 +116,18 @@ class ErrorHub {
     this.emit()
   }
 
-  private push(level: ErrorLevel, source: ErrorSource, message: string): MonitorIssue {
+  private push(level: ErrorLevel, source: ErrorSource, message: string, traceId?: string): MonitorIssue {
     const time = Date.now()
     const top = this.items[0]
-    // 与最新一条同 源+级别+文案 且在去重窗口内 → 合并计数（避免列表被同一错误刷屏）
+    // 与最新一条同 源+级别+文案 且在去重窗口内 → 合并计数（避免列表被同一错误刷屏）。
+    // b124：去重键**不含 traceId**——每次请求的 ID 必然不同，把它算进键等于关掉去重；
+    // 合并时只把 ID 更新成最近一次，列表里展示的仍是"这条错误最近一次的请求"。
     if (top && top.level === level && top.source === source && top.message === message && time - top.time < DEDUPE_MS) {
       top.count += 1
       top.time = time
+      if (traceId) {
+        top.traceId = traceId
+      }
       this.emit()
       return top
     }
@@ -130,6 +138,9 @@ class ErrorHub {
       message,
       time,
       count: 1
+    }
+    if (traceId) {
+      issue.traceId = traceId
     }
     this.items.unshift(issue)
     if (this.items.length > MAX_ISSUES) {
@@ -152,12 +163,15 @@ class ErrorHub {
     this.buffered = []
 
     // 去重：同 (level+message) 的合并计数，避免同一文案重复弹出
-    const byKey = new Map<string, { level: ErrorLevel; message: string; count: number }>()
+    const byKey = new Map<string, { level: ErrorLevel; message: string; count: number; traceId?: string }>()
     for (const it of buffered) {
       const key = `${it.level}\u0000${it.message}`
       const ex = byKey.get(key)
-      if (ex) ex.count += 1
-      else byKey.set(key, { level: it.level, message: it.message, count: 1 })
+      if (ex) {
+        ex.count += 1
+        // b124：合并时取最近一次请求的追踪号（同一文案的多次失败里最新那条最可定位）
+        if (it.traceId) ex.traceId = it.traceId
+      } else byKey.set(key, { level: it.level, message: it.message, count: 1, traceId: it.traceId })
     }
     const entries = [...byKey.values()]
 
@@ -165,7 +179,9 @@ class ErrorHub {
     if (entries.length === 1) {
       const e = entries[0]
       const suffix = e.count > 1 ? t('error.monitor.multi', { count: e.count }) : ''
-      this.render(e.level, 'api', e.count, `${e.message}${suffix}`)
+      // 单条目提示带上追踪号：用户看到的弹窗与监控列表里是同一个 ID，报障时可直接抄
+      const trace = e.traceId ? t('error.monitor.traceSuffix', { id: e.traceId }) : ''
+      this.render(e.level, 'api', e.count, `${e.message}${suffix}${trace}`)
       return
     }
 
@@ -191,7 +207,12 @@ class ErrorHub {
   }
 
   private emit(): void {
-    this.listeners.forEach((cb) => cb(this.items))
+    // b124：必须发**快照**。此前直接把 `this.items` 交给订阅方，订阅方写回自己的 ref 时
+    // 首次是引用变更（能渲染），之后的 unshift/计数递增都在同一个数组上原地发生 ⇒
+    // 赋值的是同一个引用 ⇒ Vue 不触发更新，监控弹层的列表就冻结在第一条
+    // （实测：record 两条不同错误，issues 里 2 条而 DOM 只渲染 1 条）。
+    const snapshot = [...this.items]
+    this.listeners.forEach((cb) => cb(snapshot))
   }
 }
 

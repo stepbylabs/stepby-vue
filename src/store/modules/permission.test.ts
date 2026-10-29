@@ -26,7 +26,6 @@ const h = vi.hoisted(() => {
   }
 
   const getRouters = vi.fn()
-  const user = { roles: [] as string[], permissions: [] as string[] }
   const i18n = { global: { t: (k: string) => `T:${k}` } }
   const errorHub = { report: vi.fn() }
 
@@ -39,7 +38,6 @@ const h = vi.hoisted(() => {
     dynamicRoutes,
     router,
     getRouters,
-    user,
     i18n,
     errorHub
   }
@@ -55,7 +53,6 @@ vi.mock('@/router', () => ({
 vi.mock('@/api/router', () => ({ getRouters: h.getRouters }))
 vi.mock('@/components/ParentView/index.vue', () => ({ default: h.ParentView }))
 vi.mock('@/layout/components/InnerLink/index.vue', () => ({ default: h.InnerLink }))
-vi.mock('@/store/modules/user', () => ({ default: () => h.user }))
 vi.mock('@/i18n', () => ({ default: h.i18n }))
 vi.mock('@/utils/errorHub', () => ({ errorHub: h.errorHub }))
 vi.mock('element-plus', () => ({ default: {}, ElMessage: { warning: vi.fn() } }))
@@ -69,8 +66,6 @@ describe('store/modules/permission', () => {
     h.router.addRoute.mockClear()
     h.router.removeRoute.mockClear()
     h.getRouters.mockReset()
-    h.user.roles = []
-    h.user.permissions = []
     h.dynamicRoutes.length = 0
   })
 
@@ -96,32 +91,39 @@ describe('store/modules/permission', () => {
 
   describe('filterDynamicRoutes', () => {
     it('includes routes whose permission matches', () => {
-      h.user.permissions = ['system:user:edit']
-      const out = filterDynamicRoutes([
-        { path: '/a', permissions: ['system:user:edit'] },
-        { path: '/b', permissions: ['system:user:delete'] }
-      ] as never)
+      const out = filterDynamicRoutes(
+        [
+          { path: '/a', permissions: ['system:user:edit'] },
+          { path: '/b', permissions: ['system:user:delete'] }
+        ] as never,
+        { permissions: ['system:user:edit'], roles: [] }
+      )
       expect(out.map((r) => r.path)).toEqual(['/a'])
     })
     it('super-permission "*" grants every permission route', () => {
-      h.user.permissions = ['*:*:*']
-      const out = filterDynamicRoutes([{ path: '/a', permissions: ['whatever:x:y'] }] as never)
+      const out = filterDynamicRoutes([{ path: '/a', permissions: ['whatever:x:y'] }] as never, {
+        permissions: ['*:*:*'],
+        roles: []
+      })
       expect(out).toHaveLength(1)
     })
     it('includes role routes for admin / matching role and drops others', () => {
-      h.user.permissions = []
-      h.user.roles = ['common']
-      const out = filterDynamicRoutes([
-        { path: '/admin', roles: ['admin'] },
-        { path: '/common', roles: ['common'] },
-        { path: '/other', roles: ['nobody'] },
-        { path: '/plain' }
-      ] as never)
+      const out = filterDynamicRoutes(
+        [
+          { path: '/admin', roles: ['admin'] },
+          { path: '/common', roles: ['common'] },
+          { path: '/other', roles: ['nobody'] },
+          { path: '/plain' }
+        ] as never,
+        { permissions: [], roles: ['common'] }
+      )
       expect(out.map((r) => r.path)).toEqual(['/common'])
     })
     it('no permission check needed when admin role present', () => {
-      h.user.roles = ['admin']
-      const out = filterDynamicRoutes([{ path: '/r', roles: ['anything'] }] as never)
+      const out = filterDynamicRoutes([{ path: '/r', roles: ['anything'] }] as never, {
+        permissions: [],
+        roles: ['admin']
+      })
       expect(out).toHaveLength(1)
     })
   })
@@ -160,7 +162,6 @@ describe('store/modules/permission', () => {
   describe('generateRoutes', () => {
     it('builds sidebar/rewrite/default routes, registers dynamic + extra routes', async () => {
       h.dynamicRoutes.push({ path: '/dyn-user', permissions: ['system:user:edit'] } as never)
-      h.user.permissions = ['system:user:edit']
       h.getRouters.mockResolvedValue({
         data: [
           {
@@ -182,7 +183,7 @@ describe('store/modules/permission', () => {
         ]
       })
       const store = usePermissionStore()
-      const rewrite = await store.generateRoutes()
+      const rewrite = await store.generateRoutes({ permissions: ['system:user:edit'], roles: [] })
 
       expect(Array.isArray(rewrite)).toBe(true)
       // extra constant routes registered at least once
@@ -218,7 +219,7 @@ describe('store/modules/permission', () => {
         data: [{ path: '/page', component: 'some/real/view', name: 'Page', meta: {} }]
       })
       const store = usePermissionStore()
-      const rewrite = await store.generateRoutes()
+      const rewrite = await store.generateRoutes({ permissions: [], roles: [] })
       const page = rewrite.find((r: AppRouteRecord) => r.path === '/page') as Record<string, unknown>
       expect(typeof page.component).toBe('function')
     })
@@ -226,13 +227,13 @@ describe('store/modules/permission', () => {
     it('re-throws when getRouters rejects (guard classifies by status, §5.35)', async () => {
       h.getRouters.mockRejectedValue(new Error('boom'))
       const store = usePermissionStore()
-      await expect(store.generateRoutes()).rejects.toThrow('boom')
+      await expect(store.generateRoutes({ permissions: [], roles: [] })).rejects.toThrow('boom')
     })
 
     it('handles an empty menu payload (no-permission branch)', async () => {
       h.getRouters.mockResolvedValue({ data: [] })
       const store = usePermissionStore()
-      const rewrite = await store.generateRoutes()
+      const rewrite = await store.generateRoutes({ permissions: [], roles: [] })
       expect(rewrite).toEqual([])
       // only the constant routes remain in sidebar/routes
       expect(store.sidebarRouters).toEqual(h.constantRoutes)

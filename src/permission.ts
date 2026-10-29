@@ -77,7 +77,11 @@ router.beforeEach(async (to, _from) => {
           /* 读不到就按本地缺省进入，不重试也不提示 */
         }
         // 根据roles权限生成可访问的路由
-        const accessRoutes = await usePermissionStore().generateRoutes()
+        // b124：权限/角色显式传入（permission store 不再反向 import user store —— 原为循环依赖）
+        const accessRoutes = await usePermissionStore().generateRoutes({
+          permissions: userStore.permissions,
+          roles: userStore.roles
+        })
         accessRoutes.forEach((route: AppRouteRecord) => {
           if (!isHttp(route.path)) {
             router.addRoute(route as unknown as Parameters<typeof router.addRoute>[0])

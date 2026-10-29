@@ -6,7 +6,13 @@ const { ElMessage } = vi.hoisted(() => ({ ElMessage: vi.fn() }))
 // 避免真实加载 element-plus 与整个 i18n（pinia/stores 等重依赖），否则 fork worker 初始化超时
 vi.mock('element-plus', () => ({ ElMessage }))
 vi.mock('@/i18n', () => ({
-  default: { global: { t: (key: string, _params?: Record<string, unknown>) => key } }
+  // b124：追踪号后缀带 {id} 参数——按参数插值，才能证明弹窗里带的是**哪一个** ID
+  // （只回键名的话，"合并时取最近一次"与"始终取第一条"两种实现在断言上同形）。
+  default: {
+    global: {
+      t: (key: string, params?: Record<string, unknown>) => (params?.id ? `${key}(${String(params.id)})` : key)
+    }
+  }
 }))
 
 import { errorHub, type MonitorIssue } from '@/utils/errorHub'
@@ -82,6 +88,50 @@ describe('errorHub', () => {
 
       expect(calls).toHaveLength(1)
       expect(calls[0]).toMatchObject({ level: 'error', count: 3 })
+    })
+  })
+
+  describe('b124 追踪号（traceId）', () => {
+    it('record 把追踪号写进记录；去重键**不含**追踪号（两次不同 ID 必须合并为一条）', () => {
+      errorHub.record('error', 'api', '网关失败', 'trace-a')
+      errorHub.record('error', 'api', '网关失败', 'trace-b')
+
+      // 反证方向：若把 traceId 算进去重键，这里会是 2 条——每次请求 ID 必然不同，
+      // 等于把去重彻底关掉。
+      expect(errorHub.issues).toHaveLength(1)
+      expect(errorHub.issues[0].count).toBe(2)
+      // 合并后保留**最近一次**的 ID（报障时最可定位的那条）
+      expect(errorHub.issues[0].traceId).toBe('trace-b')
+    })
+
+    it('没有追踪号时不写该字段（不得凭空造一个 ID）', () => {
+      errorHub.record('warning', 'api', '参数缺失')
+      expect(errorHub.issues[0].traceId).toBeUndefined()
+    })
+
+    it('单条提示带追踪号后缀（取最近一次），无 ID 时原文一字不差', async () => {
+      errorHub.report('error', 'api', '服务不可用', 'trace-first')
+      errorHub.report('error', 'api', '服务不可用', 'trace-last')
+      await flush()
+
+      expect(calls).toHaveLength(1)
+      expect(calls[0].message).toContain('error.monitor.traceSuffix(trace-last)')
+      expect(calls[0].message).not.toContain('trace-first')
+    })
+
+    it('无追踪号：弹窗文案与原文一致（后缀不得无条件拼接）', async () => {
+      errorHub.report('error', 'api', '服务不可用')
+      await flush()
+      expect(calls[0].message).toBe('服务不可用')
+    })
+
+    it('多条聚合提示不追加单个追踪号（聚合面只说"几个问题"，ID 去监控列表看）', async () => {
+      errorHub.report('error', 'api', '错误甲', 'trace-x')
+      errorHub.report('warning', 'api', '错误乙', 'trace-y')
+      await flush()
+
+      expect(calls).toHaveLength(1)
+      expect(calls[0].message).not.toContain('error.monitor.traceSuffix')
     })
   })
 

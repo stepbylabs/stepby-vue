@@ -61,6 +61,9 @@ export default {
       multi: ' (×{count})',
       aggregated: '发现 {total} 个问题：{errors} 个错误，{warnings} 个警告',
       source: '来源：{source}',
+      traceSuffix: '（追踪号：{id}）',
+      traceLabel: '追踪号',
+      copyTraceAria: '复制追踪号 {id}',
       levels: {
         error: '错误',
         warning: '警告',

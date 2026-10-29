@@ -1,6 +1,6 @@
 import defaultSettings from '@/settings'
 import { useDark, useToggle } from '@vueuse/core'
-import { useDynamicTitle } from '@/utils/dynamicTitle'
+import { applyDynamicTitle } from '@/utils/dynamicTitle'
 import { handleThemeStyle } from '@/utils/theme'
 import cache from '@/plugins/cache'
 import { getItem, getJSON, setItem } from '@/utils/webStorage'
@@ -218,7 +218,8 @@ const useSettingsStore = defineStore('settings', {
     // 设置网页标题
     setTitle(title: string) {
       this.title = title
-      useDynamicTitle()
+      // b124：值由 store 传入，util 不再反向 import store（原循环依赖）
+      applyDynamicTitle({ dynamicTitle: this.dynamicTitle, title })
     },
     /**
      * 用户显式选择侧边栏主题（设置抽屉卡片 / 主题编辑器单选的唯一入口）。

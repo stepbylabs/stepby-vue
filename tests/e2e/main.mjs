@@ -19519,6 +19519,114 @@ async function testFeature147(page) {
   }
 }
 
+/**
+ * 功能 148（b124）：失败响应的追踪号闭环。
+ *
+ * 后端自 G-13a 起在失败响应 body 带 `trace_id`、响应头带同值 `X-Request-Id`
+ * （`middleware/request_id.rs` 优先复用入站头 ⇒ 前端生成的 ID 会原样回显），
+ * 而前端改造前**没有任何读取点**——用户报障只能描述"点了登录然后报错"。
+ *
+ * 判据用真实失败登录（不存在的用户名，避免锁定套件账号）：
+ * ① 响应头与响应体同源同值（证明测试抓到的是后端真发的那一条，而不是前端编的）；
+ * ② 同一条 ID 出现在用户可见的错误提示里（`request.ts` 在 401/错误分支拼 traceSuffix）；
+ * ③ 失败后仍停在登录页（错误提示不得把导航带偏）。
+ * 不构造 200 假响应：trace 的价值就在"真实故障现场能对上日志"。
+ */
+async function testFeature148(page) {
+  log('=== 功能 148：失败响应的追踪号（trace_id / X-Request-Id）闭环（b124） ===')
+  const browser = page.context().browser()
+  const frontend = CONFIG.frontendUrl
+  let ctx = null
+  try {
+    ctx = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      ignoreHTTPSErrors: true,
+      serviceWorkers: 'block'
+    })
+    const p = await ctx.newPage()
+    await presetTourDisabled(p)
+    const captchaPromise = capturePageCaptcha(p)
+    await p.goto(`${frontend}/login`, { waitUntil: 'load' })
+    // 不存在的用户名：反枚举下后端仍返回统一 401，且不会累加 admin 的失败计数
+    const probeUser = `trace_probe_${Date.now().toString(36)}`
+    const userInput = p
+      .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+      .first()
+    await userInput.waitFor({ state: 'visible', timeout: 15000 })
+    await userInput.fill(probeUser)
+    await p
+      .locator('input[placeholder="密码"], input[placeholder="Password"], input[type="password"]')
+      .first()
+      .fill('wrong-password-b124')
+    const captcha = await captchaPromise
+    await fillCaptchaOnPage(p, captcha)
+
+    const respPromise = p.waitForResponse((r) => r.url().includes('/login') && r.request().method() === 'POST', {
+      timeout: 20000
+    })
+    await p
+      .locator(
+        'button:has-text("登 录"), button:has-text("登录"), button:has-text("Login"), button[type="submit"], .el-button--primary'
+      )
+      .first()
+      .click()
+    const resp = await respPromise
+    const status = resp.status()
+    const headerTrace = (resp.headers()['x-request-id'] || '').trim()
+    let bodyTrace = ''
+    try {
+      const body = await resp.json()
+      bodyTrace = typeof body?.trace_id === 'string' ? body.trace_id : ''
+    } catch {
+      /* 非 JSON 体时保持空串，由下面判据判红 */
+    }
+
+    record(
+      148,
+      '① 失败登录：响应头 X-Request-Id 与响应体 trace_id 同源同值',
+      status >= 400 && headerTrace !== '' && bodyTrace === headerTrace,
+      `status=${status} header=${headerTrace || '(空)'} body=${bodyTrace || '(空)'}`
+    )
+
+    // 提示文案可能先出现、ID 后拼（同一 tick 内通常是原子写入；这里仍按"轮询到落定"取证）
+    const toastHasTrace = headerTrace
+      ? await p
+          .waitForFunction(
+            (id) =>
+              Array.from(document.querySelectorAll('.el-message')).some((el) => (el.textContent || '').includes(id)),
+            headerTrace,
+            { timeout: 10000 }
+          )
+          .then(() => true)
+          .catch(() => false)
+      : false
+    const toastText = await p
+      .evaluate(() =>
+        Array.from(document.querySelectorAll('.el-message'))
+          .map((el) => el.textContent || '')
+          .join(' | ')
+      )
+      .catch(() => '')
+    record(
+      148,
+      '② 同一条 ID 出现在用户可见的错误提示里（不是只挂在 JSON 字段上）',
+      toastHasTrace,
+      `toast=${toastText.slice(0, 160)}`
+    )
+
+    record(
+      148,
+      '③ 失败后仍停留在登录页（错误提示不得把导航带偏）',
+      p.url().includes('/login'),
+      `url=${p.url().slice(0, 100)}`
+    )
+  } catch (e) {
+    record(148, '追踪号链路', false, `异常: ${String(e.message).slice(0, 200)}`)
+  } finally {
+    if (ctx) await ctx.close().catch(() => {})
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -19805,7 +19913,8 @@ async function main() {
       { id: 144, fn: testFeature144 },
       { id: 145, fn: testFeature145 },
       { id: 146, fn: testFeature146 },
-      { id: 147, fn: testFeature147 }
+      { id: 147, fn: testFeature147 },
+      { id: 148, fn: testFeature148 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

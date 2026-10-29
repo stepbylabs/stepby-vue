@@ -24,6 +24,10 @@
     "useDefineForClassFields": true,
     "allowJs": true,
     "noEmit": true,
+    // b124：vite 配置面（vite.config.ts / vite/plugins/*）的相互 import 必须带显式扩展名，
+    // 否则 `configLoader: 'native'` 会警告这些写法在未来大版本里不被支持；Vite 自身建议的
+    // 迁移方式就是「补扩展名 + 用 import.meta.dirname」。此开关只影响类型检查（noEmit）。
+    "allowImportingTsExtensions": true,
 
     // 类型声明相关配置
     "types": ["node", "vite/client", "element-plus/global", "vitest/globals", "vite-plugin-pwa/client"]

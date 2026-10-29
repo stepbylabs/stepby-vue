@@ -62,6 +62,9 @@ export default {
       multi: ' (×{count})',
       aggregated: 'Found {total} issue(s): {errors} error(s), {warnings} warning(s)',
       source: 'Source: {source}',
+      traceSuffix: ' (Trace ID: {id})',
+      traceLabel: 'Trace ID',
+      copyTraceAria: 'Copy trace ID {id}',
       levels: {
         error: 'Error',
         warning: 'Warning',
@@ -141,12 +144,14 @@ export default {
     item: {
       openSourceBaseline:
         'Open-source baseline: SharedStore dual-tier shared state (local pure SQL / redis), single-file zero-dependency deployment',
-      multiTenant: 'Full multi-tenancy: tenant management, package capability flags, tenant runtime keys and permission isolation',
+      multiTenant:
+        'Full multi-tenancy: tenant management, package capability flags, tenant runtime keys and permission isolation',
       ssoProvider: 'Single sign-on (OIDC Provider): authorization code / refresh token / RS256 / session management',
       workflowEngine:
         'Approval workflow engine: two-level approval, timeout scanning, interruption-aware todo reminders (first push + overdue escalation to leader)',
       auditInsight: 'Audit and insight: operation-log diffs, audit dashboard, compliance report export',
-      securityBaseline: 'Security baseline: fail-closed permissions, blacklist and password-version authority layer, dedicated rate limit for sensitive ops',
+      securityBaseline:
+        'Security baseline: fail-closed permissions, blacklist and password-version authority layer, dedicated rate limit for sensitive ops',
       i18nAndMobile: 'Internationalization (zh/en), responsive mobile adaptation, theme switching'
     }
   },

@@ -4763,3 +4763,53 @@ A：`router/index.ts` 改回静态 Layout + 重建 ⇒ perf 三项红（`PERF-01
 B：`LAYOUT_SHELL_SENTINEL` 改成不存在的串 ⇒ **EXIT=2**（"在全部产物里都找不到"）；
 C：往真实生产 `.ts` 末尾追加 `void import('@/router')` ⇒ 守卫 4 条中恰 1 条红并点名 `file:line`。
 A 必须在还原后**重建**再取权威读数（入口 chunk 因 `__BUILD_TIME__` 换名属正常，见 §3.99）。
+
+### 3.121 追踪号闭环（头=体=可见提示）与构建告警闸的变异配方（b124 固化）
+
+**① 追踪号的判据必须三件事同判，且要落在真实失败链上。**
+F148 用**独立浏览器上下文**（`serviceWorkers: 'block'`）打开 `/login`，用**不存在的用户名** +
+假口令提交（反枚举下后端仍返回统一 401，且不会累加 admin 的失败计数），然后同时断言：
+① `resp.headers['x-request-id']` 非空且**等于** `body.trace_id`；② 该 ID 出现在
+`.el-message` 的正文里（`waitForFunction` 轮询到落定，不 sleep）；③ URL 仍在 `/login`。
+只判 ① 等于没判"用户能不能报障"——ID 挂在 JSON 字段上而提示里没有时，用户拿不到它。
+盘上变异：把 `/login` 分支的 `traceSuffix` 摘掉并**重建产物** ⇒ 恰 ② 红、①③ 照常绿
+（`/tmp/b124_mut_d_main.log`：`总计 4 通过 3 失败 1`）。
+
+**② 读取侧与写入侧各有一个单一出口。**
+读取：`utils/traceId.ts` 的 `normalizeTraceId`（trim / 128 上限 / **逐字符码点**拒绝空白与控制字符——
+`/\s|\u0000-\u001f/` 会被 `eslint no-control-regex` 拦）+ `pickTraceId(body, headers)`
+（**body 优先、header 兜底**：网关 HTML 错误页没有 JSON 体但响应头仍可能带）。
+写入：成功拦截器的**每一个**失败 code 分支 + 错误拦截器的每条 HTTP 分支 + blob 错误体
+（`readBlobErrorBody` 也要读 `trace_id`，导出族的错误体就是 blob）+ `download()` 的 JSON 体与 catch。
+两条反直觉：**reject 的 `Error.message` 保持纯文案**（登录页/锁屏页按 message 判"密码错还是过期"，
+拼 ID 会让文案成为判据的一部分），**toast 文案才拼**；errorHub 的去重键**不含 traceId**
+（同一故障合并计数；合并时更新为最近一次的号）。
+
+**③ 构建告警闸：只按 `code` 判、只收"必然坏"的族，且先量构建器默认行为。**
+`utils/buildWarnings.ts` 收五族（INEFFECTIVE_DYNAMIC_IMPORT / CIRCULAR_DEPENDENCY /
+MISSING_EXPORT / UNRESOLVED_IMPORT / EVAL），命中即 `throw`（构建非零退出），未命中走默认处理器。
+`SOURCEMAP_BROKEN` 这类可能是环境问题的族**刻意不入册**（第一个误报就会换来一条豁免）。
+开闸前必须实测两件事（rolldown 1.2.15）：
+
+- `checks.circularDependency` / `checks.ineffectiveDynamicImport` **默认 false**
+  （`create-bundler-option-DzNR1xQS.mjs:1445/1467`），不打开时 `onwarn` 收不到事件；
+- `ineffectiveDynamicImport` **即使打开也不发**（最小 rolldown 直连探针同结果）⇒
+  该族只能由 b123 的形状锁（生产码禁 `import('@/router')`）兜底，别把"构建器会报"写成判据。
+  类型坑：Vite 的 `onwarn` 第二参是 `(warning: RolldownLog | (() => RolldownLog)) => void`，
+  严格参数逆变要求 `defaultHandler` 声明成 `(warning: never) => void`，写 `unknown` 会 TS2769。
+
+**④ 循环依赖的修法是让依赖单向，不是关检查。**
+三条实测存在的环与修法：`settings ↔ dynamicTitle`（util 改纯函数，字段由 store 传入）、
+`user ↔ permission`（`generateRoutes(auth: RouteAuth)` 由路由守卫注入）、
+`user ↔ api/login ↔ request`（`utils/reloginHandler.ts` 注册式注入，user store 末尾注册）。
+构建绿 ⇔ 全图无环（该检查是整图判定，不是只判被点名的那一条）。
+变异配方：临时恢复任一 import ⇒ 构建 EXIT=1 并点名完整环路（`/tmp/b124_checks_circle.log`）；
+还原后 `diff -q` 逐字节相同。
+另：`configLoader: 'native'` 的告警（`__dirname`、相对导入缺后缀）在 `vite.config.ts`
+**与 `vitest.config.ts` 两处都要修**——只修一处，另一半每轮启动都在打同一条告警。
+
+**⑤ 订阅式容器的交付物是"值"不是"可变引用"。**
+`errorHub.emit()` 原先传同一个数组引用，订阅方 `items.value = list` 第二次收到时引用未变
+⇒ Vue 不重渲染，面板永远停在第 1 条。修法 `cb([...this.items])`。
+回归用例要写成"先记一条无 trace、再记一条有 trace"才能抓住它；
+盘上变异（改回同一引用）实测 2 红 2 绿（`/tmp/b124_mut_c.log`）。

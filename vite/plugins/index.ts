@@ -4,13 +4,13 @@ import vue from '@vitejs/plugin-vue'
 // 时 CSS 无 .map（R102-SMAP-001 未达成）且 rolldown 报 SOURCEMAP_BROKEN 告警；
 // PostCSS 管线原生产出 sourcemap，两问题一并消除。
 
-import createAutoImport from './auto-import'
-import createComponents from './components'
-import createSvgIcon from './svg-icon'
-import createCompression from './compression'
-import createSetupExtend from './setup-extend'
-import createVisualizer from './visualizer'
-import createPwa from './pwa'
+import createAutoImport from './auto-import.ts'
+import createComponents from './components.ts'
+import createSvgIcon from './svg-icon.ts'
+import createCompression from './compression.ts'
+import createSetupExtend from './setup-extend.ts'
+import createVisualizer from './visualizer.ts'
+import createPwa from './pwa.ts'
 import { PluginOption } from 'vite'
 
 export default function createVitePlugins(viteEnv: Record<string, string>, isBuild = false) {

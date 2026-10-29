@@ -2,12 +2,13 @@ import { defineConfig, loadEnv } from 'vite'
 import type { Plugin, ProxyOptions } from 'vite'
 import path from 'path'
 import { readFileSync } from 'fs'
-import createVitePlugins from './vite/plugins'
+import createVitePlugins from './vite/plugins/index.ts'
+import { createBuildWarningHandler } from './src/utils/buildWarnings.ts'
 
 // 读取 package.json 版本号
 function readPackageVersion(): string {
   try {
-    const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
+    const pkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, 'package.json'), 'utf-8'))
     return pkg.version || '0.0.0'
   } catch {
     return '0.0.0'
@@ -104,9 +105,9 @@ export default defineConfig(({ mode, command }) => {
       // https://cn.vitejs.dev/config/#resolve-alias
       alias: {
         // 设置路径
-        '~': path.resolve(__dirname, './'),
+        '~': path.resolve(import.meta.dirname, './'),
         // 设置别名
-        '@': path.resolve(__dirname, './src')
+        '@': path.resolve(import.meta.dirname, './src')
       },
       // https://cn.vitejs.dev/config/#resolve-extensions
       extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.vue']
@@ -146,6 +147,18 @@ export default defineConfig(({ mode, command }) => {
       rollupOptions: {
         // 性能优化：开启模块级别 tree shaking，移除未使用的导出
         treeshake: true,
+        // b124：rolldown 把这两族警告放在**默认关闭**的 checks 里（实测 1.2.15：
+        // `circularDependency` / `ineffectiveDynamicImport` 缺省 false）——不开它们，
+        // onwarn 永远收不到，判据也就永远不可能红。打开后由下方 onwarn 升级为致命。
+        checks: {
+          circularDependency: true,
+          ineffectiveDynamicImport: true
+        },
+        // 构建告警硬化（b124）：已知坏族（INEFFECTIVE_DYNAMIC_IMPORT / CIRCULAR_DEPENDENCY /
+        // MISSING_EXPORT / UNRESOLVED_IMPORT / EVAL）一律抛错让构建失败，未知告警走默认通道。
+        // 判据与理由见 src/utils/buildWarnings.ts + 其单测；此前这些警告不参与退出码，
+        // INEFFECTIVE_DYNAMIC_IMPORT 连续三个批次无人看见（b123 实证）。
+        onwarn: createBuildWarningHandler(),
         // 路由级分包（b120 恢复；此前是被迫关闭）。历史：Vite 8.1.5 / Rolldown 1.1.5 在
         // element-plus 跨 chunk 引用处 panic（compute_cross_chunk_links.rs:584
         // "Symbol defaults_default … should belong to a chunk"），当时只能 codeSplitting:false

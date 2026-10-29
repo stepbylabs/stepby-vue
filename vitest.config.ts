@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
-import createAutoImport from './vite/plugins/auto-import'
+import createAutoImport from './vite/plugins/auto-import.ts'
 
 // https://vitest.dev/config/
 // 独立的 vitest 配置文件，避免污染 vite.config.ts
@@ -12,8 +12,8 @@ export default defineConfig({
   plugins: [vue(), createAutoImport()],
   resolve: {
     alias: {
-      '~': path.resolve(__dirname, './'),
-      '@': path.resolve(__dirname, './src')
+      '~': path.resolve(import.meta.dirname, './'),
+      '@': path.resolve(import.meta.dirname, './src')
     }
   },
   test: {

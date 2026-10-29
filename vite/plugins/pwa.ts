@@ -1,6 +1,6 @@
 import { VitePWA } from 'vite-plugin-pwa'
 import type { PluginOption } from 'vite'
-import { buildRuntimeCaching } from './pwaRuntimeCaching'
+import { buildRuntimeCaching } from './pwaRuntimeCaching.ts'
 
 /**
  * PWA 支持（P3-23）

@@ -20,7 +20,7 @@
  */
 
 import type { VitePWAOptions } from 'vite-plugin-pwa'
-import { API_CACHE, PUBLIC_STATIC_CACHE, isApiCacheEnabled, type ApiCacheMode } from '../../src/utils/swCache'
+import { API_CACHE, PUBLIC_STATIC_CACHE, isApiCacheEnabled, type ApiCacheMode } from '../../src/utils/swCache.ts'
 
 /**
  * 公共静态目录：只有这三个前缀进缓存；`/uploads/**` 与 API 路径都不匹配。

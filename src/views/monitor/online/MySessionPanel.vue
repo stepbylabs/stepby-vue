@@ -157,6 +157,7 @@ import { useI18n } from 'vue-i18n'
 import useUserStore from '@/store/modules/user'
 import { listMySessions as listOnline, logoutMySession as forceLogout } from '@/api/monitor/online'
 import { getToken } from '@/utils/auth'
+import { identifyToken } from '@/utils/sessionToken'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { createLatestGuard } from '@/composables/latestRequest'
 import modal from '@/plugins/modal'
@@ -193,15 +194,11 @@ const queryParams = reactive({
 const degradedIdentification = ref(false)
 
 async function computeTokenHash(token: string): Promise<string> {
-  if (!window.crypto?.subtle) {
-    degradedIdentification.value = true
-    return token.slice(-8)
-  }
-  const encoder = new TextEncoder()
-  const data = encoder.encode(token)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+  // b124：能力缺失与"能力被拒绝"同一档——`subtle.digest` 是 Promise，
+  // `if (!subtle)` 挡不住它的拒绝（见 utils/sessionToken 的模块说明）。
+  const { hash, degraded } = await identifyToken(token, window.crypto?.subtle)
+  if (degraded) degradedIdentification.value = true
+  return hash
 }
 
 // 判断是否为当前会话

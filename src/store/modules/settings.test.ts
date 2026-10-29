@@ -37,10 +37,10 @@ vi.mock('@vueuse/core', async () => {
   return { useDark: () => holder.darkRef, useToggle: () => toggleDark }
 })
 
-const { useDynamicTitle, handleThemeStyle, cacheMock, matchMediaMock } = vi.hoisted(() => {
+const { applyDynamicTitle, handleThemeStyle, cacheMock, matchMediaMock } = vi.hoisted(() => {
   const stored: Record<string, string> = {}
   return {
-    useDynamicTitle: vi.fn(),
+    applyDynamicTitle: vi.fn(),
     handleThemeStyle: vi.fn(),
     cacheMock: {
       local: {
@@ -62,7 +62,7 @@ const { useDynamicTitle, handleThemeStyle, cacheMock, matchMediaMock } = vi.hois
   }
 })
 
-vi.mock('@/utils/dynamicTitle', () => ({ useDynamicTitle }))
+vi.mock('@/utils/dynamicTitle', () => ({ applyDynamicTitle }))
 vi.mock('@/utils/theme', () => ({ handleThemeStyle }))
 vi.mock('@/plugins/cache', () => ({ default: cacheMock }))
 
@@ -80,7 +80,7 @@ describe('store/modules/settings', () => {
     localStorage.clear()
     holder.darkRef.value = false
     toggleDark.mockClear()
-    useDynamicTitle.mockClear()
+    applyDynamicTitle.mockClear()
     handleThemeStyle.mockClear()
     cacheMock.local.set.mockClear()
     cacheMock.local.setJSON.mockClear()
@@ -184,7 +184,9 @@ describe('store/modules/settings', () => {
     const store = await loadSettingsStore()
     store.setTitle('Hello')
     expect(store.title).toBe('Hello')
-    expect(useDynamicTitle).toHaveBeenCalledTimes(1)
+    expect(applyDynamicTitle).toHaveBeenCalledTimes(1)
+    // b124：值由 store 传入（util 不再反向 import store）——传什么必须可断言
+    expect(applyDynamicTitle).toHaveBeenCalledWith({ dynamicTitle: store.dynamicTitle, title: 'Hello' })
   })
 
   it('toggleTheme flips dark mode and reapplies theme style on nextTick', async () => {

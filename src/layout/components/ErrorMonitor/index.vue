@@ -51,6 +51,22 @@
               {{ t('error.monitor.source', { source: t(`error.monitor.sources.${item.source}`) }) }} ·
               {{ formatTime(item.time) }}
             </span>
+            <!-- b124：后端 trace_id / X-Request-Id —— 报障时用户可直接复制给运维定位请求 -->
+            <span v-if="item.traceId" class="error-monitor-trace" :data-trace-id="item.traceId">
+              {{ t('error.monitor.traceLabel') }}:
+              <code class="error-monitor-trace-id">{{ item.traceId }}</code>
+              <el-button
+                link
+                type="primary"
+                size="small"
+                class="error-monitor-copy"
+                :aria-label="t('error.monitor.copyTraceAria', { id: item.traceId })"
+                v-copyText="item.traceId"
+                v-copyText:callback="onTraceCopied"
+              >
+                {{ t('common.copy') }}
+              </el-button>
+            </span>
           </div>
         </div>
       </div>
@@ -91,6 +107,12 @@ onUnmounted(() => {
 
 function clear(): void {
   errorHub.clear()
+}
+
+/** b124：复制结局必须按真实结果提示（copyText 返回 false 时不得报"复制成功"） */
+function onTraceCopied(ok: boolean): void {
+  if (ok) ElMessage.success(t('common.copySuccess'))
+  else ElMessage.error(t('common.copyFail'))
 }
 
 /** UX-3：直达前端异常明细页（列表/筛选/设备分桶在该页） */
@@ -227,5 +249,23 @@ function formatTime(ts: number): string {
 .error-monitor-time {
   font-size: 11px;
   color: var(--el-text-color-secondary);
+}
+
+.error-monitor-trace {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.error-monitor-trace-id {
+  font-family: var(--el-font-family-mono, monospace);
+  overflow-wrap: anywhere;
+}
+
+.error-monitor-copy {
+  font-size: 11px;
 }
 </style>

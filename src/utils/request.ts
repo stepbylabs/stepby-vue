@@ -11,11 +11,12 @@ import errorCode from '@/utils/errorCode'
 import { transParams, blobValidate } from '@/utils/stepby'
 import cache from '@/plugins/cache'
 import { saveBlob } from '@/utils/saveBlob'
-import useUserStore from '@/store/modules/user'
 import { goLogin } from '@/utils/navigation'
 import { startProgress, doneProgress } from '@/utils/progress'
 import { errorHub } from '@/utils/errorHub'
 import { markRequestLayerError } from '@/utils/requestError'
+import { getReloginHandler } from '@/utils/reloginHandler'
+import { attachTraceId, normalizeTraceId, pickTraceId } from '@/utils/traceId'
 
 const t = i18n.global.t
 
@@ -75,7 +76,9 @@ export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now())
  * 解析不出来（HTML 错误页 / 非 JSON / 空体）一律返回 `undefined`——"取不到"不得读成
  * "有一个空消息"，否则通用文案会被一条空串顶掉。
  */
-export async function readBlobErrorBody(data: unknown): Promise<{ code?: number; msg?: string } | undefined> {
+export async function readBlobErrorBody(
+  data: unknown
+): Promise<{ code?: number; msg?: string; trace_id?: string } | undefined> {
   const isBlob = typeof Blob !== 'undefined' && data instanceof Blob
   // 跨 realm 的 ArrayBuffer（jsdom 里 TextEncoder 的产物）用 instanceof 判不出来：
   // 实测 `new TextEncoder().encode('x').buffer instanceof ArrayBuffer === false`。
@@ -85,11 +88,15 @@ export async function readBlobErrorBody(data: unknown): Promise<{ code?: number;
   if (!isBlob && !isArrayBuffer) return undefined
   try {
     const text = isBlob ? await (data as Blob).text() : new TextDecoder().decode(data as ArrayBuffer)
-    const parsed = JSON.parse(text) as { code?: unknown; msg?: unknown }
-    const out: { code?: number; msg?: string } = {}
+    const parsed = JSON.parse(text) as { code?: unknown; msg?: unknown; trace_id?: unknown }
+    const out: { code?: number; msg?: string; trace_id?: string } = {}
     if (typeof parsed.code === 'number') out.code = parsed.code
     if (typeof parsed.msg === 'string' && parsed.msg.trim() !== '') out.msg = parsed.msg
-    return out.code === undefined && out.msg === undefined ? undefined : out
+    // b124：blob 错误体同样带 trace_id（与 JSON 通道同源），不取的话导出族的报障
+    // 就只能靠用户手抄屏幕上的通用文案——那正是这一族"写了没人接"的原始缺口。
+    const traceId = normalizeTraceId(parsed.trace_id)
+    if (traceId) out.trace_id = traceId
+    return out.code === undefined && out.msg === undefined && out.trace_id === undefined ? undefined : out
   } catch {
     return undefined
   }
@@ -115,8 +122,14 @@ function triggerReloginDialog(): Promise<void> {
     type: 'warning'
   })
     .then(() => {
-      return useUserStore()
-        .logOut()
+      // b124：登出动作由 user store 注册（见 utils/reloginHandler 的循环依赖说明）。
+      // 未注册时直接去登录页——与 logOut 失败时的既有结局一致。
+      const logout = getReloginHandler()
+      if (!logout) {
+        goLogin()
+        return
+      }
+      return Promise.resolve(logout())
         .then(() => {
           // P1 修复: logOut 后应跳 /login 而非 /index，避免二次重定向
           goLogin()
@@ -314,6 +327,9 @@ service.interceptors.response.use(
     const code = data.code || 200
     // 获取错误信息
     const msg = errorCode[code] || data.msg || errorCode['default']
+    // b124：后端在每个失败响应体里带 `trace_id`、响应头里带 `X-Request-Id`（同值）。
+    // 改造前全前端没有任何读取点 ⇒ 用户报障时运维无法定位是哪一条请求（"写了没接线"）。
+    const traceId = pickTraceId(data, res.headers)
     // 二进制数据则直接返回
     if (res.request.responseType === 'blob' || res.request.responseType === 'arraybuffer') {
       // P2/N5：导出截断标记侧道传递（拦截器丢弃了 headers，挂到 Blob 上供 download() 消费）
@@ -340,40 +356,40 @@ service.interceptors.response.use(
         // 队列等待：挂起当前请求，等对话框决策后统一 reject
         // H5: 使用 then 第二参数处理 reject，避免冗余的链式 .catch(e => Promise.reject(e))
         return enqueue401Request().then(
-          () => Promise.reject(new Error(t('common.reloginCanceled'))),
+          () => Promise.reject(attachTraceId(new Error(t('common.reloginCanceled')), traceId)),
           (e) => Promise.reject(e)
         )
       }
       // P1 修复: Promise.reject 用 Error 而非字符串，与同文件其他分支一致
-      return Promise.reject(sessionExpiredError(t('common.sessionExpired')))
+      return Promise.reject(attachTraceId(sessionExpiredError(t('common.sessionExpired')), traceId))
     } else if (code === 400) {
       // API-005：请求参数错误，使用 warning 提示用户检查输入
-      errorHub.report('warning', 'api', msg)
-      return Promise.reject(new Error(msg))
+      errorHub.report('warning', 'api', msg, traceId)
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else if (code === 403) {
       // API-006：权限不足，使用 warning 提示
-      errorHub.report('warning', 'api', msg)
-      return Promise.reject(new Error(msg))
+      errorHub.report('warning', 'api', msg, traceId)
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else if (code === 500) {
-      errorHub.report('error', 'api', msg)
-      return Promise.reject(new Error(msg))
+      errorHub.report('error', 'api', msg, traceId)
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else if (code === 503) {
       // API-007：服务不可用（如 Redis 故障 fail-closed），使用 error 提示稍后重试
-      errorHub.report('error', 'api', msg)
-      return Promise.reject(new Error(msg))
+      errorHub.report('error', 'api', msg, traceId)
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else if (code === 601) {
-      errorHub.report('warning', 'api', msg)
-      return Promise.reject(new Error(msg))
+      errorHub.report('warning', 'api', msg, traceId)
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else if (code === 1003) {
       // P0-4：TOTP 多因子登录（需要验证码 / 验证码错误 / 尝试过多）
       // 不弹通用错误提示，reject 携带业务码的 Error 供 login.vue 进入/停留在 TOTP 输入步骤
       const err = new Error(msg) as Error & { code?: number }
       err.code = 1003
-      return Promise.reject(err)
+      return Promise.reject(attachTraceId(err, traceId))
     } else if (code !== 200) {
-      errorHub.report('error', 'api', msg)
+      errorHub.report('error', 'api', msg, traceId)
       // P1 修复: Promise.reject 用 Error 而非字符串
-      return Promise.reject(new Error(msg))
+      return Promise.reject(attachTraceId(new Error(msg), traceId))
     } else {
       return Promise.resolve(res.data)
     }
@@ -395,25 +411,31 @@ service.interceptors.response.use(
     const blobBody = await readBlobErrorBody(responseError?.response?.data)
     if (blobBody?.msg !== undefined) backendMsg = blobBody.msg
     if (blobBody?.code !== undefined) backendCode = blobBody.code
+    // b124：错误响应的追踪号有三个来源，优先级 = 已解析的 JSON 体（含 blob 形态）> 原始响应体 > 响应头。
+    // 头是后端 `AppError` 统一兜底发的，即使错误体不是 JSON（网关 HTML 页）也可能拿得到。
+    const traceId = pickTraceId(blobBody ?? responseError?.response?.data, responseError?.response?.headers)
+    const traceSuffix = traceId ? t('error.monitor.traceSuffix', { id: traceId }) : ''
     if (httpStatus === 401) {
       // 登录页/锁屏页的 401 是认证失败（用户名/密码错误），显示具体错误信息而非"重新登录"对话框
       const path = window.location.pathname
       if (path === '/login') {
-        ElMessage({ message: backendMsg || t('common.usernameOrPasswordError'), type: 'error', duration: 5 * 1000 })
+        const loginMsg = backendMsg || t('common.usernameOrPasswordError')
+        ElMessage({ message: loginMsg + traceSuffix, type: 'error', duration: 5 * 1000 })
         // P0 修复：reject 带 backendMsg 的 Error，而非原始 axios error
         // 否则 lock.vue 的 err.message 会取到 "Request failed with status code 401"
-        return Promise.reject(new Error(backendMsg || t('common.usernameOrPasswordError')))
+        return Promise.reject(attachTraceId(new Error(loginMsg), traceId))
       }
       // 锁屏页 401：区分"密码错误"和"token 过期"
       // token 过期时解锁接口返回 401 但 backendMsg 不是"密码错误"，需引导用户重新登录
       if (path === '/lock') {
         if (!getToken()) {
           // token 已失效，解锁接口无法鉴权，引导重新登录
-          ElMessage({ message: t('common.loginExpired'), type: 'warning', duration: 5 * 1000 })
-          return Promise.reject(new Error(t('common.loginExpired')))
+          ElMessage({ message: t('common.loginExpired') + traceSuffix, type: 'warning', duration: 5 * 1000 })
+          return Promise.reject(attachTraceId(new Error(t('common.loginExpired')), traceId))
         }
-        ElMessage({ message: backendMsg || t('common.passwordError'), type: 'error', duration: 5 * 1000 })
-        return Promise.reject(new Error(backendMsg || t('common.passwordError')))
+        const pwdMsg = backendMsg || t('common.passwordError')
+        ElMessage({ message: pwdMsg + traceSuffix, type: 'error', duration: 5 * 1000 })
+        return Promise.reject(attachTraceId(new Error(pwdMsg), traceId))
       }
       // 其他页面的 401 是 token 过期，弹出"重新登录"对话框
       // U19 优化：首个 401 触发对话框，后续并发 401 进入队列等待统一处理
@@ -430,12 +452,12 @@ service.interceptors.response.use(
         // 队列等待：挂起当前请求，等对话框决策后统一 reject
         // H5: 使用 then 第二参数处理 reject，避免冗余的链式 .catch(e => Promise.reject(e))
         return enqueue401Request().then(
-          () => Promise.reject(new Error(t('common.reloginCanceled'))),
+          () => Promise.reject(attachTraceId(new Error(t('common.reloginCanceled')), traceId)),
           (e) => Promise.reject(e)
         )
       }
       // P1 修复: Promise.reject 用 Error 而非字符串
-      return Promise.reject(sessionExpiredError(t('common.sessionExpired')))
+      return Promise.reject(attachTraceId(sessionExpiredError(t('common.sessionExpired')), traceId))
     }
     // P2-33：`restful` 档下业务失败走真实 HTTP 状态码 ⇒ 错误拦截器也必须识别 body.code。
     // 尤其是 1003（TOTP 多因子：需验证码 / 验证码错误 / 尝试过多）——login.vue 依赖该业务码
@@ -443,23 +465,23 @@ service.interceptors.response.use(
     if (backendCode === 1003) {
       const err = new Error(backendMsg || t('common.systemTip')) as Error & { code?: number }
       err.code = 1003
-      return Promise.reject(err)
+      return Promise.reject(attachTraceId(err, traceId))
     }
     // API-005~007：HTTP 层错误码差异化提示
     if (httpStatus === 400) {
       // 显示后端返回的具体错误信息（如"验证码错误"），而非固定的"请求参数错误"
-      errorHub.report('warning', 'api', backendMsg || t('common.requestParamError'))
-      return Promise.reject(error)
+      errorHub.report('warning', 'api', backendMsg || t('common.requestParamError'), traceId)
+      return Promise.reject(attachTraceId(error, traceId))
     }
     if (httpStatus === 403) {
-      errorHub.report('warning', 'api', backendMsg || t('common.noPermission'))
-      return Promise.reject(error)
+      errorHub.report('warning', 'api', backendMsg || t('common.noPermission'), traceId)
+      return Promise.reject(attachTraceId(error, traceId))
     }
     if (httpStatus === 404) {
       // 端点不存在 / 能力位关闭（如 WebAuthn 关闭态端点表现"不存在"）：
       // 优先展示后端 msg（后端已做不泄漏存在性的统一文案），缺失时回落通用提示
-      errorHub.report('warning', 'api', backendMsg || t('common.requestError', { code: '404' }))
-      return Promise.reject(error)
+      errorHub.report('warning', 'api', backendMsg || t('common.requestError', { code: '404' }), traceId)
+      return Promise.reject(attachTraceId(error, traceId))
     }
     if (httpStatus === 429) {
       // 登录频率限制（IP/用户失败次数超限）/ TOTP 与密码锁定，显示具体提示。
@@ -471,12 +493,12 @@ service.interceptors.response.use(
       if (retryAfterSeconds !== undefined) {
         ;(error as AxiosError & { retryAfterSeconds?: number }).retryAfterSeconds = retryAfterSeconds
       }
-      errorHub.report('warning', 'api', backendMsg || t('common.tooManyRequests'))
-      return Promise.reject(error)
+      errorHub.report('warning', 'api', backendMsg || t('common.tooManyRequests'), traceId)
+      return Promise.reject(attachTraceId(error, traceId))
     }
     if (httpStatus === 503) {
-      errorHub.report('error', 'api', backendMsg || t('common.serviceUnavailable'))
-      return Promise.reject(error)
+      errorHub.report('error', 'api', backendMsg || t('common.serviceUnavailable'), traceId)
+      return Promise.reject(attachTraceId(error, traceId))
     }
     let { message } = error
     if (message == 'Network Error') {
@@ -494,7 +516,7 @@ service.interceptors.response.use(
     if (canRetry && error.config) {
       // 可重试的网络错误保留单条交互提示（含重试按钮），其余并入聚合弹窗
       ElMessage({
-        message: t('common.retryHint', { message }),
+        message: t('common.retryHint', { message: message + traceSuffix }),
         type: 'error',
         duration: 8000,
         onClick: () => {
@@ -504,9 +526,9 @@ service.interceptors.response.use(
       })
     } else {
       // 统一走聚合弹窗，避免同页面并发失败时弹出"一大串"提示
-      errorHub.report('error', 'api', message)
+      errorHub.report('error', 'api', message, traceId)
     }
-    return Promise.reject(error)
+    return Promise.reject(attachTraceId(error, traceId))
   }
 )
 
@@ -565,7 +587,8 @@ export function download(url: string, params: Record<string, unknown>, filename:
           const resText = await data.text()
           const rspObj = JSON.parse(resText)
           const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
-          errorHub.report('error', 'download', errMsg)
+          // b124：下载通道 HTTP 200 + JSON 错误体同样带 trace_id（导出族 blob 侧道）
+          errorHub.report('error', 'download', errMsg, normalizeTraceId(rspObj.trace_id))
         } catch (e) {
           if (import.meta.env.DEV) console.error('[download] Failed to parse error response:', e)
           errorHub.report('error', 'download', t('common.downloadError'))
@@ -575,7 +598,8 @@ export function download(url: string, params: Record<string, unknown>, filename:
     })
     .catch((r: unknown) => {
       if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
-      errorHub.report('error', 'download', t('common.downloadError'))
+      // 拦截器已在错误对象上挂过 traceId（b124）；这里补一刀让下载失败也能被运维定位
+      errorHub.report('error', 'download', t('common.downloadError'), (r as { traceId?: string })?.traceId)
       loadingInstance.close()
     })
 }
