@@ -68,6 +68,7 @@
  *  145. 手写列表页竞态守卫（page.route 构造先发后到）+ 删空回退（11 条夹具下删末页最后一条 → 回到第 1 页）
  *  149. 下载失败的后端理由与追踪号（plugins/download 裸 axios 通道：具体理由 + 追踪号 + 不重复提示 + 对照组仍可下载）
  *  150. 清空本地记录的失败必须可见（存储写失败 ⇒ 错误提示 + 列表不清空 + 桩还原 + 对照组真清空）
+ *  151. 多选表格在纯渲染交互后选中态不得丢失（在线会话批量强退：勾选→切搜索面板→仍选中→取消→按钮变灰）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -19922,6 +19923,111 @@ async function testFeature150(page) {
   }
 }
 
+/**
+ * 功能 151（b127）：多选表格在纯渲染交互后选中态不得丢失。
+ *
+ * 立项与证伪链（两条都要留档，否则下一个人会照着已被证伪的方案再改一遍）：
+ * ① 初始假设是"缺 row-key ⇒ 选中态丢失"，据此给两页加了 `:row-key`。
+ *    **EP 源码证伪**：`element-plus/es/components/table/src/store/index.mjs` 的 `setData` 依次判
+ *    `reserveSelection`（无则 assertRowKey）→ `if (reserveSelection) … else if (dataInstanceChanged)
+ *    clearSelection(); else cleanSelection()`——row-key 不参与 `dataInstanceChanged` 分支，
+ *    数据换了实例就是无条件清空。真机判据也证伪：只加 row-key 后本功能读 `checkedRows=0`。
+ * ② 真正的窄面缺陷是 `:data` 里的内联表达式：`onlineList.slice(...)` 每次重渲染都产出新数组
+ *    ⇒ 父组件任何一次重渲染（切搜索面板、loading 翻转、取数完成）都让表格换数据实例 ⇒ 选中态被清空。
+ *    全仓扫描仅此 1 处（其余列表页 `:data` 都是稳定引用）。修复是把切页结果做成 computed，
+ *    依赖不变时返回同一引用 ⇒ 走 `cleanSelection()` 保留仍在本页的行。
+ *
+ * 判据（真实页面 + 真实交互，不 mock 组件；刻意不用"刷新"作触发——
+ * 刷新会合法地换掉行对象，无法区分"被清空"与"行确实没了"）：
+ * ① 页面可达（/monitor/online）；
+ * ② 前置：在线会话至少 1 行（本套件自己的登录会话即是保证，不依赖外部夹具）；
+ * ③ 勾选首行 ⇒ 批量强退按钮可用；
+ * ④ 点右侧工具栏的「显示/隐藏搜索」切换筛选面板（纯 `v-show`，不发任何请求）：
+ *    **切换确实落地**（面板可见性翻转）且选中态仍在（恰 1 行勾选 + 按钮仍可用）；
+ * ⑤ 对照组：取消勾选 ⇒ 按钮必须变灰（证明"可用"反映的是选中态，不是按钮恒可用）。
+ * 变回内联 `onlineList.slice(...)` 时 ④ 必红而 ⑤ 仍绿——两条腿互不顶班（实测凭证见台账 b127 §3）。
+ */
+async function testFeature151(page) {
+  log('=== 功能 151：多选表格纯渲染交互后选中态不得丢失（b127） ===')
+  const ok = await openPage(page, '/monitor/online', 'online')
+  record(151, '① 页面可达（/monitor/online）', ok)
+  if (!ok) return
+  await skipTour(page)
+
+  // :visible 排除同一页「我的会话」tab 里的另一张表（两个 tab-pane 都在 DOM 里）
+  const table = page.locator('.app-main .el-table:visible').first()
+  await table.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  const rows = table.locator('.el-table__body-wrapper tbody tr')
+  const batchBtn = page.getByRole('button', { name: /批量强退/ }).first()
+
+  let rowCount = 0
+  for (let i = 0; i < 40 && rowCount === 0; i++) {
+    rowCount = await rows.count().catch(() => 0)
+    if (rowCount === 0) await sleep(150)
+  }
+  record(151, '② 前置：在线会话至少 1 行', rowCount > 0, `rows=${rowCount}`)
+  if (rowCount === 0) return
+
+  const firstCheckbox = rows.first().locator('.el-checkbox').first()
+  await firstCheckbox.click({ timeout: 5000 }).catch(() => {})
+  const enabledAfterSelect = await batchBtn.isEnabled().catch(() => false)
+  record(151, '③ 勾选首行后批量按钮可用', enabledAfterSelect, `enabled=${enabledAfterSelect}`)
+  if (!enabledAfterSelect) return
+
+  // 纯渲染触发：右侧工具栏切换搜索面板（只改 v-show，不发任何列表请求）。
+  // 交互必须自证落地：以「搜索」按钮的可见性翻转作为"这次点击真的生效"的运行时事实，
+  // 否则"点击被遮罩吞掉"与"选中态被保留"会同时让这一条判绿。
+  const searchToggle = page
+    .locator('.top-right-btn')
+    .getByRole('button', { name: /^(显示搜索|隐藏搜索)$/ })
+    .first()
+  const searchSubmit = page
+    .locator('.app-main')
+    .getByRole('button', { name: /^搜索$/ })
+    .first()
+  const formVisibleBefore = await searchSubmit.isVisible().catch(() => null)
+  await searchToggle.click({ timeout: 5000 }).catch(() => {})
+  let toggled = false
+  for (let i = 0; i < 30; i++) {
+    const vis = await searchSubmit.isVisible().catch(() => formVisibleBefore)
+    if (vis !== formVisibleBefore) {
+      toggled = true
+      break
+    }
+    await sleep(100)
+  }
+  let checkedRows = -1
+  let enabledAfterToggle = false
+  for (let i = 0; i < 30; i++) {
+    checkedRows = await rows
+      .locator('.el-checkbox.is-checked')
+      .count()
+      .catch(() => -1)
+    enabledAfterToggle = await batchBtn.isEnabled().catch(() => false)
+    if (checkedRows === 1 && enabledAfterToggle) break
+    await sleep(100)
+  }
+  record(
+    151,
+    '④ 切搜索面板（纯渲染）后选中态仍在',
+    toggled && checkedRows === 1 && enabledAfterToggle,
+    `toggled=${toggled}, wasVisible=${formVisibleBefore}, checkedRows=${checkedRows}, enabled=${enabledAfterToggle}`
+  )
+
+  // ⑤ 对照组：取消勾选 ⇒ 按钮必须变灰（证明"可用"反映的是选中态，而不是按钮恒可用）
+  const checkedBox = rows.locator('.el-checkbox.is-checked').first()
+  await checkedBox.click({ timeout: 5000 }).catch(() => {})
+  // 读不到状态时不得当成"仍可用"或"已变灰"：保持上一拍的观测继续轮询，轮询走完仍未知 ⇒ 判红
+  let enabledAfterUncheck = true
+  for (let i = 0; i < 20 && enabledAfterUncheck; i++) {
+    await sleep(100)
+    const state = await batchBtn.isEnabled().catch(() => null)
+    if (state === null) continue
+    enabledAfterUncheck = state
+  }
+  record(151, '⑤ 对照组：取消勾选后批量按钮变灰', !enabledAfterUncheck, `enabled=${enabledAfterUncheck}`)
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -20211,7 +20317,8 @@ async function main() {
       { id: 147, fn: testFeature147 },
       { id: 148, fn: testFeature148 },
       { id: 149, fn: testFeature149 },
-      { id: 150, fn: testFeature150 }
+      { id: 150, fn: testFeature150 },
+      { id: 151, fn: testFeature151 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

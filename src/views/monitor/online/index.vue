@@ -63,12 +63,7 @@
           </el-col>
           <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
         </el-row>
-        <el-table
-          v-loading="loading"
-          :data="onlineList.slice((pageNum - 1) * pageSize, pageNum * pageSize)"
-          class="w-full"
-          @selection-change="handleSelectionChange"
-        >
+        <el-table v-loading="loading" :data="pagedOnlineList" class="w-full" @selection-change="handleSelectionChange">
           <el-table-column type="selection" width="55" align="center" />
           <el-table-column :label="t('common.column.sort')" width="50" type="index" align="center">
             <template #default="scope">
@@ -257,6 +252,15 @@ const {
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
+
+// 切页数组必须是同一个引用：EP 的 `setData` 在 `dataInstanceChanged` 时无条件 `clearSelection()`
+// （store/index.mjs，row-key 不参与该分支），而内联 `onlineList.slice(...)` 每次重渲染都产出新数组
+// ⇒ 勾选后只要父组件重渲染一次（切搜索面板、loading 翻转、自动刷新触发的取数），选中态会被静默清空、
+// 批量按钮变灰。computed 在三个依赖不变时返回同一引用，watcher 不触发 ⇒ 走 `cleanSelection()`
+// 按行对象引用保留仍在本页的行。
+const pagedOnlineList = computed(() =>
+  onlineList.value.slice((pageNum.value - 1) * pageSize.value, pageNum.value * pageSize.value)
+)
 
 // 强退/批量强退/自动刷新都会让全量列表变短：把本地切片页码收敛到仍存在的最大页。
 // 本页分页由前端 slice 完成（useCrudTable 的 queryParams.pageNum 不参与），

@@ -41,7 +41,9 @@ export function updateScimGroup(
   })
 }
 
-// 删除组（软删 + 撤销仅 scim 来源授权）
+// 删除组（软删 + 撤销仅 scim 来源授权）。
+// 逗号分隔多 id = 批量：服务端在**一个事务内**先全量校验再统一拆除，
+// 任一 id 不存在/越权 ⇒ 整批拒绝且零删除，并在文案里点名缺失的 id。
 export function delScimGroup(id: number | string): Promise<AjaxResult> {
   return request({
     url: '/system/scimGroup/' + id,
