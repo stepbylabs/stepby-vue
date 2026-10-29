@@ -8,7 +8,12 @@
  *    而且构建器换句措辞就全线失效）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { FATAL_BUNDLE_WARNING_CODES, createBuildWarningHandler, fatalBundleWarningReason } from '@/utils/buildWarnings'
+import {
+  BUILDER_ENFORCED_BUNDLE_CODES,
+  FATAL_BUNDLE_WARNING_CODES,
+  createBuildWarningHandler,
+  fatalBundleWarningReason
+} from '@/utils/buildWarnings'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -17,12 +22,31 @@ afterEach(() => {
 describe('FATAL_BUNDLE_WARNING_CODES 自洽', () => {
   it('每个 code 都有可执行的"为什么"，且非空、不互相复制', () => {
     const entries = Object.entries(FATAL_BUNDLE_WARNING_CODES)
-    expect(entries.length).toBeGreaterThanOrEqual(5)
     for (const [code, reason] of entries) {
       expect(code, 'code 必须是大写蛇形（构建器原样给出）').toMatch(/^[A-Z][A-Z0-9_]+$/)
       expect(reason.trim().length, `${code} 的理由不得为空`).toBeGreaterThan(10)
     }
     expect(new Set(entries.map(([, r]) => r)).size, '理由不得逐条复制').toBe(entries.length)
+  })
+
+  it('在册的必须是**经 onwarn 到达**的族（b125 逐个注入实测）', () => {
+    // 三族都有"改回缺陷形状 ⇒ 构建 EXIT=1"的实测；删掉任何一条等于悄悄撤掉一道闸
+    expect(Object.keys(FATAL_BUNDLE_WARNING_CODES).sort()).toEqual([
+      'CIRCULAR_DEPENDENCY',
+      'EVAL',
+      'INEFFECTIVE_DYNAMIC_IMPORT'
+    ])
+  })
+
+  it('构建器硬错误族不得混进致命表（否则制造"判据在管它"的错觉）', () => {
+    const builderEnforced = Object.keys(BUILDER_ENFORCED_BUNDLE_CODES)
+    expect(builderEnforced.length).toBeGreaterThanOrEqual(2)
+    for (const code of builderEnforced) {
+      expect(fatalBundleWarningReason({ code }), `${code} 实际不经 onwarn`).toBeUndefined()
+      expect(BUILDER_ENFORCED_BUNDLE_CODES[code].trim().length).toBeGreaterThan(10)
+    }
+    // 两表不得有交集：同一个 code 不能既"由我们抛错"又"由构建器硬错误"
+    expect(builderEnforced.some((c) => c in FATAL_BUNDLE_WARNING_CODES)).toBe(false)
   })
 })
 

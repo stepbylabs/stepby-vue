@@ -10,6 +10,22 @@
  * ——"全部警告致命"会让第三方库的无害提示把构建永久染红，结局一定是有人把闸关掉。
  * 每个入册的 code 必须写清"为什么在这棵树上一定会出问题"，不许只写"重要"。
  *
+ * ## b125 实测：每个 code 的"能不能响"逐个量过
+ *
+ * 光登记不够——一个**永远收不到**的 code 在代码里与一条真闸逐字节同形（AGENTS ⑯(c)）。
+ * 本轮按"改回缺陷形状"逐个注入，结论：
+ *
+ * | code | 实测 |
+ * |---|---|
+ * | `EVAL` | 注入直接 `eval` ⇒ `[build-warning] EVAL …`，构建 EXIT=1（闸真的响） |
+ * | `CIRCULAR_DEPENDENCY` | 两个临时模块互引 ⇒ `[build-warning] CIRCULAR_DEPENDENCY …`，EXIT=1 |
+ * | `INEFFECTIVE_DYNAMIC_IMPORT` | b120 构建日志实证响过（`src/router/index.ts is dynamically imported by …/ErrorMonitor/index.vue`，四条日志各一条）；b124 + b125 共五种注入形状（入口模块、跨模块、懒加载组件内）**均未再复现** ⇒ 当前依赖图下收不到，日常防线是 b123 的形状锁（禁生产码 `import('@/router')`），本条目保留是因为它在同一棵树、同一构建器版本上确曾触发 |
+ * | `MISSING_EXPORT` | 注入一个不存在的具名导入 ⇒ rolldown **硬错误** `Build failed with 1 error: [MISSING_EXPORT] …`，**不经 onwarn** |
+ * | `UNRESOLVED_IMPORT` | 注入不存在的导入路径 ⇒ 构建器实际抛的是 `[UNLOADABLE_DEPENDENCY] …`（硬错误，名字也不同），**不经 onwarn** |
+ *
+ * 后两族由构建器自己阻断（比"抛错升级"更早更硬），继续留在 `FATAL_BUNDLE_WARNING_CODES`
+ * 会制造"我们有一条判据在管它"的错觉 ⇒ 移入 `BUILDER_ENFORCED_BUNDLE_CODES` 只作说明。
+ *
  * 刻意**不**入册的已知项：
  * - `SOURCEMAP_BROKEN`：Vite 8（rolldown）CSS 管线不产 map 的上游限制（vite.config.ts 已注明），
  *   入册等于让每次构建必红；
@@ -22,15 +38,27 @@ export interface BundleWarningLike {
   ids?: string[]
 }
 
-/** 已知坏族：code ⇒ 在这棵树上"为什么一定有问题"（逐条可证伪，不写笼统理由） */
+/** 已知坏族（**经 onwarn 到达**）：code ⇒ 在这棵树上"为什么一定有问题"（逐条可证伪，不写笼统理由） */
 export const FATAL_BUNDLE_WARNING_CODES: Record<string, string> = {
   INEFFECTIVE_DYNAMIC_IMPORT:
-    '动态 import 的目标已经被静态导入 ⇒ 懒加载 chunk 根本不存在，分包/首屏预算量到的是另一棵依赖图（b123 实证）',
+    '动态 import 的目标已经被静态导入 ⇒ 懒加载 chunk 根本不存在，分包/首屏预算量到的是另一棵依赖图（b120 构建日志实证触发；b123 形状锁为日常防线）',
   CIRCULAR_DEPENDENCY:
-    'ESM 循环依赖靠 live binding，初始化顺序一变就是 TDZ「Cannot access before initialization」运行时白屏',
-  MISSING_EXPORT: '被导入的名字在目标模块里不存在 ⇒ 打包不报错、运行时拿到 undefined 才崩',
-  UNRESOLVED_IMPORT: '导入路径解析不到，产物里留下一个跑起来才 404 的请求',
-  EVAL: "本站 CSP 是 script-src 'self'，eval/new Function 在生产环境必然被浏览器拒绝（dev 能跑、上线必挂）"
+    'ESM 循环依赖靠 live binding，初始化顺序一变就是 TDZ「Cannot access before initialization」运行时白屏（b125 注入互引实测转红）',
+  EVAL: "本站 CSP 是 script-src 'self'，eval/new Function 在生产环境必然被浏览器拒绝（dev 能跑、上线必挂）（b125 注入直接 eval 实测转红）"
+}
+
+/**
+ * 构建器**自己**以硬错误阻断、永远不会经过 onwarn 的坏族（b125 实测）。
+ *
+ * 登记它们不是闸，而是把"为什么不在 `FATAL_BUNDLE_WARNING_CODES` 里"写清楚：
+ * 把它们放进致命表，会让下一个人以为有一条判据守着（实际永远不触发）。
+ * 值里记录的是**实测到的构建器行为与它给出的 code**，构建器升级后请重新量。
+ */
+export const BUILDER_ENFORCED_BUNDLE_CODES: Record<string, string> = {
+  MISSING_EXPORT:
+    '注入不存在的具名导入 ⇒ rolldown 1.2.15 直接 `Build failed with 1 error: [MISSING_EXPORT] …`（EXIT=1，不经 onwarn）',
+  UNRESOLVED_IMPORT:
+    '注入不存在的导入路径 ⇒ 实际错误码是 `UNLOADABLE_DEPENDENCY`（硬错误、EXIT=1），`UNRESOLVED_IMPORT` 这个 code 在当前构建器上不会被产出'
 }
 
 // 参数取宽类型：Vite/rolldown 的 `OnwarnFunction` 传的是 `RolldownLog | (() => RolldownLog)`

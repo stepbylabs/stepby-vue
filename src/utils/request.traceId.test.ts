@@ -81,16 +81,29 @@ describe('① 成功拦截器：HTTP 200 + body.code 失败', () => {
       statusText: 'OK',
       headers: {},
       request: {},
-      // 500 走 errorCode 映射的通用文案（既有口径）；本判据只关心 traceId 是否贯通
-      data: { code: 500, msg: 'ignored', trace_id: TRACE }
+      // b125：后端 msg 优先（它比按码写的通用文案具体）；本判据同时钉住 traceId 贯通
+      data: { code: 500, msg: '后端内部错误', trace_id: TRACE }
     } as unknown as AxiosResponse)
-    const expected = i18n.global.t('errorCode.500')
 
     expect(e).toBeInstanceOf(Error)
-    expect(e?.message).toBe(expected)
+    expect(e?.message).toBe('后端内部错误')
     expect(e?.traceId).toBe(TRACE)
-    expect(errorHub.issues[0]?.message).toBe(expected)
+    expect(errorHub.issues[0]?.message).toBe('后端内部错误')
     expect(errorHub.issues[0]?.traceId).toBe(TRACE)
+  })
+
+  it('没有后端 msg 时回落按码映射的通用文案（映射是兜底而非首选）', async () => {
+    const e = await run({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      request: {},
+      data: { code: 500, trace_id: TRACE }
+    } as unknown as AxiosResponse)
+
+    const expected = i18n.global.t('errorCode.500')
+    expect(e?.message).toBe(expected)
+    expect(errorHub.issues[0]?.message).toBe(expected)
   })
 
   it('反证：body 没有 trace_id 时两处都不得凭空出现 ID', async () => {

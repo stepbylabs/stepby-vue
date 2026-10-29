@@ -7,16 +7,22 @@ import axios, {
 import { ElMessageBox, ElMessage, ElLoading } from 'element-plus'
 import i18n, { getLanguage } from '@/i18n'
 import { getToken } from '@/utils/auth'
-import errorCode from '@/utils/errorCode'
 import { transParams, blobValidate } from '@/utils/stepby'
 import cache from '@/plugins/cache'
 import { saveBlob } from '@/utils/saveBlob'
 import { goLogin } from '@/utils/navigation'
 import { startProgress, doneProgress } from '@/utils/progress'
 import { errorHub } from '@/utils/errorHub'
-import { markRequestLayerError } from '@/utils/requestError'
+import { isRequestLayerError, markRequestLayerError } from '@/utils/requestError'
 import { getReloginHandler } from '@/utils/reloginHandler'
 import { attachTraceId, normalizeTraceId, pickTraceId } from '@/utils/traceId'
+import { readBlobErrorBody, type BlobErrorBody } from '@/utils/blobError'
+import { resolveApiErrorMessage } from '@/utils/apiError'
+
+// b125：实现移到 utils/blobError（plugins/download 也要用），这里原样 re-export
+// 保留既有导入点（request.blobError.test.ts / request.traceId.test.ts）。
+export { readBlobErrorBody }
+export type { BlobErrorBody }
 
 const t = i18n.global.t
 
@@ -67,7 +73,7 @@ export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now())
 }
 
 /**
- * 读取 `responseType: 'blob'` 请求的**错误体**。
+ * 读取 `responseType: 'blob'` 请求的**错误体**（实现见 `utils/blobError`，本文件 re-export）。
  *
  * 导出族（xlsx / CSV / 备份）都走 blob，axios 对 HTTP≥400 的 JSON 错误体同样按 blob
  * 返回 ⇒ 错误拦截器里 `response.data.msg` 恒 `undefined`，用户看到的是"请求过于频繁"
@@ -76,31 +82,6 @@ export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now())
  * 解析不出来（HTML 错误页 / 非 JSON / 空体）一律返回 `undefined`——"取不到"不得读成
  * "有一个空消息"，否则通用文案会被一条空串顶掉。
  */
-export async function readBlobErrorBody(
-  data: unknown
-): Promise<{ code?: number; msg?: string; trace_id?: string } | undefined> {
-  const isBlob = typeof Blob !== 'undefined' && data instanceof Blob
-  // 跨 realm 的 ArrayBuffer（jsdom 里 TextEncoder 的产物）用 instanceof 判不出来：
-  // 实测 `new TextEncoder().encode('x').buffer instanceof ArrayBuffer === false`。
-  // 按内部标签判定，避免"只支持 arraybuffer"这条支路在多环境下静默失效。
-  const isArrayBuffer =
-    typeof data === 'object' && data !== null && Object.prototype.toString.call(data) === '[object ArrayBuffer]'
-  if (!isBlob && !isArrayBuffer) return undefined
-  try {
-    const text = isBlob ? await (data as Blob).text() : new TextDecoder().decode(data as ArrayBuffer)
-    const parsed = JSON.parse(text) as { code?: unknown; msg?: unknown; trace_id?: unknown }
-    const out: { code?: number; msg?: string; trace_id?: string } = {}
-    if (typeof parsed.code === 'number') out.code = parsed.code
-    if (typeof parsed.msg === 'string' && parsed.msg.trim() !== '') out.msg = parsed.msg
-    // b124：blob 错误体同样带 trace_id（与 JSON 通道同源），不取的话导出族的报障
-    // 就只能靠用户手抄屏幕上的通用文案——那正是这一族"写了没人接"的原始缺口。
-    const traceId = normalizeTraceId(parsed.trace_id)
-    if (traceId) out.trace_id = traceId
-    return out.code === undefined && out.msg === undefined && out.trace_id === undefined ? undefined : out
-  } catch {
-    return undefined
-  }
-}
 
 // 是否显示重新登录
 export const isRelogin = { show: false }
@@ -325,8 +306,8 @@ service.interceptors.response.use(
     // 未设置状态码则默认成功状态
     const data = res.data as { code?: number; msg?: string }
     const code = data.code || 200
-    // 获取错误信息
-    const msg = errorCode[code] || data.msg || errorCode['default']
+    // 获取错误信息（b125：单一解析出口——已映射标准码用前端文案，未映射码用后端 msg）
+    const msg = resolveApiErrorMessage(code, data.msg)
     // b124：后端在每个失败响应体里带 `trace_id`、响应头里带 `X-Request-Id`（同值）。
     // 改造前全前端没有任何读取点 ⇒ 用户报障时运维无法定位是哪一条请求（"写了没接线"）。
     const traceId = pickTraceId(data, res.headers)
@@ -585,8 +566,9 @@ export function download(url: string, params: Record<string, unknown>, filename:
         // P1 修复: JSON.parse 失败时不应抛错中断下载流程，与 cache.getJSON 同类问题
         try {
           const resText = await data.text()
-          const rspObj = JSON.parse(resText)
-          const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
+          const rspObj = JSON.parse(resText) as { code?: unknown; msg?: unknown; trace_id?: unknown }
+          // b125：与主通道同一解析出口（后端 msg 优先，映射码兜底）
+          const errMsg = resolveApiErrorMessage(rspObj.code, rspObj.msg)
           // b124：下载通道 HTTP 200 + JSON 错误体同样带 trace_id（导出族 blob 侧道）
           errorHub.report('error', 'download', errMsg, normalizeTraceId(rspObj.trace_id))
         } catch (e) {
@@ -598,8 +580,13 @@ export function download(url: string, params: Record<string, unknown>, filename:
     })
     .catch((r: unknown) => {
       if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
-      // 拦截器已在错误对象上挂过 traceId（b124）；这里补一刀让下载失败也能被运维定位
-      errorHub.report('error', 'download', t('common.downloadError'), (r as { traceId?: string })?.traceId)
+      // b125：请求层失败已由响应拦截器按 HTTP/业务码解析成可读文案并上报（source='api'，
+      // 带 traceId）。这里再报一条"下载失败"只会让同一次失败出现两条不同措辞的提示
+      // （errorHub 按 source+message 去重，跨 source 不去重）。只有**非请求层**异常
+      // （成功处理器内部的意外，如 saveBlob 抛错）才由下载通道补一条。
+      if (!isRequestLayerError(r)) {
+        errorHub.report('error', 'download', t('common.downloadError'))
+      }
       loadingInstance.close()
     })
 }

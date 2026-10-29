@@ -222,8 +222,13 @@ describe('plugins/download', () => {
 
   // -------------------------------------------------------------------------
   // 非 blob 响应：走 printErrMsg，不落盘
+  //
+  // b125：这里曾有两把锁把**缺陷**写成了期望——「errorCode 是 Proxy：任意 code 都命中
+  // 映射（未命中回落 default），故 rspObj.msg 实际不透出」。后果是后端给的具体理由
+  // （"文件已被清理"/"导出任务繁忙（export:excel）"）永远到不了用户眼前。
+  // 新契约：后端 msg 优先，映射码与 default 是兜底（与 `utils/request` 主通道同口径）。
   // -------------------------------------------------------------------------
-  it('响应为 JSON 错误体（blobValidate=false）→ 上报 errorCode 文案且不保存文件', async () => {
+  it('JSON 错误体：后端 msg 优先，不被按码写的通用文案顶掉', async () => {
     h.axiosRequest.mockResolvedValue({
       data: blobOf(JSON.stringify({ code: 500, msg: '服务器开小差' }), 'application/json'),
       headers: {}
@@ -234,14 +239,13 @@ describe('plugins/download', () => {
 
     expect(h.saveAs).not.toHaveBeenCalled()
     expect(hub.issues).toHaveLength(1)
-    expect(hub.issues[0]).toMatchObject({ level: 'error', source: 'download' })
-    // errorCode 是 Proxy：任意 code 都命中映射（未命中回落 default），故 rspObj.msg 实际不透出
-    expect(hub.issues[0].message).toBe('T:errorCode.500')
-    expect(h.t).toHaveBeenCalledWith('errorCode.500')
+    expect(hub.issues[0]).toMatchObject({ level: 'error', source: 'download', message: '服务器开小差' })
+    // 映射文案不得抢先：这正是旧 Proxy 恒返回 default 造成的缺陷形状
+    expect(h.t).not.toHaveBeenCalledWith('errorCode.500')
     expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
   })
 
-  it('未登记的错误码 → 仍上报 errorCode.default（不回退 rspObj.msg）', async () => {
+  it('未登记业务码：用后端 msg 而不是 errorCode.default', async () => {
     h.axiosRequest.mockResolvedValue({
       data: blobOf(JSON.stringify({ code: 1234, msg: '自定义业务错误' }), 'application/json'),
       headers: {}
@@ -251,8 +255,43 @@ describe('plugins/download', () => {
     await flush()
 
     expect(h.saveAs).not.toHaveBeenCalled()
+    expect(hub.issues[0].message).toBe('自定义业务错误')
+    expect(h.t).not.toHaveBeenCalledWith('errorCode.default')
+  })
+
+  it('只有错误码没有 msg：已登记码用映射文案，未登记码回落 default', async () => {
+    h.axiosRequest.mockResolvedValue({
+      data: blobOf(JSON.stringify({ code: 403 }), 'application/json'),
+      headers: {}
+    })
+    download.name('no-msg.xlsx')
+    await flush()
+    expect(hub.issues[0].message).toBe('T:errorCode.403')
+
+    hub.clear()
+    h.axiosRequest.mockResolvedValue({
+      data: blobOf(JSON.stringify({ code: 1234 }), 'application/json'),
+      headers: {}
+    })
+    download.name('no-msg-unknown.xlsx')
+    await flush()
     expect(hub.issues[0].message).toBe('T:errorCode.default')
-    expect(hub.issues[0].message).not.toBe('自定义业务错误')
+  })
+
+  it('错误体带 trace_id：作为独立字段上报，消息里不重复拼后缀', async () => {
+    h.axiosRequest.mockResolvedValue({
+      data: blobOf(
+        JSON.stringify({ code: 429, msg: '导出任务繁忙（export:excel）', trace_id: 'tid-print-1' }),
+        'application/json'
+      ),
+      headers: {}
+    })
+
+    download.name('trace.xlsx')
+    await flush()
+
+    expect(hub.issues[0].message).toBe('导出任务繁忙（export:excel）')
+    expect(hub.issues[0].traceId).toBe('tid-print-1')
   })
 
   it('错误体本身不是合法 JSON → 上报 common.downloadError', async () => {
@@ -270,7 +309,7 @@ describe('plugins/download', () => {
   // -------------------------------------------------------------------------
   // 失败链 + loading 配对
   // -------------------------------------------------------------------------
-  it('axios 拒绝 → 上报 common.downloadError、关闭 loading 且不保存', async () => {
+  it('axios 拒绝（无响应）→ 上报 common.downloadError、关闭 loading 且不保存', async () => {
     h.axiosRequest.mockRejectedValue(new Error('network down'))
 
     download.name('net.xlsx')
@@ -280,6 +319,54 @@ describe('plugins/download', () => {
     expect(hub.issues).toHaveLength(1)
     expect(hub.issues[0]).toMatchObject({ level: 'error', source: 'download', message: 'T:common.downloadError' })
     expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
+  })
+
+  it('HTTP 403 + 网关 HTML 体：用状态码映射文案，并带响应头追踪号', async () => {
+    h.axiosRequest.mockRejectedValue({
+      response: {
+        status: 403,
+        data: blobOf('<html>Forbidden</html>', 'text/html'),
+        headers: { 'x-request-id': 'req-403' }
+      }
+    })
+
+    download.name('forbidden.xlsx')
+    await flush()
+
+    expect(h.saveAs).not.toHaveBeenCalled()
+    // 旧实现这一支只有"下载失败"，用户不知道是没有权限
+    expect(hub.issues[0]).toMatchObject({ source: 'download', message: 'T:errorCode.403', traceId: 'req-403' })
+  })
+
+  it('HTTP 429 + JSON 体：后端 msg 优先、trace_id 透出（b98 导出闸口径）', async () => {
+    h.axiosRequest.mockRejectedValue({
+      response: {
+        status: 429,
+        data: blobOf(
+          JSON.stringify({ code: 429, msg: '导出任务繁忙（export:excel），请 30 秒后重试', trace_id: 'tid-429' }),
+          'application/json'
+        ),
+        headers: {}
+      }
+    })
+
+    download.name('busy.xlsx')
+    await flush()
+
+    expect(h.saveAs).not.toHaveBeenCalled()
+    expect(hub.issues[0].message).toBe('导出任务繁忙（export:excel），请 30 秒后重试')
+    expect(hub.issues[0].traceId).toBe('tid-429')
+  })
+
+  it('HTTP 400 + 未登记业务码且无 msg：回落 errorCode.default（可翻译、不空白）', async () => {
+    h.axiosRequest.mockRejectedValue({
+      response: { status: 400, data: blobOf(JSON.stringify({ code: 1234 }), 'application/json'), headers: {} }
+    })
+
+    download.name('unknown-code.xlsx')
+    await flush()
+
+    expect(hub.issues[0].message).toBe('T:errorCode.default')
   })
 
   it('两个并发下载各持自己的 loading 实例（模块级单例覆盖回归锁）', async () => {

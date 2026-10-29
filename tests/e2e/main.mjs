@@ -66,6 +66,7 @@
  *  122. cache 键管理/统计 Tab 交互（getNames/getKeys/getValue 链 + 清空取消 0 DELETE）
  *  123. profile TOTP Tab UI 真测（setup 200/QR/错误码验证失败/初态不落库）
  *  145. 手写列表页竞态守卫（page.route 构造先发后到）+ 删空回退（11 条夹具下删末页最后一条 → 回到第 1 页）
+ *  149. 下载失败的后端理由与追踪号（plugins/download 裸 axios 通道：具体理由 + 追踪号 + 不重复提示 + 对照组仍可下载）
  *
  * 运行方式：
  *   node main.mjs                  # 默认有头模式跑全部
@@ -19627,6 +19628,152 @@ async function testFeature148(page) {
   }
 }
 
+/**
+ * 功能 149（b125）：下载失败的后端理由与追踪号。
+ *
+ * `plugins/download` 是**裸 axios** 的并行下载通道（23 个调用点，不走 `utils/request`
+ * 的拦截器）。改造前三条 `.catch` 一律只报 `common.downloadError`：HTTP 403/500 与
+ * 网关 HTML 页在用户眼前是同一句话，且没有任何追踪号——b124 的 traceId 闭环只覆盖了
+ * 主通道，这条被漏在门外。b125 把它接到同一解析出口（后端 msg 优先、标准码兜底），
+ * 并把 `trace_id`/`X-Request-Id` 作为独立字段交给 errorHub 渲染后缀。
+ *
+ * 判据用**真实下载端点**的故障注入（`page.route` 返回与后端 AppError 同形的 403）：
+ * ③ 用户看到的是后端给的**具体理由**而不是通用文案；
+ * ④ 同一条追踪号出现在提示里（可抄给运维）；
+ * ⑤ 同一次失败**只有一条**提示（下载通道不再额外补一条"下载失败"）；
+ * ⑥ 失败不得卸载整页（ErrorBoundary 的地盘只在渲染错误）；
+ * ⑦ 对照组：撤掉故障后同一按钮**必须照常下载**——否则③~⑥ 可以被"按钮永远失败"满足。
+ */
+async function testFeature149(page) {
+  log('=== 功能 149：下载失败的后端理由与追踪号（b125） ===')
+  const ok = await openPage(page, '/system/file', 'file')
+  record(149, '① 页面可达（/system/file）', ok)
+  if (!ok) return
+  await dismissAllOverlays(page)
+
+  const stamp = Date.now()
+  const traceId = `b125dl-${stamp.toString(36)}`
+  const backendMsg = '文件已被清理，请联系管理员重新生成（b125 故障注入）'
+  const downloadRoute = /\/common\/download\?/
+  let routeInstalled = false
+  let uploadedName = ''
+  let fileName = ''
+
+  const listRows = async () => {
+    const token = await sessionTokenOf(page)
+    const resp = await apiWithBackoff('/system/file/list?pageNum=1&pageSize=20', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    return resp.body?.data?.rows || resp.body?.rows || []
+  }
+
+  try {
+    let rows = await listRows()
+    if (rows.length === 0) {
+      // 空库时自建一条：只经 UI 上传，记录落库后的 top 名以便 finally 精确清理
+      await page
+        .locator('.el-upload input[type="file"]')
+        .first()
+        .setInputFiles({
+          name: `e2e149-${stamp}.txt`,
+          mimeType: 'text/plain',
+          buffer: Buffer.from(`e2e149 download fixture ${stamp}\n`)
+        })
+      await page.waitForFunction(() => document.body.innerText.includes('上传成功'), { timeout: 10000 }).catch(() => {})
+      await page
+        .getByRole('button', { name: '刷新' })
+        .first()
+        .click()
+        .catch(() => {})
+      await page.waitForTimeout(800)
+      rows = await listRows()
+      uploadedName = rows[0]?.fileName || ''
+    }
+    fileName = rows[0]?.fileName || ''
+    record(149, '② 存在可下载的文件行', rows.length > 0 && !!fileName, `rows=${rows.length}, top=${fileName || '无'}`)
+    if (!fileName) return
+
+    const row = page.locator('.el-table__row').filter({ hasText: fileName }).first()
+    const downloadBtn = row.getByRole('button', { name: '下载' }).first()
+    const btnVisible = await _visible(downloadBtn, 6000)
+    record(149, '③ 行内下载按钮可定位', btnVisible)
+    if (!btnVisible) return
+    await waitToastsCleared(page)
+
+    await page.route(downloadRoute, (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        headers: { 'x-request-id': traceId },
+        body: JSON.stringify({ code: 403, msg: backendMsg, trace_id: traceId })
+      })
+    )
+    routeInstalled = true
+
+    await downloadBtn.click({ timeout: 8000 })
+    // 轮询**累积**观察到的 toast 文本与同屏条数：el-message 约 6s 自消，
+    // "等满窗口再读一次"会在文案不符时读到空数组，把"提示措辞不对"误判成"没有提示"，
+    // 也让"是否只有一条"这件事失去观测（b125 变异实测：通用文案 6s 后消失、count=0）。
+    const seenToasts = []
+    let toastCount = 0
+    const toastDeadline = Date.now() + 9000
+    while (Date.now() < toastDeadline) {
+      const snapshot = await page
+        .evaluate(() => Array.from(document.querySelectorAll('.el-message')).map((el) => el.textContent || ''))
+        .catch(() => [])
+      toastCount = Math.max(toastCount, snapshot.length)
+      for (const text of snapshot) if (text && !seenToasts.includes(text)) seenToasts.push(text)
+      if (seenToasts.some((text) => text.includes(backendMsg))) break
+      await page.waitForTimeout(250)
+    }
+    const toastText = seenToasts.join(' | ')
+    const toastAppeared = seenToasts.some((text) => text.includes(backendMsg))
+    record(
+      149,
+      '④ 失败提示带后端具体理由（不是通用「下载失败」）',
+      toastAppeared && toastText.includes(backendMsg),
+      `count=${toastCount}, toast=${toastText.slice(0, 160)}`
+    )
+    record(149, '⑤ 同一条追踪号出现在提示里（用户可抄给运维）', toastText.includes(traceId), `trace=${traceId}`)
+    record(149, '⑥ 同一次失败只出现一条提示（无重复措辞）', toastCount === 1, `count=${toastCount}`)
+    const pageAlive = await page
+      .evaluate(() => !!document.querySelector('.el-table') && !document.body.innerText.includes('页面加载失败'))
+      .catch(() => false)
+    record(149, '⑦ 下载失败不得卸载整页', pageAlive)
+
+    // 对照组：撤掉故障注入后同一按钮必须照常下载成功
+    await page.unroute(downloadRoute)
+    routeInstalled = false
+    await waitToastsCleared(page)
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+      downloadBtn.click({ timeout: 8000 })
+    ])
+    record(
+      149,
+      '⑧ 对照组：撤掉故障后同一按钮仍能下载',
+      !!download?.suggestedFilename?.(),
+      download ? `file=${download.suggestedFilename()}` : '未收到 download 事件'
+    )
+  } catch (e) {
+    record(149, '下载失败链路', false, `异常: ${String(e.message).slice(0, 200)}`)
+  } finally {
+    if (routeInstalled) await page.unroute(downloadRoute).catch(() => {})
+    // 只清理本轮自建的夹具（后端存 UUID 文件名，按落库后的真实名删除）
+    if (uploadedName) {
+      try {
+        const token = await sessionTokenOf(page)
+        await apiWithBackoff(`/system/file/delete?fileName=${encodeURIComponent(uploadedName)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      } catch {
+        /* 清理失败不影响判据（该行不会替他用例制造断言） */
+      }
+    }
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -19914,7 +20061,8 @@ async function main() {
       { id: 145, fn: testFeature145 },
       { id: 146, fn: testFeature146 },
       { id: 147, fn: testFeature147 },
-      { id: 148, fn: testFeature148 }
+      { id: 148, fn: testFeature148 },
+      { id: 149, fn: testFeature149 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

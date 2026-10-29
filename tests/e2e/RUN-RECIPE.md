@@ -4813,3 +4813,47 @@ MISSING_EXPORT / UNRESOLVED_IMPORT / EVAL），命中即 `throw`（构建非零�
 ⇒ Vue 不重渲染，面板永远停在第 1 条。修法 `cb([...this.items])`。
 回归用例要写成"先记一条无 trace、再记一条有 trace"才能抓住它；
 盘上变异（改回同一引用）实测 2 红 2 绿（`/tmp/b124_mut_c.log`）。
+
+### 3.122 失败文案单一出口与"并行下载通道"的判据配方（b125 固化）
+
+**① 先问"兜底值对未命中键返回什么"。**
+`errorCode` 原先是 `Proxy`，`get` 对任意键返回 `target[prop] || target['default']`。调用点写的是
+`errorCode[code] || data.msg || errorCode['default']` ⇒ **中段永远不可达**，后端每条具体理由都被
+"系统未知错误"顶掉，且未登记码与已登记码在调用点无法区分。判据方向：**未登记码必须返回
+`undefined`**（不是空串、不是 default），让调用方知道"没取到映射"。
+两条既有单测曾把这个缺陷写成期望，改判据时必须一并改掉——**缺陷被测试锁住比没测更坏**。
+
+**② 文案优先级取"后端 msg 优先"，组合只允许一个出口。**
+映射按 HTTP 码语义写、msg 按"这次为什么失败"写，后者严格更具体（429 带入口名与重试秒数）。
+唯一出口 `utils/apiError.resolveApiErrorMessage(code, backendMsg)`；守卫要同时钉四件事：
+`translateErrorCode`/`defaultErrorMessage` 只在该文件调用、`errorCode[` 裸下标 0 处、
+`errorCode.ts` 禁 `new Proxy`、两条通道（`utils/request.ts` / `plugins/download.ts`）都调用了解析函数。
+守卫的"真实树"那条要在盘上变异过：把 `request.ts` 改回直拼映射 ⇒ 该条转红、两条合成违规用例不受影响
+（`/tmp/b125_mutC.log`）。
+
+**③ 并行通道的失败解析要共用同一组零件。**
+`plugins/download.ts` 裸用 axios，`readBlobErrorBody`（blob JSON 体）+ `pickTraceId`（体优先、头兜底）+
+`resolveApiErrorMessage` 三件共用；实现放 `utils/blobError.ts`，`request.ts` 只 re-export。
+**追踪号只作 `errorHub.report` 的独立字段**，消息不拼后缀（展示层统一加，否则同一条两个号）。
+
+**④ 同一次失败只许一条提示。**
+`request.download` 的 catch 先判 `isRequestLayerError(r)`：拦截器已按 HTTP/业务码报过（`source='api'`），
+这里再报"下载失败"就是两句不同措辞（`errorHub` 跨 source 不去重）。
+只有成功处理器内部的意外（`saveBlob` 抛错）才补一条。四条用例：403 / 网络中断 / 成功处理器抛错 / JSON 体 msg。
+
+**⑤ toast 类判据必须累积采样，且配对照组。**
+EP 的 `.el-message` 6 秒自消。第一版"12 秒后读数量"在变异轮里读到 0，把"措辞不对"读成"没有提示"，
+同时"恰一条"失去观测。配方：9 秒内每 250ms 采样，记 `maxCount` 与 `seenToasts`，
+命中期望文案即 break；四条同判（后端 msg 在提示里 / 追踪号同串 / 恰一条 / 页面未卸载），
+外加**对照组**：`page.unroute` 后同一按钮必须仍能下载（否则"闸门生效"与"按钮失灵"同时判绿）。
+故障注入用 `page.route(/\/common\/download\?/)` 返 403 + JSON 体 + `x-request-id` 头，走真实下载链。
+盘上变异：`download.ts` 的失败解析降级为通用文案 + 重建产物 ⇒ 恰 ④⑤ 红、⑥⑦⑧ 绿
+（`/tmp/b125_main_f149_mutF2.log`）。
+
+**⑥ 构建告警："在册"与"会响"是两件事。**
+逐族注入实测（rolldown 1.2.15）：`EVAL` / `CIRCULAR_DEPENDENCY` 经 `onwarn` 到达并让构建 EXIT=1；
+`MISSING_EXPORT` 是硬错误（`Build failed … [MISSING_EXPORT]`）、`UNRESOLVED_IMPORT` 实际码是
+`UNLOADABLE_DEPENDENCY`，两者**不经 onwarn**；`INEFFECTIVE_DYNAMIC_IMPORT` 六种注入形状都不再触发
+（b120 日志确曾触发）。结论：致命表只放"经 onwarn 到达"的族，硬错误族放进
+`BUILDER_ENFORCED_BUNDLE_CODES` 作说明，另配单测钉住两张表不相交——否则下一个人会以为
+"有一条判据在管它"（⑯(c)）。

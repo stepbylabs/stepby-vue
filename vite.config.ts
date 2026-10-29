@@ -154,10 +154,11 @@ export default defineConfig(({ mode, command }) => {
           circularDependency: true,
           ineffectiveDynamicImport: true
         },
-        // 构建告警硬化（b124）：已知坏族（INEFFECTIVE_DYNAMIC_IMPORT / CIRCULAR_DEPENDENCY /
-        // MISSING_EXPORT / UNRESOLVED_IMPORT / EVAL）一律抛错让构建失败，未知告警走默认通道。
-        // 判据与理由见 src/utils/buildWarnings.ts + 其单测；此前这些警告不参与退出码，
-        // INEFFECTIVE_DYNAMIC_IMPORT 连续三个批次无人看见（b123 实证）。
+        // 构建告警硬化：**经 onwarn 到达**的已知坏族一律抛错让构建失败，未知告警走默认通道。
+        // b125 逐个注入实测：EVAL / CIRCULAR_DEPENDENCY 会响（本表生效的直接证据）；
+        // MISSING_EXPORT / UNRESOLVED_IMPORT 由构建器自己硬错误阻断（实际码 UNLOADABLE_DEPENDENCY），
+        // 不经 onwarn ⇒ 移出致命表、登记在 BUILDER_ENFORCED_BUNDLE_CODES 作说明。
+        // 判据与逐条证据见 src/utils/buildWarnings.ts + 其单测。
         onwarn: createBuildWarningHandler(),
         // 路由级分包（b120 恢复；此前是被迫关闭）。历史：Vite 8.1.5 / Rolldown 1.1.5 在
         // element-plus 跨 chunk 引用处 panic（compute_cross_chunk_links.rs:584
