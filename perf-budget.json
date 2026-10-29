@@ -1,5 +1,5 @@
 {
-  "$comment": "性能预算门禁（R102-PERF-001~012 / R102-BUNDLE-002~006 配套）。runtime 段 = Web Vitals 预算阈值：与 deploy/prometheus/rules.yml 的前端退化告警、tests/e2e/perf-throttle-check.mjs 的节流断言共用单一事实源；build 段 = 构建产物体积预算（gzip 后 KB），由 scripts/check-perf-budget.mjs 在 CI/门禁强制执行（超限 exit 1，输入缺失 exit 2）。b120 起分包恢复（vite 8.3.5 / rolldown 1.2.15 解除 element-plus 跨 chunk panic），预算随之分成三类口径：initial* = 首屏必须下载（index.html 的入口 + 静态依赖图，用户实际等待的量）；singleJsChunk* = 单个懒加载 chunk 上限（防某页拖进巨型库）；*Total* = 全部 chunk 之和（构建/磁盘卫生，不再等于首屏）。换尺与重设基线同批完成，首屏由 1705.8KB 收紧到 640KB 上限（另设首屏 CSS 60KB、单 chunk 300KB、总量 1950/120KB）；后续优化应同步收紧预算而非放宽。b121：en-US 语言包按需加载 + 设计器图标目录拆出首屏（?catalog 独立模块实例）后首屏 JS 实测 499.1KB，上限随之由 640 收紧到 560（headroom 与 b120 同比例 ~12%）；iconCatalogInInitial 是分包口径的内容判据（首屏出现设计器图标目录哨兵即红），由 scripts/check-perf-budget.mjs 与图标守卫共同钉住。",
+  "$comment": "性能预算门禁（R102-PERF-001~014 / R102-BUNDLE-002~006 配套）。runtime 段 = Web Vitals 预算阈值：与 deploy/prometheus/rules.yml 的前端退化告警、tests/e2e/perf-throttle-check.mjs 的节流断言共用单一事实源；build 段 = 构建产物体积预算（gzip 后 KB），由 scripts/check-perf-budget.mjs 在 CI/门禁强制执行（超限 exit 1，输入缺失 exit 2）。b120 起分包恢复（vite 8.3.5 / rolldown 1.2.15 解除 element-plus 跨 chunk panic），预算随之分成三类口径：initial* = 首屏必须下载（index.html 的入口 + 静态依赖图，用户实际等待的量）；singleJsChunk* = 单个懒加载 chunk 上限（防某页拖进巨型库）；*Total* = 全部 chunk 之和（构建/磁盘卫生，不再等于首屏）。换尺与重设基线同批完成，首屏由 1705.8KB 收紧到 640KB 上限（另设首屏 CSS 60KB、单 chunk 300KB、总量 1950/120KB）；后续优化应同步收紧预算而非放宽。b121：en-US 语言包按需加载 + 设计器图标目录拆出首屏（?catalog 独立模块实例）后首屏 JS 实测 499.1KB，上限随之由 640 收紧到 560（headroom 与 b120 同比例 ~12%）；iconCatalogInInitial 是分包口径的内容判据（首屏出现设计器图标目录哨兵即红），由 scripts/check-perf-budget.mjs 与图标守卫共同钉住。b123：布局树（sidebar/navbar/tags-view）改为异步 loader 后首屏 JS 实测 424.4KB、首屏 CSS 34.9KB（布局 CSS 一并移出），上限由 560/60 收紧到 480/40（同 ~12% headroom）；layoutShellInInitial 是同一族的第二条内容判据（哨兵 app-wrapper 命中首屏即红），且'哨兵一处都找不到'判 EXIT=2（判据输入坏 ≠ 布局回归）。",
   "runtime": {
     "lcpMs": 2500,
     "fcpMs": 1800,
@@ -8,14 +8,15 @@
     "ttfbMs": 800
   },
   "build": {
-    "initialJsGzipKb": 560,
-    "initialCssGzipKb": 60,
+    "initialJsGzipKb": 480,
+    "initialCssGzipKb": 40,
     "jsTotalGzipKb": 1950,
     "cssTotalGzipKb": 120,
     "singleJsChunkGzipKb": 300,
     "imageMaxGzipKb": 140,
     "fontTotalGzipKb": 100,
     "thirdPartyScriptCount": 0,
-    "iconCatalogInInitial": 0
+    "iconCatalogInInitial": 0,
+    "layoutShellInInitial": 0
   }
 }

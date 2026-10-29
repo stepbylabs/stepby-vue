@@ -100,7 +100,8 @@ export const BUDGET_KEYS = [
   'imageMaxGzipKb',
   'fontTotalGzipKb',
   'thirdPartyScriptCount',
-  'iconCatalogInInitial'
+  'iconCatalogInInitial',
+  'layoutShellInInitial'
 ]
 
 /**
@@ -120,28 +121,54 @@ export const BUDGET_KEYS = [
 export const ICON_CATALOG_SENTINEL = 'IceCream'
 
 /**
- * 判「设计器图标目录是否真的只在懒加载 chunk 里」。
- * @param distRoot 产物根
- * @param initialFiles `measure()` 给出的首屏引用（pathname 以 `/static/` 开头）
+ * 布局树的哨兵（`src/layout/index.vue` 根节点的 class，生产码里只此一处）。
+ *
+ * 布局树只服务已登录页面：b122 实测它被 `router/index.ts` 静态导入，与路由表一起
+ * 并成 120.7KB(gzip) 的 router chunk 进首屏，而登录页根本不需要它。b123 把它改成
+ * 异步 loader；回归形态是"有人改回静态导入 ⇒ 整棵树重新进首屏"，体积判据会在
+ * 总量上看见（首屏变大），但看不见"为什么"——所以再加内容判据：哨兵命中首屏
+ * ⇒ PERF-014 判红（构建缺陷）；整个产物一处都找不到 ⇒ 判据输入坏了（EXIT=2）。
  */
-export function iconCatalogSplit(distRoot, initialFiles) {
+export const LAYOUT_SHELL_SENTINEL = 'app-wrapper'
+
+/**
+ * 判一个哨兵是否**只**出现在懒加载 chunk 里。
+ *
+ * `what` 只用于故障文案：两种结局必须能区分——"哨兵进了首屏"是真实回归，
+ * "哨兵根本找不到"是判据输入坏了（把回归报成输入坏，会把人支使去修判据）。
+ */
+export function sentinelChunkSplit(distRoot, initialFiles, sentinel, what) {
   const initial = new Set(initialFiles.filter((f) => f.kind === 'js').map((f) => f.path))
   const jsFiles = walk(join(distRoot, 'static', 'js')).filter((f) => f.endsWith('.js'))
   let inInitial = 0
   let lazyChunk = null
   for (const f of jsFiles) {
     const text = readFileSync(f, 'utf8')
-    if (!text.includes(ICON_CATALOG_SENTINEL)) continue
+    if (!text.includes(sentinel)) continue
     const pathname = '/' + relative(distRoot, f).replace(/\\/g, '/')
     if (initial.has(pathname)) inInitial += 1
     else if (!lazyChunk) lazyChunk = pathname
   }
   if (!inInitial && !lazyChunk) {
     throw new InputError(
-      `图标目录哨兵「${ICON_CATALOG_SENTINEL}」在全部产物里都找不到：无法证明「设计器全集不进首屏」的分包口径（判据输入坏了，先确认图标包名与构建产物）`
+      `${what}哨兵「${sentinel}」在全部产物里都找不到：无法证明分包口径（判据输入坏了，先确认哨兵字符串仍在生产码里）`
     )
   }
   return { inInitial, lazyChunk }
+}
+
+/**
+ * 判「设计器图标目录是否真的只在懒加载 chunk 里」。
+ * @param distRoot 产物根
+ * @param initialFiles `measure()` 给出的首屏引用（pathname 以 `/static/` 开头）
+ */
+export function iconCatalogSplit(distRoot, initialFiles) {
+  return sentinelChunkSplit(distRoot, initialFiles, ICON_CATALOG_SENTINEL, '图标目录')
+}
+
+/** 判「布局树是否真的只在懒加载 chunk 里」（b123） */
+export function layoutShellSplit(distRoot, initialFiles) {
+  return sentinelChunkSplit(distRoot, initialFiles, LAYOUT_SHELL_SENTINEL, '布局树')
 }
 
 /** 预算缺键必须拒绝判据：缺键时 `value > undefined` 恒 false，会把超限静默放行 */
@@ -165,7 +192,8 @@ export function evaluate(measured, budget) {
       '设计器图标目录进首屏（哨兵命中数）',
       measured.iconCatalogInInitial,
       budget.iconCatalogInInitial
-    )
+    ),
+    makeCheck('R102-PERF-014', '布局树进首屏（哨兵命中数）', measured.layoutShellInInitial, budget.layoutShellInInitial)
   ]
 }
 
@@ -253,7 +281,8 @@ function selftest() {
     imageMaxGzipKb: 140,
     fontTotalGzipKb: 100,
     thirdPartyScriptCount: 0,
-    iconCatalogInInitial: 0
+    iconCatalogInInitial: 0,
+    layoutShellInInitial: 0
   }
   const base = {
     initialJsKb: 600,
@@ -264,7 +293,8 @@ function selftest() {
     maxImageKb: 126,
     fontTotalKb: 0,
     thirdPartyScripts: 0,
-    iconCatalogInInitial: 0
+    iconCatalogInInitial: 0,
+    layoutShellInInitial: 0
   }
   const failedIds = (m) =>
     evaluate(m, budget)
@@ -296,7 +326,8 @@ function selftest() {
     ['⑥ 单 chunk 超限只红 PERF-006b', { ...base, maxChunkKb: 301 }, 'R102-PERF-006b'],
     ['⑦ CSS 总量超限只红 PERF-007', { ...base, cssTotalKb: 121 }, 'R102-PERF-007'],
     ['⑧ 第三方脚本只红 PERF-010', { ...base, thirdPartyScripts: 1 }, 'R102-PERF-010'],
-    ['⑩ 图标目录进首屏只红 PERF-013', { ...base, iconCatalogInInitial: 1 }, 'R102-PERF-013']
+    ['⑩ 图标目录进首屏只红 PERF-013', { ...base, iconCatalogInInitial: 1 }, 'R102-PERF-013'],
+    ['⑩b 布局树进首屏只红 PERF-014', { ...base, layoutShellInInitial: 1 }, 'R102-PERF-014']
   ]
   for (const [name, m, id] of cases) {
     const ids = failedIds(m)
@@ -379,6 +410,27 @@ function selftest() {
       threwSplit = e instanceof InputError
     }
     ok('⑰ 哨兵缺席必须抛 InputError（"证明不了"不得当通过）', threwSplit)
+
+    // ⑰b~⑰d 布局树分包口径：与图标用**同一实现**，但哨兵与结局判定独立
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const x = 1')
+    writeFileSync(join(splitDir, 'static', 'js', 'layout-c.js'), 'const z = "app-wrapper"')
+    const lgood = layoutShellSplit(splitDir, initialJs)
+    ok(
+      '⑰b 布局哨兵只在懒加载 chunk ⇒ 首屏命中 0（正控）',
+      lgood.inInitial === 0 && lgood.lazyChunk === '/static/js/layout-c.js',
+      JSON.stringify(lgood)
+    )
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const z = "app-wrapper"')
+    ok('⑰c 布局哨兵也出现在首屏 ⇒ 命中 1', layoutShellSplit(splitDir, initialJs).inInitial === 1)
+    writeFileSync(join(splitDir, 'static', 'js', 'index-a.js'), 'const x = 1')
+    writeFileSync(join(splitDir, 'static', 'js', 'layout-c.js'), 'const z = "shell"')
+    let threwLayout = false
+    try {
+      layoutShellSplit(splitDir, initialJs)
+    } catch (e) {
+      threwLayout = e instanceof InputError
+    }
+    ok('⑰d 布局哨兵缺席必须抛 InputError（与"进了首屏"可区分）', threwLayout)
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
@@ -431,7 +483,21 @@ console.log(
   `[perf-budget] 图标目录懒加载 chunk：${split.lazyChunk ?? '（懒加载侧缺失——全集被拉回首屏）'}（首屏命中 ${split.inInitial}）`
 )
 
-const checks = evaluate({ ...result.measured, iconCatalogInInitial: split.inInitial }, b)
+let layoutSplit
+try {
+  layoutSplit = layoutShellSplit(join(root, distDir), result.initial.files)
+} catch (e) {
+  console.error(`[perf-budget] [FATAL] ${e.message}`)
+  process.exit(2)
+}
+console.log(
+  `[perf-budget] 布局树懒加载 chunk：${layoutSplit.lazyChunk ?? '（懒加载侧缺失——布局树被拉回首屏）'}（首屏命中 ${layoutSplit.inInitial}）`
+)
+
+const checks = evaluate(
+  { ...result.measured, iconCatalogInInitial: split.inInitial, layoutShellInInitial: layoutSplit.inInitial },
+  b
+)
 const over = checks.filter((c) => c.over)
 
 console.log('[perf-budget] 构建产物预算核查')

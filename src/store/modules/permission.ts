@@ -1,6 +1,5 @@
-import router, { constantRoutes, dynamicRoutes, extraConstantRoutes } from '@/router'
+import router, { constantRoutes, dynamicRoutes, extraConstantRoutes, Layout } from '@/router'
 import { getRouters } from '@/api/router'
-import Layout from '@/layout/index.vue'
 import ParentView from '@/components/ParentView/index.vue'
 import InnerLink from '@/layout/components/InnerLink/index.vue'
 import useUserStore from '@/store/modules/user'

@@ -1,7 +1,12 @@
 import { createWebHistory, createRouter } from 'vue-router'
-/* Layout */
-import Layout from '@/layout/index.vue'
 import { isChunkLoadError, reloadOnChunkError } from '@/utils/routerError'
+
+/* Layout：懒加载（b123）——布局树只服务已登录页面，登录页完全不需要它。
+   静态 import 会把 sidebar/navbar/tags-view 等整棵树钉进初始依赖图（b122 实测
+   router chunk 120.7KB gzip，其中 mapDeps 表仅 5.6KB），登录页白付约 100KB。
+   改成异步 loader 后由 vue-router 在进入首个已登录路由时解析；chunk 失败仍由
+   router.onError 的兜底处理（isChunkLoadError → 整页刷新）。 */
+export const Layout = () => import('@/layout/index.vue')
 
 /**
  * Note: 路由配置项

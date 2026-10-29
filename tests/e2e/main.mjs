@@ -290,15 +290,29 @@ function readAppSourceBundle() {
   if (files.length < MIN_CHUNKS) {
     throw new Error(`产物只有 ${files.length} 个 JS chunk（< ${MIN_CHUNKS}），源码检查的采集面不完整`)
   }
-  const text = files.map((f) => fs.readFileSync(path.join(jsDir, f), 'utf8')).join('\n')
+  const byFile = {}
+  for (const f of files) byFile[f] = fs.readFileSync(path.join(jsDir, f), 'utf8')
+  const text = files.map((f) => byFile[f]).join('\n')
   if (text.length < 1_000_000) {
     throw new Error(`产物源码合计只有 ${text.length} 字符，明显不完整——不做判据`)
   }
-  appSourceBundleCache = { text, chunks: files.length }
+  appSourceBundleCache = { text, chunks: files.length, byFile }
   log(
     `源码检查采集面：${files.length} 个 JS chunk / ${(text.length / 1024 / 1024).toFixed(2)}MB（全部已发布 JS，b120）`
   )
   return text
+}
+
+/**
+ * 在全部已发布 JS chunk 里找包含 needle 的文件名（b123）。
+ *
+ * 用途是 F147：要先知道"布局 chunk 叫什么"，才能在浏览器里判"登录页有没有请求它"。
+ * 与源码检查共用同一份产物解析与缓存——两处各读一遍产物会在构建目录切换时读到两棵树。
+ */
+function findAppChunkContaining(needle) {
+  readAppSourceBundle()
+  const { byFile } = appSourceBundleCache
+  return Object.keys(byFile).filter((f) => byFile[f].includes(needle))
 }
 
 /**
@@ -2440,7 +2454,14 @@ async function testFeature12(page) {
   ) {
     await langIcon2.click()
     await sleep(800)
-    const zhOption = page.locator('.el-dropdown-menu__item:not(.is-disabled)').first()
+    // b123 修复：这里原先取全局首个未禁用项——当本用例前面跑过别的功能时，DOM 里还驻留着
+    // 标签页右键菜单（实测首个命中是隐藏的 `"1 Operation Log"`，0×0），`waitFor(visible)`
+    // 对它必然超时 ⇒ 恢复步骤静默失败，把整条后续链路留在英文（F33/F36 文案判据连带红）。
+    // 判据改按"可见 + 语言文案"限定：语言下拉里固定有 Simplified Chinese / 简体中文（zh 在前）。
+    const zhOption = page
+      .locator('.el-dropdown-menu__item:not(.is-disabled):visible')
+      .filter({ hasText: /^(Simplified Chinese|简体中文)$/ })
+      .first()
     if (
       await zhOption
         .waitFor({ state: 'visible', timeout: 2000 })
@@ -19399,6 +19420,105 @@ async function testFeature146(page) {
   }
 }
 
+/**
+ * 功能 147：布局按需加载（b123）——登录页首屏不下载布局树，登录/深链刷新可恢复。
+ *
+ * 判据锚的是**运行时事实**而不是构建设想：
+ * ① 布局 chunk 能在产物里唯一定位（哨兵 `app-wrapper` 只属于 `layout/index.vue`）；
+ * ② 登录页加载完成后，该 chunk **没有出现在 performance resource 里**；
+ * ③ 登录后它必须被请求且侧栏可见（否则"省了首屏"就是"整页坏了"）；
+ * ④ 已登录深链刷新（整页重载）仍能恢复布局（异步 loader 不破坏冷启动）。
+ */
+async function testFeature147(page) {
+  log('=== 功能 147：布局按需加载（b123） ===')
+  const browser = page.context().browser()
+  const frontend = CONFIG.frontendUrl
+  const layoutChunks = findAppChunkContaining('app-wrapper')
+  record(
+    147,
+    '① 布局 chunk 可唯一定位（哨兵 app-wrapper 只在一个 JS chunk 里）',
+    layoutChunks.length === 1,
+    `hits=${JSON.stringify(layoutChunks).slice(0, 160)}`
+  )
+  if (layoutChunks.length !== 1) return
+  const layoutChunk = layoutChunks[0]
+
+  let ctx = null
+  try {
+    ctx = await browser.newContext({ serviceWorkers: 'block' })
+    const p = await ctx.newPage()
+    await p.goto(`${frontend}/login`, { waitUntil: 'load' })
+    const userInput = p
+      .locator('input[placeholder="账号"], input[placeholder="Username"], input[name="username"]')
+      .first()
+    const loginReady = await userInput
+      .waitFor({ state: 'visible', timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    const loadedOnLogin = await p.evaluate(
+      (name) => performance.getEntriesByType('resource').some((e) => e.name.includes(name)),
+      layoutChunk
+    )
+    record(
+      147,
+      '② 登录页首屏不请求布局 chunk（未登录用户不需要布局树）',
+      loginReady && loadedOnLogin === false,
+      `loginReady=${loginReady} chunk=${layoutChunk} loaded=${loadedOnLogin}`
+    )
+
+    await login(p)
+    const shellVisible = await p
+      .locator('.app-wrapper')
+      .first()
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    const loadedAfterLogin = await p.evaluate(
+      (name) => performance.getEntriesByType('resource').some((e) => e.name.includes(name)),
+      layoutChunk
+    )
+    const sidebarVisible = await p
+      .locator('.sidebar-container')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    record(
+      147,
+      '③ 登录后按需加载布局并渲染（布局 chunk 已请求 + 侧栏可见）',
+      shellVisible && loadedAfterLogin === true && sidebarVisible,
+      `shell=${shellVisible} loaded=${loadedAfterLogin} sidebar=${sidebarVisible}`
+    )
+
+    await p.goto(`${frontend}/index`, { waitUntil: 'load' })
+    const shellAfterReload = await p
+      .locator('.app-wrapper')
+      .first()
+      .waitFor({ state: 'visible', timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    const sidebarAfterReload = await p
+      .locator('.sidebar-container')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    const errorPage = await p
+      .locator('.el-result, .error-page, [data-testid="error-boundary"]')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    record(
+      147,
+      '④ 已登录深链刷新：异步布局可恢复（无白屏、无错误页）',
+      shellAfterReload && sidebarAfterReload && errorPage === false,
+      `shell=${shellAfterReload} sidebar=${sidebarAfterReload} errorPage=${errorPage}`
+    )
+  } catch (err) {
+    record(147, '布局按需加载链路', false, `异常: ${err.message.slice(0, 160)}`)
+  } finally {
+    if (ctx) await ctx.close().catch(() => {})
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -19684,7 +19804,8 @@ async function main() {
       { id: 143, fn: testFeature143 },
       { id: 144, fn: testFeature144 },
       { id: 145, fn: testFeature145 },
-      { id: 146, fn: testFeature146 }
+      { id: 146, fn: testFeature146 },
+      { id: 147, fn: testFeature147 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

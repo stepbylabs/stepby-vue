@@ -49,10 +49,10 @@ vi.mock('@/router', () => ({
   default: h.router,
   constantRoutes: h.constantRoutes,
   extraConstantRoutes: h.extraConstantRoutes,
-  dynamicRoutes: h.dynamicRoutes
+  dynamicRoutes: h.dynamicRoutes,
+  Layout: () => Promise.resolve(h.Layout)
 }))
 vi.mock('@/api/router', () => ({ getRouters: h.getRouters }))
-vi.mock('@/layout/index.vue', () => ({ default: h.Layout }))
 vi.mock('@/components/ParentView/index.vue', () => ({ default: h.ParentView }))
 vi.mock('@/layout/components/InnerLink/index.vue', () => ({ default: h.InnerLink }))
 vi.mock('@/store/modules/user', () => ({ default: () => h.user }))
@@ -191,10 +191,14 @@ describe('store/modules/permission', () => {
       expect(store.routes.slice(0, 2)).toEqual(h.constantRoutes)
       expect(store.sidebarRouters.slice(0, 2)).toEqual(h.constantRoutes)
 
-      // Layout component resolved to the Layout object (Pinia wraps it in a
-      // reactive proxy, so compare by identity marker rather than object ref).
+      // b123：Layout 是**异步 loader**（布局树不进首屏）。这里按真实契约断言
+      // "loader 解析出来的组件名是 Layout"，而不是断言一个静态对象——后者会让
+      // "有人把 Layout 改回静态导入"在单测里照样绿（契约方向写反了）。
       const sysRoute = store.sidebarRouters.find((r: AppRouteRecord) => r.path === '/system') as Record<string, unknown>
-      expect((sysRoute.component as { name?: string }).name).toBe('Layout')
+      const rawComponent = sysRoute.component as unknown
+      const resolved =
+        typeof rawComponent === 'function' ? await (rawComponent as () => Promise<{ name?: string }>)() : rawComponent
+      expect((resolved as { name?: string } | null)?.name).toBe('Layout')
       // noRedirect replaced by redirect to first visible child (/system/user)
       expect(sysRoute.redirect).toBe('/system/user')
 

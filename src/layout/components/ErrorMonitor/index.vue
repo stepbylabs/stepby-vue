@@ -67,6 +67,7 @@
 
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
+import router from '@/router'
 import { errorHub, type ErrorLevel, type MonitorIssue } from '@/utils/errorHub'
 
 const { t } = useI18n()
@@ -94,16 +95,15 @@ function clear(): void {
 
 /** UX-3：直达前端异常明细页（列表/筛选/设备分桶在该页） */
 function goDetail(): void {
-  // b72：原写法 `void import('@/router').then(...)` 没有 catch——router chunk 动态加载失败
-  // （弱网 / 发版后 chunk hash 换代导致旧 chunk 404）时会抛 unhandledrejection：
-  // 用户点了没任何反应，而**错误监视器自己**在生产遥测里制造噪声（b69 终局捕获会把
-  // 未分类 console error 计入失败）。失败时给出可见反馈并整页兜底跳转（同源路由，无外跳面）。
-  import('@/router')
-    .then(({ default: router }) => router.push('/monitor/frontendError'))
-    .catch(() => {
-      ElMessage.error(t('common.requestFailed'))
-      window.location.assign('/monitor/frontendError')
-    })
+  // b123：router 已由 main/permission 静态导入（始终在初始依赖图里），
+  // `import('@/router')` 不可能成为独立 chunk——构建器实测报 INEFFECTIVE_DYNAMIC_IMPORT
+  // （b72 那句"router chunk 动态加载失败"的前提不成立，catch 永远走不到）。
+  // 真正会失败的是导航本身（守卫中止 / 目标组件解析失败），所以判据锚在 push 上：
+  // 失败仍给可见反馈并整页兜底跳转（同源路由，无外跳面）。
+  router.push('/monitor/frontendError').catch(() => {
+    ElMessage.error(t('common.requestFailed'))
+    window.location.assign('/monitor/frontendError')
+  })
 }
 
 function tagType(level: ErrorLevel): 'danger' | 'warning' | 'info' {

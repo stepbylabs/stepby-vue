@@ -4718,3 +4718,48 @@ sessionStorage 也会触发同键事件，裸访问 `window.localStorage` 会被
 `logOut` 删广播（5/1）、`setLanguage` 删广播（5/1）——每刀都要
 `npm run build:embedded` + `sync:embedded`，否则测的还是旧包（前言 ㉕）；
 还原用 `cp -p` 保留 mtime + `diff -q` 逐字节一致，最后重建再取权威读数。
+
+### 3.120 布局树移出首屏：模块归属、内容哨兵与恢复步骤的可见性（b123 固化）
+
+**① 先判"谁把它钉在首屏"，再决定拆谁。**
+`router/index.ts` 顶层 `import Layout from '@/layout/index.vue'`，而 router 被 `main.ts` 静态导入
+⇒ 整棵布局树在初始依赖图里。拆法只有一行（`export const Layout = () => import('@/layout/index.vue')`），
+但**先量再拆**：`dist` 里找 `app-wrapper` 落在哪个 chunk（本批拆前是 `router-*.js`，
+拆后是 `layout-*.js`），首屏 JS/CSS 按预算脚本的分栏读数（本批 500.6→424.3 / 52.3→34.9 gzip）。
+**不要用"动态导入"去拆一个被静态导入的模块**：构建器会打 `[INEFFECTIVE_DYNAMIC_IMPORT]`，
+而那条动态导入的 catch 结构上永不触发（本批 `ErrorMonitor` 的"chunk 加载失败兜底"就是这样）。
+修法是把 catch 挂到真正会拒绝的那一步（`router.push().catch()`），并加形状锁
+`routerStaticImport.guard.test.ts`：生产码禁 `import('@/router')`，注释/字符串里的示例不误报
+（先在原文匹配路径，再用等长掩码确认 `import` 关键字在代码区）。
+
+**② 体积判据必须配内容哨兵，且两种失败要分开。**
+`R102-PERF-014` 用 `app-wrapper` 作哨兵（与 b121 的 `IceCream` 同族）：
+命中首屏 ⇒ 真实回归（判红）；**全部产物里都找不到 ⇒ 判据输入坏了（EXIT=2）**。
+分类闸必须有双向用例（本批 ⑰b/⑰c/⑰d），否则"哨兵被改错"会被读成"分包干净"。
+换尺与收紧预算同批：本批 `initialJsGzipKb` 560→480、`initialCssGzipKb` 60→40，
+合法性由实测 424.3/34.9 支撑，不是由数字变大作证。
+
+**③ 浏览器判据：登录页"不请求"与登录后"真的请求"是一对。**
+F147 用 `performance.getEntriesByType('resource')` 读运行事实：
+① 布局 chunk 在全部已发布 JS 里**唯一**（`findAppChunkContaining('app-wrapper')`）；
+② 新 context 打开 `/login`，该 chunk **不在** resource 列表里（`loginReady && loaded === false`）；
+③ 登录后该 chunk **已请求** + `.sidebar-container` 可见；
+④ 已登录深链 `goto('/index')` 刷新后 `.app-wrapper` 与侧栏可见、无错误页。
+只写 ②（"登录页不请求"）会被"这个 chunk 根本不存在"满足——所以 ① 与 ③ 是前置正控，
+④ 覆盖"异步布局在刷新后能恢复"这条真实入口。单跑时"总计 5"含 F0 注册表自检 1 条，
+F147 本体是 **4 条**，台账别把 F0 算进功能本体。
+
+**④ 恢复步骤的定位器必须限定可见 + 语义文案。**
+F12「切回中文」原取全局 `.el-dropdown-menu__item:not(.is-disabled)` 的第一个。
+当前面跑过 F5 时，DOM 里驻留着标签页右键菜单，实测第一个命中是隐藏的 `"1 Operation Log"`
+（0×0）⇒ `waitFor(visible)` 必然超时、恢复静默失败，后续功能全在英文里跑（F33/F36 连带红 8 条）。
+修法：`.el-dropdown-menu__item:not(.is-disabled):visible` + `hasText: /^(Simplified Chinese|简体中文)$/`。
+诊断口径：先 `page.evaluate` 打印全部候选的 `text/宽高`（`[diag12b]` 那一行），
+确认命中的是哪一个，再改选择器——不要靠猜。
+
+**⑤ 变异口径（三条腿，各自只红自己）。**
+A：`router/index.ts` 改回静态 Layout + 重建 ⇒ perf 三项红（`PERF-011 500.5/480`、`PERF-012 52.3/40`、
+`PERF-014 命中 1`）且 F147 ② 红（`hits=["router-DeWskFh7.js"]`、`loaded=true`），①③④ 照常绿；
+B：`LAYOUT_SHELL_SENTINEL` 改成不存在的串 ⇒ **EXIT=2**（"在全部产物里都找不到"）；
+C：往真实生产 `.ts` 末尾追加 `void import('@/router')` ⇒ 守卫 4 条中恰 1 条红并点名 `file:line`。
+A 必须在还原后**重建**再取权威读数（入口 chunk 因 `__BUILD_TIME__` 换名属正常，见 §3.99）。
