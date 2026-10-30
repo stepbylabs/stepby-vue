@@ -116,13 +116,23 @@ export function delTable(tableId: number | number[]): Promise<AjaxResult> {
   })
 }
 
-// 生成代码（自定义路径）
-// 表名是自由字符串，作为路径段必须编码（含 # / 时未编码会作用到另一张表）
-export function genCode(tableName: string): Promise<AjaxResult> {
-  return request({
-    url: '/tool/gen/genCode/' + encodeURIComponent(tableName),
-    method: 'get'
-  })
+/**
+ * 生成代码（单个表）：构造 ZIP 下载地址，配合 download 插件使用。
+ *
+ * b139 立项取证：原实现是 `request({ url, method: 'get' })`——ZIP 二进制被当 JSON 解析，
+ * 字节直接丢弃；响应体里也没有 `code` 字段，而拦截器按 `data.code || 200` 判成功，
+ * 于是调用方**必然**弹"生成成功"而文件从未到达浏览器（同一族的 `genPath` 当时后端也不消费）。
+ * 单表生成是下载通道，必须与 `batchGenCode` 同构：只构造地址，下载与结局交给 download 插件。
+ *
+ * `pathPrefix` 是**压缩包内目录前缀**（后端按 `/` 分段清洗后拼在条目名前；
+ * `..` / 绝对路径 / 反斜杠 / Windows 保留字符一律 400）。
+ */
+export function genCodeUrl(tableName: string, pathPrefix?: string): string {
+  const url = '/tool/gen/genCode/' + encodeURIComponent(tableName)
+  const prefix = (pathPrefix ?? '').trim()
+  // `/` 是 `sys_gen_table.gen_path` 的数据库默认值，语义就是"平铺"，不把它当路径下发
+  if (!prefix || prefix === '/') return url
+  return url + '?path=' + encodeURIComponent(prefix)
 }
 
 // 批量生成代码（构造 ZIP 下载地址，配合 download 插件使用）

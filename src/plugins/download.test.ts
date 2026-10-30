@@ -439,4 +439,53 @@ describe('plugins/download', () => {
     expect(h.notifySessionExpired).toHaveBeenCalledTimes(1)
     expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
   })
+
+  // -------------------------------------------------------------------------
+  // b139：下载入口必须返回**结局**——调用方原先拿不到结局，只能"await 结束就弹成功"，
+  // 于是请求失败与保存失败都被报成成功（代码生成页的原缺陷）。
+  // 这里的四条与上面的失败链刻意重复断言"上报"，因为**返回值**才是新增的那条腿：
+  // 只判 hub 有记录不能证明调用方判断得到结局（`runDownload` 完全可以只上报不返回）。
+  // -------------------------------------------------------------------------
+  it('成功：返回 true（已交给保存通道）', async () => {
+    h.axiosRequest.mockResolvedValue({ data: blobOf('bytes', 'application/octet-stream'), headers: {} })
+
+    await expect(download.name('ok.xlsx')).resolves.toBe(true)
+    expect(h.saveAs).toHaveBeenCalledTimes(1)
+  })
+
+  it('网络失败：返回 false 且已上报一次', async () => {
+    h.axiosRequest.mockRejectedValue(new Error('network down'))
+
+    await expect(download.zip('/tool/gen/genCode/t', 't.zip')).resolves.toBe(false)
+    expect(hub.issues).toHaveLength(1)
+  })
+
+  it('HTTP 200 但非 blob 错误体：返回 false（不得落盘坏文件）', async () => {
+    h.axiosRequest.mockResolvedValue({
+      data: blobOf(JSON.stringify({ code: 500, msg: '生成失败' }), 'application/json'),
+      headers: {}
+    })
+
+    await expect(download.zip('/tool/gen/genCode/t', 't.zip')).resolves.toBe(false)
+    expect(h.saveAs).not.toHaveBeenCalled()
+    expect(hub.issues[0]).toMatchObject({ message: '生成失败' })
+  })
+
+  it('空载荷：返回 false 且上报（saveBlob 拒绝交出 0 字节文件）', async () => {
+    h.axiosRequest.mockResolvedValue({ data: new Blob([], { type: 'application/zip' }), headers: {} })
+
+    await expect(download.zip('/tool/gen/genCode/t', 't.zip')).resolves.toBe(false)
+    expect(h.saveAs).not.toHaveBeenCalled()
+    expect(hub.issues).toHaveLength(1)
+  })
+
+  it('保存通道抛错：返回 false 且上报（不得静默当成功）', async () => {
+    h.axiosRequest.mockResolvedValue({ data: blobOf('bytes', 'application/zip'), headers: {} })
+    h.saveAs.mockImplementationOnce(() => {
+      throw new Error('save blocked')
+    })
+
+    await expect(download.zip('/tool/gen/genCode/t', 't.zip')).resolves.toBe(false)
+    expect(hub.issues).toHaveLength(1)
+  })
 })

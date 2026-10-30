@@ -50,9 +50,11 @@ function openLoading(): { close: () => void } {
   })
 }
 
-/** 保存失败要可见（空载荷/通道抛错），成功不弹"下载成功"（b112） */
-export function saveAs(text: Blob, name: string): void {
-  if (!saveBlob(text, name)) errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+/** 保存失败要可见（空载荷/通道抛错），成功不弹"下载成功"（b112）；返回是否交出去了 */
+export function saveAs(text: Blob, name: string): boolean {
+  if (saveBlob(text, name)) return true
+  errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+  return false
 }
 
 /** HTTP 200 + 非 blob（legacy 自定义业务码 / HTML 网关页）：解析后上报，带追踪号 */
@@ -73,48 +75,54 @@ interface DownloadEntry {
  * 三个入口共用的执行骨架：loading 必关、失败不抛、非 blob 走错误体解析。
  * `mime` 只在 zip 通道覆盖（后端未给 Content-Type 时浏览器按扩展名猜，但显式声明更稳）。
  * `useHeaderName=false` 保留 zip 的既有语义：调用方给定名优先，响应头不参与命名。
+ *
+ * 返回**结局**（`true` = 已交给保存通道；`false` = 失败，且已上报一次）。
+ * 为什么要返回值：调用方原先拿不到结局，只能凭 `await` 结束就弹"成功"——
+ * 请求失败与保存失败都会被报成成功（b139 代码生成页的原缺陷）。
+ * `true` 仍不等于"已落盘"（见 `saveBlob` 模块文档），所以成功提示只能写"已发起下载"。
  */
 async function runDownload(
   entry: DownloadEntry,
   fallbackName: string,
   opts: { mime?: string; useHeaderName?: boolean } = {}
-): Promise<void> {
+): Promise<boolean> {
   const loading = openLoading()
   try {
     const res = await blobRequest({ ...entry, responseType: 'blob', timeout: FILE_DOWNLOAD_TIMEOUT })
     if (!res.ok) {
       reportFailure(res.failure)
-      return
+      return false
     }
     if (!blobValidate(res.data)) {
       await printErrMsg(res.data, res.headers)
-      return
+      return false
     }
     const blob = opts.mime ? new Blob([res.data], { type: opts.mime }) : new Blob([res.data])
     const name =
       opts.useHeaderName === false ? fallbackName : resolveFilename(res.headers['download-filename'], fallbackName)
-    saveAs(blob, name)
+    return saveAs(blob, name)
   } catch (e) {
     // 原语不抛；这里只兜住保存/解析环节的意外（例如宿主环境裁掉了 Blob 构造）
     if (import.meta.env.DEV) console.error('[download]', e)
     errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+    return false
   } finally {
     loading.close()
   }
 }
 
 export default {
-  name(name: string, isDelete = true) {
+  name(name: string, isDelete = true): Promise<boolean> {
     return runDownload({ url: '/common/download', params: { fileName: name, delete: String(isDelete) } }, name)
   },
-  resource(resource: string) {
+  resource(resource: string): Promise<boolean> {
     // 回退名取资源路径最后一段（如 /profile/upload/x.png → x.png）
     return runDownload(
       { url: '/common/download/resource', params: { resource } },
       resource.split('/').pop() || resource
     )
   },
-  zip(url: string, name: string) {
+  zip(url: string, name: string): Promise<boolean> {
     return runDownload({ url }, name, { mime: 'application/zip', useHeaderName: false })
   },
   saveAs,

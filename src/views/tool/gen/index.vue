@@ -205,7 +205,7 @@
 <script setup lang="ts" name="Gen">
 const { t } = useI18n()
 import { useMobileFilter } from '@/composables/useMobileFilter'
-import { listTable, delTable, genCode, batchGenCode, synchDb } from '@/api/tool/gen'
+import { listTable, delTable, genCodeUrl, batchGenCode, synchDb } from '@/api/tool/gen'
 import importTable from './importTable.vue'
 import createTable from './createTable.vue'
 import GenPreview from './preview.vue'
@@ -325,14 +325,24 @@ function handleGenTable(row?: GenTable) {
     return
   }
   if (row?.genType === '1') {
-    genCode(row.tableName!)
-      .then(() => {
-        modal.msgSuccess(t('gen.msg.genCustomSuccess', { path: row.genPath }))
+    // b139：自定义路径不再是"后端写磁盘"，而是**压缩包内目录前缀**——
+    // 走与批量同一条下载通道，并按真实结局提示（`true` 只代表已交给浏览器）
+    void downloadPlugin
+      .zip(genCodeUrl(row.tableName!, row.genPath), `${row.tableName}.zip`)
+      .then((ok) => {
+        if (ok) modal.msgSuccess(t('gen.msg.genCustomSuccess', { path: (row.genPath || '').trim() || '/' }))
       })
-      .catch(() => {})
+      // 下载原语内部已上报失败并 resolve(false)；这一支兜的是"成功提示自身抛错"，
+      // 不能让拒绝逸出成 unhandledrejection（否则真实故障会被埋进 console 噪声）
+      .catch((err) => console.error('[tool/gen] 生成代码结局处理异常', err))
   } else {
     const tbNames = names.join(',')
-    downloadPlugin.zip(batchGenCode(names), `${tbNames}.zip`)
+    void downloadPlugin
+      .zip(batchGenCode(names), `${tbNames}.zip`)
+      .then((ok) => {
+        if (ok) modal.msgSuccess(t('gen.msg.genZipSuccess'))
+      })
+      .catch((err) => console.error('[tool/gen] 批量生成结局处理异常', err))
   }
 }
 

@@ -108,6 +108,7 @@ import {
 } from './capture-kit.mjs'
 import { PAGE_STATE_PROBE, judgePageLoaded } from './page-state.mjs'
 import { assertFreshServedApp, resolveArtifactDir } from './build-freshness.mjs'
+import { readZipEntries, readZipEntry, zipInspectSelfCheck } from './zip-inspect.mjs'
 import { capturePageCaptcha, fillCaptchaOnPage, fetchCaptchaForApi, readCaptchaCodeFromRedis } from './e2e/run/auth.mjs'
 import { scanEnvironmentAbort } from './e2e-env-abort.mjs'
 
@@ -21014,6 +21015,218 @@ async function testFeature156(page) {
   )
 }
 
+// ==================== 功能 157：代码生成「按目录前缀组织」的真实下载（b139） ====================
+/**
+ * b139 立项：单表生成原先走主通道 `request({ method: 'get' })`——ZIP 二进制被当 JSON 解析后
+ * 直接丢弃；响应体里没有 `code` 字段，而拦截器按 `data.code || 200` 判成功 ⇒ 调用方**必然**
+ * 弹「成功生成到自定义路径」，而文件从未到达浏览器。`genPath` 后端当初也不消费（纯死字段）。
+ *
+ * 本用例走完整条链，每一步都是**可观测事实**而不是"点了没报错"：
+ * ① 解析器自身活性（坏输入必抛 / 空包可解析）
+ * ② 准备：sys_notice 在生成列表（缺失则由 API 导入，用例自建自清）
+ * ③ PUT 的基底取详情（不丢列配置）
+ * ④ 设置 genType=1 / genPath=module/system 且写后读一致
+ * ⑤⑥ 页面可达、目标行与行内「生成代码」按钮可见
+ * ⑦ 点击 ⇒ **收到 download 事件**且文件名为 sys_notice.zip（假成功在这里必然红）
+ * ⑧ ZIP 中央目录里**每条**都带 module/system/ 前缀
+ * ⑨ entity 条目能真解压且非空（模板真产出，不是空骨架）
+ * ⑩ 穿越前缀 ../etc ⇒ 400：**无下载**且错误提示可见
+ * ⑪ 失败后页面未被 ErrorBoundary 卸载
+ * ⑫ 对照组 prefix=/ ⇒ 仍能下载且**不带**前缀（证明前缀真被消费，而不是"永远加前缀"）
+ */
+async function testFeature157(page) {
+  log('=== 功能 157：代码生成按目录前缀下载 ZIP（b139） ===')
+
+  const selfCheck = zipInspectSelfCheck()
+  record(157, '① ZIP 解析器活性自证（坏输入必抛错，空包可解析）', selfCheck.ok, selfCheck.detail)
+
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const jsonHeaders = { ...auth, 'Content-Type': 'application/json' }
+  const listRows = async () => {
+    const r = await fetch(`${CONFIG.backendUrl}/tool/gen/list?pageNum=1&pageSize=100`, { headers: auth })
+      .then((x) => x.json())
+      .catch(() => null)
+    return r?.rows || []
+  }
+
+  let row = (await listRows()).find((r) => r.tableName === 'sys_notice')
+  let importedHere = false
+  if (!row) {
+    await fetch(`${CONFIG.backendUrl}/tool/gen/importTable?tables=sys_notice&tplWebType=element-plus-typescript`, {
+      method: 'POST',
+      headers: auth
+    }).catch(() => null)
+    row = (await listRows()).find((r) => r.tableName === 'sys_notice')
+    importedHere = true
+  }
+  record(
+    157,
+    '② 准备：sys_notice 已在生成列表（缺失则由 API 导入并自清）',
+    !!row,
+    `tableId=${row?.tableId ?? '无'} imported=${importedHere}`
+  )
+  if (!row) return
+
+  const detail = await fetch(`${CONFIG.backendUrl}/tool/gen/${row.tableId}`, { headers: auth })
+    .then((x) => x.json())
+    .catch(() => null)
+  // 详情端点的载荷是 `{ data: { info: <GenTable>, rows: <列配置> } }`——
+  // 写成 `detail.data` 会读到 `{info, rows}` 而 tableName 恒 undefined（本轮首跑实测）
+  const base = detail?.data?.info
+  record(157, '③ 读取生成配置详情（PUT 的基底，避免丢列配置）', !!base?.tableName, `table=${base?.tableName ?? '无'}`)
+  if (!base) {
+    // 这一条早退在 try 之外：本轮自己导入的行必须在这里清掉，否则每轮残留 +1
+    if (importedHere) {
+      await fetch(`${CONFIG.backendUrl}/tool/gen/${row.tableId}`, { method: 'DELETE', headers: auth }).catch(() => null)
+    }
+    return
+  }
+
+  const origin = { genType: base.genType, genPath: base.genPath }
+  const putGen = async (patch) => {
+    return fetch(`${CONFIG.backendUrl}/tool/gen`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...base, ...patch })
+    })
+      .then((x) => x.json())
+      .catch(() => null)
+  }
+
+  const genButton = (target) => target.getByRole('button', { name: /生成代码|Generate Code/i }).first()
+  const noticeRow = () => page.locator('.el-table__row').filter({ hasText: 'sys_notice' }).first()
+
+  try {
+    const put1 = await putGen({ genType: '1', genPath: 'module/system' })
+    const after1 = (await listRows()).find((r) => r.tableName === 'sys_notice')
+    record(
+      157,
+      '④ API 设置 genType=1 / genPath=module/system 且写后读一致',
+      put1?.code === 200 && after1?.genType === '1' && after1?.genPath === 'module/system',
+      `code=${put1?.code} genType=${after1?.genType} genPath=${after1?.genPath}`
+    )
+
+    const pageOk = await openPage(page, '/tool/gen', 'gen')
+    record(157, '⑤ 页面可达（/tool/gen）', pageOk)
+    if (!pageOk) return
+    await dismissAllOverlays(page)
+
+    const targetRow = noticeRow()
+    const rowVisible = await _visible(targetRow, 8000)
+    const genBtn = genButton(targetRow)
+    const btnVisible = rowVisible && (await _visible(genBtn, 5000))
+    record(157, '⑥ 目标行与行内「生成代码」按钮可见', btnVisible, `row=${rowVisible} btn=${btnVisible}`)
+    if (!btnVisible) return
+    await waitToastsCleared(page)
+
+    const [dl] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+      genBtn.click({ timeout: 8000 })
+    ])
+    const dlName = dl?.suggestedFilename?.() || ''
+    record(
+      157,
+      '⑦ 点击「生成代码」触发真实下载（不是只弹一个成功）',
+      !!dl && dlName === 'sys_notice.zip',
+      `file=${dlName || '无 download 事件'}`
+    )
+    if (!dl) return
+
+    const zipBuf = fs.readFileSync(await dl.path())
+    const entries = readZipEntries(zipBuf)
+    const names = entries.map((e) => e.name)
+    record(
+      157,
+      '⑧ ZIP 全部条目都按前缀组织（module/system/）',
+      names.length >= 8 && names.every((n) => n.startsWith('module/system/')),
+      `entries=${names.length} sample=${names.slice(0, 3).join(',')}`
+    )
+    const entityEntry = entries.find((e) => e.name.startsWith('module/system/') && e.name.includes('/src/entity/'))
+    const entityLen = entityEntry ? readZipEntry(zipBuf, entityEntry).length : 0
+    record(
+      157,
+      '⑨ entity 条目可解压且内容非空（模板真产出）',
+      !!entityEntry && entityLen > 100,
+      `entry=${entityEntry?.name ?? '无'} bytes=${entityLen}`
+    )
+
+    // —— 失败路径：穿越前缀必须 400，且不得产生下载 ——
+    await putGen({ genType: '1', genPath: '../etc' })
+    await page.reload({ waitUntil: 'load' })
+    await sleep(1500)
+    await dismissAllOverlays(page)
+    await waitToastsCleared(page)
+    const genBtn2 = genButton(noticeRow())
+    const btn2 = await _visible(genBtn2, 8000)
+    // 错误提示必须**与下载等待并行累积采样**：el-message 约 3s 自消，
+    // "先等满 8s 下载超时再读一次"只会把"提示出现过"读成"没有提示"（b125 ⑤ 同族）
+    const seenToasts = []
+    let sampling = true
+    const sampler = (async () => {
+      while (sampling) {
+        const snapshot = await page
+          .evaluate(() => Array.from(document.querySelectorAll('.el-message')).map((el) => el.textContent || ''))
+          .catch(() => [])
+        for (const text of snapshot) if (text && !seenToasts.includes(text)) seenToasts.push(text)
+        await page.waitForTimeout(250)
+      }
+    })()
+    const [dl2] = btn2
+      ? await Promise.all([
+          page.waitForEvent('download', { timeout: 8000 }).catch(() => null),
+          genBtn2.click({ timeout: 8000 })
+        ])
+      : [null]
+    // 点击已发生：再给失败提示 3 秒窗口，然后收采样器
+    const toastDeadline = Date.now() + 3000
+    while (Date.now() < toastDeadline && seenToasts.length === 0) await page.waitForTimeout(200)
+    sampling = false
+    await sampler
+    record(
+      157,
+      '⑩ 穿越前缀 ⇒ 无下载且错误提示可见（Zip Slip 防线）',
+      btn2 && !dl2 && seenToasts.length > 0,
+      `btn=${btn2} download=${!!dl2} toast=${seenToasts.join(' | ').slice(0, 120) || '无'}`
+    )
+    const pageAlive = await page
+      .locator('.app-main')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    record(157, '⑪ 失败路径后页面未被卸载（ErrorBoundary 不接管）', pageAlive, `app-main=${pageAlive}`)
+
+    // —— 对照组：`/` 是 gen_path 的数据库默认值，语义是平铺 ——
+    await putGen({ genType: '1', genPath: '/' })
+    await page.reload({ waitUntil: 'load' })
+    await sleep(1500)
+    await dismissAllOverlays(page)
+    const genBtn3 = genButton(noticeRow())
+    const btn3 = await _visible(genBtn3, 8000)
+    const [dl3] = btn3
+      ? await Promise.all([
+          page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+          genBtn3.click({ timeout: 8000 })
+        ])
+      : [null]
+    const flatNames = dl3 ? readZipEntries(fs.readFileSync(await dl3.path())).map((e) => e.name) : []
+    record(
+      157,
+      '⑫ 对照组：prefix=/ ⇒ 仍能下载且条目平铺（前缀真被消费）',
+      !!dl3 && flatNames.length >= 8 && flatNames.every((n) => !n.startsWith('module/system/')),
+      `entries=${flatNames.length} sample=${flatNames.slice(0, 2).join(',') || '无'}`
+    )
+  } finally {
+    // 恢复原配置；若本轮才导入，则整条删除（自建自清，避免残留每轮 +1）
+    await putGen({ genType: origin.genType, genPath: origin.genPath }).catch(() => {})
+    if (importedHere) {
+      await fetch(`${CONFIG.backendUrl}/tool/gen/${base.tableId}`, { method: 'DELETE', headers: auth }).catch(
+        () => null
+      )
+    }
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -21309,7 +21522,8 @@ async function main() {
       { id: 153, fn: testFeature153 },
       { id: 154, fn: testFeature154 },
       { id: 155, fn: testFeature155 },
-      { id: 156, fn: testFeature156 }
+      { id: 156, fn: testFeature156 },
+      { id: 157, fn: testFeature157 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

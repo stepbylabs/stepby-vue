@@ -1,62 +1,62 @@
-import type { PageDomain, BaseEntity } from "../common";
+import type { PageDomain, BaseEntity } from '../common'
 
 /** 数据表分页查询参数 */
 export interface GenQueryParams extends PageDomain {
   /** 表名称 */
-  tableName?: string;
+  tableName?: string
   /** 表描述 */
-  tableComment?: string;
+  tableComment?: string
   /** 创建时间 */
   params?: {
-    beginTime?: string;
-    endTime?: string;
-  };
+    beginTime?: string
+    endTime?: string
+  }
 }
 
 /** 代码生成业务信息 */
 export interface GenTable extends BaseEntity {
   /** 主键编号 */
-  tableId?: number;
+  tableId?: number
   /** 表名称 */
-  tableName?: string;
+  tableName?: string
   /** 表描述 */
-  tableComment?: string;
+  tableComment?: string
   /** 关联父表的表名 */
-  subTableName?: string;
+  subTableName?: string
   /** 本表关联父表的外键名 */
-  subTableFkName?: string;
+  subTableFkName?: string
   /** 实体类名称(首字母大写) */
-  className?: string;
+  className?: string
   /** 使用的模板（crud单表操作 tree树表操作 sub主子表操作 flow审批单据） */
   tplCategory?: 'crud' | 'tree' | 'sub' | 'flow'
   /** 前端类型（element-ui模版 element-plus模版） */
   tplWebType?: 'element-ui' | 'element-plus'
   /** 生成包路径 */
-  packageName?: string;
+  packageName?: string
   /** 生成模块名 */
-  moduleName?: string;
+  moduleName?: string
   /** 生成业务名 */
-  businessName?: string;
+  businessName?: string
   /** 生成功能名 */
-  functionName?: string;
+  functionName?: string
   /** 生成作者 */
-  functionAuthor?: string;
-  /** 生成代码方式（0zip压缩包 1自定义路径） */
+  functionAuthor?: string
+  /** 生成代码方式（0zip压缩包 1按目录前缀组织） */
   genType?: '0' | '1'
-  /** 生成路径（不填默认项目路径） */
-  genPath?: string;
-   /** 其它生成选项 */
-   options?: string;
+  /** 压缩包内路径前缀（留空或 / 表示平铺；后端拒绝 .. 与绝对路径） */
+  genPath?: string
+  /** 其它生成选项 */
+  options?: string
   /** 树编码字段  */
-  treeCode?: string;
+  treeCode?: string
   /** 树父编码字段 */
-  treeParentCode?: string;
+  treeParentCode?: string
   /** 树名称字段 */
-  treeName?: string;
+  treeName?: string
   /** 上级菜单ID字段 */
-  parentMenuId?: string;
+  parentMenuId?: string
   /** 上级菜单名称字段 */
-  parentMenuName?: string;
+  parentMenuName?: string
   /** 表列信息 */
   columns?: GenTableColumn[]
 }
