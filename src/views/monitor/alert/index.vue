@@ -272,9 +272,9 @@
           >
             <el-option v-for="ch in channelList" :key="ch.channelId" :label="ch.channelName" :value="ch.channelId!" />
           </el-select>
-          <!-- b133：截断不再只写在 DEV console 里（失败态由对话框顶部的既有告警覆盖） -->
+          <!-- b134：截断按 total 判定并显示实际条数（失败态由对话框顶部的既有告警覆盖） -->
           <div v-if="channelTruncated" class="form-tip-block" data-test="channel-truncated">
-            {{ t('alert.form.optionsTruncated') }}
+            {{ t('common.optionsTruncated', { count: channelList.length, total: channelTotal }) }}
           </div>
           <div class="form-tip-block">{{ t('alert.form.notifyChannelTip') }}</div>
         </el-form-item>
@@ -298,7 +298,7 @@
             />
           </el-select>
           <div v-if="templateTruncated" class="form-tip-block" data-test="template-truncated">
-            {{ t('alert.form.optionsTruncated') }}
+            {{ t('common.optionsTruncated', { count: templateList.length, total: templateTotal }) }}
           </div>
         </el-form-item>
         <el-form-item :label="t('alert.form.enabled')">
@@ -363,7 +363,7 @@ import type { SysMsgChannel, SysMsgTemplate } from '@/types/api/system/msg'
 import type { FormInstance, FormRules } from 'element-plus'
 import modal from '@/plugins/modal'
 import { useCrudTable } from '@/composables/useCrudTable'
-import { createLatestGuard } from '@/composables/latestRequest'
+import { useRemoteOptions } from '@/composables/useRemoteOptions'
 
 const { t } = useI18n()
 const queryRef = useTemplateRef('queryRef')
@@ -401,26 +401,36 @@ function comparatorLabel(comparator: string): string {
 const defaultSort = ref({ prop: 'lastFiredAt', order: 'descending' })
 
 // 消息渠道/模板下拉数据（编辑弹窗与列表展示共用）
-const channelList = ref<SysMsgChannel[]>([])
-const channelLoading = ref(false)
-const channelLoadError = ref(false)
-// 首屏拉取命中上限 ⇒ 列表被截断，必须给用户可见提示（b133：原先只有 DEV console）
-const channelTruncated = ref(false)
-const templateList = ref<SysMsgTemplate[]>([])
-const templateLoading = ref(false)
-const templateLoadError = ref(false)
-const templateTruncated = ref(false)
-/** 下拉单次拉取条数：够一屏备选，超出部分靠名称远程搜索（后端已支持模糊过滤） */
-const DROPDOWN_PAGE_SIZE = 100
-// 边输入边搜索 = 多个在飞请求，只让最后一次的结局落地（b119 原语；否则慢网下选项与关键字对不上）
-const channelSearchGuard = createLatestGuard()
-const templateSearchGuard = createLatestGuard()
+// b134：上限（不得超服务端 MAX_PAGE_SIZE）、截断（按 total 判）、失败可见、后发先回
+// 四条义务统一由 useRemoteOptions 提供——此前两处各写一份，截断判据还写成"到达请求值"
+const {
+  options: channelList,
+  loading: channelLoading,
+  loadError: channelLoadError,
+  total: channelTotal,
+  truncated: channelTruncated,
+  search: searchChannels,
+  retry: retryChannels
+} = useRemoteOptions<SysMsgChannel>((keyword, pageNum, pageSize) =>
+  listChannel({ pageNum, pageSize, status: '0', channelName: keyword || undefined })
+)
+const {
+  options: templateList,
+  loading: templateLoading,
+  loadError: templateLoadError,
+  total: templateTotal,
+  truncated: templateTruncated,
+  search: searchTemplates,
+  retry: retryTemplates
+} = useRemoteOptions<SysMsgTemplate>((keyword, pageNum, pageSize) =>
+  listTemplate({ pageNum, pageSize, status: '0', templateName: keyword || undefined })
+)
 // 下拉失败必须在弹窗里看得见（b105）：空下拉 + 无提示会让用户以为"没有可选的渠道"，
-// 把规则保存成"仅记录不通知"。两个下拉任一失败即提示，重试一次同时补两路。
+// 把规则保存成"仅记录不通知"。两个下拉任一失败即提示，重试沿用各自最后一次关键字。
 const optionsLoadError = computed(() => channelLoadError.value || templateLoadError.value)
 function retryLoadOptions(): void {
-  loadChannels()
-  loadTemplates()
+  void retryChannels()
+  void retryTemplates()
 }
 
 const queryParams = ref<AlertRuleQueryParams>({
@@ -505,60 +515,9 @@ function loadChannels(): void {
   void searchChannels('')
 }
 
-/**
- * 渠道远程搜索（b133）：一次性拉 100 条会在渠道数超限时**静默截断**，
- * 原先只有 `import.meta.env.DEV` 的 console 提示，用户看到的是一个少了几项的"完整"下拉。
- * 现在：可搜索（后端 channelName 模糊过滤）+ 命中上限时给出可见提示。
- */
-async function searchChannels(keyword: string): Promise<void> {
-  const ticket = channelSearchGuard.begin()
-  channelLoading.value = true
-  try {
-    const res = await listChannel({
-      pageNum: 1,
-      pageSize: DROPDOWN_PAGE_SIZE,
-      status: '0',
-      channelName: keyword.trim() || undefined
-    })
-    if (!channelSearchGuard.isCurrent(ticket)) return
-    channelLoadError.value = false
-    channelList.value = res.rows || []
-    channelTruncated.value = (res.rows?.length ?? 0) >= DROPDOWN_PAGE_SIZE
-  } catch {
-    if (!channelSearchGuard.isCurrent(ticket)) return
-    channelLoadError.value = true
-    channelList.value = []
-  } finally {
-    if (channelSearchGuard.isCurrent(ticket)) channelLoading.value = false
-  }
-}
-
 /** 加载消息模板下拉（支持按名称远程搜索） */
 function loadTemplates(): void {
   void searchTemplates('')
-}
-
-async function searchTemplates(keyword: string): Promise<void> {
-  const ticket = templateSearchGuard.begin()
-  templateLoading.value = true
-  try {
-    const res = await listTemplate({
-      pageNum: 1,
-      pageSize: DROPDOWN_PAGE_SIZE,
-      status: '0',
-      templateName: keyword.trim() || undefined
-    })
-    if (!templateSearchGuard.isCurrent(ticket)) return
-    templateLoadError.value = false
-    templateList.value = res.rows || []
-    templateTruncated.value = (res.rows?.length ?? 0) >= DROPDOWN_PAGE_SIZE
-  } catch {
-    if (!templateSearchGuard.isCurrent(ticket)) return
-    templateLoadError.value = true
-    templateList.value = []
-  } finally {
-    if (templateSearchGuard.isCurrent(ticket)) templateLoading.value = false
-  }
 }
 
 /** 渠道 ID → 渠道名（列表展示；下拉未加载时回退显示 ID） */

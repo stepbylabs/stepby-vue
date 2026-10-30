@@ -662,6 +662,8 @@ export default {
     detail: {
       loading: '加载中...',
       noData: '暂无字典数据',
+      loadFailed: '字典数据加载失败，请重试',
+      statsTruncated: '该字典共 {total} 条，下方统计仅基于前 {count} 条',
       total: '共计条目',
       normal: '正常',
       disabled: '停用',
@@ -816,6 +818,7 @@ export default {
     tip: {
       noSortChange: '未检测到排序修改',
       sortSaved: '排序保存成功',
+      parentTreeLoadFailed: '上级部门加载失败，已阻止打开表单以免把部门建到错误的层级',
       confirmDelete: '是否确认删除名称为"{name}"的数据项？'
     },
     validate: {
@@ -906,6 +909,7 @@ export default {
       menuTypeDir: '目录',
       menuTypeMenu: '菜单',
       menuTypeButton: '按钮',
+      parentTreeLoadFailed: '上级菜单加载失败，已阻止打开表单以免把菜单建到错误的层级',
       link: '外链',
       cache: '缓存',
       noCache: '不缓存',
@@ -1293,6 +1297,8 @@ export default {
     sub: {
       title: '报表订阅',
       target: '报表「{name}」的订阅',
+      reportOptionsFailed: '报表候选加载失败，暂时无法选择关联报表。',
+      listLoadFailed: '订阅列表加载失败，当前无法确认该报表的订阅情况',
       search: {
         subName: '订阅名称',
         phSubName: '请输入订阅名称',
@@ -1858,6 +1864,7 @@ export default {
     formToUser: '目标用户（用户 ID）',
     phToUser: '输入用户名远程搜索',
     phToUserDel: '选择本节点另一名审批人（减签后须至少剩一名）',
+    userOptionsFailed: '用户候选加载失败，当前无法选择目标用户',
     actTitle: {
       approve: '同意审批',
       reject: '驳回审批',

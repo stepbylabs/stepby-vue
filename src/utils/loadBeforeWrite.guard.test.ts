@@ -272,7 +272,36 @@ const AUTH_DATA =
 const FAILURE_MARK =
   /(Loaded|loaded)\s*\.value\s*=\s*false|loadError\s*\.value\s*=\s*true|loadFailed\s*\.value\s*=\s*true/
 
-/** R1：catch 里清空授权族数据却没有标记未就绪 ⇒ 违规 */
+/** 取 catch 体所属函数名（`function foo(` / `const foo = (...) =>`） */
+export function enclosingFunctionName(masked: string, index: number): string | null {
+  const head = masked.slice(0, index)
+  const decl =
+    /(?:function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::[^={]+)?\{|(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=>)/g
+  let name: string | null = null
+  let m: RegExpExecArray | null
+  while ((m = decl.exec(head)) !== null) name = m[1] ?? m[2]
+  return name
+}
+
+/**
+ * 第二种安全形状（b134）：catch `return false` 把失败交回调用方，且**每个** `await fn(` 调用点
+ * 都写成 `if (!(await fn(...)))` —— 表单根本不会打开（比"置未就绪但表单照开"更早一步拦住）。
+ * 已知局限：只认 `await fn(` 这一形态（`fn().then` 之类看不见），故要求**全部**调用点都被闸住。
+ */
+export function failureIsGatedByCallers(masked: string, fn: string, body: string): boolean {
+  if (!/\breturn\s+false\b/.test(body)) return false
+  const callRe = new RegExp(`await\\s+${fn}\\s*\\(`, 'g')
+  let calls = 0
+  let m: RegExpExecArray | null
+  while ((m = callRe.exec(masked)) !== null) {
+    const before = masked.slice(Math.max(0, m.index - 60), m.index)
+    if (!/if\s*\(\s*!\s*\(\s*$/.test(before)) return false
+    calls += 1
+  }
+  return calls > 0
+}
+
+/** R1：catch 里清空授权族数据却没有标记未就绪，也没有把失败交给被闸住的调用方 ⇒ 违规 */
 export function auditCatchClears(rel: string, code: string): string[] {
   const masked = maskComments(code)
   const out: string[] = []
@@ -284,6 +313,8 @@ export function auditCatchClears(rel: string, code: string): string[] {
     const objectFallback = [...body.matchAll(/([A-Za-z_$][\w$]*)\s*:\s*\[\s*\]/g)].filter((m) => AUTH_DATA.test(m[1]))
     if (clears.length === 0 && objectFallback.length === 0) continue
     if (FAILURE_MARK.test(body)) continue
+    const fn = enclosingFunctionName(masked, index)
+    if (fn && failureIsGatedByCallers(masked, fn, body)) continue
     const names = [...clears.map((m) => m[1]), ...objectFallback.map((m) => m[1])].join(', ')
     out.push(`${rel}:${line}: catch 把 ${names} 清空/回落成空值却没有置「未就绪」标记（读失败会被当成空授权写回去）`)
   }
@@ -337,7 +368,11 @@ describe('读失败不得被当成空数据写回去（b133）', () => {
       'a().catch(() => { if (x) { menuOptions.value = [] } })',
       // try/catch 是本仓的主流写法（roles 页修复后就是这一形态），必须同样进采集面
       'try { await a() } catch { menuOptions.value = [] }',
-      'try { await a() } catch (e) { deptOptions.value = null }'
+      'try { await a() } catch (e) { deptOptions.value = null }',
+      // 失败交回调用方但没有任何调用点闸住它 ⇒ 照样是"照常打开表单"
+      'function loadA() { return a().catch(() => { menuOptions.value = []; return false }) }\nloadA()',
+      // 有调用方闸门、但 catch 声称成功 ⇒ 闸门恒不生效
+      'function loadA() { return a().catch(() => { menuOptions.value = []; return true }) }\nasync function c() { if (!(await loadA())) return }'
     ]
     for (const src of bad) {
       expect(auditCatchClears('synthetic.vue', src), `未抓到：${src}`).toHaveLength(1)
@@ -347,6 +382,9 @@ describe('读失败不得被当成空数据写回去（b133）', () => {
       'a().catch(() => { deptOptions.value = []; deptTreeLoaded.value = false })',
       'a().catch(() => { loadError.value = true; loaded.value = false })',
       'try { await a() } catch { menuOptions.value = []; menuTreeLoaded.value = false }',
+      // b134 的第二条安全路径：失败返回 false 且全部调用点 `if (!(await fn(` 拒开表单
+      'function loadA() { return a().catch(() => { menuOptions.value = []; return false }) }\nasync function c() { if (!(await loadA())) return }',
+      'const loadB = async () => a().catch(() => { deptOptions.value = null; return false })\nasync function c() { if (!(await loadB(1))) { return } }',
       // 非授权族的数据清空不属于本族（下拉/缓存键等没有"写回空授权"的后果）
       'a().catch(() => { keys.value = []; eventOptionsFull.value = [] })',
       // 注释与字符串里的坏形状不算代码
@@ -426,7 +464,11 @@ describe('读失败不得被当成空数据写回去（b133）', () => {
     expect(p.code).toMatch(/<el-select[\s\S]{0,400}?filterable[\s\S]{0,400}?remote/)
     expect(p.code).toMatch(/:remote-method="searchChannels"/)
     expect(p.code).toMatch(/:remote-method="searchTemplates"/)
-    expect(p.code).toMatch(/createLatestGuard\(\)/)
+    // b134 把两处手写搜索收进共用组合子：竞态保护（createLatestGuard 票据）随之下沉到单一实现，
+    // 这里同时钉住"页面用共用件"与"共用件里有票据"——只钉页面会把重构后的合法形态判红
+    expect(p.code).toMatch(/useRemoteOptions<SysMsgChannel>/)
+    expect(p.code).toMatch(/useRemoteOptions<SysMsgTemplate>/)
+    expect(readSrc('composables/useRemoteOptions.ts').code).toMatch(/createLatestGuard\(\)/)
     expect(p.code).toMatch(/data-test="channel-truncated"/)
     expect(p.code).toMatch(/data-test="template-truncated"/)
     // b133 自纠：这两个下拉的失败态在 HEAD 早就存在（optionsLoadError + retryLoadOptions），

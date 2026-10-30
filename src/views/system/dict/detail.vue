@@ -21,6 +21,19 @@
           <span>{{ t('dict.detail.loading') }}</span>
         </div>
 
+        <!-- 加载失败：不得显示成"暂无数据"（b134） -->
+        <div v-else-if="loadFailed" key="error" class="py-[40px]">
+          <el-alert
+            type="error"
+            :closable="false"
+            show-icon
+            :title="t('dict.detail.loadFailed')"
+            data-test="dict-detail-load-error"
+          >
+            <el-button link type="primary" @click="loadData">{{ t('common.retry') }}</el-button>
+          </el-alert>
+        </div>
+
         <!-- 空数据 -->
         <el-empty
           v-else-if="!dataList.length"
@@ -32,10 +45,13 @@
 
         <div v-else key="content">
           <!-- 统计卡片 -->
+          <div v-if="statsTruncated" class="form-tip-block mb-2" data-test="dict-detail-stats-truncated">
+            {{ t('dict.detail.statsTruncated', { count: dataList.length, total: statsTotal }) }}
+          </div>
           <el-row :gutter="12" class="mb-4">
             <el-col :span="disabledCount > 0 ? 8 : 12">
               <div class="stat-card rounded-md py-2.5 px-3.5 text-center">
-                <div class="stat-num text-[22px] font-bold">{{ dataList.length }}</div>
+                <div class="stat-num text-[22px] font-bold">{{ statsTotal }}</div>
                 <div class="stat-label text-[12px] mt-1">{{ t('dict.detail.total') }}</div>
               </div>
             </el-col>
@@ -98,6 +114,8 @@
 <script setup lang="ts">
 import { listData } from '@/api/system/dict/data'
 import type { SysDictData, SysDictType } from '@/types/api/system/dict'
+import { createLatestGuard } from '@/composables/latestRequest'
+import { fetchAllPages } from '@/utils/paging'
 
 const { t } = useI18n()
 
@@ -106,30 +124,59 @@ const props = defineProps<{ row: SysDictType | null }>()
 const visible = defineModel<boolean>('visible', { default: false })
 
 const loading = ref<boolean>(false)
+const loadFailed = ref<boolean>(false)
 const dataList = ref<SysDictData[]>([])
+/** 真实总数（服务端 total）；统计卡不得再拿"这一页的行数"冒充总数（b134） */
+const statsTotal = ref<number>(0)
+/** 全量拉取撞到硬上限：统计只覆盖前 N 条，必须如实告诉用户 */
+const statsTruncated = ref<boolean>(false)
+const loadGuard = createLatestGuard()
 
 const normalCount = computed(() => dataList.value.filter((r: SysDictData) => r.status === '0').length)
 const disabledCount = computed(() => dataList.value.filter((r: SysDictData) => r.status !== '0').length)
 
-watch(visible, (val: boolean) => {
-  if (val) {
-    loadData()
-  } else {
-    dataList.value = []
-  }
-})
+watch(
+  visible,
+  (val: boolean) => {
+    if (val) {
+      loadData()
+    } else {
+      loadGuard.invalidate()
+      dataList.value = []
+      loadFailed.value = false
+      statsTotal.value = 0
+      statsTruncated.value = false
+    }
+  },
+  // 抽屉以「已打开」状态挂载时也要取数（immediate 让 watch 与挂载时机的耦合消失）
+  { immediate: true }
+)
 
 function loadData() {
-  if (!props.row?.dictType) return
+  const dictType = props.row?.dictType
+  if (!dictType) return
+  const ticket = loadGuard.begin()
   loading.value = true
+  loadFailed.value = false
   dataList.value = []
-  listData({ dictType: props.row.dictType, pageSize: 50, pageNum: 1 })
-    .then((response) => {
-      dataList.value = response.rows || []
+  // 统计必须基于全量：此前只取前 50 行，却在卡片上把它当"共计条目"（b134）
+  fetchAllPages((pageNum, pageSize) => listData({ dictType, pageNum, pageSize }))
+    .then((res) => {
+      if (!loadGuard.isCurrent(ticket)) return
+      dataList.value = res.rows
+      statsTotal.value = res.total
+      statsTruncated.value = res.truncated
     })
-    .catch(() => {})
+    .catch(() => {
+      if (!loadGuard.isCurrent(ticket)) return
+      // 读失败不得落成"暂无字典数据"：抽屉里明确失败 + 重试
+      dataList.value = []
+      statsTotal.value = 0
+      statsTruncated.value = false
+      loadFailed.value = true
+    })
     .finally(() => {
-      loading.value = false
+      if (loadGuard.isCurrent(ticket)) loading.value = false
     })
 }
 </script>
@@ -144,6 +191,12 @@ function loadData() {
 }
 .drawer-loading {
   color: var(--el-text-color-secondary);
+}
+/* 统计口径提示：必须显眼（b134：截断不能被当成"全量统计"读） */
+.form-tip-block {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-color-warning);
 }
 .stat-card {
   background: var(--el-fill-color-light);

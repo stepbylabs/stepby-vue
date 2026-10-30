@@ -178,14 +178,42 @@
           />
         </el-form-item>
         <el-form-item :label="t('report.sub.form.report')" prop="reportId">
-          <el-select
-            :aria-label="t('report.sub.form.report')"
-            v-model="form.reportId"
-            :placeholder="t('common.form.selectPlaceholder')"
-            filterable
-          >
-            <el-option v-for="opt in reportOptions" :key="opt.reportId" :label="opt.reportName" :value="opt.reportId" />
-          </el-select>
+          <div class="w-full">
+            <el-select
+              :aria-label="t('report.sub.form.report')"
+              v-model="form.reportId"
+              :placeholder="t('common.form.selectPlaceholder')"
+              :loading="reportOptionsLoading"
+              filterable
+              remote
+              :remote-method="searchReports"
+              class="w-full"
+            >
+              <el-option
+                v-for="opt in reportOptions"
+                :key="opt.reportId"
+                :label="opt.reportName"
+                :value="opt.reportId"
+              />
+            </el-select>
+            <div
+              v-if="reportOptionsError"
+              class="mt-1 text-xs leading-snug text-[var(--el-color-danger)]"
+              data-test="report-options-error"
+            >
+              {{ t('report.sub.reportOptionsFailed') }}
+              <el-button link type="primary" size="small" @click="retryReportOptions">
+                {{ t('common.retry') }}
+              </el-button>
+            </div>
+            <div
+              v-else-if="reportOptionsTruncated"
+              class="mt-1 text-xs leading-snug text-[var(--el-color-warning)]"
+              data-test="report-options-truncated"
+            >
+              {{ t('common.optionsTruncated', { count: reportOptions.length, total: reportTotal }) }}
+            </div>
+          </div>
         </el-form-item>
         <el-form-item :label="t('report.sub.form.cron')" prop="cron">
           <div class="w-full">
@@ -247,11 +275,22 @@
 </template>
 
 <script setup lang="ts" name="SysReportSub">
-import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub, listReport } from '@/api/system/report'
+import {
+  listSub,
+  getSub,
+  getReport,
+  delSub,
+  addSub,
+  updateSub,
+  changeSubStatus,
+  runSub,
+  listReport
+} from '@/api/system/report'
 import type { SysReportSub, SysReport } from '@/types/api/system/report'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
+import { useRemoteOptions } from '@/composables/useRemoteOptions'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -260,13 +299,35 @@ const queryRefRef = useTemplateRef('queryRef')
 const { sys_normal_disable } = useDict('sys_normal_disable')
 
 // 可用报表选项（用于订阅表单选择报表）
-const reportOptions = ref<SysReport[]>([])
-function loadReportOptions() {
-  listReport({ pageNum: 1, pageSize: 200 })
-    .then((res) => {
-      reportOptions.value = res.rows ?? []
-    })
-    .catch(() => {})
+// b134：失败/截断/后发先回统一由 useRemoteOptions 收口。此前 pageSize=200 被服务端钳到 100，
+// catch 静默后下拉为空，用户以为"没有可选报表"；截断也无人提示。
+const {
+  options: reportOptions,
+  loading: reportOptionsLoading,
+  loadError: reportOptionsError,
+  total: reportTotal,
+  truncated: reportOptionsTruncated,
+  search: searchReports,
+  retry: retryReportOptions
+} = useRemoteOptions<SysReport>((keyword, pageNum, pageSize) =>
+  listReport({ pageNum, pageSize, reportName: keyword || undefined })
+)
+
+/**
+ * 打开对话框时刷新候选，并为"编辑一条不在第一页的报表"补上它自己的标签：
+ * 只靠首屏 100 条会让 v-model 的 reportId 显示成裸 ID（数据没错，但用户看不出选的是哪条）。
+ */
+async function ensureReportOption(): Promise<void> {
+  await searchReports('')
+  const id = form.value.reportId
+  if (!id || reportOptions.value.some((o: SysReport) => o.reportId === id)) return
+  try {
+    const res = await getReport(id)
+    const hit = res.data
+    if (hit?.reportId) reportOptions.value = [hit, ...reportOptions.value]
+  } catch {
+    // 拦截器已提示；标签回落成 ID，不影响提交
+  }
 }
 
 const channels = ref<string[]>([])
@@ -341,6 +402,11 @@ const {
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 
+// 打开对话框（新增/编辑）时刷新报表候选，并确保当前选中项有可见标签
+watch(open, (val: boolean) => {
+  if (val) void ensureReportOption()
+})
+
 // 表单数据与渠道勾选同步：打开新增时默认邮件；修改时按提交内容回填
 watch(
   () => form.value,
@@ -406,7 +472,7 @@ async function handleRun(row: SysReportSub) {
   )
 }
 
-loadReportOptions()
+void searchReports('')
 getList()
 </script>
 

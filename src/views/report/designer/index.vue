@@ -81,6 +81,15 @@
     >
       <el-button link type="primary" @click="loadDatasets()">{{ t('common.retry') }}</el-button>
     </el-alert>
+    <el-alert
+      v-if="datasetsTruncated"
+      class="mb-2"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="t('common.optionsTruncated', { count: datasets.length, total: datasetsTotal })"
+      data-test="datasets-truncated"
+    />
     <el-alert v-if="layoutError" class="mb-2" type="error" :closable="false" show-icon :title="t('common.loadFailed')">
       <el-button link type="primary" @click="selectedId && loadLayout(selectedId)">{{ t('common.retry') }}</el-button>
     </el-alert>
@@ -223,6 +232,7 @@ import ChartCard from '../components/ChartCard.vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
+import { fetchAllPages } from '@/utils/paging'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -247,6 +257,8 @@ const loadingDatasets = ref(false)
 const loadingLayout = ref(false)
 const dashboardsError = ref(false)
 const datasetsError = ref(false)
+const datasetsTotal = ref(0)
+const datasetsTruncated = ref(false)
 const layoutError = ref(false)
 /** 选中卡片编辑副本（属性面板直接改副本，确认即生效——简化交互：改即生效） */
 const editing = computed<DashboardChart | undefined>(() =>
@@ -308,11 +320,14 @@ async function loadDashboards(): Promise<boolean> {
 async function loadDatasets(): Promise<boolean> {
   loadingDatasets.value = true
   try {
-    const ds = await listDataset({ pageNum: 1, pageSize: 200 })
-    datasets.value = (ds.rows ?? []).map((d) => ({
+    // b134：后端把 pageSize 钳到 100；按 total 拉齐全集，超硬上限则如实标记截断
+    const ds = await fetchAllPages((pageNum, pageSize) => listDataset({ pageNum, pageSize }))
+    datasets.value = ds.rows.map((d) => ({
       datasetId: d.datasetId,
       datasetName: d.datasetName
     }))
+    datasetsTotal.value = ds.total
+    datasetsTruncated.value = ds.truncated
     datasetsError.value = false
     return true
   } catch {

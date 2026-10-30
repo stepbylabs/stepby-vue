@@ -275,6 +275,13 @@
                 {{ t('common.retry') }}
               </el-button>
             </div>
+            <div
+              v-else-if="eventCatalogTruncated"
+              class="mt-1 text-xs text-[var(--el-color-warning)]"
+              data-test="event-catalog-truncated"
+            >
+              {{ t('common.optionsTruncated', { count: eventCatalogOptions.length, total: eventCatalogTotal }) }}
+            </div>
             <div v-else class="mt-1 text-xs text-text-secondary">{{ t('webHook.form.subscribedEventsTip') }}</div>
           </div>
         </el-form-item>
@@ -456,10 +463,14 @@ const eventCatalogSectionRef = useTemplateRef<{
   reloadOptions: () => void
   optionsLoading: boolean
   optionsError: boolean
+  optionsTotal: number
+  optionsTruncated: boolean
 }>('eventCatalogSectionRef')
 // 下拉数据源的进度/失败由子组件持有（单一数据源），父组件只消费不回推
 const eventCatalogLoading = computed(() => eventCatalogSectionRef.value?.optionsLoading ?? false)
 const eventCatalogLoadError = computed(() => eventCatalogSectionRef.value?.optionsError ?? false)
+const eventCatalogTotal = computed(() => eventCatalogSectionRef.value?.optionsTotal ?? 0)
+const eventCatalogTruncated = computed(() => eventCatalogSectionRef.value?.optionsTruncated ?? false)
 
 /** 打开事件目录对话框 */
 function openEventCatalog(): void {

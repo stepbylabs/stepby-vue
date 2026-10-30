@@ -34,6 +34,7 @@
  * 退出码：0 干净 / 1 有未登记信号、不可解析行或未命中登记 / 2 输入不可用**或本轮不作数**（停顿轮）。
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -46,7 +47,13 @@ import {
 // 窗口解析与"与全量轮自证窗口相交"这两把闸与 oper-log-audit **共用一份实现**（b103）：
 // oper 侧缺这道闸时，部分轮次里 82 条负路径登记会被报成"未命中 ⇒ 须撤销"，
 // 而 `--retire-stale` 在 code=1 时会照常写文件 ⇒ 照提示做就是把真在用的登记一次删光。
-import { overlapGapDetail, readFullRunWindow, windowToEpoch, windowsOverlap } from './dataset-window.mjs'
+import {
+  readFullRunWindow,
+  readPartialRunWindow,
+  windowGapDetail,
+  windowToEpoch,
+  windowsOverlap
+} from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ALLOW = path.join(HERE, 'backend-log-allowlist.json')
@@ -385,7 +392,8 @@ export function stallSummary(stalls) {
 }
 
 // 窗口解析（windowToEpoch）与"与最近一次全量轮自证窗口相交"闸（windowsOverlap /
-// overlapGapDetail / readFullRunWindow）自 b103 起住在 `dataset-window.mjs`：
+// windowGapDetail / readFullRunWindow / readPartialRunWindow）自 b103 起住在
+// `dataset-window.mjs`（b134 起文案只经 windowGapDetail 一个出口）：
 // `oper-log-audit` 此前**没有**这道闸，收口跑部分轮窗口时 82 条负路径登记被报成
 // "未命中 ⇒ 须撤销"，而 `--retire-stale` 在 code=1 时照常写文件（不可逆）。
 // 两份实现必漂（AGENTS §6），所以抽成共享模块、两侧都从这里 import。
@@ -400,7 +408,8 @@ function gateState({
   stalls = [],
   fileTotal = null,
   win = null,
-  dsWin = null
+  dsWin = null,
+  partialWin = null
 }) {
   if (!fs.existsSync(file)) return { code: 2, detail: `日志不存在：${file}` }
   if (fileTotal === 0) return { code: 2, detail: `日志为空（没有任何 tracing 记录）：${file}` }
@@ -408,7 +417,7 @@ function gateState({
   // 详见 windowsOverlap 上方那段立案事实。排在"窗口内零记录"之前：两者同时成立时，
   // 报"窗口里什么都没有"会把人支使去查文件，而正确答案是"窗口选错了轮次"。
   if (win && !windowsOverlap(win, dsWin)) {
-    return { code: 2, detail: overlapGapDetail(win, dsWin) }
+    return { code: 2, detail: windowGapDetail(win, dsWin, partialWin) }
   }
   if (records.length === 0) {
     // 「日志为空」与「日志非空但这一轮的窗口里什么都没有」是两个不同的动作：前者查产物，
@@ -901,6 +910,102 @@ function selftest() {
       '窗口串不可解析时不得读成"不相交"（NaN 参与比较恒 false 那一族，前言 ⑧）',
       windowsOverlap({ sinceMs: NaN, untilMs: NaN }, ds) === true
     )
+    // b134：不相交的两个成因要给出不同的动作。窗口里跑过**分段轮**（浏览器确实跑过，
+    // 只是没跑全量）⇒ 必须要求"跑一轮全量 deep-e2e"；把它们混成一句"先跑一轮浏览器套件"，
+    // 照着做就是重跑一遍刚跑过的套件（AGENTS ⑨：文案指错方向 = 把人支使去把事实签反）。
+    const partial = {
+      sinceMs: Date.parse('2026-10-19T23:10:00Z'),
+      untilMs: Date.parse('2026-10-19T23:20:00Z'),
+      modules: 1,
+      source: '合成夹具'
+    }
+    const stPartial = gateState({
+      file: DEFAULT_ALLOW,
+      records: parsed.records,
+      unparsed: [],
+      unknown: [],
+      unused: miss,
+      win: before,
+      dsWin: ds,
+      partialWin: partial
+    })
+    check(
+      '不相交且窗口里跑过分段轮 ⇒ 文案点名"分段轮"并要求跑一轮全量 deep-e2e（不得让人重跑浏览器套件）',
+      stPartial.code === 2 &&
+        /分段轮/.test(stPartial.detail) &&
+        /全量/.test(stPartial.detail) &&
+        !/先跑一轮浏览器套件/.test(stPartial.detail),
+      JSON.stringify(stPartial)
+    )
+    check(
+      '分段轮窗口与判定窗口不相交 ⇒ 必须退回旧文案（别处的分段轮不得当成本轮证据）',
+      /先跑一轮浏览器套件/.test(
+        windowGapDetail(before, ds, {
+          ...partial,
+          sinceMs: Date.parse('2026-10-18T01:00:00Z'),
+          untilMs: Date.parse('2026-10-18T02:00:00Z')
+        })
+      ) &&
+        !/分段轮/.test(
+          windowGapDetail(before, ds, {
+            ...partial,
+            sinceMs: Date.parse('2026-10-18T01:00:00Z'),
+            untilMs: Date.parse('2026-10-18T02:00:00Z')
+          })
+        )
+    )
+    check(
+      '没有分段轮数据集（partialWin=null）时文案保持原样（缺数据集不得被说成"跑过分段轮"）',
+      /先跑一轮浏览器套件/.test(windowGapDetail(before, ds, null))
+    )
+    // 装载侧：`readPartialRunWindow` 必须区分"没有这个文件"与"文件在、但那是全量轮"——
+    // 拿一份 full:true 的数据集当分段轮证据，会把"该跑全量"错报成"已经跑过分段"。
+    {
+      const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'blwa-partial-'))
+      const shots = path.join(tmpRoot, 'screenshots')
+      fs.mkdirSync(shots)
+      const target = path.join(shots, 'deep-e2e-reqstats.incremental.json')
+      try {
+        check('分段轮数据集不存在 ⇒ null（不得按"有分段轮"处理）', readPartialRunWindow(tmpRoot) === null)
+        fs.writeFileSync(
+          target,
+          JSON.stringify({
+            full: true,
+            windowStart: '2026-10-20 01:00:00.000',
+            windowEnd: '2026-10-20 02:00:00.000',
+            modulesPlanned: 96
+          })
+        )
+        check('full:true 的数据集不得当成分段轮证据', readPartialRunWindow(tmpRoot) === null)
+        fs.writeFileSync(
+          target,
+          JSON.stringify({
+            full: false,
+            windowStart: '2026-10-20 01:00:00.000',
+            windowEnd: '2026-10-20 02:00:00.000',
+            modulesPlanned: 3
+          })
+        )
+        const ok = readPartialRunWindow(tmpRoot)
+        check(
+          '合法分段轮数据集必须带出窗口与模块数',
+          ok && ok.modules === 3 && Number.isFinite(ok.sinceMs) && Number.isFinite(ok.untilMs),
+          JSON.stringify(ok)
+        )
+        fs.writeFileSync(
+          target,
+          JSON.stringify({
+            full: false,
+            windowStart: '不是时刻',
+            windowEnd: '2026-10-20 02:00:00.000',
+            modulesPlanned: 3
+          })
+        )
+        check('窗口串不可解析 ⇒ null（取不到时刻不得读成"有分段轮"）', readPartialRunWindow(tmpRoot) === null)
+      } finally {
+        fs.rmSync(tmpRoot, { recursive: true, force: true })
+      }
+    }
   }
 
   // ==================== 统计量的窗口对账（b85 收口）====================
@@ -1143,6 +1248,8 @@ function main() {
   // 口径闸的输入：数据集自证窗口。取不到 ⇒ `dsWin = null` ⇒ 这一支**不得**触发
   // （"缺数据集"不得被报成"窗口不对"，那会把人支使去补数据集而不是改窗口）。
   const dsWin = fromDs ? { sinceMs: windowToEpoch(fromDs.since), untilMs: windowToEpoch(fromDs.until) } : null
+  // 只有"窗口里跑过分段轮"时才换文案（结论仍是 UNRUN）：否则会让人重跑一遍刚跑过的套件
+  const partialWin = readPartialRunWindow(HERE)
   const since = opt('since') || process.env.STEPBY_BACKEND_SINCE || fromDs?.since || ''
   const until = opt('until') || process.env.STEPBY_BACKEND_UNTIL || fromDs?.until || ''
   const sinceMs = windowToEpoch(since)
@@ -1189,7 +1296,7 @@ function main() {
   if (!windowsOverlap(winMs, dsWin)) {
     // 口径闸先于内容闸（AGENTS ⑨）：这一把里没有那轮浏览器流量，"未命中 15 条"报出来
     // 只会把人支使去撤销真在用的登记（b88 收口实测正是这个形状：重启 :8080 之后跑非浏览器门禁）。
-    console.error(`❌ [FATAL] ${overlapGapDetail(winMs, dsWin)}（未登记/未命中两张清单已按口径闸跳过）`)
+    console.error(`❌ [FATAL] ${windowGapDetail(winMs, dsWin, partialWin)}（未登记/未命中两张清单已按口径闸跳过）`)
     process.exit(2)
   }
   for (const s of stalls) {
@@ -1242,7 +1349,8 @@ function main() {
     stalls,
     fileTotal: parsed.records.length,
     win: winMs,
-    dsWin
+    dsWin,
+    partialWin
   })
   // 退役通道（批八十五 项 F）：只打提示没有动作 = 没判（AGENTS 门禁全景 ⑩）。
   // 写在判定**之后**、且只在数据集有效（code ≠ 2）时写——日志读不到时"未命中"根本无从谈起。
@@ -1269,7 +1377,8 @@ function main() {
       stalls,
       fileTotal: parsed.records.length,
       win: winMs,
-      dsWin
+      dsWin,
+      partialWin
     })
     if (st2.code !== 0) {
       console.error(`❌ 退役后仍有问题（未登记 ${again.unknown.length} 条）：${st2.detail}`)

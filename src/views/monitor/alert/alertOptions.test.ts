@@ -9,7 +9,8 @@
  * 五条判据：
  * 1. 初始加载：渠道按 `pageSize=100 / status='0' / 无关键字` 拉取；模板不在页面加载时拉（只随弹窗）；
  * 2. 远程搜索：`remote-method` 收到的关键字被 trim 后作为 `channelName` 下发，选项来自响应；
- * 3. 截断可见：命中上限（100 条）⇒ 出现 `data-test="channel-truncated"`；未命中 ⇒ 不出现；
+ * 3. 截断可见且判定正确（b134 收口）：按服务端 `total` 判——`total>行数` 才提示，
+ *    恰好 100/100 是完整一页、不得误报（旧判据拿"请求的 pageSize"当尺会误报）；
  * 4. 后发先回：先发的慢响应不得覆盖后发的搜索结果（`createLatestGuard` 的落地判票）；
  * 5. 失败可见：任一失败 ⇒ 对话框顶部的失败告警出现，重试一次同时补两路。
  */
@@ -181,15 +182,21 @@ describe('告警表单参考数据下拉（b133-D）', () => {
     expect(w.findAllComponents(ElSelectStub).length).toBeGreaterThan(0)
   })
 
-  it('命中上限 ⇒ 截断提示可见；未命中 ⇒ 不出现', async () => {
+  it('截断按服务端 total 判定：total>行数才提示，total 恰好等于行数不提示', async () => {
     const many = Array.from({ length: 100 }, (_, i) => ({ channelId: i + 1, channelName: `渠道${i + 1}` }))
-    hoisted.listChannel.mockResolvedValueOnce({ rows: many })
+    hoisted.listChannel.mockResolvedValueOnce({ rows: many, total: 120 })
     hoisted.listTemplate.mockResolvedValue({ rows: [{ templateId: 9, templateName: '模板' }] })
 
     const w = mountPage()
     await flushPromises()
     expect(w.find('[data-test="channel-truncated"]').exists()).toBe(true)
     expect(w.find('[data-test="template-truncated"]').exists()).toBe(false)
+
+    // 反例：恰好 100/100 是完整的一页——旧判据（rows.length >= 请求的 pageSize）会误报
+    hoisted.listChannel.mockResolvedValueOnce({ rows: many, total: 100 })
+    await remoteMethodOf(w, 'alert.form.notifyChannelId')('x')
+    await flushPromises()
+    expect(w.find('[data-test="channel-truncated"]').exists()).toBe(false)
 
     await remoteMethodOf(w, 'alert.form.notifyTemplateId')('x')
     await flushPromises()

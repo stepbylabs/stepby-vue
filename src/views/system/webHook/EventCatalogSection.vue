@@ -75,6 +75,7 @@
 import { listWebhookEvents, changeWebhookEventEnabled } from '@/api/system/webHook'
 import type { WebhookEventVo, WebhookEventQueryParams } from '@/types/api/system/webHook'
 import { checkPermi } from '@/utils/permission'
+import { fetchAllPages } from '@/utils/paging'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -127,10 +128,12 @@ function handleEventCatalogSortChange(column: { prop: string | null; order: stri
 }
 
 // 缺陷修复：下拉数据源与目录对话框脱钩——此前订阅/测试发送下拉复用第一页
-// 分页数据（pageSize=10），事件目录超过一页时下拉选项缺失。事件目录为系统级
-// 枚举（量级有限），下拉统一全量拉取（pageSize: 500 覆盖足够）。
+// 分页数据（pageSize=10），事件目录超过一页时下拉选项缺失。b134 起按 total 逐页拉齐
+// （后端把 pageSize 钳到 100，此前写 500 只会拿到 100，且 `>=500` 的截断检查永不成立）。
 const eventOptionsFull = ref<WebhookEventVo[]>([])
 const eventOptionsLoading = ref(false)
+const eventOptionsTotal = ref(0)
+const eventOptionsTruncated = ref(false)
 // 下拉数据源失败必须可见（b110）：原实现 catch 静默，订阅下拉会一直是空的，
 // 用户看到的是"没有可订阅事件"而不是"目录加载失败"
 const eventOptionsError = ref(false)
@@ -140,16 +143,16 @@ function loadEventOptionsFull(): void {
   if (eventOptionsLoading.value) return
   eventOptionsLoading.value = true
   eventOptionsError.value = false
-  listWebhookEvents({ pageNum: 1, pageSize: 500 })
+  fetchAllPages((pageNum, pageSize) => listWebhookEvents({ pageNum, pageSize }))
     .then((res) => {
-      eventOptionsFull.value = res.rows || []
-      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 500) {
-        console.warn('[webHook] 事件目录下拉拉取达到 pageSize=500 上限，可能存在截断')
-      }
+      eventOptionsFull.value = res.rows
+      eventOptionsTotal.value = res.total
+      eventOptionsTruncated.value = res.truncated
     })
     .catch(() => {
       eventOptionsFull.value = []
+      eventOptionsTotal.value = 0
+      eventOptionsTruncated.value = false
       eventOptionsError.value = true
     })
     .finally(() => {
@@ -201,7 +204,10 @@ defineExpose({
   reloadOptions: loadEventOptionsFull,
   /** 下拉数据源的加载态/失败态（父组件的订阅多选与测试发送下拉据此显示进度与重试） */
   optionsLoading: eventOptionsLoading,
-  optionsError: eventOptionsError
+  optionsError: eventOptionsError,
+  /** 下拉候选的总数与截断标记（超过全量硬上限时父组件显示可见提示） */
+  optionsTotal: eventOptionsTotal,
+  optionsTruncated: eventOptionsTruncated
 })
 </script>
 

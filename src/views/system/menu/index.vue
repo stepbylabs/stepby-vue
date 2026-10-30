@@ -511,16 +511,20 @@ const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLo
     defaultExpand: false
   })
 
-/** 查询菜单下拉树结构 */
-function getTreeselect() {
+/** 查询菜单下拉树结构（返回是否加载成功：失败时不得打开表单，b134） */
+function getTreeselect(): Promise<boolean> {
   menuOptions.value = []
   return listMenu()
     .then((response) => {
       const menu = { menuId: 0, menuName: t('menuModule.tip.menuTypeDir'), children: [] as SysMenu[] }
       menu.children = handleTree(response.data!, 'menuId')
       menuOptions.value.push(menu)
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      menuOptions.value = []
+      return false
+    })
 }
 
 /** 翻译菜单树（响应式跟随 locale，用于父菜单选择器显示当前语言的菜单名） */
@@ -567,9 +571,13 @@ function selected(name: string) {
 }
 
 /** 新增按钮操作 */
-function handleAdd(row?: SysMenu) {
+async function handleAdd(row?: SysMenu) {
   reset()
-  getTreeselect()
+  // b134：上级树没加载成功就打开表单，parentId 只能落到 0（或显示为空）⇒ 保存即建到根层级
+  if (!(await getTreeselect())) {
+    modal.msgError(t('menuModule.tip.parentTreeLoadFailed'))
+    return
+  }
   if (row != null && row.menuId) {
     form.value.parentId = row.menuId
   } else {
@@ -585,7 +593,10 @@ function handleAdd(row?: SysMenu) {
 /** 修改按钮操作 */
 async function handleUpdate(row: SysMenu) {
   reset()
-  await getTreeselect()
+  if (!(await getTreeselect())) {
+    modal.msgError(t('menuModule.tip.parentTreeLoadFailed'))
+    return
+  }
   getMenu(row.menuId!)
     .then((response) => {
       form.value = response.data!

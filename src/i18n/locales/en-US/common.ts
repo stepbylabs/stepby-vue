@@ -158,6 +158,8 @@ export default {
     submitFailed: 'Submit failed, please retry later',
     cacheRefreshFailed: 'Cache refresh failed, frontend may show stale data',
     treeLoadFailed: 'Failed to load tree structure',
+    // Visible hint when an option source only loaded one page; total comes from the server (b134)
+    optionsTruncated: 'Showing the first {count} of {total}; refine your search to narrow it down',
     // G17: unified feedback for list/request failures
     requestFailed: 'Request failed, please try again later',
     // Common columns

@@ -296,14 +296,18 @@ const { isExpandAll, refreshTable, toggleExpandAll, recordOriginalOrders, sortLo
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
 
-/** 加载部门树下拉选项 */
-function loadDeptOptions(excludeId?: number): void {
+/** 加载部门树下拉选项（返回是否加载成功：失败时不得打开表单，b134） */
+function loadDeptOptions(excludeId?: number): Promise<boolean> {
   const req = excludeId ? listDeptExcludeChild(excludeId) : listDept()
-  req
+  return req
     .then((response) => {
       deptOptions.value = handleTree(response.data!, 'deptId')
+      return true
     })
-    .catch(() => {})
+    .catch(() => {
+      deptOptions.value = []
+      return false
+    })
 }
 
 /** 搜索按钮操作（树形无分页，直接刷新） */
@@ -321,17 +325,24 @@ function resetQuery() {
 }
 
 /** 新增按钮操作（可指定父部门） */
-function handleAdd(row?: SysDept) {
+async function handleAdd(row?: SysDept) {
+  // b134：上级树失败时表单里的 parentId 只能落到默认值 ⇒ 保存会把部门建到错误层级
+  if (!(await loadDeptOptions())) {
+    modal.msgError(t('dept.tip.parentTreeLoadFailed'))
+    return
+  }
   crudHandleAdd()
-  loadDeptOptions()
   if (row !== undefined) {
     form.value.parentId = row.deptId
   }
 }
 
 /** 修改按钮操作（编辑时下拉排除自身子树） */
-function handleUpdate(row: SysDept) {
-  loadDeptOptions(row.deptId!)
+async function handleUpdate(row: SysDept) {
+  if (!(await loadDeptOptions(row.deptId!))) {
+    modal.msgError(t('dept.tip.parentTreeLoadFailed'))
+    return
+  }
   crudHandleUpdate(row)
 }
 

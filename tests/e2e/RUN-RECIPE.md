@@ -5070,3 +5070,99 @@ sync:embedded`），否则新鲜度闸会把"源码比产物新"判成陈旧，�
   先排队会让"慢/快"响应错位到初始加载与第一次搜索上，用例恒真。
 - 桩 `el-select` 用 `:remote-method` 的函数 prop 直接触发搜索；按 `aria-label`（i18n 键名）定位
   两个下拉，不要靠 DOM 序位（表单里有多个普通下拉）。
+
+### 3.127 候选源分页口径、读失败闸与 UNRUN 文案（b134 固化）
+
+**立案**（真机先取证，再动代码）：后端 `common/page.rs` 的 `MAX_PAGE_SIZE = 100` 会把任何
+`pageSize` 静默钳制。取证一行命令就能把它变成事实，不要靠读代码推测：
+
+```bash
+# 1) 登录拿令牌
+TOKEN=$(curl -s -X POST 'http://localhost:8080/prod-api/login' \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}' \
+  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).token))")
+# 2) 请求 500，看实际拿回多少
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8080/prod-api/monitor/operlog/list?pageNum=1&pageSize=500' -o /tmp/clamp.json
+node -e "const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log('rows='+r.rows.length,'total='+r.total)" \
+  "$(cygpath -w /tmp/clamp.json)"
+# 实测：rows=100 total=15247 ⇒ "我请求了 500" ≠ "我拿到了 500"
+```
+
+⚠ **`node` 是原生 Win32 程序，读 `"/tmp/x.json"` 会被解析成 `C:\tmp\x.json`**（MSYS 只对
+MSYS 程序做路径映射）。凡把路径交给 `node -e`，一律 `"$(cygpath -w /tmp/x.json)"`。
+
+**A. 三条腿的判据形状**
+
+- **L1 真实树**：`\bpageSize\s*[:=]\s*(\d+)` 且值 `> SERVER_MAX_PAGE_SIZE` ⇒ 0 处（含赋值形态）。
+- **L2 请求值阈值**：`X.length >= 50+`（页大小量级）或 `>= *PAGE_SIZE|LIMIT|MAX|SIZE` 常量形态 ⇒ 0 处；
+  `length < total`、`pwd.length >= 13` 必须**不误报**。
+- **L3 截断锚点**：`\b\w*[Tt]runcated\.value\s*=\s*([^\n;]+)` 的右侧必须含 `total` / `.truncated` / `false` 之一。
+- **跨仓对账**：判据**去 Rust 文件里读** `pub const MAX_PAGE_SIZE: u64 = N;` 并与前端常量比较；
+  读不到直接 `expect(m).not.toBeNull()` 失败（"取不到"不得读成"没有约束"，同 `blobTimeout.guard`）。
+- **接线反查用计数形态**：`SITE_WIRING[rel]` 的元素可以是 `{ needle, atLeast }`。**这是本批的教训**：
+  第一版只判 needle"出现过一次"，撤掉 `handleAdd` 那一处闸后 `handleUpdate` 的另一处仍满足 ⇒ 判据照常绿。
+  必须配一条合成反证："只出现 1 次必须点名『至少 2 处，实际 1』"。
+- **差异法活性**：给每个被扫文件末尾插三条合成违规（`pageSize: 500` / `rows.length >= 100` /
+  `demoTruncated.value = rows.length >= 100`），命中数必须 = 被扫文件数（"扫少了"与"干净"不同形）。
+
+**B. `fetchAllPages` 的两个必需件**
+
+```ts
+export const SERVER_MAX_PAGE_SIZE = 100 // 必须等于后端 MAX_PAGE_SIZE（由跨仓对账钉住）
+export const FETCH_ALL_MAX_ROWS = 1000 // 全量拉取的硬上限
+// 循环终止三条件：取够 total / 达到 maxRows / next.length === 0（空页止损）
+```
+
+- 没 `maxRows` 会无界循环；没空页止损会在服务端 `total` 与实际行数不一致时死循环。
+- `truncated = total > rows.length`，**永远不要**用 `rows.length >= pageSize`（请求值可以被服务端改小）。
+- 单测必须有一条"`total` 恰等于行数（100/100）⇒ 未截断"——这是按请求值判会**误报**的那一支。
+
+**C. 远程下拉组合子的四条义务**
+
+`useRemoteOptions` 一次收齐：单页不超上限 / 截断锚 `total` / 失败清空 + `loadError`（"没有可选项"
+与"取不到"不得同形）/ `createLatestGuard` **三处判票**（数据、错误、`finally` 关 loading）+ `reset()`
+调 `invalidate()` 让在飞响应失去写权。变异验证时把落地处那一行 `if (!guard.isCurrent(ticket)) return`
+删掉，必须**恰好**红"后发先回"与"reset"两条。
+
+**D. UNRUN 文案的唯一派发点**
+
+```js
+// dataset-window.mjs
+export function windowGapDetail(win, dsWin, partialWin = null) {
+  if (partialWin && windowsOverlap(win, partialWin)) return partialRunDetail(win, partialWin)
+  return overlapGapDetail(win, dsWin)
+}
+export function readPartialRunWindow(dir) // full===true / 窗口不可解析 / 字段缺失 ⇒ null
+```
+
+- 两个判据脚本的 `gateState` 都走 `windowGapDetail`，`main()` 判定前读 `partialWin` 传入；
+  **两份实现必漂**，所以派发只许有一处。
+- `--selftest` 必须同时钉：分段轮 ⇒ 新文案；**别处**的分段轮 ⇒ 退回旧文案（否则"只要跑过分段轮就改口径"）；
+  数据集缺失 / `full:true` / 窗口不可解析 ⇒ 一律不触发。
+- 断言文案时用语义片段（`/全量/`），**不要**匹配带 markdown 加粗的整句（`跑一轮**全量** deep-e2e`
+  里的 `**` 会让 `/全量 deep-e2e/` 失配——本批两侧自检各红过一次）。
+
+**E. 盘上变异（7 条，脚本 `_scratch/b134_mutate.py`，逐条 `copy2` 还原 + md5/mtime 双校验）**
+
+| 变异 | 刀口                                                               | 期望红                                                                    |
+| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| A1   | `useRemoteOptions` 截断改回 `rows.length >= pageSize`              | `pageSizeLimit` 真实树 + `useRemoteOptions` 100/100 + `alertOptions` 截断 |
+| A2   | `paging.ts` 常量 `100 → 500`                                       | `L1 合成` + `跨仓对账` + `差异法活性` + `paging` 两条                     |
+| B1   | `dept/index.vue` 删 `handleAdd` 的读成功闸                         | `pageSizeLimit` 接线反查（2 条缺口）                                      |
+| B2   | `menu/index.vue` catch 由 `return false` 改 `return true`          | `loadBeforeWrite` R1 真实树                                               |
+| C1   | 删 `useRemoteOptions` 数据落地的判票                               | 后发先回 + reset                                                          |
+| D1   | 摘掉 `windowGapDetail` 的分段轮分支                                | `backend-log-audit --selftest` SYNTH_FAIL 1 条                            |
+| E1   | `dict/detail.vue` 的 `statsTotal = res.total` 改 `res.rows.length` | `dictDetailStats` 截断用例                                                |
+
+校验强度：还原后必须 `open(new,'rb') == open(bak,'rb')` 且 md5 与 mtime 都回到基线（前端产物新鲜度闸
+按 mtime 判"源码比产物新"，`cp` 不带 `-p` 会让下一次浏览器判据直接 FATAL）。
+
+**F. 收口顺序（本批实测的坑）**
+
+1. 先手跑钩子动作（`eslint --fix` + `prettier --write`）——本批它改写了 2 个文件（其中一个单测）。
+2. **再**重建产物（`npm run build:embedded && npm run sync:embedded`）并**重跑**全量 `vitest` 取权威读数。
+   本批 09:44 的那轮（2041 例）跑在格式化之前，09:45 格式化之后才补的"100/100 未截断"用例让读数变成
+   2042 ⇒ 若直接引用旧日志，写进文档的就是**格式化之前那一棵树**的数字（AGENTS ㊲ 的同族）。
+3. `build-freshness` 与 `check:embedded` 各跑一次，两者必须打**同一枚**入口 chunk（本批 `index-vgNuEZzp.js`
+   / 162,757 字节），再跑浏览器判据。

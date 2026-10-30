@@ -200,6 +200,29 @@ export function overlapGapDetail(win, dsWin) {
 }
 
 /**
+ * 不相交、但窗口里**确实跑过分段轮**时的那句话（b134）。
+ *
+ * 立案：增量轮跑了 main + deep 定点 + a11y（浏览器确实跑过），`overlapGapDetail` 却说
+ * "这一把里没有浏览器轮次流量"并让人"先跑一轮浏览器套件"——照做就是重跑一遍刚跑过的套件，
+ * 而真正缺的是**全量** deep 轮。结论（UNRUN）不变，指向的动作必须换。
+ * 触发条件：与全量轮窗口不相交 **且** 与最近一次分段轮窗口相交。
+ */
+export function partialRunDetail(win, partial) {
+  return (
+    `判定窗口 ${fmtWindow(win)} 与最近一次 deep-e2e 全量轮的自证窗口 **不相交**，` +
+    `窗口内只有**分段轮**流量（${partial.source}：${partial.modules} 个模块 / ${fmtWindow(partial)}）` +
+    ` ⇒ 全量轮才产生的 witness 负路径结构上不会出现（"未命中 N 条"是**窗口选错**，不是豁免该撤销）⇒ 本轮不作数；` +
+    `需要的动作：跑一轮**全量** deep-e2e（分段轮不算），或把窗口给成覆盖最近一次全量轮的范围`
+  )
+}
+
+/** 两条不相交文案的单一入口（两个判据脚本与各自 main 都走这里，两份实现必漂） */
+export function windowGapDetail(win, dsWin, partialWin = null) {
+  if (partialWin && windowsOverlap(win, partialWin)) return partialRunDetail(win, partialWin)
+  return overlapGapDetail(win, dsWin)
+}
+
+/**
  * 读"最近一次 deep-e2e **全量**轮"的自证窗口（`screenshots/deep-e2e-reqstats.json`）。
  * 非全量轮（`full !== true`）或缺字段一律返回 `null` —— 部分轮次的窗口**不能**拿来当
  * "这轮应该出现哪些负路径"的证据（那一轮本来就没跑那些模块）。
@@ -216,5 +239,30 @@ export function readFullRunWindow(dir) {
     since: data.windowStart,
     until: data.windowEnd,
     source: `${path.basename(path.join(dir, 'screenshots', 'deep-e2e-reqstats.json'))} 自证字段`
+  }
+}
+
+/**
+ * 读"最近一次 deep-e2e **分段**轮"的自证窗口（`…reqstats.incremental.json`）。
+ * 只用于区分"窗口里根本没有浏览器流量"与"跑过浏览器、只是分段轮"；**不得**拿它当
+ * "witness 应该出现"的证据（那一轮本来就没跑那些模块）。取不到 ⇒ null（不触发那一条）。
+ */
+export function readPartialRunWindow(dir) {
+  const file = path.join(dir, 'screenshots', 'deep-e2e-reqstats.incremental.json')
+  let data = null
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+  if (!data || data.full === true || !data.windowStart || !data.windowEnd) return null
+  const sinceMs = windowToEpoch(data.windowStart)
+  const untilMs = windowToEpoch(data.windowEnd)
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs)) return null
+  return {
+    sinceMs,
+    untilMs,
+    modules: Number(data.modulesPlanned) || 0,
+    source: `${path.basename(file)} 自证字段`
   }
 }

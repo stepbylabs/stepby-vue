@@ -685,6 +685,8 @@ export default {
     detail: {
       loading: 'Loading...',
       noData: 'No dict data',
+      loadFailed: 'Failed to load dict data, please retry',
+      statsTruncated: 'This dict has {total} entries; the stats below cover only the first {count}',
       total: 'Total',
       normal: 'Normal',
       disabled: 'Disabled',
@@ -841,6 +843,8 @@ export default {
     tip: {
       noSortChange: 'No sort changes detected',
       sortSaved: 'Sort saved successfully',
+      parentTreeLoadFailed:
+        'Failed to load the parent department tree; the form was not opened so the department cannot be created at the wrong level',
       confirmDelete: 'Are you sure to delete the data named "{name}"?'
     },
     validate: {
@@ -929,6 +933,8 @@ export default {
     },
     tip: {
       menuTypeDir: 'Directory',
+      parentTreeLoadFailed:
+        'Failed to load the parent menu tree; the form was not opened so the menu cannot be created at the wrong level',
       menuTypeMenu: 'Menu',
       menuTypeButton: 'Button',
       link: 'External',
@@ -1322,6 +1328,8 @@ export default {
     sub: {
       title: 'Report Subscription',
       target: 'Subscriptions of report "{name}"',
+      reportOptionsFailed: 'Failed to load report candidates; a report cannot be selected for now',
+      listLoadFailed: "Failed to load subscriptions; cannot confirm this report's subscriptions",
       search: {
         subName: 'Subscription Name',
         phSubName: 'Enter subscription name',
@@ -1890,6 +1898,7 @@ export default {
     formComment: 'Comment',
     formToUser: 'Target user (User ID)',
     phToUser: 'Type a username to search remotely',
+    userOptionsFailed: 'Failed to load user candidates; target user cannot be selected',
     phToUserDel: 'Pick another approver of this node (at least one must remain)',
     actTitle: {
       approve: 'Approve',

@@ -249,6 +249,22 @@
               :value="u.userId!"
             />
           </el-select>
+          <!-- b134：候选源失败/截断必须可见（空下拉不得冒充"没有匹配用户"） -->
+          <div
+            v-if="userSearchError"
+            class="mt-1 text-xs leading-snug text-[var(--el-color-danger)]"
+            data-test="flow-user-search-error"
+          >
+            {{ t('flow.userOptionsFailed') }}
+            <el-button link type="primary" size="small" @click="retryUserSearch">{{ t('common.retry') }}</el-button>
+          </div>
+          <div
+            v-else-if="userTruncated"
+            class="mt-1 text-xs leading-snug text-[var(--el-color-warning)]"
+            data-test="flow-user-truncated"
+          >
+            {{ t('common.optionsTruncated', { count: userOptions.length, total: userTotal }) }}
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -300,6 +316,7 @@ import { useI18n } from 'vue-i18n'
 import { useDict } from '@/utils/dict'
 import { validateForm } from '@/utils/formValidate'
 import { createLatestGuard } from '@/composables/latestRequest'
+import { useRemoteOptions } from '@/composables/useRemoteOptions'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
 import { confirmAction } from '@/utils/confirm'
@@ -516,29 +533,28 @@ const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
 const needsTargetUser = computed(() => ['transfer', 'countersign', 'countersignDel'].includes(actAction.value))
 
 // 加签/转办用户选择：复用既有用户列表 API（userName 模糊搜索），选项显示 昵称(用户名)
-const userSearching = ref(false)
-const userOptions = ref<SysUser[]>([])
-
-async function searchUsers(keyword: string) {
-  userSearching.value = true
-  try {
-    const res = await listUser({ pageNum: 1, pageSize: 50, userName: keyword || undefined })
-    userOptions.value = res.rows
-  } catch (e) {
-    // 拦截器已提示；候选保持空集（`openAct` 里是**不 await 的调用**，逸出即 unhandledrejection）
-    if (import.meta.env.DEV) console.error('[flow] searchUsers:', e)
-  } finally {
-    userSearching.value = false
-  }
-}
+// b134：失败/截断/后发先回统一收进 useRemoteOptions（此前 catch 只写 DEV console，
+// 空下拉与"没有匹配用户"同形；pageSize=50 的截断也无人提示）
+const {
+  options: userOptions,
+  loading: userSearching,
+  loadError: userSearchError,
+  total: userTotal,
+  truncated: userTruncated,
+  search: searchUsers,
+  retry: retryUserSearch,
+  reset: resetUserSearch
+} = useRemoteOptions<SysUser>((keyword, pageNum, pageSize) =>
+  listUser({ pageNum, pageSize, userName: keyword || undefined })
+)
 
 function openAct(row: SysFlowTask, action: ActKind) {
   actTaskId.value = row.taskId
   actAction.value = action
   actComment.value = ''
   actToUserId.value = undefined
-  userOptions.value = []
-  searchUsers('')
+  resetUserSearch()
+  void searchUsers('')
   actOpen.value = true
 }
 

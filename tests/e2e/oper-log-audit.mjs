@@ -43,7 +43,16 @@ import {
 // 与 backend-log-audit **共用一份**窗口解析与"与全量轮自证窗口相交"闸（b103）。
 // 原先这边没有这道闸：收口跑部分轮窗口时 82 条负路径登记全被报成"未命中 ⇒ 须撤销"，
 // 而 `--retire-stale` 只在 code=2 时拒写 ⇒ 照提示做就是把 82 条真在用的登记一次删光。
-import { fmtWindow, overlapGapDetail, readFullRunWindow, windowToEpoch, windowsOverlap } from './dataset-window.mjs'
+// b134：不相交文案的**单一入口** `windowGapDetail`（窗口里跑过分段轮时指向"跑一轮全量 deep-e2e"，
+// 而不是让人重跑一遍刚跑过的浏览器套件）。两侧脚本都只准 import 这一个文案函数，避免两份实现漂移。
+import {
+  fmtWindow,
+  readFullRunWindow,
+  readPartialRunWindow,
+  windowGapDetail,
+  windowToEpoch,
+  windowsOverlap
+} from './dataset-window.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '../../..')
@@ -216,7 +225,17 @@ export function retireStale(file, unused) {
 }
 
 /** 输入可用性：窗口方向、库存在、窗口内确有操作记录（否则"零失败"是没证据）。 */
-export function gateState({ dbFile, since, until, opsCount, unknown, unused = [], win = null, dsWin = null }) {
+export function gateState({
+  dbFile,
+  since,
+  until,
+  opsCount,
+  unknown,
+  unused = [],
+  win = null,
+  dsWin = null,
+  partialWin = null
+}) {
   if (!fs.existsSync(dbFile)) return { code: 2, detail: `运行库不存在：${dbFile}` }
   if (!WINDOW_RE.test(since || '') || !WINDOW_RE.test(until || '')) {
     return { code: 2, detail: `窗口必须是 YYYY-MM-DD HH:MM:SS（实际 ${since} .. ${until}）` }
@@ -229,7 +248,7 @@ export function gateState({ dbFile, since, until, opsCount, unknown, unused = []
   // 排在"零操作"之前：两者同时成立时报"没跑/读错库"会把人支使去查库，
   // 而正确答案是"窗口没盖住那轮"。立案事实见 dataset-window.mjs 的 windowsOverlap。
   if (win && !windowsOverlap(win, dsWin)) {
-    return { code: 2, detail: overlapGapDetail(win, dsWin) }
+    return { code: 2, detail: windowGapDetail(win, dsWin, partialWin) }
   }
   if (Number(opsCount) === 0) return { code: 2, detail: `窗口内没有任何操作日志（没跑/读错库，不得判成零失败）` }
   const bad = unknown.length + unused.length
@@ -620,6 +639,55 @@ function selftest() {
       dsWin
     })
     check('窗口不可解析时不得触发口径闸（NaN 不得读成"不相交"）', nanWin.code === 1, JSON.stringify(nanWin))
+    // b134：不相交但窗口里**确实跑过分段轮**时，结论仍是 UNRUN，指向的动作必须换成
+    // "跑一轮全量 deep-e2e"——否则会让人重跑一遍刚跑过的浏览器套件（AGENTS ⑨ 文案指错方向）。
+    const partial = {
+      sinceMs: Date.parse('2026-10-20T01:10:00Z'),
+      untilMs: Date.parse('2026-10-20T01:20:00Z'),
+      modules: 1,
+      source: '合成夹具'
+    }
+    const partialGap = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: before,
+      dsWin,
+      partialWin: partial
+    })
+    check(
+      '不相交且窗口里跑过分段轮 ⇒ 文案点名"分段轮"并要求跑一轮全量 deep-e2e（不得让人重跑浏览器套件）',
+      partialGap.code === 2 &&
+        /分段轮/.test(partialGap.detail) &&
+        /全量/.test(partialGap.detail) &&
+        !/先跑一轮浏览器套件/.test(partialGap.detail),
+      JSON.stringify(partialGap)
+    )
+    const partialElsewhere = gateState({
+      dbFile,
+      since,
+      until,
+      opsCount: 5,
+      unknown: [],
+      unused: [allow[0]],
+      win: before,
+      dsWin,
+      partialWin: {
+        ...partial,
+        sinceMs: Date.parse('2026-10-19T01:00:00Z'),
+        untilMs: Date.parse('2026-10-19T02:00:00Z')
+      }
+    })
+    check(
+      '分段轮窗口与判定窗口不相交 ⇒ 必须退回旧文案（别处的分段轮不得当成本轮证据）',
+      partialElsewhere.code === 2 &&
+        /先跑一轮浏览器套件/.test(partialElsewhere.detail) &&
+        !/分段轮/.test(partialElsewhere.detail),
+      JSON.stringify(partialElsewhere)
+    )
   }
   // 坏形状必须**因为自己那一处**被拒：夹具理由一律写成自足的长句，否则"方法坏了"会被
   // "理由太短"抢先抛出而照样 non-zero ⇒ 用例看着绿、实际没约束到被测那一支
@@ -764,6 +832,8 @@ function main() {
   const winMs = { sinceMs: windowToEpoch(since), untilMs: untilGiven ? windowToEpoch(untilGiven) : null }
   const fromDs = readFullRunWindow(HERE)
   const dsWin = fromDs ? { sinceMs: windowToEpoch(fromDs.since), untilMs: windowToEpoch(fromDs.until) } : null
+  // 只有"窗口里跑过分段轮"时才换文案（结论仍是 UNRUN）：否则会让人重跑一遍刚跑过的套件
+  const partialWin = readPartialRunWindow(HERE)
   console.log(`失败操作日志：${dbFile}`)
   console.log(
     `  窗口 ${since} .. ${until}；操作 ${opsCount} 条；失败 ${rows.length} 条；已登记 ${allowed.length} / 未登记 ${unknown.length} / 允许表未命中 ${unused.length} / 条件型未触发但生产者仍在 ${held.length}`
@@ -772,7 +842,7 @@ function main() {
   // 判定排在**逐条清单之前**（AGENTS ⑨ 口径闸先于内容闸）：判定不可用时（窗口不相交 / 零操作 /
   // 库与窗口形状坏），把"允许表未命中 82 条"逐条列出来只会把人支使去撤销真在用的登记——
   // backend-log-audit 早在 b88 就是这个形状，这边 b103 才对齐。
-  const st = gateState({ dbFile, since, until, opsCount, unknown, unused, win: winMs, dsWin })
+  const st = gateState({ dbFile, since, until, opsCount, unknown, unused, win: winMs, dsWin, partialWin })
   if (st.code === 2) {
     console.error(`❌ 失败操作判据不作数：${st.detail}`)
     process.exit(2)
@@ -816,7 +886,8 @@ function main() {
       unknown: again.unknown,
       unused: again.unused,
       win: winMs,
-      dsWin
+      dsWin,
+      partialWin
     })
     if (st2.code !== 0) {
       console.error(`❌ 退役后仍有问题（未登记 ${again.unknown.length} 条）：${st2.detail}`)

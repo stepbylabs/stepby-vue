@@ -158,6 +158,8 @@ export default {
     submitFailed: '提交失败，请稍后重试',
     cacheRefreshFailed: '缓存刷新失败，前端可能显示脏数据',
     treeLoadFailed: '树结构加载失败',
+    // 候选源（下拉）只加载到一页时的可见提示：总数来自服务端 total，不按请求值判（b134）
+    optionsTruncated: '仅显示前 {count} 条（共 {total} 条），请用搜索缩小范围',
     // G17：列表/请求类接口失败的统一反馈
     requestFailed: '请求失败，请稍后重试',
     // 通用列

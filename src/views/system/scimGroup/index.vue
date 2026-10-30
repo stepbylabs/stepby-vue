@@ -134,6 +134,9 @@
           >
             <el-option v-for="r in roleOptions" :key="r.roleId" :label="r.roleName" :value="r.roleId" />
           </el-select>
+          <div v-if="roleOptionsTruncated" class="el-form-item__tip" data-test="scim-role-truncated">
+            {{ t('common.optionsTruncated', { count: roleOptions.length, total: roleOptionsTotal }) }}
+          </div>
           <div class="el-form-item__tip">{{ t('scimGroup.bindRoleTip') }}</div>
         </el-form-item>
         <el-form-item v-else :label="t('scimGroup.bindDept')">
@@ -176,6 +179,7 @@ import { useMobileFilter } from '@/composables/useMobileFilter'
 import { confirmAction } from '@/utils/confirm'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import { createLatestGuard } from '@/composables/latestRequest'
+import { fetchAllPages } from '@/utils/paging'
 
 const { t } = useI18n()
 const { proxy } = getCurrentInstance() as ComponentInternalInstance
@@ -208,6 +212,8 @@ const editForm = reactive<{ mappingType: string; bindingTargetIds: number[] }>({
   bindingTargetIds: []
 })
 const roleOptions = ref<SysRole[]>([])
+const roleOptionsTotal = ref(0)
+const roleOptionsTruncated = ref(false)
 const deptOptions = ref<SysDept[]>([])
 
 const hasBindings = computed(() => (detail.value?.bindingTargetIds?.length ?? 0) > 0)
@@ -257,12 +263,12 @@ async function openEdit(row: ScimGroupAdminRow) {
     editForm.bindingTargetIds = [...(detail.value?.bindingTargetIds ?? [])]
     // 并行加载角色 / 部门候选
     if (roleOptions.value.length === 0) {
-      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-      const r = await listRole({ pageNum: 1, pageSize: 500 })
-      roleOptions.value = r.rows
-      if (import.meta.env.DEV && r.rows.length >= 500) {
-        console.warn('[scimGroup] 角色下拉拉取达到 pageSize=500 上限，可能存在截断')
-      }
+      // b134：后端把 pageSize 钳到 100（此前请求 500 只会拿到 100，截断检查 `>=500` 永不成立）；
+      // 角色全集按 total 分页拉齐，超过硬上限则如实提示，不让"少了几项"冒充全量
+      const all = await fetchAllPages((pageNum, pageSize) => listRole({ pageNum, pageSize }))
+      roleOptions.value = all.rows
+      roleOptionsTotal.value = all.total
+      roleOptionsTruncated.value = all.truncated
     }
     if (deptOptions.value.length === 0) {
       const dRes = await listDept()

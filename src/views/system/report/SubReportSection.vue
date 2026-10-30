@@ -8,6 +8,21 @@
       </el-button>
     </div>
 
+    <el-alert
+      v-if="subLoadError"
+      class="mb-2"
+      type="error"
+      :closable="false"
+      show-icon
+      :title="t('report.sub.listLoadFailed')"
+      data-test="sub-list-load-error"
+    >
+      <el-button link type="primary" @click="getSubList">{{ t('common.retry') }}</el-button>
+    </el-alert>
+    <div v-else-if="subTruncated" class="mb-2 text-xs text-[var(--el-color-warning)]" data-test="sub-list-truncated">
+      {{ t('common.optionsTruncated', { count: subList.length, total: subTotal }) }}
+    </div>
+
     <el-table v-loading="subLoading" :data="subList">
       <el-table-column
         :label="t('report.sub.column.subName')"
@@ -179,6 +194,7 @@
 import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub } from '@/api/system/report'
 import type { SysReport, SysReportSub } from '@/types/api/system/report'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
+import { fetchAllPages } from '@/utils/paging'
 import modal from '@/plugins/modal'
 import type { FormRules } from 'element-plus'
 
@@ -191,6 +207,9 @@ const { t } = useI18n()
 
 const subLoading = ref(false)
 const subList = ref<SysReportSub[]>([])
+const subLoadError = ref(false)
+const subTotal = ref(0)
+const subTruncated = ref(false)
 /** 立即推送的互斥与 loading（连点不得重复投递，见 useRowActionGuard） */
 const { runningIds, guarded } = useRowActionGuard<number>((id, e) => {
   if (import.meta.env.DEV) console.error('[report] run sub failed:', id, e)
@@ -211,6 +230,9 @@ const subRules: FormRules = {
 watch(open, (val: boolean) => {
   if (val) {
     subList.value = []
+    subLoadError.value = false
+    subTotal.value = 0
+    subTruncated.value = false
     getSubList()
   }
 })
@@ -219,15 +241,20 @@ function getSubList() {
   const reportId = props.report.reportId
   if (!reportId) return
   subLoading.value = true
-  listSub({ pageNum: 1, pageSize: 100, reportId })
+  subLoadError.value = false
+  // b134：按 total 拉齐并如实标注截断；失败必须与"这报表没有订阅"可区分
+  fetchAllPages((pageNum, pageSize) => listSub({ pageNum, pageSize, reportId }))
     .then((res) => {
-      subList.value = res.rows ?? []
-      // 下拉全量拉取上限保护：命中上限说明数据可能被截断（后端 limit 归后端变更，此处仅 DEV 提示）
-      if (import.meta.env.DEV && (res.rows?.length ?? 0) >= 100) {
-        console.warn('[report] 订阅列表拉取达到 pageSize=100 上限，可能存在截断')
-      }
+      subList.value = res.rows
+      subTotal.value = res.total
+      subTruncated.value = res.truncated
     })
-    .catch(() => {})
+    .catch(() => {
+      subList.value = []
+      subTotal.value = 0
+      subTruncated.value = false
+      subLoadError.value = true
+    })
     .finally(() => {
       subLoading.value = false
     })
