@@ -18,59 +18,23 @@ import { getReloginHandler } from '@/utils/reloginHandler'
 import { attachTraceId, normalizeTraceId, pickTraceId } from '@/utils/traceId'
 import { readBlobErrorBody, type BlobErrorBody } from '@/utils/blobError'
 import { resolveApiErrorMessage } from '@/utils/apiError'
+import { parseRetryAfterSeconds, RETRY_AFTER_HEADER } from '@/utils/retryAfter'
+import { CONTROL_REQUEST_TIMEOUT, FILE_DOWNLOAD_TIMEOUT, LONG_TASK_TIMEOUT } from '@/utils/timeouts'
 
 // b125：实现移到 utils/blobError（plugins/download 也要用），这里原样 re-export
 // 保留既有导入点（request.blobError.test.ts / request.traceId.test.ts）。
 export { readBlobErrorBody }
 export type { BlobErrorBody }
 
+// b138：Retry-After 的解析与头名移到 utils/retryAfter（零依赖，直连原语也要用同一份），
+// 这里原样 re-export 保留既有导入点（request.retryAfter.test.ts / useRetryAfterLock 的注释口径）。
+export { parseRetryAfterSeconds, RETRY_AFTER_HEADER }
+
+// b138：等待上限常量移到 utils/timeouts（零依赖，plugins/download 与 utils/blobRequest
+// 不该为一个常量把整个请求栈拖进模块图），这里同样 re-export 保留既有导入点。
+export { CONTROL_REQUEST_TIMEOUT, FILE_DOWNLOAD_TIMEOUT, LONG_TASK_TIMEOUT }
+
 const t = i18n.global.t
-
-/** `Retry-After` 头名（RFC 9110）；axios 把响应头键统一转小写。 */
-export const RETRY_AFTER_HEADER = 'retry-after'
-
-/** 采信上限：一天的退避提示已属可疑，超过一律不采信——否则一个畸形大数会把按钮锁到刷新为止。 */
-const RETRY_AFTER_MAX_SECONDS = 86400
-
-/**
- * 服务端同步长任务（备份创建 / 恢复 / 租户包导出）的前端等待上限。
- *
- * 后端子进程硬超时是 300s（`sys_backup_service.rs::BACKUP_TIMEOUT_SECS`），
- * 全局 axios timeout 只有 30s ⇒ 大库上任务**还在正常跑**，前端已经 abort，
- * 用户重试一次就撞上「恢复进行中」互斥锁（b99 实测：备份 43MB+ 时必然超时）。
- * 取 300s + 30s 余量，两端错开但同源；调用点一律引用此常量而非各写数字。
- */
-export const LONG_TASK_TIMEOUT = 330_000
-
-/**
- * 文件下载（blob 传输）的等待上限：耗时不取决于服务端处理时长，而取决于文件大小与链路。
- * 仍需**有限**上限——`timeout: 0` 会让连接挂死时全屏 loading 永不关闭（用户只能刷新页面），
- * 10 分钟足够传完数百 MB，也足以让挂死的连接最终落到可重试的错误提示。
- */
-export const FILE_DOWNLOAD_TIMEOUT = 600_000
-
-/**
- * 解析 `Retry-After`：接受 delta-seconds 与 HTTP-date 两种合法形态，返回**剩余秒数**。
- *
- * 返回 `undefined` 的四种情形都不该让界面拿到 `NaN`/`0` 去显示"0 秒后再试"：
- * 缺失、非字符串、既不是纯数字也不是合法日期、日期已过或超过上限。
- * 之所以抽成纯函数并导出：本仓判据三次踩过 `Number(null) === 0` 这一族
- * "把取不到读成 0"的坑（b79 汇总器、b82 棘轮），单测要能直接喂畸形值才证明得了方向。
- */
-export function parseRetryAfterSeconds(raw: unknown, nowMs: number = Date.now()): number | undefined {
-  if (typeof raw !== 'string') return undefined
-  const text = raw.trim()
-  if (!text) return undefined
-  if (/^\d+$/.test(text)) {
-    const secs = Number(text)
-    return Number.isSafeInteger(secs) && secs > 0 ? Math.min(secs, RETRY_AFTER_MAX_SECONDS) : undefined
-  }
-  const at = Date.parse(text)
-  if (Number.isNaN(at)) return undefined
-  const secs = Math.ceil((at - nowMs) / 1000)
-  if (!Number.isFinite(secs) || secs <= 0) return undefined
-  return Math.min(secs, RETRY_AFTER_MAX_SECONDS)
-}
 
 /**
  * 读取 `responseType: 'blob'` 请求的**错误体**（实现见 `utils/blobError`，本文件 re-export）。
@@ -127,6 +91,17 @@ function triggerReloginDialog(): Promise<void> {
       reloginPromise = null
     }) as Promise<void>
   return reloginPromise
+}
+
+/**
+ * 直连通道（`utils/blobRequest` 的下载/导出）的 401 也走同一条会话失效链路（b138）。
+ *
+ * 复用同一个对话框与并发合并：用户停在管理页期间会话过期、点"导出"时，看到的是
+ * "是否重新登录"而不是一句笼统的"导出失败"（此前那条裸 `fetch` 连 401 都不识别，
+ * 用户只能反复点击直到别的请求把他踢出去）。
+ */
+export function notifySessionExpired(): Promise<void> {
+  return triggerReloginDialog()
 }
 
 /**
@@ -195,7 +170,7 @@ const service = axios.create({
   // axios中请求配置有baseURL选项，表示请求URL公共部分
   baseURL: import.meta.env.VITE_APP_BASE_API,
   // 超时（U3 优化：从 10s 提升到 30s，避免复杂查询/文件上传超时失败）
-  timeout: 30000
+  timeout: CONTROL_REQUEST_TIMEOUT
 })
 // L4: 设置 Content-Type 在 service 实例上，而非全局 axios.defaults，避免污染其他 axios 实例
 service.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'

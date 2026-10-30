@@ -12,9 +12,19 @@
  * > CHUNK_THRESHOLD 走分片链（单片 ≤ body limit 10MB 留 multipart 开销余量，取 5MB）。
  * 断点续传：任一片失败 → 查 session.receivedIndexes → 只补缺失片（最多 RESUME_ROUNDS 轮）；
  * 最终失败 → abort 清理会话与暂存分片（服务端 chunk_cleanup 定时任务兜底孤儿）。
+ *
+ * **为什么这一族用裸 axios 而不是 `utils/request`（b138，`directChannel.guard` 有登记）**：
+ * 分片链的失败分级权在编排器——单片失败必须**静默**（`uploadOne` 的 catch），由续传轮按
+ * 服务端 `receivedIndexes` 收敛，只在"彻底失败"时报一次；`abortChunk` 更是 best-effort 清理。
+ * 走全局拦截器会把每一次可自愈的单片失败都记进错误面板（9MB 文件连续重传会刷出多条
+ * "上传失败"，而上传最终是成功的）——面板被"其实已经自愈"的噪声刷屏比缺指标更糟
+ * （AGENTS b69 口径失真同族）。代价是三件事要在这里自己做：令牌（authHeaders）、
+ * 每类请求各自的超时（原先五处**全都没有 timeout** ⇒ 链路挂死时永远停在「上传中」）、
+ * 以及原始 `e.response.status`（`isRetryableCompleteError` 的重试判据依赖它）。
  */
 import axios from 'axios'
 import { getToken } from '@/utils/auth'
+import { CHUNK_PART_TIMEOUT, CONTROL_REQUEST_TIMEOUT, LONG_TASK_TIMEOUT } from '@/utils/timeouts'
 
 /** 分流阈值：> 8MB 走分片（单请求 body limit 10MB 含 multipart 边界开销，留 2MB 余量） */
 export const CHUNK_THRESHOLD = 8 * 1024 * 1024
@@ -100,7 +110,7 @@ export async function initChunk(
   const res = await axios.post(
     `${BASE}/common/upload/chunk/init`,
     { fileName, totalParts, totalSize, partSize },
-    { headers: authHeaders() }
+    { headers: authHeaders(), timeout: CONTROL_REQUEST_TIMEOUT }
   )
   return res.data.data as ChunkInitVo
 }
@@ -112,7 +122,8 @@ export async function uploadChunkPart(sessionId: string, index: number, blob: Bl
   form.append('partIndex', String(index))
   form.append('file', blob, `part-${index}`)
   const res = await axios.post(`${BASE}/common/upload/chunk/part`, form, {
-    headers: { ...authHeaders() } // Content-Type 留空让浏览器生成带 boundary 的头
+    headers: { ...authHeaders() }, // Content-Type 留空让浏览器生成带 boundary 的头
+    timeout: CHUNK_PART_TIMEOUT
   })
   return res.data.data as ChunkProgressVo
 }
@@ -120,7 +131,8 @@ export async function uploadChunkPart(sessionId: string, index: number, blob: Bl
 /** 查询会话进度（断点续传：返回已收索引列表） */
 export async function getChunkSession(sessionId: string): Promise<ChunkProgressVo> {
   const res = await axios.get(`${BASE}/common/upload/chunk/session/${sessionId}`, {
-    headers: authHeaders()
+    headers: authHeaders(),
+    timeout: CONTROL_REQUEST_TIMEOUT
   })
   return res.data.data as ChunkProgressVo
 }
@@ -128,14 +140,22 @@ export async function getChunkSession(sessionId: string): Promise<ChunkProgressV
 /** 完成合并（服务端：拼接 → 整对象扫描 → 统一校验链 → 落最终存储）
  *  响应为 AjaxResult 包套 {code,msg,data:{url,fileName,...}}（集成测试锁定形状；与单请求扁平结构不同） */
 export async function completeChunk(sessionId: string): Promise<ChunkCompleteResult> {
-  const res = await axios.post(`${BASE}/common/upload/chunk/complete`, { sessionId }, { headers: authHeaders() })
+  // 合并 + 整对象扫描 + 校验链与备份同属"服务端同步长任务"，用同一档上限
+  const res = await axios.post(
+    `${BASE}/common/upload/chunk/complete`,
+    { sessionId },
+    { headers: authHeaders(), timeout: LONG_TASK_TIMEOUT }
+  )
   const body = res.data as { code: number; data?: ChunkCompleteResult }
   return (body.data ?? (body as unknown as ChunkCompleteResult)) as ChunkCompleteResult
 }
 
 /** 放弃会话（清理服务端会话与暂存分片） */
 export async function abortChunk(sessionId: string): Promise<void> {
-  await axios.delete(`${BASE}/common/upload/chunk/${sessionId}`, { headers: authHeaders() })
+  await axios.delete(`${BASE}/common/upload/chunk/${sessionId}`, {
+    headers: authHeaders(),
+    timeout: CONTROL_REQUEST_TIMEOUT
+  })
 }
 
 /**

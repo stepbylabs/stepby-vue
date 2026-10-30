@@ -3,8 +3,8 @@
     <el-upload
       multiple
       :disabled="disabled"
-      :action="uploadImgUrl"
       list-type="picture-card"
+      :http-request="handleHttpRequest"
       :on-success="handleUploadSuccess"
       :before-upload="handleBeforeUpload"
       :data="data"
@@ -14,10 +14,10 @@
       ref="imageUpload"
       :before-remove="handleDelete"
       :show-file-list="true"
-      :headers="headers"
       :file-list="fileList"
       :on-preview="handlePictureCardPreview"
-      :class="{ hide: fileList.length >= limit }">
+      :class="{ hide: fileList.length >= limit }"
+    >
       <el-icon class="avatar-uploader-icon"><plus /></el-icon>
     </el-upload>
     <!-- 上传提示 -->
@@ -47,14 +47,13 @@
 </template>
 
 <script setup lang="ts">
-import { getToken } from '@/utils/auth'
 import { isExternal, verifyImageMagicBytes } from '@/utils/validate'
 import Sortable from 'sortablejs'
-import useUserStore from '@/store/modules/user'
-import { goLogin } from '@/utils/navigation'
 import modal from '@/plugins/modal'
 import type { UploadFile as ElUploadFile } from 'element-plus'
+import type { UploadRequestOptions } from 'element-plus'
 import type { UploadFileResult } from '@/types/api/common'
+import { uploadViaRequest } from '@/utils/uploadRequest'
 
 const { t } = useI18n()
 
@@ -115,9 +114,7 @@ const uploadList = ref<UploadImageItem[]>([])
 const dialogImageUrl = ref('')
 const dialogVisible = ref(false)
 const baseUrl = import.meta.env.VITE_APP_BASE_API
-const uploadImgUrl = ref(import.meta.env.VITE_APP_BASE_API + props.action)
 // C-1：使用 computed 保证 token 刷新后上传携带最新 token（ref 会在初始化时固化旧值）
-const headers = computed(() => ({ Authorization: 'Bearer ' + getToken() }))
 const fileList = ref<UploadImageItem[]>([])
 const showTip = computed(() => props.isShowTip && (props.fileType || props.fileSize))
 
@@ -214,27 +211,21 @@ function uploadedSuccessfully(): void {
   }
 }
 
-// 上传失败
+/**
+ * 自定义传输（b138）：EP 内置 XHR 不经请求层 ⇒ 令牌过期不会触发会话失效、失败没有追踪号。
+ * 401 由拦截器统一弹重新登录框，这里不再补提示（同一次失败只一条结局）；其它失败必须可见。
+ * 收尾（计数 / 遮罩 / 列表同步）统一交给 EP 随后触发的 `handleUploadError`，避免两处各减一次计数。
+ */
+async function handleHttpRequest(options: UploadRequestOptions): Promise<void> {
+  const outcome = await uploadViaRequest(options, { url: props.action })
+  if (outcome.failed && !outcome.sessionExpired) modal.msgError(t('imageUpload.uploadFailed'))
+}
+
+// 上传失败（EP 的 onError 必然触发；提示已由 handleHttpRequest 给出，这里只做收尾与 DEV 留痕）
 function handleUploadError(err: unknown): void {
+  if (import.meta.env.DEV) console.error('[ImageUpload] upload failed:', err)
   // 递减上传计数并触发同步，避免上传失败后 number.value 与 uploadList 长度不匹配
   number.value = Math.max(0, number.value - 1)
-  // 检查 401 未授权，触发重新登录
-  const errObj = err as { status?: number; response?: { status?: number } } | undefined
-  const status = errObj?.status || errObj?.response?.status
-  if (status === 401) {
-    modal.closeLoading()
-    useUserStore()
-      .logOut()
-      .then(() => {
-        // P1 修复: 跳 /login 而非 /index，避免二次重定向（与 request.ts 一致）
-        goLogin()
-      })
-      .catch(() => {
-        goLogin()
-      })
-    return
-  }
-  modal.msgError(t('imageUpload.uploadFailed'))
   modal.closeLoading()
   uploadedSuccessfully()
 }

@@ -301,3 +301,55 @@ describe('G-10 分片上传 · 编排器 uploadFileChunked', () => {
     expect(aborts).toHaveLength(1)
   })
 })
+
+// ============================================================================
+// b138：直连控制请求的超时契约（静态守卫）
+// ============================================================================
+
+describe('G-10 分片上传 · 直连请求必须带显式超时', () => {
+  /**
+   * 裸 axios 默认 `timeout: 0`（永不超时）——链路挂死时 `uploadFileChunked` 会永远停在
+   * 「上传中」，用户只能刷新页面（b138 勘察：改造前五处直连**全都没有** timeout）。
+   *
+   * 判据取**数量关系**而不是某个具体值：每一处 `await axios.<verb>(` 都必须配一条
+   * `timeout: <常量>`。新增直连端点忘了写超时 ⇒ 数量不等 ⇒ 红；把超时改回字面量
+   * 同样红（字面量无法与 `utils/timeouts` 的口径对账）。
+   */
+  const readUploadSource = async (): Promise<string> => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    return fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'upload.ts'), 'utf8')
+  }
+
+  it('axios 调用数 === timeout 断言数（且各自 ≥5）', async () => {
+    const src = await readUploadSource()
+    const calls = src.match(/await axios\.(?:get|post|put|patch|delete|head|request)\(/g) ?? []
+    const timeouts = src.match(/\btimeout:\s*(?:CHUNK_PART_TIMEOUT|CONTROL_REQUEST_TIMEOUT|LONG_TASK_TIMEOUT)\b/g) ?? []
+
+    // 采集面自证：五条直连（init / part / session / complete / abort）都在这份文件里
+    expect(calls.length, `直连调用数（实测 ${calls.length}）`).toBeGreaterThanOrEqual(5)
+    expect(timeouts.length, '每一处直连都必须引用 utils/timeouts 的常量').toBe(calls.length)
+  })
+
+  it('三档上限各自落在正确的端点上（片 / 合并 / 控制）', async () => {
+    const src = await readUploadSource()
+    // 刀口必须落在**函数体**上：按路径字符串 `indexOf` 会命中文件头部的协议注释
+    // （b138 实测第一版就是这么红的——判据自己的输入坏在"注释也在采集面里"）。
+    const fnBlock = (name: string): string => {
+      const start = src.indexOf(`export async function ${name}(`)
+      expect(start, `${name} 必须存在（采集面失效）`).toBeGreaterThanOrEqual(0)
+      const end = src.indexOf('\n}', start)
+      expect(end, `${name} 的函数体边界找不到`).toBeGreaterThan(start)
+      return src.slice(start, end)
+    }
+    // 单片上传是唯一按字节计时的通道
+    expect(fnBlock('uploadChunkPart')).toContain('timeout: CHUNK_PART_TIMEOUT')
+    // 合并要拼接 + 整对象扫描 + 校验链，与备份同属同步长任务
+    expect(fnBlock('completeChunk')).toContain('timeout: LONG_TASK_TIMEOUT')
+    // 控制请求（会话查询 / 放弃）与全局默认同口径
+    expect(fnBlock('getChunkSession')).toContain('timeout: CONTROL_REQUEST_TIMEOUT')
+    expect(fnBlock('abortChunk')).toContain('timeout: CONTROL_REQUEST_TIMEOUT')
+    expect(fnBlock('initChunk')).toContain('timeout: CONTROL_REQUEST_TIMEOUT')
+  })
+})

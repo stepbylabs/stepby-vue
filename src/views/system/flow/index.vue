@@ -432,14 +432,16 @@ async function loadPendingCount() {
  */
 async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
   key: K,
-  fetch: () => Promise<{ rows: R[]; total: number }>,
+  // b138：原名 `fetch` 遮蔽了全局 fetch——可读性陷阱，也让"生产码禁裸 fetch"的守卫
+  // 无法用一条正则区分"调用全局 fetch"与"调用局部形参"（实测这处会被误判成直连通道）
+  loader: () => Promise<{ rows: R[]; total: number }>,
   rows: { value: R[] },
   total: { value: number }
 ) {
   const ticket = listGuards[key].begin()
   pendingLoads.value += 1
   try {
-    const res = await fetch()
+    const res = await loader()
     if (!listGuards[key].isCurrent(ticket)) return // 已有更新的请求发出，丢弃这份过期结果
     rows.value = res.rows
     total.value = res.total

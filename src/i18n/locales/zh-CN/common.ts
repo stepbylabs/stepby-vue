@@ -141,6 +141,8 @@ export default {
     noPermission: '当前操作没有权限',
     crudCapabilityMissing: '当前页面未开放该操作，请联系管理员配置相应能力',
     tooManyRequests: '请求过于频繁，请稍后再试',
+    // 429 且响应带 Retry-After 时的补充（b138：直连通道此前把该头整个丢弃）
+    retryAfterSeconds: '请在 {seconds} 秒后重试',
     serviceUnavailable: '服务暂时不可用，请稍后重试',
     backendConnectionError: '后端接口连接异常',
     requestTimeout: '系统接口请求超时',

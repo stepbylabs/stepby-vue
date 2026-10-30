@@ -348,7 +348,7 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
-import { getDbPool, type DbPoolInfo } from '@/api/monitor/server'
+import { getDbPool, getMetricsSummary, type DbPoolInfo } from '@/api/monitor/server'
 import { useMotionPresets } from '@/composables/useMotion'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import type { AjaxResult } from '@/types/api/common'
@@ -397,7 +397,7 @@ interface DiskItem {
   usage: string
 }
 
-/** /metrics（Prometheus 文本格式）解析结果（best-effort） */
+/** `GET /monitor/metrics-summary` 的取值（b138：不再在前端解析 Prometheus 文本） */
 interface MetricsSnapshot {
   available: boolean
   dbBackend: string
@@ -516,41 +516,33 @@ const formattedUptime = computed(() => {
 })
 
 /**
- * 拉取 /metrics（Prometheus 文本格式）并解析关键指标。
- * 使用原生 fetch 而非 request 封装：/metrics 在配置了 metrics_token 时对
- * 未携带令牌的请求返回 401，走 axios 拦截器会误触发"重新登录"对话框；
- * 指标展示属 best-effort，失败时置 available=false 即可。
+ * 拉取平台运维指标摘要（`GET /monitor/metrics-summary`，b138）。
+ *
+ * 原实现用裸 `fetch('/metrics')` 在前端解析 Prometheus 文本，理由是"怕 401 触发重登录"。
+ * 但 `/metrics` 的 401 与用户会话无关：配置 `[monitor].metrics_token` 后它只认**运维令牌**
+ * （`handler/health.rs` 直接与配置值比对），浏览器拿不到该令牌 ⇒ 这些部署上指标区永久空白，
+ * 而注释把这种失效写成了"best-effort"。
+ *
+ * 现在后端提供同源摘要端点，走正常 auth + `monitor:health:list` + 平台专属守卫：
+ * 鉴权/会话/追踪号都由请求层统一处理，页面只负责取值与失败态。
  */
 async function loadMetrics(): Promise<boolean> {
   try {
-    const base = String(import.meta.env.VITE_APP_BASE_API || '')
-    const resp = await fetch(`${base}/metrics`, { method: 'GET' })
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-    const text = await resp.text()
-    let dbBackend = ''
-    const gauges = new Map<string, number>()
-    for (const rawLine of text.split('\n')) {
-      const line = rawLine.trim()
-      if (!line || line.startsWith('#')) continue
-      const m = line.match(/^(stepby_[a-z_]+)(\{[^}]*\})?\s+(-?[\d.eE+]+)$/)
-      if (!m) continue
-      const value = Number(m[3])
-      if (Number.isNaN(value)) continue
-      gauges.set(m[1], value)
-      if (m[1] === 'stepby_db_backend' && m[2]) {
-        dbBackend = m[2].match(/backend="([^"]+)"/)?.[1] ?? ''
-      }
-    }
+    const res = (await getMetricsSummary()) as unknown as { data?: Partial<MetricsSnapshot> }
+    const d = res.data
+    if (!d) throw new Error('empty metrics summary')
     metricsData.value = {
-      available: gauges.size > 0,
-      dbBackend,
-      dbConnected: gauges.has('stepby_db_connected') ? gauges.get('stepby_db_connected') === 1 : null,
-      uptimeSeconds: gauges.get('stepby_uptime_seconds') ?? null,
-      rssBytes: gauges.get('stepby_process_resident_memory_bytes') ?? null,
-      vmsBytes: gauges.get('stepby_process_virtual_memory_bytes') ?? null
+      available: true,
+      dbBackend: typeof d.dbBackend === 'string' ? d.dbBackend : '',
+      dbConnected: typeof d.dbConnected === 'boolean' ? d.dbConnected : null,
+      uptimeSeconds: typeof d.uptimeSeconds === 'number' ? d.uptimeSeconds : null,
+      rssBytes: typeof d.rssBytes === 'number' ? d.rssBytes : null,
+      vmsBytes: typeof d.vmsBytes === 'number' ? d.vmsBytes : null
     }
     return true
-  } catch {
+  } catch (e) {
+    // 失败必须可见（b92 口径）：置 available=false，并把原因留痕便于排障
+    if (import.meta.env.DEV) console.error('[health] metrics summary failed:', e)
     metricsData.value.available = false
     return false
   }

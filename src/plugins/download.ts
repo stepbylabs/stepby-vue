@@ -1,47 +1,28 @@
-import axios, { type AxiosResponse } from 'axios'
 import { ElLoading } from 'element-plus'
-import { saveBlob } from '@/utils/saveBlob'
 import i18n from '@/i18n'
-import { getToken } from '@/utils/auth'
+import { saveBlob } from '@/utils/saveBlob'
 import { blobValidate } from '@/utils/stepby'
 import { errorHub } from '@/utils/errorHub'
 import { readBlobErrorBody } from '@/utils/blobError'
 import { resolveApiErrorMessage } from '@/utils/apiError'
 import { pickTraceId } from '@/utils/traceId'
-
-const baseURL = import.meta.env.VITE_APP_BASE_API
+import { blobRequest, failureText, type BlobFailure } from '@/utils/blobRequest'
+import { FILE_DOWNLOAD_TIMEOUT } from '@/utils/timeouts'
 
 /**
- * 下载失败的用户可见文案（b125）。
+ * 下载族（b138：三条通道收编到 `utils/blobRequest`）。
  *
- * 改造前三条通道的 `.catch` 一律只报 `common.downloadError`：HTTP 403/404/500 与网关
- * HTML 页全都长成同一句话，且**没有追踪号**——b124 只把 traceId 接进了 `utils/request`
- * 主通道，这条裸 axios 的并行通道被漏在外面（23 个调用点）。
+ * 改造前每条通道各自 `axios({...})` 一份：超时写着 `60000`（统一口径 `FILE_DOWNLOAD_TIMEOUT`
+ * 是 600_000，差 10 倍——大型 `/common/download` 必然在第 60 秒被 abort）、失败结局各自手写、
+ * 401 只报一句"未授权"而不走会话失效。现在请求、超时、错误解析、追踪号、401 全部由原语承担，
+ * 本文件只保留下载特有的三件事：**全屏 loading 配对、文件名解析、HTTP 200 但非 blob 的错误体**。
  *
- * 解析优先级（与 `utils/request` 主通道共用 `resolveApiErrorMessage`）：
- * 1. 后端 `msg` ⇒ 原样使用（它比按码写的通用文案具体：429 带"哪个入口忙、多久能重试"）；
- * 2. 只有错误体/HTTP 状态码 ⇒ 用标准码映射（403 ⇒ "当前操作没有权限" 比"下载失败"更准确）；
- * 3. 都没有（网络中断 / DNS / 网关 HTML 页）⇒ `common.downloadError`。
- *
- * 追踪号来自体（`trace_id`）或头（`X-Request-Id`），作为 `errorHub` 的独立字段上报——
- * 弹窗里的后缀由 errorHub 统一渲染，消息本身不再拼一遍（否则同一条会带两个追踪号）。
+ * `FILE_DOWNLOAD_TIMEOUT` 从 `utils/timeouts` 取（不是 `utils/request`）：后者在模块顶层建
+ * axios 实例并注册拦截器，为一个常量把整套请求栈拖进每个下载调用点的模块图与单测不划算。
  */
-async function buildDownloadFailure(error: unknown): Promise<{ message: string; traceId?: string }> {
-  const response = (error as { response?: { status?: number; data?: unknown; headers?: unknown } })?.response
-  const body = await readBlobErrorBody(response?.data)
-  const traceId = pickTraceId(body ?? response?.data, response?.headers)
-  const hasBodyDetail = body?.code !== undefined || body?.msg !== undefined
-  const base =
-    hasBodyDetail || response?.status
-      ? resolveApiErrorMessage(body?.code ?? response?.status, body?.msg)
-      : i18n.global.t('common.downloadError')
-  return { message: base, traceId }
-}
 
-/** 上报下载失败（loading 的关闭由调用方在自己的 finally 里做，避免两条收尾路径漂移） */
-async function reportDownloadFailure(error: unknown): Promise<void> {
-  const { message, traceId } = await buildDownloadFailure(error)
-  errorHub.report('error', 'download', message, traceId)
+function reportFailure(failure: BlobFailure): void {
+  errorHub.report('error', 'download', failureText(failure), failure.traceId)
 }
 
 /**
@@ -61,107 +42,81 @@ function resolveFilename(raw: unknown, fallback: string): string {
   }
 }
 
+function openLoading(): { close: () => void } {
+  // 局部实例：并发下载时模块级单例会被后者覆盖引用，前者的遮罩永远关不掉（b71 实测）
+  return ElLoading.service({
+    text: i18n.global.t('common.downloading'),
+    background: 'rgba(0, 0, 0, 0.7)'
+  })
+}
+
+/** 保存失败要可见（空载荷/通道抛错），成功不弹"下载成功"（b112） */
+export function saveAs(text: Blob, name: string): void {
+  if (!saveBlob(text, name)) errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+}
+
+/** HTTP 200 + 非 blob（legacy 自定义业务码 / HTML 网关页）：解析后上报，带追踪号 */
+export async function printErrMsg(data: Blob, headers?: unknown): Promise<void> {
+  const body = await readBlobErrorBody(data)
+  const traceId = pickTraceId(body, headers)
+  const hasBodyDetail = body?.code !== undefined || body?.msg !== undefined
+  const base = hasBodyDetail ? resolveApiErrorMessage(body?.code, body?.msg) : i18n.global.t('common.downloadError')
+  errorHub.report('error', 'download', base, traceId)
+}
+
+interface DownloadEntry {
+  url: string
+  params?: Record<string, string | number>
+}
+
+/**
+ * 三个入口共用的执行骨架：loading 必关、失败不抛、非 blob 走错误体解析。
+ * `mime` 只在 zip 通道覆盖（后端未给 Content-Type 时浏览器按扩展名猜，但显式声明更稳）。
+ * `useHeaderName=false` 保留 zip 的既有语义：调用方给定名优先，响应头不参与命名。
+ */
+async function runDownload(
+  entry: DownloadEntry,
+  fallbackName: string,
+  opts: { mime?: string; useHeaderName?: boolean } = {}
+): Promise<void> {
+  const loading = openLoading()
+  try {
+    const res = await blobRequest({ ...entry, responseType: 'blob', timeout: FILE_DOWNLOAD_TIMEOUT })
+    if (!res.ok) {
+      reportFailure(res.failure)
+      return
+    }
+    if (!blobValidate(res.data)) {
+      await printErrMsg(res.data, res.headers)
+      return
+    }
+    const blob = opts.mime ? new Blob([res.data], { type: opts.mime }) : new Blob([res.data])
+    const name =
+      opts.useHeaderName === false ? fallbackName : resolveFilename(res.headers['download-filename'], fallbackName)
+    saveAs(blob, name)
+  } catch (e) {
+    // 原语不抛；这里只兜住保存/解析环节的意外（例如宿主环境裁掉了 Blob 构造）
+    if (import.meta.env.DEV) console.error('[download]', e)
+    errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
+  } finally {
+    loading.close()
+  }
+}
+
 export default {
   name(name: string, isDelete = true) {
-    // P0 修复：添加 loading 提示和错误处理，与 zip 方法保持一致
-    // 使用局部变量：避免并发下载时模块级 loading 实例被覆盖
-    const downloadLoadingInstance = ElLoading.service({
-      text: i18n.global.t('common.downloading'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-    const url = baseURL + '/common/download?fileName=' + encodeURIComponent(name) + '&delete=' + isDelete
-    axios({
-      method: 'get',
-      url: url,
-      responseType: 'blob',
-      timeout: 60000,
-      headers: { Authorization: 'Bearer ' + getToken() }
-    })
-      .then((res: AxiosResponse<Blob>) => {
-        const isBlob = blobValidate(res.data)
-        if (isBlob) {
-          const blob = new Blob([res.data])
-          this.saveAs(blob, resolveFilename(res.headers['download-filename'], name))
-        } else {
-          void this.printErrMsg(res.data, res.headers)
-        }
-        downloadLoadingInstance.close()
-      })
-      .catch((r: unknown) => {
-        if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
-        void reportDownloadFailure(r).finally(() => downloadLoadingInstance.close())
-      })
+    return runDownload({ url: '/common/download', params: { fileName: name, delete: String(isDelete) } }, name)
   },
   resource(resource: string) {
-    // P0 修复：添加 loading 提示和错误处理，与 zip 方法保持一致
-    // 使用局部变量：避免并发下载时模块级 loading 实例被覆盖
-    const downloadLoadingInstance = ElLoading.service({
-      text: i18n.global.t('common.downloading'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-    const url = baseURL + '/common/download/resource?resource=' + encodeURIComponent(resource)
-    axios({
-      method: 'get',
-      url: url,
-      responseType: 'blob',
-      timeout: 60000,
-      headers: { Authorization: 'Bearer ' + getToken() }
-    })
-      .then((res: AxiosResponse<Blob>) => {
-        const isBlob = blobValidate(res.data)
-        if (isBlob) {
-          const blob = new Blob([res.data])
-          // 回退名取资源路径最后一段（如 /profile/upload/x.png → x.png）
-          this.saveAs(blob, resolveFilename(res.headers['download-filename'], resource.split('/').pop() || resource))
-        } else {
-          void this.printErrMsg(res.data, res.headers)
-        }
-        downloadLoadingInstance.close()
-      })
-      .catch((r: unknown) => {
-        if (import.meta.env.DEV) console.error('[download resource]', (r as { message?: string })?.message || r)
-        void reportDownloadFailure(r).finally(() => downloadLoadingInstance.close())
-      })
+    // 回退名取资源路径最后一段（如 /profile/upload/x.png → x.png）
+    return runDownload(
+      { url: '/common/download/resource', params: { resource } },
+      resource.split('/').pop() || resource
+    )
   },
   zip(url: string, name: string) {
-    const downloadUrl = baseURL + url
-    // 使用局部变量：避免并发下载时模块级 loading 实例被覆盖
-    const downloadLoadingInstance = ElLoading.service({
-      text: i18n.global.t('common.downloading'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-    axios({
-      method: 'get',
-      url: downloadUrl,
-      responseType: 'blob',
-      timeout: 60000,
-      headers: { Authorization: 'Bearer ' + getToken() }
-    })
-      .then((res: AxiosResponse<Blob>) => {
-        const isBlob = blobValidate(res.data)
-        if (isBlob) {
-          const blob = new Blob([res.data], { type: 'application/zip' })
-          this.saveAs(blob, name)
-        } else {
-          void this.printErrMsg(res.data, res.headers)
-        }
-        downloadLoadingInstance.close()
-      })
-      .catch((r: unknown) => {
-        if (import.meta.env.DEV) console.error('[download zip]', (r as { message?: string })?.message || r)
-        void reportDownloadFailure(r).finally(() => downloadLoadingInstance.close())
-      })
+    return runDownload({ url }, name, { mime: 'application/zip', useHeaderName: false })
   },
-  saveAs(text: Blob, name: string) {
-    // 统一走 utils/saveBlob：空载荷/通道抛错必须可见，且成功不弹"下载成功"
-    if (!saveBlob(text, name)) errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
-  },
-  /** HTTP 200 + 非 blob 错误体（legacy 自定义业务码 / HTML 网关页）：解析后上报，带追踪号 */
-  async printErrMsg(data: Blob, headers?: unknown) {
-    const body = await readBlobErrorBody(data)
-    const traceId = pickTraceId(body, headers)
-    const hasBodyDetail = body?.code !== undefined || body?.msg !== undefined
-    const base = hasBodyDetail ? resolveApiErrorMessage(body?.code, body?.msg) : i18n.global.t('common.downloadError')
-    errorHub.report('error', 'download', base, traceId)
-  }
+  saveAs,
+  printErrMsg
 }

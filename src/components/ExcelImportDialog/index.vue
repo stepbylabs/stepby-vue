@@ -12,10 +12,8 @@
       ref="uploadRef"
       :limit="1"
       accept=".xlsx, .xls"
-      :headers="headers"
-      :action="uploadUrl"
       :disabled="isUploading"
-      :on-progress="handleProgress"
+      :http-request="handleHttpRequest"
       :on-change="handleFileChange"
       :on-remove="handleFileRemove"
       :on-success="handleSuccess"
@@ -80,12 +78,12 @@
 
 <script setup lang="ts">
 import { ElMessageBox } from 'element-plus'
-import type { UploadInstance, UploadFile } from 'element-plus'
+import type { UploadInstance, UploadFile, UploadRequestOptions } from 'element-plus'
 import type { AjaxResult } from '@/types/api/common'
-import { getToken } from '@/utils/auth'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { uploadViaRequest } from '@/utils/uploadRequest'
 
 // 后端导入结果（AjaxResult.data）：成功数 + 校验失败明细
 interface ImportResultData {
@@ -147,12 +145,6 @@ const resultMessage = computed(() =>
     ? t('excelImport.successCount', { success: successCount.value, error: errorList.value.length })
     : t('excelImport.allSuccess')
 )
-const headers = computed(() => ({ Authorization: 'Bearer ' + getToken() }))
-
-const uploadUrl = computed(() => {
-  return import.meta.env.VITE_APP_BASE_API + props.action + '?updateSupport=' + (updateSupport.value ? 1 : 0)
-})
-
 const templateUrl = computed(() => !!props.templateAction)
 
 // 关闭语义（b135）：选好文件 / 勾过覆盖更新后按 Esc、点遮罩或点 × 原先会静默丢弃选择
@@ -188,11 +180,6 @@ function handleDownloadTemplate(): void {
   download(props.templateAction, {}, `${props.templateFileName}_${new Date().getTime()}.xlsx`)
 }
 
-// 上传进度
-function handleProgress(): void {
-  isUploading.value = true
-}
-
 /** 文件选择处理 */
 const handleFileChange = (file: UploadFile): void => {
   selectedFile.value = file
@@ -226,10 +213,23 @@ function handleSuccess(response: AjaxResult & { data?: ImportResultData }) {
   }
 }
 
-// 上传失败（HTTP 非 2xx）
+/**
+ * 自定义传输（b138）：EP 内置 XHR 不经请求层 ⇒ 令牌过期不会触发会话失效、失败没有追踪号。
+ * 覆盖开关走 query（后端 `updateSupport=1` 语义不变）；401 由拦截器统一弹重新登录框，这里不补提示。
+ */
+async function handleHttpRequest(options: UploadRequestOptions): Promise<void> {
+  isUploading.value = true
+  const outcome = await uploadViaRequest(options, {
+    url: props.action,
+    params: { updateSupport: updateSupport.value ? 1 : 0 }
+  })
+  isUploading.value = false
+  if (outcome.failed && !outcome.sessionExpired) modal.msgError(t('common.failed'))
+}
+
+// 上传失败（EP 的 onError 必然触发；提示已由 handleHttpRequest 给出，这里只做收尾）
 function handleError(_err: Error, _file: UploadFile) {
   isUploading.value = false
-  modal.msgError(t('common.failed'))
 }
 
 // 提交上传

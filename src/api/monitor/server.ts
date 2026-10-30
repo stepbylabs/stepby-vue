@@ -116,3 +116,33 @@ export function getDbPool(): Promise<AjaxResult<DbPoolInfo>> {
     method: 'get'
   })
 }
+
+// ====== 管理端指标摘要（GET /monitor/metrics-summary，b138）======
+
+/**
+ * 进程级运行时指标（与 `/metrics` 同源，但走管理端鉴权链）。
+ *
+ * 健康页此前直接 `fetch('/metrics')` 并在前端解析 Prometheus 文本；而 `/metrics`
+ * 在配置 `[monitor].metrics_token` 后只认运维令牌（不是用户 JWT）⇒ 浏览器永远 401，
+ * 指标区在这些部署上永久空白。本接口把同一组指标以 JSON 返回，鉴权/权限/平台专属守卫
+ * 与 `/monitor/server` 完全一致（`monitor:health:list`）。
+ */
+export interface MetricsSummary {
+  /** 数据库后端（sqlite / mysql / postgres） */
+  dbBackend: string
+  /** 数据库连通性 */
+  dbConnected: boolean
+  /** 进程运行时长（秒） */
+  uptimeSeconds: number
+  /** 进程常驻内存（字节） */
+  rssBytes: number
+  /** 进程虚拟内存（字节） */
+  vmsBytes: number
+}
+
+export function getMetricsSummary(): Promise<AjaxResult<MetricsSummary>> {
+  return request({
+    url: '/monitor/metrics-summary',
+    method: 'get'
+  })
+}

@@ -60,6 +60,9 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { saveBlob } from '@/utils/saveBlob'
+import { blobRequest, failureText } from '@/utils/blobRequest'
+import { FILE_DOWNLOAD_TIMEOUT } from '@/utils/timeouts'
+import { errorHub } from '@/utils/errorHub'
 
 interface AiHistoryAdminRow {
   id: number
@@ -132,6 +135,10 @@ async function load(p?: number) {
 onMounted(() => load(1))
 
 // §5.55 AI-02 结果导出：下载管理视图 Excel（服务端生成，带租户过滤口径）
+//
+// b138：原实现是裸 `fetch` —— 无超时、失败只抛 `Error('export failed: 状态码')`、
+// 后端理由与追踪号整段丢弃、401 不走会话失效。b137 给该端点加了 5/s 的独立外带限流后，
+// 用户连点两次就 429，而屏幕上只有"导出失败"一句。现统一走 `utils/blobRequest`。
 async function exportHistory() {
   const tid = parseTenantFilter()
   if (tid === 'invalid') {
@@ -140,27 +147,31 @@ async function exportHistory() {
   }
   exportLoading.value = true
   try {
-    const params: Record<string, string> = {}
-    if (tid !== null) params.tenantFilter = String(tid)
-    const query = new URLSearchParams(params).toString()
-    // 与 operlog 导出同款直链下载（token 从统一 auth 存储取）。
-    // 基址必须取 VITE_APP_BASE_API（dev=/dev-api、prod=/prod-api、stage=/stage-api、
-    // embedded=''），不能硬编码 /dev-api —— 否则生产/预发/嵌入式下该路径无代理、必 404。
-    const { getToken } = await import('@/utils/auth')
-    const base = String(import.meta.env.VITE_APP_BASE_API || '')
-    const resp = await fetch(base + '/system/ai/history/admin/export?' + query, {
-      headers: { authorization: 'Bearer ' + (getToken() ?? '') }
+    const params: Record<string, string | number> = {}
+    if (tid !== null) params.tenantFilter = tid
+    const res = await blobRequest({
+      url: '/system/ai/history/admin/export',
+      params,
+      responseType: 'blob',
+      timeout: FILE_DOWNLOAD_TIMEOUT
     })
-    if (!resp.ok) throw new Error('export failed: ' + resp.status)
-    const blob = await resp.blob()
-    // 保存失败要落进下面同一个失败分支：不刷新"导出成功"的错觉，也不静默
-    if (!saveBlob(blob, `ai_history_${new Date().toISOString().slice(0, 10)}.xlsx`)) {
-      throw new Error('save channel rejected the payload')
+    if (!res.ok) {
+      // 有响应就听后端的（429 会带"请在 N 秒后重试"）；完全没响应（网络中断/超时）
+      // 才落回导出动作自己的失败文案——那时后端理由不存在，不能拿通用"下载失败"顶替。
+      const text = res.failure.status === null ? t('aiHistory.exportFailed') : failureText(res.failure)
+      errorHub.report('error', 'download', text, res.failure.traceId)
+      return
     }
+    const fileName = `ai_history_${new Date().toISOString().slice(0, 10)}.xlsx`
+    if (!saveBlob(res.data, fileName)) {
+      errorHub.report('error', 'download', t('aiHistory.exportFailed'))
+      return
+    }
+    // saveBlob 的 true 只证明"载荷非空且保存通道未抛错"，不证明已落盘（b112 口径）
+    ElMessage.success(t('aiHistory.exportStarted'))
   } catch (e) {
-    // 导出失败必须有用户可见反馈（此前静默吞错，用户点导出无任何响应）
-    ElMessage.error(t('aiHistory.exportFailed'))
     if (import.meta.env.DEV) console.error('[aiHistory] export failed:', e)
+    errorHub.report('error', 'download', t('aiHistory.exportFailed'))
   } finally {
     exportLoading.value = false
   }

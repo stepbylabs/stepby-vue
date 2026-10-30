@@ -2,8 +2,8 @@
   <div class="upload-file">
     <el-upload
       multiple
-      :action="uploadFileUrl"
       :before-upload="handleBeforeUpload"
+      :http-request="handleHttpRequest"
       :file-list="fileList"
       :data="data"
       :limit="limit"
@@ -11,7 +11,6 @@
       :on-exceed="handleExceed"
       :on-success="handleUploadSuccess"
       :show-file-list="false"
-      :headers="headers"
       class="upload-file-uploader mb-[5px]"
       ref="fileUpload"
       v-if="!disabled"
@@ -54,12 +53,11 @@
 </template>
 
 <script setup lang="ts">
-import { getToken } from '@/utils/auth'
 import Sortable from 'sortablejs'
-import useUserStore from '@/store/modules/user'
-import { goLogin } from '@/utils/navigation'
 import modal from '@/plugins/modal'
 import type { UploadFile as ElUploadFile } from 'element-plus'
+import type { UploadRequestOptions } from 'element-plus'
+import { uploadViaRequest } from '@/utils/uploadRequest'
 // G-10 批次十八：分片上传 / 断点续传（>8MB 自动分流；后端总上限 1GB）
 import { shouldChunk, uploadFileChunked } from '@/api/upload'
 import type { UploadFileResult } from '@/types/api/common'
@@ -122,8 +120,6 @@ const number = ref(0)
 let sortableInstance: InstanceType<typeof Sortable> | null = null
 const uploadList = ref<UploadFileItem[]>([])
 const baseUrl = import.meta.env.VITE_APP_BASE_API
-const uploadFileUrl = ref(import.meta.env.VITE_APP_BASE_API + props.action) // 上传文件服务器地址
-const headers = computed(() => ({ Authorization: 'Bearer ' + getToken() }))
 const fileList = ref<UploadFileItem[]>([])
 const showTip = computed(() => props.isShowTip && (props.fileType || props.fileSize))
 
@@ -214,26 +210,23 @@ function handleExceed(): void {
   modal.msgError(t('fileUpload.fileCountExceed', { limit: props.limit }))
 }
 
-// 上传失败
+/**
+ * 自定义传输（b138）：EP 内置 XHR 不经请求层 ⇒ 令牌过期不会触发会话失效、失败没有追踪号。
+ * 大文件（>8MB）在 before-upload 就分流到分片链（返回 false，不走这里）。
+ * 401 由拦截器统一弹重新登录框，这里不再补提示；其它失败必须可见。
+ */
+async function handleHttpRequest(options: UploadRequestOptions): Promise<void> {
+  const outcome = await uploadViaRequest(options, { url: props.action })
+  if (outcome.failed && !outcome.sessionExpired) modal.msgError(t('fileUpload.uploadFailed'))
+}
+
+// 上传失败（EP 的 onError 必然触发；提示已由 handleHttpRequest 给出，这里只做收尾与 DEV 留痕）
 function handleUploadError(err: unknown): void {
-  // 检查 401 未授权，触发重新登录
-  const errObj = err as { status?: number; response?: { status?: number } } | undefined
-  const status = errObj?.status || errObj?.response?.status
-  if (status === 401) {
-    modal.closeLoading()
-    useUserStore()
-      .logOut()
-      .then(() => {
-        // P1 修复: 跳 /login 而非 /index，避免二次重定向（与 request.ts 一致）
-        goLogin()
-      })
-      .catch(() => {
-        goLogin()
-      })
-    return
-  }
-  modal.msgError(t('fileUpload.uploadFailed'))
+  if (import.meta.env.DEV) console.error('[FileUpload] upload failed:', err)
+  // 失败必须从在飞计数里扣掉：否则一次失败会让后续成功的文件永远等不到 number === uploadList.length
+  number.value = Math.max(0, number.value - 1)
   modal.closeLoading()
+  uploadedSuccessfully()
 }
 
 // 上传成功回调

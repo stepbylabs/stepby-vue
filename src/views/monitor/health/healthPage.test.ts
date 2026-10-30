@@ -7,8 +7,11 @@
  *
  * 本文件钉四件事：
  * 1. 全成功 ⇒ 不得出现错误条（对照组：修法不得把正常轮变成每轮告警）；
- * 2. `/metrics` 失败 ⇒ 错误条可见，且主链路数据照常渲染（两件事互不吞没）；
- * 3. 连接池失败 ⇒ 错误条可见（分母是两路，不是"只看 metrics"）；
+ * 2. 指标摘要失败 ⇒ 错误条可见，且主链路数据照常渲染（两件事互不吞没）；
+ *    （b138：指标改走 `GET /monitor/metrics-summary`——`/metrics` 在配置运维令牌后
+ *     对浏览器恒 401，用裸 fetch 的旧实现使这些部署上"永久空白"；夹具随之改为
+ *     该接口的失败，而不是 `fetch` 的失败）
+ * 3. 连接池失败 ⇒ 错误条可见（分母是两路，不是"只看指标"）；
  * 4. 主链路失败 ⇒ 错误条可见；重试成功后错误条消失（提示必须有动作通道）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -16,7 +19,8 @@ import { mount, flushPromises } from '@vue/test-utils'
 
 const hoisted = vi.hoisted(() => ({
   request: vi.fn(),
-  getDbPool: vi.fn()
+  getDbPool: vi.fn(),
+  getMetricsSummary: vi.fn()
 }))
 
 vi.mock('@/utils/request', () => ({
@@ -24,7 +28,8 @@ vi.mock('@/utils/request', () => ({
 }))
 
 vi.mock('@/api/monitor/server', () => ({
-  getDbPool: (...a: unknown[]) => hoisted.getDbPool(...a)
+  getDbPool: (...a: unknown[]) => hoisted.getDbPool(...a),
+  getMetricsSummary: (...a: unknown[]) => hoisted.getMetricsSummary(...a)
 }))
 
 vi.mock('@/composables/useMotion', () => ({
@@ -75,13 +80,6 @@ const serverVo = {
   sysFiles: []
 }
 
-function okFetch(text = 'stepby_uptime_seconds 100\nstepby_db_connected 1\n') {
-  return vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => text })
-}
-function failFetch(status = 500) {
-  return vi.fn().mockResolvedValue({ ok: false, status, text: async () => '' })
-}
-
 function mountPage() {
   return mount(HealthPage, {
     global: {
@@ -95,12 +93,14 @@ beforeEach(() => {
   vi.clearAllMocks()
   hoisted.request.mockReset()
   hoisted.getDbPool.mockReset()
-  vi.unstubAllGlobals()
+  hoisted.getMetricsSummary.mockReset()
   hoisted.request.mockImplementation(async (cfg: { url: string }) =>
     cfg.url === '/health' ? { data: healthVo } : { data: serverVo }
   )
   hoisted.getDbPool.mockResolvedValue({ data: { url: 'sqlite:./data/app.db', maxActive: 10, active: 1 } })
-  vi.stubGlobal('fetch', okFetch())
+  hoisted.getMetricsSummary.mockResolvedValue({
+    data: { dbBackend: 'sqlite', dbConnected: true, uptimeSeconds: 100, rssBytes: 1, vmsBytes: 2 }
+  })
 })
 
 describe('监控健康页：支路失败必须可见', () => {
@@ -112,8 +112,8 @@ describe('监控健康页：支路失败必须可见', () => {
     wrapper.unmount()
   })
 
-  it('/metrics 失败：错误条可见且主链路数据照常渲染', async () => {
-    vi.stubGlobal('fetch', failFetch(500))
+  it('指标摘要失败：错误条可见且主链路数据照常渲染', async () => {
+    hoisted.getMetricsSummary.mockRejectedValue(new Error('metrics summary failed'))
     const wrapper = mountPage()
     await flushPromises()
     expect(wrapper.find('[data-test="health-load-error"]').exists()).toBe(true)

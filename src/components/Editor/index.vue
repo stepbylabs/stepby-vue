@@ -1,13 +1,12 @@
 <template>
   <div>
     <el-upload
-      :action="uploadUrl"
       :before-upload="handleBeforeUpload"
       :on-success="handleUploadSuccess"
       :on-error="handleUploadError"
+      :http-request="handleHttpRequest"
       name="file"
       :show-file-list="false"
-      :headers="headers"
       class="editor-img-uploader hidden"
       v-if="type == 'url'"
     >
@@ -28,12 +27,12 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
 import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 import type Quill from 'quill'
-import type { UploadInstance } from 'element-plus'
-import { getToken } from '@/utils/auth'
+import type { UploadInstance, UploadRequestOptions } from 'element-plus'
+import request from '@/utils/request'
+import { isSessionExpiryError, uploadViaRequest } from '@/utils/uploadRequest'
 import modal from '@/plugins/modal'
 import { verifyImageMagicBytes } from '@/utils/validate'
 import type { UploadFileResult } from '@/types/api/common'
@@ -44,9 +43,6 @@ const quillEditorRef = useTemplateRef<InstanceType<typeof QuillEditor>>('quillEd
 const uploadRef = useTemplateRef<UploadInstance>('uploadRef')
 // P3-4：将 quillInstance 类型从 any 收窄为 Quill | null，便于静态分析与重构
 let quillInstance: Quill | null = null
-const uploadUrl = ref(import.meta.env.VITE_APP_BASE_API + '/common/upload') // 上传的图片服务器地址
-// C-1：使用 computed 保证 token 刷新后上传携带最新 token（ref 会在初始化时固化旧值）
-const headers = computed(() => ({ Authorization: 'Bearer ' + getToken() }))
 
 // FE-001：使用 defineModel 替代 props.modelValue + watch + $emit('update:modelValue')
 const modelValue = defineModel<string>()
@@ -380,30 +376,43 @@ async function handleBeforeUpload(file: File) {
   return true
 }
 
-// 上传成功处理
-function handleUploadSuccess(res: UploadFileResult, _file: File) {
-  // 如果上传成功
-  if (res.code === 200) {
-    // 复用已存储的 quillInstance，避免重复调用 getQuill()
-    const quill = quillInstance
-    if (!quill) return
-    // 获取光标位置：编辑器未聚焦时 savedRange 可能为 null，需降级处理
-    const range = quill.getSelection() ?? quill.selection?.savedRange ?? { index: quill.getLength() }
-    const length = range.index
-    // 插入图片，res.url为服务器返回的图片链接地址
-    quill.insertEmbed(length, 'image', import.meta.env.VITE_APP_BASE_API + res.fileName)
-    // 调整光标到最后
-    quill.setSelection(length + 1)
-    // insertEmbed 默认 source='api'，用户看不见这笔变更 ⇒ 显式回写，保证插图后关闭有守卫
-    syncContentFromEditor()
-  } else {
-    modal.msgError(t('editor.imageInsertFailed'))
-  }
+/** 图片上传统一入口：工具栏选择与粘贴两条通道共用（令牌/超时/追踪号/401 会话失效由请求层统一） */
+async function uploadImage(file: File): Promise<UploadFileResult> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return (await request({ url: '/common/upload', method: 'post', data: formData })) as UploadFileResult
 }
 
-// 上传失败处理
-function handleUploadError() {
-  modal.msgError(t('editor.imageInsertFailed'))
+/** 失败必须可见：401 已由拦截器弹出重新登录框（再补一句只是噪声），其余一律提示一次 */
+function reportUploadFailure(err: unknown) {
+  if (!isSessionExpiryError(err)) modal.msgError(t('editor.imageInsertFailed'))
+}
+
+/** el-upload 自定义传输（b138）：EP 内置 XHR 不经请求层，故改走 utils/uploadRequest 单一实现 */
+async function handleHttpRequest(options: UploadRequestOptions): Promise<void> {
+  const outcome = await uploadViaRequest(options, { url: '/common/upload' })
+  if (outcome.failed && !outcome.sessionExpired) modal.msgError(t('editor.imageInsertFailed'))
+}
+
+// 上传成功处理
+function handleUploadSuccess(res: UploadFileResult, _file: File) {
+  // 复用已存储的 quillInstance，避免重复调用 getQuill()
+  const quill = quillInstance
+  if (!quill) return
+  // 获取光标位置：编辑器未聚焦时 savedRange 可能为 null，需降级处理
+  const range = quill.getSelection() ?? quill.selection?.savedRange ?? { index: quill.getLength() }
+  const length = range.index
+  // 插入图片，res.fileName 为服务器返回的图片路径
+  quill.insertEmbed(length, 'image', import.meta.env.VITE_APP_BASE_API + res.fileName)
+  // 调整光标到最后
+  quill.setSelection(length + 1)
+  // insertEmbed 默认 source='api'，用户看不见这笔变更 ⇒ 显式回写，保证插图后关闭有守卫
+  syncContentFromEditor()
+}
+
+// 上传失败处理（用户可见提示已由请求层或 handleHttpRequest 给出，这里只留 DEV 留痕）
+function handleUploadError(err?: unknown) {
+  if (import.meta.env.DEV) console.error('[Editor] Upload failed:', err)
 }
 
 // 复制粘贴图片处理
@@ -432,17 +441,11 @@ async function insertImage(file: File) {
   }
   const formData = new FormData()
   formData.append('file', file)
-  // M-5 修复：删除手动设置的 Content-Type，让 axios 自动生成带 boundary 的正确头部
-  // P0 修复：添加 .catch 处理上传失败场景，避免 unhandled rejection
-  axios
-    .post(uploadUrl.value, formData, { headers: { Authorization: headers.value.Authorization } })
-    .then((res: { data: UploadFileResult }) => {
-      handleUploadSuccess(res.data as UploadFileResult, file)
-    })
-    .catch((err: unknown) => {
-      if (import.meta.env.DEV) console.error('[Editor] Paste image upload failed:', err)
-      modal.msgError(t('editor.imageInsertFailed'))
-    })
+  try {
+    handleUploadSuccess(await uploadImage(file), file)
+  } catch (err) {
+    reportUploadFailure(err)
+  }
 }
 </script>
 

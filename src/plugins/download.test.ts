@@ -10,6 +10,10 @@
  * 4. loading 实例必须是每次下载的局部变量——曾用模块级单例，并发下载时后者覆盖前者
  *    引用，前者的遮罩永远关不掉（卡死在"下载中"）。
  *
+ * b138：三条通道收编到 `utils/blobRequest`，同时把**被写成期望的缺陷**改回来——
+ * 上面四处 `timeout: 60000` 是旧实现的字面量，而统一口径是 `FILE_DOWNLOAD_TIMEOUT`
+ * （600_000，差 10 倍）：大型 `/common/download` 此前必然在第 60 秒被 abort。
+ *
  * download.ts 是裸用 axios（不走 @/utils/request），故 mock 'axios' 的 default 导出；
  * errorHub 用真实实例断言 level/source/message，每个用例 resetModules 取新单例。
  */
@@ -32,7 +36,8 @@ const h = vi.hoisted(() => {
   const t = vi.fn((key: string) => `T:${key}`)
   const getToken = vi.fn(() => 'test-token')
   const elMessage = vi.fn()
-  return { axiosRequest, saveAs, closeFns, elLoadingService, t, getToken, elMessage }
+  const notifySessionExpired = vi.fn(() => Promise.resolve())
+  return { axiosRequest, saveAs, closeFns, elLoadingService, t, getToken, elMessage, notifySessionExpired }
 })
 
 vi.mock('axios', () => ({ default: h.axiosRequest }))
@@ -40,6 +45,9 @@ vi.mock('file-saver', () => ({ saveAs: h.saveAs }))
 vi.mock('element-plus', () => ({ ElLoading: { service: h.elLoadingService }, ElMessage: h.elMessage }))
 vi.mock('@/i18n', () => ({ default: { global: { t: h.t } } }))
 vi.mock('@/utils/auth', () => ({ getToken: h.getToken }))
+// b138：直连原语在 401 时动态 import 主通道的会话失效入口；这里接管它，
+// 避免测试真的加载整套 request.ts（顶层会建 axios 实例与拦截器）。
+vi.mock('@/utils/request', () => ({ notifySessionExpired: h.notifySessionExpired }))
 
 /** 冲刷宏任务（连带 flush 下载链路上的所有微任务，含 printErrMsg 的 await data.text()） */
 async function flush(): Promise<void> {
@@ -64,6 +72,7 @@ describe('plugins/download', () => {
     h.t.mockClear()
     h.closeFns.length = 0
     h.getToken.mockReturnValue('test-token')
+    h.notifySessionExpired.mockClear()
     // DEV 分支的 console.error 属预期输出，静音以免干扰测试报告
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     download = (await import('./download')).default
@@ -152,9 +161,10 @@ describe('plugins/download', () => {
     expect(h.saveAs.mock.calls[0][1]).toBe('文件.png')
     expect(h.axiosRequest).toHaveBeenCalledWith({
       method: 'get',
-      url: '/mock-base/common/download/resource?resource=' + encodeURIComponent('/profile/upload/2026/文件.png'),
+      url: '/mock-base/common/download/resource',
+      params: { resource: '/profile/upload/2026/文件.png' },
       responseType: 'blob',
-      timeout: 60000,
+      timeout: 600_000,
       headers: { Authorization: 'Bearer test-token' }
     })
 
@@ -185,13 +195,13 @@ describe('plugins/download', () => {
       method: 'get',
       url: '/mock-base/monitor/job/export',
       responseType: 'blob',
-      timeout: 60000,
+      timeout: 600_000,
       headers: { Authorization: 'Bearer test-token' }
     })
     expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
   })
 
-  it('name() 请求契约：GET + responseType blob + timeout 60000 + Bearer 头 + fileName/delete 编码', async () => {
+  it('name() 请求契约：GET + responseType blob + timeout 常量 + Bearer 头 + fileName/delete 参数', async () => {
     h.axiosRequest.mockResolvedValue({ data: blobOf('x', 'application/octet-stream'), headers: {} })
 
     download.name('my report.xlsx', false)
@@ -199,9 +209,10 @@ describe('plugins/download', () => {
 
     expect(h.axiosRequest).toHaveBeenCalledWith({
       method: 'get',
-      url: '/mock-base/common/download?fileName=' + encodeURIComponent('my report.xlsx') + '&delete=false',
+      url: '/mock-base/common/download',
+      params: { fileName: 'my report.xlsx', delete: 'false' },
       responseType: 'blob',
-      timeout: 60000,
+      timeout: 600_000,
       headers: { Authorization: 'Bearer test-token' }
     })
     expect(h.elLoadingService).toHaveBeenCalledWith({
@@ -216,8 +227,9 @@ describe('plugins/download', () => {
     download.name('a.xlsx')
     await flush()
 
-    const url = String(h.axiosRequest.mock.calls[0][0].url)
-    expect(url).toContain('&delete=true')
+    // b138：URL 与查询串的构造从「手拼 + encodeURIComponent」改为 axios params，
+    // 断言口径随之落到参数对象上（值仍是字符串 'true'，后端收到的查询串不变）
+    expect(h.axiosRequest.mock.calls[0][0].params).toMatchObject({ delete: 'true' })
   })
 
   // -------------------------------------------------------------------------
@@ -408,5 +420,23 @@ describe('plugins/download', () => {
     await expect(download.printErrMsg(blobOf('not-json', 'application/json'))).resolves.toBeUndefined()
     expect(hub.issues).toHaveLength(1)
     expect(hub.issues[0].message).toBe('T:common.downloadError')
+  })
+
+  it('401：走统一会话失效（对话框 + 并发合并），而不是只报一句下载失败（b138）', async () => {
+    h.axiosRequest.mockRejectedValue({
+      response: {
+        status: 401,
+        data: blobOf(JSON.stringify({ code: 401, msg: '登录状态已过期' }), 'application/json'),
+        headers: {}
+      }
+    })
+
+    download.name('expired.xlsx')
+    await flush()
+
+    // 失败结局仍要给出（用户看得见"登录状态已过期"），同时触发会话失效链路
+    expect(hub.issues[0]).toMatchObject({ source: 'download', message: '登录状态已过期' })
+    expect(h.notifySessionExpired).toHaveBeenCalledTimes(1)
+    expect(h.closeFns[0]).toHaveBeenCalledTimes(1)
   })
 })

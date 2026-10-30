@@ -141,6 +141,8 @@ export default {
     noPermission: 'You do not have permission for this operation',
     crudCapabilityMissing: 'This page does not offer this operation; ask an administrator to enable the capability',
     tooManyRequests: 'Too many requests, please try again later',
+    // Shown on 429 when the response carries Retry-After (b138)
+    retryAfterSeconds: 'Please retry in {seconds} seconds',
     serviceUnavailable: 'Service is temporarily unavailable, please try again later',
     backendConnectionError: 'Backend API connection failed',
     requestTimeout: 'System API request timed out',

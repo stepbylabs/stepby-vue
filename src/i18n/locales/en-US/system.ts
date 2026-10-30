@@ -204,6 +204,7 @@ export default {
     error: 'Error',
     exportBtn: 'Export',
     exportFailed: 'Export failed, please retry later',
+    exportStarted: 'Download started — check your browser downloads',
     tenantInvalid: 'Tenant ID must be an integer greater than or equal to 0',
     ph: { tenantFilter: 'Tenant ID filter (platform)' }
   },

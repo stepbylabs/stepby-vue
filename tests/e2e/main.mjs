@@ -27259,9 +27259,10 @@ async function testFeature116(page) {
     record(116, '前置登录', false, 'token 获取失败')
     return
   }
-  // 导出实现（aiHistory/index.vue:128 附近）：原生 fetch → blob → createObjectURL → <a download>
-  // 点击——会触发 Playwright download 事件。独立建 acceptDownloads 上下文并挂 Admin-Token
-  //（对齐 F105 的独立上下文范式），避免扰动主会话。
+  // 导出实现（b138 起：`utils/blobRequest` 原语 → `saveBlob` → createObjectURL → <a download>；
+  // 改造前是裸 fetch，超时/追踪号/429 退避三项都没有。两条实现都经 anchor 下载，故本用例
+  // 判的 download 事件对两者同样成立）——点击会触发 Playwright download 事件。
+  // 独立建 acceptDownloads 上下文并挂 Admin-Token（对齐 F105 的独立上下文范式），避免扰动主会话。
   const ctx = await page.context().browser().newContext({ acceptDownloads: true })
   await ctx.addCookies([{ name: 'Admin-Token', value: token, url: CONFIG.frontendUrl }])
   const p = await ctx.newPage()
