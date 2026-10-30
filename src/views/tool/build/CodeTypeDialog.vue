@@ -81,11 +81,15 @@ const typeOptions = ref([
   }
 ])
 function onOpen(): void {
+  // 每次开窗都把「代码形态」复位到默认的整页文件：上次选了「弹窗(dialog)」后，
+  // 下一次点「复制代码 / 下载文件」仍会按 dialog 生成——用户拿到的产物与本次意图不符，
+  // 而对话框里只有一个小单选提示，极易漏看（b136 实测）
+  formData.value = { fileName: undefined, type: 'file' }
   if (props.showFileName) {
     formData.value.fileName = `${+new Date()}.vue`
-    // 自动填的文件名发生在开窗基准之后，不重拍就会「一开窗即判脏」：Esc 变成弹确认
-    snapshot()
   }
+  // 自动填的文件名 / 复位都发生在开窗基准之后，不重拍就会「一开窗即判脏」：Esc 变成弹确认
+  snapshot()
 }
 function onClose(): void {
   open.value = false

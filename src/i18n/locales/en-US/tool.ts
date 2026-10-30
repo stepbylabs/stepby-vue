@@ -779,7 +779,8 @@ export default {
       phOptionValue: 'Enter option value',
       validate: {
         labelRequired: 'Please enter option name',
-        valueRequired: 'Please enter option value'
+        valueRequired: 'Please enter option value',
+        valueMustBeNumber: 'When the value type is Number, use decimal digits only (optional sign and fraction)'
       },
       dataType: {
         string: 'String',

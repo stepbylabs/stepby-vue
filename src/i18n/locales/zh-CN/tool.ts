@@ -777,7 +777,8 @@ export default {
       phOptionValue: '请输入选项值',
       validate: {
         labelRequired: '请输入选项名',
-        valueRequired: '请输入选项值'
+        valueRequired: '请输入选项值',
+        valueMustBeNumber: '选项值类型为数字时，只能填写十进制数字（可带负号与小数）'
       },
       dataType: {
         string: '字符串',

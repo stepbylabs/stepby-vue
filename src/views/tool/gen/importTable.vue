@@ -73,7 +73,7 @@
     </el-row>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="primary" @click="handleImportTable">{{ t('common.confirm') }}</el-button>
+        <el-button type="primary" :loading="importing" @click="handleImportTable">{{ t('common.confirm') }}</el-button>
         <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
       </div>
     </template>
@@ -112,10 +112,18 @@ const queryParams = reactive<GenQueryParams>({
 /** 关闭语义（b135）：勾选要导入的表之后按 Esc 原先会静默丢弃整批勾选 */
 const { beforeClose, cancel, markSaved } = useDialogDirtyGuard(visible, () => ({ tables: tables.value }))
 
+// 导入中的可见反馈 + 同步可重入闸（loading 是响应式的，同一 tick 的第二次点击看不到它）
+const importing = ref(false)
+let importBusy = false
+
 const emit = defineEmits(['ok'])
 
 /** 查询参数列表 */
 function show(): void {
+  // 选择集必须随开窗归零：`destroy-on-close` 重建表格时 Element Plus 只在选中集非空时
+  // emit `selection-change`（table/src/store/watcher.mjs），不会补发一次 `[]`——残留的
+  // 表名会让"屏幕上一个都没勾、点确定却把上次的表再导一遍"成立（b136 实测）
+  tables.value = []
   getList()
   visible.value = true
 }
@@ -178,12 +186,15 @@ function resetQuery() {
 }
 
 /** 导入按钮操作 */
-function handleImportTable() {
+function handleImportTable(): void {
+  if (importBusy) return
   const tableNames = tables.value.join(',')
   if (tableNames == '') {
     modal.msgError(t('gen.importTable.tipSelectTable'))
     return
   }
+  importBusy = true
+  importing.value = true
   importTable({ tables: tableNames, tplWebType: 'element-plus-typescript' })
     .then((res) => {
       modal.msgSuccess(res.msg)
@@ -193,7 +204,14 @@ function handleImportTable() {
         emit('ok')
       }
     })
-    .catch((err: unknown) => modal.msgError(err instanceof Error ? err.message : String(err)))
+    .catch((err: unknown) => {
+      // 失败提示由请求拦截器统一给出（b125：同一次失败只许一条）；此处只留痕，免得弹两条
+      if (import.meta.env.DEV) console.error('[gen/importTable] import:', err)
+    })
+    .finally(() => {
+      importBusy = false
+      importing.value = false
+    })
 }
 
 defineExpose({

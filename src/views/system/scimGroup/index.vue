@@ -107,7 +107,13 @@
     </el-card>
 
     <!-- 编辑抽屉：映射类型 + 绑定目标（成员只读） -->
-    <el-drawer v-model="editVisible" :title="t('scimGroup.editTitle')" size="560px" destroy-on-close>
+    <el-drawer
+      v-model="editVisible"
+      :title="t('scimGroup.editTitle')"
+      size="560px"
+      destroy-on-close
+      :before-close="beforeEditClose"
+    >
       <el-form label-width="110px" @submit.prevent>
         <el-form-item :label="t('scimGroup.displayName')">
           <el-input :model-value="editRow?.displayName" disabled />
@@ -162,7 +168,7 @@
           <el-button v-hasPermi="['system:scimgroup:edit']" type="primary" :loading="saving" @click="saveEdit">
             {{ t('common.save') }}
           </el-button>
-          <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelEdit">{{ t('common.cancel') }}</el-button>
         </el-form-item>
       </el-form>
     </el-drawer>
@@ -176,6 +182,7 @@ import { listDept } from '@/api/system/dept'
 import type { ComponentInternalInstance } from 'vue'
 import type { ScimGroupAdminRow, ScimGroupAdminDetail, SysRole, SysDept } from '@/types'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { confirmAction } from '@/utils/confirm'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import { createLatestGuard } from '@/composables/latestRequest'
@@ -217,6 +224,13 @@ const roleOptionsTruncated = ref(false)
 const deptOptions = ref<SysDept[]>([])
 
 const hasBindings = computed(() => (detail.value?.bindingTargetIds?.length ?? 0) > 0)
+
+/**
+ * 关闭语义（b136）：抽屉里的映射类型与绑定目标是**可编辑且未落库**的，
+ * 而 ElDrawer 的 ×/遮罩/Esc 与其他覆盖层同源（默认 closeOnClickModal / closeOnPressEscape 均为 true）
+ * ——原先按 Esc 会静默丢弃刚改的绑定。
+ */
+const { beforeClose: beforeEditClose, cancel: cancelEdit } = useDialogDirtyGuard(editVisible, editForm)
 
 async function getList() {
   const ticket = listGuard.begin()

@@ -64,6 +64,7 @@
 </template>
 <script setup lang="ts">
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import modal from '@/plugins/modal'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // 表单构建器树节点对话框：节点数据结构由配置决定，类型无法静态约束
 const { t } = useI18n()
@@ -113,6 +114,9 @@ function onOpen(): void {
     label: undefined,
     value: undefined
   }
+  // 类型必须随开窗复位：上一次选了「数字」后，下一次输入 "001" 会被 parseFloat 静默改成 1
+  // （值类型由用户在该行单选组里选，但残留选择极易漏看，生成配置就此损坏）
+  dataType.value = 'string'
   // 每开窗都重置：重置发生在开窗基准之后，不重拍就会拿上一次的残值当基准（开窗即判脏）
   snapshot()
 }
@@ -130,13 +134,16 @@ function handleConfirm(): void {
     }
     try {
       if (dataType.value === 'number') {
-        // P2 修复: parseFloat 对非法字符串返回 NaN，需校验
-        const parsed = parseFloat(String(formData.value.value))
-        if (Number.isNaN(parsed)) {
+        const raw = String(formData.value.value).trim()
+        // 严格十进制（可选负号与小数位）：`parseFloat` 会把 "12abc" 读成 12、把 "0x10" 读成 0，
+        // 用户以为存的是自己写的那串，生成配置里却是另一个值
+        if (!/^-?\d+(\.\d+)?$/.test(raw)) {
           submitLoading.value = false
+          // 原实现直接 return：点「确定」什么都没发生，用户以为按钮坏了
+          modal.msgError(t('build.treeNodeDialog.validate.valueMustBeNumber'))
           return
         }
-        formData.value.value = parsed
+        formData.value.value = Number(raw)
       }
       formData.value.id = id.value++
       emit('commit', formData.value)
