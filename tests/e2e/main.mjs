@@ -1223,6 +1223,76 @@ async function testFeature3(page) {
     } else {
       record(3, '下载功能端到端验证', false, '未找到可点击的下载按钮')
     }
+    // b137：失败链路（GET 外带面同样是接口）。注入 403 后必须**只弹一条**提示：
+    // 页面此前在 `handleDownload` 的 catch 里又调 `modal.msgError(backup.tip.downloadFail)`，
+    // 与拦截器按统一文案上报的那条并存 ⇒ 同一次失败两种措辞（b125 §(d) 单一出口纪律）。
+    // 同时判"后端理由 + 追踪号可见"与"页面未被整页卸载"，并用撤销注入后的同一按钮作对照组
+    // （否则"按钮永远坏"也能满足前三条）。
+    await waitToastsCleared(page)
+    // 重新定位（上面那个 `downloadBtn` 只活在前一个 if 块的作用域里）；取不到按钮按
+    // fail-closed 记红，不得静默跳过本段。
+    const failBtn = page
+      .locator('.el-table__body-wrapper tbody tr')
+      .first()
+      .locator('button:has-text("下载"), .el-button:has-text("下载")')
+      .first()
+    const failRoute = '**/system/backup/download/**'
+    const failTrace = `b137-backup-${Date.now()}`
+    const failMsg = 'b137 注入：备份文件不存在或无权下载'
+    if ((await failBtn.count().catch(() => 0)) > 0) {
+      await page.route(failRoute, (route) =>
+        route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          headers: { 'x-request-id': failTrace },
+          body: JSON.stringify({ code: 403, msg: failMsg, trace_id: failTrace })
+        })
+      )
+      try {
+        await failBtn.click({ timeout: 8000 })
+        // 累积采样（b125 ⑤）：el-message 约 6s 自消，"等满窗口再读一次"会把
+        // "文案不对"读成"没有提示"，并让"只有一条"失去观测。
+        const seenToasts = []
+        let toastCount = 0
+        const toastDeadline = Date.now() + 9000
+        while (Date.now() < toastDeadline) {
+          const snapshot = await page
+            .evaluate(() => Array.from(document.querySelectorAll('.el-message')).map((el) => el.textContent || ''))
+            .catch(() => [])
+          toastCount = Math.max(toastCount, snapshot.length)
+          for (const text of snapshot) if (text && !seenToasts.includes(text)) seenToasts.push(text)
+          if (seenToasts.some((text) => text.includes(failMsg))) break
+          await page.waitForTimeout(250)
+        }
+        const toastText = seenToasts.join(' | ')
+        record(
+          3,
+          '下载失败：后端理由在提示里且只一条（页面不得二次弹窗）',
+          toastText.includes(failMsg) && toastCount === 1,
+          `count=${toastCount}, toast=${toastText.slice(0, 160)}`
+        )
+        record(3, '下载失败：同一条追踪号出现在提示里', toastText.includes(failTrace), `trace=${failTrace}`)
+        const pageAlive = await page
+          .evaluate(() => !!document.querySelector('.el-table') && !document.body.innerText.includes('页面加载失败'))
+          .catch(() => false)
+        record(3, '下载失败：页面未被卸载', pageAlive)
+      } finally {
+        await page.unroute(failRoute).catch(() => {})
+      }
+      await waitToastsCleared(page)
+      const [recoveredDownload] = await Promise.all([
+        page.waitForEvent('download', { timeout: 30000 }).catch(() => null),
+        failBtn.click({ timeout: 8000 })
+      ])
+      record(
+        3,
+        '对照组：撤掉故障后同一按钮仍能下载',
+        !!recoveredDownload?.suggestedFilename?.(),
+        recoveredDownload ? `file=${recoveredDownload.suggestedFilename()}` : '未收到 download 事件'
+      )
+    } else {
+      record(3, '下载失败：后端理由在提示里且只一条（页面不得二次弹窗）', false, '未找到可点击的下载按钮')
+    }
   } catch (err) {
     record(3, '下载功能端到端验证', false, `异常: ${err.message.slice(0, 80)}`)
   }

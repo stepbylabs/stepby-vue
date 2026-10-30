@@ -1203,7 +1203,6 @@ export default {
     tip: {
       backupSuccess: '备份成功',
       restoreSuccess: '恢复成功',
-      downloadFail: '下载失败',
       selfExportTooltip: '导出当前登录账号所属租户的数据包',
       selfExportSuccess: '导出成功',
       confirmDelete: '确认删除选中的 {count} 条备份记录及文件？',

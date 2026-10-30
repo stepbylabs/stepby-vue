@@ -374,8 +374,10 @@ function handleDownload(row: SysBackupLog) {
   downloadingIds.value = [...downloadingIds.value, row.backupId]
   downloadBackup(row.backupId, row.fileName)
     .catch((err: unknown) => {
+      // 请求层失败（403/404/500/网络）已由响应拦截器按统一文案上报并带追踪号；
+      // 页面再弹一条只会让同一次失败出现两种措辞（b125 §(d) 的单一出口纪律）。
+      // 这里只保留 DEV 留痕——生产环境用户已经看到那条唯一提示。
       if (import.meta.env.DEV) console.error('Download failed:', err)
-      modal.msgError(t('backup.tip.downloadFail'))
     })
     .finally(() => {
       downloadingIds.value = downloadingIds.value.filter((id: number) => id !== row.backupId)
