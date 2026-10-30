@@ -71,6 +71,7 @@
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :before-close="beforeClose"
     >
       <el-form :model="form" label-width="110px">
         <el-form-item :label="t('dataRule.name')">
@@ -111,7 +112,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="saving" @click="submitRule">
           {{ t('common.confirm') }}
         </el-button>
@@ -127,6 +128,7 @@ import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import { confirmAction } from '@/utils/confirm'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 interface DataRuleRow {
   ruleId: number
@@ -171,6 +173,9 @@ const form = reactive({
   roleIds: [] as number[],
   enabled: true
 })
+
+/** 关闭语义（b135）：填一半按 Esc / 点遮罩原先会静默丢弃 */
+const { beforeClose, cancel } = useDialogDirtyGuard(dialogVisible, form)
 
 async function load(p?: number) {
   if (p) page.value = p

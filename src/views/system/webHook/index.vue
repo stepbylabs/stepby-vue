@@ -350,6 +350,7 @@
       :close-on-click-modal="false"
       :title="t('webHook.tip.testTitle')"
       v-model="testOpen"
+      :before-close="beforeTestClose"
       width="min(90%, 640px)"
       append-to-body
       destroy-on-close
@@ -405,7 +406,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button type="primary" :loading="testLoading" @click="doTest">{{ t('webHook.test.send') }}</el-button>
-          <el-button @click="testOpen = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelTest">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -432,6 +433,7 @@ import {
 } from '@/api/system/webHook'
 import type { SysWebHook, DeliveryResult } from '@/types/api/system/webHook'
 import { useCrudTable } from '@/composables/useCrudTable'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import EventCatalogSection from './EventCatalogSection.vue'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
@@ -654,6 +656,9 @@ const testForm = reactive<{ eventType: string | undefined; payload: string }>({
   eventType: undefined,
   payload: ''
 })
+
+// 关闭语义（b135）：测试载荷写了一半按 Esc / 点遮罩 / 点 × 原先会静默丢弃
+const { beforeClose: beforeTestClose, cancel: cancelTest } = useDialogDirtyGuard(testOpen, testForm)
 
 function openTestDialog(row?: SysWebHook) {
   const target = row ?? dataList.value.find((r: SysWebHook) => r.id === ids.value[0]) ?? null

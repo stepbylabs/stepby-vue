@@ -55,6 +55,7 @@
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :before-close="beforeFormClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('profile.passkey.nameLabel')" prop="name">
@@ -67,7 +68,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelForm">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="adding" @click="handleAdd">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
@@ -86,6 +87,7 @@ import {
   toCreationOptions,
   registrationToDto
 } from '@/utils/webauthn'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import useUserStore from '@/store/modules/user'
 
 const { t } = useI18n()
@@ -125,6 +127,9 @@ function openDialog(): void {
   dialogVisible.value = true
 }
 
+/** 关闭语义（b135）：改名填一半按 Esc / 点遮罩原先会静默丢弃 */
+const { beforeClose: beforeFormClose, cancel: cancelForm, markSaved } = useDialogDirtyGuard(dialogVisible, form)
+
 function handleAdd(): void {
   formRef.value?.validate(async (valid: boolean) => {
     if (!valid) return
@@ -144,6 +149,7 @@ function handleAdd(): void {
       }
       await registerFinish(registrationToDto(credential as PublicKeyCredential, form.name || null))
       ElMessage.success(t('profile.passkey.addSuccess'))
+      markSaved()
       dialogVisible.value = false
       load()
     } catch (err) {

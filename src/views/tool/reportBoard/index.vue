@@ -123,7 +123,7 @@
     </el-card>
 
     <!-- 添加卡片对话框（表单配置，非拖拽——大屏路线 v1） -->
-    <el-dialog v-model="dialogVisible" :title="t('reportBoard.addCard')" width="480px">
+    <el-dialog v-model="dialogVisible" :title="t('reportBoard.addCard')" :before-close="beforeAddClose" width="480px">
       <el-form :model="form" label-width="90px">
         <el-form-item :label="t('reportBoard.cardTitle')" required>
           <el-input
@@ -159,7 +159,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t('reportBoard.cancel') }}</el-button>
+        <el-button @click="cancelAdd">{{ t('reportBoard.cancel') }}</el-button>
         <el-button type="primary" @click="confirmAddCard">{{ t('reportBoard.confirm') }}</el-button>
       </template>
     </el-dialog>
@@ -174,6 +174,7 @@ import type { EChartsOption } from '@/utils/echarts'
 import { formatClockTime } from '@/utils'
 import { readCssVar, useChart } from '@/composables/useChart'
 import { createLatestGuard } from '@/composables/latestRequest'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import {
   addBoard,
   deleteBoard as deleteBoardApi,
@@ -231,6 +232,8 @@ const form = reactive<{
   sourceKey: string
   sizeKey: '1x1' | '2x1' | '2x2'
 }>({ title: '', chartType: 'line', sourceKey: '', sizeKey: '1x1' })
+// 关闭语义（b135）：卡片参数填一半按 Esc / 点遮罩原先会静默丢弃
+const { beforeClose: beforeAddClose, cancel: cancelAdd } = useDialogDirtyGuard(dialogVisible, form)
 
 /** 图表容器元素缓存：卡片 id → DOM */
 const chartEls = new Map<string, HTMLElement>()

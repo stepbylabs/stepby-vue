@@ -7,6 +7,7 @@
     top="3vh"
     append-to-body
     :close-on-click-modal="false"
+    :before-close="beforeClose"
     destroy-on-close
   >
     <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
@@ -204,7 +205,7 @@
     <template #footer>
       <div class="dialog-footer">
         <el-button type="primary" :loading="submitting" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
-        <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -215,6 +216,7 @@ const { t } = useI18n()
 import { createTable, type CreateTableDto, type CreateTableColumnDto, type ColumnDataType } from '@/api/tool/gen'
 import modal from '@/plugins/modal'
 import { validateForm } from '@/utils/formValidate'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 interface CreateTableForm {
   tableName: string
@@ -389,6 +391,9 @@ function initDefaultColumns(): void {
     }
   ]
 }
+
+/** 关闭语义（b135）：建表表单字段多（含动态列），按 Esc 原先会静默丢弃整张设计 */
+const { beforeClose, cancel } = useDialogDirtyGuard(visible, form)
 
 // 显示弹框
 function show(): void {

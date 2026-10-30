@@ -1,5 +1,12 @@
 <template>
-  <el-dialog v-model="visible" :title="t('userPrefs.title')" width="min(90%, 540px)" append-to-body destroy-on-close>
+  <el-dialog
+    v-model="visible"
+    :title="t('userPrefs.title')"
+    :before-close="beforeClose"
+    width="min(90%, 540px)"
+    append-to-body
+    destroy-on-close
+  >
     <el-form :model="form" label-width="140px" label-position="right">
       <el-divider content-position="left">{{ t('userPrefs.listDisplay') }}</el-divider>
       <el-form-item :label="t('userPrefs.defaultPageSize')">
@@ -56,7 +63,7 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">{{ t('userPrefs.cancel') }}</el-button>
+      <el-button @click="cancel">{{ t('userPrefs.cancel') }}</el-button>
       <el-button type="primary" :loading="submitLoading" @click="handleSave">{{ t('userPrefs.save') }}</el-button>
     </template>
   </el-dialog>
@@ -67,6 +74,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import useSettingsStore from '@/store/modules/settings'
 import modal from '@/plugins/modal'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 const { t } = useI18n()
 
@@ -80,6 +88,9 @@ watch(visible, (v: boolean) => {
     form.value = { ...settingsStore.userPrefs }
   }
 })
+
+// 关闭语义（b135）：偏好改了一半按 Esc / 点遮罩 / 点 × 原先会静默丢弃（保存成功走程序内关闭，不经此处）
+const { beforeClose, cancel } = useDialogDirtyGuard(visible, form)
 
 const timezoneOptions = computed(() => [
   { value: 'Asia/Shanghai', label: `(UTC+8) ${t('userPrefs.tzShanghai')}` },

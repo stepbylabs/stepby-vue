@@ -1,6 +1,13 @@
 <template>
   <!-- 分配角色数据权限对话框 -->
-  <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+  <el-dialog
+    :title="title"
+    v-model="open"
+    width="min(90%, 500px)"
+    append-to-body
+    destroy-on-close
+    :before-close="beforeClose"
+  >
     <el-form :model="form" label-width="80px">
       <el-form-item :label="t('role.form.roleName')">
         <el-input v-model="form.roleName" :disabled="true" />
@@ -65,6 +72,7 @@ import { dataScope } from '@/api/system/role'
 import type { SysRole } from '@/types/api/system/role'
 import type { TreeSelect } from '@/types/api/common'
 import type { TreeInstance } from 'element-plus'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import modal from '@/plugins/modal'
 
 const props = defineProps<{
@@ -179,6 +187,7 @@ function submitDataScope() {
     dataScope(form.value)
       .then(() => {
         modal.msgSuccess(t('common.editSuccess'))
+        markSaved()
         open.value = false
         emit('success')
       })
@@ -189,17 +198,26 @@ function submitDataScope() {
   }
 }
 
-/** 取消按钮（数据权限）*/
-function cancelDataScope() {
-  open.value = false
+/** 取消按钮（数据权限）：与 X / 遮罩 / Esc 走同一确认（b135，此前直接关会丢弃刚勾的部门树） */
+async function cancelDataScope() {
+  await cancel()
   emit('cancel')
 }
 
 /** 父级在对话框渲染完成后回填该角色的已选部门（原 deptRef 直连的等价入口） */
+/** 关闭语义（b135）：数据范围档位与部门勾选都是"未保存改动"，此前 X/遮罩/Esc 静默丢弃 */
+// 快照必须含部门树的勾选：只比 form 会漏掉「只改了树、没改档位」的那一半改动
+const { beforeClose, cancel, markSaved, snapshot } = useDialogDirtyGuard(open, () => ({
+  ...form.value,
+  deptIds: getDeptAllCheckedKeys()
+}))
+
 function setCheckedKeys(keys: number[]) {
   if (deptRef.value) {
     deptRef.value?.setCheckedKeys(keys)
   }
+  // 父层在打开后回填已选部门：基准必须跟着更新，否则一进来就判脏
+  snapshot()
 }
 
 defineExpose({ setCheckedKeys })

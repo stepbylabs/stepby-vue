@@ -189,7 +189,13 @@
     </el-tabs>
 
     <!-- ============ 提交对话框 ============ -->
-    <el-dialog v-model="submitOpen" :title="t('flow.submitTitle')" width="520px" append-to-body>
+    <el-dialog
+      v-model="submitOpen"
+      :title="t('flow.submitTitle')"
+      width="520px"
+      append-to-body
+      :before-close="beforeSubmitClose"
+    >
       <el-form ref="submitRef" :model="submitForm" :rules="submitRules" label-width="90px">
         <el-form-item :label="t('flow.formTitle')" prop="title">
           <el-input v-model="submitForm.title" :maxlength="200" />
@@ -217,7 +223,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="submitOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelSubmit">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">
           {{ t('common.confirm') }}
         </el-button>
@@ -225,7 +231,7 @@
     </el-dialog>
 
     <!-- ============ 审批动作对话框 ============ -->
-    <el-dialog v-model="actOpen" :title="actTitle" width="460px" append-to-body>
+    <el-dialog v-model="actOpen" :title="actTitle" width="460px" append-to-body :before-close="beforeActClose">
       <el-form label-width="90px">
         <el-form-item v-if="!needsTargetUser" :label="t('flow.formComment')">
           <el-input v-model="actComment" type="textarea" :rows="3" :maxlength="500" />
@@ -268,7 +274,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="actOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelAct">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="acting" @click="handleAct">
           {{ t('common.confirm') }}
         </el-button>
@@ -317,6 +323,7 @@ import { useDict } from '@/utils/dict'
 import { validateForm } from '@/utils/formValidate'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { useRemoteOptions } from '@/composables/useRemoteOptions'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
 import { confirmAction } from '@/utils/confirm'
@@ -508,6 +515,7 @@ async function handleSubmit() {
   try {
     await submitFlowDemo(submitForm.value)
     ElMessage.success(t('flow.msgSubmitted'))
+    markSubmitSaved()
     submitOpen.value = false
     activeTab.value = 'mine'
     await Promise.all([loadMine(), loadPendingCount()])
@@ -528,6 +536,22 @@ const actAction = ref<ActKind>('approve')
 const actTaskId = ref(0)
 const actComment = ref('')
 const actToUserId = ref<number | undefined>(undefined)
+
+/**
+ * 关闭语义（b135）：提交单据与审批动作两个对话框原先都没有关闭确认，
+ * 填好标题/理由/转办人后按 Esc 或误点遮罩会静默丢弃。审批动作的表单是两个独立 ref，
+ * 用 getter 合成只读快照（useDialogDirtyGuard 支持 getter 形态）。
+ */
+const {
+  beforeClose: beforeSubmitClose,
+  cancel: cancelSubmit,
+  markSaved: markSubmitSaved
+} = useDialogDirtyGuard(submitOpen, submitForm)
+const {
+  beforeClose: beforeActClose,
+  cancel: cancelAct,
+  markSaved: markActSaved
+} = useDialogDirtyGuard(actOpen, () => ({ comment: actComment.value, toUserId: actToUserId.value }))
 const actTitle = computed(() => t(`flow.actTitle.${actAction.value}`))
 /** 需要选择目标用户的动作（转办/加签/减签）：这三类不填审批意见 */
 const needsTargetUser = computed(() => ['transfer', 'countersign', 'countersignDel'].includes(actAction.value))
@@ -580,6 +604,7 @@ async function handleAct() {
       })
     }
     ElMessage.success(t('common.operationSuccess'))
+    markActSaved()
     actOpen.value = false
     await Promise.all([loadTodo(), loadPendingCount()])
   } catch (e) {

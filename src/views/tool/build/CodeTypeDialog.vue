@@ -1,5 +1,7 @@
 <template>
-  <el-dialog :close-on-click-modal="false"
+  <el-dialog
+    :close-on-click-modal="false"
+    :before-close="beforeClose"
     v-model="open"
     width="500px"
     :title="t('build.codeTypeDialog.title')"
@@ -21,19 +23,22 @@
             v-model="formData.fileName"
             :placeholder="t('build.codeTypeDialog.phFileName')"
             :maxlength="100"
-            clearable :aria-label="t('build.codeTypeDialog.phFileName')" />
+            clearable
+            :aria-label="t('build.codeTypeDialog.phFileName')"
+          />
         </el-form-item>
       </Transition>
     </el-form>
 
     <template #footer>
-      <el-button @click="onClose">{{ t('common.cancel') }}</el-button>
+      <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
       <el-button type="primary" :loading="submitLoading" @click="handleConfirm">{{ t('common.confirm') }}</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 const { t } = useI18n()
 const open = defineModel()
 const props = defineProps({
@@ -44,6 +49,8 @@ const formData = ref({
   fileName: undefined,
   type: 'file'
 })
+/** 关闭语义（b135）：配置项填一半按 Esc / 点遮罩原先会静默丢弃 */
+const { beforeClose, cancel, snapshot } = useDialogDirtyGuard(open, formData)
 // P1 修复: 添加 submitLoading 防止重复提交
 const submitLoading = ref(false)
 const codeTypeForm = useTemplateRef('codeTypeForm')
@@ -76,6 +83,8 @@ const typeOptions = ref([
 function onOpen(): void {
   if (props.showFileName) {
     formData.value.fileName = `${+new Date()}.vue`
+    // 自动填的文件名发生在开窗基准之后，不重拍就会「一开窗即判脏」：Esc 变成弹确认
+    snapshot()
   }
 }
 function onClose(): void {

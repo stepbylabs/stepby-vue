@@ -167,6 +167,7 @@
       :close-on-click-modal="false"
       :title="t('ipLocation.title.config')"
       v-model="configOpen"
+      :before-close="beforeConfigClose"
       width="min(90%, 600px)"
       append-to-body
       destroy-on-close
@@ -242,7 +243,7 @@
           <el-button type="primary" :loading="saving" @click="submitConfig">
             {{ t('common.save') }}
           </el-button>
-          <el-button @click="configOpen = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelConfig">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -252,6 +253,7 @@
       :close-on-click-modal="false"
       :title="t('ipLocation.title.updateNow')"
       v-model="updateOpen"
+      :before-close="beforeUpdateClose"
       width="min(90%, 480px)"
       append-to-body
       destroy-on-close
@@ -270,7 +272,7 @@
           <el-button type="primary" :loading="updating" @click="confirmUpdate">
             {{ t('ipLocation.btn.confirmUpdate') }}
           </el-button>
-          <el-button @click="updateOpen = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelUpdate">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -288,6 +290,7 @@ import {
   reloadIpXdb
 } from '@/api/monitor/ipLocation'
 import modal from '@/plugins/modal'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 const { t } = useI18n()
 const configFormRef = useTemplateRef('configFormRef')
@@ -328,6 +331,10 @@ const configForm = reactive<SaveConfigDto>({
 const configRules = {
   updateSource: [{ required: true, message: t('ipLocation.validate.sourceRequired'), trigger: 'change' }]
 }
+
+// 关闭语义（b135）：配置改到一半 / 换过更新源时按 Esc、点遮罩或点 × 原先会静默丢弃
+const { beforeClose: beforeConfigClose, cancel: cancelConfig } = useDialogDirtyGuard(configOpen, configForm)
+const { beforeClose: beforeUpdateClose, cancel: cancelUpdate } = useDialogDirtyGuard(updateOpen, updateSource)
 
 // ==================== 数据加载 ====================
 

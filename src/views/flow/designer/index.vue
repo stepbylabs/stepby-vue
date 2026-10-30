@@ -106,7 +106,7 @@
     <!-- ==================== 编辑模式（表单式设计器） ==================== -->
     <template v-else>
       <div class="mb-4 flex flex-wrap items-center gap-2">
-        <el-button icon="Back" plain @click="mode = 'list'">{{ t('common.back') }}</el-button>
+        <el-button icon="Back" plain @click="handleBack">{{ t('common.back') }}</el-button>
         <span class="font-medium">{{ form.flowName || t('flowDef.newDefinition') }}</span>
         <el-button icon="Plus" type="primary" plain @click="addNode('approve')">
           {{ t('flowDef.addNode') }}
@@ -254,7 +254,7 @@
       </el-card>
 
       <!-- 新增边弹窗 -->
-      <el-dialog v-model="addEdgeOpen" :title="t('flowDef.addEdge')" width="380px">
+      <el-dialog v-model="addEdgeOpen" :title="t('flowDef.addEdge')" :before-close="beforeAddEdgeClose" width="380px">
         <el-form label-width="70px">
           <el-form-item :label="t('flowDef.edgeFrom')" required>
             <el-select v-model="newEdgeFrom" filterable>
@@ -268,14 +268,19 @@
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="addEdgeOpen = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelAddEdge">{{ t('common.cancel') }}</el-button>
           <el-button type="primary" @click="confirmAddEdge">{{ t('common.confirm') }}</el-button>
         </template>
       </el-dialog>
     </template>
     <!-- 批次十八修复：提交测试单据对话框原先误嵌在 v-else（designer）分支内，
          列表模式下组件未挂载导致按钮点击无响应（探针 v10/v11 实证）——移至根级两分支之外 -->
-    <el-dialog v-model="graphSubmitOpen" :title="t('flowDef.submitTest')" width="480px">
+    <el-dialog
+      v-model="graphSubmitOpen"
+      :title="t('flowDef.submitTest')"
+      :before-close="beforeGraphSubmitClose"
+      width="480px"
+    >
       <el-form label-width="90px">
         <el-form-item :label="t('flowDef.docTitle')" required>
           <el-input
@@ -296,7 +301,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="graphSubmitOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelGraphSubmit">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="graphSubmitting" @click="confirmGraphSubmit">
           {{ t('common.confirm') }}
         </el-button>
@@ -329,6 +334,9 @@ import {
   type GraphDiff,
   type GraphValidationMessage
 } from '../definition/flowGraph'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
+import { confirmAction } from '@/utils/confirm'
 
 const { t } = useI18n()
 
@@ -350,9 +358,28 @@ const formEdges = ref<EdgeFormRow[]>([])
 const saving = ref(false)
 const validationErrors = ref<GraphValidationMessage[]>([])
 
+// 页面级未保存保护（b135）：设计器全部是内存态（节点/边/条件只在前端点「保存」时才落库），
+// 改造前点侧栏、刷新、关标签、切回列表四条路径都会静默丢弃。基准在进入编辑态时拍，
+// 比对口径与落库口径同源（buildGraphJson + flowCode/flowName），不另立启发式。
+let editBaseline = ''
+function currentSnapshot(): string {
+  return JSON.stringify({ code: form.value.flowCode, name: form.value.flowName, graph: buildGraphJson() })
+}
+function markEditBaseline(): void {
+  editBaseline = currentSnapshot()
+}
+const isEditDirty = (): boolean => mode.value === 'edit' && currentSnapshot() !== editBaseline
+useUnsavedChangesGuard(isEditDirty, () => t('common.unsavedConfirm'))
+
 const addEdgeOpen = ref(false)
 const newEdgeFrom = ref('')
 const newEdgeTo = ref('')
+
+// 关闭语义（b135）：新增边选了一端就按 Esc / 点遮罩原先会静默丢弃
+const { beforeClose: beforeAddEdgeClose, cancel: cancelAddEdge } = useDialogDirtyGuard(addEdgeOpen, () => ({
+  from: newEdgeFrom.value,
+  to: newEdgeTo.value
+}))
 
 const diffOpen = ref(false)
 const diffCode = ref('')
@@ -448,6 +475,14 @@ async function openEdit(row?: FlowDefinition): Promise<void> {
   }
   validationErrors.value = []
   mode.value = 'edit'
+  markEditBaseline()
+}
+
+/** 返回列表：脏了先问一句（这是第四条会丢改动的路径，与路由/刷新/关标签同源） */
+async function handleBack(): Promise<void> {
+  if (!isEditDirty() || (await confirmAction(t('common.unsavedConfirm')))) {
+    mode.value = 'list'
+  }
 }
 
 function nodeSkeleton(id: string): FlowGraphNode {
@@ -558,6 +593,12 @@ const graphSubmitting = ref(false)
 const graphSubmitCode = ref('')
 const graphSubmitTitle = ref('')
 const graphSubmitFields = ref('{\n  "days": 5\n}')
+
+// 关闭语义（b135）：单据标题 / 字段 JSON 改了一半按 Esc、点遮罩原先会静默丢弃
+const { beforeClose: beforeGraphSubmitClose, cancel: cancelGraphSubmit } = useDialogDirtyGuard(graphSubmitOpen, () => ({
+  title: graphSubmitTitle.value,
+  fields: graphSubmitFields.value
+}))
 
 function openGraphSubmit(row: FlowDefinition): void {
   graphSubmitCode.value = row.flowCode

@@ -101,6 +101,7 @@
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :before-close="beforeCreateClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item :label="t('pat.form.name')" prop="name">
@@ -135,7 +136,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelCreate">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="creating" @click="submitCreate">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
@@ -185,6 +186,7 @@ import type { SysPat } from '@/types/api/monitor/pat'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 import { copyText as writeClipboard } from '@/utils/clipboard'
 import { createLatestGuard } from '@/composables/latestRequest'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
@@ -281,6 +283,13 @@ function openCreate(): void {
   createVisible.value = true
 }
 
+/** 关闭语义（b135）：填好名称/作用域后按 Esc 原先会静默丢弃整张表单 */
+const {
+  beforeClose: beforeCreateClose,
+  cancel: cancelCreate,
+  markSaved: markCreateSaved
+} = useDialogDirtyGuard(createVisible, form)
+
 function submitCreate(): void {
   formRef.value?.validate((valid: boolean) => {
     if (!valid) return
@@ -296,6 +305,10 @@ function submitCreate(): void {
         plainToken.value = res.data?.token || ''
         plainAccessKey.value = res.data?.accessKey || ''
         plainSecretKey.value = res.data?.secretKey || ''
+        // 创建成功后必须先关掉本对话框：原先只开明文框，用户点「完成」后落在
+        // 仍开着、值还在的创建表单上，看起来像没成功 ⇒ 再点一次就是重复令牌。
+        markCreateSaved()
+        createVisible.value = false
         revealVisible.value = true
         getList()
       })

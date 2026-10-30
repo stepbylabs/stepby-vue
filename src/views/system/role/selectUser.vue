@@ -3,6 +3,7 @@
   <el-dialog
     :title="t('role.selectUser.title')"
     v-model="visible"
+    :before-close="beforeClose"
     width="min(80%, 800px)"
     top="5vh"
     append-to-body
@@ -78,7 +79,7 @@
         <el-button type="primary" :loading="submitLoading" @click="handleSelectUser">
           {{ t('common.confirm') }}
         </el-button>
-        <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -88,6 +89,7 @@
 import { authUserSelectAll, unallocatedUserList } from '@/api/system/role'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import type { SysUser, UserQueryParams } from '@/types/api/system/user'
 import modal from '@/plugins/modal'
 
@@ -106,6 +108,8 @@ const userList = shallowRef<SysUser[]>([])
 const visible = ref<boolean>(false)
 const total = ref<number>(0)
 const userIds = ref<number[]>([])
+// 关闭语义（b135）：勾选用户后按 Esc / 点遮罩 / 点 × 原先会静默丢弃选择，用户得重新搜索再勾一遍
+const { beforeClose, cancel } = useDialogDirtyGuard(visible, () => ({ ids: userIds.value }))
 const loading = ref<boolean>(false)
 /** 列表请求守卫：连点搜索/翻页时只让最后一次请求的结局生效（b119） */
 const listGuard = createLatestGuard()
@@ -124,6 +128,9 @@ const queryParams = reactive<UserQueryParams>({
 // 显示弹框
 function show() {
   queryParams.roleId = props.roleId
+  // b135：选中集必须随每次打开归零——否则上一次没提交的勾选会被带到另一个角色的
+  // "确定"里（页面上一个勾都没有，却给新角色授了上一次选的人）
+  userIds.value = []
   getList()
   visible.value = true
 }

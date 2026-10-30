@@ -2,6 +2,7 @@
   <el-dialog
     :title="displayTitle"
     v-model="visible"
+    :before-close="beforeClose"
     :width="width"
     append-to-body
     @close="handleClose"
@@ -71,7 +72,7 @@
         <el-button type="primary" :loading="isUploading" @click="handleSubmit">
           {{ t('excelImport.confirm') }}
         </el-button>
-        <el-button @click="visible = false">{{ t('excelImport.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('excelImport.cancel') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -84,6 +85,7 @@ import type { AjaxResult } from '@/types/api/common'
 import { getToken } from '@/utils/auth'
 import modal from '@/plugins/modal'
 import { download } from '@/utils/request'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 // 后端导入结果（AjaxResult.data）：成功数 + 校验失败明细
 interface ImportResultData {
@@ -152,6 +154,12 @@ const uploadUrl = computed(() => {
 })
 
 const templateUrl = computed(() => !!props.templateAction)
+
+// 关闭语义（b135）：选好文件 / 勾过覆盖更新后按 Esc、点遮罩或点 × 原先会静默丢弃选择
+const { beforeClose, cancel } = useDialogDirtyGuard(visible, () => ({
+  file: selectedFile.value?.name ?? null,
+  updateSupport: updateSupport.value
+}))
 
 // 打开对话框（供父组件通过 ref 调用）
 function open(): void {

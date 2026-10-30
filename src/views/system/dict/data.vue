@@ -161,7 +161,14 @@
     />
 
     <!-- 添加或修改参数配置对话框 -->
-    <el-dialog :title="title" v-model="open" width="min(90%, 500px)" append-to-body destroy-on-close>
+    <el-dialog
+      :title="title"
+      v-model="open"
+      width="min(90%, 500px)"
+      append-to-body
+      destroy-on-close
+      :before-close="beforeClose"
+    >
       <el-form ref="dataRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item :label="t('dict.form.dictType')">
           <el-input v-model="form.dictType" :disabled="true" />
@@ -237,6 +244,7 @@
 
 <script setup lang="ts" name="Data">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 import { createLatestGuard } from '@/composables/latestRequest'
 import useDictStore from '@/store/modules/dict'
@@ -306,6 +314,18 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
+/**
+ * 关闭语义（b135）：X / 遮罩 / Esc 三条通道在 Element Plus 里统一汇入 before-close，
+ * 取消了原来的「点遮罩静默丢弃」。详情是异步取的，赋值后补 snapshot() 标定基准。
+ */
+const {
+  snapshot,
+  beforeClose,
+  cancel: cancelDialog
+} = useDialogDirtyGuard(open, form, {
+  onClosed: () => reset()
+})
+
 /** 查询字典类型详细（失败必须可见：否则列表既不加载、页面又显示"暂无数据"） */
 function getTypes(dictId: number) {
   loadError.value = false
@@ -370,8 +390,7 @@ function getList() {
 
 /** 取消按钮 */
 function cancel() {
-  open.value = false
-  reset()
+  void cancelDialog()
 }
 
 /** 表单重置 */
@@ -433,6 +452,7 @@ function handleUpdate(row?: SysDictData) {
       form.value = response.data!
       open.value = true
       title.value = t('common.edit')
+      snapshot()
     })
     .catch(() => {})
 }

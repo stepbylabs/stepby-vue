@@ -1,6 +1,8 @@
 <template>
   <div>
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
+      :before-close="beforeClose"
       :title="t('build.treeNodeDialog.title')"
       v-model="open"
       width="800px"
@@ -16,7 +18,9 @@
               v-model="formData.label"
               :placeholder="t('build.treeNodeDialog.phOptionName')"
               :maxlength="50"
-              clearable :aria-label="t('build.treeNodeDialog.phOptionName')" />
+              clearable
+              :aria-label="t('build.treeNodeDialog.phOptionName')"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="24">
@@ -25,9 +29,15 @@
               v-model="formData.value"
               :placeholder="t('build.treeNodeDialog.phOptionValue')"
               :maxlength="100"
-              clearable :aria-label="t('build.treeNodeDialog.phOptionValue')">
+              clearable
+              :aria-label="t('build.treeNodeDialog.phOptionValue')"
+            >
               <template #append>
-                <el-select :aria-label="t('build.treeNodeDialog.valueType')" v-model="dataType" :style="{ width: '100px' }">
+                <el-select
+                  :aria-label="t('build.treeNodeDialog.valueType')"
+                  v-model="dataType"
+                  :style="{ width: '100px' }"
+                >
                   <el-option
                     v-for="item in dataTypeOptions"
                     :key="item.value"
@@ -46,13 +56,14 @@
           <el-button type="primary" :loading="submitLoading" @click="handleConfirm">
             {{ t('common.confirm') }}
           </el-button>
-          <el-button @click="onClose">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
     </el-dialog>
   </div>
 </template>
 <script setup lang="ts">
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // 表单构建器树节点对话框：节点数据结构由配置决定，类型无法静态约束
 const { t } = useI18n()
@@ -63,6 +74,8 @@ const formData = ref({
   label: undefined,
   value: undefined
 })
+/** 关闭语义（b135）：配置项填一半按 Esc / 点遮罩原先会静默丢弃 */
+const { beforeClose, cancel, snapshot } = useDialogDirtyGuard(open, formData)
 // P1 修复: 添加 submitLoading 防止重复提交
 const submitLoading = ref(false)
 const rules = {
@@ -100,6 +113,8 @@ function onOpen(): void {
     label: undefined,
     value: undefined
   }
+  // 每开窗都重置：重置发生在开窗基准之后，不重拍就会拿上一次的残值当基准（开窗即判脏）
+  snapshot()
 }
 
 function onClose(): void {

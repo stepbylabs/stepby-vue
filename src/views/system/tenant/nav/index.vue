@@ -113,6 +113,7 @@
       width="620px"
       append-to-body
       destroy-on-close
+      :before-close="beforeFormClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" @submit.prevent>
         <el-form-item :label="t('tenantNav.refMenu')" prop="refMenuId">
@@ -168,7 +169,7 @@
         <el-button type="primary" :loading="saving" @click="submitForm">
           {{ t('common.save') }}
         </el-button>
-        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelForm">{{ t('common.cancel') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -182,6 +183,7 @@ import type { TenantVo } from '@/api/system/tenant'
 import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { validateForm } from '@/utils/formValidate'
 import useUserStore from '@/store/modules/user'
 
@@ -296,6 +298,8 @@ function resetForm() {
   })
 }
 
+const { beforeClose: beforeFormClose, cancel: cancelForm, markSaved } = useDialogDirtyGuard(dialogVisible, form)
+
 function openAdd() {
   isEdit.value = false
   resetForm()
@@ -337,6 +341,7 @@ async function submitForm() {
       })
     }
     proxy?.$modal.msgSuccess(t('common.success'))
+    markSaved()
     dialogVisible.value = false
     await loadAll()
   } finally {

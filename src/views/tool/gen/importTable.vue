@@ -2,6 +2,7 @@
   <!-- 导入表 -->
   <el-dialog
     :close-on-click-modal="false"
+    :before-close="beforeClose"
     :title="t('gen.importTable.title')"
     v-model="visible"
     width="800px"
@@ -73,7 +74,7 @@
     <template #footer>
       <div class="dialog-footer">
         <el-button type="primary" @click="handleImportTable">{{ t('common.confirm') }}</el-button>
-        <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -84,6 +85,7 @@ const { t } = useI18n()
 import { listDbTable, importTable } from '@/api/tool/gen'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import modal from '@/plugins/modal'
 import type { GenQueryParams, GenTable } from '@/types/api/tool/gen'
 
@@ -106,6 +108,9 @@ const queryParams = reactive<GenQueryParams>({
   tableName: undefined,
   tableComment: undefined
 })
+
+/** 关闭语义（b135）：勾选要导入的表之后按 Esc 原先会静默丢弃整批勾选 */
+const { beforeClose, cancel, markSaved } = useDialogDirtyGuard(visible, () => ({ tables: tables.value }))
 
 const emit = defineEmits(['ok'])
 
@@ -183,6 +188,7 @@ function handleImportTable() {
     .then((res) => {
       modal.msgSuccess(res.msg)
       if (res.code === 200) {
+        markSaved()
         visible.value = false
         emit('ok')
       }

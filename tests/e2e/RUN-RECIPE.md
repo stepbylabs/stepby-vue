@@ -5166,3 +5166,70 @@ export function readPartialRunWindow(dir) // full===true / 窗口不可解析 / 
    2042 ⇒ 若直接引用旧日志，写进文档的就是**格式化之前那一棵树**的数字（AGENTS ㊲ 的同族）。
 3. `build-freshness` 与 `check:embedded` 各跑一次，两者必须打**同一枚**入口 chunk（本批 `index-vgNuEZzp.js`
    / 162,757 字节），再跑浏览器判据。
+
+### 3.128 未保存内容的离开通道：三条配置要点与四条变异配方（b135 固化）
+
+**立案**：Element Plus 的 `closeOnClickModal` / `closeOnPressEscape` 默认都是 `true`
+（`node_modules/element-plus/es/components/dialog/src/dialog.mjs:137-138`），× / 遮罩 / Esc
+三条通道在 `use-dialog.mjs:105-113` 统一汇入 `handleClose()` → `beforeClose`。本仓改造前只写
+`:close-on-click-modal="false"`，等于三条只封了一条。HEAD 实测（`git ls-tree HEAD` 逐文件复算）：
+**201 个 `.vue` / 56 个含对话框 / 45 个表单类对话框 / 27 个缺 `:before-close`（24 个文件）**。
+
+**A. 三条配置要点**
+
+1. **`beforeClose` 与「取消」是两个入口**：页脚「取消」是程序内改 v-model，**不走** `beforeClose`；
+   手写页必须把 `@click="visible = false"` 换成 `cancel()`，否则"取消"成了唯一绕过确认的通道。
+2. **基准拍在打开后，不在模块初始化时**，且**`@open` 回填/异步回填之后要补拍**：
+   `watch(visible, …, { flush: 'post' })` 保证"同 tick 先赋值后开窗"读到新值；`@open` 自动填名、
+   异步详情赋值这类**发生在基准之后**的写入必须显式 `snapshot()`，否则一开窗就判脏（Esc 直接弹确认）。
+   本仓 `CodeTypeDialog` / `TreeNodeDialog` / `role/index.vue` / `dict/data.vue` 四处是活样本。
+3. **确认框加语言无关的抓手**：`useUnsavedGuard` 的 `ElMessageBox.confirm` 传
+   `customClass: 'app-unsaved-confirm'`；e2e 的 `dismissAllOverlays()` 必须认识它并点「确定」，
+   否则任何页面的引导遮罩回收都会被未保存确认挡住（表现为后续用例莫名其妙超时）。
+
+**B. 静态守卫的判定口径**（`src/utils/dialogCloseSemantics.guard.test.ts`）
+
+- **按块判、按属性判**：`<el-dialog>` 用同名标签**深度配对**切块（嵌套对话框要能各自成块），
+  判"自己这一层有没有 `el-form-item`"时必须**先剔掉嵌套子块**，否则纯展示的外层会被内层的表单
+  "传染"成表单类；读属性用属性切分（`splitTagAttrs`），**不用子串**——注释里写
+  `<!-- :before-close="close" -->` 必须照常抓。
+- **豁免必须仍命中**：只读查看器（无保存动作）登记豁免并写自足理由；某天它接上了就报红提醒撤销，
+  否则豁免表会随页面演进而变成"永久放行"。
+- **差异法活性**：给每个含对话框的真实文件在模板区插一条合成违规，命中数必须**恰好 +1**
+  （`plantInVueTemplate` 未命中要单独断言，否则"没插进去"与"没抓到"同形）。
+- **已知局限写进代码、不当豁免用**：静态只管"绑没绑"，不管处理器有没有真的比较脏值
+  （`ExcelImportDialog` 改造前就是"绑了但只清空"的形状）；行为由组件单测与 e2e 承担。
+
+**C. 组件级单测的唯一价值场景**
+
+纯 composable 用例里 `await nextTick()` 会让 `pre` 与 `post` 两个队列都跑完 ⇒ **区分不了 flush 选项**。
+要钉 `flush: 'post'` 必须**挂一个真组件**，并让"另一条 pre 通道"在开窗时写表单：
+
+```ts
+const Host = defineComponent({
+  setup() {
+    guard = useDialogDirtyGuard(open, form) // 先注册 → pre 队列里排在前面
+    watch(open, (v) => {
+      if (v) form.value.name = 'auto-filled'
+    })
+    return () => h('div', form.value.name)
+  }
+})
+// post：基准取到 auto-filled ⇒ 不弹确认；pre：基准取到 init ⇒ 弹确认（用例红）
+```
+
+**D. 四条盘上变异配方**（每条只红自己那条腿，还原用 `cp -p` + `diff -q`）
+
+| 变异           | 落法                                                                | 期望                                                                             |
+| -------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| A 静态守卫腿   | 删 `monitor/ip-location/index.vue` 配置对话框的 `:before-close`     | 守卫恰红「真实树」并点名该文件行号；豁免/合成/活性 3 条绿                        |
+| B flush 腿     | 删 `useDialogDirtyGuard.ts` 的 `{ flush: 'post' }`                  | **只有** §C 那条组件级用例红（第一版 9 条全绿 ⇒ 说明该属性没载体，补用例后才有） |
+| C 页面级守卫腿 | `useUnsavedChangesGuard(isEditDirty, …)` → `() => false` + 重建产物 | e2e 恰红"侧栏离开"三条，对话框与「返回」通道全绿                                 |
+| D 返回按钮腿   | 模板 `@click="handleBack"` 改回 `@click="mode = 'list'"` + 重建产物 | e2e 恰红"返回"三条，其余（含干净态负对照与侧栏）全绿                             |
+
+**E. 浏览器判据的两个坑**
+
+- **确认框离场要先等**：点完「确定」后立刻造下一次脏态，`waitFor({state:'visible'})` 会命中
+  **同一个正在离场的旧框** ⇒ "又弹了一次"被读成 true。每条后续判据前都要 `waitFor({state:'hidden'})`
+  并把"框确实关掉了"并入该条的条件（本批 ⑭ 首跑就是这么红的）。
+- **负对照不可省**："脏了才拦"必须由"干净态直接过"证明，否则"永远拦"也能让正面判据变绿。

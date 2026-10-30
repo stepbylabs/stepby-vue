@@ -117,7 +117,14 @@
   </el-dialog>
 
   <!-- 订阅新增/编辑对话框 -->
-  <el-dialog :title="subTitle" v-model="subFormOpen" width="min(90%, 620px)" append-to-body destroy-on-close>
+  <el-dialog
+    :title="subTitle"
+    v-model="subFormOpen"
+    width="min(90%, 620px)"
+    append-to-body
+    destroy-on-close
+    :before-close="beforeSubClose"
+  >
     <el-form ref="subFormRef" :model="subForm" :rules="subRules" label-width="120px">
       <el-form-item :label="t('report.sub.form.subName')" prop="subName">
         <el-input
@@ -184,7 +191,7 @@
         <el-button type="primary" :loading="subSubmitLoading" @click="submitSubForm">
           {{ t('common.confirm') }}
         </el-button>
-        <el-button @click="subFormOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelSub">{{ t('common.cancel') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -194,6 +201,7 @@
 import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub } from '@/api/system/report'
 import type { SysReport, SysReportSub } from '@/types/api/system/report'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { fetchAllPages } from '@/utils/paging'
 import modal from '@/plugins/modal'
 import type { FormRules } from 'element-plus'
@@ -260,6 +268,14 @@ function getSubList() {
     })
 }
 
+/** 关闭语义（b135）：订阅名/cron/收件人填一半按 Esc 原先会静默丢弃（含独立的推送渠道勾选） */
+const {
+  beforeClose: beforeSubClose,
+  cancel: cancelSub,
+  markSaved: markSubSaved,
+  snapshot: snapshotSub
+} = useDialogDirtyGuard(subFormOpen, () => ({ ...subForm.value, channels: subChannels.value }))
+
 function handleSubAdd() {
   const reportId = props.report.reportId
   if (!reportId) return
@@ -290,6 +306,7 @@ function handleSubEdit(row: SysReportSub) {
       ]
       subTitle.value = t('common.edit') + t('report.sub.title')
       subFormOpen.value = true
+      snapshotSub()
     })
     .catch(() => {})
 }
@@ -310,6 +327,7 @@ function submitSubForm() {
     api
       .then(() => {
         modal.msgSuccess(isUpdate ? t('common.editSuccess') : t('common.addSuccess'))
+        markSubSaved()
         subFormOpen.value = false
         getSubList()
       })

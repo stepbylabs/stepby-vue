@@ -2,6 +2,7 @@
   <el-dialog
     v-model="visible"
     :title="title"
+    :before-close="beforeClose"
     width="min(90%, 480px)"
     append-to-body
     :close-on-click-modal="false"
@@ -42,7 +43,7 @@
       </Transition>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">{{ t('exportDialog.cancel') }}</el-button>
+      <el-button @click="cancel">{{ t('exportDialog.cancel') }}</el-button>
       <el-button type="primary" :loading="exporting" @click="handleConfirm">
         {{ t('exportDialog.confirmExport') }}
       </el-button>
@@ -53,6 +54,7 @@
 <script setup lang="ts">
 import { errorHub } from '@/utils/errorHub'
 import { useI18n } from 'vue-i18n'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 
 const { t } = useI18n()
 
@@ -103,6 +105,12 @@ watch(visible, (v: boolean) => {
     selectedFields.value = props.columns.map((c: ExportField) => c.field)
   }
 })
+
+// 关闭语义（b135）：改过导出范围 / 勾选后按 Esc、点遮罩或点 × 原先会静默丢弃选择
+const { beforeClose, cancel } = useDialogDirtyGuard(visible, () => ({
+  range: exportRange.value,
+  fields: selectedFields.value
+}))
 
 function handleRangeChange(val: 'all' | 'selected') {
   if (val === 'all') {

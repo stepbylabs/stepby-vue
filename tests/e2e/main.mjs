@@ -12973,6 +12973,23 @@ async function dismissAllOverlays(page) {
     }
     const open = await page.locator('.el-dialog:visible, .el-drawer:visible, .el-message-box:visible').count()
     if (!open) return
+    // b135：脏表单对话框的 Esc 现在是"先弹未保存确认"（产品预期行为）。收尾助手要回答它，
+    // 否则连按三次 Esc 只在"对话框 ↔ 确认框"之间来回，最后仍留着对话框
+    const unsaved = page.locator('.el-message-box.app-unsaved-confirm')
+    if (
+      await unsaved
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
+      await unsaved
+        .locator('.el-message-box__btns button.el-button--primary')
+        .first()
+        .click({ timeout: 2000 })
+        .catch(() => {})
+      await sleep(300)
+      continue
+    }
     await page.keyboard.press('Escape')
     await sleep(400)
   }
@@ -20580,6 +20597,353 @@ async function testFeature155(page) {
   page.off('request', onReq)
 }
 
+// ==================== 功能 156：未保存内容不得被静默丢弃（b135） ====================
+/**
+ * 两条腿都是"用户已经敲进去的东西被一条关闭通道静默吃掉"：
+ * - 对话框：EP 默认 `closeOnClickModal`/`closeOnPressEscape` 全开，×/遮罩/Esc 三条都汇入
+ *   `beforeClose`；改造前 28 个表单对话框只封了遮罩（甚至一个都没封），Esc 一路直通。
+ *   判据取"改一个值 → Esc ⇒ 必须先问一句"，并配**负对照**（没改就 Esc 必须直接关）。
+ * - 设计器：`flow/designer` 的节点/边全是内存态，点侧栏离开/刷新原先零拦截。
+ * 选中 ip-location 的配置对话框是因为它的脏态可由一次真实点击（切更新源）造出，
+ * 且"值落到 model 上"有 DOM 回显（`input[type=radio]:checked` 的 value）。
+ */
+async function testFeature156(page) {
+  log('=== 功能 156：未保存内容离开保护（对话框 Esc + 设计器路由离开，b135） ===')
+  const CONFIRM_SEL = '.el-message-box.app-unsaved-confirm'
+  const cfgOk = await openPage(page, '/monitor/ip-location', 'ip-location')
+  record(156, '① 页面可达（/monitor/ip-location）', cfgOk)
+  if (!cfgOk) return
+  await dismissAllOverlays(page)
+
+  const openCfg = page
+    .locator('.app-main button')
+    .filter({ hasText: /^配\s*置$/ })
+    .first()
+  const openVisible = await _visible(openCfg)
+  record(156, '② 「配置」按钮可见', openVisible)
+  if (!openVisible) return
+  await _click(openCfg)
+  const dlg = page.locator('.el-overlay:visible .el-dialog').last()
+  const dlgOpen = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(156, '③ 配置对话框打开（真实点击落地）', dlgOpen)
+  if (!dlgOpen) return
+
+  // 改一个值：切到 MaxMind（`configForm.updateSource='maxmind'` 会额外渲染账号输入，
+  // 所以这一下同时是"值落到 model"的回显对账，不只是"点击返回成功"）
+  const maxmind = dlg.locator('.el-radio').filter({ hasText: 'MaxMind' }).first()
+  await _click(maxmind)
+  const readSource = async () =>
+    dlg
+      .locator('input[type="radio"]:checked')
+      .first()
+      .getAttribute('value')
+      .catch(() => null)
+  const afterSwitch = await readSource()
+  record(156, '④ 切换更新源后值落到 model（radio 选中 maxmind）', afterSwitch === 'maxmind', `checked=${afterSwitch}`)
+
+  // 脏态 + Esc ⇒ 必须先弹确认，且对话框不能被关掉
+  await page.keyboard.press('Escape')
+  const confirmBox = page.locator(CONFIRM_SEL)
+  const askedOnDirty = await confirmBox
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const dlgStill = await _visible(dlg)
+  record(
+    156,
+    '⑤ 脏态按 Esc ⇒ 弹未保存确认且对话框仍在',
+    askedOnDirty && dlgStill,
+    `ask=${askedOnDirty} dlg=${dlgStill}`
+  )
+
+  // 确认框里取消 ⇒ 回到对话框，改动必须还在（不能"问了但把值清了"）
+  if (askedOnDirty) {
+    await _click(
+      confirmBox
+        .locator('.el-message-box__btns button')
+        .filter({ hasText: /取\s*消|Cancel/i })
+        .first()
+    )
+    await confirmBox.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => {})
+  }
+  const keptValue = await readSource()
+  const keptOpen = await _visible(dlg)
+  record(
+    156,
+    '⑥ 确认框取消 ⇒ 对话框仍在且改动保留',
+    keptOpen && keptValue === 'maxmind',
+    `dlg=${keptOpen} checked=${keptValue}`
+  )
+
+  // 再来一次并选择「不保存并离开」⇒ 必须真的关掉（否则确认框成了"永远拦"）
+  await page.keyboard.press('Escape')
+  const askedAgain = await confirmBox
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  if (askedAgain) {
+    await _click(confirmBox.locator('.el-message-box__btns button.el-button--primary').first())
+  }
+  const closedAfterLeave = await dlg
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    156,
+    '⑦ 选择「不保存并离开」⇒ 对话框关闭',
+    askedAgain && closedAfterLeave,
+    `ask=${askedAgain} closed=${closedAfterLeave}`
+  )
+
+  // 负对照：重新打开（表单被 handleOpenConfig 重置为新基准），不改动直接 Esc ⇒ 直接关、不弹确认
+  await _click(openCfg)
+  const reopened = await dlg
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  let cleanAsk = false
+  let closedClean = false
+  if (reopened) {
+    await page.keyboard.press('Escape')
+    cleanAsk = await confirmBox
+      .waitFor({ state: 'visible', timeout: 1200 })
+      .then(() => true)
+      .catch(() => false)
+    closedClean = await dlg
+      .waitFor({ state: 'hidden', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+  }
+  record(
+    156,
+    '⑧ 负对照：未改动时 Esc 直接关闭（不得每次都弹）',
+    reopened && !cleanAsk && closedClean,
+    `reopen=${reopened} ask=${cleanAsk} closed=${closedClean}`
+  )
+
+  // ---------- 腿 2：流程设计器的页面级离开保护 ----------
+  const flowOk = await openPage(page, '/system/flowDefinition', 'flowDefinition')
+  record(156, '⑨ 设计器页可达（/system/flowDefinition）', flowOk)
+  if (!flowOk) return
+  await dismissAllOverlays(page)
+  await _click(page.getByRole('button', { name: /新\s*增/ }).first())
+  const inEdit = await page
+    .getByRole('button', { name: /添加审批节点/ })
+    .first()
+    .waitFor({ state: 'visible', timeout: 6000 })
+    .then(() => true)
+    .catch(() => false)
+  let nameFilled = false
+  const nodeName = page.locator('.app-main input[aria-label="节点名称"]').first()
+  if (inEdit) {
+    await nodeName.fill('b135-unsaved')
+    nameFilled = (await nodeName.inputValue().catch(() => '')) === 'b135-unsaved'
+  }
+  record(156, '⑩ 进入编辑态并改节点名（产生未保存改动）', inEdit && nameFilled, `edit=${inEdit} filled=${nameFilled}`)
+  if (!inEdit) return
+
+  // 「返回」是本批新写的第四条离开路径：改造前模板直接 `@click="mode = 'list'"`，
+  // 改到一半点它就把画布丢了
+  const backBtn = page
+    .locator('.app-main button')
+    .filter({ hasText: /^返\s*回$/ })
+    .first()
+  const backVisible = await _visible(backBtn)
+  await _click(backBtn)
+  const backBox = page.locator('.el-message-box').first()
+  const backAsk = await backBox
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const stillEditing = await _visible(page.getByRole('button', { name: /添加审批节点/ }).first(), 2000)
+  record(
+    156,
+    '⑪ 脏态点「返回」⇒ 弹确认且仍在编辑态',
+    backVisible && backAsk && stillEditing,
+    `btn=${backVisible} ask=${backAsk} editing=${stillEditing}`
+  )
+  if (backAsk) {
+    await _click(
+      page
+        .locator('.el-message-box__btns button')
+        .filter({ hasText: /取\s*消|Cancel/i })
+        .first()
+    )
+  }
+  const backBoxClosed = await backBox
+    .waitFor({ state: 'hidden', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const backKept = await nodeName.inputValue().catch(() => '')
+  record(
+    156,
+    '⑫ 「返回」取消 ⇒ 改动保留（仍在编辑态）',
+    backBoxClosed && backKept === 'b135-unsaved' && stillEditing,
+    `boxClosed=${backBoxClosed} value=${backKept}`
+  )
+
+  // 再点「返回」并确认 ⇒ 必须真的回列表（否则"永远拦"与"没拦"一样是坏的）
+  await _click(backBtn)
+  const backAsk2 = await backBox
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  if (backAsk2) {
+    await _click(page.locator('.el-message-box__btns button.el-button--primary').first())
+  }
+  const backToTable = await backBtn
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    156,
+    '⑬ 确认「返回」⇒ 回到列表（编辑态控件卸净）',
+    backAsk2 && backToTable,
+    `ask=${backAsk2} list=${backToTable}`
+  )
+
+  // ⑬ 的确认框必须先离场再往下走：不等它 hidden，"是否又弹了一次"读到的可能仍是同一个旧框
+  // （⑫/⑰ 对取消分支已有同一条纪律）
+  const boxGoneBeforeClean = await backBox
+    .waitFor({ state: 'hidden', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+
+  // 负对照：重新进编辑态但一个字都不改，点「返回」必须直接回列表、不得弹确认
+  // （没有这一条，"永远拦"也能让 ⑪ 变绿——同 ⑧ 之于对话框通道）
+  await _click(page.getByRole('button', { name: /新\s*增/ }).first())
+  const editAgain = await _visible(page.getByRole('button', { name: /添加审批节点/ }).first(), 6000)
+  let backCleanAsk = false
+  let backCleanBack = false
+  if (editAgain) {
+    await _click(backBtn)
+    backCleanAsk = await backBox
+      .waitFor({ state: 'visible', timeout: 1200 })
+      .then(() => true)
+      .catch(() => false)
+    backCleanBack = await backBtn
+      .waitFor({ state: 'hidden', timeout: 4000 })
+      .then(() => true)
+      .catch(() => false)
+  }
+  record(
+    156,
+    '⑭ 负对照：未改动时点「返回」直接回列表（不得每次都弹）',
+    boxGoneBeforeClean && editAgain && !backCleanAsk && backCleanBack,
+    `boxGone=${boxGoneBeforeClean} edit=${editAgain} ask=${backCleanAsk} list=${backCleanBack}`
+  )
+
+  // ---------- 侧栏路由离开：与「返回」按钮是两条不同的通道（页面级守卫） ----------
+  await _click(page.getByRole('button', { name: /新\s*增/ }).first())
+  const editThird = await _visible(page.getByRole('button', { name: /添加审批节点/ }).first(), 6000)
+  const nodeName2 = page.locator('.app-main input[aria-label="节点名称"]').first()
+  let filled2 = false
+  if (editThird) {
+    await nodeName2.fill('b135-unsaved2')
+    filled2 = (await nodeName2.inputValue().catch(() => '')) === 'b135-unsaved2'
+  }
+  record(
+    156,
+    '⑮ 再次进入编辑态并改动（为路由离开通道造脏态）',
+    editThird && filled2,
+    `edit=${editThird} filled=${filled2}`
+  )
+  if (!editThird) return
+
+  // 点**同组里另一个**侧栏叶子：当前项的父级子菜单必然是展开的（不用赌菜单是否折叠），
+  // 且只选可见项（offsetParent !== null）——点一个看不见的条目等于把"没导航"当成"闸门生效"
+  const clickSiblingMenu = async () =>
+    page.evaluate(() => {
+      const active = document.querySelector('.sidebar-container .el-menu-item.is-active')
+      if (!active) return null
+      const group = active.closest('.el-sub-menu') || active.parentElement
+      if (!group) return null
+      const target = Array.from(group.querySelectorAll('.el-menu-item')).find(
+        (el) => el !== active && el.offsetParent !== null
+      )
+      if (!target) return null
+      target.click()
+      return (target.textContent || '').trim()
+    })
+
+  const urlBefore = page.url()
+  const clickedMenu = await clickSiblingMenu().catch(() => null)
+  const leaveAsk = await page
+    .locator('.el-message-box')
+    .first()
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  const stillHere = page.url() === urlBefore
+  record(
+    156,
+    '⑯ 设计器脏态点侧栏 ⇒ 弹离开确认且仍停在设计器',
+    !!clickedMenu && leaveAsk && stillHere,
+    `menu=${clickedMenu} ask=${leaveAsk} url=${stillHere}`
+  )
+
+  const nodeKept = await nodeName2.inputValue().catch(() => '')
+  if (leaveAsk) {
+    await _click(
+      page
+        .locator('.el-message-box__btns button')
+        .filter({ hasText: /取\s*消|Cancel/i })
+        .first()
+    )
+  }
+  // 确认框必须真的关掉再往下走：不关就再点菜单，第二次判断读到的会是**同一个**旧框，
+  // 于是"取消后仍在设计器"和下一条"确认后离开"都会拿到错误的前提
+  const boxAfterCancel = await page
+    .locator('.el-message-box')
+    .first()
+    .waitFor({ state: 'hidden', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  record(
+    156,
+    '⑰ 取消离开 ⇒ 改动保留（节点名仍在）',
+    boxAfterCancel && nodeKept === 'b135-unsaved2' && page.url() === urlBefore,
+    `boxClosed=${boxAfterCancel} value=${nodeKept}`
+  )
+
+  // 再点一次并确认 ⇒ 必须真的离开（否则"永远拦"与"没拦"一样是坏的）
+  const clicked2 = await clickSiblingMenu().catch(() => null)
+  const ask2 = await page
+    .locator('.el-message-box')
+    .first()
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  let btnText = ''
+  if (ask2) {
+    const primary = page.locator('.el-message-box__btns button.el-button--primary').first()
+    btnText = ((await primary.textContent().catch(() => '')) || '').trim()
+    await _click(primary)
+  }
+  let left = false
+  for (let i = 0; i < 40; i++) {
+    if (page.url() !== urlBefore) {
+      left = true
+      break
+    }
+    await sleep(100)
+  }
+  const boxLeft = await page
+    .locator('.el-message-box')
+    .first()
+    .isVisible()
+    .catch(() => false)
+  record(
+    156,
+    '⑱ 确认离开 ⇒ 真的导航走（未落库，无残留）',
+    ask2 && left,
+    `menu=${clicked2} ask=${ask2} btn=${btnText} left=${left} boxStill=${boxLeft} url=${page.url().replace(CONFIG.frontendUrl, '')}`
+  )
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -20874,7 +21238,8 @@ async function main() {
       { id: 152, fn: testFeature152 },
       { id: 153, fn: testFeature153 },
       { id: 154, fn: testFeature154 },
-      { id: 155, fn: testFeature155 }
+      { id: 155, fn: testFeature155 },
+      { id: 156, fn: testFeature156 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：
@@ -28986,6 +29351,26 @@ async function testFeature133(page) {
       .first()
       .evaluate((el) => el.click())
       .catch(() => {})
+    // b135：返回列表是第四条会丢改动的路径，脏态下现在会先弹确认——用例必须回答它，
+    // 否则停在编辑态、列表永远等不到（这里是"断图保存失败"之后，表单必然是脏的）
+    const asked = await page
+      .locator('.el-message-box')
+      .first()
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
+    if (asked) {
+      await page
+        .locator('.el-message-box__btns button.el-button--primary')
+        .first()
+        .evaluate((el) => el.click())
+        .catch(() => {})
+      await page
+        .locator('.el-message-box')
+        .first()
+        .waitFor({ state: 'hidden', timeout: 4000 })
+        .catch(() => {})
+    }
     await page
       .locator('.el-table')
       .first()

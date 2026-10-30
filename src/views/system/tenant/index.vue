@@ -210,6 +210,7 @@
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :before-close="beforeFormClose"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px" @submit.prevent>
         <el-divider content-position="left">{{ t('tenant.baseSection') }}</el-divider>
@@ -302,7 +303,7 @@
       </el-form>
       <template #footer>
         <el-button type="primary" :loading="saving" @click="saveForm">{{ t('common.save') }}</el-button>
-        <el-button @click="formVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelForm">{{ t('common.cancel') }}</el-button>
       </template>
     </el-dialog>
 
@@ -312,6 +313,7 @@
       :title="t('tenant.capabilityTitle', [capabilityPackageName])"
       width="760px"
       destroy-on-close
+      :before-close="beforeCapabilityClose"
     >
       <el-alert :title="t('tenant.capabilityTip')" type="info" :closable="false" class="mb-2" />
       <el-alert :title="t('tenant.capabilityPlatformCeiling')" type="warning" :closable="false" class="mb-2" />
@@ -350,7 +352,7 @@
         >
           {{ t('tenant.capabilitySave') }}
         </el-button>
-        <el-button @click="capabilityVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancelCapability">{{ t('common.cancel') }}</el-button>
       </template>
     </el-dialog>
 
@@ -361,6 +363,7 @@
 
 <script setup lang="ts">
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { createLatestGuard } from '@/composables/latestRequest'
 import {
   listTenant,
@@ -444,6 +447,21 @@ const form = reactive({
 })
 
 const isRecycleView = computed(() => queryForm.delFlag === '2')
+
+/**
+ * 关闭语义（b135）：新增/编辑租户表单既有 11 个校验字段，改动后按 Esc 或点遮罩
+ * 原先会静默丢弃。`openAdd` / `openEdit` 都是「赋值完成后再置 visible」，
+ * 因此 post-flush 的自动快照拿到的就是用户看到的那一刻值。
+ */
+const { markSaved, beforeClose: beforeFormClose, cancel: cancelForm } = useDialogDirtyGuard(formVisible, form)
+
+/** 套餐能力位同理：每个 key 一个下拉，改一半按 Esc 原先会静默丢弃整批调整 */
+const {
+  snapshot: snapshotCapabilities,
+  markSaved: markCapabilitiesSaved,
+  beforeClose: beforeCapabilityClose,
+  cancel: cancelCapability
+} = useDialogDirtyGuard(capabilityVisible, capabilityForm)
 
 // 邮箱格式校验（可选字段：填写时必须是合法邮箱，避免把非法值写入联系信息）
 const rules = {
@@ -530,6 +548,7 @@ async function loadCapabilities() {
       next[item.key] = isPlatformEnabled(item.key) ? item.mode : 'off'
     }
     capabilityForm.value = next
+    snapshotCapabilities()
   } finally {
     capabilityLoading.value = false
   }
@@ -545,6 +564,7 @@ async function saveCapabilities() {
       features: { ...capabilityForm.value }
     })
     proxy?.$modal.msgSuccess(t('tenant.capabilitySaved'))
+    markCapabilitiesSaved()
     capabilityVisible.value = false
   } finally {
     capabilitySaving.value = false
@@ -687,6 +707,7 @@ async function saveForm() {
       }
     }
     formVisible.value = false
+    markSaved()
     getList()
   } finally {
     saving.value = false

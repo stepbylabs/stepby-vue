@@ -187,6 +187,7 @@
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :before-close="beforeClose"
     >
       <el-form label-width="90px">
         <el-form-item :label="t('rp.dashboardCode')" required>
@@ -197,7 +198,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createOpen = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="cancel">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="creating" @click="handleCreate">
           {{ t('common.confirm') }}
         </el-button>
@@ -207,6 +208,7 @@
 </template>
 
 <script setup lang="ts">
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -410,6 +412,9 @@ watch(editing, () => void loadEditingColumns())
 watch(canEdit, (v: boolean) => {
   if (!v) selectedChartId.value = undefined
 })
+
+/** 关闭语义（b135）：填一半按 Esc / 点遮罩原先会静默丢弃 */
+const { beforeClose, cancel } = useDialogDirtyGuard(createOpen, createForm)
 
 function openCreate() {
   if (!canEdit.value) return

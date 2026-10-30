@@ -44,7 +44,9 @@ export function useUnsavedGuard() {
       await ElMessageBox.confirm(t('common.unsavedConfirm'), t('common.tip'), {
         confirmButtonText: t('common.leaveWithoutSaving'),
         cancelButtonText: t('common.cancel'),
-        type: 'warning'
+        type: 'warning',
+        // b135：给 e2e 一个与文案/语言无关的稳定抓手（zh 的"确 定"带空格、en 又是另一套词）
+        customClass: 'app-unsaved-confirm'
       })
       return true
     } catch {

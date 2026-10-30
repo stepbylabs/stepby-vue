@@ -102,6 +102,7 @@
     width="560px"
     append-to-body
     destroy-on-close
+    :before-close="beforeAddClose"
   >
     <el-alert
       v-if="!allowSubdomain"
@@ -135,7 +136,7 @@
     </el-form>
     <template #footer>
       <el-button type="primary" :loading="saving" @click="saveAdd">{{ t('common.save') }}</el-button>
-      <el-button @click="addVisible = false">{{ t('common.cancel') }}</el-button>
+      <el-button @click="cancelAdd">{{ t('common.cancel') }}</el-button>
     </template>
   </el-dialog>
 
@@ -183,6 +184,7 @@ import type { ComponentInternalInstance } from 'vue'
 import { checkPermi } from '@/utils/permission'
 import { confirmAction } from '@/utils/confirm'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { validateForm } from '@/utils/formValidate'
 import { copyText as writeClipboard } from '@/utils/clipboard'
 import useUserStore from '@/store/modules/user'
@@ -293,6 +295,13 @@ function openAdd() {
   addVisible.value = true
 }
 
+/** 关闭语义（b135）：域名/备注填一半按 Esc 原先会静默丢弃 */
+const {
+  beforeClose: beforeAddClose,
+  cancel: cancelAdd,
+  markSaved: markAddSaved
+} = useDialogDirtyGuard(addVisible, addForm)
+
 async function saveAdd() {
   if (!(await validateForm(addFormRef.value))) return
   const tid = effectiveTenantId.value
@@ -308,6 +317,7 @@ async function saveAdd() {
     }
     await addTenantDomain(dto)
     proxy?.$modal.msgSuccess(t('common.success'))
+    markAddSaved()
     addVisible.value = false
     await loadList()
     emit('refresh')

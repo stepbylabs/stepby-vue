@@ -19,9 +19,11 @@
       loading="lazy"
       @error="onAvatarError"
     />
-    <el-dialog :close-on-click-modal="false"
+    <el-dialog
+      :close-on-click-modal="false"
       :title="t('profile.avatar.modifyTitle')"
       v-model="open"
+      :before-close="beforeClose"
       width="min(80%, 800px)"
       append-to-body
       @opened="modalOpened"
@@ -110,6 +112,7 @@ import { uploadAvatar } from '@/api/system/user'
 import useUserStore from '@/store/modules/user'
 import modal from '@/plugins/modal'
 import { verifyImageMagicBytes } from '@/utils/validate'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import defAva from '@/assets/images/profile.webp'
 
 const { t } = useI18n()
@@ -165,6 +168,11 @@ watch(
     }
   }
 )
+
+// 关闭语义（b135）：换过图片（含已调整裁剪框）后按 Esc / 点 × 原先会静默丢弃。
+// 基准取"打开那一刻的 options.img"＝已保存头像；裁剪框的缩放/旋转不单独计入
+// （那是预览动作，为它弹确认会成为噪声）。
+const { beforeClose } = useDialogDirtyGuard(open, () => options.img)
 
 // 头像加载失败时回退到默认头像
 function onAvatarError(e: Event): void {

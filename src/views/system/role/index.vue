@@ -361,6 +361,7 @@
     <el-dialog
       :title="`${t('role.fieldPerm.title')} - ${fieldPermRole?.roleName ?? ''}`"
       v-model="openFieldPerm"
+      :before-close="beforeFieldPermClose"
       width="min(90%, 560px)"
       append-to-body
       destroy-on-close
@@ -396,7 +397,7 @@
           <el-button type="primary" :loading="fieldPermSaving" @click="submitFieldPerm">
             {{ t('common.confirm') }}
           </el-button>
-          <el-button @click="openFieldPerm = false">{{ t('common.cancel') }}</el-button>
+          <el-button @click="cancelFieldPerm">{{ t('common.cancel') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -421,6 +422,7 @@ import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
+import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 
@@ -816,6 +818,13 @@ const fieldPermChecked = ref<Record<string, boolean>>({})
 /** 白名单字段定义（fieldKey + 中文名 i18n key），首期固定 sys_user */
 const fieldPermFields = computed<FieldPermFieldDef[]>(() => FIELD_PERM_TABLES[fieldPermTableKey] ?? [])
 
+// 关闭语义（b135）：矩阵勾选改了一半按 Esc / 点遮罩 / 点 × 原先会静默丢弃
+const {
+  snapshot: snapshotFieldPerm,
+  beforeClose: beforeFieldPermClose,
+  cancel: cancelFieldPerm
+} = useDialogDirtyGuard(openFieldPerm, () => fieldPermChecked.value)
+
 /** 打开字段权限矩阵：加载该角色当前隐藏态（开关未开启时接口报业务错误，由全局拦截器提示） */
 function handleFieldPerm(row: SysRole) {
   fieldPermRole.value = row
@@ -825,6 +834,8 @@ function handleFieldPerm(row: SysRole) {
   getFieldPerm(row.roleId!, fieldPermTableKey)
     .then((res) => {
       fieldPermChecked.value = toCheckedMap(res.data?.fields)
+      // 后端隐藏态是"打开时用户看到的值"的基准：不回填基准的话，载入完成即被判成脏
+      snapshotFieldPerm()
     })
     .catch(() => {
       // 失败（含"字段级权限未启用"）时关闭对话框，避免在空矩阵上误保存；错误提示由拦截器完成
