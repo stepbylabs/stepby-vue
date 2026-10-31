@@ -50,6 +50,8 @@ const { applyDynamicTitle, handleThemeStyle, cacheMock, matchMediaMock } = vi.ho
         }),
         setJSON: vi.fn((k: string, v: unknown) => {
           stored[k] = JSON.stringify(v)
+          // 与生产实现同形：写入成功返回 true（b141 起 updateUserPrefs 消费该结果）
+          return true
         }),
         get: vi.fn((k: string) => (k in stored ? stored[k] : null))
       }
@@ -201,11 +203,20 @@ describe('store/modules/settings', () => {
 
   it('updateUserPrefs merges and persists; followSystemDark=true registers the watcher', async () => {
     const store = await loadSettingsStore()
-    store.updateUserPrefs({ defaultPageSize: 25, followSystemDark: true })
+    expect(store.updateUserPrefs({ defaultPageSize: 25, followSystemDark: true })).toBe(true)
     expect(store.userPrefs.defaultPageSize).toBe(25)
     expect(store.userPrefs.followSystemDark).toBe(true)
     expect(cacheMock.local.setJSON).toHaveBeenCalledWith('user-prefs', store.userPrefs)
     expect(matchMediaMock).toHaveBeenCalledWith('(prefers-color-scheme: dark)')
+  })
+
+  it('updateUserPrefs 落盘失败返回 false：内存值仍生效（本次会话可用），但明确表示没保存', async () => {
+    cacheMock.local.setJSON.mockReturnValueOnce(false)
+    const store = await loadSettingsStore()
+
+    expect(store.updateUserPrefs({ defaultPageSize: 50 })).toBe(false)
+    expect(store.userPrefs.defaultPageSize).toBe(50)
+    expect(cacheMock.local.setJSON).toHaveBeenCalledTimes(1)
   })
 
   it('updateUserPrefs with followSystemDark=false unregisters an existing watcher', async () => {

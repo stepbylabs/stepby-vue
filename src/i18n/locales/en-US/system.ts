@@ -428,6 +428,8 @@ export default {
     emailRule: 'Invalid email format',
     package: 'Tenant Package',
     packagePlaceholder: 'Select a package (default package if empty)',
+    packageOptionsFailed:
+      'Failed to load package options: an empty dropdown does not mean there are no packages — retry before selecting',
     domain: 'Primary Domain',
     domainEmpty: 'Not bound',
     accountCount: 'Account Limit',
@@ -465,6 +467,9 @@ export default {
     capabilityPlatformOff: 'Platform off',
     capabilitySave: 'Save',
     capabilitySaved: 'Capabilities saved; role menu grants have been reconciled',
+    capabilityLoadFailed:
+      "Failed to load the capability registry: saving now would clear this package's capabilities — retry the load first",
+    exportUnknown: 'Export result unknown: the server returned no backup record; check Data Backup before retrying',
     capabilityNoPackage: 'This tenant has no package assigned. Assign one via "Edit" before configuring capabilities.',
     capabilityModeOffTip: 'off = disabled (identical to the behavior before this feature existed)',
     capabilityPlatformCeiling:
@@ -517,7 +522,8 @@ export default {
     platformPickTenant:
       'This page is a tenant self-service feature. Platform operators must select a target tenant above to manage its domain bindings; tenant admins are automatically scoped to their own tenant.',
     subdomainPlatformTip:
-      'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.'
+      'Subdomains are allocated by the platform. On the tenant side you can only add custom domains, and a custom domain must pass DNS TXT verification before it can be set as primary.',
+    tenantListFailed: 'Failed to load the tenant list; retry before selecting a target tenant'
   },
   tenantNav: {
     myTitle: 'My Navigation',
@@ -1714,7 +1720,9 @@ export default {
     tzUTC: 'Coordinated Universal Time',
     cancel: 'Cancel',
     save: 'Save',
-    saveSuccess: 'Preferences saved'
+    saveSuccess: 'Preferences saved',
+    saveNotPersisted:
+      'Preferences applied for this session but could not be saved locally (the old values will return on next launch)'
   },
   rp: {
     searchByName: 'Search by name',
@@ -1731,6 +1739,9 @@ export default {
     previewTitle: 'Dataset Preview (LIMIT 100)',
     queryParams: 'Query params',
     runQuery: 'Run query',
+    previewFailed: 'Query failed: check the params and retry (see the error notice for details)',
+    fieldOptionsFailed:
+      'Failed to load field options: an empty dropdown does not mean the dataset has no fields — retry',
     truncatedHint: 'Result truncated at 100 rows',
     removeDatasetConfirm: 'Charts bound to this dataset will break. Delete anyway?',
     formRequired: 'Code / Name / SQL template are required',

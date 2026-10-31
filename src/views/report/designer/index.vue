@@ -137,6 +137,16 @@
     <!-- 属性面板（选中卡片） -->
     <el-drawer v-model="propOpen" :title="t('rp.chartProps')" size="360px">
       <el-form v-if="editing" label-width="90px" size="small">
+        <el-alert
+          v-if="editingColumnsError"
+          :title="t('rp.fieldOptionsFailed')"
+          type="error"
+          :closable="false"
+          show-icon
+          class="mb-2"
+        >
+          <el-button link type="primary" @click="loadEditingColumns">{{ t('common.retry') }}</el-button>
+        </el-alert>
         <el-form-item :label="t('rp.chartTitle')">
           <el-input v-model="editing.title" maxlength="64" />
         </el-form-item>
@@ -268,6 +278,8 @@ const editing = computed<DashboardChart | undefined>(() =>
 )
 /** 属性面板列下拉：从该卡片数据集试跑取列（缓存） */
 const editingColumns = ref<string[]>([])
+/** 字段候选读取失败（b141）：空下拉必须可区分"数据集真的没有字段" */
+const editingColumnsError = ref(false)
 const createForm = ref({ dashboardCode: '', dashboardName: '' })
 
 // b113：未保存改动保护。设计器是"改即生效"的内存态——加卡片/排序/改字段/调宽度都不落库，
@@ -366,6 +378,7 @@ async function loadLayout(id: number): Promise<boolean> {
 }
 
 async function loadEditingColumns(): Promise<void> {
+  editingColumnsError.value = false
   if (!editing.value) {
     editingColumns.value = []
     return
@@ -375,9 +388,11 @@ async function loadEditingColumns(): Promise<void> {
       m.previewDataset({ datasetId: editing.value!.datasetId, params: {} })
     )
     editingColumns.value = res.data?.columns ?? []
-  } catch {
+  } catch (e) {
+    // 下拉为空不得冒充"这个数据集没有字段"：失败态在属性面板内可见且可重试（b141）
     editingColumns.value = []
-    if (import.meta.env.DEV) console.warn('[report/designer] 加载图表列失败')
+    editingColumnsError.value = true
+    if (import.meta.env.DEV) console.warn('[report/designer] 加载图表列失败:', e)
   }
 }
 

@@ -273,10 +273,12 @@ const useSettingsStore = defineStore('settings', {
         handleThemeStyle(this.theme)
       })
     },
-    // 更新用户偏好设置
-    updateUserPrefs(prefs: Partial<UserPrefs>) {
+    // 更新用户偏好设置；返回 false = 只在本会话生效、没有落盘（b141）
+    updateUserPrefs(prefs: Partial<UserPrefs>): boolean {
       this.userPrefs = { ...this.userPrefs, ...prefs }
-      cache.local.setJSON('user-prefs', this.userPrefs)
+      // 存储不可用 / 配额满时 setJSON 返回 false（b126 口径）——调用方据此决定能否报"已保存"，
+      // 否则页面在隐私模式下提示"偏好已保存"、下次启动却退回旧值（假成功）
+      const persisted = cache.local.setJSON('user-prefs', this.userPrefs)
       // 存量迁移配套：用户显式设置过 followSystemDark 后写标记，此后升级迁移不再触碰该值
       if (prefs.followSystemDark !== undefined) {
         // 写不进（配额满/隐私模式）不阻断本次切换——只是下次升级仍会被默认值碰一次
@@ -289,6 +291,7 @@ const useSettingsStore = defineStore('settings', {
           systemDarkUnwatch = null
         }
       }
+      return persisted
     },
     // 初始化系统暗色模式监听（在 App.vue 或 layout onMounted 调用）
     initSystemDarkWatcher() {

@@ -321,6 +321,10 @@ async function saveEdit() {
     proxy?.$modal.msgSuccess(t('common.success'))
     editVisible.value = false
     getList()
+  } catch (e) {
+    // 失败提示由拦截器统一弹出；保持抽屉打开让用户修正后重试（b141：
+    // 拒绝逸出会被全局 errorHandler / ErrorBoundary 接管，整页可能被卸载）
+    if (import.meta.env.DEV) console.error('[scimGroup] saveEdit:', e)
   } finally {
     saving.value = false
   }

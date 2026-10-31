@@ -107,8 +107,10 @@ const timezoneOptions = computed(() => [
 async function handleSave() {
   submitLoading.value = true
   try {
-    settingsStore.updateUserPrefs(form.value)
-    modal.msgSuccess(t('userPrefs.saveSuccess'))
+    const persisted = settingsStore.updateUserPrefs(form.value)
+    // 本次会话已生效；落不了盘时下次启动会退回旧值 ⇒ 不得报"已保存"（b141，b89/b121 口径）
+    if (persisted) modal.msgSuccess(t('userPrefs.saveSuccess'))
+    else modal.msgWarning(t('userPrefs.saveNotPersisted'))
     visible.value = false
   } finally {
     submitLoading.value = false

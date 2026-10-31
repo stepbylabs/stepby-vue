@@ -416,6 +416,7 @@ export default {
     emailRule: '邮箱格式不正确',
     package: '租户套餐',
     packagePlaceholder: '选择套餐（缺省使用默认套餐）',
+    packageOptionsFailed: '套餐候选加载失败：下拉为空不代表系统里没有套餐，请重试后再选择',
     domain: '主域名',
     domainEmpty: '未绑定',
     accountCount: '账号上限',
@@ -450,6 +451,8 @@ export default {
     capabilityPlatformOff: '平台未开启',
     capabilitySave: '保存',
     capabilitySaved: '能力位已保存，并已同步收敛角色菜单授权',
+    capabilityLoadFailed: '能力位注册表加载失败：现在保存会把该套餐的能力位清空，请先重试加载',
+    exportUnknown: '导出结果未知：服务端未返回备份记录，请到「数据备份」确认后再重试',
     capabilityNoPackage: '该租户未分配套餐，请先在「编辑」中分配套餐后再配置能力位',
     capabilityModeOffTip: 'off = 关闭（与迁移前行为一致）',
     capabilityPlatformCeiling: '套餐能力位只能收窄平台层（平台是天花板）：平台未开启的能力位，套餐写什么都不会生效'
@@ -498,7 +501,8 @@ export default {
     platformPickTenant:
       '本页为租户自助功能。平台操作者请先在上方选择目标租户，再管理该租户的域名绑定；租户管理员打开本页时自动限定为本租户。',
     subdomainPlatformTip:
-      '子域名由平台统一分配，租户侧仅可自助添加「自定义域名」，且需按提示配置 DNS TXT 记录并通过验证后方可设为主域名。'
+      '子域名由平台统一分配，租户侧仅可自助添加「自定义域名」，且需按提示配置 DNS TXT 记录并通过验证后方可设为主域名。',
+    tenantListFailed: '租户列表加载失败，请重试后再选择目标租户'
   },
   tenantNav: {
     myTitle: '我的导航',
@@ -1681,7 +1685,8 @@ export default {
     tzUTC: '协调世界时',
     cancel: '取消',
     save: '保存',
-    saveSuccess: '偏好设置已保存'
+    saveSuccess: '偏好设置已保存',
+    saveNotPersisted: '偏好已在本会话生效，但未能保存到本地存储（下次启动会恢复原值）'
   },
   rp: {
     searchByName: '按名称搜索',
@@ -1697,6 +1702,8 @@ export default {
     previewTitle: '数据集试跑（LIMIT 100）',
     queryParams: '查询参数',
     runQuery: '执行查询',
+    previewFailed: '查询失败：请检查参数后重试（具体原因见错误提示）',
+    fieldOptionsFailed: '字段候选加载失败：下拉为空不代表数据集没有字段，请重试',
     truncatedHint: '结果超过 100 行已截断',
     removeDatasetConfirm: '删除后引用该数据集的图表将无法渲染，确认删除？',
     formRequired: '编码/名称/SQL 模板必填',

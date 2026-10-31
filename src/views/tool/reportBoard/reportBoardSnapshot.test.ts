@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 interface SourcePoint {
   label: string
@@ -24,16 +25,19 @@ const hoisted = vi.hoisted(() => ({
   listSources: vi.fn(),
   listBoards: vi.fn(),
   getSourceData: vi.fn(),
-  setOption: vi.fn()
+  setOption: vi.fn(),
+  addBoard: vi.fn(),
+  updateBoard: vi.fn(),
+  deleteBoard: vi.fn()
 }))
 
 vi.mock('@/api/tool/reportBoard', () => ({
   listSources: (...a: unknown[]) => hoisted.listSources(...a),
   listBoards: (...a: unknown[]) => hoisted.listBoards(...a),
   getSourceData: (...a: unknown[]) => hoisted.getSourceData(...a),
-  addBoard: vi.fn(),
-  updateBoard: vi.fn(),
-  deleteBoard: vi.fn()
+  addBoard: (...a: unknown[]) => hoisted.addBoard(...a),
+  updateBoard: (...a: unknown[]) => hoisted.updateBoard(...a),
+  deleteBoard: (...a: unknown[]) => hoisted.deleteBoard(...a)
 }))
 
 vi.mock('@/composables/useChart', () => ({
@@ -73,6 +77,10 @@ const stubs = {
   'el-empty': {
     props: ['description', 'imageSize'],
     template: '<div class="empty-stub">{{ description }}<slot /></div>'
+  },
+  'el-alert': {
+    props: ['title', 'type'],
+    template: '<div class="alert-stub">{{ title }}<slot /></div>'
   }
 }
 
@@ -85,9 +93,14 @@ type Vm = {
   failedSources: Set<string>
   sourceLoadedAt: Map<string, number>
   chartEls: Map<string, HTMLElement>
+  boards: { id: number }[]
+  pageLoadError: boolean
   refreshData: () => Promise<void>
   onBoardChange: () => Promise<void>
   onRangeChange: () => void
+  loadPage: () => Promise<void>
+  createBoard: () => Promise<void>
+  saveBoard: () => Promise<void>
 }
 
 function deferred<T>() {
@@ -239,5 +252,51 @@ describe('报表看板：刷新失败不得抹掉屏幕上的旧结论', () => {
     await flushPromises()
     expect(vm.failedSources.size).toBe(0)
     expect(vm.dataMap.get('sales')).toEqual([{ label: 'newer', value: 3 }])
+  })
+})
+
+describe('报表看板：首载失败与创建/保存的结局（b141）', () => {
+  it('看板清单读取失败 ⇒ 失败提示 + 重试，不得显示「请先新建或选择一个看板」', async () => {
+    hoisted.listBoards.mockRejectedValueOnce(new Error('down'))
+    const w = await mountReady()
+    expect(w.text()).toContain('common.loadFailed')
+    expect(w.text()).not.toContain('reportBoard.noBoard')
+    // 重试后恢复真实状态（不是靠刷新页面）
+    await vmOf(w).loadPage()
+    await flushPromises()
+    expect(w.text()).not.toContain('common.loadFailed')
+    expect(vmOf(w).activeId).toBe(1)
+  })
+
+  it('数据源白名单读取失败也算整页失败（白名单缺失时"能看不能存"是假可用）', async () => {
+    hoisted.listSources.mockRejectedValueOnce(new Error('down'))
+    const w = await mountReady()
+    expect(w.text()).toContain('common.loadFailed')
+    expect(vmOf(w).boards.length).toBe(0)
+  })
+
+  it('新建看板：取消（prompt 拒绝）不逸出、不发请求', async () => {
+    const w = await mountReady()
+    vi.spyOn(ElMessageBox, 'prompt').mockRejectedValueOnce('cancel')
+    await expect(vmOf(w).createBoard()).resolves.toBeUndefined()
+    expect(hoisted.addBoard).not.toHaveBeenCalled()
+  })
+
+  it('新建看板：200 但无看板载荷 ⇒ 提示"结果未知"，不得静默当成功', async () => {
+    const w = await mountReady()
+    vi.spyOn(ElMessageBox, 'prompt').mockResolvedValueOnce({ value: '新看板' } as never)
+    hoisted.addBoard.mockResolvedValueOnce({ data: undefined })
+    const warn = vi.spyOn(ElMessage, 'warning')
+    await vmOf(w).createBoard()
+    expect(hoisted.addBoard).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('reportBoard.createUnknown')
+    expect(vmOf(w).boards.length).toBe(2)
+  })
+
+  it('保存看板失败：拒绝不逸出（拦截器提示），页面仍在', async () => {
+    const w = await mountReady()
+    hoisted.updateBoard.mockRejectedValueOnce(new Error('down'))
+    await expect(vmOf(w).saveBoard()).resolves.toBeUndefined()
+    expect(w.text()).toContain('reportBoard.title')
   })
 })

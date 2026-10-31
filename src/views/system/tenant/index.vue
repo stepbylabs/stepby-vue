@@ -232,21 +232,33 @@
           />
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.package')" prop="packageId">
-          <el-select
-            :aria-label="t('tenant.package')"
-            v-model="form.packageId"
-            :placeholder="t('tenant.packagePlaceholder')"
-            clearable
-            class="w-full"
-            @change="onPackageChange"
-          >
-            <el-option
-              v-for="pkg in packageOptions"
-              :key="pkg.packageId"
-              :label="packageLabel(pkg)"
-              :value="pkg.packageId"
-            />
-          </el-select>
+          <div class="w-full">
+            <el-select
+              :aria-label="t('tenant.package')"
+              v-model="form.packageId"
+              :placeholder="t('tenant.packagePlaceholder')"
+              clearable
+              class="w-full"
+              @change="onPackageChange"
+            >
+              <el-option
+                v-for="pkg in packageOptions"
+                :key="pkg.packageId"
+                :label="packageLabel(pkg)"
+                :value="pkg.packageId"
+              />
+            </el-select>
+            <el-alert
+              v-if="packageOptionsFailed"
+              :title="t('tenant.packageOptionsFailed')"
+              type="error"
+              :closable="false"
+              show-icon
+              class="mt-1"
+            >
+              <el-button link type="primary" @click="loadPackageOptions">{{ t('common.retry') }}</el-button>
+            </el-alert>
+          </div>
         </el-form-item>
         <el-form-item v-if="isPlatform" :label="t('tenant.expireTime')" prop="expireTime">
           <el-date-picker
@@ -317,6 +329,16 @@
     >
       <el-alert :title="t('tenant.capabilityTip')" type="info" :closable="false" class="mb-2" />
       <el-alert :title="t('tenant.capabilityPlatformCeiling')" type="warning" :closable="false" class="mb-2" />
+      <el-alert
+        v-if="capabilityLoadFailed"
+        :title="t('tenant.capabilityLoadFailed')"
+        type="error"
+        :closable="false"
+        show-icon
+        class="mb-2"
+      >
+        <el-button link type="primary" @click="loadCapabilities">{{ t('common.retry') }}</el-button>
+      </el-alert>
       <el-table v-loading="capabilityLoading" :data="capabilityItems" border size="small" row-key="key">
         <el-table-column :label="t('tenant.capabilityKey')" prop="key" min-width="220" />
         <el-table-column :label="t('tenant.capabilityMode')" min-width="220">
@@ -347,7 +369,7 @@
         <el-button
           type="primary"
           :loading="capabilitySaving"
-          :disabled="capabilityItems.length === 0"
+          :disabled="capabilityItems.length === 0 || capabilityLoadFailed"
           @click="saveCapabilities"
         >
           {{ t('tenant.capabilitySave') }}
@@ -407,6 +429,8 @@ const loadError = ref(false)
 const saving = ref(false)
 const tenantList = ref<TenantVo[]>([])
 const packageOptions = ref<TenantPackageOption[]>([])
+/** 套餐候选读取失败（b141）：下拉为空不得冒充"系统里没有套餐" */
+const packageOptionsFailed = ref(false)
 const queryForm = reactive({ tenantName: '', tenantCode: '', delFlag: '0' })
 
 const formVisible = ref(false)
@@ -430,6 +454,8 @@ const capabilityItems = ref<PackageFeatureItemVo[]>([])
 const capabilityForm = ref<Record<string, string>>({})
 /** 平台层已开启的能力位（天花板）：不在此列表内的项不可开启、选择器禁用 */
 const capabilityPlatformEnabled = ref<string[]>([])
+/** 能力位注册表读取失败（b141）：读失败不得当成"这个套餐没有能力位"，更不得把空表存回去 */
+const capabilityLoadFailed = ref(false)
 // 正在导出数据包的租户 id（按钮 loading；同时防重复点击）
 const exportingId = ref<number | null>(null)
 const form = reactive({
@@ -537,6 +563,11 @@ async function openCapabilities(row: TenantVo) {
 async function loadCapabilities() {
   if (!capabilityPackageId.value) return
   capabilityLoading.value = true
+  capabilityLoadFailed.value = false
+  // 换套餐身份 ⇒ 先丢上一个套餐的表单与勾选，失败时不留下"另一个套餐的值"
+  capabilityItems.value = []
+  capabilityPlatformEnabled.value = []
+  capabilityForm.value = {}
   try {
     const res = await getPackageFeatures(capabilityPackageId.value)
     const data = res.data
@@ -549,6 +580,10 @@ async function loadCapabilities() {
     }
     capabilityForm.value = next
     snapshotCapabilities()
+  } catch (e) {
+    // 读失败必须可见且可重试；空表不得冒充"该套餐没有能力位"（b141，b133 同族）
+    capabilityLoadFailed.value = true
+    if (import.meta.env.DEV) console.error('[tenant] loadCapabilities:', e)
   } finally {
     capabilityLoading.value = false
   }
@@ -557,6 +592,8 @@ async function loadCapabilities() {
 /** 保存套餐能力位（后端会做三道校验并立即收敛该套餐下全部租户的角色菜单授权） */
 async function saveCapabilities() {
   if (!capabilityPackageId.value) return
+  // 读失败时表单是空的：保存等于把该套餐的能力位全部清掉（安全闸，不只靠按钮 disabled）
+  if (capabilityLoadFailed.value) return
   capabilitySaving.value = true
   try {
     await updatePackageFeatures({
@@ -566,6 +603,9 @@ async function saveCapabilities() {
     proxy?.$modal.msgSuccess(t('tenant.capabilitySaved'))
     markCapabilitiesSaved()
     capabilityVisible.value = false
+  } catch (e) {
+    // 拦截器已提示；保持对话框打开让用户重试，拒绝不得逸出（b141）
+    if (import.meta.env.DEV) console.error('[tenant] saveCapabilities:', e)
   } finally {
     capabilitySaving.value = false
   }
@@ -589,14 +629,17 @@ async function getList() {
   }
 }
 
-/** 套餐下拉（仅平台需要；失败不阻断列表展示） */
+/** 套餐下拉（仅平台需要；失败不阻断列表展示，但必须在下拉旁可见并可重试） */
 async function loadPackageOptions() {
   if (!isPlatform.value) return
+  packageOptionsFailed.value = false
   try {
     const res = await listTenantPackageOptions()
     packageOptions.value = res.data ?? []
-  } catch {
+  } catch (e) {
     packageOptions.value = []
+    packageOptionsFailed.value = true
+    if (import.meta.env.DEV) console.error('[tenant] loadPackageOptions:', e)
   }
 }
 
@@ -795,10 +838,16 @@ async function handleExport(row: TenantVo) {
   try {
     const res = await exportTenantPackage(row.tenantId)
     const created = res.data
-    if (created?.backupId) {
-      await downloadBackup(created.backupId, created.fileName)
+    if (!created?.backupId) {
+      // 200 但没有备份记录 ⇒ 不能报"已导出"：界面会显示成功而「数据备份」里什么都没有
+      proxy?.$modal.msgWarning(t('tenant.exportUnknown'))
+      return
     }
+    await downloadBackup(created.backupId, created.fileName)
     proxy?.$modal.msgSuccess(t('tenant.exportSuccess'))
+  } catch (e) {
+    // 失败提示由拦截器统一弹出；导出按钮 loading 必须在 finally 复位，拒绝不得逸出（b141）
+    if (import.meta.env.DEV) console.error('[tenant] handleExport:', e)
   } finally {
     exportingId.value = null
   }

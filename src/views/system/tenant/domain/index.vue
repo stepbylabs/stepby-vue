@@ -40,8 +40,18 @@
         :closable="false"
         class="mb-2"
       />
+      <el-alert
+        v-if="isPlatform && tenantOptionsFailed"
+        type="error"
+        :closable="false"
+        show-icon
+        class="mb-2"
+        :title="t('tenantDomain.tenantListFailed')"
+      >
+        <el-button link type="primary" @click="loadTenantOptions">{{ t('common.retry') }}</el-button>
+      </el-alert>
       <el-empty
-        v-if="isPlatform && !loading && selectedTenantId == null && tenantOptions.length === 0"
+        v-if="isPlatform && !loading && !tenantOptionsFailed && selectedTenantId == null && tenantOptions.length === 0"
         :description="t('common.noData')"
       />
       <TenantDomainPanel v-if="!isPlatform || selectedTenantId != null" :tenant-id="selectedTenantId" />
@@ -62,17 +72,26 @@ const isPlatform = userStore.tenantId === 0
 const tenantOptions = ref<TenantVo[]>([])
 const selectedTenantId = ref<number | undefined>(undefined)
 const loading = ref(false)
+/** 平台租户清单读取失败（b141）：失败不得显示成"没有租户"，否则平台会以为系统里一个租户都没有 */
+const tenantOptionsFailed = ref(false)
 
-onMounted(async () => {
-  if (!isPlatform) return
+onMounted(() => {
+  if (isPlatform) void loadTenantOptions()
+})
+
+async function loadTenantOptions(): Promise<void> {
   loading.value = true
+  tenantOptionsFailed.value = false
   try {
     const res = await listTenant()
     tenantOptions.value = res.data ?? []
-  } catch {
+  } catch (e) {
+    // 拦截器已提示；此处标记失败态，空态由 !tenantOptionsFailed 闸住
     tenantOptions.value = []
+    tenantOptionsFailed.value = true
+    if (import.meta.env.DEV) console.error('[tenantDomain] loadTenantOptions:', e)
   } finally {
     loading.value = false
   }
-})
+}
 </script>

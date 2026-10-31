@@ -132,6 +132,16 @@
         :closable="false"
         class="mb-2"
       />
+      <el-alert
+        v-if="previewError"
+        :title="t('rp.previewFailed')"
+        type="error"
+        :closable="false"
+        show-icon
+        class="mb-2"
+      >
+        <el-button link type="primary" @click="runPreview">{{ t('common.retry') }}</el-button>
+      </el-alert>
       <el-table v-loading="previewing" :data="previewResult?.rows ?? []" border size="small" max-height="420">
         <el-table-column
           v-for="col in previewResult?.columns ?? []"
@@ -225,6 +235,8 @@ const previewOpen = ref(false)
 const previewing = ref(false)
 const previewTarget = ref<ReportDataset>()
 const previewResult = ref<DatasetPreviewVo>()
+/** 预览取数失败（b141）：试跑失败必须与"查询结果为 0 行"可区分 */
+const previewError = ref(false)
 const previewInput = ref<Record<string, string>>({})
 /** 由 params_schema 渲染参数输入行 */
 const previewParams = computed<{ name: string; type: string; required: boolean }[]>(() => {
@@ -311,6 +323,7 @@ async function handleSave() {
 async function openPreview(row: ReportDataset) {
   previewTarget.value = row
   previewResult.value = undefined
+  previewError.value = false
   previewInput.value = {}
   previewOpen.value = true
   await runPreview()
@@ -319,6 +332,7 @@ async function openPreview(row: ReportDataset) {
 async function runPreview() {
   if (!previewTarget.value) return
   previewing.value = true
+  previewError.value = false
   try {
     // 参数按 schema 归型：number 走 Number()，其余原样字符串（空串按缺失处理 → NULL 语义）
     const params: Record<string, unknown> = {}
@@ -329,6 +343,11 @@ async function runPreview() {
     }
     const res = await previewDataset({ datasetId: previewTarget.value.datasetId, params })
     previewResult.value = res.data
+  } catch (e) {
+    // 失败提示由拦截器统一弹出；此处标记失败态并吞掉拒绝——否则 AxiosError 逸出事件处理器，
+    // ErrorBoundary 会把预览对话框连同整页一起卸载（b141，同 b95/r44 实证形态）
+    previewError.value = true
+    if (import.meta.env.DEV) console.error('[reportDataset] runPreview:', e)
   } finally {
     previewing.value = false
   }

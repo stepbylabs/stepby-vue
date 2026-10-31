@@ -47,6 +47,7 @@
           v-model="editing"
           :active-text="t('reportBoard.modeEdit')"
           :inactive-text="t('reportBoard.modeView')"
+          :aria-label="t('reportBoard.modeToggle')"
           v-hasPermi="['tool:reportBoard:save']"
         />
 
@@ -61,8 +62,20 @@
       </div>
     </el-card>
 
-    <!-- 空态：无看板 -->
-    <el-card v-if="!activeBoard" shadow="never">
+    <!-- 初始加载失败是第三种状态：既不是"没有看板"也不是"看板为空"（b141） -->
+    <el-alert
+      v-if="pageLoadError"
+      type="error"
+      :closable="false"
+      show-icon
+      class="mb-2"
+      :title="t('common.loadFailed')"
+    >
+      <el-button link type="primary" @click="loadPage">{{ t('common.retry') }}</el-button>
+    </el-alert>
+
+    <!-- 空态：无看板（只在加载成功后显示） -->
+    <el-card v-else-if="!activeBoard" shadow="never">
       <el-empty :description="t('reportBoard.noBoard')" />
     </el-card>
 
@@ -200,6 +213,8 @@ const { getChart, withDark } = useChart()
 // ==================== 状态 ====================
 
 const loading = ref(false)
+/** 初始加载（数据源白名单 + 看板清单）失败：与"没有看板"是两种状态（b141） */
+const pageLoadError = ref(false)
 /** 看板清单（本人） */
 const boards = ref<BoardVo[]>([])
 
@@ -245,8 +260,15 @@ function setChartEl(id: string, el: Element | ComponentPublicInstance | null): v
 
 // ==================== 数据加载 ====================
 
-onMounted(async () => {
+onMounted(loadPage)
+
+/**
+ * 页面初始加载：数据源白名单 + 看板清单，任一失败都算整页没读到。
+ * 白名单是保存校验的唯一依据，缺失时"能看不能存"是假可用 ⇒ 两者同进同退（b141）。
+ */
+async function loadPage(): Promise<void> {
   loading.value = true
+  pageLoadError.value = false
   try {
     // 数据源白名单（下拉与保存校验的唯一依据）
     const srcResp = await listSources()
@@ -257,11 +279,21 @@ onMounted(async () => {
     if (boards.value.length) {
       activeId.value = boards.value[0].id
       await onBoardChange()
+    } else {
+      activeId.value = null
+      config.value = { cards: [] }
     }
+  } catch (e) {
+    // 失败态必须与"没有看板"可区分：清掉半截数据，整页交给失败提示 + 重试
+    pageLoadError.value = true
+    boards.value = []
+    activeId.value = null
+    config.value = { cards: [] }
+    if (import.meta.env.DEV) console.error('[reportBoard] loadPage:', e)
   } finally {
     loading.value = false
   }
-})
+}
 
 /** 切换看板：加载该看板配置并刷新数据 */
 async function onBoardChange(): Promise<void> {
@@ -456,6 +488,9 @@ async function saveBoard(): Promise<void> {
   try {
     await updateBoard(activeId.value, { config: config.value })
     ElMessage.success(t('reportBoard.saveSuccess'))
+  } catch (e) {
+    // 失败提示由 @/utils/request 拦截器统一弹出；此处只阻止拒绝逸出（async 事件处理器的拒绝会被全局 errorHandler 接管）
+    if (import.meta.env.DEV) console.error('[reportBoard] saveBoard:', e)
   } finally {
     loading.value = false
   }
@@ -465,18 +500,37 @@ async function saveBoard(): Promise<void> {
 
 /** 新建看板：弹窗输入名称 → POST → 选中新看板 */
 async function createBoard(): Promise<void> {
-  const { value } = await ElMessageBox.prompt(t('reportBoard.boardName'), t('reportBoard.newBoard'), {
-    inputPattern: /^.{1,64}$/u,
-    inputPlaceholder: t('reportBoard.boardNamePlaceholder'),
-    inputErrorMessage: t('reportBoard.nameRequired')
-  })
-  const name = value.trim()
-  if (!name) return
-  const resp = await addBoard({ name, config: { cards: [] } })
-  if (resp.data) {
-    boards.value.unshift(resp.data)
-    activeId.value = resp.data.id
+  let name: string
+  try {
+    const { value } = await ElMessageBox.prompt(t('reportBoard.boardName'), t('reportBoard.newBoard'), {
+      inputPattern: /^.{1,64}$/u,
+      inputPlaceholder: t('reportBoard.boardNamePlaceholder'),
+      inputErrorMessage: t('reportBoard.nameRequired')
+    })
+    name = value.trim()
+  } catch {
+    return // 取消/关闭：不产生副作用，也不得把拒绝逸出成全局错误
+  }
+  if (!name) {
+    ElMessage.warning(t('reportBoard.nameRequired'))
+    return
+  }
+  loading.value = true
+  try {
+    const resp = await addBoard({ name, config: { cards: [] } })
+    const created = resp.data
+    if (!created) {
+      // 200 但没有看板载荷 ⇒ 本次创建结果未知，不得静默当成功（界面会停在旧状态）
+      ElMessage.warning(t('reportBoard.createUnknown'))
+      return
+    }
+    boards.value.unshift(created)
+    activeId.value = created.id
     await onBoardChange()
+  } catch (e) {
+    if (import.meta.env.DEV) console.error('[reportBoard] createBoard:', e)
+  } finally {
+    loading.value = false
   }
 }
 
