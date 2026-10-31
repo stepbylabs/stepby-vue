@@ -295,6 +295,17 @@ service.interceptors.response.use(
       }
       return res.data
     }
+    // b143：HTML 200 不得冒充成功。
+    // 同源部署的服务端兜底（或网关/反代配置错误）可能把未匹配的 API 路径回成 index.html；
+    // axios 把整段 HTML 当**字符串** data 交给下行，而 `data.code || 200` 恒为 200 ⇒
+    // 调用方按"成功但空数据"渲染（`response.rows` 读出 undefined），失败被藏进成功形状里。
+    // 判据刻意取窄：只认 content-type 含 text/html；blob/arraybuffer 已在上方分流，
+    // 下载 HTML 文件的通道不受影响。
+    if (String(res.headers['content-type'] ?? '').includes('text/html')) {
+      const message = t('common.unexpectedResponse')
+      errorHub.report('error', 'api', message, traceId)
+      return Promise.reject(attachTraceId(new Error(message), traceId))
+    }
     if (code === 401) {
       // U19 优化：首个 401 触发对话框，后续并发 401 进入队列等待统一处理
       if (!isRelogin.show && !reloginPromise) {

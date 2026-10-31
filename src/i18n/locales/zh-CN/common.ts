@@ -145,6 +145,8 @@ export default {
     retryAfterSeconds: '请在 {seconds} 秒后重试',
     serviceUnavailable: '服务暂时不可用，请稍后重试',
     backendConnectionError: '后端接口连接异常',
+    // b143：服务端把 HTML 当接口响应回（同源兜底/反代配置错误），不得当成功
+    unexpectedResponse: '服务返回了网页而不是数据（接口地址可能不存在），请刷新后重试',
     requestTimeout: '系统接口请求超时',
     requestError: '系统接口{code}异常',
     retryHint: '{message}，点击此处重试',

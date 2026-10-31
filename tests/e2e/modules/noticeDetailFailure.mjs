@@ -16,7 +16,10 @@
  *    噪声源，与 b69"遥测刷爆操作日志"同族）；
  * ③ 失败必须显示「公告详情加载失败」且**不得**显示「暂无数据」（文案按双语态取）；
  * ④ 点重试必须**真的重发请求**（请求计数增量 ≥1）——"按钮点了没报错"不是证据；
- * ⑤ 撤掉注入后再重试必须恢复正文且失败条消失（"失败态永不消失"的实现过不了这一条）。
+ * ⑤ 撤掉注入后再重试必须恢复正文且失败条消失（"失败态永不消失"的实现过不了这一条）；
+ * ⑥ （b143）把响应换成一整张 **HTML 200**（同源兜底/反代配置错误的形态）时，
+ *    抽屉必须落失败态 + 用户可见提示，且页面不得被整页卸载 —— 改造前拦截器把
+ *    字符串 data 的 `data.code || 200` 读成 200，失败会被静默读成"空正文"。
  *
  * 夹具自包含：公告按 `e2e97<ts>` 命名并在模块内删除。
  */
@@ -24,6 +27,8 @@
 /** 空态与失败态文案的双语形（zh-CN / en-US） */
 const FAILED_TEXTS = ['公告详情加载失败', 'Failed to load the notice detail']
 const EMPTY_TEXTS = ['暂无数据', 'No data']
+/** b143：HTML 200 被拦下后的用户可见提示（zh-CN / en-US 双语形） */
+const HTML_FAILED_TEXTS = ['服务返回了网页而不是数据', 'returned a web page instead of data']
 
 export function makeNoticeDetailFailureTest(ctx) {
   const { record, log, CONFIG, checkConsoleErrors, sleep, dismissTour, clickButton } = ctx
@@ -89,18 +94,31 @@ export function makeNoticeDetailFailureTest(ctx) {
 
     let noticeId = null
     const urlPredicate = /\/system\/notice\/\d+(\?.*)?$/
-    let failInjected = false
+    // 注入档：'off' 真请求 / 'biz' 业务码失败 / 'html' 一张 HTML 200（b143）
+    let injectMode = 'off'
     let reqCount = 0
     const onRequest = (req) => {
       if (urlPredicate.test(new URL(req.url()).pathname)) reqCount += 1
     }
     const onRoute = async (route) => {
-      if (!failInjected) return route.continue()
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ code: 500, msg: 'e2e97 注入的业务失败（不是后端故障）' })
-      })
+      if (injectMode === 'biz') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ code: 500, msg: 'e2e97 注入的业务失败（不是后端故障）' })
+        })
+        return
+      }
+      if (injectMode === 'html') {
+        // b143：一整张 HTML + 200。改造前前端把它当字符串 data，`data.code || 200` 恒 200。
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: '<!DOCTYPE html><html><body><div id="app">SPA index</div></body></html>'
+        })
+        return
+      }
+      return route.continue()
     }
 
     try {
@@ -226,7 +244,7 @@ export function makeNoticeDetailFailureTest(ctx) {
       record(M, '97.3 关闭后抽屉不可见（重开前的前置）', closed.ok, `落定 ${closed.ms}ms`)
 
       // ===== ② 注入业务失败 ⇒ 失败文案可见、且不得显示「暂无数据」 =====
-      failInjected = true
+      injectMode = 'biz'
       const before = reqCount
       const failedOpened = await openDrawer()
       const failState = failedOpened.ok
@@ -259,8 +277,41 @@ export function makeNoticeDetailFailureTest(ctx) {
         `按下=${pressed} / 增量=${reqCount - beforeRetry} / 落定 ${resent.ms}ms`
       )
 
+      // ===== ③b（b143）：HTML 200 ⇒ 必须被拦成失败，不得当成功读空数据 =====
+      injectMode = 'html'
+      const beforeHtml = reqCount
+      const htmlToasts = []
+      const toastPoll = (async () => {
+        for (let i = 0; i < 16; i++) {
+          const got = await page
+            .evaluate(() => [...document.querySelectorAll('.el-message')].map((e) => String(e.innerText || '')))
+            .catch(() => [])
+          for (const t of got) if (!htmlToasts.includes(t)) htmlToasts.push(t)
+          await sleep(250)
+        }
+      })()
+      await clickButton(page, '.notice-detail-drawer button:has-text("重试")')
+      await pollUntil(async () => ({ ok: reqCount > beforeHtml }), { timeout: 5000 })
+      await toastPoll
+      const htmlState = await drawerState(page)
+      const htmlFailed = htmlState.visible && hasAny(htmlState.text, FAILED_TEXTS)
+      const htmlNoEmpty = !hasAny(htmlState.text, EMPTY_TEXTS)
+      const toastHit = htmlToasts.some((t) => hasAny(t, HTML_FAILED_TEXTS))
+      const alive = await page
+        .evaluate(() => !!(document.querySelector('#app') && document.querySelector('#app').children.length))
+        .catch(() => false)
+      record(
+        M,
+        '97.6 HTML 200 冒充成功的响应 ⇒ 落失败态 + 用户可见提示 + 页面不卸载（b143）',
+        reqCount > beforeHtml && htmlFailed && htmlNoEmpty && toastHit && alive,
+        `增量=${reqCount - beforeHtml} / 失败态=${htmlFailed} / 无空态=${htmlNoEmpty} / 提示命中=${toastHit} / 页面存活=${alive}` +
+          ` / 提示=«${htmlToasts.join(' | ').slice(0, 120)}»`
+      )
+      // 回到业务失败档，让下一条（撤故障恢复）从确定状态出发
+      injectMode = 'biz'
+
       // ===== ④ 撤掉注入后再重试 ⇒ 正文出现、失败条消失（两向） =====
-      failInjected = false
+      injectMode = 'off'
       const beforeOk = reqCount
       await clickButton(page, '.notice-detail-drawer button:has-text("重试")')
       const recovered = await pollUntil(
@@ -275,7 +326,7 @@ export function makeNoticeDetailFailureTest(ctx) {
       )
       record(
         M,
-        '97.6 撤故障后重试 ⇒ 正文恢复且失败态消失（失败态由事实驱动）',
+        '97.7 撤故障后重试 ⇒ 正文恢复且失败态消失（失败态由事实驱动）',
         recovered.ok && reqCount > beforeOk,
         `可见=${recovered.visible} / 增量=${reqCount - beforeOk} / 落定 ${recovered.ms}ms` +
           ` / 正文片段=${String(recovered.text || '').slice(0, 60)}`
@@ -289,7 +340,7 @@ export function makeNoticeDetailFailureTest(ctx) {
       page.off('request', onRequest)
       if (noticeId != null) {
         const del = await call('DELETE', `/system/notice/${noticeId}`)
-        record(M, '97.7 夹具清理: 公告已删除', del.status === 200, `status=${del.status}`)
+        record(M, '97.8 夹具清理: 公告已删除', del.status === 200, `status=${del.status}`)
       }
     }
 

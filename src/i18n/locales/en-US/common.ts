@@ -145,6 +145,9 @@ export default {
     retryAfterSeconds: 'Please retry in {seconds} seconds',
     serviceUnavailable: 'Service is temporarily unavailable, please try again later',
     backendConnectionError: 'Backend API connection failed',
+    // b143: the server answered with an HTML page instead of data (same-origin fallback / proxy misconfig)
+    unexpectedResponse:
+      'The service returned a web page instead of data (the API path may not exist). Please refresh and retry.',
     requestTimeout: 'System API request timed out',
     requestError: 'System API {code} error',
     retryHint: '{message}, click here to retry',

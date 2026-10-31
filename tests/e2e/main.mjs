@@ -5497,12 +5497,19 @@ async function testFeature24(page) {
   }
   record(24, 'index.html 不缓存策略', noCacheOk, noCacheDetail)
 
-  // ---------- 步骤 3：SPA fallback - 未匹配前端路由返回 index.html ----------
+  // ---------- 步骤 3：SPA fallback —— **浏览器导航**未匹配前端路由返回 index.html ----------
+  // b143：兜底改为按"是否浏览器导航"分派。Node 的裸 fetch 既不带 Sec-Fetch-Mode 也不带
+  // Accept: text/html，它**不是导航**（后端改造前对这类请求也回 HTML，于是"浏览器能拿到
+  // 深链页面"这个能力从来没有被区分验证过）。这里显式声明导航语义，测的仍是用户
+  // 地址栏直达/刷新的那条通道；同一路径的 XHR 反向判据见步骤 3b。
+  const unknownFrontendRoute = `${CONFIG.backendUrl}/nonexistent-frontend-route-${Date.now()}`
   let spaFallbackOk = false
   let spaFallbackDetail = ''
   try {
     // 使用一个明显不存在的前端路由（非 API、非静态资源后缀）
-    const resp = await fetch(`${CONFIG.backendUrl}/nonexistent-frontend-route-${Date.now()}`)
+    const resp = await fetch(unknownFrontendRoute, {
+      headers: { 'sec-fetch-mode': 'navigate', accept: 'text/html,application/xhtml+xml' }
+    })
     const contentType = resp.headers.get('content-type') || ''
     const body = await resp.text()
     spaFallbackOk =
@@ -5513,7 +5520,24 @@ async function testFeature24(page) {
   } catch (err) {
     spaFallbackDetail = `异常: ${err.message.slice(0, 80)}`
   }
-  record(24, 'SPA fallback 返回 index.html', spaFallbackOk, spaFallbackDetail)
+  record(24, 'SPA fallback 返回 index.html（导航请求）', spaFallbackOk, spaFallbackDetail)
+
+  // ---------- 步骤 3b：同一路径的 XHR 必须拿到 JSON 404（b143 对照组） ----------
+  // 改造前：未知路径无条件回 index.html + 200 ⇒ API/XHR 消费者把 HTML 当成功响应
+  // （前端 `data.code` 读出 undefined，按空数据渲染）。判据同时要求 body.code=404，
+  // 否则"永远回 JSON 错误"与"错误码对"两种状态分不开。
+  let xhr404Ok = false
+  let xhr404Detail = ''
+  try {
+    const resp = await fetch(unknownFrontendRoute, { headers: { accept: 'application/json' } })
+    const contentType = resp.headers.get('content-type') || ''
+    const data = await resp.json().catch(() => null)
+    xhr404Ok = resp.status === 404 && contentType.includes('application/json') && data?.code === 404
+    xhr404Detail = `status=${resp.status}, ct=${contentType}, code=${data?.code}`
+  } catch (err) {
+    xhr404Detail = `异常: ${err.message.slice(0, 80)}`
+  }
+  record(24, '未知路径的 XHR 返回 JSON 404（不再返回 HTML 200）', xhr404Ok, xhr404Detail)
 
   // ---------- 步骤 4：静态资源 404 - .js 文件不存在返回 404（非 index.html） ----------
   let staticAsset404Ok = false
@@ -5562,7 +5586,8 @@ async function testFeature24(page) {
   const allChecks = [
     readFeatureRecord(24, 'GET / 返回 index.html')?.passed || false,
     readFeatureRecord(24, 'index.html 不缓存策略')?.passed || false,
-    readFeatureRecord(24, 'SPA fallback 返回 index.html')?.passed || false,
+    readFeatureRecord(24, 'SPA fallback 返回 index.html（导航请求）')?.passed || false,
+    readFeatureRecord(24, '未知路径的 XHR 返回 JSON 404（不再返回 HTML 200）')?.passed || false,
     readFeatureRecord(24, '静态资源 .js 404 不走 SPA fallback')?.passed || false,
     readFeatureRecord(24, '静态资源 .css 404 不走 SPA fallback')?.passed || false,
     readFeatureRecord(24, 'API 路由 /health 不受嵌入模式影响')?.passed || false
