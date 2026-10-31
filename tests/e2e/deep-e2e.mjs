@@ -112,6 +112,7 @@ import { makeListLoadFailureTest } from './modules/listLoadFailure.mjs'
 import { makeWsSessionExpiryTest } from './modules/wsSessionExpiry.mjs'
 import { makeErrorBoundarySurvivalTest } from './modules/errorBoundarySurvival.mjs'
 import { makeSwCacheBoundaryTest } from './modules/swCacheBoundary.mjs'
+import { makeNoticeDetailFailureTest } from './modules/noticeDetailFailure.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -22291,6 +22292,20 @@ const testModule96 = makeSwCacheBoundaryTest({
   attachConsoleCollector
 })
 
+// 模块 97（b142）：公告详情抽屉的失败 / 空 / 成功三分。
+// 失败态由注入的业务码失败构造（HTTP 200 + body.code=500，不产生 console 噪声），
+// 判据落到"屏幕上是什么 + 重试真的重发了请求 + 撤故障后正文回来"三件运行时事实上。
+const testModule97 = makeNoticeDetailFailureTest({
+  record,
+  log,
+  CONFIG,
+  checkConsoleErrors,
+  sleep,
+  dismissTour,
+  clickButton,
+  getApiToken
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -22389,7 +22404,8 @@ const testFns = {
   93: testModule93,
   94: testModule94,
   95: testModule95,
-  96: testModule96
+  96: testModule96,
+  97: testModule97
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

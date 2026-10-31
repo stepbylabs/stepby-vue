@@ -273,6 +273,7 @@ export default {
     ariaLabel: '命令面板',
     searching: '搜索中…',
     noSearchResult: '未找到相关内容',
+    searchFailed: '搜索失败，请重试',
     searchType: {
       menu: '菜单',
       user: '用户',

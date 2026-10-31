@@ -181,6 +181,7 @@ export default {
   dataRule: {
     title: 'Data Permission Rules',
     loadFailed: 'Failed to load rules; an empty table does not mean there are no rules',
+    rolesLoadFailed: 'Failed to load role options; role bindings cannot be adjusted for now',
     name: 'Rule Name',
     table: 'Target Table',
     field: 'Target Column',

@@ -280,6 +280,7 @@ export default {
     ariaLabel: 'Command Palette',
     searching: 'Searching…',
     noSearchResult: 'No related content found',
+    searchFailed: 'Search failed, please retry',
     searchType: {
       menu: 'Menu',
       user: 'User',

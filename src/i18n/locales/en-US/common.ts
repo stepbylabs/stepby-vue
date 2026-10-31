@@ -285,6 +285,7 @@ export default {
     },
     headerNotice: {
       detailTitle: 'Notice Details',
+      detailLoadFailed: 'Failed to load notice detail, please retry',
       empty: 'No notices',
       loadFailed: 'Failed to load notices; content may be out of date',
       statusClosed: 'Closed',

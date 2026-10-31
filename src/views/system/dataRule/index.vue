@@ -106,6 +106,17 @@
           >
             <el-option v-for="r in roles" :key="r.roleId" :value="r.roleId" :label="r.roleName" />
           </el-select>
+          <!-- 读失败 ≠ 没有角色（b142）：原实现只写 DEV console，下拉空白且无重试 -->
+          <div
+            v-if="rolesLoadFailed"
+            class="mt-1 flex items-center gap-2 text-xs text-[var(--el-color-danger)]"
+            role="alert"
+          >
+            <span>{{ t('dataRule.rolesLoadFailed') }}</span>
+            <el-button link type="primary" size="small" :loading="rolesLoading" @click="loadRoles">
+              {{ t('common.retry') }}
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item :label="t('dataRule.status')">
           <el-switch v-model="form.enabled" />
@@ -160,6 +171,9 @@ const total = ref(0)
 const ops = ['eq', 'ne', 'like', 'gt', 'lt', 'ge', 'le', 'in']
 const valueTypes = ['fixed', 'current_user', 'current_dept', 'current_dept_children', 'current_tenant']
 const roles = ref<RoleOption[]>([])
+/** 角色下拉读取失败（与"没有角色"是两个事实：失败时下拉空白但可重试） */
+const rolesLoadFailed = ref(false)
+const rolesLoading = ref(false)
 
 const dialogVisible = ref(false)
 const form = reactive({
@@ -204,6 +218,8 @@ async function load(p?: number) {
 }
 
 async function loadRoles() {
+  rolesLoading.value = true
+  rolesLoadFailed.value = false
   try {
     const res = (await request({
       url: '/system/role/optionselect',
@@ -211,7 +227,11 @@ async function loadRoles() {
     })) as unknown as { data?: RoleOption[] }
     roles.value = res.data ?? []
   } catch (e) {
+    // 读失败必须可见：下拉空白会让用户以为"系统里没有角色"，且无法调整绑定
+    rolesLoadFailed.value = true
     if (import.meta.env.DEV) console.error('[dataRule] loadRoles failed:', e)
+  } finally {
+    rolesLoading.value = false
   }
 }
 

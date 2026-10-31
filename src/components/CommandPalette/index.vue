@@ -62,9 +62,29 @@
             <el-icon class="is-loading"><Loading /></el-icon>
             <span>{{ t('commandPalette.searching') }}</span>
           </div>
+          <!-- 搜索失败与「真的没有结果」是两个事实（b142）：原实现把失败折成空数组，
+               用户读到的是「未找到相关内容」——一次网络故障被当成系统里不存在该数据 -->
+          <div v-else-if="searchFailed" class="palette-empty" role="alert">
+            <el-icon><WarningFilled /></el-icon>
+            <span>{{ t('commandPalette.searchFailed') }}</span>
+            <el-button link type="primary" size="small" @click="retrySearch">
+              {{ t('common.retry') }}
+            </el-button>
+          </div>
           <div v-else class="palette-empty">
             <el-icon><Search /></el-icon>
             <span>{{ isSearchMode ? t('commandPalette.noSearchResult') : t('commandPalette.noMatch') }}</span>
+          </div>
+          <!-- 本地命中仍在展示时也要说明「全局搜索这一路失败了」，否则用户会以为结果就是全部 -->
+          <div
+            v-if="searchFailed && filteredCommands.length > 0"
+            class="flex items-center gap-2 px-3 pb-1 text-xs text-[var(--el-color-danger)]"
+            role="alert"
+          >
+            <span>{{ t('commandPalette.searchFailed') }}</span>
+            <el-button link type="primary" size="small" @click="retrySearch">
+              {{ t('common.retry') }}
+            </el-button>
           </div>
           <div class="palette-footer" v-if="filteredCommands.length > 0">
             <span>
@@ -102,7 +122,8 @@ import {
   RefreshRight,
   User,
   Link,
-  Loading
+  Loading,
+  WarningFilled
 } from '@element-plus/icons-vue'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
@@ -309,6 +330,8 @@ const filteredCommands = computed<Command[]>(() => {
 // ==================== 全局搜索模式（GET /common/global-search） ====================
 const searchLoading = ref(false)
 const searchResults = ref<Command[]>([])
+/** 全局搜索失败（与「没有结果」是两个事实，不得互相冒充） */
+const searchFailed = ref(false)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 // 请求守卫（b119 单一实现）：丢弃防抖窗口外过期响应，避免竞态覆盖
 const searchGuard = createLatestGuard()
@@ -325,13 +348,24 @@ function scheduleGlobalSearch(): void {
   const q = query.value.trim()
   if (q.length < 2) {
     searchResults.value = []
+    searchFailed.value = false
     searchLoading.value = false
     return
   }
+  searchFailed.value = false
   searchLoading.value = true
   searchTimer = setTimeout(() => {
     runGlobalSearch(q)
   }, 300)
+}
+
+/** 失败后的重试入口：立即重发，不再等防抖 */
+function retrySearch(): void {
+  const q = query.value.trim()
+  if (q.length < 2 || searchLoading.value) return
+  searchFailed.value = false
+  searchLoading.value = true
+  void runGlobalSearch(q)
 }
 
 /** 执行全局搜索：结果按类型转为可执行命令（回车/点击跳 url） */
@@ -342,8 +376,13 @@ async function runGlobalSearch(q: string): Promise<void> {
     // 过期响应丢弃（期间用户可能已修改输入）
     if (!searchGuard.isCurrent(ticket)) return
     searchResults.value = (res.data || []).map(toSearchCommand)
+    searchFailed.value = false
   } catch {
-    if (searchGuard.isCurrent(ticket)) searchResults.value = []
+    if (searchGuard.isCurrent(ticket)) {
+      searchResults.value = []
+      // 失败必须可见：空结果 + 「未找到相关内容」会把一次网络故障说成"系统里没有"
+      searchFailed.value = true
+    }
   } finally {
     if (searchGuard.isCurrent(ticket)) searchLoading.value = false
   }

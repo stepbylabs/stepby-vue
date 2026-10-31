@@ -42,7 +42,8 @@ vi.mock('@element-plus/icons-vue', () => {
     RefreshRight: stub,
     User: stub,
     Link: stub,
-    Loading: stub
+    Loading: stub,
+    WarningFilled: stub
   }
 })
 
@@ -101,8 +102,12 @@ const i18n = createI18n({
         },
         confirmLogout: 'Confirm logout?',
         executeFail: 'Execute failed',
+        searchFailed: 'Search failed',
+        noSearchResult: 'No result',
+        searching: 'Searching',
         searchType: { user: 'User' }
-      }
+      },
+      common: { retry: 'Retry' }
     }
   }
 })
@@ -111,6 +116,7 @@ const stubs = {
   teleport: true,
   transition: true,
   'el-icon': { template: '<i><slot /></i>' },
+  'el-button': { template: '<button @click="$emit(\'click\')"><slot /></button>' },
   'svg-icon': { template: '<i />' }
 }
 
@@ -274,9 +280,9 @@ describe('components/CommandPalette', () => {
     vi.unstubAllGlobals()
   })
 
-  it('搜索接口失败 → 结果清空（不抛）', async () => {
+  it('搜索接口失败 → 显式失败态（不得显示成「未找到」），重试可恢复', async () => {
     vi.useFakeTimers()
-    hoisted.globalSearch.mockRejectedValue(new Error('boom'))
+    hoisted.globalSearch.mockRejectedValueOnce(new Error('boom'))
     const w = factory()
     await nextTick()
     await w.find('input').setValue('zz')
@@ -284,7 +290,20 @@ describe('components/CommandPalette', () => {
     vi.advanceTimersByTime(300)
     await vi.waitFor(() => expect(hoisted.globalSearch).toHaveBeenCalled())
     await nextTick()
-    expect(w.find('.palette-empty').exists()).toBe(true)
+    await nextTick()
+    // 失败态必须与「没有结果」可区分：一次网络故障不能说成"系统里没有"
+    expect(w.text()).toContain('Search failed')
+    expect(w.text()).not.toContain('No result')
+
+    // 重试：第二次成功 ⇒ 结果可见、失败态消失
+    hoisted.globalSearch.mockResolvedValueOnce({
+      data: [{ type: 'user', id: 9, title: 'Bob', subtitle: 'b', url: '/system/user/9' }]
+    })
+    const retryBtn = w.findAll('button').find((b) => b.text() === 'Retry')
+    expect(retryBtn, '失败态必须带可点击的重试入口').toBeTruthy()
+    await retryBtn!.trigger('click')
+    await vi.waitFor(() => expect(w.text()).toContain('Bob'))
+    expect(w.text()).not.toContain('Search failed')
   })
 
   it('执行命令抛异常 → modal.msgError 兜底', async () => {

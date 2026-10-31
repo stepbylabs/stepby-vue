@@ -128,4 +128,29 @@ describe('dataRule 页面失败态与删除链', () => {
     expect(listCalls).toHaveLength(3)
     expect(listCalls[2][0].params.page).toBe(1)
   })
+
+  // ============ b142：角色下拉读取失败不得静默（空白 ≠ 没有角色） ============
+  it('角色下拉加载失败：可见失败条；重试成功后失败条消失', async () => {
+    let roleCalls = 0
+    hoisted.request.mockImplementation((cfg: { url: string }) => {
+      if (cfg.url === '/system/role/optionselect') {
+        roleCalls += 1
+        if (roleCalls === 1) return Promise.reject(new Error('roles failed'))
+        return Promise.resolve({ data: [{ roleId: 7, roleName: '运维' }] })
+      }
+      return Promise.resolve({ rows: [], total: 0 })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('dataRule.rolesLoadFailed')
+
+    const retry = wrapper.findAll('button').find((b) => b.text().includes('common.retry'))
+    expect(retry, '失败态必须带可点击的重试入口').toBeTruthy()
+    await retry!.trigger('click')
+    await flushPromises()
+
+    expect(roleCalls).toBe(2)
+    expect(wrapper.text()).not.toContain('dataRule.rolesLoadFailed')
+  })
 })

@@ -104,8 +104,23 @@
                   class="h-10 w-full cursor-pointer object-cover align-middle transition-opacity duration-300"
                   :alt="t('login.clickRefreshCaptcha')"
                 />
+                <span v-else key="failed" class="px-1 text-center text-xs text-[var(--el-color-danger)]">
+                  {{ t('common.retry') }}
+                </span>
               </Transition>
             </div>
+          </div>
+          <!-- 验证码读取失败必须可见且可重试：原实现把失败置成「后端关闭验证码」，
+               用户会在没有验证码输入框的表单上提交，后端仍要校验 ⇒ 必然失败且没有解释 -->
+          <div
+            v-if="captchaLoadFailed"
+            class="mt-1 flex items-center gap-2 text-xs text-[var(--el-color-danger)]"
+            role="alert"
+          >
+            <span>{{ t('login.captchaLoadFailed') }}</span>
+            <el-button link type="primary" size="small" :loading="codeLoading" @click="getCode">
+              {{ t('common.retry') }}
+            </el-button>
           </div>
         </el-form-item>
       </Transition>
@@ -263,6 +278,8 @@ const capsLockOn = ref(false)
 const codeLoading = ref(false)
 // 验证码开关
 const captchaEnabled = ref(true)
+/** 验证码读取失败（与「后端关闭验证码」是两个事实，不得互相冒充） */
+const captchaLoadFailed = ref(false)
 // 注册开关
 const register = ref(false)
 // P0-4：是否进入 TOTP 多因子验证步骤（后端返回业务码 1003 时置为 true）
@@ -369,6 +386,13 @@ function handleLogin(): void {
   if (loading.value) return
   loginRefRef.value?.validate((valid: boolean) => {
     if (valid) {
+      // 验证码未取到（加载失败 / 尚未成功）时后端必然拒绝：先给可重试的提示，
+      // 而不是把一次注定失败的登录请求打出去（还会累加后端失败计数）。
+      if (captchaEnabled.value && !loginForm.value.uuid) {
+        ElMessage.warning(t('login.captchaLoadFailed'))
+        getCode()
+        return
+      }
       loading.value = true
       // 勾选了"记住用户名"则在 cookie 中保存用户名（不再保存密码）
       if (loginForm.value.rememberMe) {
@@ -453,6 +477,7 @@ function getCode(): void {
   codeLoading.value = true
   getCodeImg()
     .then((res) => {
+      captchaLoadFailed.value = false
       captchaEnabled.value = res.captchaEnabled === undefined ? true : res.captchaEnabled
       // 同时读取注册开关（后端 /captchaImage 已返回 registerEnabled 字段，避免探测 /register 触发 403）
       register.value = res.registerEnabled === true
@@ -480,7 +505,13 @@ function getCode(): void {
     })
     .catch((err) => {
       if (import.meta.env.DEV) console.error('[login] Captcha fetch failed:', err)
-      captchaEnabled.value = false
+      // b142：读失败 ≠ 后端关闭验证码。原实现把 captchaEnabled 置 false 会**隐藏验证码输入框**，
+      // 用户在“看起来不需要验证码”的表单上提交，而后端仍要校验 ⇒ 必然失败且毫无解释；
+      // 更糟的是这条路把「验证码防爆破」在界面上关掉了。保持开启态 + 可见失败 + 重试入口。
+      captchaEnabled.value = true
+      captchaLoadFailed.value = true
+      codeUrl.value = ''
+      loginForm.value.uuid = ''
     })
     .finally(() => {
       codeLoading.value = false

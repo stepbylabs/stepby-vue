@@ -176,6 +176,7 @@ export default {
   dataRule: {
     title: '数据权限规则',
     loadFailed: '规则列表加载失败，表格为空不代表没有规则',
+    rolesLoadFailed: '生效角色列表加载失败，暂时无法调整角色绑定',
     name: '规则名',
     table: '目标表',
     field: '目标列',

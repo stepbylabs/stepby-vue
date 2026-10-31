@@ -10,7 +10,16 @@
   >
     <div v-loading="loading" class="notice-detail-drawer__body">
       <Transition mode="out-in" name="fade">
-        <el-empty v-if="!detail" key="empty" :description="t('common.noData')" :image-size="60" />
+        <!-- 读失败 ≠ 没有数据（b142）：原实现 catch 里 detail=null，界面渲染「暂无数据」 -->
+        <el-empty
+          v-if="loadError"
+          key="error"
+          :description="t('layout.headerNotice.detailLoadFailed')"
+          :image-size="60"
+        >
+          <el-button type="primary" :loading="loading" @click="reload">{{ t('common.retry') }}</el-button>
+        </el-empty>
+        <el-empty v-else-if="!detail" key="empty" :description="t('common.noData')" :image-size="60" />
         <div v-else key="page" class="notice-page">
           <div class="notice-type-wrap">
             <Transition mode="out-in" name="fade">
@@ -80,6 +89,10 @@ const { t } = useI18n()
 const visible = ref<boolean>(false)
 const loading = ref<boolean>(false)
 const detail: Ref<SysNotice | null> = ref<SysNotice | null>(null)
+/** 读取失败（与「详情为空」是两个事实，不得互相冒充） */
+const loadError = ref<boolean>(false)
+/** 最近一次请求的公告 ID：失败后重试必须仍按它取（不能拿 null 去取） */
+let lastId: number | string | null = null
 
 const isStatusNormal = computed<boolean>(() => {
   const status = detail.value && detail.value.status
@@ -110,6 +123,7 @@ function open(payload: SysNotice | number | string) {
     id = payload
   }
   visible.value = true
+  loadError.value = false
   if (preset) {
     detail.value = preset
     return
@@ -118,7 +132,14 @@ function open(payload: SysNotice | number | string) {
     detail.value = null
     return
   }
+  fetchDetail(id)
+}
+
+/** 按 ID 拉详情：失败保留「加载失败 + 重试」，不得渲染成「暂无数据」 */
+function fetchDetail(id: number | string): void {
+  lastId = id
   loading.value = true
+  loadError.value = false
   detail.value = null
   getNotice(id)
     .then((res) => {
@@ -126,15 +147,23 @@ function open(payload: SysNotice | number | string) {
     })
     .catch(() => {
       detail.value = null
+      loadError.value = true
     })
     .finally(() => {
       loading.value = false
     })
 }
 
+/** 重试最近一次请求（成功后清掉失败态） */
+function reload(): void {
+  if (lastId == null || loading.value) return
+  fetchDetail(lastId)
+}
+
 function handleClose() {
   visible.value = false
   detail.value = null
+  loadError.value = false
   loading.value = false
 }
 
