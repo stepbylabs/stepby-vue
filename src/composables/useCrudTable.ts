@@ -8,6 +8,7 @@ import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } 
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { focusFirstError } from '@/utils/formValidate'
+import { applySortChange, type SortQueryTarget } from '@/utils/sortDirection'
 import type { FormInstance } from 'element-plus'
 
 /**
@@ -480,14 +481,8 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
    */
   function handleSortChange({ prop, order }: { prop?: string | null; order?: string | null }): void {
     if (!supportsSort) return
-    const target = queryParams.value as unknown as Record<string, unknown>
-    if (prop && (order === 'ascending' || order === 'descending')) {
-      target['orderByColumn'] = prop
-      target['isAsc'] = order === 'ascending' ? 'asc' : 'desc'
-    } else {
-      target['orderByColumn'] = undefined
-      target['isAsc'] = undefined
-    }
+    // 方向裁定见 utils/sortDirection：同列同向即取反（表格重挂载会洗掉 EP 自身状态）
+    applySortChange(queryParams.value as unknown as SortQueryTarget, { prop, order }, 'short')
     queryParams.value.pageNum = 1
     getList()
   }

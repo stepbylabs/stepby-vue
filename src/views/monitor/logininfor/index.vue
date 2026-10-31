@@ -124,7 +124,7 @@
             :data="logininforList"
             :row-key="(row: SysLogininfor) => row.infoId"
             @selection-change="onSelectionChange"
-            :default-sort="defaultSort"
+            :default-sort="sortArrow"
             @sort-change="handleSortChange"
           >
             <el-table-column type="selection" width="55" align="center" />
@@ -226,6 +226,8 @@
 </template>
 
 <script setup lang="ts" name="Logininfor">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
 import TenantFilter from '@/components/TenantFilter/index.vue'
@@ -383,16 +385,6 @@ const {
   queryRef
 })
 
-// URL 恢复出的排序必须回灌表头箭头（与 operlog 同族）：EP 按自身 sortState 轮转方向，
-// 箭头与数据不一致时用户点不出反方向；本页 handleSortChange 直接把 EP 的
-// ascending/descending 透传进 isAsc，因此判定口径要同时认 asc/ascending 两种风格。
-if (queryParams.value.orderByColumn) {
-  defaultSort.value = {
-    prop: String(queryParams.value.orderByColumn),
-    order: /^asc/i.test(String(queryParams.value.isAsc ?? '')) ? 'ascending' : 'descending'
-  }
-}
-
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
@@ -421,10 +413,12 @@ function onSelectionChange(selection: SysLogininfor[]) {
   selectName.value = selection.map((item) => item.userName!)
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
+
 /** 排序触发事件 */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop
-  queryParams.value.isAsc = column.order
+  applySortChange(queryParams.value, column)
   getList()
 }
 

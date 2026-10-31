@@ -86,7 +86,7 @@
       :data="dataList"
       :row-key="(row: SysAlertRule) => row.id"
       @selection-change="handleSelectionChange"
-      :default-sort="defaultSort"
+      :default-sort="sortArrow"
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" width="55" align="center" />
@@ -341,6 +341,7 @@
 </template>
 
 <script setup lang="ts" name="MonitorAlert">
+import { useSortArrow } from '@/composables/useSortArrow'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import {
@@ -506,6 +507,9 @@ const {
   queryRef,
   supportsSort: true
 })
+
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)

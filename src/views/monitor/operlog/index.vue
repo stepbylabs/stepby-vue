@@ -172,7 +172,7 @@
         :data="operlogList"
         :row-key="(row: SysOperLog) => row.operId"
         @selection-change="handleSelectionChange"
-        :default-sort="defaultSort"
+        :default-sort="sortArrow"
         @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="50" align="center" />
@@ -434,6 +434,8 @@
 </template>
 
 <script setup lang="ts" name="Operlog">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import OperlogDetail from './detail.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import TenantColumn from '@/components/TenantColumn/index.vue'
@@ -639,16 +641,6 @@ const {
   queryRef
 })
 
-// URL 恢复出的排序必须回灌表头箭头：EP 以自身 sortState 为基线轮转方向，
-// 箭头与数据不一致时用户再点一次仍落在同一方向（b73 轮 14 实测：第二次点击依旧 asc，
-// 降序点不出来）。回灌后箭头与已恢复的数据一致，后续点击从正确基线轮转。
-if (queryParams.value.orderByColumn) {
-  defaultSort.value = {
-    prop: String(queryParams.value.orderByColumn),
-    order: /^asc/i.test(String(queryParams.value.isAsc ?? '')) ? 'ascending' : 'descending'
-  }
-}
-
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)
 void isMobileFilter
@@ -672,16 +664,12 @@ function resetQuery() {
   operlogRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
+
 /** 排序触发事件 */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  // 排序被清除时（column.order === null），重置排序参数
-  if (column.order === null) {
-    queryParams.value.orderByColumn = undefined
-    queryParams.value.isAsc = undefined
-  } else {
-    queryParams.value.orderByColumn = column.prop || undefined
-    queryParams.value.isAsc = column.order === 'ascending' ? 'asc' : 'desc'
-  }
+  applySortChange(queryParams.value, column, 'short')
   getList()
 }
 

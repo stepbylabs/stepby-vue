@@ -129,7 +129,9 @@ export default {
         'Rotate the open API SK of token "{name}"? The old SK stops working immediately and all requests signed with it will be rejected.',
       revokeConfirm:
         'Revoke the open API AK/SK of token "{name}"? AK/SK signed requests will stop working immediately.',
-      revoked: 'AK/SK revoked'
+      revoked: 'AK/SK revoked',
+      rotateFailed:
+        'Rotation failed: the server returned no new AK/SK and the old secret is already invalid. Re-enable AK/SK before updating your configuration.'
     },
     admin: {
       tip: 'This page manages personal access tokens for all users. Admins may revoke any token, but a token itself cannot manage tokens (prevents self-escalation).',
@@ -552,6 +554,7 @@ export default {
     deleteConfirm: 'Delete navigation item "{0}"? The node will fall back to its platform default position',
     duplicate: 'This menu is already in the navigation',
     readonlyTip: 'The capability is in view-only mode (nav.l3 = view_only); navigation settings are read-only.',
+    tenantListFailed: 'Failed to load the tenant list. Retry before picking a target tenant.',
     disabledTip:
       'The "tenant-built navigation" capability (nav.l3) is not enabled; please ask a platform administrator to enable it.'
   },
@@ -1650,7 +1653,8 @@ export default {
       zoomIn: 'Zoom In',
       zoomOut: 'Zoom Out',
       rotateLeft: 'Rotate Left',
-      rotateRight: 'Rotate Right'
+      rotateRight: 'Rotate Right',
+      refreshFailed: 'Avatar uploaded, but the account info refresh failed. Reload the page to see the new avatar.'
     },
     msgPref: 'Message Preferences / Do Not Disturb',
     pref: {
@@ -1885,6 +1889,7 @@ export default {
     actCountersignDel: 'Remove Approver',
     actWithdraw: 'Withdraw',
     confirmWithdraw: 'Withdraw "{title}"? The approver\'s pending task will disappear immediately.',
+    confirmResubmit: 'Resubmit "{title}"? It re-enters the approval flow and the approver receives a new pending task.',
     actResubmit: 'Resubmit',
     btnSubmit: 'Submit Leave Request',
     submitTitle: 'Submit Leave Request',

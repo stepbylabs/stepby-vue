@@ -25,7 +25,11 @@ import { fileURLToPath } from 'node:url'
 import { genCodeUrl, batchGenCode } from './gen'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const readSrc = (rel: string): string => fs.readFileSync(path.join(HERE, rel), 'utf8')
+// 行尾归一（b140 实测事故）：本文件的定界靠 `'\n}\n'` 这类换行哨兵，而 Windows 工作副本可能是 CRLF
+// ——`indexOf('\n}\n')` 取 -1 会把函数体切成两个字符，判据当场红在**行尾**而不是代码上。
+// 仓内提交字节一律 LF（`.prettierrc` 的 `endOfLine:"auto"` 只跟随现状，不会替你转换），
+// 所以读侧折叠 CRLF 不放松任何语义（⑰"陈旧性只能判语义，不能判字节"的同一课）。
+const readSrc = (rel: string): string => fs.readFileSync(path.join(HERE, rel), 'utf8').replace(/\r\n/g, '\n')
 
 const VIEW_SRC = readSrc('../../views/tool/gen/index.vue')
 const ZH_SRC = readSrc('../../i18n/locales/zh-CN/tool.ts')

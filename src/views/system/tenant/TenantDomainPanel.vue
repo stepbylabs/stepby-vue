@@ -303,11 +303,14 @@ const {
 } = useDialogDirtyGuard(addVisible, addForm)
 
 async function saveAdd() {
-  if (!(await validateForm(addFormRef.value))) return
-  const tid = effectiveTenantId.value
-  if (tid == null) return
+  // b140（项8 C2）：占闸必须是函数体第一件事——原先 `await validateForm()` 在置位之前，
+  // 连点会各自通过校验并各绑一次域名（`:loading` 在第一次点击时还是 false，挡不住）。
+  if (saving.value) return
   saving.value = true
   try {
+    if (!(await validateForm(addFormRef.value))) return
+    const tid = effectiveTenantId.value
+    if (tid == null) return
     const dto: TenantDomainAddDto = {
       tenantId: tid,
       domain: addForm.domain.toLowerCase(),
@@ -321,6 +324,9 @@ async function saveAdd() {
     addVisible.value = false
     await loadList()
     emit('refresh')
+  } catch (e) {
+    // 拒绝不得逸出（请求拦截器已提示）：对话框保持打开供修正
+    if (import.meta.env.DEV) console.error('[tenant/domain] 绑定域名失败:', e)
   } finally {
     saving.value = false
   }

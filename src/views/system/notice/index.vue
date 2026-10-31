@@ -102,6 +102,7 @@
         :row-key="(row: SysNotice) => row.noticeId"
         @selection-change="handleSelectionChange"
         @sort-change="handleSortChange"
+        :default-sort="sortArrow"
       >
         <el-table-column type="selection" width="55" align="center" />
         <el-table-column
@@ -304,6 +305,7 @@
 </template>
 
 <script setup lang="ts" name="Notice">
+import { useSortArrow } from '@/composables/useSortArrow'
 import NoticeDetailView from '@/layout/components/HeaderNotice/DetailView.vue'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import ReadUsersDialog from './ReadUsers.vue'
@@ -408,6 +410,9 @@ const {
     noticeStore.refreshTopNotices().catch(() => {})
   }
 })
+
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams)
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 const { isMobile: isMobileFilter } = useMobileFilter(showSearch)

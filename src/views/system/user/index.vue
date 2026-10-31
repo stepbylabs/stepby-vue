@@ -133,6 +133,7 @@
             :row-key="(row: SysUser) => row.userId"
             @selection-change="handleSelectionChange"
             @sort-change="handleSortChange"
+            :default-sort="sortArrow"
           >
             <el-table-column type="selection" width="50" align="center" />
             <el-table-column
@@ -419,6 +420,8 @@
 </template>
 
 <script setup lang="ts" name="User">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import TreePanel from '@/components/TreePanel/index.vue'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
@@ -780,10 +783,12 @@ function resetQuery() {
   userTableRef.value?.clearSort()
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams)
+
 /** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop ?? undefined
-  queryParams.value.isAsc = column.order ?? undefined
+  applySortChange(queryParams.value, column)
   getList()
 }
 

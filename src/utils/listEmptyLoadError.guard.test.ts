@@ -39,7 +39,18 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { CRUD_CALL_RE, isHandwrittenListPage, maskVueSource } from '@/utils/listPageSurface'
+import {
+  CRUD_CALL_RE,
+  declaresGetList,
+  failureFlagNames,
+  hasFailureAffordance,
+  isFetchingListPage,
+  maskVueScript,
+  maskVueSource,
+  rowsFedFromRequest,
+  showsFailureState,
+  templateRegion
+} from '@/utils/listPageSurface'
 
 /** 仓根按本文件位置反推（src/utils 的上两层），与其余守卫同一口径 */
 const VUE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -106,23 +117,92 @@ function violationLines(text: string): number[] {
 }
 
 /** 手写列表页的最小体量（低于下限 = 派生逻辑走偏，拒绝判据而不是报 0 违规） */
-const MIN_HANDWRITTEN_LIST_PAGES = 8
+const MIN_HANDWRITTEN_LIST_PAGES = 12
 
 /**
- * 手写列表页的失败态判据（b105，文件级）
+ * 受约束面（取数面 ∩ 行集来自请求结果）的下限。
+ * 这一栏才是本腿真正判的东西，所以它必须**单独**有体量自证：
+ * `rowsFedFromRequest` 整体判否时，取数面照样是 19，而违规恒 0——只数上一栏就看不见这一栏塌了。
+ */
+const MIN_CONSTRAINED_LIST_PAGES = 12
+
+/**
+ * 手写列表页的失败态判据（b105 立、b140 换面 + 换尺）
  *
- * 违规 ⇔ 同时满足：有网络取数入口 `getList`、模板里渲染 `el-table`、
- * **不是** `useCrudTable` 调用方（那一路由块级判据 ① 负责）、且整份文件没有
- * `:load-error="loadError"` 接线。
+ * 违规 ⇔ 该页**渲染 el-table 且自己发过请求**（`isFetchingListPage`，与函数名无关）、
+ * 行集**可能来自请求结果**（`rowsFedFromRequest`，排除纯表单弹窗）、**不是** `useCrudTable`
+ * 调用方（那一路由块级判据 ① 负责），且**没有可观测的失败出口**。
  *
- * 为什么按"有 getList + el-table"派生而不是列文件清单：清单会随新页面静默过期
- * （AGENTS ㉔/㉗：分母要么来自承诺、要么来自本轮事实，记文件名两者都不是）。
- * 纯函数与真实树共用同一份实现，合成夹具直接喂它。
+ * "没有失败出口"由**两条腿取或**判定，缺一条都会长出假信号：
+ * · `showsFailureState`：catch 写的标识符被模板读到（最直接的同名配对）；
+ * · `hasFailureAffordance`：模板里有 `list-empty :load-error` / `el-alert type="error" + v-if`
+ *   且绑的是脚本写过的状态（认得"失败态装进对象 / 由共用骨架回写"的合法写法）。
+ *
+ * b140 的三处变化，各自都有实测成因：
+ * 1. **采集面不再要求函数叫 `getList`**。原先按名字派生，实测有 4 个"渲染表格 + 自己取数"
+ *    的页面整页不在视野内（`load` / `getCacheNames` / `loadEventCatalog` 三种别名）——
+ *    那 4 页恰好都已接线，所以没漏过缺陷，但**名字规则永远落后于事实一种写法**。
+ * 2. **合规尺从"有没有 `:load-error=\"loadError\"` 这串字面量"换成上面两条腿**。
+ *    放宽面后第一轮报出 8 处，逐条回页面看，**5 处是假阳性**（页面用
+ *    `el-alert v-if="loadError"` / 卡片失败占位分支，同样把"失败"和"没有数据"分开了）。
+ *    把判据建成"只认一种写法"，结局就是要么误报一片被人放宽，要么逼所有人改写成同一种形状
+ *    ——两者都是把工具的错误当成产品缺陷（前言 ⑨"错误提示把人支使去把事实签反"）。
+ * 3. **加一条前置条件：行集得可能来自请求**。同一轮报出的另一处是
+ *    `views/tool/gen/createTable.vue`——建表弹窗的表格行由用户逐条录入，
+ *    页面唯一的 `await` 是提交而不是取数；给它装失败态就是为不会发生的形状编理由
+ *    （前言 ㉜/⑯(c)：前提不成立时换判据，不是加豁免）。
  */
 function handwrittenListViolation(text: string): boolean {
   const masked = maskVueSource(text)
-  if (!isHandwrittenListPage(masked)) return false
-  return !/:load-error="loadError"/.test(masked)
+  if (!isFetchingListPage(masked)) return false
+  const script = maskVueScript(text)
+  if (!script) return false
+  const template = templateRegion(masked)
+  if (!rowsFedFromRequest(template, script)) return false
+  return !showsFailureState(script, template) && !hasFailureAffordance(template, script)
+}
+
+/** 受约束面：本腿真正会判到的文件（取数面 ∩ 行集来自请求结果） */
+function constrainedListPages(): Array<{ rel: string; text: string }> {
+  const out: Array<{ rel: string; text: string }> = []
+  for (const f of walkVue(VIEWS_DIR)) {
+    const text = readFileSync(f, 'utf8')
+    const masked = maskVueSource(text)
+    if (!isFetchingListPage(masked)) continue
+    const script = maskVueScript(text)
+    if (!script) continue
+    if (!rowsFedFromRequest(templateRegion(masked), script)) continue
+    out.push({ rel: f.slice(VUE_ROOT.length + 1).replace(/\\/g, '/'), text })
+  }
+  return out
+}
+
+/**
+ * 把一个页面的**失败出口**整体致盲（只动模板，不动脚本——脚本决定它在不在面上）。
+ * 三条分别对应判据的三条认法，缺一支探针就有一部分页面"永远抓不到"：
+ * ① 组件名换掉 ⇒ `list-empty` 的 `:load-error` 出口不再成立；
+ * ② 失败文案与 `type="error"` 换掉 ⇒ alert 出口不再成立；
+ * ③ catch 标志在模板里的引用消音 ⇒ 同名配对腿不再成立。
+ */
+function stripFailureOutlets(text: string): string {
+  const cut = text.search(/<script\b/)
+  const head = cut < 0 ? text : text.slice(0, cut)
+  const tail = cut < 0 ? '' : text.slice(cut)
+  const flags = failureFlagNames(maskVueScript(text))
+  const muted = flags.reduce(
+    (acc, n) => acc.replace(new RegExp(`\\b${n.replace(/\$/g, '\\$')}\\b`, 'g'), '__mutedFlag'),
+    head
+  )
+  return (
+    muted
+      .replace(/\blist-empty\b/g, 'el-empty')
+      .replace(/\bListEmpty\b/g, 'ElEmpty')
+      .replace(/common\.loadFailed/g, 'common.empty')
+      .replace(/common\.staleDataHintAt/g, 'common.empty')
+      // alert 的失败语义从两个方向一起抹：档位与文案键
+      .replace(/type="error"/g, 'type="info"')
+      .replace(/:type="[^"]*"/g, ':type="\'info\'"') + tail
+  )
 }
 
 function walkVue(dir: string, out: string[] = []): string[] {
@@ -277,50 +357,237 @@ describe('静态守卫：useCrudTable 页面的 #empty 槽必须消费 loadError
     ).toBeGreaterThanOrEqual(2)
   })
 
-  it('⑦ 真实树：手写列表页（有 getList + el-table 且非组合子）必须接 loadError，0 处违规', () => {
+  it('⑦ 真实树：自取数的列表页（渲染 el-table + await 过 API，与函数名无关）必须接失败态，0 处违规', () => {
     const offenders: string[] = []
-    let surface = 0
+    const excluded: string[] = []
+    let fetching = 0
     for (const f of viewFiles) {
       const rel = f.slice(VUE_ROOT.length + 1).replace(/\\/g, '/')
       const text = readFileSync(f, 'utf8')
-      const isCandidate = isHandwrittenListPage(maskVueSource(text))
-      if (isCandidate) surface++
+      if (isFetchingListPage(maskVueSource(text))) {
+        fetching++
+        const sc = maskVueScript(text)
+        if (!sc || !rowsFedFromRequest(templateRegion(maskVueSource(text)), sc)) {
+          excluded.push(rel)
+        }
+      }
       if (handwrittenListViolation(text)) {
-        offenders.push(`${rel}: 加载失败会落回"暂无数据"（缺 :load-error="loadError" 接线）`)
+        offenders.push(
+          `${rel}: 加载失败会落回"暂无数据"（两条腿都不成立：既没有 catch 标志被模板读到，也没有 list-empty / 失败文案的 alert 出口）`
+        )
       }
     }
+    const pages = constrainedListPages()
+    const constrained = pages.length
+    // N-140-C 的"两面差集"必须是**打印出来的事实**，不得留在注释里当记住的数：
+    // 竞态面（`latestRequest.guard`）按 `declaresGetList` 取体，这一部分页面在它视野外。
+    const noGetName = pages.filter((p) => !declaresGetList(maskVueSource(p.text))).map((p) => p.rel)
     // 采集面自证：派生逻辑坏了（正则走偏/目录读空）必须响亮失败，不得报"0 违规"
+    // 条数一律由本守卫自己打印，文档不抄数；打印排在判定之前——红了也要能看见本轮的面有多大
+    console.warn(
+      `[listEmptyGuard] 自取数列表页 ${fetching} 个 / 受约束面（行集来自请求）${constrained} 个 / 违规 ${offenders.length} 处` +
+        ` / 其中未声明 getList（竞态面看不见，N-140-C）${noGetName.length} 个${noGetName.length ? `：${noGetName.join(', ')}` : ''}` +
+        (excluded.length ? ` / 前置条件排除：${excluded.join(', ')}` : '')
+    )
     expect(
-      surface,
-      `手写列表页采集面 ${surface} 个，低于下限 ${MIN_HANDWRITTEN_LIST_PAGES}（扫不全 ≠ 没缺口）`
+      fetching,
+      `自取数列表页采集面 ${fetching} 个，低于下限 ${MIN_HANDWRITTEN_LIST_PAGES}（扫不全 ≠ 没缺口）`
     ).toBeGreaterThanOrEqual(MIN_HANDWRITTEN_LIST_PAGES)
+    expect(
+      constrained,
+      `受约束面 ${constrained} 个，低于下限 ${MIN_CONSTRAINED_LIST_PAGES}（前置条件被整体判否 = 派生坏了，不得当成"没有页面受约束"）`
+    ).toBeGreaterThanOrEqual(MIN_CONSTRAINED_LIST_PAGES)
     expect(offenders, `手写列表页失败态回流：\n${offenders.join('\n')}`).toEqual([])
-    // 条数一律由本守卫自己打印，文档不抄数
-    console.warn(`[listEmptyGuard] 手写列表页采集面 ${surface} 个 / 违规 ${offenders.length} 处`)
   })
 
-  it('⑧ 合成双向：缺接线必须被抓；已接线 / 无取数 / 组合子页面不得误报', () => {
+  it('⑧ 合成双向：缺失败出口必须被抓；ListEmpty / alert / 别名 / 无取数 / 组合子不得误报', () => {
     const page = (body: string) => `<template><el-table :data="rows">${body}</el-table></template>`
     const emptySlot = `<template #empty><el-empty :description="t('common.empty')" /></template>`
+    // 夹具必须是**单个 `<script setup>` 块**：真实 SFC 只有一个脚本块，而 `maskVueScript`
+    // 只取第一个块——把 import 单列一块会让判据读不到逻辑（前言 ㉓：夹具的形状必须等于
+    // 生产码真实产出的形状，否则判据测的是自己的解析器）
+    const script = (body: string) =>
+      `<script setup>import { listApi } from '@/api/system/demo'\nconst rows = ref([])\n${body}</script>`
 
-    // 必须被抓：有取数 + 有表格 + 空态只绑文案
+    // 必须被抓：有取数 + 有表格 + 空态只绑文案，且失败无处可写
     const bad = `${page(emptySlot)}
-<script setup>function getList() { listApi().catch(() => {}) }</script>`
-    expect(handwrittenListViolation(bad), '缺 loadError 接线的手写列表页必须被抓').toBe(true)
+${script('async function getList() { const res = await listApi(); rows.value = res.rows }')}`
+    expect(handwrittenListViolation(bad), '没有失败出口的自取数列表页必须被抓').toBe(true)
 
-    // 不得误报：标准接线
+    // 必须被抓：**别名取数**同样缺失败出口（换面之前这一形状整页不可见）
+    const badAlias = `${page(emptySlot)}
+${script('async function loadRows() { const res = await listApi(); rows.value = res.rows }')}`
+    expect(handwrittenListViolation(badAlias), '取数函数不叫 getList 也不能逃出失败态判据').toBe(true)
+
+    // 必须被抓：catch 写了标志，但**模板从不读它**（失败态存在却看不见）
+    const invisible = `${page(emptySlot)}
+${script('const loadError = ref(false)\nasync function getList() { try { const res = await listApi(); rows.value = res.rows; loadError.value = false } catch { loadError.value = true } }')}`
+    expect(handwrittenListViolation(invisible), '失败标志不被模板消费 = 用户仍然看不见失败，必须被抓').toBe(true)
+
+    // 必须被抓：`.catch(() => {})` 吞掉（历史上最常见的形状）——结果取不到时行集落空，
+    // 而页面既不标失败也不给重试入口
+    const swallowed = `${page(emptySlot)}
+${script('async function getList() { const res = await listApi().catch(() => ({})); rows.value = res.rows || [] }')}`
+    expect(handwrittenListViolation(swallowed), '吞掉失败的 catch 必须被抓').toBe(true)
+
+    // 不得误报：ListEmpty 标准接线
     const wired = `${page('<template #empty><list-empty :load-error="loadError" @retry="getList" /></template>')}
-<script setup>function getList() { listApi().then(() => (loadError.value = false)).catch(() => (loadError.value = true)) }</script>`
-    expect(handwrittenListViolation(wired), '已接线不得误报').toBe(false)
+${script('const loadError = ref(false)\nasync function getList() { try { const res = await listApi(); rows.value = res.rows; loadError.value = false } catch { loadError.value = true } }')}`
+    expect(handwrittenListViolation(wired), 'ListEmpty 接线不得误报').toBe(false)
+
+    // 不得误报：**alert 形态**（catch 写的标志由表格上方的 el-alert 消费）
+    // 这一条就是 b140 放宽面后 8 报 5 假阳性的形状——判据必须认它，否则等于逼全仓改成一种写法
+    const alertWired = `<template>
+  <el-alert v-if="loadError" type="error" :title="t('common.loadFailed')" show-icon />
+  <el-table :data="rows"><template #empty><el-empty :description="t('common.empty')" /></template></el-table>
+</template>
+${script('const loadError = ref(false)\nasync function getList() { try { const res = await listApi(); rows.value = res.rows; loadError.value = false } catch { loadError.value = true } }')}`
+    expect(handwrittenListViolation(alertWired), 'alert 形态的失败态同样把失败与空态分开了，不得误报').toBe(false)
+
+    // 不得误报：**别名 ref**（真实页面写的是 eventCatalogLoadError）
+    const aliasWired = `${page('<template #empty><ListEmpty :load-error="eventCatalogLoadError" @retry="loadEventCatalog" /></template>')}
+${script('const eventCatalogLoadError = ref(false)\nasync function loadEventCatalog() { try { const res = await listApi(); rows.value = res.rows; eventCatalogLoadError.value = false } catch { eventCatalogLoadError.value = true } }')}`
+    expect(handwrittenListViolation(aliasWired), '别名 ref 的正常接线不得被字面名判成违规').toBe(false)
+
+    // 不得误报：**共用骨架回写**——catch 里写的是形参名 `mark`，模板读的是 `failed`。
+    // 这一形状就是 flow 页"四个 tab 共用一个 loadList、另有两个 await 过的导入 API"的真实形状，
+    // 只按同名配对判它必假阳性；现在由"模板锚定失败出口 + 出口绑的状态在脚本里被赋过值"这条腿认下它。
+    const skeleton = `<script setup>import { listApi, countApi } from '@/api/system/demo'
+const rows = ref([])
+const count = ref(0)
+const failed = ref(false)
+async function run(loader, put, mark) {
+  try { const r = await loader(); put.value = r.rows } catch { mark.value = true }
+}
+async function loadCount() { try { const c = await countApi(); count.value = Number(c.data ?? 0) } catch {} }
+async function getList() { await run(() => listApi(), rows, failed); loadCount() }</script>`
+    const skeletonWired = `<template>
+  <el-alert v-if="failed" type="error" :title="t('common.loadFailed')" show-icon />
+  <el-table :data="rows"><template #empty><el-empty :description="t('common.empty')" /></template></el-table>
+</template>
+${skeleton}`
+    expect(isFetchingListPage(maskVueSource(skeletonWired)), '夹具必须真的进面（否则反证是空跑）').toBe(true)
+    expect(handwrittenListViolation(skeletonWired), '同名配对看不见骨架回写，但失败出口腿必须认它').toBe(false)
+    // 反证：同一个骨架、失败态**没上模板** ⇒ 两条腿都不成立，必须被抓
+    // （这一条挡住"骨架回写腿恒放行"的退化：摘掉 affordance 的接线要求它就抓不到了）
+    const skeletonInvisible = `${page(emptySlot)}
+${skeleton}`
+    expect(handwrittenListViolation(skeletonInvisible), '骨架回写的失败态若没上模板必须被抓').toBe(true)
+    // 反证：出口在、`v-if` 也绑了标识符，但该标志**只声明不写、也不交给任何骨架**
+    // ⇒ 死出口（屏幕永远不会亮）。这一条挡住"接线要求被写成恒真"的退化。
+    const deadFlag = `<template>
+  <el-alert v-if="failed" type="error" :title="t('common.loadFailed')" show-icon />
+  <el-table :data="rows"><template #empty><el-empty :description="t('common.empty')" /></template></el-table>
+</template>
+<script setup>import { listApi } from '@/api/system/demo'
+const rows = ref([])
+const failed = ref(false)
+async function getList() { const res = await listApi(); rows.value = res.rows }</script>`
+    expect(
+      hasFailureAffordance(templateRegion(maskVueSource(deadFlag)), maskVueScript(deadFlag)),
+      '死出口不得算接线'
+    ).toBe(false)
+    expect(handwrittenListViolation(deadFlag), '绑了从不赋值的标志 = 失败永远看不见，必须被抓').toBe(true)
+
+    // 必须被抓：**"页面上有 alert"不等于"失败有出口"**。这条 alert 的 v-if 绑的是一个与
+    // 失败无关的待办计数（流程页的 pendingCount 提醒正是这一形状：type="warning" + 文案
+    // 与取数结局无关）。把它认成出口，等于允许任何页面用一条常驻提醒顶掉失败态，
+    // 而屏幕上仍然是"加载失败"与"没有数据"逐像素同形。
+    const warningUnrelated = `<template>
+  <el-alert v-if="pendingCount > 0" type="warning" :title="t('flow.pendingHint')" show-icon :closable="false" />
+  <el-table :data="rows"><template #empty><el-empty :description="t('common.empty')" /></template></el-table>
+</template>
+<script setup>import { listApi, countApi } from '@/api/system/demo'
+const rows = ref([])
+const pendingCount = ref(0)
+const loadError = ref(false)
+async function getList() { try { const res = await listApi(); rows.value = res.rows; loadError.value = false } catch { loadError.value = true } }
+async function loadCount() { const c = await countApi(); pendingCount.value = Number(c.data ?? 0) }</script>`
+    expect(
+      hasFailureAffordance(templateRegion(maskVueSource(warningUnrelated)), maskVueScript(warningUnrelated)),
+      '"warning 档 + 与失败无关的文案"不得被算作失败出口'
+    ).toBe(false)
+    expect(handwrittenListViolation(warningUnrelated), '只有无关提醒的自取数列表页必须被抓').toBe(true)
 
     // 不得误报：静态表格（没有取数入口，失败态无从谈起）
     const staticTable = `${page(emptySlot)}
 <script setup>const rows = [{ id: 1 }]</script>`
-    expect(handwrittenListViolation(staticTable), '无 getList 的静态表格不得误报').toBe(false)
+    expect(handwrittenListViolation(staticTable), '不发请求的静态表格不得误报').toBe(false)
+
+    // 不得误报：有 API 导入但**从不 await**（例如只注册回调、表格来自本地解析结果）
+    const noAwait = `${page(emptySlot)}
+<script setup>import { listApi } from '@/api/system/demo'
+const rows = parsedFromFile.value
+onMounted(() => window.addEventListener('offline', listApi))</script>`
+    expect(handwrittenListViolation(noAwait), '没有请求的页面不得进面').toBe(false)
+
+    // 不得误报：**建表弹窗**——渲染了表格，也确实 await 了导入的 API，但行集由用户逐条录入，
+    // 那一次 await 是提交而不是取数（b140 实测的假阳性形状；前提不成立就不得进面）。
+    // 三条断言把"排除它的是哪一条腿"钉死：取数面必须认它发了请求，前置条件必须判否。
+    const formDialog = `<template>
+  <el-dialog v-model="visible">
+    <el-table :data="form.columns"><template #empty><el-empty :description="t('common.empty')" /></template></el-table>
+  </el-dialog>
+</template>
+<script setup>import { saveTable } from '@/api/tool/gen'
+const visible = ref(false)
+const form = ref({ tableName: '', columns: [] })
+async function handleSubmit() {
+  const res = await saveTable(form.value)
+  if (res.code === 200) visible.value = false
+}</script>`
+    expect(isFetchingListPage(maskVueSource(formDialog)), '取数面必须认它确实 await 过导入的 API').toBe(true)
+    expect(
+      rowsFedFromRequest(templateRegion(maskVueSource(formDialog)), maskVueScript(formDialog)),
+      '把这条排除在外的是"行集来自请求结果"这条前置条件'
+    ).toBe(false)
+    expect(handwrittenListViolation(formDialog), '行集来自本地录入的表单弹窗不得进失败态面').toBe(false)
 
     // 不得误报：组合子调用方由块级判据 ① 负责，不做双罚
     const crudPage = `${page(emptySlot)}
-<script setup>const c = useCrudTable<Row>({ listApi })</script>`
+<script setup>import { listApi } from '@/api/system/demo'
+const c = useCrudTable<Row>({ listApi })
+async function getList() { const res = await listApi(); c.rows.value = res.rows }</script>`
     expect(handwrittenListViolation(crudPage), '组合子页面不得被本腿重复判红').toBe(false)
+  })
+
+  it('⑨ 失败标志提取自证：catch 语句块与 .catch( 回调两条形状都要认，且不误收非失败路径', () => {
+    // ① try/catch 语句块
+    expect(failureFlagNames(`try { await a() } catch (e) { bad.value = true }`)).toEqual(['bad'])
+    // ② .catch( 的表达式回调（没有花括号，最容易漏的一支）
+    expect(failureFlagNames(`a().catch(() => (bad.value = true))`)).toEqual(['bad'])
+    // ③ 两条都要认（漏一支 = 换写法就逃过）
+    expect(
+      new Set(failureFlagNames(`try { a() } catch { one.value = true } b().catch(() => (two.value = true))`))
+    ).toEqual(new Set(['one', 'two']))
+    // ④ 只认 `=`，不得把 `===` 的比较当成写入
+    expect(failureFlagNames(`if (other.value === true) { x }`)).toEqual([])
+    // ⑤ 失败路径之外写入的 ref 不算失败标志（成功分支清标志不算）
+    expect(failureFlagNames(`async function f() { await a(); done.value = true }`)).toEqual([])
+    // ⑥ catch 的**嵌套块**里的写入也要认（写在 if 分支里同样是失败路径）
+    expect(failureFlagNames(`try { a() } catch { if (e) { deep.value = true } }`)).toEqual(['deep'])
+    // ⑦ 模板消费判定按名字，不区分绑定形态
+    expect(showsFailureState(`try { a() } catch { bad.value = true }`, `<el-alert v-if="bad" />`)).toBe(true)
+    expect(showsFailureState(`try { a() } catch { bad.value = true }`, `<el-table :data="rows" />`)).toBe(false)
+  })
+
+  it('⑩ 差异法活性（文件级腿）：把每个受约束页面的两条出口都摘掉，该页必须转为违规', () => {
+    // 这一条判的是"本腿到底约不约束得住每一个页面"：真实树 0 违规有两种可能——
+    // 页面真的接了失败态，或判据根本没落到它们身上（⑥"零捕获 ≠ PASS"在文件级腿上的形状）。
+    // 落法是把两条腿同时机械致盲（list-empty 换掉组件名 / 失败文案与 type=error 换掉 /
+    // catch 标志在模板里的引用整体消音），每个受约束页面都必须因此转成违规。
+    const pages = constrainedListPages()
+    expect(pages.length, '受约束面为空 = 本探针空跑，不得据此判绿').toBeGreaterThan(0)
+    const escaped: string[] = []
+    for (const { rel, text } of pages) {
+      expect(handwrittenListViolation(text), `${rel} 当前必须是合规的（否则 ⑦ 与 ⑩ 的断面不同批）`).toBe(false)
+      if (!handwrittenListViolation(stripFailureOutlets(text))) {
+        escaped.push(rel)
+      }
+    }
+    console.warn(
+      `[listEmptyGuard] 文件级腿活性探针：${pages.length} 个受约束页面，摘掉出口后仍不报 = ${escaped.length}`
+    )
+    expect(escaped, `摘掉失败出口后仍未被抓住的页面（判据没落在它们身上）：\n${escaped.join('\n')}`).toEqual([])
   })
 })

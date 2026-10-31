@@ -89,7 +89,14 @@
         </el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="danger" plain icon="Refresh" @click="handleRefreshCache" v-hasPermi="['system:config:remove']">
+        <el-button
+          type="danger"
+          plain
+          icon="Refresh"
+          :loading="refreshCacheLoadingIds.includes('refresh-cache')"
+          @click="handleRefreshCache"
+          v-hasPermi="['system:config:remove']"
+        >
           {{ t('common.refresh') }}
         </el-button>
       </el-col>
@@ -329,6 +336,7 @@ import {
 } from '@/api/system/config'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { addDateRange } from '@/utils/stepby'
 import { checkPermi } from '@/utils/permission'
 import modal from '@/plugins/modal'
@@ -520,15 +528,29 @@ function resetQuery() {
   handleQuery()
 }
 
+/**
+ * 刷新缓存（b140）：与字典页同族，走 `useRowActionGuard` 的单一互斥实现，固定键名代表本条工具栏动作。
+ *
+ * 两处修正：
+ * ① 原先没有任何在途状态，连点会把"无上限 SCAN + 整批删除"（`cache:maintenance` 只有 2 个许可）
+ *    的请求发两次，第二次多半撞 429；
+ * ② `invalidateConfigCache()` 原先排在请求**之前**——请求失败时前端缓存已被清、后端缓存一字未动，
+ *    界面上的"参数值"于是来自一次重新拉取的旧值，而用户只看到一条通用失败提示。失效动作属于
+ *    "刷新成功之后才成立的事实"，挪进成功分支。
+ */
+const { runningIds: refreshCacheLoadingIds, guarded: guardRefreshCache } = useRowActionGuard<string>()
+
 /** 刷新缓存按钮操作 */
-function handleRefreshCache() {
-  // P1 修复: 同时失效前端内存缓存和后端 Redis 缓存
-  invalidateConfigCache()
-  refreshCache()
-    .then(() => {
+async function handleRefreshCache() {
+  await guardRefreshCache(
+    'refresh-cache',
+    async () => {},
+    async () => {
+      await refreshCache()
+      invalidateConfigCache()
       modal.msgSuccess(t('common.refreshSuccess'))
-    })
-    .catch(() => {})
+    }
+  )
 }
 
 // ==================== 行内编辑（Tier-S #5）====================

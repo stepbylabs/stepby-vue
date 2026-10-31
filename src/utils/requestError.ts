@@ -36,3 +36,23 @@ const DIALOG_CANCEL_VALUES = new Set(['cancel', 'close'])
 export function isDialogCancel(err: unknown): boolean {
   return typeof err === 'string' && DIALOG_CANCEL_VALUES.has(err)
 }
+
+/**
+ * 从拒绝值里读 HTTP 状态码（b140，单一实现）。
+ *
+ * 为什么需要它：拦截器对不同状态走**不同**的 reject 形状——401 是
+ * `sessionExpiredError()` 造的 `Error`（只有 `httpStatus`，没有 `response`，见 `request.ts`
+ * 顶部那段"消费侧夹具与产出侧形状不一致"的教训），其余分支原样透出 axios error
+ * （`response.status`）。页面里各写各的读法必然漏掉一支：租户导航页就把"任何失败"
+ * 一律当成 403 能力位关闭（用户被误导去要求开启一个本来已开启的功能）。
+ *
+ * 方向：拿不到状态记 **0**（"无法证明是哪一类失败"），不得回落 200 或 500——
+ * 取不到被读成一个具体结论，与 `Number(null) === 0`、`NaN > 容差` 恒 false 同族。
+ */
+export function httpStatusOf(err: unknown): number {
+  if (typeof err !== 'object' || err === null) return 0
+  const e = err as { response?: { status?: unknown }; httpStatus?: unknown; status?: unknown }
+  const raw = e.response?.status ?? e.httpStatus ?? e.status
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 100 && n <= 599 ? n : 0
+}

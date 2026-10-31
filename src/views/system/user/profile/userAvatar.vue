@@ -261,18 +261,23 @@ function uploadImg() {
     formData.append('avatarfile', data, options.filename)
     submitLoading.value = true
     uploadAvatar(formData)
-      .then((_response) => {
+      .then(async () => {
         open.value = false
         // 上传成功后调用 getInfo 重新拉取用户信息，让 user store 统一处理 avatar 前缀拼接
         // 避免此处手动拼前缀与 getInfo 中的逻辑不一致（FE-AVATAR-001）
-        userStore
-          .getInfo()
-          .then(() => {
-            options.img = userStore.avatar || defAva
-            visible.value = false
-          })
-          .catch(() => {})
-        modal.msgSuccess(t('common.editSuccess'))
+        // b140：原先 getInfo 是 fire-and-forget、其后无条件报"修改成功"——刷新失败时屏幕上
+        // 还是旧头像而提示说成功了（AGENTS ㊶②：提示必须由结果驱动）。
+        try {
+          await userStore.getInfo()
+          options.img = userStore.avatar || defAva
+          visible.value = false
+          modal.msgSuccess(t('common.editSuccess'))
+        } catch (e) {
+          // 服务端已经存下新头像，这里只能说"已上传、没能刷新"：报失败会诱导重复上传，
+          // 报成功会和界面矛盾（请求层的失败提示由拦截器负责，本条只补"数据其实已落库"这一事实）
+          modal.msgWarning(t('profile.avatar.refreshFailed'))
+          if (import.meta.env.DEV) console.warn('[userAvatar] avatar saved but getInfo failed:', e)
+        }
       })
       .catch(() => {})
       .finally(() => {

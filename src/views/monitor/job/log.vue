@@ -100,7 +100,7 @@
         :data="jobLogList"
         :row-key="(row: SysJobLog) => row.jobLogId"
         @selection-change="handleSelectionChange"
-        :default-sort="defaultSort"
+        :default-sort="sortArrow"
         @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
@@ -209,6 +209,8 @@ import { createLatestGuard } from '@/composables/latestRequest'
 import tab from '@/plugins/tab'
 import { download } from '@/utils/request'
 import { addDateRange } from '@/utils/stepby'
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import { toPositiveInt } from '@/utils/validate'
 import type { SysJobLog, JobLogQueryParams } from '@/types/api/monitor/jobLog'
 
@@ -302,10 +304,12 @@ function resetQuery() {
   jobLogTableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
+
 /** 排序触发事件（服务端排序：透传 orderByColumn/isAsc） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop ?? undefined
-  queryParams.value.isAsc = column.order ?? undefined
+  applySortChange(queryParams.value, column)
   getList()
 }
 

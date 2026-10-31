@@ -125,7 +125,8 @@ export default {
       warning: '开放 API AK/SK 已生成，请立即复制并妥善保存，SK 明文仅展示一次，关闭后无法再次查看。',
       rotateConfirm: '确认轮换令牌「{name}」的开放 API SK？旧 SK 将立即失效，使用旧 SK 的签名请求将全部拒绝。',
       revokeConfirm: '确认吊销令牌「{name}」的开放 API AK/SK？吊销后 AK/SK 签名请求将立即失效。',
-      revoked: 'AK/SK 已吊销'
+      revoked: 'AK/SK 已吊销',
+      rotateFailed: '轮换失败：服务端未返回新的 AK/SK，旧密钥已失效，请重新开通后再配置'
     },
     admin: {
       tip: '此页面管理所有用户的个人访问令牌。管理员可吊销任意令牌，但访问令牌本身不得用于管理令牌（防止自我扩权）。',
@@ -532,6 +533,7 @@ export default {
     deleteConfirm: '确认删除导航项「{0}」？删除后该节点回退到平台默认位置',
     duplicate: '该菜单已在导航中',
     readonlyTip: '当前能力位为只读档（nav.l3 = view_only），仅可查看导航配置。',
+    tenantListFailed: '租户列表加载失败，请重试后再选择目标租户',
     disabledTip: '当前未开启「租户自建导航」能力位（nav.l3），请联系平台管理员开启。'
   },
   role: {
@@ -1619,7 +1621,8 @@ export default {
       zoomIn: '放大',
       zoomOut: '缩小',
       rotateLeft: '向左旋转',
-      rotateRight: '向右旋转'
+      rotateRight: '向右旋转',
+      refreshFailed: '头像已上传成功，但账号信息刷新失败，请刷新页面查看最新头像'
     },
     msgPref: '消息偏好 / 免打扰',
     pref: {
@@ -1850,6 +1853,7 @@ export default {
     actCountersignDel: '减签',
     actWithdraw: '撤回',
     confirmWithdraw: '确定撤回「{title}」？撤回后审批人待办将立即消失。',
+    confirmResubmit: '确定重新提交「{title}」？提交后会再次进入审批流程，审批人将重新收到待办。',
     actResubmit: '重新提交',
     btnSubmit: '提交请假单',
     submitTitle: '提交请假申请',

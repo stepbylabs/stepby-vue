@@ -84,7 +84,7 @@
       v-loading="loading"
       :data="dataList"
       :row-key="(row: SysAuditChange) => row.id"
-      :default-sort="defaultSort"
+      :default-sort="sortArrow"
       @sort-change="handleSortChange"
     >
       <!-- 行展开：before/after 双栏 diff 对比 -->
@@ -225,6 +225,7 @@
 </template>
 
 <script setup lang="ts" name="AuditChange">
+import { useSortArrow } from '@/composables/useSortArrow'
 import TenantColumn from '@/components/TenantColumn/index.vue'
 import { listAuditChange, exportAuditChange } from '@/api/system/auditChange'
 import { addDateRange } from '@/utils/stepby'
@@ -288,6 +289,9 @@ const {
   },
   supportsSort: true
 })
+
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
 
 // G-15a：移动端筛选收纳（<768 默认收起，断点跨越联动；桌面行为不变）
 useMobileFilter(showSearch)

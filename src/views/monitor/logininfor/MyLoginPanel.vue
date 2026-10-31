@@ -147,7 +147,13 @@
     </el-alert>
 
     <!-- 登录历史列表 -->
-    <el-table v-loading="loading" :data="loginList" @sort-change="handleSortChange" highlight-current-row>
+    <el-table
+      v-loading="loading"
+      :data="loginList"
+      @sort-change="handleSortChange"
+      :default-sort="sortArrow"
+      highlight-current-row
+    >
       <template #empty>
         <ListEmpty :load-error="loadError" @retry="getList" />
       </template>
@@ -205,6 +211,8 @@
 </template>
 
 <script setup lang="ts">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { list as listLogininfor } from '@/api/monitor/logininfor'
@@ -332,16 +340,12 @@ function resetQuery(): void {
   handleQuery()
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams)
+
 /** 排序变更 */
 function handleSortChange(column: { prop: string | null; order: string | null }): void {
-  // 排序被清除时（column.order === null），重置排序参数
-  if (column.order === null) {
-    queryParams.orderByColumn = undefined
-    queryParams.isAsc = undefined
-  } else {
-    queryParams.orderByColumn = column.prop || 'loginTime'
-    queryParams.isAsc = column.order === 'ascending' ? 'asc' : 'desc'
-  }
+  applySortChange(queryParams, column, 'short')
   getList()
 }
 

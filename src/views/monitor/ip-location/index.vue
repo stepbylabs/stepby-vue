@@ -465,23 +465,26 @@ function handleOpenConfig() {
 
 async function submitConfig() {
   if (!configFormRef.value) return
-  // 使用 Promise 形式 validate + .catch，避免校验失败时 unhandledrejection
-  const valid = await configFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
-  // 切换到 maxmind 时若凭据未配置且表单也空，提示
-  if (
-    configForm.updateSource === 'maxmind' &&
-    !configForm.clearCredentials &&
-    !config.value.maxmindAccountIdConfigured &&
-    !configForm.maxmindAccountId
-  ) {
-    modal.msgWarning(t('ipLocation.validate.maxmindCredentialsRequired'))
-    return
-  }
-
+  // b140（项8 C2）：占闸必须早于任何 await。原先 `saving` 排在 validate 之后，
+  // 连点会各自等校验、各自通过、各自发一次保存（按钮 :loading 在第一次点击时还是 false）。
+  if (saving.value) return
   saving.value = true
   try {
+    // 使用 Promise 形式 validate + .catch，避免校验失败时 unhandledrejection
+    const valid = await configFormRef.value.validate().catch(() => false)
+    if (!valid) return
+
+    // 切换到 maxmind 时若凭据未配置且表单也空，提示
+    if (
+      configForm.updateSource === 'maxmind' &&
+      !configForm.clearCredentials &&
+      !config.value.maxmindAccountIdConfigured &&
+      !configForm.maxmindAccountId
+    ) {
+      modal.msgWarning(t('ipLocation.validate.maxmindCredentialsRequired'))
+      return
+    }
+
     await saveIpLocationConfig({ ...configForm })
     modal.msgSuccess(t('common.success'))
     configOpen.value = false

@@ -122,7 +122,28 @@ export function useTreeTableSort<T extends { children?: T[] }>(options: UseTreeT
         modal.msgSuccess(t(sortSavedKey))
         recordOriginalOrders(listRef.value)
       })
-      .catch(() => {})
+      // b140：失败必须把**屏幕上的顺序**回滚到保存前的实测值。
+      // 此前的 `.catch(() => {})` 只吞掉拒绝——行内 `el-input-number` 是直接 v-model 写到
+      // `row.orderNum` 上的，所以保存失败后表格显示的仍是用户刚输入的新顺序，
+      // 而数据库里是旧顺序；用户切页/刷新才发现"改了没生效"，而这条链上没有任何一处
+      // 说过"这次没存上"（AGENTS ㊶④：错误提示由拦截器统一负责，页面侧的职责是
+      // **回滚本地乐观状态**，让界面不再撒谎。这里刻意**不再补一条 toast**——
+      // 同一次失败两条不同措辞的提示比只有一条更难读，见 b125 ⑤）。
+      .catch(() => {
+        const restore = (list: T[]) => {
+          list.forEach((item) => {
+            const id = item[idField] as unknown as string | number
+            const saved = originalOrders.value[String(id)]
+            if (saved !== undefined) {
+              ;(item as unknown as Record<string, unknown>)[String(orderField)] = saved
+            }
+            if (item.children && item.children.length) {
+              restore(item.children)
+            }
+          })
+        }
+        restore(listRef.value)
+      })
       .finally(() => {
         sortLoading.value = false
       })

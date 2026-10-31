@@ -116,7 +116,7 @@
           <el-switch
             :aria-label="`${scope.row.clientName} ${t('sso.enabled')}`"
             :model-value="scope.row.enabled === '1'"
-            :disabled="toggleLoading !== 0 && toggleLoading !== scope.row.ssoClientId"
+            :loading="statusLoadingIds.includes(scope.row.ssoClientId)"
             @change="(val: string | number | boolean) => handleToggle(scope.row, val)"
           />
         </template>
@@ -152,7 +152,7 @@
             type="primary"
             icon="Key"
             v-hasPermi="['system:oauth:client:edit']"
-            :loading="rotateLoading === scope.row.ssoClientId"
+            :loading="rotateLoadingIds.includes(scope.row.ssoClientId)"
             @click="handleRotateSecret(scope.row)"
           >
             {{ t('sso.rotateSecret') }}
@@ -162,6 +162,7 @@
             type="warning"
             icon="Unlock"
             v-hasPermi="['system:oauth:client:edit']"
+            :loading="clearLoadingIds.includes(scope.row.ssoClientId)"
             @click="handleClearPrevSecret(scope.row)"
           >
             {{ t('sso.clearPrevSecret') }}
@@ -389,6 +390,7 @@ import {
 } from '@/api/sso'
 import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { copyText as writeClipboard } from '@/utils/clipboard'
 import modal from '@/plugins/modal'
 
@@ -564,66 +566,73 @@ async function copy(text: string, label: string): Promise<void> {
   else ElMessage.error(t('sso.secret.copyFailed'))
 }
 
-const toggleLoading = ref(0)
-function handleToggle(row: SsoClient, val: string | number | boolean): void {
+/**
+ * 启停切换：行级互斥 + 行级 loading（复用 `useRowActionGuard` 单一实现）。
+ *
+ * b140：原实现是一个全局 `toggleLoading` 单值 —— 它把"另一行正在请求"当成禁用条件，
+ * 却在**自己**的请求在途时保持开关可点（同键连点会发两次切换），且 `finally` 里那句
+ * `= 0` 会把别的行的在途状态一并清掉（b105 在告警页修过的同一形态）。
+ */
+const { runningIds: statusLoadingIds, guarded } = useRowActionGuard<number>()
+
+async function handleToggle(row: SsoClient, val: string | number | boolean): Promise<void> {
   const enabled = val ? '1' : '0'
-  toggleLoading.value = row.ssoClientId
-  toggleSsoClient(row.ssoClientId, enabled)
-    .then(() => {
+  await guarded(
+    row.ssoClientId,
+    async () => {},
+    async () => {
+      await toggleSsoClient(row.ssoClientId, enabled)
       row.enabled = enabled
       modal.msgSuccess(t('common.operationSuccess'))
-    })
-    .catch(() => {})
-    .finally(() => {
-      toggleLoading.value = 0
-    })
+    }
+  )
 }
 
 // ==================== SSO D9：client_secret 零停机轮换 ====================
 
-const rotateLoading = ref(0)
+/**
+ * 轮换 / 结束读取期各自持有行级互斥与在途 loading（b140）。
+ *
+ * 原实现把 `rotateLoading.value = row.ssoClientId` 写在 `await modal.confirm()` **之后**：
+ * 确认框在飞的这段时间里按钮毫无状态，连点会弹出两个确认框，用户依次确认就轮换两次
+ * ——而"一次性明文"弹窗只展示最后一次的新密钥，前一次的明文从此不可再见（它是唯一副本，
+ * 关掉即无法再次查看）。`handleClearPrevSecret` 更弱：确认之后既没有在途状态，模板上也没有
+ * 任何 loading 绑定。
+ */
+const { runningIds: rotateLoadingIds, guarded: guardRotate } = useRowActionGuard<number>()
+const { runningIds: clearLoadingIds, guarded: guardClear } = useRowActionGuard<number>()
 
 // 轮换密钥：新密钥立即生效，旧密钥进入"双密钥读取期"（RP 换配期间不断服）。
 // 复用新增流程的"一次性明文"弹窗（revealed + revealVisible），避免第二套展示组件。
 async function handleRotateSecret(row: SsoClient): Promise<void> {
-  try {
-    await modal.confirm(t('sso.rotateTip', { client: row.clientName }))
-  } catch {
-    // 用户取消：不执行
-    return
-  }
-  rotateLoading.value = row.ssoClientId
-  try {
-    const res = await rotateSsoClientSecret(row.ssoClientId)
-    const data = res.data
-    if (!data?.clientSecret) {
-      modal.msgError(t('sso.secret.copyFailed'))
-      return
+  await guardRotate(
+    row.ssoClientId,
+    () => modal.confirm(t('sso.rotateTip', { client: row.clientName })),
+    async () => {
+      const res = await rotateSsoClientSecret(row.ssoClientId)
+      const data = res.data
+      if (!data?.clientSecret) {
+        modal.msgError(t('sso.secret.copyFailed'))
+        return
+      }
+      // 展示一次性明文（与新增一致：关闭后无法再次查看）
+      revealed.value = { clientId: data.clientId, clientSecret: data.clientSecret }
+      revealVisible.value = true
+      modal.msgSuccess(t('sso.rotateDone'))
     }
-    // 展示一次性明文（与新增一致：关闭后无法再次查看）
-    revealed.value = { clientId: data.clientId, clientSecret: data.clientSecret }
-    revealVisible.value = true
-    modal.msgSuccess(t('sso.rotateDone'))
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('[sso] rotate secret:', e)
-  } finally {
-    rotateLoading.value = 0
-  }
+  )
 }
 
 // 结束双密钥读取期：旧密钥立即失效（幂等）。
 async function handleClearPrevSecret(row: SsoClient): Promise<void> {
-  try {
-    await modal.confirm(t('sso.clearPrevTip', { client: row.clientName }))
-  } catch {
-    return
-  }
-  try {
-    await clearSsoClientPrevSecret(row.ssoClientId)
-    modal.msgSuccess(t('sso.clearDone'))
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('[sso] clear previous secret:', e)
-  }
+  await guardClear(
+    row.ssoClientId,
+    () => modal.confirm(t('sso.clearPrevTip', { client: row.clientName })),
+    async () => {
+      await clearSsoClientPrevSecret(row.ssoClientId)
+      modal.msgSuccess(t('sso.clearDone'))
+    }
+  )
 }
 
 getList()

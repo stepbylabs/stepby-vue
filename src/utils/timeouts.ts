@@ -8,14 +8,22 @@
  */
 
 /**
- * 服务端同步长任务（备份创建 / 恢复 / 租户包导出）的前端等待上限。
+ * 服务端同步长任务（备份创建 / 恢复 / IP 库热更新 / 租户包导出）的前端等待上限。
  *
- * 后端子进程硬超时是 300s（`sys_backup_service.rs::BACKUP_TIMEOUT_SECS`），
- * 全局 axios timeout 只有 30s ⇒ 大库上任务**还在正常跑**，前端已经 abort，
- * 用户重试一次就撞上「恢复进行中」互斥锁（b99 实测：备份 43MB+ 时必然超时）。
- * 取 300s + 30s 余量，两端错开但同源；调用点一律引用此常量而非各写数字。
+ * 后端子进程/下载硬预算是 300s（`sys_backup_service.rs::BACKUP_TIMEOUT_SECS`、
+ * `ip_location_service.rs::IP_DOWNLOAD_TIMEOUT_SECS`），全局 axios timeout 只有 30s ⇒
+ * 大库上任务**还在正常跑**，前端已经 abort，用户重试一次就撞上「恢复进行中」互斥锁
+ * （b99 实测：备份 43MB+ 时必然超时）。
+ *
+ * **b140 把口径从"比子进程预算久"改成"比服务端超时档久"**：服务端现在对这几个路由
+ * 给的是 `LONG_RUNNING_TIMEOUT_SECS = 预算 + 60s`（360s，见
+ * `stepby-axum/src/middleware/request_timeout.rs`）。方向必须是客户端更长——客户端先撤
+ * 会断连接、让服务端 handler future 被丢弃并 `kill_on_drop` 杀掉半截恢复；服务端先撤则
+ * 客户端收到一个可归因的 408。取 360s + 30s 余量；两端错开但同源，且这一条关系由
+ * **两侧的锁同时对账**（前端 `api/blobTimeout.guard.test.ts` 与后端
+ * `middleware::request_timeout::tests::frontend_waits_longer_than_the_server_tier`）。
  */
-export const LONG_TASK_TIMEOUT = 330_000
+export const LONG_TASK_TIMEOUT = 390_000
 
 /**
  * 文件下载（blob 传输）的等待上限：耗时不取决于服务端处理时长，而取决于文件大小与链路。

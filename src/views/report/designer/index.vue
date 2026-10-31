@@ -426,15 +426,17 @@ function openCreate() {
 }
 
 async function handleCreate() {
-  if (!canEdit.value) return
-  if (!createForm.value.dashboardCode || !createForm.value.dashboardName) {
-    modal.msgWarning(t('rp.codeNameRequired'))
-    return
-  }
-  // 新建后会切到新大屏：脏了必须先问，否则当前画布的未保存改动被静默丢弃
-  if (isDirty.value && !(await confirmAction(t('rp.unsavedSwitchConfirm')))) return
+  // b140（项8 C2）：占闸必须早于任何 await。原先 `creating` 排在"未保存改动确认"之后，
+  // 连点会弹出两个确认框、各自确认后各建一张大屏（`:loading` 在第一次点击时还是 false）。
+  if (!canEdit.value || creating.value) return
   creating.value = true
   try {
+    if (!createForm.value.dashboardCode || !createForm.value.dashboardName) {
+      modal.msgWarning(t('rp.codeNameRequired'))
+      return
+    }
+    // 新建后会切到新大屏：脏了必须先问，否则当前画布的未保存改动被静默丢弃
+    if (isDirty.value && !(await confirmAction(t('rp.unsavedSwitchConfirm')))) return
     const res = await saveDashboard({
       dashboardCode: createForm.value.dashboardCode,
       dashboardName: createForm.value.dashboardName,
@@ -454,10 +456,12 @@ async function handleCreate() {
 }
 
 async function handleRemove() {
-  if (!canRemove.value || !selectedId.value) return
-  if (!(await confirmAction(t('rp.removeDashboardConfirm')))) return
+  // b140（项8 C2）：删除是不可逆动作，占闸同样必须早于确认框的 await
+  // （连点会弹两个确认框，各自确认后各发一次删除）
+  if (!canRemove.value || !selectedId.value || removing.value) return
   removing.value = true
   try {
+    if (!(await confirmAction(t('rp.removeDashboardConfirm')))) return
     await removeDashboard(String(selectedId.value))
     selectedId.value = undefined
     charts.value = []

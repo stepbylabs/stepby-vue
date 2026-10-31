@@ -5233,3 +5233,212 @@ const Host = defineComponent({
   **同一个正在离场的旧框** ⇒ "又弹了一次"被读成 true。每条后续判据前都要 `waitFor({state:'hidden'})`
   并把"框确实关掉了"并入该条的条件（本批 ⑭ 首跑就是这么红的）。
 - **负对照不可省**："脏了才拦"必须由"干净态直接过"证明，否则"永远拦"也能让正面判据变绿。
+
+### 3.129 「占闸必须早于任何 await」与失败出口的采集面（b140 固化）
+
+**A. 两条守卫跑什么（条数一律由脚本自打，文档不抄）**
+
+```bash
+cd stepby-vue
+npx vitest run src/utils/busyGateOrder.guard.test.ts src/utils/listEmptyLoadError.guard.test.ts \
+  src/utils/e2eBrowserBoundary.guard.test.ts src/utils/e2eCwdPath.guard.test.ts \
+  src/utils/e2eLocaleLabelSpacing.guard.test.ts src/utils/e2eClickPolicy.guard.test.ts
+# 打印行即断面：[busyGateOrder] 采集面 … / [listEmptyGuard] 自取数列表页 … 受约束面 … 未声明 getList …
+# 主套件的判据确定性由 run-gates 的 assertscan 常驻：python scripts/run-gates.py --only assertscan
+```
+
+**B. `busyGateOrder` 的三条派生事实**
+
+1. **闸位只取模板里的裸标识符绑定**（`:loading="saving"` / `:disabled="saving"` / `v-loading="saving"`）。
+   成员路径（`:disabled="runningIds.includes(row.id)"`）刻意不进面 —— 那一路由 `useRowActionGuard`
+   保证同步占位，并进来就是"两个严格度"（N-140-B）；
+2. **占闸点取 `IDENT.value = true` 且必须落在函数体内**。收成 `= true` 之前按"任意 `.value =`"取，
+   `multiple.value = !selection.length` 这类选中态布尔量把面灌到 85 页、活性探针 32 页"插了也不报"；
+3. **违规 ⇔ 任一 enclosing 函数体在写入之前出现过 `await`**。取"任一层"而不是"最内层"：
+   回调由已 `await` 过的处理器发起时，点击路径照样先等了。
+
+**C. `listEmptyLoadError` 的失败出口 = 能被点亮的那个出口**
+
+- 采集面两条事实：渲染 `<el-table>`（不是 `<el-table-column>`）**且**行集来自请求结果
+  （`rowsFedFromRequest`：`X.value = await …` / 赋自 await 结果的属性 / `.then` 体内赋值 / 裸 `:data="X"` 的 `X` 被赋过值）。
+- 出口两条腿任一成立即合规：`ListEmpty` 的 `:load-error` 被脚本驱动，或 `el-alert` 的 `v-if` 被驱动
+  **且**（`type="error"` 或文案含 `common.loadFailed` / `common.staleDataHintAt`）。
+  `isDrivenFromScript` **排除声明**，否则 `const failed = ref(false)` 这种从不赋值的死标志算已接线。
+- ⑩ **文件级差异法活性**用 `stripFailureOutlets`（只动模板：`list-empty`→`el-empty`、`ListEmpty`→`ElEmpty`、
+  失败文案→`common.empty`、`type="error"`→`type="info"`、catch 标志名整体替换）逐页摘出口，摘完必须转违规。
+
+**D. 盘上变异配方（每条只红自己那条腿；还原 `cp -p` + `diff -q`）**
+
+| 变异             | 落法                                                                          | 期望                                                                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A 产品形状       | 把某页改回 HEAD 真实序：`await validateForm` 在前、`saving=true` 在后         | **只红 ①** 并点名文件与函数体起始行；②③④ 绿。⚠ 第一次尝试只把占闸移进 `try` 而 await 仍在其后 ⇒ **没红**（那是合规形状）——**判据没红先怀疑变异** |
+| B 位置维度       | `script.slice(r.start, at)` → `slice(r.start, r.end)`                         | 红 ①（真实树误报一片）+ ③「先占闸不得误报」——证明"写入之前"这一维承重                                                                            |
+| C 产品侧摘出口   | 手工版 `stripFailureOutlets` 落在一个真实页面                                 | 只红 ⑦ 真实树                                                                                                                                    |
+| D 声明排除       | `isDrivenFromScript` 去掉声明过滤                                             | 只红 ⑧ 的「死出口不得算接线」                                                                                                                    |
+| E 内容放宽       | el-alert 的两个内容检查改成"绑了就算出口"                                     | 同时红 ⑧「warning 档 + 与失败无关的文案不得算出口」**与** ⑩「摘掉出口后仍不报 = 9」——同一放宽在两腿上分别露馅                                    |
+| F 浏览器导航等待 | `main.mjs` F130 ③ 的 `goto` 目标由 `/sso-consent` 换成白名单页 `/oauth-login` | 恰这一条红、其余 7 条绿，凭证打 `等待耗时=20004ms, 应用已挂载=true` ⇒ 归因字段证明"页面活着、守卫没跳"                                           |
+
+**E. 全量轮的字节纪律（本轮实测代价，≈36 分钟）**
+
+- **改 `src/**` 的注释也会作废已跑完的权威轮**：主套件第一轮跑完后我只改了一个"只被守卫引用、从不进应用模块图"
+  的工具模块的注释，产物新鲜度闸随即把紧随其后的 deep 全量**拦在启动预检**（`.exit`=2、一个模块都没跑），
+  而按 ㊲，先前那一轮的字节结论同时不再成立 ⇒ 重建 + 镜像 + 主套件整轮重跑。
+  正确顺序是**先把所有 src 级验证跑干净**（vitest / vue-tsc / eslint 一把过），再启动任何长轮浏览器判据；
+  新鲜度采集面"按名字而不是按构建事实"这一缺陷按实登记为 N-140-G，**不得靠放宽闸绕过**。
+- **改 `tests/e2e/*.mjs` 不触发前端新鲜度腿**（脚本不进 bundle），所以判据脚本的并轨（口径统一、补归因字段）
+  可以在长轮之间做，但结论轮必须跑在最终字节上。
+
+**F. "独跑绿、整轮红"的处理顺序**
+
+先独跑复现（`node tests/e2e/main.mjs --feature=130`，本轮实测 `等待耗时=3ms` 即通过），再按**同族口径**找参照：
+全站 `waitForURL` 同族两处用 20000，这一条用 8000 是**唯一例外** ⇒ 动作是并轨到全站口径，
+**不是**给这一条开小灶、更不是放宽判定。然后补归因字段（耗时 + 应用挂载态），使两种相反状态可分，
+最后用变异 F 证明归因字段是承重的。
+
+### 3.130 表头排序点不出反方向，与"行尾有策略没载体"（b140 固化）
+
+**A. 现象取证只能靠"连点三次 + 读三件事"**
+
+方向行原本是软断言（`record(..., rows.length >= 0)` 一类）或 SKIP，所以这缺陷在 b100/b110/b120 三轮全量里
+一直绿。把它升成**硬判定**（`descIsAsc !== '' && ascIsAsc !== '' && descIsAsc !== ascIsAsc`）之后，
+SKIP 棘轮（只许降）立刻把它顶成 3 条 SKIP>基线。此时**不要**先改代码，先量三个断面：
+
+```bash
+node tests/e2e/deep-e2e.mjs --module 84
+```
+
+探针在同一张表头上连点三次，每次读：① 这次真正下发的 `orderByColumn` / `isAsc`；② 表头 `aria-sort`；
+③ `.el-table` 的 DOM 节点是不是同一个实例。实测三次 `isAsc` 全是 `ascending`、`aria-sort` 停在
+`descending`、**节点每次都是新的** —— 因为列表页统一是 `<SkeletonTable v-if="loading">` +
+`<el-table v-else>`，每次取数都重挂载表格，而 Element Plus 把排序状态存在表格实例内，于是它退回
+`default-sort`。"点击/捕获竞态"这个初判是**错的**，b73 那句归因已在台账 b140 §1.7 订正。
+
+**B. 两条腿，且各自能独立修好**
+
+- 裁定腿 `src/utils/sortDirection.ts::applySortChange`：取消排序或没有列名 ⇒ 清空（后端回退默认排序）；
+  换列 ⇒ 照 Element Plus 给的方向；**同列同向 ⇒ 取反**（重挂载洗状态那一型）；其余照给。
+  `normalizeSortOrder` 同时认 `asc|ascending|desc|descending` —— URL 恢复后参数就是三字母形态，
+  只认一种会让取反规则结构性失效。
+- 派生腿 `src/composables/useSortArrow.ts::useSortArrow`：箭头由**页面实际下发的参数**派生，
+  不向表格实例借存；`fallback` 取函数（不在取值时求值，否则"参数还没落地"会被读成"用户选了默认"）。
+- 接线面 15 个手写页 + `useCrudTable` 组合子；守卫 `src/utils/sortWiring.guard.test.ts` 的采集面**由事实派生**
+  （含 `@sort-change` 的 `<el-table>` 开标签，扫描按引号状态推进 —— `:row-key="(row) => row.id"` 里就有 `>`）。
+
+```bash
+npx vitest run src/utils/sortDirection.test.ts src/composables/useSortArrow.test.ts src/utils/sortWiring.guard.test.ts
+```
+
+**C. 盘上变异配方（两支必须互不顶班）**
+
+| 变异     | 改哪里                                                   | 预期                                                       |
+| -------- | -------------------------------------------------------- | ---------------------------------------------------------- |
+| D 摘裁定 | 任一真实页 `applySortChange(` → `applySortChangeBroken(` | 守卫红"未调用 applySortChange"并点名该页；**箭头腿保持绿** |
+| E 摘派生 | `useSortArrow(` → `useSortArrowBroken(`                  | 守卫红"没有本地 useSortArrow 派生"；**裁定腿保持绿**       |
+
+还原一律 `cp -p` + `diff -q` 逐字节核对（㉖）。两条腿各自独立成立 ⇒ **不能**声称"浏览器面已覆盖规则 3"，
+按实登记 N-140-H 并保留单测 ④/⑥（它们是"守卫被放宽"的唯一载体）。
+
+守卫本身踩过三个洞，都写进了代码注释：`functionBody`（取"声明后第一个花括号"）会命中**形参的对象类型
+注解** ⇒ 12 页假红；活性下限**不得记 HEAD 的文件数**（`>= 12` 会让"产品少一处调用点"红成"探针不达标"，
+把人支使去查探针）；`surfaceFiles()` 返回对象却标成 `string[]`（`vue-tsc` 拦下）。
+
+**D. 行尾：一次假红的归因链**
+
+`npx vitest run src/api/tool/gen.test.ts` 在 CRLF 工作树上红，而 `git status` **一字不显** —— 因为 blob
+恒 LF，`core.autocrlf=true` 的清洗语义把差异抹平了。取证一行就够：
+
+```bash
+git ls-files --eol | grep ' w/crlf '        # i/lf + w/crlf = 工作树漂了、仓里没漂
+```
+
+本批实测根仓 16 个跟踪文件这么漂着，其中 **8 个是判据脚本本体**（`doc_baseline_check.py`、`prod_face.py`、
+`config_parity_scan.py`…）。落法两条：判据读源码先折叠行尾；新增 `scripts/eol_discipline.py`（电池
+`eolsynth` / `eolcheck`，82 → 84）按 `git ls-files --eol` 与**声明**对账：
+
+```bash
+python scripts/eol_discipline.py --selftest   # 合成夹具住在临时真 git 仓
+python scripts/eol_discipline.py              # 本体扫三仓
+```
+
+盘上变异两条（打在真实树上，还原 `cp -p` + `diff -q`）：A 把一个跟踪文件写成 CRLF ⇒ 恰 1 条 FINDING 点名
+该文件、EXIT=1；B 摘掉 `.gitattributes` 的 `* text=auto eol=lf` ⇒ R5 一条 + R3 201 条（**口径闸排在内容闸
+之前，所以第一行就是真因**）、EXIT=1。两条还原后复跑 EXIT=0。
+
+**写过又撤掉的一条判据**：R4「文本 blob 必须 `i/lf`」。三条探针实测：含 NUL 的文件无论规则有无、autocrlf
+开关一律 `i/-text`；纯文本在 `autocrlf=true` 下恒 `i/lf` ⇒ `i/crlf` 对文本**结构上不可达**，唯一能造出它的
+是显式 `-text`（那正是"别动我的行尾"的合法意图）。按 ⑯(c) 撤判据，并把该形状签成自检里一条"不得报"的反证。
+
+**纪律两句**：批量改文件必须保持行尾（Windows 上 `Path.write_text` 按本地码页写 CRLF，一律用 `open(...,'wb')`
+或显式 `newline='
+'`）；判据读源码必须先折叠行尾（⑰"只能判语义不能判字节"在输入侧的同一课）。
+
+**E. 治理文档永远不要过 markdown 格式化器**
+
+本批 AGENTS.md 被按最宽单元格对齐过：1,277,565 字符 / **70.3% 是空格** / 最长行 55,254 字符，而 `docnum`
+一次性报 11 条"现行行未匹配"——那 11 条数字当时**一个都没错**，红的是 `^\|` 锚点被空格撑断。处置顺序：
+留档膨胀版 → 抽出只有工作树才有的条目 68 → `git checkout -- AGENTS.md`（索引==HEAD，无损）→ 重做编辑。
+配套给 `doc_baseline_check.py` 补了 `padding_diagnostic()`（阈值 200 格，实测正常文档最长串 AGENTS 3 /
+TESTING 35；自检双向含"阈值以下 199 格必须不报"与"夹具造不出空格串时先红在夹具上"）。
+
+### 3.131 点击数据集是"作用域锚写错了"的唯一露馅通道（b140 固化）
+
+**症状先行**：`deep-e2e-clickfails.json` 的 `totals.unrecovered` 从 b120 断面的 **1** 变成 **3**，
+而失败总数仍是 9、形状仍是 3 类。只看模块结论（`✅ 13 / ❌ 0`）永远不会发现这件事——
+红的是**证据通道**，不是判定。逐条读 `rows` 才看见差别在字段上：
+
+```bash
+node -e "const d=require('./tests/e2e/screenshots/deep-e2e-clickfails.json');
+console.log(d.totals); d.rows.forEach(r=>console.log(r.tag,'|',r.selector,'|',JSON.stringify(r).includes('landedByFallback')))"
+```
+
+| 断面        | 读数                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| M85 的 8 条 | `新增` 2 + `搜索` 6；其中 **6 条带 `landedByFallback: true`**（DOM 兜底按可见文本找到了按钮 ⇒ 记成已救回）                |
+| 尾部 2 条   | **连该字段都没有** ⇒ 页面上没有任何可见按钮含"搜索"                                                                       |
+| 为什么      | 85.6 把页面留在**编辑模式**（工具条只存在于列表模式），且四处锚写的 `.app-container` 在该页**整页不存在**                 |
+| 该页真相    | `/system/flowDefinition` → `src/views/flow/designer/index.vue`，根节点 `<div class="p-4">`（`grep -c app-container` = 0） |
+
+**配方三步，顺序不可换**：
+
+1. **先证"锚存在"**：`clickButton` 的三条腿里，第 3 腿只按文本找 ⇒ 它会把写错的容器锚洗成合规点击。
+   所以任何以类名起锚的选择器，改之前先跑一次存在性探针（`page.evaluate(() => !!document.querySelector('.app-container'))`），
+   不要靠"这页看起来有工具条"。b89 ㊴ 定的 `.app-main` 是 56/56 页都存在的采集根，**新锚一律取它**。
+2. **把兜底撑住的结论拆成独立判**：`清理: 版本行全删` 由 API 兜底撑起，所以它绿不能证明 UI 路径走通。
+   新增两条硬判（"从编辑模式返回列表"与"UI 行内删除 v2 真的发生"）之后，"兜底成了主通道"才会产生红。
+   证据取 **`method === 'DELETE'` 的响应**：`waitForApi(page, '/system/flow/definition/')` 这一前缀
+   同时命中列表请求，会把一次没发生的删除读成 200。
+3. **变异必须能重现事故形状**：摘掉"返回列表"两行 ⇒ `✅ 13 / ❌ 2`、两条新判各自点名，
+   而 `版本行全删` **照常绿**（`API兜底删v2=200`）、点击数据集回到"2 失败 / 2 未救回 / 1 类"。
+   还原：`cp -p` 同时还原内容与 mtime（`diff -q` + `stat -c '%y'` 双验），`node --check` EXIT=0。
+
+**已知未收口的同型面（N-140-I）**：`grep -cE "clickButton\(page, '\.app-container|locator\('\.app-container" tests/e2e/deep-e2e.mjs` = **94** 处。
+本批只修被数据集点名的 M85；其余要靠"某轮出现未救回"才暴露，属被动检测面。
+
+### 3.132 长轮次的两条前置：主机不许睡眠，工作副本不许漂行尾（b140 固化）
+
+**① keep-awake 覆盖整轮窗口。** Windows 的 Modern Standby 会**回收后台进程**（b82 立过案，见 AGENTS 测试门禁
+前言 ⑪：两轮全量被打断、node 进程整个消失、外层 shell 记 127，而四条取证方向都指不到 JS 栈）。
+`run-detached.mjs` 解决的是"进程树被回收"，**解决不了"主机睡了"**。收口期的做法是起一个只调用
+`SetThreadExecutionState` 的 PowerShell 进程，覆盖整轮窗口，跑完立即释放：
+
+```powershell
+# 单引号包 -Command：双引号会让 bash 先展开 $p（本批实测踩到，报的是 GBK 乱码的解析错）
+powershell -NoProfile -Command '$p = 0x80000003; Add-Type -MemberDefinition "[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint flags);" -Name K -Namespace W; [W.K]::SetThreadExecutionState($p); Start-Sleep -Seconds 21600' &
+echo "KEEP_AWAKE_PID=$!"
+```
+
+**这一条目前没有判据载体**（按实登记为台账 b140 **N-140-J**）：忘记起、起了又退出、换息屏策略，症状与
+"套件自己不稳"逐字节同形 —— `--wait` 只会告诉你"进程没了"，那个 0 按定义也只是"可以去读日志"。
+收紧的正确动作是让 `run-detached.mjs` 在启动路径上探一个稳定标识、探不到 ⇒ **EXIT=2 UNRUN 并写出需要的动作**，
+而不是判红产品（前言 ⑳ 的第三种结局）。
+
+**② 批量改文件必须保持行尾，判据读源码必须先折叠行尾。** 三仓 `.gitattributes` 都声明 `* text=auto eol=lf`、
+blob 恒 LF，但此前**没有任何判据读它** ⇒ 工作树可以漂成 CRLF 而 `git status` 一字不显
+（`core.autocrlf=true` 的清洗语义把差异抹平）。本批实测根仓 16 个跟踪文件漂着，其中 **8 个是判据脚本本体**。
+代价不是风格：`src/api/tool/gen.test.ts` 的跨行哨兵 `'\n}\n'` 在 CRLF 工作树上**结构上不成立** ⇒
+全量 vitest 一条假红，红在判据自己的输入上。两件事分别由
+`python scripts/eol_discipline.py`（电池 `eolcheck`，判"工作树 == **声明的**行尾"，豁免通道就是
+`.gitattributes` 自己）与读侧 `replace(/\r\n/g, '\n')` 归一（⑰"只能判语义不能判字节"的同一课）承担。
+
+> ⚠ 用 `Path.write_text` / 编辑器批量落盘时**默认按本地码页写出 CRLF**（Windows），这正是本次漂移的来源；
+> 任何"脚本改仓库文件"的写法都要显式指定 `newline='\n'` 或干脆走 `git add` 让 clean 滤镜处理。

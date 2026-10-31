@@ -100,9 +100,24 @@ export function loadDeclarations(file = DECLARATIONS) {
     if (!abs.startsWith(repoRoot + path.sep) || !fs.existsSync(abs)) {
       throw new Error(`${at}.source 指向的文件不存在：${source}（仓库根 ${repoRoot}）`)
     }
-    const lineCount = fs.readFileSync(abs, 'utf8').split('\n').length
-    if (Number(lineRaw) < 1 || Number(lineRaw) > lineCount) {
-      throw new Error(`${at}.source 行号越界：${source}（文件仅 ${lineCount} 行）`)
+    const lines = fs.readFileSync(abs, 'utf8').split('\n')
+    if (Number(lineRaw) < 1 || Number(lineRaw) > lines.length) {
+      throw new Error(`${at}.source 行号越界：${source}（文件仅 ${lines.length} 行）`)
+    }
+    // 锚点那一行必须是**代码**且**说得出"这是周期取数"**：本批实测五条声明里有三条的
+    // 行号漂到了注释或无关语句上（`// 用 /metrics 的…`、vue 的 import 行、`useSortArrow` 行），
+    // 而旧判据只核"文件存在 + 行号不越界"⇒ 锚点漂到哪儿都照常绿。锚点的作用是让下一个人
+    // 能跳到"这条轮询确实还在"的位置，指错了就等于这条登记没有生效路径（前言 ⑮）。
+    const anchor = (lines[Number(lineRaw) - 1] || '').trim()
+    if (anchor === '' || /^(\/\/|\/\*|\*|<!--)/.test(anchor)) {
+      throw new Error(
+        `${at}.source 指向的不是代码行：${source} → ${JSON.stringify(anchor)}（注释/空行不能作为轮询锚点）`
+      )
+    }
+    if (!/poll|Poll|Interval|interval|Refresh|refresh|tick|Tick|setTimeout/.test(anchor)) {
+      throw new Error(
+        `${at}.source 那一行看不出任一周期的形态（轮询/间隔/刷新/心跳）：${source} → ${JSON.stringify(anchor)}`
+      )
     }
     const why = typeof d.why === 'string' ? d.why.trim() : ''
     if (why.length < 10) throw new Error(`${at}.why 至少 10 个字符，写清为什么它必须周期性出网`)
@@ -687,7 +702,7 @@ function selftest() {
       {
         key: 'GET /monitor/server',
         intervalMs: 2000,
-        source: 'stepby-vue/src/views/monitor/server/index.vue:243',
+        source: 'stepby-vue/src/views/monitor/server/index.vue:381',
         why: '服务器监控页面自动刷新'
       }
     ]
@@ -750,6 +765,36 @@ function selftest() {
           { key: 'GET /x', intervalMs: 2000, source: 'b.ts:2', why: '为什么也必须轮询' }
         ]
       }
+    ],
+    // b140：锚点**内容**两判（真实文件、真实行号，故意指错位置）。旧判据只核"文件在 +
+    // 行号不越界"，于是五条真声明里三条漂到了注释与无关语句上而全绿。
+    [
+      '锚点是注释行',
+      {
+        version: 1,
+        declarations: [
+          {
+            key: 'GET /health',
+            intervalMs: 30000,
+            source: 'stepby-vue/src/views/monitor/health/index.vue:634',
+            why: '健康页按用户偏好轮询'
+          }
+        ]
+      }
+    ],
+    [
+      '锚行看不出任一周期的形态',
+      {
+        version: 1,
+        declarations: [
+          {
+            key: 'GET /system/task/list',
+            intervalMs: 5000,
+            source: 'stepby-vue/src/views/system/task/index.vue:462',
+            why: '仅在存在运行中任务时轮询'
+          }
+        ]
+      }
     ]
   ]
   for (const [label, body] of badDecls) {
@@ -768,6 +813,23 @@ function selftest() {
     fail.push('⑭ 声明清单缺失被当成空集')
   } catch {
     /* 期望 */
+  }
+  // ⑭b 真实登记册正控（合成夹具只证规则会响，真表是否还在闸内是另一件事——前言 ㉖"每条腿
+  //     单独做改回缺陷形状必须红"在登记册面上的形状）：committed 清单必须整体过闸，
+  //     且**已退役的端点不得仍在册**（b140 实测：`GET /metrics` 自 b138 起被
+  //     `/monitor/metrics-summary` 取代，声明留着就是"豁免沉淀成永久白名单"的原文案例）。
+  try {
+    const live = loadDeclarations()
+    // 体量下限不是"记住的数字"，而是"清单被截断"的探针：低于 4 条说明读到的不是同一份表
+    if (live.size < 4) fail.push(`⑭b 真实声明清单只有 ${live.size} 条 ⇒ 采集面坏了，不是没有轮询`)
+    if (live.has('GET /metrics')) {
+      fail.push('⑭b 已被 metrics-summary 取代的 GET /metrics 仍在册（退役通道没走完）')
+    }
+    if (!live.has('GET /monitor/metrics-summary')) {
+      fail.push('⑭b 健康页本轮真实在轮询的 GET /monitor/metrics-summary 未登记（声明缺失=下轮判成风暴）')
+    }
+  } catch (e) {
+    fail.push(`⑭b 真实声明清单读不过闸：${e.message}`)
   }
   // ⑯ **登记通道的接线**双向（b82 实测缺陷：`--gate` 与 `--update-baseline` 共用那一段无条件 `exit(1)`，
   //    于是 `--accept-new-key=` 永远走不到登记逻辑——旗标留了却接不上，第一条合法新增就把收紧锁死；
@@ -877,19 +939,28 @@ function selftest() {
   // ⑰ 声明**未命中**对账与退役通道（b85 项 F）：一条声明="这个键不设阈"，
   // 本轮没打过它就是白拿的豁免；只打提示不判红、也不给删除出口 ⇒ 豁免会沉淀成常白名单。
   {
+    // 夹具的 `source` **取自真实登记册本身**（不写死行号）：b140 之前这里写的是
+    // `request-storm.mjs:60`——一个指着自己文件行号的锚点，任何一次编辑都会把它挪到
+    // 空行或注释上，于是这条退役判据的结局由"上一次改动加了几行"决定（判据与环境耦合的
+    // 又一形态：这次耦合的是**源码文件的行号**）。换成派生之后，登记册漂移只会红在
+    // 真正该红的那条（⑭b 的锚点内容闸），退役语义判据不再跟着漂。
+    const liveSources = [...loadDeclarations().values()].slice(0, 2).map((d) => d.source)
+    if (liveSources.length < 2) {
+      fail.push(`⑰ 真实登记册不足两条，夹具无法派生锚点（实际 ${liveSources.length}）`)
+    }
     const raw = {
       version: 1,
       declarations: [
         {
           key: 'GET /monitor/server',
           intervalMs: 2000,
-          source: 'stepby-vue/tests/e2e/request-storm.mjs:60',
+          source: liveSources[0] || 'stepby-vue/src/views/monitor/server/index.vue:381',
           why: '合成：服务器监控页自动刷新'
         },
         {
           key: 'GET /health',
           intervalMs: 30000,
-          source: 'stepby-vue/tests/e2e/request-storm.mjs:60',
+          source: liveSources[1] || 'stepby-vue/src/views/monitor/health/index.vue:650',
           why: '合成：健康页按偏好轮询'
         }
       ]

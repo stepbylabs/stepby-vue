@@ -13,6 +13,20 @@
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <!-- ============ 我的待办 ============ -->
       <el-tab-pane :label="t('flow.tabTodo')" name="todo">
+        <!-- 刷新失败但上一份行集还在：横幅声明"屏上是几点的数据"并给重试入口。
+             静默显示旧快照 = 把"刷新失败"伪装成"数据没变化"（b109 的第三断面）。 -->
+        <el-alert
+          v-if="todoStale"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="mb8"
+          :title="t('common.staleDataHintAt', { time: formatClockTime(todoLastSuccessAt) })"
+        >
+          <template #default>
+            <el-button link type="primary" size="small" @click="loadTodo">{{ t('common.retry') }}</el-button>
+          </template>
+        </el-alert>
         <el-table v-loading="loading" :data="todoRows">
           <el-table-column :label="t('flow.colTitle')" prop="title" show-overflow-tooltip />
           <el-table-column :label="t('flow.colApplicant')" prop="applicantName" width="110" />
@@ -62,6 +76,7 @@
               </el-button>
             </template>
           </el-table-column>
+          <template #empty><list-empty :load-error="todoLoadError" @retry="loadTodo" /></template>
         </el-table>
         <pagination
           v-show="todoTotal > 0"
@@ -77,6 +92,18 @@
         <el-button type="primary" icon="Plus" class="mb8" @click="openSubmit">
           {{ t('flow.btnSubmit') }}
         </el-button>
+        <el-alert
+          v-if="mineStale"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="mb8"
+          :title="t('common.staleDataHintAt', { time: formatClockTime(mineLastSuccessAt) })"
+        >
+          <template #default>
+            <el-button link type="primary" size="small" @click="loadMine">{{ t('common.retry') }}</el-button>
+          </template>
+        </el-alert>
         <el-table v-loading="loading" :data="mineRows">
           <el-table-column :label="t('flow.colTitle')" prop="title" show-overflow-tooltip />
           <el-table-column :label="t('flow.colLeaveType')" width="100">
@@ -101,6 +128,7 @@
                 link
                 type="warning"
                 icon="RefreshLeft"
+                :loading="docActionLoadingIds.includes(row.docId)"
                 @click="handleWithdraw(row)"
               >
                 {{ t('flow.actWithdraw') }}
@@ -110,12 +138,14 @@
                 link
                 type="primary"
                 icon="RefreshRight"
+                :loading="docActionLoadingIds.includes(row.docId)"
                 @click="handleResubmit(row)"
               >
                 {{ t('flow.actResubmit') }}
               </el-button>
             </template>
           </el-table-column>
+          <template #empty><list-empty :load-error="mineLoadError" @retry="loadMine" /></template>
         </el-table>
         <pagination
           v-show="mineTotal > 0"
@@ -128,6 +158,18 @@
 
       <!-- ============ 我的已办（我作为审批人处理过的流水） ============ -->
       <el-tab-pane :label="t('flow.tabDone')" name="done">
+        <el-alert
+          v-if="doneStale"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="mb8"
+          :title="t('common.staleDataHintAt', { time: formatClockTime(doneLastSuccessAt) })"
+        >
+          <template #default>
+            <el-button link type="primary" size="small" @click="loadDone">{{ t('common.retry') }}</el-button>
+          </template>
+        </el-alert>
         <el-table v-loading="loading" :data="doneRows">
           <el-table-column :label="t('flow.colTitle')" width="220" show-overflow-tooltip>
             <template #default="{ row }">{{ row.title || '-' }}</template>
@@ -143,6 +185,7 @@
           <el-table-column :label="t('flow.colRound')" prop="roundNo" width="80" />
           <el-table-column :label="t('flow.colComment')" prop="comment" show-overflow-tooltip />
           <el-table-column :label="t('flow.colActedAt')" prop="actedAt" width="170" />
+          <template #empty><list-empty :load-error="doneLoadError" @retry="loadDone" /></template>
         </el-table>
         <pagination
           v-show="doneTotal > 0"
@@ -162,6 +205,18 @@
             </el-button>
           </el-col>
         </el-row>
+        <el-alert
+          v-if="allStale"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="mb8"
+          :title="t('common.staleDataHintAt', { time: formatClockTime(allLastSuccessAt) })"
+        >
+          <template #default>
+            <el-button link type="primary" size="small" @click="loadAll">{{ t('common.retry') }}</el-button>
+          </template>
+        </el-alert>
         <el-table v-loading="loading" :data="allRows">
           <el-table-column :label="t('flow.colTitle')" prop="title" show-overflow-tooltip />
           <el-table-column :label="t('flow.colApplicant')" prop="applicantName" width="110" />
@@ -177,6 +232,7 @@
             </template>
           </el-table-column>
           <el-table-column :label="t('flow.colRound')" prop="currentRound" width="80" />
+          <template #empty><list-empty :load-error="allLoadError" @retry="loadAll" /></template>
         </el-table>
         <pagination
           v-show="allTotal > 0"
@@ -324,8 +380,10 @@ import { validateForm } from '@/utils/formValidate'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { useRemoteOptions } from '@/composables/useRemoteOptions'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { wsService } from '@/utils/websocket'
 import { download } from '@/utils/request'
+import { formatClockTime } from '@/utils'
 import { confirmAction } from '@/utils/confirm'
 import { checkPermi } from '@/utils/permission'
 import useUserStore from '@/store/modules/user'
@@ -394,6 +452,22 @@ const todoTotal = ref(0)
 const mineTotal = ref(0)
 const doneTotal = ref(0)
 const allTotal = ref(0)
+// b140：取数失败时**保留上一份行集**（清空会把"加载失败"伪装成"没有数据"），
+// 但屏上留着的是旧快照这件事必须让用户看见——于是每 tab 各自记
+// 失败标志与最近一次成功时刻，横幅写"是几点的数据"并给重试入口。
+const todoLoadError = ref(false)
+const mineLoadError = ref(false)
+const doneLoadError = ref(false)
+const allLoadError = ref(false)
+const todoLastSuccessAt = ref<number | null>(null)
+const mineLastSuccessAt = ref<number | null>(null)
+const doneLastSuccessAt = ref<number | null>(null)
+const allLastSuccessAt = ref<number | null>(null)
+// "陈旧"只在**有旧数据可留**时成立；从未成功过则走表格空态的失败分支（list-empty）
+const todoStale = computed(() => todoLoadError.value && todoRows.value.length > 0)
+const mineStale = computed(() => mineLoadError.value && mineRows.value.length > 0)
+const doneStale = computed(() => doneLoadError.value && doneRows.value.length > 0)
+const allStale = computed(() => allLoadError.value && allRows.value.length > 0)
 
 // 审批状态/请假类型走字典中心（sys_flow_task_status / sys_flow_leave_type，迁移 70 段双语种子；
 // useDict 按 locale 自动选 dict_label / dict_label_en，字典中心改动即时生效——与 notice/task 页面同惯例）
@@ -427,8 +501,10 @@ async function loadPendingCount() {
 }
 
 /**
- * 四个列表共用的加载骨架：序号守卫 + 计数式 loading + 拒绝不逸出。
+ * 四个列表共用的加载骨架：序号守卫 + 计数式 loading + 拒绝不逸出 + 失败态与成功时刻。
  * 旧实现在 `finally` 里直接熄 loading，且没有序号守卫——两条都是"看起来对"的写法。
+ * b140 补最后一条：失败既不写标志也不留时刻，于是"刷新失败、屏上仍是旧行"与
+ * "刷新成功"在界面上逐像素同形（拦截器 toast 5-6 秒就消失，不构成页面状态）。
  */
 async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
   key: K,
@@ -436,7 +512,9 @@ async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
   // 无法用一条正则区分"调用全局 fetch"与"调用局部形参"（实测这处会被误判成直连通道）
   loader: () => Promise<{ rows: R[]; total: number }>,
   rows: { value: R[] },
-  total: { value: number }
+  total: { value: number },
+  loadError: { value: boolean },
+  lastSuccessAt: { value: number | null }
 ) {
   const ticket = listGuards[key].begin()
   pendingLoads.value += 1
@@ -445,18 +523,27 @@ async function loadList<K extends 'todo' | 'mine' | 'done' | 'all', R>(
     if (!listGuards[key].isCurrent(ticket)) return // 已有更新的请求发出，丢弃这份过期结果
     rows.value = res.rows
     total.value = res.total
+    loadError.value = false
+    lastSuccessAt.value = Date.now()
   } catch (e) {
-    // 拦截器已提示；保留上一份数据（比清空成"暂无数据"诚实）
+    // 过期请求的失败同样不得落地：否则旧请求的报错会把新结果的失败态点起来（b119 的三处判票）
+    if (!listGuards[key].isCurrent(ticket)) return
+    // 拦截器已提示；保留上一份数据（比清空成"暂无数据"诚实），并由横幅声明这是什么时候的数据
+    loadError.value = true
     if (import.meta.env.DEV) console.error(`[flow] load ${key}:`, e)
   } finally {
     pendingLoads.value = Math.max(0, pendingLoads.value - 1)
   }
 }
 
-const loadTodo = () => loadList('todo', () => listFlowTodo(todoQuery.value), todoRows, todoTotal)
-const loadMine = () => loadList('mine', () => listFlowMine(mineQuery.value), mineRows, mineTotal)
-const loadDone = () => loadList('done', () => listFlowDone(doneQuery.value), doneRows, doneTotal)
-const loadAll = () => loadList('all', () => listFlowAll(allQuery.value), allRows, allTotal)
+const loadTodo = () =>
+  loadList('todo', () => listFlowTodo(todoQuery.value), todoRows, todoTotal, todoLoadError, todoLastSuccessAt)
+const loadMine = () =>
+  loadList('mine', () => listFlowMine(mineQuery.value), mineRows, mineTotal, mineLoadError, mineLastSuccessAt)
+const loadDone = () =>
+  loadList('done', () => listFlowDone(doneQuery.value), doneRows, doneTotal, doneLoadError, doneLastSuccessAt)
+const loadAll = () =>
+  loadList('all', () => listFlowAll(allQuery.value), allRows, allTotal, allLoadError, allLastSuccessAt)
 
 function handleTabChange(tab: string) {
   if (tab === 'todo') loadTodo()
@@ -512,9 +599,12 @@ function openSubmit() {
 }
 
 async function handleSubmit() {
-  if (!(await validateForm(submitRef.value))) return
+  // b140（项8 C2）：占闸必须早于校验的 await——原先 `submitting` 排在 `validateForm` 之后，
+  // 连点会各自通过校验、各发起一次提交（同一张单据在引擎里落两份）。
+  if (submitting.value) return
   submitting.value = true
   try {
+    if (!(await validateForm(submitRef.value))) return
     await submitFlowDemo(submitForm.value)
     ElMessage.success(t('flow.msgSubmitted'))
     markSubmitSaved()
@@ -617,27 +707,47 @@ async function handleAct() {
   }
 }
 
+/**
+ * 撤回 / 重新提交：行级互斥 + 在途 loading（复用 `useRowActionGuard` 单一实现，b140）。
+ *
+ * 两者改的是**同一张单据**的流程状态，所以共用一把闸：并发时"撤回在途审批"与"重新入队"
+ * 会互相顶掉，终态由两个请求的返回顺序决定。
+ * 原先两个动作都没有任何在途状态，连点会各自再发一次；`handleResubmit` 更缺确认框，
+ * 而重新提交会让审批人重新收到一条待办（对外可见副作用，与撤回同级）。
+ */
+const { runningIds: docActionLoadingIds, guarded: guardDocAction } = useRowActionGuard<number>((id, e) => {
+  if (import.meta.env.DEV) console.error('[flow] doc action failed:', id, e)
+})
+
 async function handleWithdraw(row: FlowDemoDoc) {
   // 撤回会取消在途审批（审批人待办即时消失），属破坏性操作，必须先确认
-  if (!(await confirmAction(t('flow.confirmWithdraw', { title: row.title })))) return
-  try {
-    await withdrawFlowDemo(row.docId)
-    ElMessage.success(t('common.operationSuccess'))
-    await Promise.all([loadMine(), loadPendingCount()])
-  } catch (e) {
-    // 拦截器已提示（如已被他人处理）；阻止拒绝逸出
-    if (import.meta.env.DEV) console.error('[flow] withdraw:', e)
-  }
+  await guardDocAction(
+    row.docId,
+    async () => {
+      const ok = await confirmAction(t('flow.confirmWithdraw', { title: row.title }))
+      if (!ok) throw new Error('cancelled')
+    },
+    async () => {
+      await withdrawFlowDemo(row.docId)
+      ElMessage.success(t('common.operationSuccess'))
+      await Promise.all([loadMine(), loadPendingCount()])
+    }
+  )
 }
 
 async function handleResubmit(row: FlowDemoDoc) {
-  try {
-    await resubmitFlowDemo(row.docId)
-    ElMessage.success(t('common.operationSuccess'))
-    await Promise.all([loadMine(), loadPendingCount()])
-  } catch (e) {
-    if (import.meta.env.DEV) console.error('[flow] resubmit:', e)
-  }
+  await guardDocAction(
+    row.docId,
+    async () => {
+      const ok = await confirmAction(t('flow.confirmResubmit', { title: row.title }))
+      if (!ok) throw new Error('cancelled')
+    },
+    async () => {
+      await resubmitFlowDemo(row.docId)
+      ElMessage.success(t('common.operationSuccess'))
+      await Promise.all([loadMine(), loadPendingCount()])
+    }
+  )
 }
 
 // ---------- 详情 / 时间线 ----------

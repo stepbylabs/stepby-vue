@@ -658,9 +658,12 @@ function openDomain(row: TenantVo) {
 }
 
 async function saveForm() {
-  if (!(await validateForm(formRef.value))) return
+  // b140（项8 C2）：占闸必须早于任何 await，否则连点会各提交一次（见 :loading 的
+  // 同步占位纪律，与 useRowActionGuard 同源）
+  if (saving.value) return
   saving.value = true
   try {
+    if (!(await validateForm(formRef.value))) return
     if (isEdit.value && editingId.value != null) {
       const dto: TenantEditDto = {
         tenantId: editingId.value,
@@ -709,6 +712,10 @@ async function saveForm() {
     formVisible.value = false
     markSaved()
     getList()
+  } catch (e) {
+    // 拒绝不得逸出：提示由请求拦截器统一给，这里只保证表单不被 ErrorBoundary 卸载
+    // （此前只有 finally，接口失败 = "点了确定，表单没了，什么都没保存"）
+    if (import.meta.env.DEV) console.error('[tenant] save failed:', e)
   } finally {
     saving.value = false
   }

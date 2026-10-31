@@ -97,7 +97,7 @@
       :data="tableList"
       :row-key="(row: GenTable) => row.tableId"
       @selection-change="handleSelectionChange"
-      :default-sort="defaultSort"
+      :default-sort="sortArrow"
       @sort-change="handleSortChange"
     >
       <el-table-column type="selection" align="center" width="55"></el-table-column>
@@ -204,6 +204,8 @@
 
 <script setup lang="ts" name="Gen">
 const { t } = useI18n()
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { listTable, delTable, genCodeUrl, batchGenCode, synchDb } from '@/api/tool/gen'
 import importTable from './importTable.vue'
@@ -310,10 +312,12 @@ function handleSelectionChange(selection: GenTable[]) {
   multiple.value = !selection.length
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
+
 /** 排序触发事件（保留手写以维持既有参数语义） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop
-  queryParams.value.isAsc = column.order
+  applySortChange(queryParams.value, column)
   getList()
 }
 

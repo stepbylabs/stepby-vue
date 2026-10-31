@@ -44,6 +44,11 @@ const REQUEST_TS = resolve(VUE_ROOT, 'src/utils/request.ts')
 // b138：两个等待上限常量移到零依赖的 utils/timeouts（request.ts 仍 re-export）
 const TIMEOUTS_TS = resolve(VUE_ROOT, 'src/utils/timeouts.ts')
 const AXUM_BACKUP_SERVICE = resolve(VUE_ROOT, '..', 'stepby-axum', 'src', 'service', 'sys_backup_service.rs')
+// 长任务档派生输入的第二个预算（IP 库镜像下载）住在这里，不在档位文件里
+const AXUM_IP_SERVICE = resolve(VUE_ROOT, '..', 'stepby-axum', 'src', 'service', 'ip_location_service.rs')
+// b140：服务端现在有了**分档**的请求层超时，前端等待上限必须比对的是"那一档"，
+// 而不是子进程预算——两者的差是 handler 在预算之外的落库/清缓存/审计时间。
+const AXUM_REQUEST_TIMEOUT = resolve(VUE_ROOT, '..', 'stepby-axum', 'src', 'middleware', 'request_timeout.rs')
 
 const rel = (p: string) => p.slice(VUE_ROOT.length + 1).replace(/\\/g, '/')
 
@@ -153,10 +158,118 @@ function declarationBody(masked: string, name: string): string | undefined {
   return rest.slice(0, next ? next.index : rest.length)
 }
 
+/**
+ * 解析 Rust 侧 `LONG_RUNNING_ROUTES` 的路由模板，折算成前端 `url:` 应当写的字面量。
+ *
+ * 折算规则只有一条：`{param}` 段在前端是字符串拼接（`'/system/backup/restore/' + id`），
+ * 所以**删掉占位段本身、保留其前面的 `/`**。不做前缀匹配——`/system/backup/list`
+ * 与 `/system/backup` 是两条不同档的路由，前缀匹配会把默认档的调用点也拖进长档判据，
+ * 结局是每轮误红、然后有人来放宽它（AGENTS 前言 ⑯(c)）。
+ */
+export function parseLongTierUrlLiterals(rustText: string): string[] {
+  const block = /const\s+LONG_RUNNING_ROUTES[^=]*=\s*&\[[\s\S]*?\];/.exec(rustText)
+  if (!block) {
+    throw new Error('Rust 侧没有解析到 LONG_RUNNING_ROUTES ⇒ 判据源缺失，不得静默放行')
+  }
+  // 刀口只能落在代码上：这份文件把模板字符串**也写进了文档注释**（如
+  // `GET /system/backup/download/{backupId}`），逐行剔注释后才检索，否则注释里的
+  // 反例会被判成登记条目（b89 前言 ⑬ / governance sideTheme 镜像锁同一条纪律）。
+  const code = block[0]
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim()
+      return !(t.startsWith('//') || t.startsWith('///') || t.startsWith('//!') || t.startsWith('*'))
+    })
+    .join('\n')
+  const out: string[] = []
+  for (const m of code.matchAll(/"([^"]+)"/g)) {
+    const template = m[1]
+    if (!template.startsWith('/')) continue
+    out.push(template.replace(/\{[^}]*\}/g, ''))
+  }
+  if (out.length === 0) {
+    throw new Error(`LONG_RUNNING_ROUTES 解析出 0 条模板 ⇒ 解析通道腐化：${code.slice(0, 200)}`)
+  }
+  return out
+}
+
+/**
+ * 从 Rust 侧解析长任务档的秒数（`LONG_RUNNING_TIMEOUT_SECS`，必须由预算派生）。
+ *
+ * 入参是**多份** Rust 原文：档位本身写在 `middleware/request_timeout.rs`，而它派生所用的
+ * 两个内部预算分别住在各自的 service 文件里。单读一个文件时 `BACKUP_TIMEOUT_SECS` 读不到
+ * ⇒ 判据红在自己的输入上（AGENTS 前言 ⑬"锁的输入非空且形状对"与结论对是两件事）。
+ */
+export function parseLongTierSeconds(sources: string[]): number {
+  const rustText = sources.join('\n')
+  if (sources.length === 0) throw new Error('长任务档的判据源清单为空 ⇒ 不得据此判定')
+  const m = /const\s+LONG_RUNNING_TIMEOUT_SECS\s*:\s*u64\s*=\s*([^;]+);/.exec(rustText)
+  if (!m) throw new Error('读不到 LONG_RUNNING_TIMEOUT_SECS ⇒ 判据源缺失')
+  // 这一版是**表达式**（MAX_INTERNAL_BUDGET + SLACK），不是裸数字：按关系求值，
+  // 记数字会让服务端调预算而前端这一侧永远读着旧值（AGENTS ⑰"只能判语义不能判字节"）。
+  const budget = /const\s+MAX_INTERNAL_BUDGET_SECS[^=]*=[\s\S]*?;\s*\n?/.exec(rustText)
+  const slack = /const\s+TIMEOUT_SLACK_SECS\s*:\s*u64\s*=\s*(\d+)/.exec(rustText)
+  const backup = /const\s+BACKUP_TIMEOUT_SECS\s*:\s*u64\s*=\s*(\d+)/.exec(rustText)
+  const ip = /const\s+IP_DOWNLOAD_TIMEOUT_SECS\s*:\s*u64\s*=\s*(\d+)/.exec(rustText)
+  if (!slack || !backup || !ip || !budget) throw new Error('长任务档的派生输入读不全 ⇒ 不得据此判定')
+  return Math.max(Number(backup[1]), Number(ip[1])) + Number(slack[1])
+}
+
+/**
+ * 扫描一段源码里**落在长任务档上的调用点**，逐个判它有没有写 `timeout: LONG_TASK_TIMEOUT`。
+ *
+ * 立的案（b140）：`updateIpLocationNow` 走的是普通 JSON 通道、没有 `responseType: 'blob'`，
+ * 于是 blob 那条腿看不见它，而它服务端等的是 300s 下载——前端读的是全局 30s，
+ * 客户端第 30 秒就撤，服务端 handler future 被丢弃、下载停在中间态、更新锁留到 TTL。
+ * 判据因此**由服务端档位派生采集面**，而不是由"哪个请求长得像下载"猜。
+ */
+export function scanLongTierSites(src: string, file: string, literals: string[]): string[] {
+  const codeOnly = muteNonCode(src)
+  const keepStrings = muteNonCode(src, { keepStrings: true })
+  if (codeOnly.length !== src.length || keepStrings.length !== src.length) {
+    throw new Error(`${file}: 掩码长度不变式被打破，行号不再可信`)
+  }
+  const out: string[] = []
+  for (const m of keepStrings.matchAll(/url\s*:\s*(['"])((\/[^'"]*))\1/g)) {
+    const literal = m[3]
+    if (!literals.includes(literal)) continue
+    const at = m.index ?? 0
+    const open = findEnclosingBrace(codeOnly, at)
+    if (open < 0) {
+      out.push(`${file}: ${locOf(codeOnly, at)} 长任务路由的 url 不在对象字面量内（无法判定超时边界）`)
+      continue
+    }
+    const close = matchBrace(codeOnly, open)
+    if (close < 0) {
+      out.push(`${file}: ${locOf(codeOnly, open)} 配置对象未闭合（扫描器无法判定边界）`)
+      continue
+    }
+    if (isTypeLiteral(codeOnly, open)) continue
+    const args = keepStrings.slice(open + 1, close)
+    const timeoutMatch = /timeout\s*:\s*([A-Za-z0-9_.$]+|\d+)/.exec(args)
+    if (timeoutMatch?.[1] !== 'LONG_TASK_TIMEOUT') {
+      const expr = timeoutMatch ? timeoutMatch[1] : null
+      out.push(
+        `${file}: ${locOf(codeOnly, at)} ${literal} 落在服务端长任务档上，调用点必须写 ` +
+          `timeout: LONG_TASK_TIMEOUT（实际 ${expr === null ? '未声明，走全局 30s' : `timeout: ${expr}`}）`
+      )
+    }
+  }
+  return out
+}
+
 // b138：采集面 = 全 src/**（.ts + .vue），不再只扫 src/api/**——
 // `plugins/download.ts` 与 `views/**` 里的直连通道正是此前漏掉的缺陷藏身处。
 const sourceFiles = collectSources(SRC_DIR)
 const blobViolations = sourceFiles.flatMap((f) => scanBlobRequests(readFileSync(f, 'utf8'), rel(f)))
+
+// b140：长任务档的采集面**由服务端档位派生**，不是由人枚举"哪些接口算长任务"。
+// Rust 侧新增/改名一条档位模板，这里立刻多/少一个受判站点——漏登记与静默失配都会红。
+const RUST_TIMEOUT_SRC = readFileSync(AXUM_REQUEST_TIMEOUT, 'utf8')
+const longTierLiterals = parseLongTierUrlLiterals(RUST_TIMEOUT_SRC)
+const longTierViolations = sourceFiles.flatMap((f) =>
+  scanLongTierSites(readFileSync(f, 'utf8'), rel(f), longTierLiterals)
+)
 
 describe('长任务 / 下载超时契约守卫', () => {
   it('采集面自证：真实树至少 4 个 blob 下载站点，且 0 处违规', () => {
@@ -221,6 +334,20 @@ describe('长任务 / 下载超时契约守卫', () => {
     expect(downloadMs, '下载上限必须大于长任务上限（传输时长不受服务端处理时长约束）').toBeGreaterThanOrEqual(
       longTaskMs
     )
+
+    // b140 新增的一腿：前端上限必须大于**服务端请求层的长任务档**（不只是子进程预算）。
+    // 原先这一侧只比 `BACKUP_TIMEOUT_SECS`，而服务端真正的天花板是固定 120s 的传输层超时——
+    // "前端必须等得比服务端久"这句注释所依赖的事实从来没被核对过，于是 330s 的前端上限对着
+    // 120s 的服务端超时：先撤的是服务端，而它一撤就会 `kill_on_drop` 杀掉半截恢复。
+    const tierSecs = parseLongTierSeconds([
+      RUST_TIMEOUT_SRC,
+      readFileSync(AXUM_BACKUP_SERVICE, 'utf8'),
+      readFileSync(AXUM_IP_SERVICE, 'utf8')
+    ])
+    expect(
+      longTaskMs,
+      `前端长任务上限 ${longTaskMs}ms 必须严格大于服务端请求层长任务档 ${tierSecs}s（方向错了会杀掉服务端正在跑的子进程）`
+    ).toBeGreaterThan(tierSecs * 1000)
   })
 
   it('真实树：备份创建 / 恢复 / 租户自助导出都声明 LONG_TASK_TIMEOUT', () => {
@@ -232,6 +359,56 @@ describe('长任务 / 下载超时契约守卫', () => {
         /timeout\s*:\s*LONG_TASK_TIMEOUT/
       )
     }
+  })
+
+  it('长任务档采集面自证：档位模板折算成 url 字面量，且已知站点必须全在面里', () => {
+    // 由服务端派生的三条必须都在（IP 库那条正是 b140 新发现的漏网站点）
+    for (const literal of ['/system/backup', '/system/backup/restore/', '/system/ipLocation/update']) {
+      expect(longTierLiterals, `档位模板折算后必须含 ${literal}`).toContain(literal)
+    }
+    expect(longTierLiterals.length, '折算出的模板数必须与 Rust 登记表同数').toBeGreaterThanOrEqual(3)
+  })
+
+  it('真实树：落在长任务档上的每个调用点都声明 LONG_TASK_TIMEOUT', () => {
+    expect(longTierViolations, `长任务调用点违规：\n${longTierViolations.join('\n')}`).toEqual([])
+  })
+
+  it('长任务腿的刀口双向有效（少写/写错必须抓；注释与类型声明不得误报）', () => {
+    const literals = ['/system/backup/restore/', '/system/ipLocation/update']
+    // ① 没写 timeout（b140 修前的 ipLocation 形状）⇒ 必须命中 1 处
+    const missing = scanLongTierSites(
+      `export function f(): Promise<AjaxResult> {\n  return request({\n    url: '/system/ipLocation/update',\n    method: 'post'\n  })\n}\n`,
+      'a.ts',
+      literals
+    )
+    expect(missing).toHaveLength(1)
+    expect(missing[0]).toContain('未声明，走全局 30s')
+    // ② 写了别的数字 ⇒ 同样必须命中，并在文案里点名实际值
+    const wrong = scanLongTierSites(
+      `export function f() {\n  return request({\n    url: '/system/ipLocation/update',\n    timeout: 30000\n  })\n}\n`,
+      'b.ts',
+      literals
+    )
+    expect(wrong).toHaveLength(1)
+    expect(wrong[0]).toContain('timeout: 30000')
+    // ③ 合规站点必须不报
+    expect(
+      scanLongTierSites(
+        `export function f() {\n  return request({\n    url: '/system/ipLocation/update',\n    timeout: LONG_TASK_TIMEOUT\n  })\n}\n`,
+        'c.ts',
+        literals
+      )
+    ).toEqual([])
+    // ④ 注释里提到该 url 不算站点
+    expect(scanLongTierSites(`// url: '/system/ipLocation/update'\nexport const x = 1\n`, 'd.ts', literals)).toEqual([])
+    // ⑤ 不在档位上的同族路径不得被牵连（前缀匹配会把 /system/backup/list 拖进来＝每轮误红）
+    expect(
+      scanLongTierSites(
+        `export function f() {\n  return request({\n    url: '/system/backup/list',\n    method: 'get'\n  })\n}\n`,
+        'e.ts',
+        literals
+      )
+    ).toEqual([])
   })
 
   it('控制组：刀口双向有效（缺声明/字面量/0 必须抓；带常量、非 blob、注释反例必须不抓）', () => {

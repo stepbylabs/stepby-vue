@@ -98,7 +98,7 @@
         :data="logList"
         :row-key="(row: SysWebHookLog) => row.id"
         @selection-change="handleSelectionChange"
-        :default-sort="defaultSort"
+        :default-sort="sortArrow"
         @sort-change="handleSortChange"
       >
         <el-table-column type="selection" width="55" align="center" />
@@ -257,6 +257,8 @@
 </template>
 
 <script setup lang="ts" name="SysWebHookLog">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import { listWebHookLog, delWebHookLog, cleanWebHookLog, retryWebHookLog, exportWebHookLog } from '@/api/system/webHook'
@@ -367,10 +369,12 @@ function resetQuery() {
   logTableRef.value?.sort(defaultSort.value.prop, defaultSort.value.order)
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(queryParams, () => defaultSort.value)
+
 /** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，保留手写以维持既有参数语义） */
 function handleSortChange(column: { prop: string | null; order: string | null }) {
-  queryParams.value.orderByColumn = column.prop ?? undefined
-  queryParams.value.isAsc = column.order ?? undefined
+  applySortChange(queryParams.value, column)
   getList()
 }
 

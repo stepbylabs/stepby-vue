@@ -29267,11 +29267,21 @@ async function testFeature130(page) {
     )
 
     await p2.goto(`${CONFIG.frontendUrl}/sso-consent`, { waitUntil: 'load' })
+    // 预算取全站 waitForURL 的同一口径（20s，同 12559/12628）：8s 在 b140 全量轮实测不够
+    // （独跑 --feature=130 通过、整轮同一判据超时），而"等了 8 秒"只证明"我等了 8 秒"。
+    // 耗时与应用挂载态必须进凭证——否则"守卫没跳"与"页面没起来"两种相反状态在这一条上同形。
+    const consentWaitStart = Date.now()
     const toLogin = await p2
-      .waitForURL((u) => /\/login(\?|$)/.test(u.toString()), { timeout: 8000 })
+      .waitForURL((u) => /\/login(\?|$)/.test(u.toString()), { timeout: 20000 })
       .then(() => true)
       .catch(() => false)
-    record(130, '③ 未登录访问 /sso-consent：守卫重定向到登录页', toLogin, `url=${p2.url().slice(0, 80)}`)
+    const appMounted = await p2.evaluate(() => !!document.querySelector('#app')?.children.length).catch(() => false)
+    record(
+      130,
+      '③ 未登录访问 /sso-consent：守卫重定向到登录页',
+      toLogin,
+      `url=${p2.url().slice(0, 80)}, 等待耗时=${Date.now() - consentWaitStart}ms, 应用已挂载=${appMounted}`
+    )
   } catch (err) {
     record(
       130,

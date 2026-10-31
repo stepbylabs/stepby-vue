@@ -30,6 +30,22 @@
       </div>
     </template>
 
+    <!-- b140：三态必须分开。此前只有 `v-if="stats"` + `<SkeletonTable v-else>`，
+         于是首次取数失败（网络抖动 / 5xx / 后端 200 但无载荷）后 `stats` 恒为 null，
+         屏幕上留下的是一条**永远转不完的骨架屏**——它同时在骗两个人：运维以为"还在加载"，
+         而这一刻其实永远不会再来数据（生产构建连 console 都不写）。
+         失败态必须在界面上可见且可重试（AGENTS ㊷①：失败与没有是两种界面，不是两种文案）。 -->
+    <el-alert v-if="loadError" type="error" :closable="false" show-icon class="mb-3">
+      <template #title>
+        <span class="mr-2">{{ t('common.loadFailed') }}</span>
+      </template>
+      <template #default>
+        <el-button size="small" type="primary" plain icon="Refresh" @click="load">
+          {{ t('common.retry') }}
+        </el-button>
+      </template>
+    </el-alert>
+
     <template v-if="stats">
       <!-- 汇总指标卡 -->
       <el-row :gutter="12" class="mb-3">
@@ -109,6 +125,8 @@ import echarts, { type ECharts, type EChartsOption } from '@/utils/echarts'
 
 const { t } = useI18n()
 const loading = ref(false)
+/** 取数失败标记：驱动面板顶部的失败条（含重试），并使骨架屏不再冒充"还在加载" */
+const loadError = ref(false)
 const collapsed = ref(false)
 const days = ref(7)
 const stats = ref<JobLogStats | null>(null)
@@ -124,9 +142,19 @@ async function load() {
   loading.value = true
   try {
     const res = await getJobLogStats(days.value)
-    stats.value = res.data ?? null
+    // 后端 200 但载荷为空同样算"没读到"——把 null 直接交给 `v-if="stats"` 就是那条
+    // 无限骨架屏的第二条入口（b133 规则②：默认值/空值不得冒充用户的真实状态）
+    if (!res.data) {
+      loadError.value = true
+      return
+    }
+    stats.value = res.data
+    loadError.value = false
   } catch (e) {
     if (import.meta.env.DEV) console.error('[jobStats] load failed:', e)
+    // 刷新失败时**保留旧统计**（上面那条失败条说明它不是最新时刻），
+    // 只有从未成功时才没有可渲染的内容（b109 的同一条分岔）
+    loadError.value = true
   } finally {
     loading.value = false
   }

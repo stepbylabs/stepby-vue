@@ -79,6 +79,21 @@ function start() {
     process.exit(2)
   }
   const logPath = path.resolve(VUE_ROOT, logRel)
+  // `--log` 与 `--` 之后的命令都以**本仓根**为基准（spawn 的 cwd = VUE_ROOT），而下面的 mkdirSync
+  // 会把缺的目录一路建出来 ⇒ 在根仓里传 `stepby-vue/tests/e2e/_logs/x.log` 会**静默造出**
+  // `stepby-vue/stepby-vue/tests/e2e/_logs/` 这棵重复树，启动行还报"成功"。
+  // 同一个错误 b98 / b110 / b140 各犯一次（三份 120 字节的失败日志躺在重复树里，`.log` 全被
+  // gitignore ⇒ 没有任何门禁看得见）。方向取响亮失败：这一族的真实代价是"启动器报告了一个
+  // 不存在于惯例位置的结论文件"，而 `--wait` 只探 PID，红不出来。
+  const relFromRoot = path.relative(VUE_ROOT, logPath)
+  if (relFromRoot.split(path.sep)[0] === path.basename(VUE_ROOT)) {
+    console.log(
+      `[FATAL] --log=${logRel} 会落到重复目录 ${relFromRoot}：相对路径按本仓根（${VUE_ROOT}）解析，` +
+        '不是按调用方的 cwd。从根仓启动请写 `tests/e2e/_logs/<名>.log`；' +
+        '`--` 之后的命令同样以本仓根为 cwd（要跑根仓脚本得写 `../scripts/…`）。'
+    )
+    process.exit(2)
+  }
   if (fs.existsSync(logPath)) {
     console.log(
       `[FATAL] 日志文件已存在：${logPath}——追加写会把上一轮正文留在原地，` +
@@ -303,6 +318,26 @@ async function selftest() {
   fs.writeFileSync(`${weirdLog}.exit`, 'garbage\n', 'utf8') // 监管进程此时一定已退出（round() 已等完）
   const r11 = cli(`--wait=${weirdLog}.pid`, '--timeout=5')
   check('⑪ .exit 非数字 ⇒ 退出码 3（"取不到分类"不是"没有失败"）', r11.status === 3, `${r11.status}`)
+
+  // ⑫ 重复目录前缀闸（b140 立：同一个错误 b98 / b110 / b140 各犯一次，三份 120 字节的失败日志
+  // 躺在 `stepby-vue/stepby-vue/tests/e2e/_logs/` 里，`.log` 全被 gitignore ⇒ 没有任何门禁看得见）
+  const r12 = cli('--log=stepby-vue/tests/e2e/_logs/dupguard.log', '--', 'node', '-e', 'console.log(1)')
+  check(
+    '⑫ `--log` 带仓名重复前缀必须拒（EXIT=2）并点名落点，不得静默 mkdir 造出第二棵树',
+    r12.status === 2 && /重复目录/.test(r12.stdout) && /dupguard\.log/.test(r12.stdout),
+    `${r12.status} :: ${r12.stdout.slice(0, 90)}`
+  )
+  check(
+    '⑫b 正控——绝对路径（相对本仓根算出以 `..` 开头）不得被这道闸拦下',
+    r1.st.status === 0 && /DETACHED supervisor=\d+/.test(r1.st.stdout),
+    `${r1.st.status} :: ${r1.st.stdout.slice(0, 90)}`
+  )
+  // ⑫c 被拦下时不得留下任何目录痕迹（这条是"静默 mkdir"的反面，缺一半都算没修）
+  check(
+    '⑫c 拒绝路径上不得创建目录或文件（否则重复树会长期潜伏在 gitignore 里）',
+    !fs.existsSync(path.join(VUE_ROOT, 'stepby-vue')),
+    path.join(VUE_ROOT, 'stepby-vue')
+  )
 
   fs.rmSync(tmp, { recursive: true, force: true })
   console.log(bad === 0 ? `SYNTH_OK run-detached ${n} 条双向` : `SYNTH_FAIL run-detached ${bad}/${n} 条不符`)

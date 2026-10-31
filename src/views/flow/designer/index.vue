@@ -20,6 +20,9 @@
       </div>
 
       <el-table v-loading="loading" :data="rows" border>
+        <template #empty>
+          <list-empty :load-error="loadError" @retry="load" />
+        </template>
         <el-table-column :label="t('flowDef.colCode')" prop="flowCode" min-width="130" />
         <el-table-column :label="t('flowDef.colName')" prop="flowName" min-width="150" />
         <el-table-column :label="t('flowDef.colVersion')" width="90">
@@ -350,6 +353,8 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+/** 列表取数是否失败（与 `useCrudTable.loadError` 同语义，驱动 `ListEmpty` 的失败分支） */
+const loadError = ref(false)
 const query = ref({ flowCode: '' })
 
 const form = ref<FlowDefUpsertFormLike>({ flowCode: '', flowName: '', graphJson: '' })
@@ -426,9 +431,16 @@ async function load(): Promise<void> {
     })
     rows.value = res.rows ?? []
     total.value = res.total ?? 0
+    loadError.value = false
   } catch {
     // 列表加载失败（网络/5xx）：全局拦截器已弹错误，吞掉 rejection 防 AxiosError
-    // 冒泡进 ErrorBoundary 整页崩溃（r44 实证 dataset 同型缺陷）
+    // 冒泡进 ErrorBoundary 整页崩溃（r44 实证 dataset 同型缺陷）。
+    // b140：但"吞掉"不等于"什么都不留"——此前失败与"真的没有流程"在屏幕上逐像素同形
+    // （表格落默认「暂无数据」、无重试入口），运维会把一次网络抖动读成"这套环境没配流程"。
+    // 现在与 `useCrudTable` 同口径：清空 + 置 loadError，由 `ListEmpty` 分岔成
+    // 「加载失败 + 重试」；提示仍只由拦截器给一条，这里不再补第二条（b125 ⑤）。
+    rows.value = []
+    loadError.value = true
   } finally {
     loading.value = false
   }

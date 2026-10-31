@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { LONG_TASK_TIMEOUT } from '@/utils/request'
 import type { AjaxResult } from '@/types'
 
 /** IP 归属地库状态信息 */
@@ -88,12 +88,19 @@ export function saveIpLocationConfig(data: SaveConfigDto): Promise<AjaxResult> {
   })
 }
 
-/** 立即触发 IP 库更新（下载+解压+校验+热加载） */
+/**
+ * 立即触发 IP 库更新（下载+解压+校验+热加载）。
+ *
+ * 服务端在这一条路由上等待的下载预算是 300s（`ip_location_service.rs::IP_DOWNLOAD_TIMEOUT_SECS`），
+ * 而它挂在请求层的长任务档里（b140）；本调用点必须显式给长任务上限——不写就是全局 30s，
+ * 客户端先撤 ⇒ 连接断开 ⇒ 服务端 handler 被丢弃、下载停在中间态、更新锁留到 TTL。
+ */
 export function updateIpLocationNow(source?: string): Promise<AjaxResult<UpdateResult>> {
   return request({
     url: '/system/ipLocation/update',
     method: 'post',
-    params: source ? { source } : undefined
+    params: source ? { source } : undefined,
+    timeout: LONG_TASK_TIMEOUT
   })
 }
 

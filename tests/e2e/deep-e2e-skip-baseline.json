@@ -1,5 +1,5 @@
 {
   "total": 32,
-  "generatedAt": "2026-10-29T15:55:54.856Z",
-  "note": "deep-e2e 全量实测：由日志 b130_deep.log 收紧（基线 32 → 32）"
+  "generatedAt": "2026-10-31T08:29:23.093Z",
+  "note": "deep-e2e 全量实测：由日志 b140_deep_final.log 收紧（基线 32 → 32）"
 }

@@ -66,13 +66,31 @@
       >
         <template #default="scope">
           <template v-if="!isRevoked(scope.row.status)">
-            <el-button link type="primary" icon="RefreshLeft" @click="handleRotateAk(scope.row)">
+            <el-button
+              link
+              type="primary"
+              icon="RefreshLeft"
+              :loading="akLoadingIds.includes(scope.row.patId)"
+              @click="handleRotateAk(scope.row)"
+            >
               {{ t('pat.btn.rotateAk') }}
             </el-button>
-            <el-button link type="danger" icon="Delete" @click="handleRevokeAk(scope.row)">
+            <el-button
+              link
+              type="danger"
+              icon="Delete"
+              :loading="akLoadingIds.includes(scope.row.patId)"
+              @click="handleRevokeAk(scope.row)"
+            >
               {{ t('pat.btn.revokeAk') }}
             </el-button>
-            <el-button link type="danger" icon="Delete" @click="handleRevoke(scope.row)">
+            <el-button
+              link
+              type="danger"
+              icon="Delete"
+              :loading="revokeLoadingIds.includes(scope.row.patId)"
+              @click="handleRevoke(scope.row)"
+            >
               {{ t('pat.btn.revoke') }}
             </el-button>
           </template>
@@ -181,12 +199,12 @@
 <script setup lang="ts" name="PatToken">
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { listMyTokens, getScopeOptions, createToken, revokeMyToken, rotateAk, revokeAk } from '@/api/system/patToken'
-import type { AjaxResult, RotateAkResult } from '@/types'
 import type { SysPat } from '@/types/api/monitor/pat'
 import { isRevoked, computeExpiryInfo, expiryTagType, summarizeScopes, type ExpiryStatus } from '@/utils/patUtils'
 import { copyText as writeClipboard } from '@/utils/clipboard'
 import { createLatestGuard } from '@/composables/latestRequest'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { pageAfterEmptyResult } from '@/composables/useCrudTable'
 
 const { t } = useI18n()
@@ -337,53 +355,82 @@ function finishReveal(): void {
   plainSecretKey.value = ''
 }
 
-function handleRevoke(row: SysPat): void {
-  ElMessageBox.confirm(t('pat.msg.revokeConfirm', { name: row.name }), t('common.warning'), {
-    confirmButtonText: t('common.confirm'),
-    cancelButtonText: t('common.cancel'),
-    type: 'warning'
-  })
-    .then(() => revokeMyToken(row.patId))
-    .then(() => {
+/**
+ * 令牌/AK 的行级互斥与在途 loading（b140）。
+ *
+ * 三个动作原先都是"`ElMessageBox.confirm(...).then(() => api())` + 全程无状态"：
+ * 确认框在飞时按钮毫无指示，连点会弹出第二个确认框，用户依次确认就执行两次。
+ * 对**轮换 SK** 这不是"多做一次幂等操作"而是数据丢失——一次性明文弹窗只保留最后一次
+ * 的 SK，前一份明文关掉即永久不可再见（它是唯一副本）。
+ * 轮换与吊销共用一把闸：两者改的是同一条 AK/SK 记录，并发会让刚下发的新 AK 立刻被作废。
+ */
+const { runningIds: akLoadingIds, guarded: guardAk } = useRowActionGuard<string>()
+const { runningIds: revokeLoadingIds, guarded: guardRevoke } = useRowActionGuard<string>()
+
+async function handleRevoke(row: SysPat): Promise<void> {
+  await guardRevoke(
+    row.patId,
+    () =>
+      ElMessageBox.confirm(t('pat.msg.revokeConfirm', { name: row.name }), t('common.warning'), {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }),
+    async () => {
+      await revokeMyToken(row.patId)
       ElMessage.success(t('pat.msg.revoked'))
       getList()
-    })
-    .catch(() => {})
+    }
+  )
 }
 
 // ==================== 开放 API AK/SK ====================
 
 /** 轮换 SK：二次确认后调用，新 AK/SK 明文弹窗展示（仅此一次） */
-function handleRotateAk(row: SysPat): void {
-  ElMessageBox.confirm(t('pat.akSk.rotateConfirm', { name: row.name }), t('common.warning'), {
-    confirmButtonText: t('common.confirm'),
-    cancelButtonText: t('common.cancel'),
-    type: 'warning'
-  })
-    .then(() => rotateAk(row.patId))
-    .then((res: AjaxResult<RotateAkResult>) => {
+async function handleRotateAk(row: SysPat): Promise<void> {
+  await guardAk(
+    row.patId,
+    () =>
+      ElMessageBox.confirm(t('pat.akSk.rotateConfirm', { name: row.name }), t('common.warning'), {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }),
+    async () => {
+      const res = await rotateAk(row.patId)
+      const data = res.data
+      // 明文缺失时不得打开"一次性明文"弹窗：两个空字段会让用户以为拿到了新密钥，
+      // 复制走的却是空串，而旧 SK 此刻已在服务端失效。
+      if (!data?.accessKey || !data?.secretKey) {
+        ElMessage.error(t('pat.akSk.rotateFailed'))
+        getList()
+        return
+      }
       plainToken.value = ''
-      plainAccessKey.value = res.data?.accessKey || ''
-      plainSecretKey.value = res.data?.secretKey || ''
+      plainAccessKey.value = data.accessKey
+      plainSecretKey.value = data.secretKey
       revealVisible.value = true
       getList()
-    })
-    .catch(() => {})
+    }
+  )
 }
 
 /** 吊销 AK：二次确认（后端幂等，重复吊销安全） */
-function handleRevokeAk(row: SysPat): void {
-  ElMessageBox.confirm(t('pat.akSk.revokeConfirm', { name: row.name }), t('common.warning'), {
-    confirmButtonText: t('common.confirm'),
-    cancelButtonText: t('common.cancel'),
-    type: 'warning'
-  })
-    .then(() => revokeAk(row.patId))
-    .then(() => {
+async function handleRevokeAk(row: SysPat): Promise<void> {
+  await guardAk(
+    row.patId,
+    () =>
+      ElMessageBox.confirm(t('pat.akSk.revokeConfirm', { name: row.name }), t('common.warning'), {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }),
+    async () => {
+      await revokeAk(row.patId)
       ElMessage.success(t('pat.akSk.revoked'))
       getList()
-    })
-    .catch(() => {})
+    }
+  )
 }
 
 onMounted(getList)

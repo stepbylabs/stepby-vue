@@ -20327,15 +20327,37 @@ async function testModule84(page, consoleErrors, pageErrors) {
     }
   }
 
+  /** 等待"这次点击发出的那一次"排序查询。
+   *
+   * 取 **request（发出）** 而不是 response（到达）：点击在页面里同步触发 `getList`，
+   * "请求发出"这一事件必然由这次点击引起；"响应到达"不是。整轮负载下列表请求可跑 >1.5s，
+   * 于是上一次点击的响应会在这次点击的 `waitForResponse` 上先到 —— b140 全量轮实测三条
+   * `⏭ SKIP … 两次点击捕获到同方向`（`desc=loginTime/ascending | asc=loginTime/ascending`），
+   * 后果不止多三个 SKIP：**两轮单调性退化成同一方向测两遍**，看着像两条硬判据其实只有一条。
+   * 拿不到响应（被 abort 等）时退回 Request —— 判据只读 URL。 */
+  const waitForSortRequest = async (page, timeout = 8000) => {
+    let req = null
+    try {
+      req = await page.waitForRequest((r) => r.url().includes('orderByColumn'), { timeout })
+    } catch {
+      return null
+    }
+    try {
+      return (await req.response()) || req
+    } catch {
+      return req
+    }
+  }
+
   /** 点击表头排序按钮（.caret-wrapper）并捕获随之发出的查询请求。
    *  用 .caret-wrapper 而非具体箭头的原因：Element Plus 的 handleSortClick
    *  （table-header/event-helper.mjs:119）实现为 `order = column.order === givenOrder ? null : givenOrder`，
    *  即「再点当前方向的箭头 = 取消排序」，会把 order 置 null、方向参数丢失；
    *  而 .caret-wrapper 上的 onClick 不传 givenOrder，走 toggleOrder() 在 sortOrders
    *  ['descending','ascending'] 之间轮转，永远不会落到 null，两次点击必然得到两个相反方向。
-   *  另外 waitForApi 必须在点击「之前」注册，否则会错过瞬时发出的请求。 */
+   *  另外等待器必须在点击「之前」注册，否则会错过瞬时发出的请求。 */
   const clickSortToggle = async (label) => {
-    const p = waitForApi(page, 'orderByColumn', 8000)
+    const p = waitForSortRequest(page, 8000)
     await page
       .evaluate((lb) => {
         const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
@@ -20355,7 +20377,7 @@ async function testModule84(page, consoleErrors, pageErrors) {
     const r = await p
     if (r && qp(r, 'isAsc') === '') {
       // 极端情况下拿到无方向的查询（排序被清除），再点一次轮转回有方向的态
-      const p2 = waitForApi(page, 'orderByColumn', 8000)
+      const p2 = waitForSortRequest(page, 8000)
       await page
         .evaluate((lb) => {
           const tables = Array.from(document.querySelectorAll('.el-table')).filter((t) => t.offsetParent !== null)
@@ -20431,7 +20453,14 @@ async function testModule84(page, consoleErrors, pageErrors) {
    * 因此原判据（首行文本是否变化 + isAsc 是否不同）被两条弱信号拖累成长期 SKIP：
    *   · 首行对比会被高度重复的取值洗白（登录日志里绝大多数是 admin）；
    *   · `isAsc` 两次相同多半是点击轮转与请求捕获的竞态，不是后端缺陷。
-   * 现改以**整列单调性**为硬判据：按该轮请求真正携带的方向，要求可见列逐行非严格单调。 */
+   * 现改以**整列单调性**为硬判据：按该轮请求真正携带的方向，要求可见列逐行非严格单调。
+   *
+   * ⚠ 上面那条"isAsc 两次相同多半是捕获竞态，不是缺陷"的归因**已由 b140 证伪并订正**：
+   * 竞态是真的，但坏在**归因尺**——`waitForResponse` 会把上一次点击的响应算到这一次点击头上
+   * （全量轮实测 `desc=loginTime/ascending | asc=loginTime/ascending`，于是"两轮单调性"
+   * 退化成同一方向测两遍，看着两条硬判据其实只有一条）。捕获改成"等这次点击**发出**的请求"
+   * （`waitForSortRequest`）之后，同向只剩一种解释：产品真的没切换 ⇒ 本行由软断言升为硬判据。
+   * 教训的形状：**偶发 SKIP 要先问"归因对不对"，不能直接归给环境再放宽**（前言 ④ 的反面用法）。 */
   const assertSort = async (pageName, label, r, extra = '') => {
     record(
       M,
@@ -20439,13 +20468,12 @@ async function testModule84(page, consoleErrors, pageErrors) {
       !!r.rDesc && !!r.rAsc && r.descCol !== '' && r.ascCol !== '',
       `desc=${r.descCol}/${r.descIsAsc} | asc=${r.ascCol}/${r.ascIsAsc}`
     )
-    // 方向切换保留软断言（竞态导致的同向不影响单调性验收，但值得留痕）
-    recordSoft(
+    // 捕获按"点击发出的那一次请求"归因之后，同向就是真缺陷，不再是可容的竞态
+    record(
       M,
       `${pageName}: ${label}列排序-升降序方向切换`,
       r.descIsAsc !== '' && r.ascIsAsc !== '' && r.descIsAsc !== r.ascIsAsc,
-      `第 1 次点击 isAsc="${r.ascIsAsc}", 第 2 次点击 isAsc="${r.descIsAsc}"`,
-      `两次点击捕获到同方向（isAsc 均="${r.ascIsAsc}"，属点击/捕获竞态，改由下方单调性验收）`
+      `第 1 次点击 isAsc="${r.ascIsAsc}", 第 2 次点击 isAsc="${r.descIsAsc}"`
     )
     const dirOf = (q) => (/^asc/i.test(q || '') ? 'asc' : 'desc')
     const rounds = [
@@ -20574,9 +20602,14 @@ async function testModule85(page, consoleErrors, pageErrors) {
   }
 
   // 85.2 新增草稿（缺省骨架 start→a1→end 合法）：保存 POST → 回读 flowCode/flowId（v1）
+  // ⚠ 作用域锚一律取 `.app-main`（b89 ㊴ 定的采集根），**不得**写 `.app-container`：
+  // 本页根节点是 `<div class="p-4">`（`src/views/flow/designer/index.vue:2`），全站没有那个类 ⇒
+  // Playwright 点击结构上永远命不中，只会被 clickButton 第 3 腿"按文本找可见按钮"的 DOM 兜底救走，
+  // 于是"这次点击落了地"与"选择器写错了"在数据集里同形（b140 全量轮实测 8 条 M85 失败点击、
+  // 6 条被兜底洗成"已救回"、清理段 2 条没人救 ⇒ 未救回 3 类，`clickfail --gate` 判红）。
   if (ok) {
     await clearToasts(page)
-    await clickButton(page, '.app-container button:has-text("新增")')
+    await clickButton(page, '.app-main button:has-text("新增")')
     const editReady = await page
       .getByRole('button', { name: '添加审批节点' })
       .first()
@@ -20624,7 +20657,7 @@ async function testModule85(page, consoleErrors, pageErrors) {
     const input = page.locator('input[aria-label="按编码搜索"]').first()
     await input.fill(flowCode, { timeout: 3000 }).catch(() => {})
     const listP = waitForApi(page, '/system/flow/definition/list', 8000)
-    await clickButton(page, '.app-container button:has-text("搜索")')
+    await clickButton(page, '.app-main button:has-text("搜索")')
     await listP
     await sleep(1200)
     const rows1 = await rowCountIn(page, 'page')
@@ -20698,7 +20731,7 @@ async function testModule85(page, consoleErrors, pageErrors) {
   // 85.5 版本化契约复核：列表双版本行（v1/v2）+ API is_latest 切换（新行 '1'/status '1'，旧行归 '0'）
   if (ok && v2FlowId) {
     const listP = waitForApi(page, '/system/flow/definition/list', 8000)
-    await clickButton(page, '.app-container button:has-text("搜索")')
+    await clickButton(page, '.app-main button:has-text("搜索")')
     await listP
     await sleep(1200)
     const rows2 = await rowCountIn(page, 'page')
@@ -20795,22 +20828,41 @@ async function testModule85(page, consoleErrors, pageErrors) {
     recordSkip(M, '不可变契约: 已发布版本改图保存 → PUT 400 + 不可修改 toast + 保持编辑态', '跳过（发布未成功）')
   }
 
-  // 85.7 尾部清理（含版本行）：UI 删 v2 行（已发布版本可删）→ API 删 v1 草稿 → 双重复核归零
+  // 85.7 尾部清理（含版本行）：返回列表 → UI 删 v2 行（已发布版本可删）→ API 删 v1 草稿 → 双重复核归零
   let cleanOk = false
+  let uiDeleteOk = false
   let cleanDetail = ''
   if (flowCode) {
     try {
+      // 上一段（85.6 已发布版本改图 → PUT 400）把页面留在**编辑模式**，而"搜索"工具条只存在于列表模式。
+      // b140 之前这一步是缺的 ⇒ 那两次点击结构上永远命不中（页面根本没有该按钮），UI 删除从未发生，
+      // 85.7 的结论完全由 API 兜底撑起，而注释里那句"UI 删 v2 行"没有生效路径。
+      await clickButton(page, '.app-main button:has-text("返回"), .app-main button:has-text("Back")')
+      if (await waitMessageBox(page, 3000)) await clickMessageBoxBtn(page, 'confirm')
+      const backToList = await page
+        .locator('.app-main input[aria-label="按编码搜索"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 6000 })
+        .then(() => true)
+        .catch(() => false)
+      record(M, '清理: 从编辑模式返回列表（搜索工具条可见）', backToList, `工具条可见=${backToList}`)
       // v2 行（列表按 flow_id 倒序 → 首行即 v2）：行内删除 + 确认框
-      const listP = waitForApi(page, '/system/flow/definition/list', 8000)
-      await clickButton(page, '.app-container button:has-text("搜索")')
-      await listP
+      await clickButton(page, '.app-main button:has-text("搜索")')
       await sleep(1200)
       await clearToasts(page)
       const delClicked = await clickRowButton(page, '删除', 'page')
       if (delClicked && (await waitMessageBox(page, 5000))) {
-        const delP = waitForApi(page, '/system/flow/definition/', 8000)
+        // 等 **DELETE** 本身，而不是 `/system/flow/definition/` 前缀的任意响应：
+        // 列表请求 `/system/flow/definition/list` 同样含这一前缀，用它当"删除成功"的证据会把
+        // 一次根本没发生的删除读成 200（⑥"一条都没采"与"零失败"同形的同一族）。
+        const delP = page
+          .waitForResponse((r) => r.request().method() === 'DELETE' && r.url().includes('/system/flow/definition/'), {
+            timeout: 8000
+          })
+          .catch(() => null)
         await clickMessageBoxBtn(page, 'confirm')
         const delResp = await delP
+        uiDeleteOk = !!delResp && delResp.status() === 200
         cleanDetail += `UI删v2=${delResp ? delResp.status() : 'n/a'}; `
       }
       // v1 草稿 API 删除
@@ -20840,6 +20892,9 @@ async function testModule85(page, consoleErrors, pageErrors) {
     }
   }
   record(M, '清理: 版本行全删（v1 草稿 + v2 已发布，API 复核归零）', cleanOk, cleanDetail)
+  // UI 删除单独成判：`cleanOk` 由 API 兜底撑起，"兜底成了主通道"在本表是判据不许放过的那一型
+  // （与 console 豁免账那条"兜底不得变成主通道"同取向）。删除动作在 UI 上没发生，就必须有一条红点名它。
+  record(M, '清理: UI 行内删除 v2 真的发生（DELETE 200）', uiDeleteOk, `UI删v2=${uiDeleteOk ? 200 : '未发生'}`)
 
   // 豁免说明：85.6 不可变契约负路径（已发布版本改图保存）后端按契约返回 400，
   // 浏览器控制台必然留下 "Failed to load resource: 400" 资源错误——

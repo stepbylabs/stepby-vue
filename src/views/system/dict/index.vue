@@ -87,7 +87,14 @@
         </el-button>
       </el-col>
       <el-col :span="1.5">
-        <el-button type="danger" plain icon="Refresh" @click="handleRefreshCache" v-hasPermi="['system:dict:remove']">
+        <el-button
+          type="danger"
+          plain
+          icon="Refresh"
+          :loading="refreshCacheLoadingIds.includes('refresh-cache')"
+          @click="handleRefreshCache"
+          v-hasPermi="['system:dict:remove']"
+        >
           {{ t('common.refresh') }}
         </el-button>
       </el-col>
@@ -255,6 +262,7 @@ import { listType, getType, delType, addType, updateType, refreshCache } from '@
 import type { SysDictType, DictTypeQueryParams } from '@/types/api/system/dict'
 import { resetQueryDefaults, useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
+import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import modal from '@/plugins/modal'
 import SkeletonTable from '@/components/SkeletonTable/index.vue'
 import tab from '@/plugins/tab'
@@ -374,14 +382,26 @@ function handleDataList(row: SysDictType) {
   tab.openPage(t('dict.data.title'), '/system/dict-data/index/' + row.dictId)
 }
 
+/**
+ * 刷新缓存（b140）：走 `useRowActionGuard` 的单一互斥实现，固定键名代表"这一条工具栏动作"。
+ *
+ * 后端这条链是**无上限 SCAN**（`refresh_all_dict_cache` 扫 `dict:*` 后整批删除），原先前端
+ * 没有任何在途状态：连点会把同一张键空间的重建请求发两次。加 loading 后按钮在途即禁用。
+ */
+const { runningIds: refreshCacheLoadingIds, guarded: guardRefreshCache } = useRowActionGuard<string>()
+
 /** 刷新缓存按钮操作 */
-function handleRefreshCache() {
-  refreshCache()
-    .then(() => {
+async function handleRefreshCache() {
+  await guardRefreshCache(
+    'refresh-cache',
+    async () => {},
+    async () => {
+      await refreshCache()
       modal.msgSuccess(t('common.refreshSuccess'))
+      // 后端缓存已重建 ⇒ 前端内存字典缓存必须一起丢，否则本页之下的下拉仍读旧值
       useDictStore().cleanDict()
-    })
-    .catch(() => {})
+    }
+  )
 }
 
 getList()

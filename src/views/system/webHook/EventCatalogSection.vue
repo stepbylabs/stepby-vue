@@ -13,6 +13,7 @@
       :data="eventCatalog"
       :row-key="(row: WebhookEventVo) => row.id"
       @sort-change="handleEventCatalogSortChange"
+      :default-sort="sortArrow"
     >
       <el-table-column
         :label="t('webHook.eventCatalog.eventKey')"
@@ -72,6 +73,8 @@
 </template>
 
 <script setup lang="ts" name="EventCatalogSection">
+import { applySortChange } from '@/utils/sortDirection'
+import { useSortArrow } from '@/composables/useSortArrow'
 import { listWebhookEvents, changeWebhookEventEnabled } from '@/api/system/webHook'
 import type { WebhookEventVo, WebhookEventQueryParams } from '@/types/api/system/webHook'
 import { checkPermi } from '@/utils/permission'
@@ -120,10 +123,12 @@ async function loadEventCatalog(force = false): Promise<void> {
   }
 }
 
+/** 箭头由页面实际下发的排序参数派生（成因见 composables/useSortArrow） */
+const sortArrow = useSortArrow(eventCatalogQuery)
+
 /** 排序触发事件（服务端排序：透传 orderByColumn/isAsc，仅白名单列可触发） */
 function handleEventCatalogSortChange(column: { prop: string | null; order: string | null }): void {
-  eventCatalogQuery.orderByColumn = column.prop ?? undefined
-  eventCatalogQuery.isAsc = column.order ?? undefined
+  applySortChange(eventCatalogQuery, column)
   loadEventCatalog(true)
 }
 
