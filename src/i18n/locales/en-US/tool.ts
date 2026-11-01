@@ -876,6 +876,7 @@ export default {
     stepMethod: 'Method',
     stepPath: 'Path',
     stepBody: 'Body',
+    stepNote: 'Note',
     stepExpect: 'Expect',
     noSteps: 'This recording has no steps yet',
     clearSteps: 'Clear steps',
@@ -920,7 +921,26 @@ export default {
     replayNoResult: 'Server returned no replay result',
     replayRequestFailed: 'Replay request failed, please retry later',
     varsInvalid: 'Variables must be valid JSON',
-    confirmDelete: 'Delete recording "{names}"? Its steps and replay history will be removed too.'
+    confirmDelete: 'Delete recording "{names}"? Its steps and replay history will be removed too.',
+    importScript: 'Import script',
+    importTip:
+      'Import an exported JSON file (or paste its content) as a replayable recording. The import is one transaction: if any step is invalid, nothing is written.',
+    importPickFile: 'Choose file',
+    importFileTip: 'JSON only (produced by "Export → JSON")',
+    importSubmit: 'Import',
+    importReadFailed: 'Could not read the file; retry or paste the content instead',
+    importEmpty: 'Choose a file or paste the script first',
+    importBadJson: 'The content is not valid JSON',
+    importNoSteps: 'The script contains no steps',
+    importFailed: 'Import failed; check the message and retry',
+    stepEdit: 'Edit this step',
+    stepEditFailed: 'Save failed; check the message and retry',
+    stepQuery: 'Query string',
+    stepPathTip: 'Site-relative path only (single leading /); the replay target is always decided by the server',
+    stepExpectTip: 'Leave empty to accept any 2xx/3xx',
+    stepExtract: 'Extract variables',
+    stepExtractTip:
+      'JSON object mapping variable names to dot-paths (e.g. deptId → data.deptId); later steps can reference it with double braces'
   },
   pdf: {
     defaultFilename: 'Exported File',

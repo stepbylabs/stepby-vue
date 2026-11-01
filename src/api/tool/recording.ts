@@ -161,21 +161,68 @@ export function delRecording(ids: string | number | (string | number)[]): Promis
   })
 }
 
+/** 单步写入载荷（追加与就地改共用同一形状） */
+export interface StepWritePayload {
+  method: string
+  path: string
+  queryString?: string
+  body?: string
+  note?: string
+  expectStatus?: number
+  extractJson?: string
+}
+
 /** 追加一步（API 方式写入录制的入口） */
-export function appendStep(
-  recordingId: number | string,
-  data: {
-    method: string
-    path: string
-    queryString?: string
-    body?: string
-    note?: string
-    expectStatus?: number
-    extractJson?: string
-  }
-): Promise<unknown> {
+export function appendStep(recordingId: number | string, data: StepWritePayload): Promise<unknown> {
   return request({
     url: '/tool/recording/' + recordingId + '/steps',
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 就地改一步。
+ *
+ * `seq` 由服务端保持不变（改「期望什么状态码」不是「把这一步挪到别处」），
+ * `headers` 也不参与编辑——它是采集产物，不是界面上可编辑的字段。
+ */
+export function updateStep(
+  recordingId: number | string,
+  stepId: number | string,
+  data: StepWritePayload
+): Promise<{ data: OpRecordingStep }> {
+  return request({
+    url: '/tool/recording/' + recordingId + '/steps/' + stepId,
+    method: 'put',
+    data
+  })
+}
+
+/** 导入脚本里的一步（与 `/export?format=json` 的输出逐字对齐） */
+export interface ImportStepPayload {
+  method: string
+  path: string
+  queryString?: string | null
+  contentType?: string | null
+  body?: string | null
+  headers?: Record<string, string> | null
+  extractJson?: Record<string, string> | string | null
+  expectStatus?: number | null
+  note?: string | null
+}
+
+/** 导入载荷（= 导出的 JSON 文件内容） */
+export interface ImportPayload {
+  name?: string
+  description?: string
+  steps: ImportStepPayload[]
+}
+
+/** 导入一份 JSON 脚本：整条事务，失败时服务端点名是第几步 */
+export function importRecording(data: ImportPayload): Promise<{ data: OpRecordingDetail }> {
+  return request({
+    url: '/tool/recording/import',
     method: 'post',
     data
   })

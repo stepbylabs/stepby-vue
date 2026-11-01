@@ -21541,6 +21541,246 @@ async function testFeature158(page) {
   }
 }
 
+async function testFeature159(page) {
+  log('=== 功能 159：导出快照 → 导入 → 真跑 → 就地改步（b148） ===')
+
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const jsonHeaders = { ...auth, 'Content-Type': 'application/json' }
+  const call = async (path, init = {}) => {
+    const r = await fetch(`${CONFIG.backendUrl}${path}`, { headers: jsonHeaders, ...init })
+    const text = await r.text().catch(() => '')
+    let body = null
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = null
+    }
+    return { status: r.status, body, text }
+  }
+
+  const stamp = Date.now().toString().slice(-8)
+  const created = []
+  const scratchName = `e2e-scratch-${stamp}`
+  const sourceName = `e2e-src-${stamp}`
+  const importedName = `e2e-import-${stamp}`
+  const rejectedName = `e2e-reject-${stamp}`
+
+  const createRecording = async (name) => {
+    const r = await call('/tool/recording', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: `e2e ${stamp}`, source: 'ui' })
+    })
+    const id = r.body?.data?.recordingId
+    if (id) created.push(id)
+    return id
+  }
+  const detail = async (id) => {
+    const r = await call(`/tool/recording/${id}`)
+    const d = r.body?.data
+    return d ? { stepCount: d.stepCount, steps: d.steps || [], source: d.source, status: d.status } : null
+  }
+
+  try {
+    const SCR = await createRecording(scratchName)
+    const SRC = await createRecording(sourceName)
+    if (!SCR || !SRC) {
+      record(159, '① 准备两条录制（源 + 草稿箱）', false, `SCR=${SCR} SRC=${SRC}`)
+      return
+    }
+
+    // 源录制两步：往草稿箱追加一步（抽 stepId）→ 按抽取值删除。回放时自我抵消、零残留。
+    const inner = JSON.stringify({ method: 'GET', path: '/system/dict/type/list', queryString: 'pageNum=1&pageSize=1' })
+    const s1 = await call(`/tool/recording/${SRC}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: 'POST',
+        path: `/tool/recording/${SCR}/steps`,
+        body: inner,
+        note: `b148 追加 ${stamp}`,
+        extractJson: JSON.stringify({ sid: 'data.stepId' }),
+        expectStatus: 200
+      })
+    })
+    const s2 = await call(`/tool/recording/${SRC}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: 'DELETE',
+        path: `/tool/recording/${SCR}/steps/{{sid}}`,
+        note: 'b148 按抽取值删除'
+      })
+    })
+    const srcDetail = await detail(SRC)
+
+    // ① 导出 JSON 必须是**完整快照**：b147 的导出漏了 extractJson/headers，导出再导入后
+    // 变量链会断（第二步引用的 {{sid}} 没有抽取来源），而文件本身看起来是完整的。
+    const exportRes = await fetch(`${CONFIG.backendUrl}/tool/recording/${SRC}/export?format=json`, {
+      method: 'POST',
+      headers: auth
+    })
+    const exported = JSON.parse((await exportRes.text().catch(() => '{}')) || '{}')
+    const exportedSteps = exported.steps || []
+    record(
+      159,
+      '① 导出 JSON 是完整快照（baseUrl + 2 步 + 第一步带 extractJson/expectStatus）',
+      exportRes.status === 200 &&
+        s1.body?.code === 200 &&
+        s2.body?.code === 200 &&
+        srcDetail?.stepCount === 2 &&
+        /^https?:\/\//.test(exported.baseUrl || '') &&
+        exportedSteps.length === 2 &&
+        exportedSteps[0]?.extractJson?.sid === 'data.stepId' &&
+        exportedSteps[0]?.expectStatus === 200,
+      `status=${exportRes.status} steps=${exportedSteps.length} extract=${JSON.stringify(exportedSteps[0]?.extractJson)}`
+    )
+
+    // ② 导入：整条事务，返回抬头 + 步骤；来源必须是 import、状态 ready
+    const imp = await call('/tool/recording/import', {
+      method: 'POST',
+      body: JSON.stringify({ name: importedName, description: `imported ${stamp}`, steps: exportedSteps })
+    })
+    const IMP = imp.body?.data?.recordingId
+    if (IMP) created.push(IMP)
+    const impSteps = imp.body?.data?.steps || []
+    record(
+      159,
+      '② 导入成功：stepCount=2、来源=import、状态=ready（导出件的逆运算）',
+      imp.status === 200 &&
+        !!IMP &&
+        imp.body?.data?.stepCount === 2 &&
+        imp.body?.data?.source === 'import' &&
+        imp.body?.data?.status === 'ready',
+      `code=${imp.body?.code} id=${IMP ?? '无'} source=${imp.body?.data?.source}`
+    )
+    if (!IMP) return
+
+    // ③ 逐字段等价：抽取规则、期望码、方法/路径/体原样过去（导入不是"只搬了个壳"）
+    const eq = (i) =>
+      impSteps[i]?.method === exportedSteps[i]?.method &&
+      impSteps[i]?.path === exportedSteps[i]?.path &&
+      (impSteps[i]?.body || '') === (exportedSteps[i]?.body || '') &&
+      (impSteps[i]?.extractJson || '') ===
+        (exportedSteps[i]?.extractJson ? JSON.stringify(exportedSteps[i].extractJson) : '') &&
+      (impSteps[i]?.expectStatus ?? null) === (exportedSteps[i]?.expectStatus ?? null)
+    record(
+      159,
+      '③ 导入后逐步与原快照等价（方法/路径/体/抽取规则/期望码，seq 按数组重编 1..n）',
+      impSteps.length === 2 && eq(0) && eq(1) && impSteps.map((s) => s.seq).join(',') === '1,2',
+      `seq=${impSteps.map((s) => s.seq).join(',')} extract1=${impSteps[0]?.extractJson}`
+    )
+
+    // ④ 真跑导入的录制：这一步才是"保存下来能再次执行"的证明
+    const run = await call(`/tool/recording/${IMP}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({ dryRun: false, stopOnError: true, maxSteps: 50, vars: {} })
+    })
+    const runId = run.body?.data?.runId
+    let runDetail = null
+    for (let i = 0; i < 80 && runId; i += 1) {
+      const r = await call(`/tool/recording/${IMP}/runs/${runId}`)
+      runDetail = r.body?.data
+      if (runDetail && runDetail.status !== 'running') break
+      await sleep(300)
+    }
+    const outcomes = runDetail?.steps || []
+    const scrAfter = await detail(SCR)
+    record(
+      159,
+      '④ 导入的录制真跑通过（2/2 ok），草稿箱仍是 0 步（变量链与自清理同时成立）',
+      run.status === 200 &&
+        runDetail?.status === 'success' &&
+        outcomes.length === 2 &&
+        outcomes.every((o) => o.ok) &&
+        scrAfter?.stepCount === 0,
+      `run=${runDetail?.status || '无'} steps=${outcomes.map((o) => `${o.seq}:${o.ok}`).join(' ')} scr=${scrAfter?.stepCount}`
+    )
+
+    // ⑤ 非法脚本必须整条拒绝并点名是第几步（不是"部分导入"）
+    const badImp = await call('/tool/recording/import', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: rejectedName,
+        steps: [
+          { method: 'POST', path: '/system/dict/type', body: '{}' },
+          { method: 'FETCH', path: '/x' }
+        ]
+      })
+    })
+    record(
+      159,
+      '⑤ 非法步骤整条拒绝：400 且点名第 2 步（不允许"导进去一半"）',
+      badImp.status === 400 && /2/.test(badImp.body?.msg || badImp.body?.message || ''),
+      `status=${badImp.status} msg=${(badImp.body?.msg || badImp.body?.message || '').slice(0, 60)}`
+    )
+
+    // ⑥ 被拒的导入不得留下任何录制（整条事务的反向证据）
+    const rejectList = await call(`/tool/recording/list?name=${encodeURIComponent(rejectedName)}&pageNum=1&pageSize=10`)
+    record(
+      159,
+      '⑥ 被拒的导入在库里零残留（抬头与步骤都没落库）',
+      (rejectList.body?.total ?? 1) === 0,
+      `total=${rejectList.body?.total}`
+    )
+
+    // ⑦ 就地改一步：seq 不变、期望码生效（b147 挂账的界面能力，走 PUT 通道）
+    const firstStepId = impSteps[0]?.stepId
+    const patch = await call(`/tool/recording/${IMP}/steps/${firstStepId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        method: 'POST',
+        path: exportedSteps[0].path,
+        body: exportedSteps[0].body,
+        extractJson: JSON.stringify({ sid: 'data.stepId' }),
+        expectStatus: 201,
+        note: 'b148 改期望码'
+      })
+    })
+    const afterPatch = await detail(IMP)
+    const patched = afterPatch?.steps?.find((s) => s.stepId === firstStepId)
+    record(
+      159,
+      '⑦ 就地改步：期望码 200→201 生效、seq 仍是 1、步数不变（改内容不是挪位置）',
+      patch.status === 200 && patched?.expectStatus === 201 && patched?.seq === 1 && afterPatch?.stepCount === 2,
+      `status=${patch.status} expect=${patched?.expectStatus} seq=${patched?.seq} count=${afterPatch?.stepCount}`
+    )
+
+    // ⑧ 任务链路接线：回放会建一条 task_type=replay 的任务，任务中心按类型能筛出来
+    const taskList = await call('/system/task/list?taskType=replay&pageNum=1&pageSize=10')
+    record(
+      159,
+      '⑧ 任务中心能按 replay 类型筛到本次回放任务（两条链路在任务表上接线）',
+      taskList.status === 200 && (taskList.body?.total ?? 0) >= 1,
+      `total=${taskList.body?.total}`
+    )
+
+    // ⑨ UI：列表里能查到导入的录制，来源列显示「脚本导入」
+    // 必须**先导航**到列表页再断言：直接 reload 会把浏览器当前页（登录页/上一条用例的页）
+    // 刷新一遍，表格根本不存在（b148 首跑就是踩的这个坑，row=false 而 API 侧一切正常）。
+    const listOk = await openPage(page, '/tool/recording', 'recording')
+    if (listOk) await dismissAllOverlays(page)
+    await sleep(1500)
+    const row = page.locator('.el-table__row').filter({ hasText: importedName }).first()
+    const rowVisible = await _visible(row, 8000)
+    const sourceShown =
+      rowVisible &&
+      (await row
+        .getByText(/脚本导入|Imported/i)
+        .first()
+        .isVisible()
+        .catch(() => false))
+    record(
+      159,
+      '⑨ UI：导入的录制出现在列表且来源显示「脚本导入」（来源枚举有真实生产者）',
+      !!sourceShown,
+      `row=${rowVisible} source=${sourceShown}`
+    )
+  } finally {
+    for (const id of created) {
+      await call(`/tool/recording/${id}`, { method: 'DELETE' }).catch(() => null)
+    }
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -21838,7 +22078,8 @@ async function main() {
       { id: 155, fn: testFeature155 },
       { id: 156, fn: testFeature156 },
       { id: 157, fn: testFeature157 },
-      { id: 158, fn: testFeature158 }
+      { id: 158, fn: testFeature158 },
+      { id: 159, fn: testFeature159 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

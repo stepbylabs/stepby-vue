@@ -1197,6 +1197,7 @@ export default {
     },
     form: {
       taskTypeOperLog: 'Operation Log Export',
+      taskTypeReplay: 'Replay',
       taskTypeBackup: 'Data Backup',
       taskTypeOther: 'Other',
       statusWaiting: 'Waiting',

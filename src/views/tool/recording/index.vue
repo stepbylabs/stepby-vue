@@ -50,6 +50,11 @@
           {{ t('common.delete') }}
         </el-button>
       </el-col>
+      <el-col :span="1.5">
+        <el-button type="warning" plain icon="Upload" @click="openImport" v-hasPermi="['tool:recording:add']">
+          {{ t('recording.importScript') }}
+        </el-button>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList" />
     </el-row>
 
@@ -265,8 +270,15 @@
             <el-table-column :label="t('recording.stepExpect')" width="90" align="center">
               <template #default="scope">{{ scope.row.expectStatus ?? '—' }}</template>
             </el-table-column>
-            <el-table-column v-if="canEdit" :label="t('common.column.operation')" width="80" align="center">
+            <el-table-column v-if="canEdit" :label="t('common.column.operation')" width="110" align="center">
               <template #default="scope">
+                <el-button
+                  link
+                  type="primary"
+                  icon="Edit"
+                  :aria-label="t('recording.stepEdit')"
+                  @click="openStepEdit(scope.row)"
+                />
                 <el-button
                   link
                   type="danger"
@@ -412,6 +424,106 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="importOpen"
+      :title="t('recording.importScript')"
+      width="680px"
+      append-to-body
+      :before-close="beforeImportClose"
+    >
+      <el-alert type="info" :closable="false" class="mb-3" :title="t('recording.importTip')" />
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <el-button size="small" icon="FolderOpened" @click="pickImportFile">
+          {{ t('recording.importPickFile') }}
+        </el-button>
+        <input
+          ref="importFileRef"
+          type="file"
+          accept=".json,application/json"
+          class="hidden"
+          @change="onImportFilePicked"
+        />
+        <span class="text-xs text-gray-500">{{ t('recording.importFileTip') }}</span>
+      </div>
+      <el-input
+        v-model="importText"
+        type="textarea"
+        :rows="12"
+        :aria-label="t('recording.importScript')"
+        placeholder='{"name":"…","steps":[{"method":"POST","path":"/system/dept","body":"{}"}]}'
+      />
+      <el-alert v-if="importError" type="error" :closable="false" :title="importError" class="mt-3" />
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button type="primary" :loading="importSaving" @click="submitImport">
+            {{ t('recording.importSubmit') }}
+          </el-button>
+          <el-button @click="cancelImport">{{ t('common.cancel') }}</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="stepEditOpen"
+      :title="t('recording.stepEdit')"
+      width="620px"
+      append-to-body
+      :before-close="beforeStepEditClose"
+    >
+      <el-form :model="stepEditForm" label-width="120px">
+        <el-form-item :label="t('recording.stepMethod')">
+          <el-select v-model="stepEditForm.method" :aria-label="t('recording.stepMethod')">
+            <el-option v-for="m in HTTP_METHODS" :key="m" :label="m" :value="m" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('recording.stepPath')">
+          <el-input v-model="stepEditForm.path" :aria-label="t('recording.stepPath')" />
+          <div class="mt-1 text-xs text-gray-500">{{ t('recording.stepPathTip') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('recording.stepQuery')">
+          <el-input
+            v-model="stepEditForm.queryString"
+            :aria-label="t('recording.stepQuery')"
+            placeholder="pageNum=1&pageSize=10"
+          />
+        </el-form-item>
+        <el-form-item :label="t('recording.stepBody')">
+          <el-input v-model="stepEditForm.body" type="textarea" :rows="4" :aria-label="t('recording.stepBody')" />
+        </el-form-item>
+        <el-form-item :label="t('recording.stepExpect')">
+          <el-input-number
+            v-model="stepEditForm.expectStatus"
+            :min="100"
+            :max="599"
+            :value-on-clear="undefined"
+            controls-position="right"
+            :aria-label="t('recording.stepExpect')"
+          />
+          <span class="ml-2 text-xs text-gray-500">{{ t('recording.stepExpectTip') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('recording.stepExtract')">
+          <el-input
+            v-model="stepEditForm.extractJson"
+            :aria-label="t('recording.stepExtract')"
+            placeholder='{"deptId":"data.deptId"}'
+          />
+          <div class="mt-1 text-xs text-gray-500">{{ t('recording.stepExtractTip') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('recording.stepNote')">
+          <el-input v-model="stepEditForm.note" maxlength="200" :aria-label="t('recording.stepNote')" />
+        </el-form-item>
+      </el-form>
+      <el-alert v-if="stepEditError" type="error" :closable="false" :title="stepEditError" />
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button type="primary" :loading="stepEditSaving" @click="submitStepEdit">
+            {{ t('common.confirm') }}
+          </el-button>
+          <el-button @click="cancelStepEdit">{{ t('common.cancel') }}</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -431,15 +543,19 @@ import {
   exportScript,
   getRecording,
   getRun,
+  importRecording,
   listRecording,
   listRuns,
   replayRecording,
-  updateRecording
+  updateRecording,
+  updateStep
 } from '@/api/tool/recording'
 import type {
+  ImportPayload,
   OpRecording,
   OpRecordingDetail,
   OpRecordingQuery,
+  OpRecordingStep,
   OpReplayRun,
   OpReplayRunDetail,
   OpStepPreview
@@ -641,6 +757,152 @@ function handleDeleteStep(step: { stepId: number }): void {
       getList()
     })
     .catch(() => {})
+}
+
+// ==================== 步骤就地编辑 ====================
+
+/** 与后端 `normalize_step` 的方法白名单一致（不一致会让界面能选、服务端必拒） */
+const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+const stepEditOpen = ref(false)
+const stepEditSaving = ref(false)
+const stepEditError = ref('')
+const editingStepId = ref<number | null>(null)
+const stepEditForm = reactive({
+  method: 'POST',
+  path: '',
+  queryString: '',
+  body: '',
+  expectStatus: undefined as number | undefined,
+  extractJson: '',
+  note: ''
+})
+
+// 手改了六七个字段再按 Esc ⇒ 静默丢输入；走同一条脏值守卫（三条关闭通道汇一处）。
+const {
+  beforeClose: beforeStepEditClose,
+  cancel: cancelStepEdit,
+  markSaved: markStepEditClean
+} = useDialogDirtyGuard(stepEditOpen, () => ({
+  method: stepEditForm.method,
+  path: stepEditForm.path,
+  queryString: stepEditForm.queryString,
+  body: stepEditForm.body,
+  expectStatus: stepEditForm.expectStatus,
+  extractJson: stepEditForm.extractJson,
+  note: stepEditForm.note
+}))
+
+function openStepEdit(step: OpRecordingStep): void {
+  editingStepId.value = step.stepId
+  stepEditForm.method = step.method
+  stepEditForm.path = step.path
+  stepEditForm.queryString = step.queryString ?? ''
+  stepEditForm.body = step.body ?? ''
+  stepEditForm.expectStatus = step.expectStatus ?? undefined
+  stepEditForm.extractJson = step.extractJson ?? ''
+  stepEditForm.note = step.note ?? ''
+  stepEditError.value = ''
+  markStepEditClean()
+  stepEditOpen.value = true
+}
+
+async function submitStepEdit(): Promise<void> {
+  if (!detailRecordingId.value || !editingStepId.value) return
+  stepEditSaving.value = true
+  stepEditError.value = ''
+  try {
+    await updateStep(detailRecordingId.value, editingStepId.value, {
+      method: stepEditForm.method,
+      path: stepEditForm.path.trim(),
+      queryString: stepEditForm.queryString.trim() || undefined,
+      body: stepEditForm.body.trim() || undefined,
+      expectStatus: stepEditForm.expectStatus,
+      extractJson: stepEditForm.extractJson.trim() || undefined,
+      note: stepEditForm.note.trim() || undefined
+    })
+    markStepEditClean()
+    stepEditOpen.value = false
+    ElMessage.success(t('common.success'))
+    await reloadDetail()
+    getList()
+  } catch (e) {
+    // 拦截器已弹过一次提示；这里是**留得住**的那一份（含服务端点名的原因）
+    stepEditError.value = (e as Error)?.message || t('recording.stepEditFailed')
+  } finally {
+    stepEditSaving.value = false
+  }
+}
+
+// ==================== 导入脚本 ====================
+
+const importOpen = ref(false)
+const importSaving = ref(false)
+const importError = ref('')
+const importText = ref('')
+const importFileRef = ref<HTMLInputElement | null>(null)
+
+const {
+  beforeClose: beforeImportClose,
+  cancel: cancelImport,
+  markSaved: markImportClean
+} = useDialogDirtyGuard(importOpen, () => ({ importText: importText.value }))
+
+function openImport(): void {
+  importText.value = ''
+  importError.value = ''
+  markImportClean()
+  importOpen.value = true
+}
+
+function pickImportFile(): void {
+  importFileRef.value?.click()
+}
+
+async function onImportFilePicked(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 清空 value：同一个文件选第二次也要触发 change（否则用户以为没反应）
+  input.value = ''
+  if (!file) return
+  try {
+    importText.value = await file.text()
+    importError.value = ''
+  } catch {
+    importError.value = t('recording.importReadFailed')
+  }
+}
+
+async function submitImport(): Promise<void> {
+  const raw = importText.value.trim()
+  if (!raw) {
+    importError.value = t('recording.importEmpty')
+    return
+  }
+  let payload: ImportPayload
+  try {
+    payload = JSON.parse(raw) as ImportPayload
+  } catch {
+    importError.value = t('recording.importBadJson')
+    return
+  }
+  if (!Array.isArray(payload?.steps) || payload.steps.length === 0) {
+    importError.value = t('recording.importNoSteps')
+    return
+  }
+  importSaving.value = true
+  importError.value = ''
+  try {
+    await importRecording(payload)
+    markImportClean()
+    importOpen.value = false
+    ElMessage.success(t('common.success'))
+    getList()
+  } catch (e) {
+    importError.value = (e as Error)?.message || t('recording.importFailed')
+  } finally {
+    importSaving.value = false
+  }
 }
 
 // ==================== 导出 ====================

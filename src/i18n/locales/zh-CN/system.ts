@@ -1165,6 +1165,7 @@ export default {
     },
     form: {
       taskTypeOperLog: '操作日志导出',
+      taskTypeReplay: '录制回放',
       taskTypeBackup: '数据备份',
       taskTypeOther: '其他',
       statusWaiting: '等待中',

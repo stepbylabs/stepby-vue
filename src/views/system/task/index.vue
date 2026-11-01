@@ -11,7 +11,7 @@
             class="w-[160px]"
           >
             <el-option :label="t('task.form.taskTypeOperLog')" value="operlog_export" />
-            <el-option :label="t('task.form.taskTypeBackup')" value="backup" />
+            <el-option :label="t('task.form.taskTypeReplay')" value="replay" />
             <el-option :label="t('task.form.taskTypeOther')" value="other" />
           </el-select>
         </el-form-item>
@@ -115,7 +115,7 @@
           :sort-orders="['descending', 'ascending']"
         >
           <template #default="scope">
-            <el-tag size="small">{{ scope.row.taskType }}</el-tag>
+            <el-tag size="small">{{ taskTypeLabel(scope.row.taskType) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column
@@ -402,6 +402,23 @@ const hasQueryFilter = computed(() => {
   const q = queryParams.value
   return !!(q.taskType || q.status || q.operator)
 })
+
+/** 任务类型 → 人话（后端 `TASK_TYPES` 白名单的镜像；未知值原样显示，不假装认识它） */
+function taskTypeLabel(s: string): string {
+  switch (s) {
+    case 'operlog_export':
+      return t('task.form.taskTypeOperLog')
+    case 'replay':
+      return t('task.form.taskTypeReplay')
+    case 'other':
+      return t('task.form.taskTypeOther')
+    // 历史数据里可能还有 backup（当前没有生产者，筛选也不提供它）
+    case 'backup':
+      return t('task.form.taskTypeBackup')
+    default:
+      return s
+  }
+}
 
 function statusText(s: string): string {
   switch (s) {
