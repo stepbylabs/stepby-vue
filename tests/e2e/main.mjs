@@ -21252,6 +21252,295 @@ async function testFeature157(page) {
   }
 }
 
+/**
+ * 功能 158：操作录制 → HTTP 边界采集 → 变量链回放 → 脚本导出（b147）
+ *
+ * 判据设计（为什么这样断言）：
+ * - **采集层**：开关是 `X-Record-Into` 请求头，采集在 HTTP 边界发生 ⇒ 用真实写请求
+ *   （建字典类型）证明"用户正常干活就录上了"，而不是前端埋点自证。
+ * - **变量链**：步骤 1 把"新建步骤"的返回值按 `{"scratchStepId":"data.stepId"}`
+ *   抽出来，步骤 2 用 `{{scratchStepId}}` 引用它删除——只有真能"录一次反复跑"
+ *   才会出现"跑完草稿箱里净 0 步"这个可观测结果；写死路径也能跑通，但那不是录制。
+ * - **自清理**：回放的两次调用互相抵消（追加 + 删除），所以这条用例**不产生残留**；
+ *   采集用的字典类型在用例内删除（且这次 DELETE 不带开关，顺带证明"不带开关不采集"）。
+ * - **预检不推进变量**：dry-run 只渲染不执行，步骤 2 必须被点名"缺变量"——
+ *   把它报成"正常"会让用户以为预检通过、真跑必失败（本仓 b147 首跑实测过这个假绿）。
+ */
+async function testFeature158(page) {
+  log('=== 功能 158：操作录制 → 采集 → 变量链回放 → 脚本导出（b147） ===')
+
+  const { token } = await apiLogin()
+  const auth = { Authorization: `Bearer ${token}` }
+  const jsonHeaders = { ...auth, 'Content-Type': 'application/json' }
+  const call = async (path, init = {}) => {
+    const r = await fetch(`${CONFIG.backendUrl}${path}`, { headers: jsonHeaders, ...init })
+    const text = await r.text().catch(() => '')
+    let body = null
+    try {
+      body = JSON.parse(text)
+    } catch {
+      body = null
+    }
+    return { status: r.status, body, text }
+  }
+
+  const stamp = Date.now().toString().slice(-8)
+  const createdRecordings = []
+  let dictId = null
+  const dictType = `e2e_b147_${stamp}`
+
+  const createRecording = async (name) => {
+    const r = await call('/tool/recording', {
+      method: 'POST',
+      body: JSON.stringify({ name, description: `e2e ${stamp}`, source: 'ui' })
+    })
+    const id = r.body?.data?.recordingId
+    if (id) createdRecordings.push(id)
+    return id
+  }
+  const detail = async (id) => {
+    const r = await call(`/tool/recording/${id}`)
+    const d = r.body?.data
+    return d ? { stepCount: d.stepCount, steps: d.steps || [] } : null
+  }
+  const waitStepCount = async (id, expect, tries = 40) => {
+    for (let i = 0; i < tries; i += 1) {
+      const d = await detail(id)
+      if (d && d.stepCount === expect) return d
+      await sleep(250)
+    }
+    return await detail(id)
+  }
+
+  try {
+    // ① 页面可达：菜单由迁移种入，页面能渲染即证明"菜单 ↔ 路由 ↔ component"三者对得上
+    const pageOk = await openPage(page, '/tool/recording', 'recording')
+    record(158, '① 录制页可达（/tool/recording，菜单由迁移种入）', pageOk)
+    if (pageOk) await dismissAllOverlays(page)
+
+    // ② 建两条录制：R1=脚本，R2=草稿箱（被 R1 操作的对象）
+    const R1 = await createRecording(`e2e-脚本-${stamp}`)
+    const R2 = await createRecording(`e2e-草稿箱-${stamp}`)
+    const d1 = R1 ? await detail(R1) : null
+    record(
+      158,
+      '② API 新建两条录制，详情 stepCount=0（派生列与来源同事务）',
+      !!R1 && !!R2 && d1?.stepCount === 0,
+      `R1=${R1} R2=${R2} stepCount=${d1?.stepCount}`
+    )
+    if (!R1 || !R2) return
+
+    // ③ 两步：追加到 R2 → 按抽取出的 stepId 删除。路径里放 `{{scratchStepId}}` 才叫变量链
+    const stepBody = JSON.stringify({
+      method: 'GET',
+      path: '/system/dict/type/list',
+      queryString: 'pageNum=1&pageSize=10',
+      note: `e2e step ${stamp}`
+    })
+    const s1 = await call(`/tool/recording/${R1}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: 'POST',
+        path: `/tool/recording/${R2}/steps`,
+        body: stepBody,
+        note: '追加一步到草稿箱',
+        extractJson: JSON.stringify({ scratchStepId: 'data.stepId' })
+      })
+    })
+    const s2 = await call(`/tool/recording/${R1}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({
+        method: 'DELETE',
+        path: `/tool/recording/${R2}/steps/{{scratchStepId}}`,
+        note: '按上一步抽取出的 id 删除'
+      })
+    })
+    const d1b = await detail(R1)
+    record(
+      158,
+      '③ 追加 2 步且 seq 连续、stepCount=2（唯一索引 + 同事务计数）',
+      s1.body?.code === 200 &&
+        s2.body?.code === 200 &&
+        d1b?.stepCount === 2 &&
+        d1b.steps.map((s) => s.seq).join(',') === '1,2',
+      `seq=${d1b?.steps.map((s) => s.seq).join(',') || '无'} count=${d1b?.stepCount}`
+    )
+
+    // ④ 预检：只渲染不执行 ⇒ 步骤 1 出完整 URL，步骤 2 必须被点名缺变量
+    const dry = await call(`/tool/recording/${R1}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({ dryRun: true, stopOnError: true, maxSteps: 50, vars: {} })
+    })
+    const preview = dry.body?.data?.preview || []
+    const p2 = preview.find((p) => p.seq === 2)
+    record(
+      158,
+      '④ 预检渲染出两步，且步骤 2 被点名「缺变量」（预检不推进变量，不谎报通过）',
+      dry.status === 200 &&
+        preview.length === 2 &&
+        !!preview[0]?.url?.includes(`/tool/recording/${R2}/steps`) &&
+        !!(p2?.problem || '').includes('scratchStepId'),
+      `preview=${preview.length} p2.problem=${p2?.problem || '无'}`
+    )
+
+    // ⑤ 真跑：起任务 + 立刻返回 runId（不在 HTTP 上等回放跑完）
+    const run = await call(`/tool/recording/${R1}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({ dryRun: false, stopOnError: true, maxSteps: 50, vars: {} })
+    })
+    const runId = run.body?.data?.runId
+    record(
+      158,
+      '⑤ 回放已受理：返回 runId 且 total=2（重活在后台跑，不占 HTTP）',
+      run.status === 200 && !!runId && run.body?.data?.total === 2,
+      `runId=${runId ?? '无'} total=${run.body?.data?.total}`
+    )
+    if (!runId) return
+
+    // ⑥ 轮询终态（有界轮询，不写死 sleep 死等）
+    let runDetail = null
+    for (let i = 0; i < 80; i += 1) {
+      const r = await call(`/tool/recording/${R1}/runs/${runId}`)
+      runDetail = r.body?.data
+      if (runDetail && runDetail.status !== 'running') break
+      await sleep(300)
+    }
+    const outcomes = runDetail?.steps || []
+    record(
+      158,
+      '⑥ 回放终态 success 且逐步骤均 ok（真发 HTTP，不是空跑）',
+      runDetail?.status === 'success' && outcomes.length === 2 && outcomes.every((o) => o.ok),
+      `status=${runDetail?.status || '无'} outcomes=${outcomes.map((o) => `${o.seq}:${o.status}:${o.ok}`).join(' ')}`
+    )
+
+    // ⑦ 变量链的可观测证据：草稿箱跑前跑后都是 0 步（追加 + 按抽取值删除，净 0）
+    const d2 = await detail(R2)
+    record(
+      158,
+      '⑦ 变量链生效：草稿箱净 0 步（追加 + 按抽取值删除互相抵消，无残留）',
+      d2?.stepCount === 0,
+      `R2.stepCount=${d2?.stepCount} steps=${d2?.steps.map((s) => s.path).join(' | ') || '空'}`
+    )
+
+    // ⑧ 采集：真实写请求（建字典类型）+ 开关头 ⇒ 自动录成第 1 步
+    const R3 = await createRecording(`e2e-采集-${stamp}`)
+    if (!R3) {
+      record(158, '⑧ 采集：新建采集用录制', false, '创建失败')
+      return
+    }
+    const addDict = await fetch(`${CONFIG.backendUrl}/system/dict/type`, {
+      method: 'POST',
+      headers: { ...jsonHeaders, 'X-Record-Into': String(R3) },
+      body: JSON.stringify({ dictName: `E2E采集${stamp}`, dictType, status: '1', remark: 'b147 e2e' })
+    }).then((r) => r.json().catch(() => null))
+    const d3 = await waitStepCount(R3, 1)
+    record(
+      158,
+      '⑧ 带 X-Record-Into 的真实写请求被采集为 1 步（HTTP 边界采集生效）',
+      addDict?.code === 200 && d3?.stepCount === 1,
+      `addCode=${addDict?.code} stepCount=${d3?.stepCount}`
+    )
+
+    // ⑨ 采集内容：方法/路径/体真实，且**不含**任何凭据头
+    const captured = d3?.steps?.[0]
+    const headers = captured?.headersJson ? JSON.parse(captured.headersJson) : {}
+    const headerKeys = Object.keys(headers).map((k) => k.toLowerCase())
+    record(
+      158,
+      '⑨ 采集到的步骤方法与路径与真实请求一致，且不含 Authorization / Cookie 头',
+      captured?.method === 'POST' &&
+        captured?.path === '/system/dict/type' &&
+        (captured?.body || '').includes(dictType) &&
+        !headerKeys.includes('authorization') &&
+        !headerKeys.includes('cookie'),
+      `method=${captured?.method} path=${captured?.path} headers=${headerKeys.join(',') || '空'}`
+    )
+
+    // ⑩ 不带开关的同族写请求（顺便清理字典类型）⇒ 一步都不许进
+    const listDict = await call(`/system/dict/type/list?dictType=${dictType}&pageNum=1&pageSize=10`)
+    dictId = listDict.body?.rows?.[0]?.dictId ?? null
+    const delDict = dictId ? await call(`/system/dict/type/${dictId}`, { method: 'DELETE' }) : { status: 0, body: null }
+    await sleep(600)
+    const d3b = await detail(R3)
+    record(
+      158,
+      '⑩ 不带开关的 DELETE 清掉字典类型，录制步数仍为 1（旁路零采集）',
+      delDict.body?.code === 200 && d3b?.stepCount === 1,
+      `delCode=${delDict.body?.code} stepCount=${d3b?.stepCount}`
+    )
+    dictId = null
+
+    // ⑪ 开关写错必须显式失败，不静默：非法 id ⇒ 400，不存在的录制 ⇒ 404
+    const badHeader = await fetch(`${CONFIG.backendUrl}/system/dict/type/list?pageNum=1&pageSize=1`, {
+      headers: { ...auth, 'X-Record-Into': 'abc' }
+    }).catch(() => null)
+    const missingRec = await fetch(`${CONFIG.backendUrl}/system/dict/type/list?pageNum=1&pageSize=1`, {
+      headers: { ...auth, 'X-Record-Into': '99999999' }
+    }).catch(() => null)
+    record(
+      158,
+      '⑪ 非法开关 400 / 不存在的录制 404（写错了不装作录上了）',
+      badHeader?.status === 400 && missingRec?.status === 404,
+      `bad=${badHeader?.status} missing=${missingRec?.status}`
+    )
+
+    // ⑫⑬ 脚本导出：curl 可执行、http 用真实变量语法、两者都不内联真实令牌
+    const curlRes = await fetch(`${CONFIG.backendUrl}/tool/recording/${R1}/export?format=curl`, {
+      method: 'POST',
+      headers: auth
+    })
+    const curlScript = await curlRes.text().catch(() => '')
+    record(
+      158,
+      '⑫ 导出 curl：shebang + 遇错即停 + 含真实步骤路径 + 不内联令牌',
+      curlRes.status === 200 &&
+        curlScript.startsWith('#!/usr/bin/env bash') &&
+        curlScript.includes('set -euo pipefail') &&
+        curlScript.includes(`/tool/recording/${R2}/steps`) &&
+        !curlScript.includes(token),
+      `status=${curlRes.status} len=${curlScript.length}`
+    )
+
+    const httpRes = await fetch(`${CONFIG.backendUrl}/tool/recording/${R1}/export?format=http`, {
+      method: 'POST',
+      headers: auth
+    })
+    const httpScript = await httpRes.text().catch(() => '')
+    record(
+      158,
+      '⑬ 导出 .http：定义侧 @base、引用侧 {{base}}（真实语法，{base} 客户端不替换）',
+      httpRes.status === 200 &&
+        /@base = https?:\/\//.test(httpScript) &&
+        httpScript.includes('{{base}}') &&
+        httpScript.includes('Authorization: Bearer {{token}}'),
+      `status=${httpRes.status} len=${httpScript.length}`
+    )
+
+    // ⑭ UI 侧证据：列表里能查到这条录制，且行内有回放/导出入口（页面不是空壳）
+    await page.reload({ waitUntil: 'load' }).catch(() => null)
+    await sleep(2000)
+    await dismissAllOverlays(page)
+    const row = page
+      .locator('.el-table__row')
+      .filter({ hasText: `e2e-脚本-${stamp}` })
+      .first()
+    const rowVisible = await _visible(row, 8000)
+    // 行内按钮是纯图标（文案在 tooltip/aria-label 上）⇒ 必须按可访问名定位，
+    // 用 hasText 会永远等不到（b147 首版写法就是踩的这个坑）
+    const replayBtn = row.getByRole('button', { name: /回放|Replay/i }).first()
+    const btnVisible = rowVisible && (await _visible(replayBtn, 4000))
+    record(158, '⑭ UI 列表出现该录制且行内「回放」按钮可用', btnVisible, `row=${rowVisible} btn=${btnVisible}`)
+  } finally {
+    // 自清理：字典类型（若 ⑩ 未走到）+ 三条录制（删除会级联清步骤与回放记录）
+    if (dictId) {
+      await call(`/system/dict/type/${dictId}`, { method: 'DELETE' }).catch(() => null)
+    }
+    for (const id of createdRecordings) {
+      await call(`/tool/recording/${id}`, { method: 'DELETE' }).catch(() => null)
+    }
+  }
+}
+
 async function main() {
   parseCliArgs()
   // 批六十四质量工程：--merge 模式（合并各 shard JSON 输出总汇总）——不起浏览器、
@@ -21548,7 +21837,8 @@ async function main() {
       { id: 154, fn: testFeature154 },
       { id: 155, fn: testFeature155 },
       { id: 156, fn: testFeature156 },
-      { id: 157, fn: testFeature157 }
+      { id: 157, fn: testFeature157 },
+      { id: 158, fn: testFeature158 }
     ]
 
     // 注册表自检（b73 轮 16，无条件执行，不受 --feature 过滤影响）：

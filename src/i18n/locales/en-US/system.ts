@@ -18,6 +18,7 @@ export default {
     myDomain: 'Domain Management',
     myNav: 'My Navigation',
     dict: 'Dictionaries',
+    opRecording: 'Operation Recording',
     config: 'Config',
     notice: 'Announcements',
     msg: 'Message Management',

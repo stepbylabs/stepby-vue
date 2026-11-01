@@ -18,6 +18,7 @@ export default {
     myDomain: '域名管理',
     myNav: '我的导航',
     dict: '字典管理',
+    opRecording: '操作录制',
     config: '参数设置',
     notice: '公告管理',
     msg: '消息管理',
