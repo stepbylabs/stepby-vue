@@ -662,7 +662,9 @@ export default {
       sizeDesc: 'mmdb 文件实际大小',
       lastModified: '最后修改时间',
       modifiedDesc: 'mmdb 文件最后更新时间',
-      notLoaded: '未加载'
+      notLoaded: '未加载',
+      configUnavailable: '未取到',
+      credentialUnreadable: '无法解密'
     },
     field: {
       mmdbPath: 'mmdb 文件路径',
@@ -700,13 +702,18 @@ export default {
       phAccountId: '请输入 MaxMind Account ID',
       phLicenseKey: '请输入 MaxMind License Key',
       credentialsConfigured: '已配置（留空表示保留原值）',
+      configUnavailableTip:
+        '管理配置未能读取，下方「当前更新源 / 凭据」状态未知（这不等于未配置）。请重试，或检查参数配置表是否可用。',
+      credentialUnreadableTip:
+        'MaxMind 凭据已存储但无法解密（主密钥缺失、已轮换或密文损坏）。请重新填写并保存以修复；字段留空不会覆盖已存储的密文，但也不会修复它。如需清除，请勾选「清空已存储凭据」。',
+      phAccountIdUnreadable: '已存储但无法解密，请重新填写 Account ID',
+      phLicenseKeyUnreadable: '已存储但无法解密，请重新填写 License Key',
       autoUpdateTip: '启用后将按 cron 表达式自动更新：{cron}',
       clearCredentialsTip: '勾选后将清空已存储的凭据（适合切换到 P3TERX 源）',
       updateAlert: '更新操作将从远程下载 mmdb 文件（约 60-100 MB），下载完成后自动热加载，无需重启服务。'
     },
     validate: {
-      sourceRequired: '请选择更新源',
-      maxmindCredentialsRequired: '切换到 MaxMind 源需配置 Account ID 和 License Key'
+      sourceRequired: '请选择更新源'
     },
     tip: {
       loadFailed: '状态与配置未能全部加载，页面显示的不是最新值',

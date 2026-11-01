@@ -65,6 +65,39 @@
       </template>
     </el-alert>
 
+    <!-- b145（N-144-I）：管理配置读失败必须单独成一条，绝不与"功能没开"共用一个界面。
+         服务端在这一路回的是 200 + 默认值，所以 load-error 那条不会亮——只能由这个标记点亮。 -->
+    <el-alert
+      v-if="status && !configAvailable"
+      type="error"
+      :closable="false"
+      show-icon
+      class="mb-4"
+      :title="t('ipLocation.hint.configUnavailableTip')"
+      data-test="ip-location-config-unavailable"
+    >
+      <template #default>
+        <el-button link type="primary" @click="handleRefresh">{{ t('common.retry') }}</el-button>
+      </template>
+    </el-alert>
+
+    <!-- 凭据解不开是"数据坏了"，不是"请求失败"：给的是去重新保存的出口，不是重试 -->
+    <el-alert
+      v-if="anyCredentialUnreadable"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="mb-4"
+      :title="t('ipLocation.hint.credentialUnreadableTip')"
+      data-test="ip-location-credential-unreadable"
+    >
+      <template #default>
+        <el-button v-hasPermi="['monitor:iplocation:edit']" link type="primary" @click="handleOpenConfig">
+          {{ t('ipLocation.btn.config') }}
+        </el-button>
+      </template>
+    </el-alert>
+
     <!-- 状态卡片 -->
     <el-row :gutter="16" v-loading="loading">
       <el-col :xs="24" :sm="12" :md="8" :lg="6">
@@ -82,9 +115,7 @@
         <el-card shadow="hover" class="stat-card mb-4 text-center transition-all duration-200 hover:-translate-y-1">
           <div class="stat-title text-sm text-text-secondary mb-2">{{ t('ipLocation.stat.currentSource') }}</div>
           <div class="stat-value text-xl font-semibold text-text-primary mb-2 min-h-7">
-            <el-tag :type="status?.currentSource === 'maxmind' ? 'warning' : 'info'" size="large">
-              {{ status?.currentSource === 'maxmind' ? 'MaxMind' : 'P3TERX' }}
-            </el-tag>
+            <el-tag :type="sourceTagType()" size="large">{{ sourceTagLabel() }}</el-tag>
           </div>
           <div class="stat-desc text-xs text-text-placeholder">{{ t('ipLocation.stat.sourceDesc') }}</div>
         </el-card>
@@ -127,22 +158,16 @@
           {{ formatTime(status?.mmdbModified || 0) }}
         </el-descriptions-item>
         <el-descriptions-item :label="t('ipLocation.field.currentSource')">
-          <el-tag :type="status?.currentSource === 'maxmind' ? 'warning' : 'info'" size="small">
-            {{
-              status?.currentSource === 'maxmind'
-                ? t('ipLocation.source.maxmindOfficial')
-                : t('ipLocation.source.p3terxMirror')
-            }}
-          </el-tag>
+          <el-tag :type="sourceTagType()" size="small">{{ sourceTagLabel() }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item :label="t('ipLocation.field.maxmindAccountId')">
-          <el-tag :type="status?.maxmindAccountIdConfigured ? 'success' : 'info'" size="small">
-            {{ status?.maxmindAccountIdConfigured ? t('common.yes') : t('common.no') }}
+          <el-tag :type="credTagType(accountIdState)" size="small">
+            {{ credTagLabel(accountIdState) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item :label="t('ipLocation.field.maxmindLicenseKey')">
-          <el-tag :type="status?.maxmindLicenseKeyConfigured ? 'success' : 'info'" size="small">
-            {{ status?.maxmindLicenseKeyConfigured ? t('common.yes') : t('common.no') }}
+          <el-tag :type="credTagType(licenseKeyState)" size="small">
+            {{ credTagLabel(licenseKeyState) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item :label="t('ipLocation.field.autoUpdateCron')">
@@ -191,9 +216,11 @@
               <el-input
                 v-model="configForm.maxmindAccountId"
                 :placeholder="
-                  config.maxmindAccountIdConfigured
-                    ? t('ipLocation.hint.credentialsConfigured')
-                    : t('ipLocation.hint.phAccountId')
+                  config.accountIdUnreadable
+                    ? t('ipLocation.hint.phAccountIdUnreadable')
+                    : config.maxmindAccountIdConfigured
+                      ? t('ipLocation.hint.credentialsConfigured')
+                      : t('ipLocation.hint.phAccountId')
                 "
                 :maxlength="100"
                 clearable
@@ -205,9 +232,11 @@
                 type="password"
                 show-password
                 :placeholder="
-                  config.maxmindLicenseKeyConfigured
-                    ? t('ipLocation.hint.credentialsConfigured')
-                    : t('ipLocation.hint.phLicenseKey')
+                  config.licenseKeyUnreadable
+                    ? t('ipLocation.hint.phLicenseKeyUnreadable')
+                    : config.maxmindLicenseKeyConfigured
+                      ? t('ipLocation.hint.credentialsConfigured')
+                      : t('ipLocation.hint.phLicenseKey')
                 "
                 :maxlength="100"
                 clearable
@@ -226,7 +255,7 @@
         </el-form-item>
 
         <Transition name="expand-fade">
-          <el-form-item v-if="config.maxmindAccountIdConfigured || config.maxmindLicenseKeyConfigured">
+          <el-form-item v-if="hasStoredCredentials">
             <el-checkbox v-model="configForm.clearCredentials">
               {{ t('ipLocation.field.clearCredentials') }}
             </el-checkbox>
@@ -291,6 +320,7 @@ import {
 } from '@/api/monitor/ipLocation'
 import modal from '@/plugins/modal'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { credentialTagState, type CredentialTagState } from '@/utils/ipCredentialState'
 
 const { t } = useI18n()
 const configFormRef = useTemplateRef('configFormRef')
@@ -301,7 +331,11 @@ const config = ref<IpLocationConfigVo>({
   updateSource: 'p3terx',
   maxmindAccountIdConfigured: false,
   maxmindLicenseKeyConfigured: false,
-  autoUpdateEnabled: false
+  autoUpdateEnabled: false,
+  accountIdPresent: false,
+  accountIdUnreadable: false,
+  licenseKeyPresent: false,
+  licenseKeyUnreadable: false
 })
 
 // 加载状态
@@ -313,6 +347,91 @@ const updating = ref(false)
 const saving = ref(false)
 /** 任一取数失败即置位：页面不得在"状态/配置有一路没读到"时提示刷新成功。 */
 const refreshError = ref(false)
+
+// ==================== 凭据三态（b145 · N-144-I）====================
+//
+// 改造前两处会撒谎：① 管理配置读失败时服务端回默认档，页面显示"更新源 P3TERX / 凭据 否"，
+// 把一次 sys_config 读故障显示成"这个功能没开"；② 凭据密文解不开（主密钥缺失或轮换过）
+// 也被折成"否"，于是运维去重填一个库里本来就有的凭据，真故障没人看见。
+// 判定口径由 `utils/ipCredentialState` 单点给出，这里只做"状态 → 显示"的映射。
+
+/**
+ * 管理配置这一路是否真读到。
+ *
+ * 取 `!== false` 而不是 `!!`：**只有后端明说"没读到"才报**，字段缺失按"读到了"处理。
+ * 两个方向不对称的理由：这条告警是对**当前部署**的事实陈述，而老后端/fork 不带这个字段时
+ * 页面并没有任何证据说它读失败——按 `!!` 写会把"我不知道"显示成"配置读不出来"，
+ * 与 b90/b118 立的"失败与没有必须可区分"正好相反（那是把没有伪装成失败）。
+ * 生产者侧由 `IpLocationStatus::config_available` 的 serde 断言钉住"一定带这个键"，
+ * 所以这里不需要为"字段悄悄没了"再设一道哨兵。
+ */
+const configAvailable = computed(() => status.value?.configAvailable !== false)
+
+const accountIdState = computed<CredentialTagState>(() =>
+  credentialTagState({
+    available: configAvailable.value,
+    present: !!status.value?.accountIdPresent,
+    unreadable: !!status.value?.accountIdUnreadable,
+    configured: !!status.value?.maxmindAccountIdConfigured
+  })
+)
+const licenseKeyState = computed<CredentialTagState>(() =>
+  credentialTagState({
+    available: configAvailable.value,
+    present: !!status.value?.licenseKeyPresent,
+    unreadable: !!status.value?.licenseKeyUnreadable,
+    configured: !!status.value?.maxmindLicenseKeyConfigured
+  })
+)
+
+/** 任一凭据解不开 ⇒ 顶部给一条可操作的告警（逐字段由标签说清是哪个） */
+const anyCredentialUnreadable = computed(
+  () => accountIdState.value === 'unreadable' || licenseKeyState.value === 'unreadable'
+)
+
+/**
+ * "清空已存储凭据"这一项何时该出现：库里**有**凭据就要给出口，
+ * 包括解不开的那种——改造前只看 `*Configured`（解密成功才为真），
+ * 于是坏掉的密文既看不见也清不掉，唯一出路是手改参数表。
+ */
+const hasStoredCredentials = computed(
+  () =>
+    config.value.maxmindAccountIdConfigured ||
+    config.value.maxmindLicenseKeyConfigured ||
+    config.value.accountIdPresent ||
+    config.value.licenseKeyPresent
+)
+
+function credTagType(s: CredentialTagState): 'success' | 'warning' | 'info' {
+  if (s === 'configured') return 'success'
+  if (s === 'unreadable') return 'warning'
+  return 'info'
+}
+
+function credTagLabel(s: CredentialTagState): string {
+  switch (s) {
+    case 'unknown':
+      return t('ipLocation.stat.configUnavailable')
+    case 'unreadable':
+      return t('ipLocation.stat.credentialUnreadable')
+    case 'configured':
+      return t('common.yes')
+    default:
+      return t('common.no')
+  }
+}
+
+/** 更新源同理：配置没读到时不得断言"P3TERX"（那是默认值，不是事实） */
+function sourceTagType(): 'warning' | 'info' {
+  return status.value?.currentSource === 'maxmind' ? 'warning' : 'info'
+}
+
+function sourceTagLabel(): string {
+  if (!configAvailable.value) return t('ipLocation.stat.configUnavailable')
+  return status.value?.currentSource === 'maxmind'
+    ? t('ipLocation.source.maxmindOfficial')
+    : t('ipLocation.source.p3terxMirror')
+}
 
 // 对话框
 const configOpen = ref(false)
@@ -474,17 +593,10 @@ async function submitConfig() {
     const valid = await configFormRef.value.validate().catch(() => false)
     if (!valid) return
 
-    // 切换到 maxmind 时若凭据未配置且表单也空，提示
-    if (
-      configForm.updateSource === 'maxmind' &&
-      !configForm.clearCredentials &&
-      !config.value.maxmindAccountIdConfigured &&
-      !configForm.maxmindAccountId
-    ) {
-      modal.msgWarning(t('ipLocation.validate.maxmindCredentialsRequired'))
-      return
-    }
-
+    // b145：这里**不再**本地预检"切到 maxmind 必须有凭据"。原先那段是同一件事的第二份实现，
+    // 而且它只查 Account ID、不查 License Key，并把"存了但解不开"也说成"请填写凭据"——
+    // 服务端现在给出的是分因的两条理由（没存过 ⇒ 去填；解不开 ⇒ 重填或清空），
+    // 且拦在抢锁与任何副作用之前。后端的理由严格比前端映射更具体（b125 口径），少一份实现就少一份漂移。
     await saveIpLocationConfig({ ...configForm })
     modal.msgSuccess(t('common.success'))
     configOpen.value = false

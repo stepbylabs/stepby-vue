@@ -29,6 +29,20 @@ export interface IpLocationStatus {
   maxmindAccountIdConfigured: boolean
   /** MaxMind License Key 是否已配置 */
   maxmindLicenseKeyConfigured: boolean
+  /**
+   * 管理配置是否真的读到了（b145）。
+   * false 时下面五个凭据/源字段全是默认值——界面**不得**据此显示"未启用/未配置"，
+   * 必须显式标"未取到"（AGENTS ㊷：失败与没有必须可区分）。
+   */
+  configAvailable: boolean
+  /** 库里是否有 Account ID 密文 */
+  accountIdPresent: boolean
+  /** Account ID 有密文但解不开（主密钥缺失/已轮换/密文损坏） */
+  accountIdUnreadable: boolean
+  /** 库里是否有 License Key 密文 */
+  licenseKeyPresent: boolean
+  /** License Key 有密文但解不开 */
+  licenseKeyUnreadable: boolean
 }
 
 /** IP 库管理配置（脱敏视图，仅告知是否已配置凭据） */
@@ -37,6 +51,14 @@ export interface IpLocationConfigVo {
   maxmindAccountIdConfigured: boolean
   maxmindLicenseKeyConfigured: boolean
   autoUpdateEnabled: boolean
+  /** 库里是否有 Account ID 密文（b145） */
+  accountIdPresent: boolean
+  /** Account ID 有密文但解不开 */
+  accountIdUnreadable: boolean
+  /** 库里是否有 License Key 密文 */
+  licenseKeyPresent: boolean
+  /** License Key 有密文但解不开 */
+  licenseKeyUnreadable: boolean
 }
 
 /** 保存 IP 库管理配置的请求 DTO */

@@ -78,6 +78,10 @@ export function logout() {
 }
 
 // 获取验证码
+//
+// 响应同时下发 `registerEnabled`（注册是否开放）：这是注册开关的唯一来路。
+// 早期另有一个"探测 /register 是否 403"的壳函数，关闭态必然在控制台留一条 403，
+// 且与这个字段构成同一件事的两份实现（㉘），现已删除——新增消费点一律读字段，不要再走探测。
 export function getCodeImg(): Promise<CaptchaInfoResult> {
   return request({
     url: '/captchaImage',
@@ -87,18 +91,4 @@ export function getCodeImg(): Promise<CaptchaInfoResult> {
     method: 'get',
     timeout: 20000
   })
-}
-
-// 探测注册功能是否开启（已废弃，保留向后兼容）
-//
-// 历史背景：早期后端 /captchaImage 不返回 registerUser 字段，前端通过探测 /register 接口判断。
-// 现状：后端 /captchaImage 已新增 registerEnabled 字段（P0 优化），前端应直接使用该字段，
-// 避免探测 /register 触发 403 控制台错误。
-//
-// 兼容说明：保留此函数仅为兼容旧调用方，新代码应使用 CaptchaInfoResult.registerEnabled 字段。
-export function checkRegisterEnabled(): Promise<boolean> {
-  // 优先使用 captcha 接口返回的 registerEnabled 字段
-  return getCodeImg()
-    .then((res) => res.registerEnabled === true)
-    .catch(() => false)
 }

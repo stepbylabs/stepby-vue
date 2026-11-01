@@ -20,11 +20,17 @@
  * exe 上，而本批后端源码改到 18:09 ——**路径对上了不等于码是新的**，`start-backend.mjs` 那条
  * 镜像路径判据看不见这件事，两条腿合起来才是完整判据。
  *
+ * 第三道闸**红的时候**还带一句归因（b145 收 b144 N-144-H）：查出被测端口上监听进程的 PID 与
+ * exe 路径，并和刚被判陈旧的那枚 exe 比同源。立项代价是实测的——b144 批内一句注释落盘后，
+ * a11y 被新鲜度闸拦成一条 `__setup__` FAIL、actgate 折算成 UNRUN，而"拦的是刚写的注释还是真没
+ * 重建"当时只能靠人回忆批内时序。归因不是判据（取不到也照常红），但它把一次红读成一句话。
+ *
  * 用法：
  *   node tests/e2e/build-freshness.mjs                       # 判当前 :8080 的产物
  *   node tests/e2e/build-freshness.mjs --artifact-dir=dist   # 判 vite preview 那份
  *   node tests/e2e/build-freshness.mjs --selftest            # 合成夹具双向，不碰网络
  */
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +49,15 @@ const GENERATED_RE = /^src[\\/]types[\\/]api[\\/]generated[\\/]/
 const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/
 /** 仓根上会影响构建的文件 */
 const ROOT_FILES = ['index.html', 'vite.config.ts', 'tailwind.config.js', 'postcss.config.js']
+
+/**
+ * 本地默认 exe 位置——"判哪一枚二进制陈旧"与"端口上跑的是哪一枚"必须共用这一个路径事实源，
+ * 否则两处各写一遍字面量，改了新鲜度那一侧、归因那一侧还指着旧路径（㉘ 的同一条纪律）。
+ * 刻意不做 release 档猜测：找不到 exe 时 `staleBackendSources` 响亮失败，不会悄悄去看另一份产物。
+ */
+export function defaultExeFile(axumRoot = path.join(REPO_ROOT, 'stepby-axum')) {
+  return path.join(axumRoot, 'target', 'debug', 'stepby-axum.exe')
+}
 
 const log = (...a) => console.log(...a)
 
@@ -219,7 +234,7 @@ function isExcluded(abs, { excludedFiles, excludedDirs }) {
  */
 export function staleBackendSources({
   axumRoot = path.join(REPO_ROOT, 'stepby-axum'),
-  exeFile = path.join(axumRoot, 'target', 'debug', 'stepby-axum.exe'),
+  exeFile = defaultExeFile(axumRoot),
   minFiles = 200,
   crateSrcDirs = ['src', path.join('governance', 'src'), path.join('migration', 'src')]
 } = {}) {
@@ -274,6 +289,130 @@ export function staleBackendSources({
 }
 
 /**
+ * 纯函数：从 `netstat -ano` 的正文里取出**在该端口 LISTENING** 的 PID（去重、保序）。
+ *
+ * 抽成纯函数是为了自检能双向驱动它（不碰网络、不依赖本机有没有跑服务）——这条判据的输出
+ * 是"归因信息"，它自己坏了必须和判据坏了一样可测。
+ *
+ * 三条形状约束，各挡一种误读：
+ * ① 状态必须逐字符 `LISTENING`——`TIME_WAIT` 行的本地地址同样带 `:8080`，按"出现过端口"
+ *    取会把已关闭的连接算成监听者；
+ * ② 端口匹配用 `:port` 结尾，不是"包含"——`:18080` 含 `8080`，包含式会拦到隔壁实例；
+ * ③ PID 必须全是数字——表头行 `  Proto  Local Address …` 的第四列是 `PID` 本身。
+ *
+ * @param {string} text netstat 正文
+ * @param {string|number} port 端口
+ * @returns {string[]} PID 列表（可能为空——空数组只说明"这张表里没有该端口的监听行"）
+ */
+export function parseNetstatPids(text, port) {
+  const portRe = new RegExp(':' + String(port) + '$')
+  const out = []
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/)
+    if (cols.length < 5) continue
+    if (cols[3].toUpperCase() !== 'LISTENING') continue
+    if (!portRe.test(cols[1])) continue
+    if (!/^\d+$/.test(cols[4])) continue
+    if (!out.includes(cols[4])) out.push(cols[4])
+  }
+  return out
+}
+
+/** 路径同源判定：Windows 大小写不敏感、分隔符两种写法等价，所以比归一后的串。 */
+function samePath(a, b) {
+  if (!a || !b) return null
+  const n = (s) => String(s).trim().replace(/[\\/]/g, '\\').toLowerCase()
+  return n(a) === n(b)
+}
+
+/**
+ * 从被测 URL 取端口——归因必须问"**本轮要访问的那个端口**"，而不是硬编码 8080：
+ * 第二实例（`SERVER_PORT=8094`、seed_diff 那一类）被检查时，问错端口会得到"没有监听行"，
+ * 于是把真在跑的实例说成没跑（前言 ⑯(c)：前置条件不成立的归因是负资产）。
+ * 解析不出来时回落 8080（本仓默认档），不猜别的。
+ */
+export function portOf(baseUrl) {
+  try {
+    const u = new URL(String(baseUrl))
+    if (u.port) return u.port
+    return u.protocol === 'https:' ? '443' : '80'
+  } catch {
+    return '8080'
+  }
+}
+
+/**
+ * "此刻谁在听这个端口"——PID + 它的可执行文件路径。
+ *
+ * 立项原因（b144 N-144-H）：新鲜度闸拦下"源码比 exe 新"时，人分不清拦的是**刚写的一句注释**
+ * 还是**真没重建**，因为判据只说"exe 是旧的"，不说端口上跑的是哪一枚。补上这两项之后
+ * 一眼可判：监听者就是那枚被判陈旧的 exe ⇒ 重构建 + 重启；路径不是 ⇒ 先确认测的是哪棵树。
+ *
+ * 全程只读系统命令（`netstat` / `Get-CimInstance`），不联网、不写盘；任何一步失败都
+ * **返回原因而不是抛错**——这是归因信息，不是判据本体，它取不到时主判据照常红。
+ * "取不到 PID"绝不能读成"没有进程在听"，所以结局一律带 `note` 写明卡在哪一步。
+ *
+ * @param {{port?:string|number, exeHint?:string, runImpl?:(cmd:string,args:string[])=>{ok:boolean,out?:string,note?:string}}} [opts]
+ */
+export function describeListener({ port = 8080, exeHint = '', runImpl } = {}) {
+  const run =
+    runImpl ||
+    ((cmd, args) => {
+      try {
+        const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 5000, windowsHide: true })
+        if (r.error) return { ok: false, note: `命令未能启动（${r.error.message}）` }
+        if (r.status !== 0) return { ok: false, note: `${cmd} 退出码 ${r.status}` }
+        return { ok: true, out: String(r.stdout ?? '') }
+      } catch (e) {
+        return { ok: false, note: `${cmd} 调用异常（${e && e.message ? e.message : String(e)}）` }
+      }
+    })
+  if (!/^\d+$/.test(String(port))) {
+    return { pid: null, exe: null, sameAsExpected: null, note: `端口形如 ${JSON.stringify(port)} 不可解析` }
+  }
+  const net = run('netstat', ['-ano'])
+  if (!net.ok) return { pid: null, exe: null, sameAsExpected: null, note: `netstat 不可用：${net.note}` }
+  const pids = parseNetstatPids(net.out, port)
+  if (pids.length === 0) {
+    return { pid: null, exe: null, sameAsExpected: null, note: `端口 ${port} 上没有 LISTENING 行` }
+  }
+  const pid = pids[0]
+  const note = pids.length > 1 ? `该端口有 ${pids.length} 个监听 PID，取首个 ${pid}` : ''
+  // 只用数字 PID 拼进 CIM 过滤器；非数字一律不查（注入面为零）
+  const proc = run('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").ExecutablePath`
+  ])
+  const exe = proc.ok
+    ? String(proc.out || '')
+        .trim()
+        .split(/\r?\n/)[0]
+    : ''
+  return {
+    pid,
+    exe: exe || null,
+    sameAsExpected: exeHint ? samePath(exe, exeHint) : null,
+    note: !proc.ok ? `取 exe 路径失败：${proc.note}` : note || (exe ? '' : '进程已退出或路径不可读')
+  }
+}
+
+/** 归因行的文案：四种结局（未探测 / 取不到 / 同一枚 / 另一枚）必须各说各话，不得都写成"请重构建"。 */
+export function listenerAttributionLine(info, exeFile, port = '8080') {
+  if (!info) return `端口 ${port} 的监听者未探测。`
+  if (!info.pid) return `端口 ${port} 的监听者取不到（${info.note || '原因未给出'}）⇒ 不作为"服务已就绪"的证据。`
+  const where = info.exe ? `exe=${info.exe}` : 'exe 路径不可读'
+  const tail =
+    info.sameAsExpected === true
+      ? '监听的就是上面那枚被判陈旧的 exe ⇒ 重构建后必须重启进程，端口上才会换上新的'
+      : info.sameAsExpected === false
+        ? `⚠ 监听者不是被判陈旧的那枚（${exeFile}）⇒ 先确认端口 ${port} 服务的是哪一棵树（见 AGENTS 门禁全景 ①）`
+        : ''
+  return `当前端口 ${port} 监听 PID=${info.pid}，${where}${tail ? '：' + tail : ''}。`
+}
+
+/**
  * 完整闸：新鲜度 + 服务即产物。`fetchImpl` / `headImpl` 供自检注入，真跑用 node fetch。
  * 返回 `{ artifactDir, chunk, bytes }`；任何一条不过一律抛错（调用方 EXIT=2）。
  */
@@ -286,20 +425,40 @@ export async function assertFreshServedApp({
   headImpl,
   checkBackend = true,
   axumRoot,
-  exeFile
+  exeFile,
+  // 归因探针可注入：自检**必须**注入假探针——真探针起 netstat/powershell 子进程，
+  // 把"判据跑得动"变成"本机有没有这些命令"（前言 ④：判据不得与环境耦合）。
+  listenerProbe = describeListener
 } = {}) {
   // 后端那一腿排在前面：它不需要网络，而且"exe 是旧的"意味着后面所有 UI 判据测的
   // 都是上一轮的二进制——先拦住才不必再解释"为什么服务起来了却测的是旧码"。
   if (checkBackend) {
-    const b = staleBackendSources({ axumRoot, exeFile })
+    const resolvedExe = exeFile || defaultExeFile(axumRoot)
+    const b = staleBackendSources({ axumRoot, exeFile: resolvedExe })
     if (b.stale.length > 0) {
       const list = b.stale
         .slice(0, 6)
         .map((s) => `${s.rel}（比 exe 新 ${(s.agoMs / 60000).toFixed(1)} 分钟）`)
         .join('、')
+      // 归因（b144 N-144-H）：只说"exe 是旧的"分不开"拦的是刚写的一句注释"与"真没重建"，
+      // 所以顺带问一句"端口上跑的是哪一枚"。探测失败不影响本条红——它是解释，不是判据。
+      const port = portOf(baseUrl)
+      let listener = null
+      try {
+        listener = listenerProbe({ port, exeHint: resolvedExe })
+      } catch (e) {
+        listener = {
+          pid: null,
+          exe: null,
+          sameAsExpected: null,
+          note: `探针自身异常（${e && e.message ? e.message : String(e)}）`
+        }
+      }
       throw new Error(
-        `后端产物陈旧：exe 编译于 ${new Date(b.exeMs).toISOString()}，而 ${b.stale.length} 个后端文件比它新——首推 ${list}。` +
-          `:8080 上跑的必然不含这些改动，跑批却会把它们记成"本批后端改动已验证"。` +
+        `后端产物陈旧：exe（${resolvedExe}）编译于 ${new Date(b.exeMs).toISOString()}，` +
+          `而 ${b.stale.length} 个后端文件比它新——首推 ${list}。` +
+          listenerAttributionLine(listener, resolvedExe, port) +
+          ` 端口 ${port} 上跑的必然不含这些改动，跑批却会把它们记成"本批后端改动已验证"。` +
           `先 cargo build（本机 -j 4）再用 stepby-axum/start-backend.mjs 重启，再跑本判据。`
       )
     }
@@ -530,6 +689,8 @@ async function selftest() {
     if (!/遍历已坏/.test(String(e.message))) fail.push(`⑫ 拒绝理由没指向采集面：${e.message}`)
   }
   // ⑬ 接线自证：总闸必须真的走到后端这一腿（写了没接线=没写）
+  //    ⚠ 探针在这里也必须注入假实现——自检一旦落到真 `describeListener` 就起 netstat/powershell
+  //    子进程，"自检跑得动"就变成"本机有没有那两个命令"（前言 ④：判据不得与环境耦合）。
   try {
     await assertFreshServedApp({
       vueRoot,
@@ -538,7 +699,8 @@ async function selftest() {
       minFiles,
       axumRoot: axum,
       exeFile: exe,
-      fetchImpl: okFetch
+      fetchImpl: okFetch,
+      listenerProbe: () => ({ pid: null, exe: null, sameAsExpected: null, note: '自检注入的假探针' })
     })
     fail.push('⑬ 总闸放行了陈旧的后端 exe（后端判据没接线）')
   } catch (e) {
@@ -632,6 +794,119 @@ async function selftest() {
   } catch (e) {
     fail.push(`⑳d 多入口 chunk 抛错：${e.message}`)
   }
+  // ㉑ 归因探针的解析腿（纯函数，不碰网络）：三种"看着像监听"的形状都必须不误取
+  const NET = [
+    '  Proto  Local Address          Foreign Address        State           PID',
+    '  TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       30360',
+    '  TCP    [::]:8080              [::]:0                 LISTENING       30360',
+    '  TCP    127.0.0.1:8080         127.0.0.1:52233        TIME_WAIT       0',
+    '  TCP    0.0.0.0:18080          0.0.0.0:0              LISTENING       41001',
+    '  UDP    0.0.0.0:8080           *:*                                    41999'
+  ].join('\r\n')
+  const pids = parseNetstatPids(NET, '8080')
+  if (pids.length !== 1 || pids[0] !== '30360')
+    fail.push(`㉑ 监听 PID 取错（期望 [30360]）：${JSON.stringify(pids)}——TIME_WAIT/邻近端口/UDP 不得算监听者`)
+  if (parseNetstatPids(NET, '18080').join() !== '41001')
+    fail.push('㉑b 反证：18080 的监听者必须独立取到（端口匹配不得只比"含 8080"）')
+  if (parseNetstatPids('', '8080').length !== 0 || parseNetstatPids(null, '8080').length !== 0)
+    fail.push('㉑c 空正文必须得空集合（"没数据"不得读成"有监听者"）')
+  // ㉒ describeListener 四态：全成功 / netstat 坏了 / 没有监听行 / 路径取不到
+  const mkRun = (table) => (cmd) => {
+    const hit = table[cmd]
+    return hit ? hit : { ok: false, note: `未预期的命令 ${cmd}` }
+  }
+  const d1 = describeListener({
+    port: '8080',
+    exeHint: 'D:\\Projects\\stepby\\stepby-axum\\target\\debug\\stepby-axum.exe',
+    runImpl: mkRun({
+      netstat: { ok: true, out: NET },
+      'powershell.exe': { ok: true, out: 'D:\\projects\\stepby\\stepby-axum\\target\\debug\\STEPBY-AXUM.EXE\r\n' }
+    })
+  })
+  if (d1.pid !== '30360' || d1.sameAsExpected !== true)
+    fail.push(`㉒ 同一枚 exe 必须判成同源（大小写/分隔符差异不得影响）：${JSON.stringify(d1)}`)
+  const d2 = describeListener({
+    port: '8080',
+    exeHint: 'C:\\other\\stepby.exe',
+    runImpl: mkRun({
+      netstat: { ok: true, out: NET },
+      'powershell.exe': { ok: true, out: 'D:\\Projects\\elsewhere\\stepby-axum.exe\r\n' }
+    })
+  })
+  if (d2.sameAsExpected !== false) fail.push(`㉒b 另一棵树的 exe 必须判成不同源：${JSON.stringify(d2)}`)
+  const d3 = describeListener({ port: '8080', runImpl: mkRun({ netstat: { ok: false, note: '命令未能启动（x）' } }) })
+  if (d3.pid !== null || !/netstat/.test(d3.note)) fail.push(`㉒c netstat 不可用要写清卡在哪步：${JSON.stringify(d3)}`)
+  const d4 = describeListener({ port: '9999', runImpl: mkRun({ netstat: { ok: true, out: NET } }) })
+  if (d4.pid !== null || !/9999/.test(d4.note)) fail.push(`㉒d 无监听行要带端口号：${JSON.stringify(d4)}`)
+  const d5 = describeListener({
+    port: '8080',
+    exeHint: 'D:\\a\\b.exe',
+    runImpl: mkRun({ netstat: { ok: true, out: NET }, 'powershell.exe': { ok: false, note: '退出码 1' } })
+  })
+  if (d5.pid !== '30360' || d5.exe !== null || d5.sameAsExpected !== null)
+    fail.push(`㉒e 路径取不到时 PID 仍要给出、同源判定必须收口为"未知"：${JSON.stringify(d5)}`)
+  // ㉓ 四种结局的文案各说各话（都写成"请重构建"就等于没归因）
+  const L_SAME = listenerAttributionLine(d1, 'D:\\x.exe', '8080')
+  const L_OTHER = listenerAttributionLine(d2, 'D:\\x.exe', '8080')
+  const L_NONE = listenerAttributionLine(d3, 'D:\\x.exe', '8080')
+  if (!/监听的就是上面那枚/.test(L_SAME)) fail.push(`㉓ 同源结局文案不对：${L_SAME}`)
+  if (!/哪一棵树/.test(L_OTHER)) fail.push(`㉓b 异源结局必须提示"测的是哪棵树"：${L_OTHER}`)
+  if (!/不作为"服务已就绪"的证据/.test(L_NONE)) fail.push(`㉓c 取不到不得被读成"服务在跑"：${L_NONE}`)
+  // ㉓d "根本没探测"是第四种结局，不是"取不到"的同义词：前者说明这道闸没接线，后者说明端口上确实没人。
+  // 立项成因是盘上变异（把 `!info` 分支改成返回空串）在本组前两版下**照常绿**——
+  // 三个变量都有 pid，第四支从来没有输入（AGENTS ⑥"反脆弱用例必须配一条真能转红的正控"）。
+  const L_UNPROBED = listenerAttributionLine(null, 'D:\\x.exe', '8080')
+  if (!/未探测/.test(L_UNPROBED))
+    fail.push(`㉓d 未探测必须有专属文案（不得与"取不到"合流或返回空串）：${JSON.stringify(L_UNPROBED)}`)
+  if (!/8080/.test(L_UNPROBED)) fail.push(`㉓e 未探测文案仍要写明问的是哪个端口：${JSON.stringify(L_UNPROBED)}`)
+  // ㉔ portOf：归因问的必须是本轮真正要访问的那个端口
+  if (portOf('http://127.0.0.1:8094/') !== '8094') fail.push('㉔ 显式端口没取到')
+  if (portOf('https://example.test') !== '443') fail.push('㉔b https 默认端口没折算')
+  if (portOf('不是个 URL') !== '8080') fail.push('㉔c 解析失败要回落本仓默认档')
+  // ㉤ 接线自证：总闸那条红**必须把归因带进文案**，且问的是 baseUrl 的端口而不是硬编码 8080
+  let askedPort = ''
+  try {
+    await assertFreshServedApp({
+      vueRoot,
+      baseUrl: 'http://127.0.0.1:8094/',
+      artifactDir: path.join(dir, 'stepby-axum', 'frontend-dist'),
+      minFiles,
+      axumRoot: axum,
+      exeFile: exe,
+      fetchImpl: okFetch,
+      listenerProbe: ({ port, exeHint }) => {
+        askedPort = String(port)
+        return { pid: '30360', exe: exeHint, sameAsExpected: true, note: '' }
+      }
+    })
+    fail.push('㉤ 总闸放行了陈旧的后端 exe（归因这一腿没接线）')
+  } catch (e) {
+    const msg = String(e.message)
+    if (!/后端产物陈旧/.test(msg)) fail.push(`㉤ 拒绝理由没指向后端：${msg}`)
+    if (!/PID=30360/.test(msg)) fail.push(`㉤b 陈旧文案没带监听 PID ⇒ 归因写了没接线：${msg}`)
+    if (!/监听的就是上面那枚/.test(msg)) fail.push(`㉤c 同源结局没进文案：${msg}`)
+    if (askedPort !== '8094') fail.push(`㉤d 探针问的端口不是 baseUrl 的端口（取到 ${askedPort || '空'}）`)
+  }
+  // ㉥ 探针自己坏了 ⇒ 主判据照常红，且文案点名"探针自身异常"（不得把归因的失败洗成"没有监听者"）
+  try {
+    await assertFreshServedApp({
+      vueRoot,
+      baseUrl: 'http://127.0.0.1:1/',
+      artifactDir: path.join(dir, 'stepby-axum', 'frontend-dist'),
+      minFiles,
+      axumRoot: axum,
+      exeFile: exe,
+      fetchImpl: okFetch,
+      listenerProbe: () => {
+        throw new Error('boom')
+      }
+    })
+    fail.push('㉥ 探针抛错时总闸放行了陈旧 exe')
+  } catch (e) {
+    const msg = String(e.message)
+    if (!/后端产物陈旧/.test(msg)) fail.push(`㉥ 主判据被探针的异常顶掉了：${msg}`)
+    if (!/探针自身异常/.test(msg)) fail.push(`㉥b 归因失败必须可归因，不得静默：${msg}`)
+  }
   fs.rmSync(dir, { recursive: true, force: true })
   fs.rmSync(thin, { recursive: true, force: true })
   return fail
@@ -672,7 +947,13 @@ async function entry() {
       '对照组：非 #[cfg(test)] 声明的同名文件照常计入',
       'governance crate 陈旧必须点名（同一 exe）',
       'migration crate 陈旧必须点名（同一 exe）',
-      'sibling crate 目录缺失 ⇒ 拒绝判据（不得静默缩面）'
+      'sibling crate 目录缺失 ⇒ 拒绝判据（不得静默缩面）',
+      '监听 PID 解析（TIME_WAIT / 邻近端口 / UDP / 表头都不得算监听者，含空正文反证）',
+      'describeListener 五态（同源 / 异源 / netstat 坏 / 无监听行 / 路径取不到）',
+      '归因四种结局各说各话',
+      'portOf 三形（显式端口 / https 默认 / 解析失败回落）',
+      '总闸文案真带监听 PID 且问的是 baseUrl 的端口（接线自证）',
+      '探针自身抛错 ⇒ 主判据照常红且点名探针'
     ]
     log(
       `SYNTH_OK 产物新鲜度 ${FRONTEND_CASES.length + BACKEND_CASES.length} 组双向（前端：` +

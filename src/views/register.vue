@@ -1,9 +1,9 @@
 <template>
-<div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
-  <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
-  <div class="aurora-blob aurora-1" aria-hidden="true"></div>
-  <div class="aurora-blob aurora-2" aria-hidden="true"></div>
-  <div class="aurora-grid" aria-hidden="true"></div>
+  <div class="relative flex justify-center items-center h-full overflow-hidden auth-aurora">
+    <!-- Aurora 科技背景（与 login.vue 共用 .auth-aurora） -->
+    <div class="aurora-blob aurora-1" aria-hidden="true"></div>
+    <div class="aurora-blob aurora-2" aria-hidden="true"></div>
+    <div class="aurora-grid" aria-hidden="true"></div>
     <el-form
       ref="registerRef"
       :model="registerForm"
@@ -236,8 +236,8 @@ function getCode(): void {
     })
 }
 
-// 注册开关由 getCode() 一次性获取（通过 /captchaImage 响应的 registerEnabled 字段），
-// 不再单独调用 checkRegisterEnabled() 探测 /register，避免触发 403 控制台错误
+// 注册开关由 getCode() 一次性获取（读 /captchaImage 响应的 registerEnabled 字段），
+// 不额外探测 /register：关闭态那次探测必然在控制台留一条 403，而字段已经给出同一个答案
 getCode()
 </script>
 
@@ -247,8 +247,8 @@ getCode()
 
 .register-form {
   background: rgba(255, 255, 255, 0.78);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   .el-input {
     height: 40px;
     input {

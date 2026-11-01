@@ -666,7 +666,9 @@ export default {
       sizeDesc: 'Actual size of mmdb file',
       lastModified: 'Last Modified',
       modifiedDesc: 'Last update time of mmdb file',
-      notLoaded: 'Not Loaded'
+      notLoaded: 'Not Loaded',
+      configUnavailable: 'Not loaded',
+      credentialUnreadable: 'Cannot decrypt'
     },
     field: {
       mmdbPath: 'mmdb File Path',
@@ -704,14 +706,19 @@ export default {
       phAccountId: 'Enter MaxMind Account ID',
       phLicenseKey: 'Enter MaxMind License Key',
       credentialsConfigured: 'Configured (leave blank to keep current value)',
+      configUnavailableTip:
+        'Admin config could not be read, so the update source and credential states below are unknown (this is not the same as “not configured”). Retry, or check whether the config table is reachable.',
+      credentialUnreadableTip:
+        'MaxMind credentials are stored but cannot be decrypted (master key missing, rotated, or ciphertext damaged). Re-enter and save them to fix this; leaving the fields blank keeps the stored ciphertext untouched but does not repair it. Check “clear stored credentials” to remove them instead.',
+      phAccountIdUnreadable: 'Stored but cannot be decrypted; re-enter the Account ID',
+      phLicenseKeyUnreadable: 'Stored but cannot be decrypted; re-enter the License Key',
       autoUpdateTip: 'When enabled, will auto-update according to cron: {cron}',
       clearCredentialsTip: 'Check this to clear stored credentials (suitable when switching to P3TERX source)',
       updateAlert:
         'Update will download mmdb file (about 60-100 MB) from remote, then hot-reload automatically, no service restart required.'
     },
     validate: {
-      sourceRequired: 'Please select update source',
-      maxmindCredentialsRequired: 'Switching to MaxMind source requires Account ID and License Key'
+      sourceRequired: 'Please select update source'
     },
     tip: {
       loadFailed: 'Status and configuration were not fully loaded; the page is not showing the latest values',

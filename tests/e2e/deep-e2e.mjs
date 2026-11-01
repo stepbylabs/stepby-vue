@@ -22496,7 +22496,7 @@ if (process.argv.includes('--plan')) {
 // 比对 :8080 镜像路径），前端这一侧此前没有任何判据把"src 改了"与"产物重建了"连起来。
 try {
   const r = await assertFreshServedApp({ baseUrl: CONFIG.frontendUrl })
-  log(`产物预检：${r.artifactDir}（入口 ${r.chunk} / ${r.bytes} 字节）— 新鲜且服务一致`)
+  log(`产物预检：${r.artifactDir}（入口 ${r.chunk} / ${r.bytes} 字节）— 新鲜且与服务一致`)
 } catch (e) {
   log(`❌ 启动预检失败: ${e.message}`)
   process.exit(2)

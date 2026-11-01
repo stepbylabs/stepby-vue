@@ -2239,7 +2239,10 @@ function main() {
     // 产物预检（批八十二）：扫的是浏览器里的真实控件，产物旧就等于扫的是上一轮的页面
     try {
       const fresh = await assertFreshServedApp({ baseUrl: BASE })
-      console.log(`产物预检：${fresh.artifactDir}（入口 ${fresh.chunk} / ${fresh.bytes} 字节）`)
+      // 凭证行必须自带结论（AGENTS ⑧"标签与计数同源"在预检行上的形态）：
+      // 另外三个浏览器入口都写"新鲜且与服务一致"，只有这一条光报字节数——
+      // 台账引用时"跑到了预检"与"预检判它新鲜"就分不清了。
+      console.log(`产物预检：${fresh.artifactDir}（入口 ${fresh.chunk} / ${fresh.bytes} 字节）— 新鲜且与服务一致`)
     } catch (e) {
       console.error(`❌ 产物预检失败：${String(e.message).slice(0, 400)}`)
       process.exit(2)
