@@ -124,7 +124,9 @@ beforeEach(() => {
   })
   hoisted.updatePackageFeatures.mockResolvedValue({ data: null })
   hoisted.exportTenantPackage.mockResolvedValue({ data: { backupId: 9, fileName: 't7.json' } })
-  hoisted.downloadBackup.mockResolvedValue(new Blob(['x']))
+  // 夹具形状 = 生产码产出形状（㉓）：`downloadBackup` 自 b146 起返回"是否交给保存通道"，
+  // 不再返回 Blob——原先那句 `new Blob(['x'])` 是随手造的真值，恰好绕过了新加的 `if (saved)`。
+  hoisted.downloadBackup.mockResolvedValue(true)
 })
 
 async function mountPage() {
@@ -213,5 +215,17 @@ describe('租户导出：没有备份记录不得报"已导出"（b141）', () =
     await vmOf(w).handleExport(row)
     expect(hoisted.downloadBackup).toHaveBeenCalledWith(9, 't7.json')
     expect(hoisted.msgSuccess).toHaveBeenCalledWith('tenant.exportSuccess')
+  })
+
+  it('保存通道不认账（0 字节备份 / 通道被拒）⇒ 已下载不成，不得说"已开始下载"', async () => {
+    // b146 立案本体：旧写法 `await downloadBackup(...)` 之后无条件 msgSuccess，
+    // 而那条 API 在保存失败时同样正常返回 ⇒ 失败理由（errorHub）与成功提示同屏。
+    hoisted.downloadBackup.mockResolvedValueOnce(false)
+    const w = await mountPage()
+    await vmOf(w).handleExport(row)
+
+    expect(hoisted.downloadBackup).toHaveBeenCalledWith(9, 't7.json')
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    expect(vmOf(w).exportingId).toBeNull()
   })
 })

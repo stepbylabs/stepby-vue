@@ -763,6 +763,8 @@ export default {
       visibleToTenant: 'Tenant Visible',
       visibleToTenantTip: 'When on, this config appears in the tenant config list',
       lockedTip: 'This config is platform-locked (Coverage::Locked); governance attributes cannot be edited',
+      lockedListUnknown:
+        'Cannot confirm whether this config is platform-locked (the locked-key list failed to load). The form stays enabled, but the server still rejects governed fields per the registry',
       confirmChange:
         'Governance attributes changed: this affects visibility and overridability of this config for ALL tenants. Save anyway?'
     },
@@ -1247,7 +1249,9 @@ export default {
       backupSuccess: 'Backup succeeded',
       restoreSuccess: 'Restore succeeded',
       selfExportTooltip: 'Export the data package of the tenant that the current account belongs to',
-      selfExportSuccess: 'Export succeeded',
+      selfExportSuccess: 'Tenant data package exported and download started (see the Data Backup list)',
+      selfExportUnknown:
+        'Export result unknown: the server returned no backup record. Check the Data Backup list and retry.',
       confirmDelete: 'Are you sure to delete {count} selected backup records and files?',
       confirmCreate:
         'Are you sure to create a database backup now? This operation may take a few seconds to several minutes.',

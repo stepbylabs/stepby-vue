@@ -169,6 +169,13 @@
     },
     {
       "method": "POST",
+      "url": "^/system/uploadConfig/test$",
+      "error": "^HTTP 400$",
+      "msg": "^endpoint 不被允许",
+      "why": "M88 草稿连通性负路径（b146）：测试按钮现在接收屏上草稿，填保留后缀 b146-draft-probe.test 必须被 SSRF 拒在探活之前，且理由点名 endpoint——这条与上一条同 URL 而 msg 相反，正是「草稿被消费 / 缺省不消费」的成对判据。"
+    },
+    {
+      "method": "POST",
       "url": "^/register$",
       "error": "^ServiceError\\(code=403, message=当前系统未开放注册，请联系管理员\\)$",
       "why": "注册开关关闭态负路径：公开注册必须先判能力位再落库，用例断言 403 且不新增用户。"
@@ -565,6 +572,24 @@
       "error": "^HTTP 404$",
       "msg": "^导航配置不存在",
       "why": "M90 反证：同一 l3Id 重复卸载必须 404，配合前一条「卸载后 list 读回消失」共同证明卸载是真的状态变化而非幂等噪声。"
+    },
+    {
+      "method": "POST",
+      "url": "^/tool/recording/import$",
+      "error": "^HTTP 400$",
+      "msg": "^这一步不合法 #\\d+: 不支持的 HTTP 方法$",
+      "why": "录制导入整批拒绝负路径：b149 起 deep 的 M88 第七族与 main 的 F158/F159 每轮都把一份含非法方法的步骤集喂给 POST /tool/recording/import，服务端逐条校验后整批 400；用例同时读回列表断言**零残留**（导入校验排在写库之前，一条坏步 ⇒ 全批不落）。msgRe 只锚「这一步不合法 #N: 不支持的 HTTP 方法」这一段具体理由——写宽了就把该端点任何 400 都算成设计内。"
+    },
+    {
+      "method": "POST",
+      "url": "^/system/backup$",
+      "error": "^HTTP 400$",
+      "msg": "^备份操作过于频繁，请稍后再试$",
+      "producer": {
+        "file": "stepby-axum/src/handler/sys_backup_handler.rs",
+        "contains": "error.backup.too_frequent"
+      },
+      "why": "新建备份的 60 秒频率锁（条件型）：sys_backup_handler.rs:96 以 backup:create:{user_id} 走 store.set_nx_ex 抢锁、TTL 60s，抢不到 ⇒ 400 error.backup.too_frequent（AGENTS C.10 敏感操作独立防护；存储故障另有 503 分支，不在本条覆盖内）。action-inventory 每轮在 /monitor/backup 真点「新建备份」，同轮 60 秒内已有更早的套件创建过一次时这次点击必须被拒、而不是排第二个备份任务——b149 实测 18:18:51Z 恰 1 条；没点两次就一条都没有，故挂生产者锚点，\"本轮没出现\"不算作废证据。"
     }
   ]
 }

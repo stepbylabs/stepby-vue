@@ -20,15 +20,22 @@ import modal from '@/plugins/modal'
 import { useI18n } from 'vue-i18n'
 
 export interface UseExportOptions {
-  /** 导出失败时的 i18n key（默认 'common.downloadError'） */
-  errorKey?: string
   /** 成功时的 i18n key（不传则不提示） */
   successKey?: string
 }
 
+/**
+ * 导出组合子。
+ *
+ * 刻意**没有** `errorKey`：`download()` 的四条失败出口都已把"后端给出的具体理由 + 追踪号"
+ * 交给 `errorHub` 单通道（b124/b125），页面再补一条通用"导出失败"就是同一次失败两条措辞
+ * （b125 ⑤）。改造前的 `errorKey` 挂在 `.catch` 上，而那条 `.catch` **结构上永远走不到**
+ * （旧 `download` 失败时也 resolve），也就是说这个选项是一条没有生效路径的承诺（⑮）；
+ * 本次连同它的两条用例一起撤掉，而不是"接上后再弹一条"。
+ */
 export function useExport(url: string, filenamePrefix: string, options: UseExportOptions = {}) {
   const { t } = useI18n()
-  const { errorKey = 'common.downloadError', successKey } = options
+  const { successKey } = options
 
   const downloadLoading = ref(false)
 
@@ -42,15 +49,18 @@ export function useExport(url: string, filenamePrefix: string, options: UseExpor
     downloadLoading.value = true
     const query: Record<string, unknown> =
       params instanceof Event ? {} : ((params as Record<string, unknown> | undefined) ?? {})
-    const finalFilename =
-      typeof filename === 'string' && filename ? filename : `${filenamePrefix}_${Date.now()}.xlsx`
+    const finalFilename = typeof filename === 'string' && filename ? filename : `${filenamePrefix}_${Date.now()}.xlsx`
     download(url, query, finalFilename)
-      .then(() => {
-        if (successKey) modal.msgSuccess(t(successKey))
+      .then((ok: boolean) => {
+        // 成功话只能由下载结局驱动：旧实现是"resolve 就说成功"，而 `download()` 在
+        // HTTP 200 + JSON 错误体、0 字节载荷、保存通道被拒三种失败上**同样 resolve**，
+        // 于是屏幕上同时有"失败原因"（errorHub）和"导出成功"（这里）。
+        if (ok && successKey) modal.msgSuccess(t(successKey))
       })
       .catch((err: unknown) => {
+        // 兜住"成功处理器内部的意外"（download 内部已把四类失败折算成 false，正常不会走到这里）。
+        // 不弹提示的理由见上方 `UseExportOptions` 注释——失败理由由 errorHub 单通道给。
         if (import.meta.env.DEV) console.error(`[useExport] ${url} export failed:`, err)
-        modal.msgError(t(errorKey))
       })
       .finally(() => {
         downloadLoading.value = false

@@ -315,6 +315,26 @@
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 2 行留痕（00:57:22 .. 06:14:00 UTC，样例 POST /tool/gen/importTable?tables=sys_notice&tplWebType=element-plus-typescript）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"
   },
+  "POST /tool/recording": {
+    "kind": "other-suite",
+    "why": "主套件 F158 第 ① 条「录一次」在打（先建录制抬头取 recordingId，后续步骤与回放都挂在它下面）；本判据的触达窗口是 b140 全量断面（2026-10-31 07:42:54 .. 08:28:55 UTC），早于 F158 落地的 b147 ⇒ 该窗口内结构上不可能有留痕。下一次全量轮（b150）会把真实触达并入，届时本条由 --retire-stale 退役"
+  },
+  "POST /tool/recording/import": {
+    "kind": "other-suite",
+    "why": "主套件 F159 第 ② 条「导入完整快照」在打（导出 JSON 再导回来，验 extractJson 与 headers 未丢、变量链不断）；本判据窗口 b140 全量断面（2026-10-31 07:42:54 .. 08:28:55 UTC） 早于 F159 落地的 b148 ⇒ 窗口内无留痕不等于没被判据覆盖"
+  },
+  "POST /tool/recording/{recordingId}/export": {
+    "kind": "other-suite",
+    "why": "主套件两处都在打：F158 第 ⑫⑬ 条验 curl 与 http 两种脚本的可执行性及「不内联真实令牌」，F159 第 ① 条验 json 导出是完整快照；本判据窗口 b140 全量断面（2026-10-31 07:42:54 .. 08:28:55 UTC） 早于这两个功能落地 ⇒ 未触达只反映断面新旧，不是缺口"
+  },
+  "POST /tool/recording/{recordingId}/replay": {
+    "kind": "other-suite",
+    "why": "主套件 F158 第 ④ 条（真跑一遍录制）与 F159 第 ③ 条（导入后真跑并走 {var} 变量链）在打；本判据窗口 b140 全量断面（2026-10-31 07:42:54 .. 08:28:55 UTC） 里这条路由还没有生产者，因为 b147/b148 的判据晚于该断面"
+  },
+  "POST /tool/recording/{recordingId}/steps": {
+    "kind": "other-suite",
+    "why": "主套件 F158 第 ③ 条（采集到的步骤成建制写入）与 F159 第 ③ 条（就地改步的前置 append）在打；本判据窗口 b140 全量断面（2026-10-31 07:42:54 .. 08:28:55 UTC） 早于 F158 与 F159 落地 ⇒ 属「断面比判据旧」，下一次全量轮自行闭合"
+  },
   "POST /tool/report-board": {
     "kind": "other-suite",
     "why": "本轮窗口（2026-10-20 04:59:30 .. 2026-10-20 05:45:20 UTC）未触达；oper_log 今日窗口外实测另有 3 行留痕（00:59:11 .. 06:15:49 UTC，样例 POST /tool/report-board）⇒ 由同日其他轮天天在打，不在本条判据的窗口里，故不重复建判据"

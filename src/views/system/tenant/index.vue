@@ -863,8 +863,11 @@ async function handleExport(row: TenantVo) {
       proxy?.$modal.msgWarning(t('tenant.exportUnknown'))
       return
     }
-    await downloadBackup(created.backupId, created.fileName)
-    proxy?.$modal.msgSuccess(t('tenant.exportSuccess'))
+    const saved = await downloadBackup(created.backupId, created.fileName)
+    // 保存通道认账才说"已导出并开始下载"：旧写法把 `await` 走通当成成功，
+    // 而 downloadBackup 在"0 字节备份 / 保存被拒"时同样正常返回（b146 立案），
+    // 用户于是同时看到一条失败理由与一句成功提示。
+    if (saved) proxy?.$modal.msgSuccess(t('tenant.exportSuccess'))
   } catch (e) {
     // 失败提示由拦截器统一弹出；导出按钮 loading 必须在 finally 复位，拒绝不得逸出（b141）
     if (import.meta.env.DEV) console.error('[tenant] handleExport:', e)

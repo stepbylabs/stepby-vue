@@ -302,20 +302,35 @@ function handleCreate() {
     })
 }
 
-/** 租户自助导出：导出当前登录账号所属租户的数据包 */
-function handleSelfExport() {
+/**
+ * 租户自助导出：POST /system/backup/self-export 让服务端按**登录用户所属租户**生成数据包，
+ * 再用返回的 backupId 走既有下载链路（GET /system/backup/download/{id}）把文件交给浏览器。
+ *
+ * 改造前只发第一条请求、把响应体丢掉，然后就说"导出成功"：屏幕上任务结束了，用户手里
+ * 却一个文件都没有（对照 `views/system/tenant` 的 handleExport——那条链是完整的）。
+ * 现在三件事必须同批成立：① 有 backupId 才继续（200 但无记录 ⇒ 如实说"结果未知"，
+ * 不报成功也不报失败）；② 记录已生成就先刷新列表，让「数据备份」里看得见这条；
+ * ③ 成功话只由保存通道的认账驱动（`downloadBackup` 自 b146 起返回结局）。
+ */
+async function handleSelfExport() {
   selfExporting.value = true
-  selfExportTenantPackage()
-    .then(() => {
-      modal.msgSuccess(t('backup.tip.selfExportSuccess'))
-      getList()
-    })
-    .catch((err: unknown) => {
-      if (import.meta.env.DEV) console.error('Self export failed:', err)
-    })
-    .finally(() => {
-      selfExporting.value = false
-    })
+  try {
+    const res = await selfExportTenantPackage()
+    const created = res.data
+    if (!created?.backupId) {
+      modal.msgWarning(t('backup.tip.selfExportUnknown'))
+      return
+    }
+    getList()
+    const saved = await downloadBackup(created.backupId, created.fileName)
+    if (saved) modal.msgSuccess(t('backup.tip.selfExportSuccess'))
+  } catch (err: unknown) {
+    // 失败理由由拦截器 / errorHub 单通道给出（b125 ⑤：同一次失败只许一条提示），
+    // 页面只留 DEV 痕；拒绝不得逸出，否则 ErrorBoundary 会把整页卸载（b103/b110）。
+    if (import.meta.env.DEV) console.error('[backup] handleSelfExport:', err)
+  } finally {
+    selfExporting.value = false
+  }
 }
 
 /**

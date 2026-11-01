@@ -729,14 +729,12 @@ function handleExportWithFields(fields: string[] | null) {
     params.fields = fields.join(',')
   }
   exportLoading.value = true
-  // download() 返回 Promise，成功后关闭对话框；失败时保留对话框以便用户重试（R12 修复），
-  // 但 loading 必须在 finally 复位——否则"保留对话框"只是一个不能再点的空壳
+  // download() 现在把结局写进返回值：成功才关对话框，失败**保留**用户选好的导出字段。
+  // 改造前这句靠 `.catch` 实现，而旧 `download()` 从不自 reject（四类失败都 resolve），
+  // 所以"失败时保留对话框"是一条结构上走不到的分支——R12 的修复实际空转（b146 立案）。
   download('/monitor/operlog/export', params, `operlog_${new Date().getTime()}.xlsx`)
-    .then(() => {
-      exportDialogVisible.value = false
-    })
-    .catch(() => {
-      // 导出失败时不关闭对话框，保留用户选择的导出字段
+    .then((ok: boolean) => {
+      if (ok) exportDialogVisible.value = false
     })
     .finally(() => {
       exportLoading.value = false

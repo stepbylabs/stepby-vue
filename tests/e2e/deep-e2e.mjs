@@ -21126,12 +21126,12 @@ async function testModule86(page, consoleErrors, pageErrors) {
   checkConsoleErrors(consoleErrors, pageErrors, M)
 }
 
-// ==================== 模块 88: 写端点补漏（六族 CRUD 闭环 + 档位守卫）====================
+// ==================== 模块 88: 写端点补漏（七族 CRUD 闭环 + 档位守卫）====================
 
 /**
  * 批七十九 R-33：`endpoint-coverage.mjs` 两源对账测出 58 条写端点本轮全量从未触达。
- * 本模块收其中**可安全自动化**的六族（部门 / 定时任务 / 回调 / 报表数据集·报表·订阅 /
- * 角色数据范围与授权 / 限流行 / 登录日志解锁），每条都是"写 → 读回 → 反证 → 自清理"闭环。
+ * 本模块收其中**可安全自动化**的七族（部门 / 定时任务 / 回调 / 报表数据集·报表·订阅 /
+ * 角色数据范围与授权 / 限流行 / 登录日志解锁 / **操作录制链（b149）**），每条都是"写 → 读回 → 反证 → 自清理"闭环。
  * 其余端点按"设计上不该触达（带理由）"逐条定性（台账 §7.20）——本批**不**为了凑覆盖率去碰
  * clean 类端点：它们物理清日志表，同轮其他模块的判据面正是那些日志（b78 实测过残留
  * webhook 把 8 分钟窗口刷成 12 条失败投递同一类耦合）。
@@ -21145,10 +21145,16 @@ async function testModule86(page, consoleErrors, pageErrors) {
  *    不得降级成 SKIP——把 `undefined` 拼进 URL 继续发请求，上一轮就据此误判过一个"缺陷"；
  * ④ 不可达目标造成的失败必须**诚实**：回调测试投递与重试的判据是"成功数必须为 0 且确实产生了
  *    日志行"，任何一边含糊都放行 b71 那类"把尝试数当成功数"的谎报。
+ * ⑤ 第七族（操作录制链，b149 立）**为什么必须落在本模块而不是"由 main.mjs F158/F159 代打"**：
+ *    `endpoint-coverage` 的服务端那一路取的是 **deep 数据集自证的窗口**，main 那一轮的
+ *    `sys_oper_log` 写痕落在窗口之外 ⇒ 5 条 `POST /tool/recording*` 无论真打过多少次都判成
+ *    未触达；而登记成 `other-suite` **赢不了闸**（`coverageRegressions` 是纯集合差，b149 §5
+ *    立这条时写明"不靠登记赢下闸"）。放宽窗口 = 换判据（⑩），所以正确动作是让**同一把尺的
+ *    采集面**真覆盖它们——这正是本模块从 b79 起存在的理由。
  */
 async function testModule88(page, consoleErrors, pageErrors) {
   const M = 88
-  log(`\n=== 模块 ${M}: 写端点补漏（六族 CRUD 闭环 + 档位守卫）===`)
+  log(`\n=== 模块 ${M}: 写端点补漏（七族 CRUD 闭环 + 档位守卫）===`)
   const ts = Date.now().toString(36)
   const N = (s) => `e2e88${ts}-${s}`
   const B = CONFIG.backendUrl
@@ -21851,17 +21857,38 @@ async function testModule88(page, consoleErrors, pageErrors) {
   }
 
   // 8.4 上传配置连通性：默认 local/不可达 S3 ⇒ 必须给出可读失败，不得谎报成功
+  //     b146 起该端点接收**屏上草稿**作 body，所以两条判据必须成对：
+  //     ① 不填任何字段（`{}`）⇒ 走"测已存配置"，拒绝理由**不得**是 endpoint 校验
+  //        （钉住 None 没有被折成空串去覆盖/校验已存配置）；
+  //     ② 草稿里填一个保留后缀的 endpoint ⇒ 400 且理由**必须**点名 endpoint
+  //        （钉住草稿真被消费——改造前这条永远打不中，因为 body 从来没被读过）。
   {
-    const r = await fetch(`${B}/system/uploadConfig/test`, { method: 'POST', headers: HDRS_FORM })
-    const j = await r.json().catch(() => null)
-    const msg = String(j?.msg ?? '')
-    const closedOk = r.status === 400 && msg && !msg.includes('error.')
-    const openOk = r.status === 200 && typeof j?.data === 'string'
+    const jsonPost = async (obj) => {
+      const r = await fetch(`${B}/system/uploadConfig/test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+      })
+      const j = await r.json().catch(() => null)
+      return { http: r.status, code: j?.code, msg: String(j?.msg ?? ''), data: j?.data }
+    }
+
+    const stored = await jsonPost({})
+    const notGuarded = !stored.msg.includes('endpoint 不被允许') && !stored.msg.includes('endpoint 主机')
     record(
       M,
       '上传配置: 连通性测试有真实结局（200 连通 / 400 可读失败，不接受 500 或空 msg）',
-      closedOk || openOk,
-      `HTTP=${r.status} code=${j?.code} msg=${msg.slice(0, 80)} data=${String(j?.data ?? '').slice(0, 60)}`
+      (stored.http === 400 && !!stored.msg && !stored.msg.includes('error.') && notGuarded) ||
+        (stored.http === 200 && typeof stored.data === 'string'),
+      `HTTP=${stored.http} code=${stored.code} msg=${stored.msg.slice(0, 80)} data=${String(stored.data ?? '').slice(0, 60)} 未判 endpoint 校验=${notGuarded}`
+    )
+
+    const draft = await jsonPost({ endpoint: 'https://b146-draft-probe.test' })
+    record(
+      M,
+      '上传配置: 草稿 endpoint 被真实消费（拒绝理由点名 endpoint，不是回落测已存配置）',
+      draft.http === 400 && draft.msg.includes('endpoint 不被允许'),
+      `HTTP=${draft.http} code=${draft.code} msg=${draft.msg.slice(0, 120)}`
     )
   }
 
@@ -22182,6 +22209,158 @@ async function testModule88(page, consoleErrors, pageErrors) {
           }
         }
         db.close()
+      }
+    }
+  }
+
+  // —— 第七族：操作录制链（b149 立；为什么落在本模块见文件头纪律 ⑤）——
+  // 全程走**预检**（dryRun）而不是真回放：真回放要出站，而本模块另六族刻意不制造网络面
+  // （b79 纪律 ④ 同一条：不可达目标的失败必须诚实 ⇒ 这里干脆不引入不可达）。
+  // 夹具命名沿用本模块的 `e2e88<ts>-*` 族，收尾逐条物理删除；回放任务行（`sys_task`）由
+  // `residue-cleanup.mjs` 的 `recording_replay_task_e2e` 兜底（本族不产生，产生者是 main F158/F159）。
+  {
+    const created = []
+    try {
+      const mk = await api('POST', '/tool/recording', {
+        name: N('rec'),
+        description: N('rec-desc'),
+        source: 'ui'
+      })
+      const rid = needId(mk.data?.recordingId, '新建录制 recordingId')
+      if (rid) created.push(rid)
+      record(
+        M,
+        '录制: 新建抬头并读回（POST /tool/recording ⇒ 200 + source=ui + status=ready）',
+        mk.code === 200 && !!rid && mk.data?.source === 'ui' && mk.data?.status === 'ready',
+        `code=${mk.code} recordingId=${rid ?? '无'} source=${mk.data?.source} status=${mk.data?.status}`
+      )
+      if (!rid) throw new Error('新建录制失败 ⇒ 本族后续判据无从执行')
+
+      const s1 = await api('POST', `/tool/recording/${rid}/steps`, {
+        method: 'GET',
+        path: '/system/dict/type/list',
+        queryString: 'pageNum=1&pageSize=1',
+        expectStatus: 200,
+        note: N('rec-s1')
+      })
+      const s2 = await api('POST', `/tool/recording/${rid}/steps`, {
+        method: 'GET',
+        path: '/tool/recording/list',
+        queryString: 'pageNum=1&pageSize=1',
+        note: N('rec-s2')
+      })
+      const det = await api('GET', `/tool/recording/${rid}`)
+      const seqs = (det.data?.steps || []).map((s) => s.seq).join(',')
+      record(
+        M,
+        '录制: 两步追加后 seq 连号且 step_count 同步（POST .../steps ×2 ⇒ 读回 seq=1,2 / count=2）',
+        s1.code === 200 &&
+          s2.code === 200 &&
+          seqs === '1,2' &&
+          Number(det.data?.stepCount) === 2 &&
+          det.data?.steps?.[0]?.extractJson == null,
+        `code=${s1.code},${s2.code} seq=${seqs || '无'} stepCount=${det.data?.stepCount}`
+      )
+
+      const dry = await api('POST', `/tool/recording/${rid}/replay`, {
+        dryRun: true,
+        stopOnError: true,
+        vars: {}
+      })
+      const pv = dry.data?.preview || []
+      const runs = await api('GET', `/tool/recording/${rid}/runs`)
+      const runRows = Array.isArray(runs.data) ? runs.data : []
+      record(
+        M,
+        '录制: 预检渲染两步、不联网且不建运行行（dryRun ⇒ runId=0 + preview=2 + runs=0）',
+        dry.code === 200 &&
+          pv.length === 2 &&
+          Number(dry.data?.runId) === 0 &&
+          pv.every((p) => /^https?:\/\//.test(String(p.url || ''))) &&
+          runRows.length === 0,
+        `code=${dry.code} preview=${pv.length} runId=${dry.data?.runId} runs=${runRows.length}`
+      )
+
+      let exportedSteps = []
+      let exportedBase = ''
+      try {
+        const r = await fetch(`${B}/tool/recording/${rid}/export?format=json`, { method: 'POST', headers: H })
+        const parsed = JSON.parse((await r.text().catch(() => '{}')) || '{}')
+        exportedSteps = Array.isArray(parsed.steps) ? parsed.steps : []
+        exportedBase = String(parsed.baseUrl || '')
+        record(
+          M,
+          '录制: 导出 JSON 是完整快照（POST .../export ⇒ baseUrl 绝对 + 2 步 + 第一步带 expectStatus）',
+          r.status === 200 &&
+            exportedSteps.length === 2 &&
+            /^https?:\/\//.test(exportedBase) &&
+            Number(exportedSteps[0]?.expectStatus) === 200 &&
+            exportedSteps[0]?.method === 'GET',
+          `http=${r.status} steps=${exportedSteps.length} baseUrl=${exportedBase || '无'} expect=${exportedSteps[0]?.expectStatus}`
+        )
+      } catch (e) {
+        record(
+          M,
+          '录制: 导出 JSON 是完整快照（POST .../export ⇒ baseUrl 绝对 + 2 步 + 第一步带 expectStatus）',
+          false,
+          `导出请求或解析本身失败: ${String(e).slice(0, 80)}`
+        )
+      }
+
+      const imp = await api('POST', '/tool/recording/import', {
+        name: N('rec-imp'),
+        description: N('rec-imp-desc'),
+        steps: exportedSteps
+      })
+      const iid = needId(imp.data?.recordingId, '导入录制 recordingId')
+      if (iid) created.push(iid)
+      const impDet = iid ? await api('GET', `/tool/recording/${iid}`) : { data: null }
+      const impSteps = impDet.data?.steps || []
+      record(
+        M,
+        '录制: 导出件回灌成功且来源为 import（POST /tool/recording/import ⇒ 步数与抬头一致）',
+        imp.code === 200 &&
+          !!iid &&
+          imp.data?.source === 'import' &&
+          impSteps.length === exportedSteps.length &&
+          Number(impDet.data?.stepCount) === exportedSteps.length &&
+          impSteps.every((s) => !!s.method && !!s.path),
+        `code=${imp.code} recordingId=${iid ?? '无'} source=${imp.data?.source} 读回=${impSteps.length}/${exportedSteps.length}`
+      )
+
+      // 反证：一步非法 ⇒ **整批** 400 且不落半个（按名字回查必须 0 行）
+      const badName = N('rec-bad')
+      const bad = await api('POST', '/tool/recording/import', {
+        name: badName,
+        steps: [{ method: 'FETCH', path: '/x' }]
+      })
+      const badList = await api('GET', `/tool/recording/list?name=${encodeURIComponent(badName)}&pageNum=1&pageSize=10`)
+      const badRows = rowsOf(badList)
+      record(
+        M,
+        '录制: 非法方法整批拒绝且零残留（import ⇒ 400 + 具体理由 + 列表查无此行）',
+        bad.code === 400 && !!bad.msg && !bad.msg.startsWith('error.') && badRows.length === 0,
+        `code=${bad.code} msg=${String(bad.msg).slice(0, 70)} 列表行=${badRows.length}`
+      )
+
+      // 清理即判据：删除后详情 404（子表 steps / runs 由服务端 purge_children 级联）
+      if (iid) {
+        const del = await api('DELETE', `/tool/recording/${iid}`)
+        const after = await api('GET', `/tool/recording/${iid}`)
+        record(
+          M,
+          '录制: 删除后详情 404（DELETE /tool/recording/{id} ⇒ 抬头与子表一并不可见）',
+          del.code === 200 && after.code === 404,
+          `删除 code=${del.code} 删后详情 code=${after.code} msg=${String(after.msg).slice(0, 40)}`
+        )
+        const at = created.indexOf(iid)
+        if (at >= 0) created.splice(at, 1)
+      }
+    } catch (e) {
+      record(M, '录制: 本族前置闭合', false, `族内步骤抛错（工具自曝，不是产品结论）: ${String(e).slice(0, 80)}`)
+    } finally {
+      for (const id of created) {
+        await api('DELETE', `/tool/recording/${id}`).catch(() => null)
       }
     }
   }

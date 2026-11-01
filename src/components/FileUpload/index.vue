@@ -146,8 +146,13 @@ watch(
 
 // 上传前校检格式和大小
 // G-10 批次十八：>8MB 文件自动分流到分片链（before-upload 返回 false 阻止 el-upload
-// 默认单请求上传，改走 handleChunkedUpload 编排器）；fileSize prop 校验仅对单请求
-// 路径生效——分片路径上限由后端 common_chunk_max_total_size（1GB）裁决
+// 默认单请求上传，改走 handleChunkedUpload 编排器）。
+//
+// b146：`fileSize` 是**策略**、分片阈值是**传输方式**，两者不得互相顶班。改造前分流排在
+// 大小校验之前 ⇒ 屏上提示写着「大小不超过 5MB」，而 9MB 的文件绕过校验直接传成功——界面在
+// 撒谎（同 b139 的「字段存在但没人消费」：声明与判据分家）。现在两条路径都以声明上限为准，
+// 上限之内的 8MB+ 文件仍走分片链（能力没被砍，只是兑现了承诺）；总上限由后端
+// common_chunk_max_total_size（1GB）在 init 阶段裁决。
 function handleBeforeUpload(file: File): boolean {
   // 校检文件类型
   if (props.fileType.length > 0) {
@@ -164,20 +169,20 @@ function handleBeforeUpload(file: File): boolean {
     modal.msgError(t('fileUpload.fileNameError'))
     return false
   }
-  // 分流：大文件走分片链（跳过 fileSize 单请求校验）
-  if (shouldChunk(file.size)) {
-    modal.loading(t('fileUpload.uploadingFile'))
-    number.value++
-    void handleChunkedUpload(file)
-    return false
-  }
-  // 校检文件大小
+  // 校检文件大小（两条路径共用这一道闸）
   if (props.fileSize) {
     const isLt = file.size / 1024 / 1024 < props.fileSize
     if (!isLt) {
       modal.msgError(t('fileUpload.fileSizeExceeded', { size: props.fileSize }))
       return false
     }
+  }
+  // 分流：在声明上限之内、但超过单请求阈值 ⇒ 走分片链
+  if (shouldChunk(file.size)) {
+    modal.loading(t('fileUpload.uploadingFile'))
+    number.value++
+    void handleChunkedUpload(file)
+    return false
   }
   modal.loading(t('fileUpload.uploadingFile'))
   number.value++

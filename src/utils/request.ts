@@ -517,7 +517,28 @@ service.interceptors.response.use(undefined, (error: unknown) => {
 })
 
 // 通用下载方法
-export function download(url: string, params: Record<string, unknown>, filename: string, config?: AxiosRequestConfig) {
+/**
+ * 表单编码 + blob + 保存通道的通用下载。
+ *
+ * **返回值 `true` 只证明到"载荷有效且已交给浏览器保存通道"为止**（b112 口径：`a.click()`
+ * 之后浏览器是否落盘、落到哪，页面无法观测），所以调用点只允许用它决定
+ * "这句成功话能不能说 / 这个对话框该不该关"，不允许用它声称"文件已在磁盘上"。
+ *
+ * 为什么必须有这个返回值：改造前签名是 `Promise<void>`，而本函数**四条失败出口全部吞掉
+ * 异常并 resolve**（HTTP 200 + JSON 错误体 / 0 字节载荷 / 保存通道返回 false / 请求层拒绝），
+ * 于是调用点的 `.then(() => msgSuccess('导出成功'))` 在失败时照常执行——同一屏幕同时出现
+ * "后端给出的失败原因"和"导出成功"；`views/monitor/operlog` 那句"失败时保留对话框以便重试"
+ * 所依赖的 `.catch` **结构上永远走不到**（Promise 从不 reject），R12 那次修复其实是空转。
+ * 现在结局进返回值、调用点按 `ok` 分流；失败提示仍由 `errorHub` 单通道给出
+ * （b125 ⑤：同一次失败只许一条提示），所以调用点对 `false` 只做"收回成功话/不关对话框"，
+ * **不得**再补一条通用"下载失败"。
+ */
+export function download(
+  url: string,
+  params: Record<string, unknown>,
+  filename: string,
+  config?: AxiosRequestConfig
+): Promise<boolean> {
   // 使用局部 loading 实例，避免并发下载时模块级变量互相覆盖导致 loading 卡死
   const loadingInstance = ElLoading.service({ text: t('common.downloading'), background: 'rgba(0, 0, 0, 0.7)' })
   // responseType:'blob' 时，响应拦截器返回 res.data（Blob），故断言为 Promise<Blob>
@@ -536,13 +557,17 @@ export function download(url: string, params: Record<string, unknown>, filename:
       ...config
     }) as Promise<Blob>
   )
-    .then(async (data: Blob) => {
+    .then(async (data: Blob): Promise<boolean> => {
+      // 结局只有两种：保存通道认账（true）／其余一切出口（false）。
+      // 失败一律已在下方各分支报给 errorHub，调用点不再重复报。
+      let saved = false
       const isBlob = blobValidate(data)
       if (isBlob) {
         const blob = new Blob([data])
         // 保存失败必须可见（空载荷/通道抛错）；成功分支**不弹**"下载成功"——
         // 浏览器是否落盘页面无法观测，那会是一次假成功（见 utils/saveBlob 模块文档）
-        if (!saveBlob(blob, filename)) {
+        saved = saveBlob(blob, filename)
+        if (!saved) {
           errorHub.report('error', 'download', t('common.downloadError'))
         } else if ((data as Blob & { _truncated?: boolean })._truncated) {
           // P2/N5：消费导出截断标记（行数触及 EXPORT_MAX_ROWS 上限）
@@ -563,8 +588,9 @@ export function download(url: string, params: Record<string, unknown>, filename:
         }
       }
       loadingInstance.close()
+      return saved
     })
-    .catch((r: unknown) => {
+    .catch((r: unknown): boolean => {
       if (import.meta.env.DEV) console.error('[download]', (r as { message?: string })?.message || r)
       // b125：请求层失败已由响应拦截器按 HTTP/业务码解析成可读文案并上报（source='api'，
       // 带 traceId）。这里再报一条"下载失败"只会让同一次失败出现两条不同措辞的提示
@@ -574,6 +600,10 @@ export function download(url: string, params: Record<string, unknown>, filename:
         errorHub.report('error', 'download', t('common.downloadError'))
       }
       loadingInstance.close()
+      // 拒绝同样折算成"没成"：调用点据此收回成功话 / 不关对话框。刻意不再 reject
+      // ——未捕获的拒绝会被 ErrorBoundary 接管而卸载整页（b103/b110 那条），
+      // 而下载失败的正确结局是"提示 + 页面留在原处"。
+      return false
     })
 }
 

@@ -736,6 +736,8 @@ export default {
       visibleToTenant: '租户可见',
       visibleToTenantTip: '开启后该参数出现在租户的参数列表中',
       lockedTip: '该参数受平台治理锁定（Coverage::Locked），治理属性不可修改',
+      lockedListUnknown:
+        '无法确认该参数是否被平台锁定（锁定清单未取到）。界面没有禁用它，但提交时服务端仍会按注册表拒绝',
       confirmChange: '检测到参数治理属性变更：该操作影响所有租户对该参数的可见性与可覆盖性。确认保存？'
     },
     validate: {
@@ -1215,7 +1217,8 @@ export default {
       backupSuccess: '备份成功',
       restoreSuccess: '恢复成功',
       selfExportTooltip: '导出当前登录账号所属租户的数据包',
-      selfExportSuccess: '导出成功',
+      selfExportSuccess: '租户数据包已导出并开始下载（记录见「数据备份」）',
+      selfExportUnknown: '导出结果未知：服务端未返回备份记录，请到「数据备份」确认后再重试',
       confirmDelete: '确认删除选中的 {count} 条备份记录及文件？',
       confirmCreate: '确认立即创建一个数据库备份？该操作可能耗时数秒至数分钟。',
       confirmRestore: '确认从备份 "{name}" 恢复数据库？此操作将覆盖当前数据库所有数据，不可撤销！',

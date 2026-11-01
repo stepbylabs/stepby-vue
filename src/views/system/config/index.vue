@@ -309,6 +309,19 @@
             show-icon
             class="mb-2"
           />
+          <!-- 清单没读到时不得沉默：沉默 = 屏上"这个键可编辑"这句话没有判据支撑（b146） -->
+          <el-alert
+            v-else-if="isLockedListUnknown"
+            :title="t('config.governance.lockedListUnknown')"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="mb-2"
+          >
+            <el-button link type="primary" :disabled="lockedListState === 'loading'" @click="loadLockedKeys">
+              {{ t('common.retry') }}
+            </el-button>
+          </el-alert>
         </template>
       </el-form>
       <template #footer>
@@ -349,16 +362,41 @@ const userStore = useUserStore()
 /** E-04 参数治理：治理编辑仅平台管理员（租户写治理字段被后端强制 tenant_private） */
 const isPlatform = computed(() => (userStore.tenantId ?? 0) === 0)
 
-/** 平台锁定键清单（governance-locked 端点；Locked 键治理控件禁用，后端 fail-closed 兜底） */
+/** 平台锁定键清单（governance-locked 端点；Locked 键治理控件禁用，后端 resolve_governance fail-closed 兜底） */
 const lockedKeys = ref<Set<string>>(new Set())
-onMounted(() => {
+/**
+ * 清单的可得性三态（b146）。
+ *
+ * 改造前是 `.catch(() => {})` ⇒ `lockedKeys` 恒空 ⇒ `isLockedKey` 把"没查到清单"读成
+ * "这个键没被锁"，一次网络抖动之后平台专属键的治理控件**呈现成可编辑**（AGENTS 65：
+ * 读失败 ≠ 空数据；禁用态静默消失与"读失败却声称已清空"是同一族）。
+ *
+ * 故障时不把控件全部禁用——那是把一种误导换成另一种（管理员会被锁在**所有**参数之外，
+ * 而注册表里真正锁定的只有那几条）。取"如实说不知道 + 重试入口"，实际写入仍由后端
+ * `resolve_governance` fail-closed 拒绝并按 C.8 契约回显具体理由。
+ */
+const lockedListState = ref<'ready' | 'loading' | 'failed'>('ready')
+const isLockedListUnknown = computed(() => lockedListState.value === 'failed' && !!form.value.configKey)
+
+/** 只有平台管理员渲染这一段治理控件，因此也只有他需要这份清单 */
+async function loadLockedKeys(): Promise<void> {
   if (!isPlatform.value) return
-  request({ url: '/system/config/governance-locked', method: 'get' })
-    .then((res) => {
-      const keys = ((res as { data?: string[] }).data ?? (res as unknown as string[])) || []
-      lockedKeys.value = new Set(keys)
-    })
-    .catch(() => {})
+  lockedListState.value = 'loading'
+  try {
+    const res = await request({ url: '/system/config/governance-locked', method: 'get' })
+    const keys = ((res as { data?: string[] }).data ?? (res as unknown as string[])) || []
+    lockedKeys.value = new Set(keys)
+    lockedListState.value = 'ready'
+  } catch (error) {
+    // 清空是允许的，但必须同时标记"未就绪"（AGENTS 65 ②）
+    lockedKeys.value = new Set()
+    lockedListState.value = 'failed'
+    if (import.meta.env.DEV) console.error('[config] 治理锁定清单读取失败:', error)
+  }
+}
+
+onMounted(() => {
+  void loadLockedKeys()
 })
 const isLockedKey = computed(() => !!form.value.configKey && lockedKeys.value.has(form.value.configKey))
 

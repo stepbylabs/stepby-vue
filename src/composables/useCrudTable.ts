@@ -657,9 +657,11 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
       if (exportLoading.value) modal.msgInfo(t('common.exporting'))
     }, 300)
     download(exportUrl, { ...queryParams.value }, name)
-      .then(() => {
-        // 仅在耗时较长（>800ms）时补成功反馈，短耗时直接下载即可，避免提示噪音
-        if (Date.now() - startedAt > 800) modal.msgSuccess(t('common.exportSuccess'))
+      .then((ok: boolean) => {
+        // 仅在耗时较长（>800ms）时补成功反馈，短耗时直接下载即可，避免提示噪音。
+        // `ok` 这一维不可省：`download()` 在四类失败上都会 resolve（旧签名 void ⇒ 这里
+        // 无条件报成功 = "导出成功"与后端失败理由同屏，b146 立案本体）。
+        if (ok && Date.now() - startedAt > 800) modal.msgSuccess(t('common.exportSuccess'))
       })
       .catch((e) => {
         if (import.meta.env.DEV) console.error('[useCrudTable] handleExport:', e)

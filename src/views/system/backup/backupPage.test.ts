@@ -17,8 +17,11 @@ import { mount, flushPromises } from '@vue/test-utils'
 const hoisted = vi.hoisted(() => ({
   listBackup: vi.fn(),
   restoreBackup: vi.fn(),
+  selfExportTenantPackage: vi.fn(),
+  downloadBackup: vi.fn(),
   confirm: vi.fn(),
   msgSuccess: vi.fn(),
+  msgWarning: vi.fn(),
   msgError: vi.fn(),
   loadingService: vi.fn(),
   loadingClose: vi.fn(),
@@ -31,15 +34,16 @@ vi.mock('@/api/system/backup', () => ({
   listBackup: (...a: unknown[]) => hoisted.listBackup(...a),
   restoreBackup: (...a: unknown[]) => hoisted.restoreBackup(...a),
   createBackup: vi.fn(),
-  selfExportTenantPackage: vi.fn(),
+  selfExportTenantPackage: (...a: unknown[]) => hoisted.selfExportTenantPackage(...a),
   delBackup: vi.fn(),
-  downloadBackup: vi.fn()
+  downloadBackup: (...a: unknown[]) => hoisted.downloadBackup(...a)
 }))
 
 vi.mock('@/plugins/modal', () => ({
   default: {
     confirm: (...a: unknown[]) => hoisted.confirm(...a),
     msgSuccess: (...a: unknown[]) => hoisted.msgSuccess(...a),
+    msgWarning: (...a: unknown[]) => hoisted.msgWarning(...a),
     msgError: (...a: unknown[]) => hoisted.msgError(...a)
   }
 }))
@@ -174,5 +178,81 @@ describe('备份页恢复链路', () => {
 
     expect(hoisted.restoreBackup).not.toHaveBeenCalled()
     expect(hoisted.logOut).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 「导出租户数据包」链路（b146）。
+ *
+ * 立的案：按钮 tooltip 写的是"导出当前登录账号所属租户的数据包"，而旧实现只发
+ * `POST /system/backup/self-export`、把响应整个丢掉，然后弹一句"导出成功"并刷新列表——
+ * 屏幕上任务结束了，用户手里一个文件都没有（对照平台侧 `views/system/tenant` 的
+ * `handleExport`：那条是 create → downloadBackup 两步完整链）。
+ * 现在三件事必须同判：① 没有 backupId ⇒ 只说"结果未知"，既不下载也不报成功；
+ * ② 记录已经生成 ⇒ 列表刷新（这条与"保存通道认不认账"无关，是两个事实）；
+ * ③ 成功话只由 `downloadBackup` 的认账驱动（旧契约在保存失败时同样正常返回）。
+ */
+describe('自助导出链：没有把文件交出去就不得说导出成功', () => {
+  beforeEach(() => {
+    hoisted.selfExportTenantPackage.mockResolvedValue({
+      data: { backupId: 9, fileName: 'tenant-9.zip' }
+    })
+    hoisted.downloadBackup.mockResolvedValue(true)
+  })
+
+  it('完整链：create → 用返回的 backupId 下载 → 才说已开始下载，并刷新列表', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    const before = hoisted.listBackup.mock.calls.length
+
+    const vm = wrapper.vm as unknown as { handleSelfExport: () => Promise<void>; selfExporting: boolean }
+    await vm.handleSelfExport()
+
+    expect(hoisted.downloadBackup).toHaveBeenCalledWith(9, 'tenant-9.zip')
+    expect(hoisted.msgSuccess).toHaveBeenCalledWith('backup.tip.selfExportSuccess')
+    expect(hoisted.msgWarning).not.toHaveBeenCalled()
+    expect(hoisted.listBackup.mock.calls.length, '备份记录已生成 ⇒ 列表必须刷新').toBeGreaterThan(before)
+    expect(vm.selfExporting, '结束后按钮不得停在 loading').toBe(false)
+  })
+
+  it('200 但没有备份记录 ⇒ 只说"结果未知"：不下载、不说成功', async () => {
+    hoisted.selfExportTenantPackage.mockResolvedValueOnce({ data: undefined })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { handleSelfExport: () => Promise<void>; selfExporting: boolean }
+    await vm.handleSelfExport()
+
+    expect(hoisted.downloadBackup).not.toHaveBeenCalled()
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    expect(hoisted.msgWarning).toHaveBeenCalledWith('backup.tip.selfExportUnknown')
+    expect(vm.selfExporting).toBe(false)
+  })
+
+  it('保存通道不认账 ⇒ 仍刷新列表（记录确实生成了），但不得说"已开始下载"', async () => {
+    hoisted.downloadBackup.mockResolvedValueOnce(false)
+
+    const wrapper = mountPage()
+    await flushPromises()
+    const before = hoisted.listBackup.mock.calls.length
+    const vm = wrapper.vm as unknown as { handleSelfExport: () => Promise<void> }
+    await vm.handleSelfExport()
+
+    expect(hoisted.downloadBackup).toHaveBeenCalledTimes(1)
+    expect(hoisted.msgSuccess, '失败理由由 errorHub 单通道给，页面只负责收回成功话').not.toHaveBeenCalled()
+    expect(hoisted.listBackup.mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('导出请求失败 ⇒ 拒绝不逸出、状态复位、无任何成功提示', async () => {
+    hoisted.selfExportTenantPackage.mockRejectedValueOnce(new Error('self export failed'))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { handleSelfExport: () => Promise<void>; selfExporting: boolean }
+    await expect(vm.handleSelfExport()).resolves.toBeUndefined()
+
+    expect(hoisted.downloadBackup).not.toHaveBeenCalled()
+    expect(hoisted.msgSuccess).not.toHaveBeenCalled()
+    expect(vm.selfExporting, '失败后必须允许再点一次').toBe(false)
   })
 })

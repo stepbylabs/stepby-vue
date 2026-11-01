@@ -27,6 +27,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { functionBody, maskVueScript, maskVueSource, templateRegion } from './listPageSurface'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const SRC = path.resolve(HERE, '..')
@@ -347,6 +348,39 @@ function readSrc(rel: string): Source {
   return { rel, code: fs.readFileSync(path.join(SRC, rel), 'utf8') }
 }
 
+/**
+ * b148：uploadConfig 的两条出口（「保存」与「测试」）都必须有**函数级**就绪闸。
+ *
+ * 立案不是理论：这一族的第一个断面是 b133 的"按钮 :disabled 挡住就行"，而盘上变异
+ * （摘掉 `onTest` 首行的 `if (!loaded.value) return`，保留模板 disabled）在 page 用例上
+ * **照常绿**——禁用按钮让点击根本派发不出来，于是"函数是安全边界"这句只剩注释。
+ * 两层各判一次：函数体里必须有早退（拦截任何**其它**调用点，例如以后加的键盘快捷键），
+ * 模板里必须有 `:disabled`（对用户诚实：按钮看起来就不能点）。
+ *
+ * 取不到函数体也**算违规**并写明"输入坏了"——`functionBody` 返回 null 时若当成"没有违规"，
+ * 采集面一坏判据就恒绿（前言 ⑥/⑬）。
+ */
+export function uploadConfigGateGaps(code: string): string[] {
+  const script = maskVueScript(code)
+  const tpl = templateRegion(maskVueSource(code))
+  const out: string[] = []
+  for (const fn of ['onSave', 'onTest']) {
+    const body = functionBody(script, fn)
+    if (body === null) {
+      out.push(`${fn}：函数体取不到 ⇒ 判据输入坏了，不得读成"没有违规"`)
+      continue
+    }
+    if (!/if\s*\(\s*!\s*loaded\.value\s*\)\s*return/.test(body)) {
+      out.push(`${fn}：体内没有「没读到服务端配置就不发请求」的早退（空默认值会被当成用户意图）`)
+    }
+    const paired = new RegExp(`:disabled="!loaded"[^>]*@click="${fn}"|@click="${fn}"[^>]*:disabled="!loaded"`)
+    if (!paired.test(tpl)) {
+      out.push(`${fn}：对应按钮缺 :disabled="!loaded"（函数闸是边界、禁用是提示，缺一都是下一个入口会漏）`)
+    }
+  }
+  return out
+}
+
 describe('读失败不得被当成空数据写回去（b133）', () => {
   it('采集面自证：扫到的文件与解析出的 catch 体都不为空', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(100)
@@ -449,6 +483,52 @@ describe('读失败不得被当成空数据写回去（b133）', () => {
     expect(p.code).toMatch(/if\s*\(\s*!\s*loaded\.value\s*\)\s*return/)
     expect(p.code).toMatch(/data-test="msg-pref-load-error"/)
     expect(p.code).toMatch(/@click="load"/)
+  })
+
+  it('R3 uploadConfig：保存与测试两条出口都要有函数级闸，模板 :disabled 只是第二层', () => {
+    const p = find(FILES, 'views/system/uploadConfig/index.vue')
+    const gaps = uploadConfigGateGaps(p.code)
+    expect(gaps, gaps.join('\n')).toEqual([])
+
+    // 合成双向：三种退化各只点名自己那一处（互不顶班），合规夹具必须 0 报。
+    const OK = [
+      '<template>',
+      '  <el-button :disabled="!loaded" icon="Connection" @click="onTest">测试</el-button>',
+      '  <el-button :disabled="!loaded" @click="onSave">保存</el-button>',
+      '</template>',
+      '<script setup lang="ts">',
+      'const loaded = ref(false)',
+      'async function onSave() { if (!loaded.value) return }',
+      'async function onTest() { if (!loaded.value) return }',
+      '</script>'
+    ].join('\n')
+    expect(uploadConfigGateGaps(OK)).toEqual([])
+    // ① 摘掉函数闸（正是盘上变异 F-C 的形状）：只点名 onTest 的早退缺失
+    const noGuard = OK.replace('async function onTest() { if (!loaded.value) return }', 'async function onTest() {}')
+    const g1 = uploadConfigGateGaps(noGuard)
+    expect(g1).toHaveLength(1)
+    expect(g1[0]).toContain('onTest：体内没有')
+    // ② 摘掉模板禁用：只点名第二层，函数闸那条不受影响
+    const noDisabled = OK.replace(
+      '<el-button :disabled="!loaded" icon="Connection" @click="onTest">',
+      '<el-button icon="Connection" @click="onTest">'
+    )
+    const g2 = uploadConfigGateGaps(noDisabled)
+    expect(g2).toHaveLength(1)
+    expect(g2[0]).toContain('onTest：对应按钮缺')
+    // ③ 把早退只写在注释里：掩码后不算（刀口只能落在代码上，前言 ⑬）
+    const commentOnly = OK.replace(
+      'async function onSave() { if (!loaded.value) return }',
+      'async function onSave() {\n// if (!loaded.value) return\n}'
+    )
+    const g3 = uploadConfigGateGaps(commentOnly)
+    expect(g3).toHaveLength(1)
+    expect(g3[0]).toContain('onSave：体内没有')
+    // ④ 声明都不存在 ⇒ 输入坏了，不得读成"没有违规"
+    const gone = OK.replace('async function onTest() { if (!loaded.value) return }', '')
+    const g4 = uploadConfigGateGaps(gone)
+    expect(g4).toHaveLength(1)
+    expect(g4[0]).toContain('onTest：函数体取不到')
   })
 
   it('R3 个人主页：读失败必须可见且可重试，不得显示成"暂无数据"', () => {

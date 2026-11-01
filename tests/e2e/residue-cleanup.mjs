@@ -244,7 +244,18 @@ export const RESIDUE_STEPS = [
   // 批八十一 M88：消息记录夹具（产品没有"造失败终态"的接口，只能直接落库）。
   // remark 是夹具唯一标记；正常路径在 finally 物理删除，进程被杀时由这条兜底，
   // 否则 status='1' 的失败记录会永久留在发送日志里，下一轮数据审计把它当真实业务失败报。
-  ['msg_send_log_fixture', "DELETE FROM sys_msg_send_log WHERE remark = 'b81 e2e fixture'"]
+  ['msg_send_log_fixture', "DELETE FROM sys_msg_send_log WHERE remark = 'b81 e2e fixture'"],
+  // 批一百四十九：F158/F159 的**回放任务行**。回放会在 `sys_task` 落一行
+  // （`task_type='replay'`，`task_name` 由生产码 `format!("回放：{}", recording.name)` 生成，
+  // `op_recording_replay.rs:240`），而用例的收尾只删**录制本体**——后端 DELETE 级联清了
+  // steps 与 runs（库里实测两表各 0 行），但任务行不属于录制聚合，两表也都不引用它。
+  // 于是 b146 起每跑一轮 +2，b149 收口 `testdata` 实测 `sys_task.task_name` 两个命名族
+  // 共 10 行（`回放：e2e-脚本-*` / `回放：e2e-import-*`）。
+  // 判据取「`task_type='replay'` **且** 名字前缀后紧跟 e2e 族」两条同时成立：
+  // 只按前缀会连坐真实录制的回放任务（名字不含 e2e），只按 e2e 会误伤同名业务任务行。
+  // 前缀字面量来自生产码，若它改了，本条静默失效 ⇒ `testdata` 会重新把它报成"清理盲区"
+  // 而不是放行（这正是这把审计存在的理由），所以不额外造"前缀对账"的第二把锁。
+  ['recording_replay_task_e2e', "DELETE FROM sys_task WHERE task_type='replay' AND task_name LIKE '回放：e2e-%'"]
 ]
 
 export async function cleanupE2eResidue({ dbPath, log = () => {}, cleanupRunUploads = null }) {

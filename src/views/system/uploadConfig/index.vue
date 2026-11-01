@@ -8,7 +8,7 @@
             {{ t('uploadConfig.title') }}
           </span>
           <div class="flex items-center gap-3">
-            <el-button :loading="testing" type="warning" plain icon="Connection" @click="onTest">
+            <el-button :loading="testing" type="warning" plain icon="Connection" :disabled="!loaded" @click="onTest">
               {{ t('uploadConfig.btn.test') }}
             </el-button>
             <el-button
@@ -103,10 +103,12 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import {
+  buildCredentialPatch,
   getUploadConfig,
   testUploadConfig,
   updateUploadConfig,
-  type UploadConfigMaskedVo
+  type UploadConfigMaskedVo,
+  type UploadConfigUpdateForm
 } from '@/api/system/uploadConfig'
 
 const { t } = useI18n()
@@ -153,20 +155,29 @@ async function load() {
   }
 }
 
+/**
+ * 屏上这份草稿 = 保存要发的载荷 = 测试要发的载荷。
+ *
+ * 三者必须同源：一处一份实现时，「测试通过」与「保存生效」就可以是两个答案
+ * （这正是改造前那句"测试只测已存配置"的病根）。凭据留空经
+ * `buildCredentialPatch` 折算成「不发这个字段」，与后端"不带=不动那一列"同口径。
+ */
+function draftPayload(): UploadConfigUpdateForm {
+  return {
+    ...buildCredentialPatch(accessKeyInput.value, secretKeyInput.value),
+    endpoint: form.value.endpoint.trim(),
+    region: form.value.region.trim(),
+    bucket: form.value.bucket.trim(),
+    pathStyle: form.value.pathStyle,
+    publicEndpoint: form.value.publicEndpoint.trim()
+  }
+}
+
 async function onSave() {
   if (!loaded.value) return
   saving.value = true
   try {
-    await updateUploadConfig({
-      // 留空 = 保留原值（不覆盖已存密文）
-      accessKey: accessKeyInput.value.trim(),
-      secretKey: secretKeyInput.value.trim(),
-      endpoint: form.value.endpoint.trim(),
-      region: form.value.region.trim(),
-      bucket: form.value.bucket.trim(),
-      pathStyle: form.value.pathStyle,
-      publicEndpoint: form.value.publicEndpoint.trim()
-    })
+    await updateUploadConfig(draftPayload())
     ElMessage.success(t('common.saveSuccess'))
     accessKeyInput.value = ''
     secretKeyInput.value = ''
@@ -179,9 +190,12 @@ async function onSave() {
 }
 
 async function onTest() {
+  // 未读到服务端配置 ⇒ 表单里的空默认值不是"用户清空了这些字段"，而是"还不知道"，
+  // 拿它当草稿探活会得到一句与真实配置无关的结论。与保存同一道闸（按钮同时禁用）。
+  if (!loaded.value) return
   testing.value = true
   try {
-    const res = await testUploadConfig()
+    const res = await testUploadConfig(draftPayload())
     ElMessage.success(res.data || res.msg || t('uploadConfig.tip.testOk'))
   } catch {
     // 拦截器已弹错误摘要

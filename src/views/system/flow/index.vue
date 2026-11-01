@@ -563,8 +563,10 @@ function handleExport() {
   }
   exporting.value = true
   // 复用既有 download 工具：表单编码 + blob + saveAs + 截断提示 + 失败走统一错误通道
-  // （errorHub）。该工具内部已吞掉异常并自行提示，故**不可**在此按 Promise 结果追加
-  // 成功/失败提示——失败时会误报"导出成功"。
+  // （errorHub）。这里**不按结局追加提示**，理由与 b125 ⑤ 同源：四类失败出口都已由
+  // errorHub 弹出"后端具体理由 + 追踪号"，页面再补一条就是同一次失败两种措辞。
+  // （`download()` 自 b146 起返回 `Promise<boolean>`，需要"成功才说话/成功才关窗"的
+  // 调用点按 `ok` 分流——本处只需复位 loading，故仍用 finally。）
   // 护栏②：exporting 期间按钮 loading，防重复提交
   download('/system/flow/export', { status: allQuery.value.status }, `flow_doc_${Date.now()}.xlsx`).finally(() => {
     exporting.value = false

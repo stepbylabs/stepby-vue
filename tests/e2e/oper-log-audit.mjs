@@ -542,8 +542,22 @@ function selftest() {
     )
     check(
       `真实允许表的 ${anchored.length} 条 producer 锚点必须逐条在源码里找得到`,
-      anchored.every((e) => verify(e.producer).live),
-      JSON.stringify(anchored.filter((e) => !verify(e.producer).live).map((e) => [e.url, verify(e.producer).note]))
+      anchored.every((e) => PRODUCER_LIVE(e.producer).live),
+      JSON.stringify(
+        anchored.filter((e) => !PRODUCER_LIVE(e.producer).live).map((e) => [e.url, PRODUCER_LIVE(e.producer).note])
+      )
+    )
+    // 反向对照（b149）：锚点的解析根是**生产路径**用的 REPO，而合成夹具的锚点相对 HERE。
+    // 这两条如果共用一个 verifier，"真实表锚点是否存在"就取决于自检顺手把哪个根传进去——
+    // b149 第一条真实锚点（`stepby-axum/src/handler/sys_backup_handler.rs`）正是被这一支
+    // 用 HERE 解析成 `tests/e2e/stepby-axum/…` ENOENT 而判红的：红得对（它确实抓住了"锚点
+    // 在生产路径上读不到"这一型），但抓的是**自检自己传错根**，不是产品的锚点坏了。
+    // 所以这里必须钉住"换成夹具根时至少有一条读不到"，证明解析根是承重的、不是巧合放行。
+    const wrongRoot = makeProducerLive(HERE)
+    check(
+      '同一批锚点换成夹具根解析必须至少有一条读不到（证明解析根是承重的，不是"路径恰好两边都在"）',
+      anchored.length > 0 && anchored.some((e) => !wrongRoot(e.producer).live),
+      JSON.stringify(anchored.map((e) => [e.url, wrongRoot(e.producer).live]))
     )
     check(
       '每条允许表条目都必须自带 why（跨条目指代的理由一旦条目集合变了就指向别处）',

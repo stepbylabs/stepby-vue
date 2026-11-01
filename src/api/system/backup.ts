@@ -56,7 +56,15 @@ export function delBackup(backupId: number | number[]): Promise<AjaxResult> {
 
 // 下载备份文件（自动保存到本地）
 // filename 可选；未提供时使用 backup-<id>.sql 作为兜底文件名
-export function downloadBackup(backupId: number, filename?: string): Promise<Blob> {
+/**
+ * 取回并交给浏览器保存。
+ *
+ * 返回 `true` 的含义与 `utils/request.download()` 同一条口径：**载荷已交给保存通道**，
+ * 不证明落盘（b112）。改造前它把 Blob 原样返回、把 `saveBlob` 的 false 只写进 errorHub，
+ * 于是 `views/system/tenant` 那句 `await downloadBackup(...) → msgSuccess('已导出并开始下载')`
+ * 在"0 字节备份 / 保存通道被拒"时照样说成功——结局必须由返回值给，不能靠"没人报异常"推断。
+ */
+export function downloadBackup(backupId: number, filename?: string): Promise<boolean> {
   return request({
     url: '/system/backup/download/' + backupId,
     method: 'get',
@@ -67,10 +75,11 @@ export function downloadBackup(backupId: number, filename?: string): Promise<Blo
     timeout: FILE_DOWNLOAD_TIMEOUT
   }).then((blob: unknown) => {
     const data = blob instanceof Blob ? blob : new Blob([blob as BlobPart])
-    // 0 字节备份 / 保存通道被拦必须可见；成功分支不弹提示（落盘不可观测）
-    if (!saveBlob(data, filename || `backup-${backupId}.sql`)) {
+    // 保存失败必须可见（0 字节备份 / 保存通道被拦）；成功分支不弹提示（落盘不可观测）
+    const saved = saveBlob(data, filename || `backup-${backupId}.sql`)
+    if (!saved) {
       errorHub.report('error', 'download', i18n.global.t('common.downloadError'))
     }
-    return data
+    return saved
   })
 }
