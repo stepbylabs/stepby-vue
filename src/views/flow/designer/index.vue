@@ -339,6 +339,7 @@ import {
 } from '../definition/flowGraph'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { confirmAction } from '@/utils/confirm'
 
 const { t } = useI18n()
@@ -356,6 +357,11 @@ const loading = ref(false)
 /** 列表取数是否失败（与 `useCrudTable.loadError` 同语义，驱动 `ListEmpty` 的失败分支） */
 const loadError = ref(false)
 const query = ref({ flowCode: '' })
+
+/** 列表与详情各一枚票据（b144）：翻页/搜索与「编辑」取详情是两条独立时间线，
+ *  共用一枚会让"点开另一行"把在飞的列表请求也判成过期。 */
+const listGuard = createLatestGuard()
+const detailGuard = createLatestGuard()
 
 const form = ref<FlowDefUpsertFormLike>({ flowCode: '', flowName: '', graphJson: '' })
 const formNodes = ref<FlowGraphNode[]>([])
@@ -422,6 +428,7 @@ const diffEmpty = computed(() => {
 })
 
 async function load(): Promise<void> {
+  const ticket = listGuard.begin()
   loading.value = true
   try {
     const res = await listFlowDefinitions({
@@ -429,10 +436,12 @@ async function load(): Promise<void> {
       pageSize: pageSize.value,
       flowCode: query.value.flowCode || undefined
     })
+    if (!listGuard.isCurrent(ticket)) return
     rows.value = res.rows ?? []
     total.value = res.total ?? 0
     loadError.value = false
   } catch {
+    if (!listGuard.isCurrent(ticket)) return
     // 列表加载失败（网络/5xx）：全局拦截器已弹错误，吞掉 rejection 防 AxiosError
     // 冒泡进 ErrorBoundary 整页崩溃（r44 实证 dataset 同型缺陷）。
     // b140：但"吞掉"不等于"什么都不留"——此前失败与"真的没有流程"在屏幕上逐像素同形
@@ -442,7 +451,7 @@ async function load(): Promise<void> {
     rows.value = []
     loadError.value = true
   } finally {
-    loading.value = false
+    if (listGuard.isCurrent(ticket)) loading.value = false
   }
 }
 
@@ -453,26 +462,40 @@ function handleQuery(): void {
 
 async function openEdit(row?: FlowDefinition): Promise<void> {
   if (row) {
-    const res = await getFlowDefinition(row.flowId)
-    const d = res.data
-    form.value = {
-      flowId: d?.flowId,
-      flowCode: d?.flowCode ?? '',
-      flowName: d?.flowName ?? '',
-      graphJson: d?.graphJson ?? '',
-      remark: d?.remark
+    // 竞态（b144）：连点两行的「编辑」时先发的响应可能后到，把 A 流程的节点画进 B 的画布。
+    // 设计器是"读→派生可编辑态"，写错的不是显示而是用户接下来要保存的内容。
+    const ticket = detailGuard.begin()
+    try {
+      const res = await getFlowDefinition(row.flowId)
+      if (!detailGuard.isCurrent(ticket)) return
+      const d = res.data
+      form.value = {
+        flowId: d?.flowId,
+        flowCode: d?.flowCode ?? '',
+        flowName: d?.flowName ?? '',
+        graphJson: d?.graphJson ?? '',
+        remark: d?.remark
+      }
+      const g = parseGraphJson(d?.graphJson)
+      formNodes.value = g.nodes.map((n: FlowGraphNode) => ({ ...n }))
+      formEdges.value = g.edges.map((e: FlowGraphEdge) => ({
+        from: e.from,
+        to: e.to,
+        hasCondition: !!e.condition,
+        condField: e.condition?.field ?? '',
+        condOp: e.condition?.op ?? '=',
+        condValue: e.condition?.value !== undefined ? String(e.condition.value) : ''
+      }))
+    } catch (e) {
+      // 拒绝不得逸出：此前点「编辑」撞上 5xx 会让整页被 ErrorBoundary 接管，用户看到的是
+      // 「页面加载失败」而后端理由早已由拦截器提示过（b125 ⑤：同一次失败只许一条声音）。
+      // 留在列表页，再点一次「编辑」即重试。
+      if (import.meta.env.DEV) console.error('[flowDesigner] openEdit 详情读取失败:', e)
+      return
     }
-    const g = parseGraphJson(d?.graphJson)
-    formNodes.value = g.nodes.map((n: FlowGraphNode) => ({ ...n }))
-    formEdges.value = g.edges.map((e: FlowGraphEdge) => ({
-      from: e.from,
-      to: e.to,
-      hasCondition: !!e.condition,
-      condField: e.condition?.field ?? '',
-      condOp: e.condition?.op ?? '=',
-      condValue: e.condition?.value !== undefined ? String(e.condition.value) : ''
-    }))
   } else {
+    // 新建同样是"换查询身份"：此刻若有详情在飞，它带回来的节点必须不得盖进这张空画布
+    detailGuard.invalidate()
     // 新建：缺省三节点骨架（start → 审批 → end）
     form.value = {
       flowCode: `flow_${Date.now()}`,

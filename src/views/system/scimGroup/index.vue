@@ -268,10 +268,21 @@ function resetQuery() {
   handleQuery()
 }
 
+/**
+ * 详情/候选请求守卫：连点两行的「编辑」时，只让最后一次打开动作的结果落到抽屉上。
+ * 共用 listGuard 会让列表刷新把在飞的详情判成过期（反之亦然）——两个问题的
+ * 「最后一次」不是同一次（b119 实例独立）。
+ */
+const detailGuard = createLatestGuard()
+
 async function openEdit(row: ScimGroupAdminRow) {
   editRow.value = row
+  const ticket = detailGuard.begin()
   try {
     const res = await getScimGroup(row.groupId)
+    // 先发的详情后到会**覆盖当前行的表单**：editRow 已经是 B 组，填进去的是 A 组的
+    // 映射类型与绑定 ⇒ 用户点保存即把 A 的绑定写进 B（写侧事故，不只是显示错位）。
+    if (!detailGuard.isCurrent(ticket)) return
     detail.value = res.data ?? null
     editForm.mappingType = detail.value?.mappingType ?? 'role'
     editForm.bindingTargetIds = [...(detail.value?.bindingTargetIds ?? [])]
@@ -280,20 +291,23 @@ async function openEdit(row: ScimGroupAdminRow) {
       // b134：后端把 pageSize 钳到 100（此前请求 500 只会拿到 100，截断检查 `>=500` 永不成立）；
       // 角色全集按 total 分页拉齐，超过硬上限则如实提示，不让"少了几项"冒充全量
       const all = await fetchAllPages((pageNum, pageSize) => listRole({ pageNum, pageSize }))
+      if (!detailGuard.isCurrent(ticket)) return
       roleOptions.value = all.rows
       roleOptionsTotal.value = all.total
       roleOptionsTruncated.value = all.truncated
     }
     if (deptOptions.value.length === 0) {
       const dRes = await listDept()
+      if (!detailGuard.isCurrent(ticket)) return
       deptOptions.value = flattenDepts(dRes.data ?? [])
     }
     // 全部数据就绪才打开抽屉：避免半开状态（缺下拉选项/成员列表）
     editVisible.value = true
   } catch {
     // 接口均走 request 封装，响应拦截器已统一弹错，此处不再重复提示；
-    // 仅清理行引用，保证失败后抽屉不打开（editVisible 仅在成功路径置 true）
-    editRow.value = null
+    // 仅清理行引用，保证失败后抽屉不打开（editVisible 仅在成功路径置 true）。
+    // 判票：已被更晚一次「编辑」接管时不得抹掉对方的行（那会让对方的抽屉失去归属）。
+    if (detailGuard.isCurrent(ticket)) editRow.value = null
   }
 }
 

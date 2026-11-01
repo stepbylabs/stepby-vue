@@ -426,6 +426,7 @@ import { useColumnPreferences } from '@/composables/useColumnPreferences'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { createLatestGuard } from '@/composables/latestRequest'
 import modal from '@/plugins/modal'
 import { addDateRange } from '@/utils/stepby'
 
@@ -830,24 +831,37 @@ const {
   cancel: cancelFieldPerm
 } = useDialogDirtyGuard(openFieldPerm, () => fieldPermChecked.value)
 
+/**
+ * 字段权限矩阵的取数守卫：连点两行的「字段权限」时，只让最后一次打开的结局生效。
+ *
+ * 三个落地处（数据 / 关闭对话框 / 关 loading）都判票，缺一个都会留下错的那一半：
+ * 只判数据 ⇒ 旧请求把新矩阵的 loading 关掉、并把**另一个角色**的隐藏态当基准快照下来
+ * （b119：先发的响应后到，屏幕上是 A 的勾选而标题写着 B，点保存即写错角色）。
+ */
+const fieldPermGuard = createLatestGuard()
+
 /** 打开字段权限矩阵：加载该角色当前隐藏态（开关未开启时接口报业务错误，由全局拦截器提示） */
 function handleFieldPerm(row: SysRole) {
+  const ticket = fieldPermGuard.begin()
   fieldPermRole.value = row
   fieldPermChecked.value = {}
   openFieldPerm.value = true
   fieldPermLoading.value = true
   getFieldPerm(row.roleId!, fieldPermTableKey)
     .then((res) => {
+      if (!fieldPermGuard.isCurrent(ticket)) return
       fieldPermChecked.value = toCheckedMap(res.data?.fields)
       // 后端隐藏态是"打开时用户看到的值"的基准：不回填基准的话，载入完成即被判成脏
       snapshotFieldPerm()
     })
     .catch(() => {
-      // 失败（含"字段级权限未启用"）时关闭对话框，避免在空矩阵上误保存；错误提示由拦截器完成
+      // 失败（含"字段级权限未启用"）时关闭对话框，避免在空矩阵上误保存；错误提示由拦截器完成。
+      // 判票：更晚一次打开正在等它自己的结果时，不得替它关对话框（旧失败会弹掉新矩阵）。
+      if (!fieldPermGuard.isCurrent(ticket)) return
       openFieldPerm.value = false
     })
     .finally(() => {
-      fieldPermLoading.value = false
+      if (fieldPermGuard.isCurrent(ticket)) fieldPermLoading.value = false
     })
 }
 

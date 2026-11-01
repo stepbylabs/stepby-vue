@@ -653,6 +653,12 @@ onBeforeUnmount(() => window.removeEventListener('stepby:open-command-palette', 
   transition: opacity 0.2s;
 }
 
+/* 面板淡出的 200ms 里遮罩与输入框仍被命中，但组件已经卸载 ⇒ 这层是"看得见、
+   点不动"的幽灵面，还会挡住底下的页面。离场期间不接受指针事件（b131 同族）。 */
+.palette-fade-leave-active {
+  pointer-events: none;
+}
+
 .palette-fade-enter-from,
 .palette-fade-leave-to {
   opacity: 0;

@@ -59,6 +59,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { saveBlob } from '@/utils/saveBlob'
 import { blobRequest, failureText } from '@/utils/blobRequest'
 import { FILE_DOWNLOAD_TIMEOUT } from '@/utils/timeouts'
@@ -79,6 +80,12 @@ interface AiHistoryAdminRow {
 }
 
 const { t } = useI18n()
+/**
+ * 取数守卫（b119 单一实现）：这一页的「查询身份」由 页码 + 租户筛选 共同决定，
+ * 连点翻页 / 改筛选后重查时，先发的响应后到会把**上一个筛选条件**的行集与总数
+ * 写在当前条件下（表格内容与输入框对不上，而总数还会跟着一起错）。
+ */
+const loadGuard = createLatestGuard()
 const rows = ref<AiHistoryAdminRow[]>([])
 const loading = ref(false)
 const loadError = ref(false)
@@ -110,6 +117,7 @@ async function load(p?: number) {
     return
   }
   if (p) page.value = p
+  const ticket = loadGuard.begin()
   loading.value = true
   loadError.value = false
   try {
@@ -120,15 +128,18 @@ async function load(p?: number) {
       method: 'get',
       params
     })) as unknown as { code: number; data?: { items?: AiHistoryAdminRow[]; total?: number } }
+    if (!loadGuard.isCurrent(ticket)) return
     const d = res.data
     rows.value = d?.items ?? []
     total.value = d?.total ?? 0
   } catch (e) {
-    // 错误提示由响应拦截器统一弹出；页面侧负责把"加载失败"与"暂无数据"分开（ListEmpty）
+    // 错误提示由响应拦截器统一弹出；页面侧负责把"加载失败"与"暂无数据"分开（ListEmpty）。
+    // 判票：更晚一次查询正在等它自己的结果时，旧失败不得把新页判成"加载失败"。
+    if (!loadGuard.isCurrent(ticket)) return
     loadError.value = true
     if (import.meta.env.DEV) console.error('[aiHistory] load failed:', e)
   } finally {
-    loading.value = false
+    if (loadGuard.isCurrent(ticket)) loading.value = false
   }
 }
 

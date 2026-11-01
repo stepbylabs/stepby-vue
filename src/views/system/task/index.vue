@@ -374,6 +374,7 @@ const {
   getList,
   loadError,
   retryLoad,
+  listGuard,
   handleQuery,
   handleDelete,
   handleSelectionChange
@@ -492,9 +493,14 @@ watch(taskList, () => syncRunningPoll())
 
 /** 静默刷新：仅更新数据，不触发全页 loading（避免轮询闪烁）。返回 Promise 让轮询器的在途闸真正生效 */
 function silentRefresh(): Promise<void> {
+  // 与列表**共用同一枚守卫**（b144）：这一条链绕过 getList 自己取数，若另拿一枚，
+  // 轮询的旧响应就会覆盖刚点的手动刷新——同一个"屏上该是哪一批行"的问题不能有两条
+  // 独立的时间线（b119 的"最后一次"在这里是同一个查询身份）。
+  const ticket = listGuard.begin()
   const params = addDateRange({ ...queryParams.value } as Record<string, unknown>, dateRange.value) as TaskQueryParams
   return listTask(params)
     .then((res) => {
+      if (!listGuard.isCurrent(ticket)) return
       taskList.value = res.rows
       total.value = res.total
       syncRunningPoll()

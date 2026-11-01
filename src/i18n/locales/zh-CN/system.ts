@@ -100,6 +100,7 @@ export default {
       namePh: '请输入令牌名称，如 CI 部署',
       scopes: '权限范围',
       scopesPh: '选择授予该令牌的权限',
+      scopeLoadFailed: '权限范围目录读取失败，请先重试后再创建',
       expireDays: '有效期',
       expireDaysTip: '天数，0 表示永不过期',
       withAk: '开通 AK/SK',
@@ -1346,7 +1347,9 @@ export default {
         subNameRequired: '订阅名称不能为空',
         reportRequired: '请选择关联报表',
         cronRequired: '请填写 cron 表达式',
-        channelRequired: '请至少选择一种推送渠道'
+        channelRequired: '请至少选择一种推送渠道',
+        emailRequired: '请填写收件人（多个地址用英文逗号分隔）',
+        emailInvalidItems: '以下收件地址格式不正确：{items}'
       },
       tip: {
         confirmDelete: '是否确认删除订阅「{name}」？',

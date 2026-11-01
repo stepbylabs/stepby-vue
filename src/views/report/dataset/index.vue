@@ -157,6 +157,7 @@
 
 <script setup lang="ts">
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -230,6 +231,8 @@ useMobileFilter(showSearch)
 const editOpen = ref(false)
 const saving = ref(false)
 const paramsSchemaText = ref('')
+/** 详情时间线（b144）：列表由组合子的 `listGuard` 管，编辑表单的两次取详情另算一条线 */
+const detailGuard = createLatestGuard()
 
 const previewOpen = ref(false)
 const previewing = ref(false)
@@ -257,28 +260,43 @@ const { beforeClose, cancel } = useDialogDirtyGuard(editOpen, form)
 
 async function openEdit(row?: ReportDataset) {
   if (row) {
-    const res = await getDataset(row.datasetId)
-    const d = res.data
-    form.value = {
-      datasetId: d?.datasetId,
-      datasetCode: d?.datasetCode ?? '',
-      datasetName: d?.datasetName ?? '',
-      // VO 恒不含 SQL 明文，必须走 edit 权限专属端点回填；取不到则留空并提示
-      // （保存时 SQL 为空会被必填校验拦住，不会把空串写回覆盖原模板）
-      sqlTemplate: '',
-      paramsSchema: d?.paramsSchema,
-      status: d?.status ?? '0',
-      remark: d?.remark
-    }
-    paramsSchemaText.value = d?.paramsSchema != null ? JSON.stringify(d.paramsSchema) : ''
+    // 竞态 + 拒绝逸出（b144）：连点两行的「编辑」时，先发的详情可能后到并把 A 的编码/名称/SQL
+    // 填进 B 的表单——用户接着点保存就等于覆盖了另一条数据集。
+    // 此前这条 await 没有任何 catch，一次 5xx 会把整页交给 ErrorBoundary（r44 同型），
+    // 用户看到的是「页面加载失败」而不是一句失败理由。
+    const ticket = detailGuard.begin()
     try {
-      const sqlRes = await getDatasetSql(Number(d?.datasetId ?? row.datasetId))
-      form.value.sqlTemplate = sqlRes.data ?? ''
+      const res = await getDataset(row.datasetId)
+      if (!detailGuard.isCurrent(ticket)) return
+      const d = res.data
+      form.value = {
+        datasetId: d?.datasetId,
+        datasetCode: d?.datasetCode ?? '',
+        datasetName: d?.datasetName ?? '',
+        // VO 恒不含 SQL 明文，必须走 edit 权限专属端点回填；取不到则留空并提示
+        // （保存时 SQL 为空会被必填校验拦住，不会把空串写回覆盖原模板）
+        sqlTemplate: '',
+        paramsSchema: d?.paramsSchema,
+        status: d?.status ?? '0',
+        remark: d?.remark
+      }
+      paramsSchemaText.value = d?.paramsSchema != null ? JSON.stringify(d.paramsSchema) : ''
+      try {
+        const sqlRes = await getDatasetSql(Number(d?.datasetId ?? row.datasetId))
+        if (!detailGuard.isCurrent(ticket)) return
+        form.value.sqlTemplate = sqlRes.data ?? ''
+      } catch (e) {
+        if (!detailGuard.isCurrent(ticket)) return
+        ElMessage.warning(t('rp.sqlLoadFailed'))
+        if (import.meta.env.DEV && e instanceof Error) console.error('[reportDataset] sql 明文回填:', e)
+      }
     } catch (e) {
-      ElMessage.warning(t('rp.sqlLoadFailed'))
-      if (import.meta.env.DEV && e instanceof Error) console.error('[reportDataset] sql 明文回填:', e)
+      if (import.meta.env.DEV && e instanceof Error) console.error('[reportDataset] openEdit 详情读取失败:', e)
+      return
     }
   } else {
+    // 新建也是"换查询身份"：在飞的详情不得把内容写进这张空表单
+    detailGuard.invalidate()
     form.value = { datasetCode: '', datasetName: '', sqlTemplate: '', status: '0' }
     paramsSchemaText.value = ''
   }

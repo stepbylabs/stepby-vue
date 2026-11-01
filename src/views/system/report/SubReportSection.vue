@@ -202,7 +202,9 @@ import { listSub, getSub, delSub, addSub, updateSub, changeSubStatus, runSub } f
 import type { SysReport, SysReportSub } from '@/types/api/system/report'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { useDialogDirtyGuard } from '@/composables/useDialogDirtyGuard'
+import { createLatestGuard } from '@/composables/latestRequest'
 import { fetchAllPages } from '@/utils/paging'
+import { recipientRule } from '@/utils/emailRecipients'
 import modal from '@/plugins/modal'
 import type { FormRules } from 'element-plus'
 
@@ -212,6 +214,14 @@ const props = defineProps<{ report: SysReport }>()
 const open = defineModel<boolean>('open', { required: true })
 
 const { t } = useI18n()
+
+/**
+ * 列表拉齐与行内详情各一枚守卫（b144）：两者的"最后一次"不是同一个问题——
+ * 前者问"这一页该显示哪些订阅"，后者问"这个编辑弹窗该填谁"。共用一枚会让
+ * 打开编辑弹窗把在飞的列表判成过期（列表于是停在 loading 或旧值上）。
+ */
+const subListGuard = createLatestGuard()
+const subDetailGuard = createLatestGuard()
 
 const subLoading = ref(false)
 const subList = ref<SysReportSub[]>([])
@@ -231,7 +241,15 @@ const subChannels = ref<string[]>([])
 const subForm = ref<SysReportSub>({})
 const subRules: FormRules = {
   subName: [{ required: true, message: t('report.sub.validate.subNameRequired'), trigger: 'blur' }],
-  cron: [{ required: true, message: t('report.sub.validate.cronRequired'), trigger: 'blur' }]
+  cron: [{ required: true, message: t('report.sub.validate.cronRequired'), trigger: 'blur' }],
+  // b144：与服务端 `split_emails` + `is_valid_email` 同源（既不加严也不放宽）。
+  // 此前这一项**没有任何规则**：填错要跑一趟网络才拿到 400，而拦截器只会给一句
+  // 「收件邮箱格式不正确」——不点名是哪几个；反过来若按通用邮箱正则收紧，
+  // `ops@mail` / `root@localhost` 这类自托管合法值会在本地就被挡死。
+  receiveEmail: recipientRule(() => subChannels.value.includes('email'), {
+    empty: t('report.sub.validate.emailRequired'),
+    invalid: (bad) => t('report.sub.validate.emailInvalidItems', { items: bad.join(', ') })
+  })
 }
 
 // 打开订阅管理对话框时重置列表并拉取（对应原 openSubDialog 的加载逻辑）
@@ -248,23 +266,28 @@ watch(open, (val: boolean) => {
 function getSubList() {
   const reportId = props.report.reportId
   if (!reportId) return
+  const ticket = subListGuard.begin()
   subLoading.value = true
   subLoadError.value = false
   // b134：按 total 拉齐并如实标注截断；失败必须与"这报表没有订阅"可区分
   fetchAllPages((pageNum, pageSize) => listSub({ pageNum, pageSize, reportId }))
     .then((res) => {
+      // 快速开关对话框 / 切换报表时，旧一次拉齐（分页串）后到会把上一个报表的订阅
+      // 画在当前报表名下——而"删除/停用"按的是当前行的 subId，跨报表误操作就来自这里。
+      if (!subListGuard.isCurrent(ticket)) return
       subList.value = res.rows
       subTotal.value = res.total
       subTruncated.value = res.truncated
     })
     .catch(() => {
+      if (!subListGuard.isCurrent(ticket)) return
       subList.value = []
       subTotal.value = 0
       subTruncated.value = false
       subLoadError.value = true
     })
     .finally(() => {
-      subLoading.value = false
+      if (subListGuard.isCurrent(ticket)) subLoading.value = false
     })
 }
 
@@ -297,8 +320,13 @@ function handleSubAdd() {
 }
 
 function handleSubEdit(row: SysReportSub) {
+  const ticket = subDetailGuard.begin()
   getSub(row.subId!)
     .then((res) => {
+      // 连点两行的「编辑」：先发的响应后到会把 A 订阅（含 subId）整份填进表单，
+      // 而用户以为在改刚点的 B ⇒ 保存写的仍是 A（`submitSubForm` 用的就是表单里的
+      // subId）。这是"写错对象"而不是"显示错位"，所以每个落地处都必须判票。
+      if (!subDetailGuard.isCurrent(ticket)) return
       subForm.value = res.data ?? row
       subChannels.value = [
         ...(subForm.value.pushEmail === '1' ? ['email' as const] : []),
@@ -308,7 +336,10 @@ function handleSubEdit(row: SysReportSub) {
       subFormOpen.value = true
       snapshotSub()
     })
-    .catch(() => {})
+    .catch((e) => {
+      // 失败不开弹窗（表单还是上一次的值，开着就是骗人）；提示由请求层统一出口负责。
+      if (import.meta.env.DEV) console.error('[report/sub] 订阅详情读取失败:', e)
+    })
 }
 
 function submitSubForm() {

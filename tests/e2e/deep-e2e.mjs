@@ -113,6 +113,7 @@ import { makeWsSessionExpiryTest } from './modules/wsSessionExpiry.mjs'
 import { makeErrorBoundarySurvivalTest } from './modules/errorBoundarySurvival.mjs'
 import { makeSwCacheBoundaryTest } from './modules/swCacheBoundary.mjs'
 import { makeNoticeDetailFailureTest } from './modules/noticeDetailFailure.mjs'
+import { makeEditDetailFailureTest } from './modules/editDetailFailure.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -22306,6 +22307,21 @@ const testModule97 = makeNoticeDetailFailureTest({
   getApiToken
 })
 
+// 模块 98（b144）：编辑对话框的详情读失败 ⇒ 不得打开空表单、不得卸载整页。
+// 静态锁能判"有没有 catch"，判不了"失败之后屏幕上是什么"——把 `editOpen=true` 挪进 catch
+// 里两条锁照常全绿，而用户拿到一个空表单（按下保存就覆盖真实数据集）。本模块用注入的业务码
+// 失败构造该状态，判"请求真出网 / 对话框不开 / 页面不卸载 / 撤故障后回显真值"四件运行时事实。
+const testModule98 = makeEditDetailFailureTest({
+  record,
+  log,
+  CONFIG,
+  checkConsoleErrors,
+  sleep,
+  dismissTour,
+  clickButton,
+  getApiToken
+})
+
 // 构建 testFns 映射表（id → 测试函数）
 // 测试函数本体仍在本文件中定义（第三阶段将迁移到 e2e/modules/*/）
 const testFns = {
@@ -22405,7 +22421,8 @@ const testFns = {
   94: testModule94,
   95: testModule95,
   96: testModule96,
-  97: testModule97
+  97: testModule97,
+  98: testModule98
 }
 
 // 传递可变状态的 getter（runner 通过 getter 读取最新计数，避免 ESM live-binding 陷阱）

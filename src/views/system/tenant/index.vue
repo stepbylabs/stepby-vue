@@ -424,6 +424,12 @@ useMobileFilter(showSearch)
 const loading = ref(false)
 /** 列表请求守卫：连点搜索/刷新时只让最后一次请求的结局生效（b119） */
 const listGuard = createLatestGuard()
+/**
+ * 详情请求守卫：连点两行的「编辑」（或编辑后再点新增）时，只让最后一次取数落到表单上。
+ * 与列表守卫**分开一个实例**：共用会让列表刷新把在飞的详情响应判成过期（反之亦然），
+ * 两个问题的"最后一次"不是同一次（b119 的实例独立语义）。
+ */
+const detailGuard = createLatestGuard()
 // 列表加载失败标记：失败置真（空态显示"加载失败 + 重试"），成功置假
 const loadError = ref(false)
 const saving = ref(false)
@@ -655,6 +661,10 @@ function resetQuery() {
 }
 
 function openAdd() {
+  // 换查询身份：在飞的「编辑详情」响应必须立刻失去写权。
+  // 这一刻没有新请求可发（新增不取详情），但旧响应若稍后回来，会把上一个租户的值
+  // 填进新增表单——那是"新建一条别人配置"的写侧事故，不只是显示错位（b119 第三条义务）。
+  detailGuard.invalidate()
   isEdit.value = false
   editingId.value = null
   Object.assign(form, {
@@ -676,22 +686,32 @@ function openAdd() {
 async function openEdit(row: TenantVo) {
   isEdit.value = true
   editingId.value = row.tenantId
-  const res = await getTenant(row.tenantId)
-  const d = res.data ?? row
-  Object.assign(form, {
-    tenantName: d.tenantName ?? '',
-    tenantCode: d.tenantCode ?? '',
-    packageId: d.packageId,
-    expireTime: d.expireTime,
-    accountCount: d.accountCount ?? 0,
-    status: d.status ?? '0',
-    orderNum: d.orderNum ?? 0,
-    contactName: d.contactName ?? '',
-    contactPhone: d.contactPhone ?? '',
-    contactEmail: d.contactEmail ?? '',
-    remark: d.remark ?? ''
-  })
-  formVisible.value = true
+  const ticket = detailGuard.begin()
+  try {
+    const res = await getTenant(row.tenantId)
+    // 连点两行的「编辑」时，先发的响应后到会把**另一行**的值写进当前 editingId 的表单，
+    // 用户点保存即把 A 租户的配置写进 B 租户（写侧事故，不是显示错位）。
+    if (!detailGuard.isCurrent(ticket)) return
+    const d = res.data ?? row
+    Object.assign(form, {
+      tenantName: d.tenantName ?? '',
+      tenantCode: d.tenantCode ?? '',
+      packageId: d.packageId,
+      expireTime: d.expireTime,
+      accountCount: d.accountCount ?? 0,
+      status: d.status ?? '0',
+      orderNum: d.orderNum ?? 0,
+      contactName: d.contactName ?? '',
+      contactPhone: d.contactPhone ?? '',
+      contactEmail: d.contactEmail ?? '',
+      remark: d.remark ?? ''
+    })
+    formVisible.value = true
+  } catch (e) {
+    // 接口错误的提示由请求层统一出口负责（b125），页面侧的职责是不让拒绝逸出
+    // （逸出会被 ErrorBoundary 接管并卸载整页：b107 同族）且**不开**这个半填的弹窗。
+    if (import.meta.env.DEV) console.error('[tenant] openEdit 详情读取失败:', e)
+  }
 }
 
 /** 打开域名管理抽屉（仅平台；域名接入 + DNS TXT 验证） */

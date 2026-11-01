@@ -100,6 +100,7 @@ export default {
       namePh: 'e.g. CI deploy',
       scopes: 'Scopes',
       scopesPh: 'Select permissions to grant',
+      scopeLoadFailed: 'Failed to load the scope catalog; retry before creating',
       expireDays: 'Validity',
       expireDaysTip: 'Days; 0 means never expires',
       withAk: 'Enable AK/SK',
@@ -1380,7 +1381,9 @@ export default {
         subNameRequired: 'Subscription name is required',
         reportRequired: 'Please select a report',
         cronRequired: 'Cron expression is required',
-        channelRequired: 'Please select at least one channel'
+        channelRequired: 'Please select at least one channel',
+        emailRequired: 'Please fill recipients (separate multiple addresses with commas)',
+        emailInvalidItems: 'Invalid recipient address(es): {items}'
       },
       tip: {
         confirmDelete: 'Delete subscription "{name}"?',

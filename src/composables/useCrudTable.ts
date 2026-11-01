@@ -6,7 +6,7 @@ import { buildUrlQuery } from '@/utils/queryUrl'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute, type RouteLocationNormalizedLoaded, type Router } from 'vue-router'
 import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
-import { createLatestGuard } from '@/composables/latestRequest'
+import { createLatestGuard, type LatestGuard } from '@/composables/latestRequest'
 import { focusFirstError } from '@/utils/formValidate'
 import { applySortChange, type SortQueryTarget } from '@/utils/sortDirection'
 import type { FormInstance } from 'element-plus'
@@ -138,6 +138,15 @@ export interface UseCrudTableReturn<T extends object> {
    * 此前失败被 catch 静默吞成空列表，toast 消失后页面落回空态，两种状态在屏幕上同形。
    */
   loadError: Ref<boolean>
+  /**
+   * 列表请求守卫（b119 原语；b144 起对外暴露）。
+   *
+   * 页面若**绕过 getList** 自己取数（典型是「存在 running 任务时每 5s 静默轮询」），
+   * 必须 `begin()` 拿票、并在每个落地处 `isCurrent(ticket)` 判票，且与列表共用**同一枚**：
+   * 两个"最后一次"在这里问的是同一个问题（屏上这一页该显示哪一批行）。各拿一枚会让
+   * 轮询的旧响应覆盖刚点的手动刷新结果，而形状锁按实例数看不见这种分裂。
+   */
+  listGuard: LatestGuard
   getList: () => void
   /** 空态「重试」入口：复用 getList（不复制请求逻辑），成功后 loadError 自动清除 */
   retryLoad: () => void
@@ -702,6 +711,13 @@ export function useCrudTable<T extends object, Q extends object = Record<string,
     // 方法
     getList,
     retryLoad,
+    /**
+     * 列表请求守卫（b119 原语，b144 起对外暴露）：页面若**绕过 getList** 自己取数
+     * （典型是「有 running 任务时静默轮询」），必须 `begin()` 拿票、在每个落地处判票，
+     * 且与列表共用**同一枚**——两个"最后一次"在这里是同一个问题（屏上这一页的行集）。
+     * 各拿一枚会让轮询的旧响应覆盖手动刷新的新结果，而形状锁看不见这种分裂。
+     */
+    listGuard,
     cancel,
     reset,
     handleQuery,

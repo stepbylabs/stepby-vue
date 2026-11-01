@@ -53,10 +53,23 @@ const BASELINE = path.join(HERE, 'request-storm-baseline.json')
  * 事实源必须**可核对**：端点键 + 间隔（毫秒）+ 代码位置 + 为什么它就该周期性出网。
  * 只在人脑里记着"这个是合法轮询"，第一次跑就会被新键密度下限判成风暴；反过来为了
  * 消红而放宽全局阈值，会把真正的逐行请求一起放走。声明只对**点名的端点**生效，
- * 且要求 `source` 指向真实代码位置——这与 `endpoint-coverage-reasons.json` 同一条纪律：
+ * 且要求锚点指得到真实代码——这与 `endpoint-coverage-reasons.json` 同一条纪律：
  * 理由写在文档里不是判据，登记表本身要过闸。
+ *
+ * **锚点用 `file` + `needle`，不用行号**（v1 的行号形态已退役，不留兼容通道）。
+ * 立项事实（b144）：本批给 `src/views/system/task/index.vue` 加了 6 行，登记册里那条
+ * `…index.vue:485` 就落到了空行上，`--selftest` 直接抛穿退出——行号锚点把"这条轮询还在不在"
+ * 变成了"它上面加了几行"，与 ⑰「陈旧性只能判语义，不能判字节」同一条纪律在**登记册面**的断面。
+ * needle 还比行号多证明一件事：登记指的是**哪一处**轮询（旧形状只证"第 485 行看着像轮询"）。
  */
 const DECLARATIONS = path.join(HERE, 'polling-declarations.json')
+
+/** 锚点那一行必须说得出"这是周期取数"——与 v1 同一把尺，只是不再按行号取行。 */
+const POLLING_SHAPE_RE = /poll|Poll|Interval|interval|Refresh|refresh|tick|Tick|setTimeout/u
+/** 注释/空行不得作锚点（同 v1）。 */
+const NOT_CODE_RE = /^(\/\/|\/\*|\*|<!--)/u
+/** 允许登记的锚点文件类型：源码、样式、HTML 与清单自身（合成夹具用它，见自检 ⑭）。 */
+const ANCHOR_FILE_RE = /^[A-Za-z0-9_./-]+\.(?:rs|ts|tsx|js|mjs|cjs|vue|json|scss|css|html)$/u
 
 export function loadDeclarations(file = DECLARATIONS) {
   if (!fs.existsSync(file)) {
@@ -68,8 +81,8 @@ export function loadDeclarations(file = DECLARATIONS) {
   } catch (e) {
     throw new Error(`轮询声明清单 JSON 解析失败：${e.message}`)
   }
-  if (!body || body.version !== 1)
-    throw new Error(`轮询声明清单 version 必须为 1（实际 ${JSON.stringify(body?.version)}）`)
+  if (!body || body.version !== 2)
+    throw new Error(`轮询声明清单 version 必须为 2（实际 ${JSON.stringify(body?.version)}；v1 的行号锚点已退役）`)
   if (!Array.isArray(body.declarations) || body.declarations.length === 0) {
     throw new Error('轮询声明清单 declarations 必须是非空数组')
   }
@@ -87,42 +100,56 @@ export function loadDeclarations(file = DECLARATIONS) {
     if (!Number.isFinite(interval) || interval <= 0 || interval > 24 * 3600 * 1000) {
       throw new Error(`${at}.intervalMs 必须是 (0, 24h] 的数值（实际 ${JSON.stringify(d.intervalMs)}）`)
     }
-    const source = typeof d.source === 'string' ? d.source.trim() : ''
-    // 代码位置必须带行号锚点：只写文件名等于"某处"，改完代码仍会假装成立
-    if (!/^[A-Za-z0-9_./-]+:\d+$/.test(source)) {
-      throw new Error(`${at}.source 必须是 "相对路径:行号"（实际 ${JSON.stringify(d.source)}）`)
+    const rel = typeof d.file === 'string' ? d.file.trim() : ''
+    if (!ANCHOR_FILE_RE.test(rel)) {
+      throw new Error(`${at}.file 必须是仓内源码相对路径（实际 ${JSON.stringify(d.file)}）`)
     }
-    // 行号锚点必须指得到真实文件：只校验格式的话，`a.ts:1` 也能登记，
-    // 声明就退化成"随手写的一句话"。按仓库根解析（脚本在 stepby-vue/tests/e2e 下三层）。
-    const [rel, lineRaw] = source.split(':')
+    // 按脚本位置反推仓根，不读 cwd（本表 ②/⑯(b)：写死副本树或靠启动目录侥幸都会读到旧树）
     const repoRoot = path.resolve(HERE, '../../..')
     const abs = path.resolve(repoRoot, rel)
-    if (!abs.startsWith(repoRoot + path.sep) || !fs.existsSync(abs)) {
-      throw new Error(`${at}.source 指向的文件不存在：${source}（仓库根 ${repoRoot}）`)
+    // 越出仓根与"文件不存在"分成两条文案：前者是登记写错了方向（`../../` 前缀、绝对路径），
+    // 后者多半是文件被移动或改名——把人支使去查的东西不同（前言 ⑨）。
+    if (!abs.startsWith(repoRoot + path.sep)) {
+      throw new Error(`${at}.file 越出仓库根：${rel}（仓库根 ${repoRoot}）`)
     }
-    const lines = fs.readFileSync(abs, 'utf8').split('\n')
-    if (Number(lineRaw) < 1 || Number(lineRaw) > lines.length) {
-      throw new Error(`${at}.source 行号越界：${source}（文件仅 ${lines.length} 行）`)
+    if (!fs.existsSync(abs)) {
+      throw new Error(`${at}.file 指向的文件不存在：${rel}（仓库根 ${repoRoot}）`)
     }
-    // 锚点那一行必须是**代码**且**说得出"这是周期取数"**：本批实测五条声明里有三条的
-    // 行号漂到了注释或无关语句上（`// 用 /metrics 的…`、vue 的 import 行、`useSortArrow` 行），
-    // 而旧判据只核"文件存在 + 行号不越界"⇒ 锚点漂到哪儿都照常绿。锚点的作用是让下一个人
-    // 能跳到"这条轮询确实还在"的位置，指错了就等于这条登记没有生效路径（前言 ⑮）。
-    const anchor = (lines[Number(lineRaw) - 1] || '').trim()
-    if (anchor === '' || /^(\/\/|\/\*|\*|<!--)/.test(anchor)) {
+    const needle = typeof d.needle === 'string' ? d.needle.trim() : ''
+    if (needle.length < 4) {
       throw new Error(
-        `${at}.source 指向的不是代码行：${source} → ${JSON.stringify(anchor)}（注释/空行不能作为轮询锚点）`
+        `${at}.needle 至少 4 个字符（实际 ${JSON.stringify(d.needle)}）——只写文件名等于"某处"，改完代码仍会假装成立`
       )
     }
-    if (!/poll|Poll|Interval|interval|Refresh|refresh|tick|Tick|setTimeout/.test(anchor)) {
+    const lines = fs.readFileSync(abs, 'utf8').split('\n')
+    const hits = []
+    for (let n = 0; n < lines.length; n++) if (lines[n].includes(needle)) hits.push([n + 1, lines[n]])
+    // 命中 0 处 ⇒ 登记的代码已经不在了。这时**不得**把豁免留着：声明="这个键不设阈"，
+    // 轮询没了还留着声明，等于给未来的逐行请求开常白名单（b85 项 F 的退役纪律在锚点面上的同款）。
+    if (hits.length === 0) {
+      throw new Error(`${at}.needle 在 ${rel} 里一处都没命中 ⇒ 这条登记的代码已不存在，应经退役通道删除`)
+    }
+    if (hits.length > 1) {
       throw new Error(
-        `${at}.source 那一行看不出任一周期的形态（轮询/间隔/刷新/心跳）：${source} → ${JSON.stringify(anchor)}`
+        `${at}.needle 在 ${rel} 里命中 ${hits.length} 处（第 ${hits.map(([n]) => n).join('、')} 行）⇒ 锚点有歧义，写得更具体一些`
+      )
+    }
+    const [lineNo, lineText] = hits[0]
+    const anchor = lineText.trim()
+    if (anchor === '' || NOT_CODE_RE.test(anchor)) {
+      throw new Error(
+        `${at}.needle 命中的那一行不是代码：${rel}:${lineNo} → ${JSON.stringify(anchor)}（注释/空行不能作为轮询锚点）`
+      )
+    }
+    if (!POLLING_SHAPE_RE.test(anchor)) {
+      throw new Error(
+        `${at}.needle 那一行看不出任一周期的形态（轮询/间隔/刷新/心跳）：${rel}:${lineNo} → ${JSON.stringify(anchor)}`
       )
     }
     const why = typeof d.why === 'string' ? d.why.trim() : ''
     if (why.length < 10) throw new Error(`${at}.why 至少 10 个字符，写清为什么它必须周期性出网`)
     seen.add(key)
-    out.set(key, { key, intervalMs: interval, source, why })
+    out.set(key, { key, intervalMs: interval, file: rel, needle, line: lineNo, why, source: `${rel}:${lineNo}` })
   }
   return out
 }
@@ -696,24 +723,35 @@ function selftest() {
     fs.writeFileSync(f, JSON.stringify(body))
     return { f, dir }
   }
+  // 合成夹具的锚点**一律由真实登记册派生**（b140 立的纪律，本批扩到整段）：任何写死的
+  // `路径:行号` 都会因为"上一次改动往上面加了几行"而红在自己身上——b144 实测就是这么炸的。
+  const liveProto = [...loadDeclarations().values()][0] || null
+  if (!liveProto) fail.push('⑭ 真实登记册为空 ⇒ 合成夹具无从派生锚点（采集面坏了，不是没有轮询）')
   const goodDecl = mkDecl({
-    version: 1,
+    version: 2,
     declarations: [
       {
-        key: 'GET /monitor/server',
-        intervalMs: 2000,
-        source: 'stepby-vue/src/views/monitor/server/index.vue:381',
-        why: '服务器监控页面自动刷新'
+        key: liveProto?.key ?? 'GET /x',
+        intervalMs: liveProto?.intervalMs ?? 1000,
+        file: liveProto?.file ?? '',
+        needle: liveProto?.needle ?? '',
+        why: liveProto?.why ?? '合成：真实登记册的第一条声明'
       }
     ]
   })
   try {
     const decl = loadDeclarations(goodDecl.f)
-    if (!decl.has('GET /monitor/server') || decl.get('GET /monitor/server').intervalMs !== 2000) {
-      fail.push('⑭ 合法声明没有读出来')
+    const got = decl.get(liveProto?.key ?? '')
+    if (
+      !got ||
+      got.intervalMs !== liveProto?.intervalMs ||
+      got.line !== liveProto?.line ||
+      got.source !== liveProto?.source
+    ) {
+      fail.push(`⑭ 合法声明没有原样读回（行号须由 needle 现算）：${JSON.stringify(got)}`)
     }
   } catch (e) {
-    fail.push(`⑭ 合法声明被拒：${e.message}`)
+    fail.push(`⑭ 合法声明被拒：${e instanceof Error ? e.message : String(e)}`)
   }
   const declaredHigh = stormRegressions(
     {},
@@ -736,74 +774,92 @@ function selftest() {
     new Set(['GET /monitor/server'])
   )
   if (declaredGrowth.length !== 0) fail.push('⑭ 已声明端点的基线增幅仍被报')
-  const badDecls = [
-    [
-      '版本错',
-      { version: 2, declarations: [{ key: 'GET /x', intervalMs: 1, source: 'a.ts:1', why: '为什么必须轮询' }] }
-    ],
-    ['空清单', { version: 1, declarations: [] }],
-    ['缺间隔', { version: 1, declarations: [{ key: 'GET /x', source: 'a.ts:1', why: '为什么必须轮询' }] }],
-    [
-      '间隔为 0',
-      { version: 1, declarations: [{ key: 'GET /x', intervalMs: 0, source: 'a.ts:1', why: '为什么必须轮询' }] }
-    ],
-    [
-      '无行号',
-      { version: 1, declarations: [{ key: 'GET /x', intervalMs: 1000, source: 'a.ts', why: '为什么必须轮询' }] }
-    ],
-    ['理由过短', { version: 1, declarations: [{ key: 'GET /x', intervalMs: 1000, source: 'a.ts:1', why: '同上' }] }],
-    [
-      '键形态错',
-      { version: 1, declarations: [{ key: '/x', intervalMs: 1000, source: 'a.ts:1', why: '为什么必须轮询' }] }
-    ],
-    [
-      '重复键',
+  // 坏声明一律"**只坏被检验的那一支**"：其余字段全部合法，否则先抛在别的检查上，
+  // 那条用例其实从没检验过它想检验的东西（b87 §6 的 `.why` 抢先抛出，同一课）。
+  // 文案断言按"抛出的话点名哪个字段"判——`catch {}` 只判"抛没抛"等于把六条不同缺陷
+  // 合成一条（前言 ⑩"崩掉同样非零，但『红在哪条』丢了"）。
+  const ANCHOR_FILE = 'stepby-vue/src/views/monitor/health/index.vue'
+  const DECL_FILE = 'stepby-vue/tests/e2e/polling-declarations.json'
+  const GOOD_NEEDLE = 'useAutoRefresh(async () => {'
+  const decl = (over) => ({
+    version: 2,
+    declarations: [
       {
-        version: 1,
-        declarations: [
-          { key: 'GET /x', intervalMs: 1000, source: 'a.ts:1', why: '为什么必须轮询' },
-          { key: 'GET /x', intervalMs: 2000, source: 'b.ts:2', why: '为什么也必须轮询' }
-        ]
-      }
-    ],
-    // b140：锚点**内容**两判（真实文件、真实行号，故意指错位置）。旧判据只核"文件在 +
-    // 行号不越界"，于是五条真声明里三条漂到了注释与无关语句上而全绿。
-    [
-      '锚点是注释行',
-      {
-        version: 1,
-        declarations: [
-          {
-            key: 'GET /health',
-            intervalMs: 30000,
-            source: 'stepby-vue/src/views/monitor/health/index.vue:634',
-            why: '健康页按用户偏好轮询'
-          }
-        ]
-      }
-    ],
-    [
-      '锚行看不出任一周期的形态',
-      {
-        version: 1,
-        declarations: [
-          {
-            key: 'GET /system/task/list',
-            intervalMs: 5000,
-            source: 'stepby-vue/src/views/system/task/index.vue:462',
-            why: '仅在存在运行中任务时轮询'
-          }
-        ]
+        key: 'GET /x/y',
+        intervalMs: 1000,
+        file: ANCHOR_FILE,
+        needle: GOOD_NEEDLE,
+        why: '合成：健康页按偏好轮询',
+        ...over
       }
     ]
+  })
+  const badDecls = [
+    ['版本错（v1 行号形态已退役）', { version: 1, declarations: [] }, /清单 version 必须为 2/u],
+    ['空清单', { version: 2, declarations: [] }, /declarations 必须是非空数组/u],
+    ['缺间隔', decl({ intervalMs: undefined }), /\.intervalMs/u],
+    ['间隔为 0', decl({ intervalMs: 0 }), /\.intervalMs/u],
+    ['间隔超一天', decl({ intervalMs: 24 * 3600 * 1000 + 1 }), /\.intervalMs/u],
+    ['缺 file', decl({ file: undefined }), /\.file/u],
+    ['file 形态错（不是源码）', decl({ file: 'stepby-vue/README.md' }), /\.file 必须是仓内源码相对路径/u],
+    // 夹具必须是**裸的合成名**：带目录前缀的假路径会被 `recovery_gap.py` 当作文档级悬挂报出来
+    // （b89 ②同一条：判据的新形状会污染别的判据，写完判据必须把相邻判据复跑一遍）。
+    ['file 不存在', decl({ file: 'definitely_absent_page_fixture.vue' }), /\.file 指向的文件不存在/u],
+    ['file 越出仓根', decl({ file: '../../../stepby-vue/src/App.vue' }), /\.file 越出仓库根/u],
+    ['缺 needle', decl({ needle: undefined }), /\.needle 至少 4 个字符/u],
+    ['needle 过短', decl({ needle: 'ab' }), /\.needle 至少 4 个字符/u],
+    [
+      'needle 一处都没命中（登记的代码已不存在）',
+      decl({ needle: 'const noSuchPollerAnywhere = useVisiblePolling(' }),
+      /一处都没命中/u
+    ],
+    ['needle 命中多处（锚点有歧义）', decl({ file: DECL_FILE, needle: 'intervalMs' }), /命中 \d+ 处/u],
+    ['锚到注释行', decl({ needle: '首次加载由 onMounted 的 loadHealth() 负责' }), /不是代码/u],
+    ['锚行看不出任一周期的形态', decl({ needle: 'onMounted(() => {' }), /看不出任一周期的形态/u],
+    ['理由过短', decl({ why: '同上' }), /\.why 至少 10 个字符/u],
+    ['键形态错', decl({ key: '/x/y' }), /\.key 必须是 "METHOD \/path" 形态/u],
+    ['重复键', { version: 2, declarations: [decl({}).declarations[0], decl({}).declarations[0]] }, /\.key 重复登记/u]
   ]
-  for (const [label, body] of badDecls) {
+  for (const [label, body, expectRe] of badDecls) {
     const p = mkDecl(body)
     try {
       loadDeclarations(p.f)
       fail.push(`⑭ 坏声明被接受：${label}`)
-    } catch {
-      /* 期望 */
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!expectRe.test(msg)) fail.push(`⑭「${label}」抛的是别的原因，文案没点名这一支：${msg}`)
+    } finally {
+      fs.rmSync(p.dir, { recursive: true, force: true })
+    }
+  }
+  // 正控：合法锚点的行号确实**由 needle 现算**，而不是把登记里的数字抄过来。
+  // 这一条是"换尺没有换判据"的那一栏（b89 ③）：删掉派生、改回读登记里的 line，判据必须红。
+  {
+    const p = mkDecl({
+      version: 2,
+      declarations: [
+        {
+          key: 'GET /x/y',
+          intervalMs: 1000,
+          file: ANCHOR_FILE,
+          needle: GOOD_NEEDLE,
+          why: '合成：健康页按偏好轮询',
+          line: 99999
+        }
+      ]
+    })
+    try {
+      const got = loadDeclarations(p.f).get('GET /x/y')
+      // 与 loadDeclarations 同一把尺：从脚本位置反推仓根，再按登记里的相对路径读文件
+      const repoRoot = path.resolve(HERE, '../../..')
+      const realLine =
+        fs
+          .readFileSync(path.resolve(repoRoot, ANCHOR_FILE), 'utf8')
+          .split('\n')
+          .findIndex((l) => l.includes(GOOD_NEEDLE)) + 1
+      if (got?.line !== realLine) fail.push(`⑭ 锚点行号不是由 needle 现算（读到 ${got?.line}，实际 ${realLine}）`)
+    } catch (e) {
+      fail.push(`⑭ 正控被拒：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       fs.rmSync(p.dir, { recursive: true, force: true })
     }
@@ -939,28 +995,29 @@ function selftest() {
   // ⑰ 声明**未命中**对账与退役通道（b85 项 F）：一条声明="这个键不设阈"，
   // 本轮没打过它就是白拿的豁免；只打提示不判红、也不给删除出口 ⇒ 豁免会沉淀成常白名单。
   {
-    // 夹具的 `source` **取自真实登记册本身**（不写死行号）：b140 之前这里写的是
-    // `request-storm.mjs:60`——一个指着自己文件行号的锚点，任何一次编辑都会把它挪到
-    // 空行或注释上，于是这条退役判据的结局由"上一次改动加了几行"决定（判据与环境耦合的
-    // 又一形态：这次耦合的是**源码文件的行号**）。换成派生之后，登记册漂移只会红在
-    // 真正该红的那条（⑭b 的锚点内容闸），退役语义判据不再跟着漂。
-    const liveSources = [...loadDeclarations().values()].slice(0, 2).map((d) => d.source)
-    if (liveSources.length < 2) {
-      fail.push(`⑰ 真实登记册不足两条，夹具无法派生锚点（实际 ${liveSources.length}）`)
+    // 夹具的锚点**取自真实登记册本身**（b140 立的纪律；b144 把派生量从 `source` 换成
+    // `{file, needle}`，因为 v1 的行号锚点本身就是这次事故的成因——它耦合的是
+    // "上一次改动往上面加了几行"）。登记册漂移只会红在真正该红的那条（⑭b 的锚点闸），
+    // 退役语义判据不再跟着漂。
+    const liveAnchors = [...loadDeclarations().values()].slice(0, 2).map((d) => ({ file: d.file, needle: d.needle }))
+    if (liveAnchors.length < 2) {
+      fail.push(`⑰ 真实登记册不足两条，夹具无法派生锚点（实际 ${liveAnchors.length}）`)
     }
     const raw = {
-      version: 1,
+      version: 2,
       declarations: [
         {
           key: 'GET /monitor/server',
           intervalMs: 2000,
-          source: liveSources[0] || 'stepby-vue/src/views/monitor/server/index.vue:381',
+          file: liveAnchors[0]?.file ?? '',
+          needle: liveAnchors[0]?.needle ?? '',
           why: '合成：服务器监控页自动刷新'
         },
         {
           key: 'GET /health',
           intervalMs: 30000,
-          source: liveSources[1] || 'stepby-vue/src/views/monitor/health/index.vue:650',
+          file: liveAnchors[1]?.file ?? '',
+          needle: liveAnchors[1]?.needle ?? '',
           why: '合成：健康页按偏好轮询'
         }
       ]

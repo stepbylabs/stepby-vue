@@ -277,6 +277,7 @@
 <script setup lang="ts" name="Observability">
 import { computed, onMounted, reactive, ref } from 'vue'
 import modal from '@/plugins/modal'
+import { createLatestGuard } from '@/composables/latestRequest'
 import {
   listSlowSql,
   slowSqlStats,
@@ -310,10 +311,28 @@ const slowStatsLoading = ref(false)
 const slowStatsError = ref(false)
 const slowQuery = reactive<SlowQueryParams>({ pageNum: 1, pageSize: 10 })
 
+/**
+ * 五条取数链各一枚守卫（b144，与 CacheKeys/CacheStats 同族）。
+ *
+ * 两条列表链有**查询身份**（`slowQuery` / `errorQuery` 的分页与筛选）：连点翻页或改筛选后
+ * 重查，先发的响应后到会把上一页的行集与总数画在当前筛选下——表格内容与筛选条件对不上，
+ * 而"清空慢 SQL/错误日志"这类不可逆动作按的正是屏上看到的这批行。
+ * 三条统计链（慢 SQL 统计 / 错误统计 / Redis）没有查询身份，但仍各拿一枚：`finally` 里
+ * 关 loading 的必须是"这一次"的结局，否则旧响应会替新的一次加载撤掉骨架（重试按钮闪一下
+ * 又回到旧数据，用户看不出屏幕不是新的）。
+ */
+const slowListGuard = createLatestGuard()
+const slowStatsGuard = createLatestGuard()
+const errorListGuard = createLatestGuard()
+const errorStatsGuard = createLatestGuard()
+const redisGuard = createLatestGuard()
+
 function getSlowList(): Promise<boolean> {
+  const ticket = slowListGuard.begin()
   slowLoading.value = true
   return listSlowSql({ ...slowQuery })
     .then((response) => {
+      if (!slowListGuard.isCurrent(ticket)) return false
       slowList.value = response.rows
       slowTotal.value = response.total
       slowListError.value = false
@@ -321,28 +340,32 @@ function getSlowList(): Promise<boolean> {
     })
     .catch(() => {
       // 保留旧数据；空列表由 ListEmpty 显示「加载失败 + 重试」，非空由顶部错误条说明
+      if (!slowListGuard.isCurrent(ticket)) return false
       slowListError.value = true
       return false
     })
     .finally(() => {
-      slowLoading.value = false
+      if (slowListGuard.isCurrent(ticket)) slowLoading.value = false
     })
 }
 
 function getSlowStats(): Promise<boolean> {
+  const ticket = slowStatsGuard.begin()
   slowStatsLoading.value = true
   return slowSqlStats()
     .then((response) => {
+      if (!slowStatsGuard.isCurrent(ticket)) return false
       slowStats.value = response.data
       slowStatsError.value = false
       return true
     })
     .catch(() => {
+      if (!slowStatsGuard.isCurrent(ticket)) return false
       slowStatsError.value = true
       return false
     })
     .finally(() => {
-      slowStatsLoading.value = false
+      if (slowStatsGuard.isCurrent(ticket)) slowStatsLoading.value = false
     })
 }
 
@@ -395,37 +418,43 @@ const errorStatsError = ref(false)
 const errorQuery = reactive<ErrorLogQueryParams>({ module: undefined, level: undefined, pageNum: 1, pageSize: 10 })
 
 function getErrorList(): Promise<boolean> {
+  const ticket = errorListGuard.begin()
   errorLoading.value = true
   return listErrorLog({ ...errorQuery })
     .then((response) => {
+      if (!errorListGuard.isCurrent(ticket)) return false
       errorList.value = response.rows
       errorTotal.value = response.total
       errorListError.value = false
       return true
     })
     .catch(() => {
+      if (!errorListGuard.isCurrent(ticket)) return false
       errorListError.value = true
       return false
     })
     .finally(() => {
-      errorLoading.value = false
+      if (errorListGuard.isCurrent(ticket)) errorLoading.value = false
     })
 }
 
 function getErrorStats(): Promise<boolean> {
+  const ticket = errorStatsGuard.begin()
   errorStatsLoading.value = true
   return errorLogStats()
     .then((response) => {
+      if (!errorStatsGuard.isCurrent(ticket)) return false
       errorStats.value = response.data
       errorStatsError.value = false
       return true
     })
     .catch(() => {
+      if (!errorStatsGuard.isCurrent(ticket)) return false
       errorStatsError.value = true
       return false
     })
     .finally(() => {
-      errorStatsLoading.value = false
+      if (errorStatsGuard.isCurrent(ticket)) errorStatsLoading.value = false
     })
 }
 
@@ -475,19 +504,22 @@ const redisLoading = ref(false)
 const redisError = ref(false)
 
 function getRedisStats(): Promise<boolean> {
+  const ticket = redisGuard.begin()
   redisLoading.value = true
   return redisStats()
     .then((response) => {
+      if (!redisGuard.isCurrent(ticket)) return false
       redis.value = response.data
       redisError.value = false
       return true
     })
     .catch(() => {
+      if (!redisGuard.isCurrent(ticket)) return false
       redisError.value = true
       return false
     })
     .finally(() => {
-      redisLoading.value = false
+      if (redisGuard.isCurrent(ticket)) redisLoading.value = false
     })
 }
 

@@ -16,13 +16,30 @@ $transition-easing: ease-out;
   transition: opacity 0.28s;
 }
 
-/* 离场元素不得可交互（b131 真机取证）：列表区把「骨架屏 ↔ el-table」包在
+/* 离场元素不得可交互（b131 真机取证 + b144 全站派生面复盘）：列表区把「骨架屏 ↔ el-table」包在
    `<Transition name="fade" mode="out-in">` 里，Vue 在 leave 开始时就卸载组件
    （处理器随之失效），但 DOM 要等 0.28s 过渡结束才移除 ⇒ 这 280ms 内旧表格
    **看得见、命中得到、点了没反应**（同一时刻连行内「删除」也不弹确认框，而
    700ms 后再点一切正常）。离场面本来就在消失，不该再接收指针事件：让点击
-   落空到容器，而不是命中一个已经失效的假按钮。 */
-.fade-leave-active {
+   落空到容器，而不是命中一个已经失效的假按钮。
+   b144 把这条从"只钉 fade 一处"改成覆盖全站所有共用这套动画名的离场态——
+   `expand-fade`（67 站点，含 v-if 区块与对话框内容）、`fade-slide`（Tab 切换）、
+   `list` / `breadcrumb`（TransitionGroup 的离开项还被 `position: absolute` 提到流外，
+   会**盖在已经移动到位的幸存项上面**吞掉它的点击，比单纯空点更坏）、
+   `fade-transform`（路由页）、`icon-grid`（图标网格）。
+   集中一处声明而不在每个 `.vue` 里各写一遍：同一句纪律写几遍就有几个严格度。 */
+.fade-leave-active,
+.fade-slide-leave-active,
+.expand-fade-leave-active,
+.list-leave-active,
+.icon-grid-leave-active,
+.fade-transform-leave-active,
+.breadcrumb-leave-active,
+/* Element Plus 自带的两组淡出名：`el-fade-in` 用在 SW 更新卡（"稍后/立即刷新"两颗按钮），
+   `el-fade-in-linear` 用在 FileUpload 的文件列表（每行一个外链 + "删除"）。两者离开时
+   组件已卸载，行序也已重排，幽灵面上的"删除"点下去不会有任何结果。 */
+.el-fade-in-leave-active,
+.el-fade-in-linear-leave-active {
   pointer-events: none;
 }
 

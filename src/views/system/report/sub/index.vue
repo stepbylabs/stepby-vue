@@ -291,6 +291,7 @@ import { useCrudTable } from '@/composables/useCrudTable'
 import { useMobileFilter } from '@/composables/useMobileFilter'
 import { useRowActionGuard } from '@/composables/useRowActionGuard'
 import { useRemoteOptions } from '@/composables/useRemoteOptions'
+import { recipientRule } from '@/utils/emailRecipients'
 import modal from '@/plugins/modal'
 
 const { t } = useI18n()
@@ -343,7 +344,14 @@ const data = reactive({
   rules: {
     subName: [{ required: true, message: t('report.sub.validate.subNameRequired'), trigger: 'blur' }],
     reportId: [{ required: true, message: t('report.sub.validate.reportRequired'), trigger: 'change' }],
-    cron: [{ required: true, message: t('report.sub.validate.cronRequired'), trigger: 'blur' }]
+    cron: [{ required: true, message: t('report.sub.validate.cronRequired'), trigger: 'blur' }],
+    // b144：与报表页内联的订阅小节同一份判据（`recipientRule` 单一实现），口径与服务端
+    // `split_emails` + `is_valid_email` 同源。此前两个入口都**没有这一项规则**，
+    // 填错要等一趟 400；而通用邮箱正则又会拒掉 `ops@mail` 这类自托管合法值。
+    receiveEmail: recipientRule(() => channels.value.includes('email'), {
+      empty: t('report.sub.validate.emailRequired'),
+      invalid: (bad) => t('report.sub.validate.emailInvalidItems', { items: bad.join(', ') })
+    })
   }
 })
 

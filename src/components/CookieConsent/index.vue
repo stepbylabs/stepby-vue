@@ -265,6 +265,9 @@ function handleReject(): void {
   transition:
     transform 0.3s ease,
     opacity 0.25s ease;
+  /* 滑出期间的"同意/拒绝"按钮已经失效（组件在 leave 开始就卸载），
+     再让它们可点只会产生一次无声的空点击。 */
+  pointer-events: none;
 }
 .cookie-slide-enter-from {
   transform: translate(-50%, 120%);

@@ -186,6 +186,12 @@ function handleLink() {
   overflow: hidden;
 }
 
+/* 淡出期间的横幅已经不含任何有效处理器（组件在 leave 开始时就卸载），
+   但它仍占着 50px 并可被命中 ⇒ 压掉指针事件，让点击落到下面的页面（b131 同族）。 */
+.banner-slide-down-leave-active {
+  pointer-events: none;
+}
+
 .banner-slide-down-enter-from,
 .banner-slide-down-leave-to {
   opacity: 0;

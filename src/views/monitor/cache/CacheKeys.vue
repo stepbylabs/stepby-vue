@@ -191,12 +191,26 @@
 <script setup lang="ts" name="CacheKeys">
 import { Collection, Key, Document } from '@element-plus/icons-vue'
 import { listCacheName, listCacheKey, getCacheValue, clearCacheName, clearCacheKey } from '@/api/monitor/cache'
+import { createLatestGuard } from '@/composables/latestRequest'
 import type { SysCache } from '@/types/api/monitor/cache'
 import modal from '@/plugins/modal'
 
 const props = defineProps<{ active: boolean }>()
 
 const { t } = useI18n()
+
+/**
+ * 三个取数各一枚守卫：这一页的三层是**嵌套选择**（缓存名 → 该名的键 → 某个键的值），
+ * 共用一枚会让"换一个缓存名"把在飞的键值请求判成过期（反之亦然）——三个问题的
+ * "最后一次"不是同一次（b119 实例独立）。
+ *
+ * 立的案：快速连点两个缓存名时，先发的 `listCacheKey` 后到，会把**上一个缓存名**的键
+ * 列表画在刚选中的名字下面；连点两行键值同理，右侧详情会挂着 A 键的值而高亮在 B 键上，
+ * 而"清除"按钮按的是当前选中项 ⇒ 屏幕上看见的是 A、动的是 B。
+ */
+const nameGuard = createLatestGuard()
+const keysGuard = createLatestGuard()
+const valueGuard = createLatestGuard()
 
 // ====== 键管理数据 ======
 interface CacheName {
@@ -241,19 +255,24 @@ function handleListResize(): void {
 }
 
 function getCacheNames(): Promise<boolean> {
+  const ticket = nameGuard.begin()
   listLoading.value = true
   return listCacheName()
     .then((response) => {
+      // 被更晚一次取数接管：这一发的结果已经不在屏上了，不得替它宣布"刷新成功"
+      // （成功提示由调用方按结局弹；更晚那一发会给出它自己的结局）。
+      if (!nameGuard.isCurrent(ticket)) return false
       listError.value = false
       cacheNames.value = response.data!
       return true
     })
     .catch(() => {
+      if (!nameGuard.isCurrent(ticket)) return false
       listError.value = true
       return false
     })
     .finally(() => {
-      listLoading.value = false
+      if (nameGuard.isCurrent(ticket)) listLoading.value = false
     })
 }
 
@@ -282,6 +301,7 @@ function getCacheKeys(row?: SysCache): Promise<boolean> {
   if (cacheName === '') {
     return Promise.resolve(false)
   }
+  const ticket = keysGuard.begin()
   // 换目标时旧键不属于新目标，必须先清；同目标刷新失败则保留旧键并用顶部错误条说明
   const targetChanged = cacheName !== nowCacheName.value
   if (targetChanged) {
@@ -293,17 +313,21 @@ function getCacheKeys(row?: SysCache): Promise<boolean> {
   nowCacheName.value = cacheName
   return listCacheKey(cacheName)
     .then((response) => {
+      // 连点两个缓存名：先发的响应后到会把上一个名的键列表画在当前名下面
+      // （"看见 A 的键、清除按钮作用在 B 上"就是这一族）。
+      if (!keysGuard.isCurrent(ticket)) return false
       keysError.value = false
       cacheKeys.value = response.data!
       return true
     })
     .catch(() => {
+      if (!keysGuard.isCurrent(ticket)) return false
       keysError.value = true
       if (targetChanged) cacheKeys.value = []
       return false
     })
     .finally(() => {
-      subLoading.value = false
+      if (keysGuard.isCurrent(ticket)) subLoading.value = false
     })
 }
 
@@ -327,6 +351,7 @@ function handleClearCacheKey(cacheKey: string): void {
 }
 
 function handleCacheValue(cacheKey: string): void {
+  const ticket = valueGuard.begin()
   lastValueKey.value = cacheKey
   valueError.value = false
   // 清掉旧值再发请求：失败时右侧不得继续显示上一个键的内容（页面在骗人）
@@ -334,13 +359,16 @@ function handleCacheValue(cacheKey: string): void {
   valueLoading.value = true
   getCacheValue(nowCacheName.value, cacheKey)
     .then((response) => {
+      // 连点两行键值：旧响应后到会把 A 键的值挂在 B 键名下（右侧详情与高亮行不是同一个键）
+      if (!valueGuard.isCurrent(ticket)) return
       cacheForm.value = response.data!
     })
     .catch(() => {
+      if (!valueGuard.isCurrent(ticket)) return
       valueError.value = true
     })
     .finally(() => {
-      valueLoading.value = false
+      if (valueGuard.isCurrent(ticket)) valueLoading.value = false
     })
 }
 

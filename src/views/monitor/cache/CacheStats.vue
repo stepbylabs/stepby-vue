@@ -118,6 +118,7 @@
 <script setup lang="ts" name="CacheStats">
 import { Histogram, Warning, WarningFilled } from '@element-plus/icons-vue'
 import { getHotKeys, getPrefixStats, clearCacheKey } from '@/api/monitor/cache'
+import { createLatestGuard } from '@/composables/latestRequest'
 import type { HotKey, CachePrefixStat } from '@/types/api/monitor/cache'
 import modal from '@/plugins/modal'
 
@@ -163,32 +164,59 @@ function isLargeMemory(bytes: number): boolean {
   return bytes > PREFIX_LARGE_THRESHOLD
 }
 
-function loadStats(): void {
-  initStats = true
-  prefixLoading.value = true
-  hotLoading.value = true
-  getPrefixStats()
+/**
+ * 两条取数链各一枚守卫（b144）。立的案与 CacheKeys 同族，且这一页更直白：
+ * 同一条 `getHotKeys()` 链在本文件里被**抄了两遍**——`loadStats` 那份带 loading，
+ * 清理热 Key 那份不带。于是「清理一个键」与「切到统计页首次加载」并发时，
+ * 先发的响应后到会把上一个读数画在当前列表上，而 loading/失败态由两份不同的收尾决定。
+ * 现在两条链各有守卫，且取数只有一处实现。
+ */
+const prefixGuard = createLatestGuard()
+const hotGuard = createLatestGuard()
+
+/** 前缀分布统计（单一实现：loadStats 与清理后刷新共用同一条链与同一枚守卫） */
+function loadPrefixStats(withLoading: boolean): Promise<void> {
+  const ticket = prefixGuard.begin()
+  if (withLoading) prefixLoading.value = true
+  return getPrefixStats()
     .then((response) => {
+      if (!prefixGuard.isCurrent(ticket)) return
       prefixError.value = false
       prefixStats.value = response.data!
     })
     .catch(() => {
+      if (!prefixGuard.isCurrent(ticket)) return
       prefixError.value = true
     })
     .finally(() => {
-      prefixLoading.value = false
+      // 只在"这一次确实开了 loading"时才关它：否则旧响应会替新的一次加载把骨架撤掉
+      if (withLoading && prefixGuard.isCurrent(ticket)) prefixLoading.value = false
     })
-  getHotKeys()
+}
+
+/** 热 Key 列表（同上：清理后刷新不得与首次加载互相覆盖） */
+function loadHotKeys(withLoading: boolean): Promise<void> {
+  const ticket = hotGuard.begin()
+  if (withLoading) hotLoading.value = true
+  return getHotKeys()
     .then((response) => {
+      if (!hotGuard.isCurrent(ticket)) return
       hotError.value = false
       hotKeys.value = response.data!
     })
     .catch(() => {
+      if (!hotGuard.isCurrent(ticket)) return
       hotError.value = true
     })
     .finally(() => {
-      hotLoading.value = false
+      if (withLoading && hotGuard.isCurrent(ticket)) hotLoading.value = false
     })
+}
+
+function loadStats(): void {
+  initStats = true
+  void loadPrefixStats(true)
+  void loadHotKeys(true)
 }
 
 // 清理热 Key：业务缓存，二次确认后调用 clearCacheKey
@@ -201,22 +229,8 @@ function handleClearHotKey(row: HotKey): void {
     .then(() => {
       modal.msgSuccess(t('cache.hot.tip.clearKeySuccess', { key: row.key }))
       // 清理后同步刷新热 Key 列表与统计（失败也要落到失败态，不得留着旧数据冒充新结果）
-      getHotKeys()
-        .then((response) => {
-          hotError.value = false
-          hotKeys.value = response.data!
-        })
-        .catch(() => {
-          hotError.value = true
-        })
-      getPrefixStats()
-        .then((response) => {
-          prefixError.value = false
-          prefixStats.value = response.data!
-        })
-        .catch(() => {
-          prefixError.value = true
-        })
+      void loadHotKeys(false)
+      void loadPrefixStats(false)
     })
     .catch(() => {})
 }

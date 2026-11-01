@@ -136,11 +136,26 @@
             v-model="form.scopes"
             multiple
             filterable
+            :loading="scopesLoading"
             :placeholder="t('pat.form.scopesPh')"
             class="w-full"
           >
             <el-option v-for="opt in scopeOptions" :key="opt" :label="scopeLabel(opt)" :value="opt" />
           </el-select>
+          <!-- 读失败必须与"系统里没有可选权限"可分（b133 ③）：给原因 + 重试入口 -->
+          <el-alert
+            v-if="scopesError"
+            data-testid="pat-scope-error"
+            type="error"
+            :closable="false"
+            show-icon
+            class="mt-2 w-full"
+          >
+            <template #title>
+              <span>{{ t('pat.form.scopeLoadFailed') }}</span>
+              <el-button link type="primary" @click="loadScopes">{{ t('common.retry') }}</el-button>
+            </template>
+          </el-alert>
         </el-form-item>
         <el-form-item :label="t('pat.form.expireDays')" prop="expireDays">
           <el-input-number v-model="form.expireDays" :min="0" :max="3650" controls-position="right" />
@@ -155,7 +170,16 @@
       </el-form>
       <template #footer>
         <el-button @click="cancelCreate">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="creating" @click="submitCreate">{{ t('common.confirm') }}</el-button>
+        <!-- 目录没读到就 disable 创建：这一项是必填，空目录下的"成功"只能是零权限令牌 -->
+        <el-button
+          type="primary"
+          :loading="creating"
+          :disabled="!scopesReady"
+          data-testid="pat-create-confirm"
+          @click="submitCreate"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -219,6 +243,18 @@ const total = ref(0)
 const queryParams = reactive({ pageNum: 1, pageSize: 10 })
 
 const scopeOptions = ref<string[]>([])
+/**
+ * 权限目录（作用域候选）的三条状态（b144，与 b133 的「读成功才能写」同源）。
+ *
+ * 立的案：`loadScopes` 原先是 `.catch(() => {})` ——目录读不到时下拉是**空的**，
+ * 而 `scopes` 是必填项 ⇒ 用户看到的是「至少选择一项权限」，一个服务端问题被报成
+ * 用户填错；而创建按钮照常可点。现在失败必须可见、可重试，并且**挡住写**：
+ * 按钮禁用是 UI 约定，`submitCreate` 首行的判定才是安全边界（两处都要有）。
+ */
+const scopeGuard = createLatestGuard()
+const scopesLoading = ref(false)
+const scopesError = ref(false)
+const scopesReady = ref(false)
 
 const createVisible = ref(false)
 const creating = ref(false)
@@ -267,11 +303,26 @@ async function getList(): Promise<void> {
 }
 
 function loadScopes(): void {
+  const ticket = scopeGuard.begin()
+  scopesLoading.value = true
   getScopeOptions()
     .then((res) => {
+      if (!scopeGuard.isCurrent(ticket)) return
       scopeOptions.value = res.data || []
+      // 就绪只能由"真的读到了"决定：200 但空数组同样不能开创建闸（目录空 = 没有任何可选权限，
+      // 而 `scopes` 是必填项 ⇒ 用户只会看到"至少选择一项权限"，把一个服务端问题报成用户填错）
+      scopesReady.value = true
+      scopesError.value = false
     })
-    .catch(() => {})
+    .catch(() => {
+      if (!scopeGuard.isCurrent(ticket)) return
+      scopesReady.value = false
+      scopesError.value = true
+      scopeOptions.value = []
+    })
+    .finally(() => {
+      if (scopeGuard.isCurrent(ticket)) scopesLoading.value = false
+    })
 }
 
 function scopeLabel(scope: string): string {
@@ -309,6 +360,12 @@ const {
 } = useDialogDirtyGuard(createVisible, form)
 
 function submitCreate(): void {
+  // 写侧安全边界（b133 ①）：按钮的 :disabled 只是 UI 约定，函数首行必须自己判「读成功」——
+  // 目录没读到时提交，得到的是**零权限令牌**（`scopes` 为空），而用户以为是自己没选。
+  if (!scopesReady.value) {
+    ElMessage.warning(t('pat.form.scopeLoadFailed'))
+    return
+  }
   formRef.value?.validate((valid: boolean) => {
     if (!valid) return
     creating.value = true
